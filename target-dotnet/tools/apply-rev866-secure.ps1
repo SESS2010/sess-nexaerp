@@ -44,6 +44,8 @@ function Add-Report([string]$Text) {
 
 $securePassword = $null
 $PlainPassword = $null
+$script:DiagnosticMigrationsBefore = "not checked"
+$script:DiagnosticHistoryTables = "not checked"
 try {
     Write-Section "REV866 secure database verification"
     $securePassword = Read-Host -AsSecureString "Enter PostgreSQL password for local development database only"
@@ -77,7 +79,9 @@ try {
     Write-Section "Pre-migration database checks"
     $dbName = Invoke-PsqlSafe "select current_database();"
     if ($dbName -ne $Database) { throw "Connected to unexpected database: $dbName" }
+    $script:DiagnosticHistoryTables = Invoke-PsqlSafe 'select schemaname || '.' || tablename from pg_tables where tablename = ''__EFMigrationsHistory'' order by schemaname;'
     $migrationsBefore = Invoke-PsqlSafe 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId";'
+    $script:DiagnosticMigrationsBefore = $migrationsBefore
     if ($migrationsBefore -notmatch "20260808110924_Phase1Foundation") { throw "Phase1Foundation migration missing before REV866." }
     if ($migrationsBefore -notmatch "20260808114550_Phase1AuthorizationSeed") { throw "Phase1AuthorizationSeed migration missing before REV866." }
     if ($migrationsBefore -match $MigrationName) { throw "REV866 migration is already applied. Stop to avoid duplicate migration action." }
@@ -176,6 +180,11 @@ catch {
     Add-Content -LiteralPath $reportFile -Value "" -Encoding utf8
     Add-Content -LiteralPath $reportFile -Value ("- Time: " + (Get-Date -Format o)) -Encoding utf8
     Add-Content -LiteralPath $reportFile -Value ("- Error: " + $_.Exception.Message) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Migration history tables: " + $script:DiagnosticHistoryTables) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value "- Migrations before failure:" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value '```text' -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value $script:DiagnosticMigrationsBefore -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value '```' -Encoding utf8
     Write-Host "REV866 verification failed. Sanitized failure report: $reportFile"
     Write-Host $_.Exception.Message
     throw
@@ -185,6 +194,7 @@ catch {
     if ($PlainPassword) { $PlainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
+
 
 
 
