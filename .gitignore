@@ -11,3 +11,6 @@ obj/
 *.gz
 outputs/*.tmp
 .dotnet10/
+
+target-dotnet/backups/postgresql/
+
