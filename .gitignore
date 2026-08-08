@@ -14,3 +14,5 @@ outputs/*.tmp
 
 target-dotnet/backups/postgresql/
 
+target-dotnet/local-evidence/rev866/
+target-dotnet/outputs/rev866_database_runtime_verification_*.md

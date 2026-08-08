@@ -5,7 +5,8 @@ param(
     [int]$Port = 5432,
     [string]$UserName = "postgres",
     [string]$MigrationName = "20260808123411_Rev866EmployeePermissionMatrix",
-    [string]$RestoreVerifyDatabase = "sess_nexaerp_restore_verify_rev866"
+    [string]$RestoreVerifyDatabase = "sess_nexaerp_restore_verify_rev866",
+    [string]$GitPath = ""
 )
 
 Set-StrictMode -Version Latest
@@ -13,19 +14,21 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $targetRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$dotnet = Resolve-Path (Join-Path $targetRoot "..\.dotnet10\dotnet.exe")
+$dotnetPath = Join-Path $targetRoot "..\.dotnet10\dotnet.exe"
 $pgBin = "C:\Program Files\PostgreSQL\17\bin"
 $psql = Join-Path $pgBin "psql.exe"
 $pgDump = Join-Path $pgBin "pg_dump.exe"
 $pgRestore = Join-Path $pgBin "pg_restore.exe"
 $backupDir = Join-Path $targetRoot "backups\postgresql\pre-rev866"
-$reportDir = Join-Path $targetRoot "outputs"
+$reportDir = Join-Path $targetRoot "local-evidence\rev866"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $backupFile = Join-Path $backupDir "$Database`_pre_rev866_$timestamp.dump"
 $reportFile = Join-Path $reportDir "rev866_database_runtime_verification_$timestamp.md"
 $requiredBaselineCommit = "330807171ce7ba85cc30a984f7467893eb32559a"
 $requiredPreviousMigrations = @("20260808110924_Phase1Foundation", "20260808114550_Phase1AuthorizationSeed")
 $expectedHistorySchemaForCurrentEfConfig = "public"
+$script:DiagnosticMigrationsBefore = "not checked"
+$script:DiagnosticHistoryTables = "not checked"
 
 function Write-Section([string]$Text) {
     Write-Host ""
@@ -41,6 +44,52 @@ function Assert-SafePgIdentifier([string]$Name, [string]$Label) {
 function Quote-PgIdentifier([string]$Name) {
     Assert-SafePgIdentifier $Name "PostgreSQL identifier"
     return '"' + $Name.Replace('"', '""') + '"'
+}
+
+function Resolve-ExecutablePath([string]$Path, [string]$Label) {
+    $resolved = Resolve-Path -LiteralPath $Path -ErrorAction Stop
+    $item = Get-Item -LiteralPath $resolved.Path -ErrorAction Stop
+    if (-not $item.Exists) { throw "$Label was not found: $Path" }
+    return $item.FullName
+}
+
+function Resolve-GitExecutable([string]$ExplicitGitPath) {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitGitPath)) {
+        $candidates.Add($ExplicitGitPath)
+    }
+
+    $command = Get-Command git.exe -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) {
+        $candidates.Add($command.Source)
+    }
+
+    $candidates.Add("C:\Program Files\Git\cmd\git.exe")
+    $candidates.Add("C:\Program Files\Git\bin\git.exe")
+    $candidates.Add("D:\Git\cmd\git.exe")
+    $candidates.Add("D:\Git\bin\git.exe")
+    $candidates.Add("D:\PortableGit\cmd\git.exe")
+    $candidates.Add("D:\PortableGit\bin\git.exe")
+    $candidates.Add("D:\Program Files\Git\cmd\git.exe")
+    $candidates.Add("D:\Program Files\Git\bin\git.exe")
+    $candidates.Add("D:\Program Files (x86)\Git\cmd\git.exe")
+    $candidates.Add("D:\Program Files (x86)\Git\bin\git.exe")
+    $candidates.Add("C:\Users\User\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe")
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $item = Get-Item -LiteralPath $candidate
+            if ($item.Name -ne "git.exe") { throw "Resolved Git path is not git.exe: $($item.FullName)" }
+            $versionOutput = & $item.FullName --version
+            if ($LASTEXITCODE -ne 0 -or ($versionOutput -join "`n") -notmatch '^git version ') {
+                throw "Resolved Git executable did not return a valid version: $($item.FullName)"
+            }
+            return $item.FullName
+        }
+    }
+
+    throw "git.exe was not found. Pass -GitPath with a valid git.exe path or install Git after management approval."
 }
 
 function Invoke-Psql([string]$Sql, [string]$Db = $Database) {
@@ -92,13 +141,24 @@ function Get-HistoryTableInfo([string]$Db = $Database) {
     throw "Required previous migrations were not found in any discovered __EFMigrationsHistory table. Discovered history tables: $($schemas -join ','). Rows: $($diagnostic -join ' | ')"
 }
 
-New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+function Write-FailureReport([string]$Message) {
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+    Add-Content -LiteralPath $reportFile -Value "# REV866 Database Verification Failed" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value "" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Time: " + (Get-Date -Format o)) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Error: " + $Message) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Migration history tables: " + $script:DiagnosticHistoryTables) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value "- Migrations before failure:" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value '```text' -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value $script:DiagnosticMigrationsBefore -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value '```' -Encoding utf8
+    Write-Host "REV866 verification failed. Sanitized failure report: $reportFile"
+}
+
 $securePassword = $null
 $PlainPassword = $null
-$script:DiagnosticMigrationsBefore = "not checked"
-$script:DiagnosticHistoryTables = "not checked"
 try {
-    Write-Section "REV866 secure database verification"
+    Write-Section "REV866 no-secret prechecks"
     Assert-SafePgIdentifier $Database "Development database name"
     Assert-SafePgIdentifier $UserName "PostgreSQL user name"
     Assert-SafePgIdentifier $RestoreVerifyDatabase "Restore verification database name"
@@ -107,6 +167,20 @@ try {
     if ($RestoreVerifyDatabase -in @($Database, "postgres", "template0", "template1")) { throw "Restore verification database name is unsafe." }
     if ($MigrationName -ne "20260808123411_Rev866EmployeePermissionMatrix") { throw "Only the REV866 migration target is allowed." }
 
+    $gitExe = Resolve-GitExecutable $GitPath
+    $dotnet = Resolve-ExecutablePath $dotnetPath ".NET executable"
+    $psql = Resolve-ExecutablePath $psql "psql.exe"
+    $pgDump = Resolve-ExecutablePath $pgDump "pg_dump.exe"
+    $pgRestore = Resolve-ExecutablePath $pgRestore "pg_restore.exe"
+
+    Set-Location $repoRoot
+    $gitStatus = (& $gitExe status --short) -join "`n"
+    $gitCommit = (& $gitExe rev-parse HEAD).Trim()
+    if ($gitStatus) { throw "Git status is not clean before database verification." }
+    & $gitExe merge-base --is-ancestor $requiredBaselineCommit HEAD | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Required REV866 source baseline $requiredBaselineCommit is not in the current history." }
+
+    Write-Section "REV866 secure database verification"
     $securePassword = Read-Host -AsSecureString "Enter PostgreSQL password for local development database only"
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
     try {
@@ -122,17 +196,7 @@ try {
     $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$PlainPassword"
 
     New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-
-    Set-Location $repoRoot
-    $gitStatus = (git status --short) -join "`n"
-    $gitCommit = (git rev-parse HEAD).Trim()
-    if ($gitStatus) { throw "Git status is not clean before database verification." }
-    git merge-base --is-ancestor $requiredBaselineCommit HEAD | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Required REV866 source baseline $requiredBaselineCommit is not in the current history." }
-
-    if (!(Test-Path -LiteralPath $psql) -or !(Test-Path -LiteralPath $pgDump) -or !(Test-Path -LiteralPath $pgRestore)) {
-        throw "PostgreSQL 17 tools were not found under $pgBin."
-    }
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
     Write-Section "Pre-migration database checks"
     $dbName = Invoke-PsqlSafe "select current_database();"
@@ -187,7 +251,7 @@ try {
     & $dotnet test .\SESS.NexaERP.slnx --configuration Release --no-build
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed." }
     Set-Location $repoRoot
-    $secretPattern = ("SESS" + "@ERP2026") + "|" + ("Signing" + "Key") + "|" + ("Jwt" + "Secret") + "|" + ("JWT" + "_SECRET") + "|" + "Pass" + "word=" + "[^$]"
+    $secretPattern = ("SESS" + "@") + "|" + ("ERP" + "2026") + "|" + ("Signing" + "Key") + "|" + ("Jwt" + "Secret") + "|" + ("JWT" + "_SECRET") + "|" + "Pass" + "word=" + "[^$]"
     $secretScan = rg -n $secretPattern .
     $secretScanExitCode = $LASTEXITCODE
     if ($secretScanExitCode -eq 0) { throw "Secret scan found prohibited patterns." }
@@ -243,16 +307,7 @@ try {
     Write-Host "Backup SHA-256: $backupHash"
 }
 catch {
-    Add-Content -LiteralPath $reportFile -Value "# REV866 Database Verification Failed" -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value "" -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value ("- Time: " + (Get-Date -Format o)) -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value ("- Error: " + $_.Exception.Message) -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value ("- Migration history tables: " + $script:DiagnosticHistoryTables) -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value "- Migrations before failure:" -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value '```text' -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value $script:DiagnosticMigrationsBefore -Encoding utf8
-    Add-Content -LiteralPath $reportFile -Value '```' -Encoding utf8
-    Write-Host "REV866 verification failed. Sanitized failure report: $reportFile"
+    Write-FailureReport $_.Exception.Message
     Write-Host $_.Exception.Message
     throw
 }
@@ -262,3 +317,5 @@ finally {
     if ($PlainPassword) { $PlainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
+
+
