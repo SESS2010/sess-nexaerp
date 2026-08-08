@@ -5405,9 +5405,136 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808182945_Rev868PurchaseRequisitionFoundation') THEN
-    ALTER TABLE nexa.purchase_requisitions ADD COLUMN IF NOT EXISTS "FinancialYear" character varying(12) NOT NULL DEFAULT '';
-    ALTER TABLE nexa.purchase_requisitions ADD COLUMN IF NOT EXISTS "PrSequence" bigint NOT NULL DEFAULT 1;
-    CREATE TABLE IF NOT EXISTS nexa.purchase_number_sequences (
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260808182945_Rev868PurchaseRequisitionFoundation', '10.0.10');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    DROP INDEX nexa."IX_stock_reservations_PurchaseRequisitionLineId_Status";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    DROP INDEX nexa."IX_stock_availability_check_lines_PurchaseRequisitionLineId";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    DROP INDEX nexa."IX_stock_availability_check_lines_StockAvailabilityCheckId_Pur~";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requisitions DROP CONSTRAINT "CK_purchase_requisitions_estimated_total_nonnegative";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    UPDATE nexa.stock_reservations SET "WarehouseId" = '00000000-0000-0000-0000-000000000000' WHERE "WarehouseId" IS NULL;
+    ALTER TABLE nexa.stock_reservations ALTER COLUMN "WarehouseId" SET NOT NULL;
+    ALTER TABLE nexa.stock_reservations ALTER COLUMN "WarehouseId" SET DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_reservations ADD "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_reservations ADD "RackBinId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    UPDATE nexa.stock_availability_check_lines SET "WarehouseId" = '00000000-0000-0000-0000-000000000000' WHERE "WarehouseId" IS NULL;
+    ALTER TABLE nexa.stock_availability_check_lines ALTER COLUMN "WarehouseId" SET NOT NULL;
+    ALTER TABLE nexa.stock_availability_check_lines ALTER COLUMN "WarehouseId" SET DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_availability_check_lines ADD "CheckedAt" timestamp with time zone NOT NULL DEFAULT TIMESTAMPTZ '-infinity';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_availability_check_lines ADD "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_availability_check_lines ADD "RackBinId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requisitions ADD "FinancialYear" character varying(12) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requisitions ADD "PrSequence" bigint NOT NULL DEFAULT 0;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    UPDATE nexa.purchase_requirement_handoffs SET "WarehouseId" = '00000000-0000-0000-0000-000000000000' WHERE "WarehouseId" IS NULL;
+    ALTER TABLE nexa.purchase_requirement_handoffs ALTER COLUMN "WarehouseId" SET NOT NULL;
+    ALTER TABLE nexa.purchase_requirement_handoffs ALTER COLUMN "WarehouseId" SET DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD "RackBinId" uuid;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE TABLE nexa.purchase_number_sequences (
         "Id" uuid NOT NULL,
         "OrganizationId" character varying(120) NOT NULL,
         "FinancialYear" character varying(12) NOT NULL,
@@ -5416,41 +5543,174 @@ BEGIN
         "IsActive" boolean NOT NULL,
         "CreatedAt" timestamp with time zone NOT NULL,
         "CreatedBy" text NOT NULL,
-        "UpdatedAt" timestamp with time zone NULL,
-        "UpdatedBy" text NULL,
+        "UpdatedAt" timestamp with time zone,
+        "UpdatedBy" text,
         "Version" bigint NOT NULL,
         CONSTRAINT "PK_purchase_number_sequences" PRIMARY KEY ("Id"),
         CONSTRAINT "CK_purchase_number_sequences_last_number_nonnegative" CHECK ("LastNumber" >= 0)
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS "IX_purchase_number_sequences_OrganizationId_FinancialYear_Prefix" ON nexa.purchase_number_sequences ("OrganizationId", "FinancialYear", "Prefix");
-    CREATE UNIQUE INDEX IF NOT EXISTS "IX_purchase_requisitions_OrganizationId_FinancialYear_PrSequence" ON nexa.purchase_requisitions ("OrganizationId", "FinancialYear", "PrSequence");
-    ALTER TABLE nexa.purchase_requisition_lines ADD CONSTRAINT "CK_pr_lines_reconcile_requested" CHECK ("ReservedQuantity" <= "RequestedQuantity" AND "ShortageQuantity" = GREATEST("RequestedQuantity" - "ReservedQuantity", 0) AND "ProcurementHandoffQuantity" = "ShortageQuantity");
-    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
-    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
-    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "CheckedAt" timestamp with time zone NOT NULL DEFAULT TIMESTAMPTZ '1970-01-01 00:00:00+00';
-    ALTER TABLE nexa.stock_availability_check_lines ALTER COLUMN "WarehouseId" SET NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_reservations_ItemId_WarehouseId_RackBinId_Status" ON nexa.stock_reservations ("ItemId", "WarehouseId", "RackBinId", "Status");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE UNIQUE INDEX "IX_stock_reservations_PurchaseRequisitionLineId_LocationKey_St~" ON nexa.stock_reservations ("PurchaseRequisitionLineId", "LocationKey", "Status") WHERE "Status" = 'Active';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_reservations_RackBinId" ON nexa.stock_reservations ("RackBinId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_reservations_WarehouseId" ON nexa.stock_reservations ("WarehouseId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_availability_check_lines_PurchaseRequisitionLineId_Wa~" ON nexa.stock_availability_check_lines ("PurchaseRequisitionLineId", "WarehouseId", "RackBinId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_availability_check_lines_RackBinId" ON nexa.stock_availability_check_lines ("RackBinId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE UNIQUE INDEX "IX_stock_availability_check_lines_StockAvailabilityCheckId_Pur~" ON nexa.stock_availability_check_lines ("StockAvailabilityCheckId", "PurchaseRequisitionLineId", "LocationKey");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_stock_availability_check_lines_WarehouseId" ON nexa.stock_availability_check_lines ("WarehouseId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
     ALTER TABLE nexa.stock_availability_check_lines ADD CONSTRAINT "CK_stock_check_lines_quantities_valid" CHECK ("RequestedQuantity" > 0 AND "OnHandQuantity" >= 0 AND "ActiveReservedQuantity" >= 0 AND "AvailableQuantity" >= 0 AND "InTransitQuantity" >= 0 AND "ReservedQuantity" >= 0 AND "ShortageQuantity" >= 0 AND "ReservedQuantity" <= "RequestedQuantity");
-    DROP INDEX IF EXISTS nexa."IX_stock_availability_check_lines_StockAvailabilityCheckId_Pur~";
-    CREATE UNIQUE INDEX IF NOT EXISTS "IX_stock_availability_check_lines_Check_Line_Location" ON nexa.stock_availability_check_lines ("StockAvailabilityCheckId", "PurchaseRequisitionLineId", "LocationKey");
-    CREATE INDEX IF NOT EXISTS "IX_stock_availability_check_lines_Line_Warehouse_Bin" ON nexa.stock_availability_check_lines ("PurchaseRequisitionLineId", "WarehouseId", "RackBinId");
-    ALTER TABLE nexa.stock_reservations ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
-    ALTER TABLE nexa.stock_reservations ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
-    ALTER TABLE nexa.stock_reservations ALTER COLUMN "WarehouseId" SET NOT NULL;
-    DROP INDEX IF EXISTS nexa."IX_stock_reservations_PurchaseRequisitionLineId_Status";
-    CREATE UNIQUE INDEX IF NOT EXISTS "IX_stock_reservations_Line_Location_Status" ON nexa.stock_reservations ("PurchaseRequisitionLineId", "LocationKey", "Status") WHERE "Status" = 'Active';
-    CREATE INDEX IF NOT EXISTS "IX_stock_reservations_Item_Warehouse_Bin_Status" ON nexa.stock_reservations ("ItemId", "WarehouseId", "RackBinId", "Status");
-    ALTER TABLE nexa.purchase_requirement_handoffs ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
-    ALTER TABLE nexa.purchase_requirement_handoffs ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
-    ALTER TABLE nexa.purchase_requirement_handoffs ALTER COLUMN "WarehouseId" SET NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE UNIQUE INDEX "IX_purchase_requisitions_OrganizationId_FinancialYear_PrSequen~" ON nexa.purchase_requisitions ("OrganizationId", "FinancialYear", "PrSequence");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requisitions ADD CONSTRAINT "CK_purchase_requisitions_estimated_total_nonnegative" CHECK ("EstimatedTotal" >= 0 AND "PrSequence" > 0);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requisition_lines ADD CONSTRAINT "CK_pr_lines_reconcile_requested" CHECK ("ReservedQuantity" <= "RequestedQuantity" AND "ShortageQuantity" = GREATEST("RequestedQuantity" - "ReservedQuantity", 0) AND "ProcurementHandoffQuantity" = "ShortageQuantity");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_purchase_requirement_handoffs_RackBinId" ON nexa.purchase_requirement_handoffs ("RackBinId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE INDEX "IX_purchase_requirement_handoffs_WarehouseId" ON nexa.purchase_requirement_handoffs ("WarehouseId");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
     ALTER TABLE nexa.purchase_approval_route_settings ADD CONSTRAINT "CK_purchase_route_limits_valid" CHECK ("MinimumAmount" >= 0 AND ("MaximumAmount" IS NULL OR "MaximumAmount" >= "MinimumAmount"));
     END IF;
 END $EF$;
 
 DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808182945_Rev868PurchaseRequisitionFoundation') THEN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    CREATE UNIQUE INDEX "IX_purchase_number_sequences_OrganizationId_FinancialYear_Pref~" ON nexa.purchase_number_sequences ("OrganizationId", "FinancialYear", "Prefix");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD CONSTRAINT "FK_purchase_requirement_handoffs_rack_bins_RackBinId" FOREIGN KEY ("RackBinId") REFERENCES nexa.rack_bins ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD CONSTRAINT "FK_purchase_requirement_handoffs_warehouses_WarehouseId" FOREIGN KEY ("WarehouseId") REFERENCES nexa.warehouses ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_availability_check_lines ADD CONSTRAINT "FK_stock_availability_check_lines_rack_bins_RackBinId" FOREIGN KEY ("RackBinId") REFERENCES nexa.rack_bins ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_availability_check_lines ADD CONSTRAINT "FK_stock_availability_check_lines_warehouses_WarehouseId" FOREIGN KEY ("WarehouseId") REFERENCES nexa.warehouses ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_reservations ADD CONSTRAINT "FK_stock_reservations_rack_bins_RackBinId" FOREIGN KEY ("RackBinId") REFERENCES nexa.rack_bins ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
+    ALTER TABLE nexa.stock_reservations ADD CONSTRAINT "FK_stock_reservations_warehouses_WarehouseId" FOREIGN KEY ("WarehouseId") REFERENCES nexa.warehouses ("Id") ON DELETE RESTRICT;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-    VALUES ('20260808182945_Rev868PurchaseRequisitionFoundation', '10.0.10');
+    VALUES ('20260808190920_Rev868PurchaseLocationAllocationCorrection', '10.0.10');
     END IF;
 END $EF$;
 COMMIT;

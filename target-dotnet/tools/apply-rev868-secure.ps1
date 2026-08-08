@@ -19,7 +19,8 @@ $psqlPath = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
 $reportDir = Join-Path $targetRoot "local-evidence\rev868"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $reportFile = Join-Path $reportDir "rev868_preflight_$timestamp.md"
-$migrationName = "20260808182945_Rev868PurchaseRequisitionFoundation"
+$foundationMigrationName = "20260808182945_Rev868PurchaseRequisitionFoundation"
+$migrationName = "20260808190920_Rev868PurchaseLocationAllocationCorrection"
 $securePassword = $null
 $plainPassword = $null
 
@@ -60,10 +61,16 @@ where "MigrationId" in (
     '20260808160435_Rev867C1Corrections'
 );
 "@.Trim()
-    $queries["REV868 migration presence"] = @"
+    $queries["REV868 foundation migration presence"] = @"
 select case when exists (
     select 1 from "public"."__EFMigrationsHistory"
     where "MigrationId" = '20260808182945_Rev868PurchaseRequisitionFoundation'
+) then 'present' else 'absent' end;
+"@.Trim()
+    $queries["REV868 correction migration presence"] = @"
+select case when exists (
+    select 1 from "public"."__EFMigrationsHistory"
+    where "MigrationId" = '20260808190920_Rev868PurchaseLocationAllocationCorrection'
 ) then 'present' else 'absent' end;
 "@.Trim()
     return $queries
@@ -82,6 +89,7 @@ function Write-SqlOnlyReport([System.Collections.Specialized.OrderedDictionary]$
     Add-Report "- Expected host: $HostName"
     Add-Report "- Expected port: $Port"
     Add-Report "- Expected database: $Database"
+    Add-Report "- Foundation migration: $foundationMigrationName"
     Add-Report "- Migration target: $migrationName"
     Add-Report "- No password requested and no PostgreSQL connection attempted."
     foreach ($entry in $SqlMap.GetEnumerator()) { Add-Report "## $($entry.Key)"; Add-Report '```sql'; Add-Report ([string]$entry.Value); Add-Report '```' }
@@ -118,13 +126,16 @@ try {
     if ($identity -notmatch "database=$Database") { throw "Connected database mismatch." }
     $prerequisites = Invoke-PsqlRead $sql["Required migration prerequisites through REV867C1"]
     if ($prerequisites -notmatch "present") { throw "Required migrations through REV867C1 are not present. Stop before REV868." }
-    $present = Invoke-PsqlRead $sql["REV868 migration presence"]
-    if ($present -match "present") { throw "REV868 migration is already applied. Stop for management review." }
+    $foundationPresent = Invoke-PsqlRead $sql["REV868 foundation migration presence"]
+    if ($foundationPresent -match "present") { throw "REV868 foundation migration is already applied. Stop for management review." }
+    $present = Invoke-PsqlRead $sql["REV868 correction migration presence"]
+    if ($present -match "present") { throw "REV868 correction migration is already applied. Stop for management review." }
     Add-Report "# REV868 Preflight Report"
     Add-Report "- Source commit: $gitCommit"
     Add-Report "- Identity: $identity"
     Add-Report "- Required migration prerequisites through REV867C1: $prerequisites"
-    Add-Report "- REV868 migration presence: $present"
+    Add-Report "- REV868 foundation migration presence: $foundationPresent"
+    Add-Report "- REV868 correction migration presence: $present"
     if ($PreflightOnly) { Write-Host "REV868 preflight report: $reportFile"; return }
     $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$plainPassword"
     $env:NexaErp__ExpectedDatabase = $Database
