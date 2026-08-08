@@ -1,4 +1,4 @@
-using SESS.NexaERP.Domain.Authorization;
+﻿using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Identity;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
@@ -45,7 +45,10 @@ public static class FoundationSeedData
         PageSeed("20000000-0000-0000-0000-000000000012", "purchase.po", "Purchase", "Purchase Order", "/purchase/purchase-orders"),
         PageSeed("20000000-0000-0000-0000-000000000013", "inventory.grn", "Inventory", "GRN", "/inventory/grn"),
         PageSeed("20000000-0000-0000-0000-000000000014", "inventory.stock-ledger", "Inventory", "Stock Ledger", "/inventory/stock-ledger"),
-        PageSeed("20000000-0000-0000-0000-000000000015", "audit.history", "Audit", "Audit History", "/audit/history")
+        PageSeed("20000000-0000-0000-0000-000000000015", "audit.history", "Audit", "Audit History", "/audit/history"),
+        PageSeed("20000000-0000-0000-0000-000000000016", "employees.master", "Employees", "Employee Master", "/employees"),
+        PageSeed("20000000-0000-0000-0000-000000000017", "employees.role-mapping", "Employees", "Employee Role Mapping", "/employees/roles"),
+        PageSeed("20000000-0000-0000-0000-000000000018", "employees.audit-history", "Employees", "Employee Audit History", "/employees/audit-history")
     ];
 
     private static Role RoleSeed(string id, string code, string name, bool isPrivileged)
@@ -77,3 +80,5 @@ public static class FoundationSeedData
         };
     }
 }
+
+

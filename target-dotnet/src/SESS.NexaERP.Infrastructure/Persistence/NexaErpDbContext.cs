@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Audit;
+using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
@@ -20,6 +21,16 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<PageDefinition> PageDefinitions => Set<PageDefinition>();
     public DbSet<RolePagePermission> RolePagePermissions => Set<RolePagePermission>();
+    public DbSet<Department> Departments => Set<Department>();
+    public DbSet<Skill> Skills => Set<Skill>();
+    public DbSet<Designation> Designations => Set<Designation>();
+    public DbSet<Employee> Employees => Set<Employee>();
+    public DbSet<EmployeeSkill> EmployeeSkills => Set<EmployeeSkill>();
+    public DbSet<EmployeeRoleAssignment> EmployeeRoleAssignments => Set<EmployeeRoleAssignment>();
+    public DbSet<ReportingRelationship> ReportingRelationships => Set<ReportingRelationship>();
+    public DbSet<EmployeeStatusHistory> EmployeeStatusHistories => Set<EmployeeStatusHistory>();
+    public DbSet<EmployeeApprovalHistory> EmployeeApprovalHistories => Set<EmployeeApprovalHistory>();
+    public DbSet<EmployeeImportHistory> EmployeeImportHistories => Set<EmployeeImportHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,6 +40,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         ConfigureInventory(modelBuilder);
         ConfigureAudit(modelBuilder);
         ConfigureAuthorization(modelBuilder);
+        ConfigureEmployees(modelBuilder);
         SeedFoundation(modelBuilder);
     }
 
@@ -189,9 +201,141 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         });
     }
 
+    private static void ConfigureEmployees(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Department>(entity =>
+        {
+            entity.ToTable("departments");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<Skill>(entity =>
+        {
+            entity.ToTable("skills");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<Designation>(entity =>
+        {
+            entity.ToTable("designations");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Code).IsUnique();
+            entity.Property(x => x.Code).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<Employee>(entity =>
+        {
+            entity.ToTable("employees");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.EmployeeCode).IsUnique();
+            entity.Property(x => x.EmployeeCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.EmployeeName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.OriginalImportedName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.EmployeeType).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Grade).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.OfficialEmail).HasMaxLength(254);
+            entity.Property(x => x.MobileNumber).HasMaxLength(40);
+            entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Designation).WithMany().HasForeignKey(x => x.DesignationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<EmployeeSkill>(entity =>
+        {
+            entity.ToTable("employee_skills");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.SkillId }).IsUnique();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Skill).WithMany().HasForeignKey(x => x.SkillId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<EmployeeRoleAssignment>(entity =>
+        {
+            entity.ToTable("employee_role_assignments");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.RoleId, x.EffectiveFrom }).IsUnique();
+            entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ReportingRelationship>(entity =>
+        {
+            entity.ToTable("reporting_relationships");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.EffectiveFrom }).IsUnique();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.ReportingManager).WithMany().HasForeignKey(x => x.ReportingManagerEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.DepartmentHead).WithMany().HasForeignKey(x => x.DepartmentHeadEmployeeId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<EmployeeStatusHistory>(entity =>
+        {
+            entity.ToTable("employee_status_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.CreatedAt });
+            entity.Property(x => x.OldStatus).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.NewStatus).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmployeeApprovalHistory>(entity =>
+        {
+            entity.ToTable("employee_approval_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.CreatedAt });
+            entity.Property(x => x.Action).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.FromStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.ToStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmployeeImportHistory>(entity =>
+        {
+            entity.ToTable("employee_import_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ImportBatch, x.SourceEmployeeCode }).IsUnique();
+            entity.Property(x => x.ImportBatch).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.SourceEmployeeCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.SourceEmployeeName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.NormalizedEmployeeName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.SourceJson).HasColumnType("jsonb").IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+        });
+    }
     private static void SeedFoundation(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Role>().HasData(FoundationSeedData.Roles);
         modelBuilder.Entity<PageDefinition>().HasData(FoundationSeedData.Pages);
+        modelBuilder.Entity<Role>().HasData(Rev866SeedData.AdditionalEmployeeRoles);
+        modelBuilder.Entity<RolePagePermission>().HasData(Rev866SeedData.RolePagePermissions);
+        modelBuilder.Entity<Department>().HasData(Rev866SeedData.Departments);
+        modelBuilder.Entity<Skill>().HasData(Rev866SeedData.Skills);
+        modelBuilder.Entity<Designation>().HasData(Rev866SeedData.Designations);
+        modelBuilder.Entity<Employee>().HasData(Rev866SeedData.Employees);
+        modelBuilder.Entity<EmployeeSkill>().HasData(Rev866SeedData.EmployeeSkills);
+        modelBuilder.Entity<EmployeeRoleAssignment>().HasData(Rev866SeedData.EmployeeRoleAssignments);
+        modelBuilder.Entity<EmployeeImportHistory>().HasData(Rev866SeedData.EmployeeImportHistories);
     }
 }

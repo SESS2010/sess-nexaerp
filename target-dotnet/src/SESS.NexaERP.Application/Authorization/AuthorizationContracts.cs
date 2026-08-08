@@ -1,4 +1,4 @@
-namespace SESS.NexaERP.Application.Authorization;
+﻿namespace SESS.NexaERP.Application.Authorization;
 
 public sealed record PageDefinitionSummary(Guid Id, string PageKey, string Module, string Title, string Route, bool IsActive);
 
@@ -11,8 +11,23 @@ public sealed record RolePagePermissionSummary(
     bool CanView,
     bool CanCreate,
     bool CanUpdate,
+    bool CanSubmit,
+    bool CanVerify,
     bool CanApprove,
-    bool CanExport);
+    bool CanReject,
+    bool CanRequestClarification,
+    bool CanRequestRevision,
+    bool CanResubmit,
+    bool CanCancel,
+    bool CanDeactivate,
+    bool CanPrint,
+    bool CanDownload,
+    bool CanExport,
+    bool CanUploadAttachment,
+    bool CanReplaceAttachment,
+    bool CanViewCommercialValues,
+    bool CanViewAuditHistory,
+    bool HasFullControl);
 
 public sealed record UpsertRolePagePermissionRequest(
     string RoleCode,
@@ -20,5 +35,20 @@ public sealed record UpsertRolePagePermissionRequest(
     bool CanView,
     bool CanCreate,
     bool CanUpdate,
+    bool CanSubmit,
+    bool CanVerify,
     bool CanApprove,
-    bool CanExport);
+    bool CanReject,
+    bool CanRequestClarification,
+    bool CanRequestRevision,
+    bool CanResubmit,
+    bool CanCancel,
+    bool CanDeactivate,
+    bool CanPrint,
+    bool CanDownload,
+    bool CanExport,
+    bool CanUploadAttachment,
+    bool CanReplaceAttachment,
+    bool CanViewCommercialValues,
+    bool CanViewAuditHistory,
+    bool HasFullControl);

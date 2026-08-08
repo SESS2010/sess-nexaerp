@@ -1,8 +1,10 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Common;
+using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Audit;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -19,7 +21,9 @@ public static class DependencyInjection
         services.AddHealthChecks().AddDbContextCheck<NexaErpDbContext>("postgresql", tags: ["db"]);
         services.AddSingleton<IDateTimeProvider, SystemClock>();
         services.AddScoped<IAuditWriter, EfAuditWriter>();
+        services.AddScoped<IPagePermissionService, EfPagePermissionService>();
 
         return services;
     }
 }
+

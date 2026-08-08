@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
@@ -25,7 +25,7 @@ public static class AuthorizationEndpoints
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(pages);
-        });
+        }).RequirePagePermission("authorization.pages", PagePermissionActions.View);
 
         group.MapPost("/pages", async (CreatePageDefinitionRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
         {
@@ -53,7 +53,7 @@ public static class AuthorizationEndpoints
             await audit.WriteAsync("Authorization", "Create", nameof(PageDefinition), pageDefinition.Id.ToString(), null, pageDefinition, cancellationToken);
 
             return Results.Created($"/api/v1/authorization/pages/{pageDefinition.Id}", new PageDefinitionSummary(pageDefinition.Id, pageDefinition.PageKey, pageDefinition.Module, pageDefinition.Title, pageDefinition.Route, pageDefinition.IsActive));
-        });
+        }).RequirePagePermission("authorization.pages", PagePermissionActions.Create);
 
         group.MapGet("/role-page-permissions", async (NexaErpDbContext db, string? roleCode, CancellationToken cancellationToken) =>
         {
@@ -72,19 +72,11 @@ public static class AuthorizationEndpoints
             var permissions = await query
                 .OrderBy(permission => permission.Role!.Code)
                 .ThenBy(permission => permission.PageDefinition!.PageKey)
-                .Select(permission => new RolePagePermissionSummary(
-                    permission.Id,
-                    permission.Role == null ? string.Empty : permission.Role.Code,
-                    permission.PageDefinition == null ? string.Empty : permission.PageDefinition.PageKey,
-                    permission.CanView,
-                    permission.CanCreate,
-                    permission.CanUpdate,
-                    permission.CanApprove,
-                    permission.CanExport))
+                .Select(permission => ToSummary(permission, permission.Role == null ? string.Empty : permission.Role.Code, permission.PageDefinition == null ? string.Empty : permission.PageDefinition.PageKey))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(permissions);
-        });
+        }).RequirePagePermission("authorization.role-pages", PagePermissionActions.View);
 
         group.MapPut("/role-page-permissions", async (UpsertRolePagePermissionRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
         {
@@ -99,14 +91,7 @@ public static class AuthorizationEndpoints
             }
 
             var permission = await db.RolePagePermissions.SingleOrDefaultAsync(existing => existing.RoleId == role.Id && existing.PageDefinitionId == page.Id, cancellationToken);
-            object? before = permission is null ? null : new
-            {
-                permission.CanView,
-                permission.CanCreate,
-                permission.CanUpdate,
-                permission.CanApprove,
-                permission.CanExport
-            };
+            object? before = permission is null ? null : Snapshot(permission);
 
             if (permission is null)
             {
@@ -118,19 +103,87 @@ public static class AuthorizationEndpoints
                 db.RolePagePermissions.Add(permission);
             }
 
-            permission.CanView = request.CanView;
-            permission.CanCreate = request.CanCreate;
-            permission.CanUpdate = request.CanUpdate;
-            permission.CanApprove = request.CanApprove;
-            permission.CanExport = request.CanExport;
-
+            Apply(permission, request);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Authorization", "Upsert", nameof(RolePagePermission), permission.Id.ToString(), before, permission, cancellationToken);
 
-            return Results.Ok(new RolePagePermissionSummary(permission.Id, role.Code, page.PageKey, permission.CanView, permission.CanCreate, permission.CanUpdate, permission.CanApprove, permission.CanExport));
-        });
+            return Results.Ok(ToSummary(permission, role.Code, page.PageKey));
+        }).RequirePagePermission("authorization.role-pages", PagePermissionActions.Update);
 
         return endpoints;
+    }
+
+    private static RolePagePermissionSummary ToSummary(RolePagePermission permission, string roleCode, string pageKey) => new(
+        permission.Id,
+        roleCode,
+        pageKey,
+        permission.CanView,
+        permission.CanCreate,
+        permission.CanUpdate,
+        permission.CanSubmit,
+        permission.CanVerify,
+        permission.CanApprove,
+        permission.CanReject,
+        permission.CanRequestClarification,
+        permission.CanRequestRevision,
+        permission.CanResubmit,
+        permission.CanCancel,
+        permission.CanDeactivate,
+        permission.CanPrint,
+        permission.CanDownload,
+        permission.CanExport,
+        permission.CanUploadAttachment,
+        permission.CanReplaceAttachment,
+        permission.CanViewCommercialValues,
+        permission.CanViewAuditHistory,
+        permission.HasFullControl);
+
+    private static object Snapshot(RolePagePermission permission) => new
+    {
+        permission.CanView,
+        permission.CanCreate,
+        permission.CanUpdate,
+        permission.CanSubmit,
+        permission.CanVerify,
+        permission.CanApprove,
+        permission.CanReject,
+        permission.CanRequestClarification,
+        permission.CanRequestRevision,
+        permission.CanResubmit,
+        permission.CanCancel,
+        permission.CanDeactivate,
+        permission.CanPrint,
+        permission.CanDownload,
+        permission.CanExport,
+        permission.CanUploadAttachment,
+        permission.CanReplaceAttachment,
+        permission.CanViewCommercialValues,
+        permission.CanViewAuditHistory,
+        permission.HasFullControl
+    };
+
+    private static void Apply(RolePagePermission permission, UpsertRolePagePermissionRequest request)
+    {
+        permission.CanView = request.CanView;
+        permission.CanCreate = request.CanCreate;
+        permission.CanUpdate = request.CanUpdate;
+        permission.CanSubmit = request.CanSubmit;
+        permission.CanVerify = request.CanVerify;
+        permission.CanApprove = request.CanApprove;
+        permission.CanReject = request.CanReject;
+        permission.CanRequestClarification = request.CanRequestClarification;
+        permission.CanRequestRevision = request.CanRequestRevision;
+        permission.CanResubmit = request.CanResubmit;
+        permission.CanCancel = request.CanCancel;
+        permission.CanDeactivate = request.CanDeactivate;
+        permission.CanPrint = request.CanPrint;
+        permission.CanDownload = request.CanDownload;
+        permission.CanExport = request.CanExport;
+        permission.CanUploadAttachment = request.CanUploadAttachment;
+        permission.CanReplaceAttachment = request.CanReplaceAttachment;
+        permission.CanViewCommercialValues = request.CanViewCommercialValues;
+        permission.CanViewAuditHistory = request.CanViewAuditHistory;
+        permission.HasFullControl = request.HasFullControl;
     }
 
     private static string NormalizeKey(string value) => value.Trim().ToLowerInvariant();

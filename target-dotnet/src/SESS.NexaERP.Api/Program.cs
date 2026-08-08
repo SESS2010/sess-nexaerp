@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
@@ -86,5 +86,7 @@ app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();
 app.MapInventoryEndpoints();
 app.MapAuditEndpoints();
+app.MapEmployeeEndpoints();
 
 app.Run();
+
