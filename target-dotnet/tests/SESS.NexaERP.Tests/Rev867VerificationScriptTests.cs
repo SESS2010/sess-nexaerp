@@ -174,7 +174,9 @@ public sealed class Rev867VerificationScriptTests
         var source = File.ReadAllText(factoryPath);
 
         Assert.Contains("Environment.GetEnvironmentVariable(\"ConnectionStrings__NexaErp\")", source);
+        Assert.Contains("NexaErp__ExpectedDatabase", source);
         Assert.Contains("throw new InvalidOperationException", source);
+        Assert.Contains("NpgsqlConnectionStringBuilder", source);
         Assert.DoesNotContain("Host=localhost;Database=sess_nexaerp;Username=postgres", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Database=sess_nexaerp", source, StringComparison.OrdinalIgnoreCase);
     }
@@ -182,10 +184,12 @@ public sealed class Rev867VerificationScriptTests
     [Fact]
     public void Design_time_factory_fails_closed_when_connection_string_is_absent()
     {
-        var previous = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        var previousConnection = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        var previousExpected = Environment.GetEnvironmentVariable("NexaErp__ExpectedDatabase");
         try
         {
             Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", null);
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", null);
             var factory = new SESS.NexaERP.Infrastructure.Persistence.NexaErpDesignTimeDbContextFactory();
 
             var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateDbContext([]));
@@ -193,17 +197,20 @@ public sealed class Rev867VerificationScriptTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previous);
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previousConnection);
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", previousExpected);
         }
     }
 
     [Fact]
     public void Design_time_factory_accepts_only_environment_supplied_connection_string()
     {
-        var previous = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        var previousConnection = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        var previousExpected = Environment.GetEnvironmentVariable("NexaErp__ExpectedDatabase");
         try
         {
             Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", "Host=localhost;Database=design_time_source_only;Username=postgres");
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", "design_time_source_only");
             var factory = new SESS.NexaERP.Infrastructure.Persistence.NexaErpDesignTimeDbContextFactory();
 
             using var db = factory.CreateDbContext([]);
@@ -211,8 +218,77 @@ public sealed class Rev867VerificationScriptTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previous);
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previousConnection);
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", previousExpected);
         }
+    }
+
+
+
+    [Fact]
+    public void Design_time_factory_rejects_unexpected_database()
+    {
+        var previousConnection = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        var previousExpected = Environment.GetEnvironmentVariable("NexaErp__ExpectedDatabase");
+        try
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", "Host=localhost;Database=sess_nexaerp;Username=postgres");
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", "sess_nexaerp_rev867c1_verify");
+            var factory = new SESS.NexaERP.Infrastructure.Persistence.NexaErpDesignTimeDbContextFactory();
+
+            var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateDbContext([]));
+            Assert.Contains("does not match", ex.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previousConnection);
+            Environment.SetEnvironmentVariable("NexaErp__ExpectedDatabase", previousExpected);
+        }
+    }
+
+    [Fact]
+    public void Rev867C1_isolated_verification_helper_is_restricted_to_verification_database()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "apply-rev867c1-isolated-verification-secure.ps1"));
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.Contains("sess_nexaerp_rev867c1_verify", script);
+        Assert.Contains("NexaErp__ExpectedDatabase", script);
+        Assert.Contains("This helper is permanently restricted to sess_nexaerp_rev867c1_verify on localhost:5432.", script);
+        Assert.Contains("Refusing to run against main development database sess_nexaerp.", script);
+        Assert.Contains("empty_and_safe", script);
+        Assert.Contains("not_empty_or_wrong_target", script);
+        Assert.DoesNotContain("Database=sess_nexaerp;", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ALTER DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DELETE FROM", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE nexa", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Rev867C1_isolated_verification_helper_generate_sql_only_documents_preflight_and_apply_plan()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "apply-rev867c1-isolated-verification-secure.ps1"));
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.Contains("GenerateSqlOnly", script);
+        Assert.Contains("PreflightOnly", script);
+        Assert.Contains("No password requested and no PostgreSQL connection attempted in this mode.", script);
+        Assert.Contains("dotnet ef database update 20260808160435_Rev867C1Corrections", script);
+        Assert.Contains("select 'database=' || current_database()", script);
+        Assert.Contains("current_user", script);
+        Assert.Contains("inet_server_addr()", script);
+        Assert.Contains("inet_server_port()", script);
+        Assert.Contains("current_database() = 'sess_nexaerp_rev867c1_verify'", script);
+        Assert.Contains("where c.relname = '__EFMigrationsHistory'", script);
+        Assert.Contains("select \"MigrationId\"", script);
+        Assert.Contains("where \"MigrationId\" = '20260808160435_Rev867C1Corrections'", script);
+        Assert.Contains("master_status_history", script);
+        Assert.Contains("master_approval_history", script);
+        Assert.Contains("audit_logs", script);
     }
 
     [Fact]
