@@ -56,9 +56,9 @@ union all select 'server_addr=' || coalesce(inet_server_addr()::text, 'local_soc
 union all select 'server_port=' || inet_server_port()::text;
 "@.Trim()
     $queries["Applied migration IDs"] = @"
-select ""MigrationId""
-from ""public"".""__EFMigrationsHistory""
-order by ""MigrationId"";
+select "MigrationId"
+from "public"."__EFMigrationsHistory"
+order by "MigrationId";
 "@.Trim()
     $queries["Nexa schema present"] = @"
 select case when exists (select 1 from pg_catalog.pg_namespace where nspname = 'nexa') then 'present' else 'absent' end;
@@ -122,6 +122,27 @@ function Write-SuccessReport([string]$GitCommit) {
     Add-Report (($testOutput | Select-Object -Last 200) -join "`n")
     Add-Report '```'
 }
+function Write-GenerateSqlOnlyReport([System.Collections.Specialized.OrderedDictionary]$SqlMap) {
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+    Add-Report "# REV867C1 Isolated Resume SQL Source Verification"
+    Add-Report ""
+    Add-Report "- Mode: GenerateSqlOnly"
+    Add-Report "- Expected host: $HostName"
+    Add-Report "- Expected port: $Port"
+    Add-Report "- Expected database: $Database"
+    Add-Report "- No password requested."
+    Add-Report "- No PostgreSQL connection attempted."
+    Add-Report "- No migration, update, cleanup, restore, create, drop, or data-modification operation is executed."
+    Add-Report ""
+    foreach ($entry in $SqlMap.GetEnumerator()) {
+        Add-Report "## $($entry.Key)"
+        Add-Report '```sql'
+        Add-Report ([string]$entry.Value)
+        Add-Report '```'
+        Add-Report ""
+    }
+    Write-Host "REV867C1 isolated resume SQL source report: $reportFile"
+}
 
 try {
     Write-Section "REV867C1 isolated resume no-secret prechecks"
@@ -131,6 +152,7 @@ try {
     $resumeSql = Get-ResumeSql
     foreach ($entry in $resumeSql.GetEnumerator()) { Test-SqlText $entry.Key ([string]$entry.Value) }
     if ($GenerateSqlOnly) {
+        Write-GenerateSqlOnlyReport $resumeSql
         foreach ($entry in $resumeSql.GetEnumerator()) { Write-Output "-- $($entry.Key)"; Write-Output ([string]$entry.Value); Write-Output "" }
         return
     }

@@ -386,6 +386,26 @@ public sealed class Rev867VerificationScriptTests
     }
 
     [Fact]
+    public void Rev867C1_isolated_resume_helper_generates_exact_postgresql_identifier_quotes()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "resume-rev867c1-isolated-verification-secure.ps1"));
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.Contains("Get-ResumeSql", script);
+        Assert.Contains("Write-GenerateSqlOnlyReport", script);
+        Assert.Contains("No password requested.", script);
+        Assert.Contains("No PostgreSQL connection attempted.", script);
+        Assert.Contains("select \"MigrationId\"", script);
+        Assert.Contains("from \"public\".\"__EFMigrationsHistory\"", script);
+        Assert.Contains("order by \"MigrationId\";", script);
+        Assert.DoesNotContain("\"\"MigrationId\"\"", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"\"public\"\"", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"\"__EFMigrationsHistory\"\"", script, StringComparison.Ordinal);
+        Assert.Contains("Test-SqlText", script);
+        Assert.Contains("missing a statement terminator", script);
+        Assert.Contains("unbalanced single quotes", script);
+    }
+    [Fact]
     public void Rev867C1_postgres_scope_test_uses_deterministic_resume_safe_records()
     {
         var testPath = FindTargetDotnetFile(Path.Combine("tests", "SESS.NexaERP.Tests", "Rev867C1PostgresVerificationTests.cs"));
