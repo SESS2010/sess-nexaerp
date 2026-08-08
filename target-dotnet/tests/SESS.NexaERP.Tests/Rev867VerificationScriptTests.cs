@@ -108,6 +108,7 @@ public sealed class Rev867VerificationScriptTests
         Assert.Contains("inet_server_port()", script);
         Assert.Contains("pg_namespace", script);
         Assert.Contains("pg_class", script);
+        Assert.Contains("c.relkind::text", script);
         Assert.Contains("to_regclass", script);
         Assert.Contains("__EFMigrationsHistory", script);
         Assert.Contains("MigrationId", script);

@@ -85,7 +85,7 @@ try {
     Add-Evidence "Session identity" "select 'database=' || current_database() union all select 'user=' || current_user union all select 'server_addr=' || coalesce(inet_server_addr()::text,'local_socket') union all select 'server_port=' || inet_server_port()::text;"
     if ($evidence["Session identity"] -notmatch "database=$Database") { throw "Connected database did not match expected verification database." }
     Add-Evidence "Schemas" "select nspname from pg_namespace where nspname not like 'pg_toast%' order by nspname;"
-    Add-Evidence "Migration/history relations" "select n.nspname || '.' || c.relname || '|relkind=' || c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relname ilike '%migration%' or c.relname ilike '%history%' order by n.nspname, c.relname;"
+    Add-Evidence "Migration/history relations" "select n.nspname || '.' || c.relname || '|relkind=' || c.relkind::text from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relname ilike '%migration%' or c.relname ilike '%history%' order by n.nspname, c.relname;"
     Add-Evidence "Public EF history regclass" "select coalesce(to_regclass('\"public\".\"__EFMigrationsHistory\"')::text, 'not_found');"
     Add-Evidence "Exact EF history lookup" "select n.nspname || chr(31) || c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relname = '__EFMigrationsHistory' order by n.nspname, c.relname;"
     if ($evidence["Public EF history regclass"] -match "not_found") {
