@@ -171,12 +171,21 @@ try {
     Write-Host "Backup file: $backupFile"
     Write-Host "Backup SHA-256: $backupHash"
 }
-finally {
+catch {
+    Add-Content -LiteralPath $reportFile -Value "# REV866 Database Verification Failed" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value "" -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Time: " + (Get-Date -Format o)) -Encoding utf8
+    Add-Content -LiteralPath $reportFile -Value ("- Error: " + $_.Exception.Message) -Encoding utf8
+    Write-Host "REV866 verification failed. Sanitized failure report: $reportFile"
+    Write-Host $_.Exception.Message
+    throw
+}finally {
     Remove-Item Env:\ConnectionStrings__NexaErp -ErrorAction SilentlyContinue
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
     if ($PlainPassword) { $PlainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
+
 
 
 
