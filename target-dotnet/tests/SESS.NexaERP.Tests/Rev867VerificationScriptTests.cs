@@ -158,6 +158,7 @@ public sealed class Rev867VerificationScriptTests
         Assert.Contains("select \"MigrationId\"", output);
         Assert.Contains("from \"public\".\"__EFMigrationsHistory\"", output);
         Assert.DoesNotContain("to_regclass", output, StringComparison.OrdinalIgnoreCase);
+
         Assert.DoesNotContain("select coalesce(to_regclass('", output, StringComparison.OrdinalIgnoreCase);
 
         var sqlLines = output.Split(Environment.NewLine).Where(line => !line.StartsWith("REV867C1 generated", StringComparison.OrdinalIgnoreCase) && !line.StartsWith("-- ", StringComparison.Ordinal)).ToArray();
@@ -173,7 +174,113 @@ public sealed class Rev867VerificationScriptTests
         var source = File.ReadAllText(factoryPath);
 
         Assert.Contains("Environment.GetEnvironmentVariable(\"ConnectionStrings__NexaErp\")", source);
+        Assert.Contains("throw new InvalidOperationException", source);
         Assert.DoesNotContain("Host=localhost;Database=sess_nexaerp;Username=postgres", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Database=sess_nexaerp", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Design_time_factory_fails_closed_when_connection_string_is_absent()
+    {
+        var previous = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        try
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", null);
+            var factory = new SESS.NexaERP.Infrastructure.Persistence.NexaErpDesignTimeDbContextFactory();
+
+            var ex = Assert.Throws<InvalidOperationException>(() => factory.CreateDbContext([]));
+            Assert.Contains("ConnectionStrings__NexaErp", ex.Message);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previous);
+        }
+    }
+
+    [Fact]
+    public void Design_time_factory_accepts_only_environment_supplied_connection_string()
+    {
+        var previous = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp");
+        try
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", "Host=localhost;Database=design_time_source_only;Username=postgres");
+            var factory = new SESS.NexaERP.Infrastructure.Persistence.NexaErpDesignTimeDbContextFactory();
+
+            using var db = factory.CreateDbContext([]);
+            Assert.Equal("Npgsql.EntityFrameworkCore.PostgreSQL", db.Database.ProviderName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ConnectionStrings__NexaErp", previous);
+        }
+    }
+
+    [Fact]
+    public void Rev867C1_main_db_readonly_diagnostic_never_contains_migration_or_destructive_commands()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "diagnose-rev867c1-main-db-readonly-secure.ps1"));
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.DoesNotContain("database update", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet ef", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createdb", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ALTER DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DELETE FROM", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE ", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Rev867C1_main_db_generate_sql_only_outputs_complete_balanced_readonly_sql()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "diagnose-rev867c1-main-db-readonly-secure.ps1"));
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        process.StartInfo.ArgumentList.Add("-NoProfile");
+        process.StartInfo.ArgumentList.Add("-ExecutionPolicy");
+        process.StartInfo.ArgumentList.Add("Bypass");
+        process.StartInfo.ArgumentList.Add("-File");
+        process.StartInfo.ArgumentList.Add(scriptPath);
+        process.StartInfo.ArgumentList.Add("-GenerateSqlOnly");
+
+        process.Start();
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(15000), "Main-db GenerateSqlOnly did not exit within 15 seconds.");
+        Assert.Equal(0, process.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(error), error);
+
+        Assert.DoesNotContain("Enter PostgreSQL password", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("-- Session identity", output);
+        Assert.Contains("select 'database=' || current_database()", output);
+        Assert.Contains("current_user", output);
+        Assert.Contains("inet_server_addr()", output);
+        Assert.Contains("inet_server_port()", output);
+        Assert.Contains("from pg_catalog.pg_namespace", output);
+        Assert.Contains("from pg_catalog.pg_class c", output);
+        Assert.Contains("where c.relname = '__EFMigrationsHistory'", output);
+        Assert.Contains("select \"MigrationId\"", output);
+        Assert.Contains("where \"MigrationId\" = '20260808160435_Rev867C1Corrections'", output);
+        Assert.DoesNotContain("to_regclass", output, StringComparison.OrdinalIgnoreCase);
+
+        var script = File.ReadAllText(scriptPath);
+        Assert.Contains("sess_nexaerp", script);
+        Assert.Contains("This diagnostic is restricted to sess_nexaerp on localhost:5432.", script);
+
+        var sqlLines = output.Split(Environment.NewLine).Where(line => !line.StartsWith("REV867C1 main-db generated", StringComparison.OrdinalIgnoreCase) && !line.StartsWith("-- ", StringComparison.Ordinal)).ToArray();
+        var sqlText = string.Join(Environment.NewLine, sqlLines);
+        Assert.Equal(0, sqlText.Count(ch => ch == '\'') % 2);
+        Assert.True(output.Split(';').Length >= 6, "Expected multiple complete semicolon-terminated statements.");
     }
 
     private static string FindTargetDotnetFile(string relativePath)
