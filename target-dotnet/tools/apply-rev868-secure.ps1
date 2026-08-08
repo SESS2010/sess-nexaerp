@@ -15,14 +15,20 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $targetRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $dotnetPath = Join-Path $targetRoot "..\.dotnet10\dotnet.exe"
-$psqlPath = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
+$pgBin = "C:\Program Files\PostgreSQL\17\bin"
+$psqlPath = Join-Path $pgBin "psql.exe"
+$pgDumpPath = Join-Path $pgBin "pg_dump.exe"
 $reportDir = Join-Path $targetRoot "local-evidence\rev868"
+$backupDir = Join-Path $targetRoot "backups\postgresql\pre-rev868"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $reportFile = Join-Path $reportDir "rev868_preflight_$timestamp.md"
+$backupFile = Join-Path $backupDir "$Database`_pre_rev868_$timestamp.dump"
 $foundationMigrationName = "20260808182945_Rev868PurchaseRequisitionFoundation"
 $migrationName = "20260808190920_Rev868PurchaseLocationAllocationCorrection"
 $securePassword = $null
 $plainPassword = $null
+$backupHash = ""
+$backupItem = $null
 
 function Write-Section([string]$Text) { Write-Host ""; Write-Host "== $Text ==" }
 function Add-Report([string]$Text) { Add-Content -LiteralPath $reportFile -Value $Text -Encoding utf8 }
@@ -91,9 +97,22 @@ function Write-SqlOnlyReport([System.Collections.Specialized.OrderedDictionary]$
     Add-Report "- Expected database: $Database"
     Add-Report "- Foundation migration: $foundationMigrationName"
     Add-Report "- Migration target: $migrationName"
+    Add-Report "- Backup directory if apply is approved: $backupDir"
     Add-Report "- No password requested and no PostgreSQL connection attempted."
     foreach ($entry in $SqlMap.GetEnumerator()) { Add-Report "## $($entry.Key)"; Add-Report '```sql'; Add-Report ([string]$entry.Value); Add-Report '```' }
     Write-Host "REV868 SQL source report: $reportFile"
+}
+function Create-PreRev868Backup {
+    Write-Section "Pre-REV868 backup"
+    New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+    & $pgDump -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
+    if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE. Migration application is stopped." }
+    $script:backupItem = Get-Item -LiteralPath $backupFile
+    if ($script:backupItem.Length -le 0) { throw "Pre-REV868 backup file has zero size. Migration application is stopped." }
+    $script:backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+    Add-Report "- Pre-REV868 backup path: $backupFile"
+    Add-Report "- Pre-REV868 backup bytes: $($script:backupItem.Length)"
+    Add-Report "- Pre-REV868 backup SHA-256: $script:backupHash"
 }
 
 try {
@@ -108,10 +127,14 @@ try {
     $gitExe = Resolve-GitExecutable $GitPath
     $dotnet = Resolve-ExecutablePath $dotnetPath ".NET executable"
     $psql = Resolve-ExecutablePath $psqlPath "psql.exe"
+    $pgDump = Resolve-ExecutablePath $pgDumpPath "pg_dump.exe"
     Set-Location $repoRoot
     $gitStatus = (& $gitExe status --short) -join "`n"
     $gitCommit = (& $gitExe rev-parse HEAD).Trim()
     if ($gitStatus) { throw "Git status is not clean before REV868 helper execution." }
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+    Add-Report "# REV868 Preflight/Application Report"
+    Add-Report "- Source commit: $gitCommit"
     Write-Host "Expected host: $HostName"
     Write-Host "Expected port: $Port"
     Write-Host "Expected database: $Database"
@@ -121,7 +144,6 @@ try {
     try { $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
     finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }
     $env:PGPASSWORD = $plainPassword
-    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
     $identity = Invoke-PsqlRead $sql["Session identity"]
     if ($identity -notmatch "database=$Database") { throw "Connected database mismatch." }
     $prerequisites = Invoke-PsqlRead $sql["Required migration prerequisites through REV867C1"]
@@ -130,18 +152,18 @@ try {
     if ($foundationPresent -match "present") { throw "REV868 foundation migration is already applied. Stop for management review." }
     $present = Invoke-PsqlRead $sql["REV868 correction migration presence"]
     if ($present -match "present") { throw "REV868 correction migration is already applied. Stop for management review." }
-    Add-Report "# REV868 Preflight Report"
-    Add-Report "- Source commit: $gitCommit"
     Add-Report "- Identity: $identity"
     Add-Report "- Required migration prerequisites through REV867C1: $prerequisites"
     Add-Report "- REV868 foundation migration presence: $foundationPresent"
     Add-Report "- REV868 correction migration presence: $present"
     if ($PreflightOnly) { Write-Host "REV868 preflight report: $reportFile"; return }
+    Create-PreRev868Backup
     $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$plainPassword"
     $env:NexaErp__ExpectedDatabase = $Database
     Set-Location $targetRoot
     & $dotnet ef database update $migrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --startup-project .\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj --context NexaErpDbContext
     if ($LASTEXITCODE -ne 0) { throw "REV868 migration application failed." }
+    Add-Report "- Migration target applied: $migrationName"
     Write-Host "REV868 migration applied. Generate post-run evidence separately."
 }
 finally {
@@ -151,4 +173,3 @@ finally {
     if ($plainPassword) { $plainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
-
