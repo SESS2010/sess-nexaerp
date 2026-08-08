@@ -359,6 +359,49 @@ public sealed class Rev867VerificationScriptTests
         Assert.True(output.Split(';').Length >= 6, "Expected multiple complete semicolon-terminated statements.");
     }
 
+    [Fact]
+    public void Rev867C1_isolated_resume_helper_never_applies_migrations_or_destructive_operations()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "resume-rev867c1-isolated-verification-secure.ps1"));
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.Contains("sess_nexaerp_rev867c1_verify", script);
+        Assert.Contains("This resume helper is permanently restricted to sess_nexaerp_rev867c1_verify on localhost:5432.", script);
+        Assert.Contains("Expected migration ID missing before resume verification", script);
+        Assert.Contains("Rev867C1PostgresVerificationTests|Rev867MasterFoundationTests", script);
+        Assert.Contains("Test stdout/stderr", script);
+        Assert.DoesNotContain("database update", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ef database", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet ef", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createdb", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ALTER DATABASE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DELETE FROM", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UPDATE nexa", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Database=sess_nexaerp;", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Rev867C1_postgres_scope_test_uses_deterministic_resume_safe_records()
+    {
+        var testPath = FindTargetDotnetFile(Path.Combine("tests", "SESS.NexaERP.Tests", "Rev867C1PostgresVerificationTests.cs"));
+        var source = File.ReadAllText(testPath);
+
+        Assert.Contains("REV867C1-SCOPE-CUST-A", source);
+        Assert.Contains("REV867C1-SCOPE-CUST-B", source);
+        Assert.Contains("REV867C1-SCOPE-VEND-A", source);
+        Assert.Contains("REV867C1-SCOPE-VEND-B", source);
+        Assert.Contains("UpsertCustomerAsync", source);
+        Assert.Contains("UpsertVendorAsync", source);
+        Assert.Contains("crossCustomerCount", source);
+        Assert.Contains("crossVendorCount", source);
+        Assert.DoesNotContain("StartsWith(\"C1-CUST-\" + run)", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("StartsWith(\"C1-VEND-\" + run)", source, StringComparison.OrdinalIgnoreCase);
+    }
     private static string FindTargetDotnetFile(string relativePath)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -381,4 +424,3 @@ public sealed class Rev867VerificationScriptTests
         throw new FileNotFoundException($"Could not find {relativePath} from {AppContext.BaseDirectory}.");
     }
 }
-

@@ -89,20 +89,23 @@ public sealed class Rev867C1PostgresVerificationTests
         var connectionString = VerificationConnectionStringOrSkip();
         if (connectionString.Length == 0) return;
         await using var db = NewDb(connectionString);
-        var run = RunId();
-        var customerA = new Customer { CustomerCode = "C1-CUST-A-" + run, Name = "Customer A", LegalCustomerName = "Customer A", CustomerType = "Direct", Country = "India", PortalOrganizationId = "ORG-A-" + run, CreditLimit = 9999m, CreatedBy = "verify" };
-        var customerB = new Customer { CustomerCode = "C1-CUST-B-" + run, Name = "Customer B", LegalCustomerName = "Customer B", CustomerType = "Direct", Country = "India", PortalOrganizationId = "ORG-B-" + run, CreditLimit = 8888m, CreatedBy = "verify" };
-        var vendorA = new Vendor { VendorCode = "C1-VEND-A-" + run, Name = "Vendor A", LegalVendorName = "Vendor A", VendorType = "Material", Country = "India", PortalOrganizationId = "VORG-A-" + run, BankMetadataJson = "{\"account\":\"111\"}", CreatedBy = "verify" };
-        var vendorB = new Vendor { VendorCode = "C1-VEND-B-" + run, Name = "Vendor B", LegalVendorName = "Vendor B", VendorType = "Material", Country = "India", PortalOrganizationId = "VORG-B-" + run, BankMetadataJson = "{\"account\":\"222\"}", CreatedBy = "verify" };
-        db.Customers.AddRange(customerA, customerB);
-        db.Vendors.AddRange(vendorA, vendorB);
-        await db.SaveChangesAsync();
+        var customerA = await UpsertCustomerAsync(db, "REV867C1-SCOPE-CUST-A", "REV867C1-ORG-CUSTOMER-A", 9999m);
+        var customerB = await UpsertCustomerAsync(db, "REV867C1-SCOPE-CUST-B", "REV867C1-ORG-CUSTOMER-B", 8888m);
+        var vendorA = await UpsertVendorAsync(db, "REV867C1-SCOPE-VEND-A", "REV867C1-ORG-VENDOR-A", "{\"account\":\"111\"}");
+        var vendorB = await UpsertVendorAsync(db, "REV867C1-SCOPE-VEND-B", "REV867C1-ORG-VENDOR-B", "{\"account\":\"222\"}");
+        db.ChangeTracker.Clear();
 
-        var scopedCustomers = await MasterEndpointHelpers.ApplyCustomerOrganizationScope(db.Customers.AsNoTracking().Where(x => x.CustomerCode.StartsWith("C1-CUST-" + run)), new TestCurrentUser("customer-a", "customer", customerA.PortalOrganizationId)).Select(x => x.CustomerCode).ToListAsync();
-        var scopedVendors = await MasterEndpointHelpers.ApplyVendorOrganizationScope(db.Vendors.AsNoTracking().Where(x => x.VendorCode.StartsWith("C1-VEND-" + run)), new TestCurrentUser("vendor-a", "vendor", vendorA.PortalOrganizationId)).Select(x => x.VendorCode).ToListAsync();
+        var customerCodes = new[] { customerA.CustomerCode, customerB.CustomerCode };
+        var vendorCodes = new[] { vendorA.VendorCode, vendorB.VendorCode };
+        var scopedCustomers = await MasterEndpointHelpers.ApplyCustomerOrganizationScope(db.Customers.AsNoTracking().Where(x => customerCodes.Contains(x.CustomerCode)), new TestCurrentUser("customer-a", "customer", customerA.PortalOrganizationId)).OrderBy(x => x.CustomerCode).Select(x => x.CustomerCode).ToListAsync();
+        var scopedVendors = await MasterEndpointHelpers.ApplyVendorOrganizationScope(db.Vendors.AsNoTracking().Where(x => vendorCodes.Contains(x.VendorCode)), new TestCurrentUser("vendor-a", "vendor", vendorA.PortalOrganizationId)).OrderBy(x => x.VendorCode).Select(x => x.VendorCode).ToListAsync();
+        var crossCustomerCount = await MasterEndpointHelpers.ApplyCustomerOrganizationScope(db.Customers.AsNoTracking().Where(x => x.CustomerCode == customerB.CustomerCode), new TestCurrentUser("customer-a", "customer", customerA.PortalOrganizationId)).CountAsync();
+        var crossVendorCount = await MasterEndpointHelpers.ApplyVendorOrganizationScope(db.Vendors.AsNoTracking().Where(x => x.VendorCode == vendorB.VendorCode), new TestCurrentUser("vendor-a", "vendor", vendorA.PortalOrganizationId)).CountAsync();
 
         Assert.Equal([customerA.CustomerCode], scopedCustomers);
         Assert.Equal([vendorA.VendorCode], scopedVendors);
+        Assert.Equal(0, crossCustomerCount);
+        Assert.Equal(0, crossVendorCount);
     }
 
     private static NexaErpDbContext NewDb(string connectionString)
@@ -128,9 +131,50 @@ public sealed class Rev867C1PostgresVerificationTests
 
     private static string RunId() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
 
+    private static async Task<Customer> UpsertCustomerAsync(NexaErpDbContext db, string code, string organizationId, decimal creditLimit)
+    {
+        var customer = await db.Customers.SingleOrDefaultAsync(x => x.CustomerCode == code);
+        if (customer is null)
+        {
+            customer = new Customer { CustomerCode = code, CreatedBy = "verify" };
+            db.Customers.Add(customer);
+        }
+
+        customer.Name = code;
+        customer.LegalCustomerName = code;
+        customer.CustomerType = "Direct";
+        customer.Country = "India";
+        customer.PortalOrganizationId = organizationId;
+        customer.CreditLimit = creditLimit;
+        customer.UpdatedBy = "verify";
+        customer.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return customer;
+    }
+
+    private static async Task<Vendor> UpsertVendorAsync(NexaErpDbContext db, string code, string organizationId, string bankMetadata)
+    {
+        var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == code);
+        if (vendor is null)
+        {
+            vendor = new Vendor { VendorCode = code, CreatedBy = "verify" };
+            db.Vendors.Add(vendor);
+        }
+
+        vendor.Name = code;
+        vendor.LegalVendorName = code;
+        vendor.VendorType = "Material";
+        vendor.Country = "India";
+        vendor.PortalOrganizationId = organizationId;
+        vendor.BankMetadataJson = bankMetadata;
+        vendor.UpdatedBy = "verify";
+        vendor.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return vendor;
+    }
+
     private sealed record TestCurrentUser(string LoginId, string RoleCode, string? OrganizationId) : ICurrentUser
     {
         public bool IsAuthenticated => true;
     }
 }
-
