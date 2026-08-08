@@ -85,6 +85,7 @@ app.MapIdentityEndpoints();
 app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();
 app.MapInventoryEndpoints();
+app.MapPurchaseRequisitionEndpoints();
 app.MapAuditEndpoints();
 app.MapEmployeeEndpoints();
 

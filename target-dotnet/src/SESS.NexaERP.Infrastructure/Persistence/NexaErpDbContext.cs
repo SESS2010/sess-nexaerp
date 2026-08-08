@@ -5,6 +5,7 @@ using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
@@ -43,6 +44,17 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<MasterStatusHistory> MasterStatusHistories => Set<MasterStatusHistory>();
     public DbSet<MasterApprovalHistory> MasterApprovalHistories => Set<MasterApprovalHistory>();
     public DbSet<MasterAttachmentMetadata> MasterAttachmentMetadata => Set<MasterAttachmentMetadata>();
+    public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
+    public DbSet<PurchaseRequisitionLine> PurchaseRequisitionLines => Set<PurchaseRequisitionLine>();
+    public DbSet<PurchaseRequisitionStatusHistory> PurchaseRequisitionStatusHistories => Set<PurchaseRequisitionStatusHistory>();
+    public DbSet<PurchaseRequisitionApprovalHistory> PurchaseRequisitionApprovalHistories => Set<PurchaseRequisitionApprovalHistory>();
+    public DbSet<PurchaseRequisitionAttachment> PurchaseRequisitionAttachments => Set<PurchaseRequisitionAttachment>();
+    public DbSet<StockAvailabilityCheck> StockAvailabilityChecks => Set<StockAvailabilityCheck>();
+    public DbSet<StockAvailabilityCheckLine> StockAvailabilityCheckLines => Set<StockAvailabilityCheckLine>();
+    public DbSet<StockReservation> StockReservations => Set<StockReservation>();
+    public DbSet<StockReservationHistory> StockReservationHistories => Set<StockReservationHistory>();
+    public DbSet<PurchaseRequirementHandoff> PurchaseRequirementHandoffs => Set<PurchaseRequirementHandoff>();
+    public DbSet<PurchaseApprovalRouteSetting> PurchaseApprovalRouteSettings => Set<PurchaseApprovalRouteSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,6 +62,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         ConfigureIdentity(modelBuilder);
         ConfigureMasters(modelBuilder);
         ConfigureInventory(modelBuilder);
+        ConfigurePurchase(modelBuilder);
         ConfigureAudit(modelBuilder);
         ConfigureAuthorization(modelBuilder);
         ConfigureEmployees(modelBuilder);
@@ -424,6 +437,214 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         });
     }
 
+
+    private static void ConfigurePurchase(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PurchaseRequisition>(entity =>
+        {
+            entity.ToTable("purchase_requisitions");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.PrNumber).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.Status });
+            entity.HasIndex(x => x.RequiredByDate);
+            entity.Property(x => x.PrNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.OrganizationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Priority).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.PurposeJustification).HasMaxLength(2000).IsRequired();
+            entity.Property(x => x.CostCentre).HasMaxLength(120);
+            entity.Property(x => x.ProjectReference).HasMaxLength(160);
+            entity.Property(x => x.ServiceReference).HasMaxLength(160);
+            entity.Property(x => x.WorkOrderReference).HasMaxLength(160);
+            entity.Property(x => x.CustomerReference).HasMaxLength(160);
+            entity.Property(x => x.Status).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.EstimatedTotal).HasPrecision(18, 2);
+            entity.Property(x => x.SubmittedBy).HasMaxLength(160);
+            entity.Property(x => x.VerifiedBy).HasMaxLength(160);
+            entity.Property(x => x.ApprovedBy).HasMaxLength(160);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.RequestingDepartment).WithMany().HasForeignKey(x => x.RequestingDepartmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.RequesterEmployee).WithMany().HasForeignKey(x => x.RequesterEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.DeliveryWarehouse).WithMany().HasForeignKey(x => x.DeliveryWarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisitions_estimated_total_nonnegative", "\"EstimatedTotal\" >= 0"));
+        });
+
+        modelBuilder.Entity<PurchaseRequisitionLine>(entity =>
+        {
+            entity.ToTable("purchase_requisition_lines");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.PurchaseRequisitionId, x.LineNumber }).IsUnique();
+            entity.HasIndex(x => x.ItemId);
+            entity.Property(x => x.ItemCodeSnapshot).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ItemNameSnapshot).HasMaxLength(240).IsRequired();
+            entity.Property(x => x.UomSnapshot).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.SpecificationSnapshot).HasMaxLength(2000);
+            entity.Property(x => x.RequestedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.EstimatedUnitPriceSnapshot).HasPrecision(18, 2);
+            entity.Property(x => x.EstimatedLineTotal).HasPrecision(18, 2);
+            entity.Property(x => x.ProjectReference).HasMaxLength(160);
+            entity.Property(x => x.MachineReference).HasMaxLength(160);
+            entity.Property(x => x.ServiceReference).HasMaxLength(160);
+            entity.Property(x => x.OnHandSnapshot).HasPrecision(18, 3);
+            entity.Property(x => x.ActiveReservedSnapshot).HasPrecision(18, 3);
+            entity.Property(x => x.AvailableSnapshot).HasPrecision(18, 3);
+            entity.Property(x => x.InTransitSnapshot).HasPrecision(18, 3);
+            entity.Property(x => x.ReservedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.ShortageQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.ProcurementHandoffQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.LineStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany(x => x.Lines).HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PreferredWarehouse).WithMany().HasForeignKey(x => x.PreferredWarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table =>
+            {
+                table.HasCheckConstraint("CK_pr_lines_requested_qty_positive", "\"RequestedQuantity\" > 0");
+                table.HasCheckConstraint("CK_pr_lines_amounts_nonnegative", "\"EstimatedUnitPriceSnapshot\" >= 0 AND \"EstimatedLineTotal\" >= 0 AND \"ReservedQuantity\" >= 0 AND \"ShortageQuantity\" >= 0 AND \"ProcurementHandoffQuantity\" >= 0");
+            });
+        });
+
+        modelBuilder.Entity<PurchaseRequisitionStatusHistory>(entity =>
+        {
+            entity.ToTable("purchase_requisition_status_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.PurchaseRequisitionId, x.CreatedAt });
+            entity.Property(x => x.PrNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.PreviousStatus).HasMaxLength(60);
+            entity.Property(x => x.NewStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Reason).HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.ActorLoginId).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ActorRoleCode).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseRequisitionApprovalHistory>(entity =>
+        {
+            entity.ToTable("purchase_requisition_approval_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.PurchaseRequisitionId, x.CreatedAt });
+            entity.Property(x => x.PrNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Action).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.FromStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.ToStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.ActorLoginId).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ActorRoleCode).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseRequisitionAttachment>(entity =>
+        {
+            entity.ToTable("purchase_requisition_attachments");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.PurchaseRequisitionId, x.StorageKey }).IsUnique();
+            entity.Property(x => x.FileName).HasMaxLength(260).IsRequired();
+            entity.Property(x => x.StorageKey).HasMaxLength(512).IsRequired();
+            entity.Property(x => x.ContentType).HasMaxLength(120);
+            entity.Property(x => x.UploadedBy).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StockAvailabilityCheck>(entity =>
+        {
+            entity.ToTable("stock_availability_checks");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.CheckNumber).IsUnique();
+            entity.HasIndex(x => x.PurchaseRequisitionId);
+            entity.Property(x => x.CheckNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.CheckedBy).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ResultStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StockAvailabilityCheckLine>(entity =>
+        {
+            entity.ToTable("stock_availability_check_lines");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.StockAvailabilityCheckId, x.PurchaseRequisitionLineId }).IsUnique();
+            entity.Property(x => x.RequestedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.OnHandQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.ActiveReservedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.AvailableQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.InTransitQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.ReservedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.ShortageQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.LineResultStatus).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.StockAvailabilityCheck).WithMany(x => x.Lines).HasForeignKey(x => x.StockAvailabilityCheckId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StockReservation>(entity =>
+        {
+            entity.ToTable("stock_reservations");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.ReservationNumber).IsUnique();
+            entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.Status }).IsUnique().HasFilter("\"Status\" = 'Active'");
+            entity.Property(x => x.ReservationNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ReservedQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.ReservedBy).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_stock_reservations_qty_positive", "\"ReservedQuantity\" > 0"));
+        });
+
+        modelBuilder.Entity<StockReservationHistory>(entity =>
+        {
+            entity.ToTable("stock_reservation_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.StockReservationId, x.CreatedAt });
+            entity.Property(x => x.Action).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.PreviousStatus).HasMaxLength(40);
+            entity.Property(x => x.NewStatus).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
+            entity.Property(x => x.ActorLoginId).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.StockReservation).WithMany().HasForeignKey(x => x.StockReservationId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseRequirementHandoff>(entity =>
+        {
+            entity.ToTable("purchase_requirement_handoffs");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.HandoffNumber).IsUnique();
+            entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.Status }).IsUnique().HasFilter("\"Status\" = 'PendingRFQ'");
+            entity.Property(x => x.HandoffNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.HandoffQuantity).HasPrecision(18, 3);
+            entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.HandoffBy).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_handoffs_qty_positive", "\"HandoffQuantity\" > 0"));
+        });
+
+        modelBuilder.Entity<PurchaseApprovalRouteSetting>(entity =>
+        {
+            entity.ToTable("purchase_approval_route_settings");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.RouteCode).IsUnique();
+            entity.Property(x => x.RouteCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.MinimumAmount).HasPrecision(18, 2);
+            entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
+            entity.Property(x => x.ApproverRoleCode).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+        });
+    }
     private static void ConfigureAudit(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AuditLog>(entity =>

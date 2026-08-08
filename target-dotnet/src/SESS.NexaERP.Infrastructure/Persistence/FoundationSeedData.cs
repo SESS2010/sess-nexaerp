@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Identity;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
@@ -51,7 +51,12 @@ public static class FoundationSeedData
         PageSeed("20000000-0000-0000-0000-000000000018", "employees.audit-history", "Employees", "Employee Audit History", "/employees/audit-history"),
         PageSeed("20000000-0000-0000-0000-000000000019", "masters.items", "Masters", "Item Master", "/masters/items"),
         PageSeed("20000000-0000-0000-0000-000000000020", "masters.warehouses", "Masters", "Warehouse/Store Master", "/masters/warehouses"),
-        PageSeed("20000000-0000-0000-0000-000000000021", "masters.rack-bins", "Masters", "Rack/Bin Location Master", "/masters/rack-bins")
+        PageSeed("20000000-0000-0000-0000-000000000021", "masters.rack-bins", "Masters", "Rack/Bin Location Master", "/masters/rack-bins"),
+        PageSeed("20000000-0000-0000-0000-000000000022", "purchase.requisitions", "Purchase", "Purchase Requisitions", "/purchase/requisitions"),
+        PageSeed("20000000-0000-0000-0000-000000000023", "purchase.requisition-approvals", "Purchase", "PR Approvals", "/purchase/requisition-approvals"),
+        PageSeed("20000000-0000-0000-0000-000000000024", "stores.stock-check", "Stores", "Stock Availability Check", "/stores/stock-check"),
+        PageSeed("20000000-0000-0000-0000-000000000025", "stores.reservations", "Stores", "Stock Reservations", "/stores/reservations"),
+        PageSeed("20000000-0000-0000-0000-000000000026", "purchase.requirement-handoff", "Purchase", "Purchase Requirement Handoff", "/purchase/requirement-handoff")
     ];
 
     private static Role RoleSeed(string id, string code, string name, bool isPrivileged)
