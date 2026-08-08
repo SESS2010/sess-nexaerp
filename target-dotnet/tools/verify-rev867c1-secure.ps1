@@ -40,7 +40,31 @@ function Resolve-GitExecutable([string]$ExplicitGitPath) {
 function Resolve-RipgrepExecutable { $cmd = Get-Command rg.exe -ErrorAction SilentlyContinue; if ($cmd -and $cmd.Source) { return $cmd.Source }; $root = "C:\Users\User\AppData\Local\OpenAI\Codex\bin"; if (Test-Path -LiteralPath $root) { $c = Get-ChildItem -LiteralPath $root -Filter rg.exe -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($c) { return $c.FullName } }; return $null }
 function Invoke-SecretScan([string]$Pattern, [string]$Root) { $rg = Resolve-RipgrepExecutable; if (-not $rg) { return "rg unavailable; manual secret scan required before approval" }; $scan = & $rg --pcre2 -n $Pattern $Root; $code = $LASTEXITCODE; if ($code -eq 0) { throw "Secret scan found prohibited patterns." }; if ($code -gt 1) { throw "Secret scanner failed with exit code $code." }; return "clean via rg.exe ($rg)" }
 function Invoke-Psql([string]$Sql, [string]$Db = $Database) { Assert-SafePgIdentifier $Db "Database name"; $sqlFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sess_nexa_rev867c1_" + [Guid]::NewGuid().ToString("N") + ".sql"); try { [System.IO.File]::WriteAllText($sqlFile, $Sql, [System.Text.UTF8Encoding]::new($false)); $old = $ErrorActionPreference; $ErrorActionPreference = "Continue"; try { $output = & $psql -h $HostName -p $Port -U $UserName -d $Db -v ON_ERROR_STOP=1 -At -f $sqlFile 2>&1; $exit = $LASTEXITCODE } finally { $ErrorActionPreference = $old }; if ($exit -ne 0) { throw "psql failed with exit code $exit. $(($output | ForEach-Object { $_.ToString() }) -join "`n")" }; return ($output -join "`n") } finally { Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue } }
-function Get-HistoryTableInfo { $raw = Invoke-Psql "select schemaname || chr(31) || tablename from pg_tables where tablename = '__EFMigrationsHistory' order by schemaname, tablename;"; foreach ($line in @($raw -split "`n" | Where-Object { $_ })) { $parts = $line -split [regex]::Escape($delimiter), 2; if ($parts.Count -eq 2) { return Join-PgQualifiedIdentifier $parts[0] $parts[1] } }; throw "EF migrations history table was not found after migration." }
+function Get-HistoryTableInfo([switch]$AllowMissing) {
+    $raw = Invoke-Psql "select n.nspname || chr(31) || c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('r','p') and c.relname = '__EFMigrationsHistory' order by n.nspname, c.relname;"
+    foreach ($line in @($raw -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $parts = $line -split [regex]::Escape($delimiter), 2
+        if ($parts.Count -eq 2) {
+            $schemaName = $parts[0].Trim()
+            $tableName = $parts[1].Trim()
+            Assert-SafePgIdentifier $schemaName "EF migrations history schema name"
+            Assert-SafePgIdentifier $tableName "EF migrations history table name"
+            return [pscustomobject]@{
+                Schema = $schemaName
+                Table = $tableName
+                QualifiedTable = Join-PgQualifiedIdentifier $schemaName $tableName
+            }
+        }
+    }
+    if ($AllowMissing) { return $null }
+    $diagnostic = Invoke-Psql "select table_schema || '.' || table_name from information_schema.tables where table_name ilike '%migration%' order by table_schema, table_name;"
+    if ([string]::IsNullOrWhiteSpace($diagnostic)) { $diagnostic = "none" }
+    throw "EF migrations history table was not found after migration. Migration-like tables: $diagnostic"
+}
+function Get-AppliedMigrationRows([object]$HistoryInfo) {
+    if (-not $HistoryInfo) { return "" }
+    return Invoke-Psql "SELECT `"MigrationId`" FROM $($HistoryInfo.QualifiedTable) ORDER BY `"MigrationId`";"
+}
 function Write-FailureReport([string]$Message) { New-Item -ItemType Directory -Force -Path $reportDir | Out-Null; Add-Report "# REV867C1 Verification Failed"; Add-Report ""; Add-Report "- Time: $(Get-Date -Format o)"; Add-Report "- Error: $Message"; Add-Report "- Database: $Database"; Add-Report "- Sensitive values are not written by this report."; Write-Host "REV867C1 verification failed. Sanitized report: $reportFile" }
 
 try {
@@ -62,10 +86,16 @@ try {
 
     Write-Section "Apply migrations to verification database only"
     Set-Location $targetRoot
-    & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --startup-project .\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj --context NexaErpDbContext
-    if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
-    $historyTable = Get-HistoryTableInfo
-    $migrationRows = Invoke-Psql "SELECT `"MigrationId`" FROM $historyTable ORDER BY `"MigrationId`";"
+    $historyInfo = Get-HistoryTableInfo -AllowMissing
+    $migrationRows = Get-AppliedMigrationRows $historyInfo
+    if ($migrationRows -match [regex]::Escape($MigrationName)) {
+        Write-Host "REV867C1 migration is already present in $($historyInfo.QualifiedTable). Resuming verification."
+    } else {
+        & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --startup-project .\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj --context NexaErpDbContext
+        if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
+        $historyInfo = Get-HistoryTableInfo
+        $migrationRows = Get-AppliedMigrationRows $historyInfo
+    }
     if ($migrationRows -notmatch [regex]::Escape($MigrationName)) { throw "REV867C1 migration was not found after update." }
 
     Write-Section "Build, tests and secret scan"
