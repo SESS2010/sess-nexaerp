@@ -46,7 +46,9 @@ function Get-HistoryTableInfo([string]$Db = $Database) { $raw = Invoke-Psql "sel
 function Add-Report([string]$Text) { Add-Content -LiteralPath $reportFile -Value $Text -Encoding utf8 }
 function Write-FailureReport([string]$Message) { New-Item -ItemType Directory -Force -Path $reportDir | Out-Null; Add-Report "# REV867 Verification Failed"; Add-Report ""; Add-Report "- Time: $(Get-Date -Format o)"; Add-Report "- Error: $Message"; Write-Host "REV867 verification failed. Sanitized report: $reportFile" }
 
-$securePassword = $null; $plainPassword = $null; $apiProcess = $null; $testOutput = @(); $buildOutput = @(); $backupItem = $null; $backupHash = ""; $rev867AlreadyApplied = $false
+$securePassword = $null; $plainPassword = $null; $apiProcess = $null
+$testOutput = @(); $buildOutput = @(); $restoreOutput = @(); $secretScanOutput = ""; $scanEvidence = ""; $databaseEvidence = [ordered]@{}
+$backupItem = $null; $backupFile = ""; $backupHash = ""; $rev867AlreadyApplied = $false
 try {
     Write-Section "REV867 no-secret prechecks"
     Assert-SafePgIdentifier $Database "Development database name"; Assert-SafePgIdentifier $UserName "PostgreSQL user name"
@@ -104,7 +106,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE. $(($testOutput | ForEach-Object { $_.ToString() }) -join "`n")" }
     $scanWordPattern = 'pass' + 'word|pwd|secret|token'
     $scanPattern = '(?i)\b(' + $scanWordPattern + ')\b\s*[:=]\s*[''"`]?(?!\$|%|\{|<|REDACTED|redacted|your_|change_me|example|placeholder)[^''"`\s;]+'
-    $scanEvidence = Invoke-SecretScan $scanPattern $targetRoot
+    $secretScanOutput = Invoke-SecretScan $scanPattern $targetRoot
+    $scanEvidence = $secretScanOutput
     Add-Report "# REV867 Master Foundation Verification"; Add-Report ""; Add-Report "- Source commit: $gitCommit"; Add-Report "- Migration: $MigrationName"; Add-Report "- Database: $Database on ${HostName}:$Port"; Add-Report "- Backup path: $backupFile"; Add-Report "- Backup bytes: $($backupItem.Length)"; Add-Report "- Backup SHA-256: $backupHash"; Add-Report "- Required master page count: $pageCount"; Add-Report "- Role-page permission count: $permissionCount"; Add-Report "- Normalized support table count: $supportTables"; Add-Report "- Secret scan: $scanEvidence"; Add-Report "- Restore verification database sess_nexaerp_restore_verify_rev866 was not modified or dropped."; Add-Report "- Transactions PR/RFQ/PO/GRN/stock movements were not implemented in REV867."; Add-Report ""; Add-Report "## Applied migrations"; Add-Report '```text'; Add-Report $migrations; Add-Report '```'; Add-Report ""; Add-Report "## Test output"; Add-Report '```text'; Add-Report (($testOutput | Select-Object -Last 20) -join "`n"); Add-Report '```'
     Write-Host "REV867 verification report: $reportFile"; Write-Host "Backup file: $backupFile"; Write-Host "Backup SHA-256: $backupHash"
 } catch { Write-FailureReport $_.Exception.Message; Write-Host $_.Exception.Message; throw } finally { if ($apiProcess -and -not $apiProcess.HasExited) { Stop-Process -Id $apiProcess.Id -Force -ErrorAction SilentlyContinue }; Remove-Item Env:\ConnectionStrings__NexaErp -ErrorAction SilentlyContinue; Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue; if ($plainPassword) { $plainPassword = $null }; if ($securePassword) { $securePassword.Dispose() } }
+
