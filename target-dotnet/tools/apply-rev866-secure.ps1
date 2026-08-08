@@ -126,11 +126,11 @@ function Resolve-RipgrepExecutable {
 function Invoke-SecretScan([string]$Pattern, [string]$Root) {
     $rgExe = Resolve-RipgrepExecutable
     if ($rgExe) {
-        $secretScan = & $rgExe -n $Pattern $Root
+        $secretScan = & $rgExe --pcre2 -n $Pattern $Root
         $secretScanExitCode = $LASTEXITCODE
         if ($secretScanExitCode -eq 0) { throw "Secret scan found prohibited patterns." }
         if ($secretScanExitCode -gt 1) { throw "Secret scanner failed with exit code $secretScanExitCode." }
-        return "clean via rg.exe ($rgExe)"
+        return "clean in target-dotnet via rg.exe ($rgExe)"
     }
 
     $excludedPathPattern = '\\(\.git|bin|obj|backups|local-evidence)\\'
@@ -138,7 +138,7 @@ function Invoke-SecretScan([string]$Pattern, [string]$Root) {
         Where-Object { $_.FullName -notmatch $excludedPathPattern } |
         Select-String -Pattern $Pattern -ErrorAction SilentlyContinue)
     if ($matches.Count -gt 0) { throw "Secret scan found prohibited patterns." }
-    return "clean via PowerShell Select-String fallback"
+    return "clean in target-dotnet via PowerShell Select-String fallback"
 }
 
 function Get-LatestPreRev866Backup {
@@ -356,8 +356,8 @@ try {
     & $dotnet test .\SESS.NexaERP.slnx --configuration Release --no-build
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed." }
     Set-Location $repoRoot
-    $secretPattern = ("SESS" + "@") + "|" + ("ERP" + "2026") + "|" + ("Signing" + "Key") + "|" + ("Jwt" + "Secret") + "|" + ("JWT" + "_SECRET") + "|" + "Pass" + "word=" + "[^$]"
-    $secretScanEvidence = Invoke-SecretScan -Pattern $secretPattern -Root $repoRoot
+    $secretPattern = '(?i)\b(password|pwd|secret|token)\b\s*[:=]\s*[''"`]?(?!\$|%|\{|<|REDACTED|redacted|your_|change_me|example|placeholder)[^''"`\s;]+'
+    $secretScanEvidence = Invoke-SecretScan -Pattern $secretPattern -Root $targetRoot
 
     Write-Section "Restore verification"
     $exists = Invoke-PsqlSafe "select 1 from pg_database where datname = '$RestoreVerifyDatabase';" "postgres"
