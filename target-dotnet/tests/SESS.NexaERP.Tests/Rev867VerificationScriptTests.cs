@@ -109,10 +109,61 @@ public sealed class Rev867VerificationScriptTests
         Assert.Contains("pg_namespace", script);
         Assert.Contains("pg_class", script);
         Assert.Contains("c.relkind::text", script);
-        Assert.Contains("to_regclass", script);
+        Assert.Contains("Get-DiagnosticSql", script);
+        Assert.DoesNotContain("to_regclass('", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("__EFMigrationsHistory", script);
         Assert.Contains("MigrationId", script);
         Assert.DoesNotContain("ConnectionStrings__NexaErp", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+
+
+    [Fact]
+    public void Rev867C1_generate_sql_only_outputs_complete_balanced_readonly_sql()
+    {
+        var scriptPath = FindTargetDotnetFile(Path.Combine("tools", "diagnose-rev867c1-readonly-secure.ps1"));
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        process.StartInfo.ArgumentList.Add("-NoProfile");
+        process.StartInfo.ArgumentList.Add("-ExecutionPolicy");
+        process.StartInfo.ArgumentList.Add("Bypass");
+        process.StartInfo.ArgumentList.Add("-File");
+        process.StartInfo.ArgumentList.Add(scriptPath);
+        process.StartInfo.ArgumentList.Add("-GenerateSqlOnly");
+
+        process.Start();
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(15000), "GenerateSqlOnly did not exit within 15 seconds.");
+        Assert.Equal(0, process.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(error), error);
+
+        Assert.DoesNotContain("Enter PostgreSQL password", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("-- Session identity", output);
+        Assert.Contains("select 'database=' || current_database()", output);
+        Assert.Contains("current_user", output);
+        Assert.Contains("inet_server_addr()", output);
+        Assert.Contains("inet_server_port()", output);
+        Assert.Contains("from pg_catalog.pg_namespace", output);
+        Assert.Contains("from pg_catalog.pg_class c", output);
+        Assert.Contains("c.relkind::text", output);
+        Assert.Contains("where c.relname = '__EFMigrationsHistory'", output);
+        Assert.Contains("where n.nspname = 'public' and c.relname = '__EFMigrationsHistory'", output);
+        Assert.Contains("select \"MigrationId\"", output);
+        Assert.Contains("from \"public\".\"__EFMigrationsHistory\"", output);
+        Assert.DoesNotContain("to_regclass", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("select coalesce(to_regclass('", output, StringComparison.OrdinalIgnoreCase);
+
+        var sqlLines = output.Split(Environment.NewLine).Where(line => !line.StartsWith("REV867C1 generated", StringComparison.OrdinalIgnoreCase) && !line.StartsWith("-- ", StringComparison.Ordinal)).ToArray();
+        var sqlText = string.Join(Environment.NewLine, sqlLines);
+        Assert.Equal(0, sqlText.Count(ch => ch == '\'') % 2);
+        Assert.True(output.Split(';').Length >= 6, "Expected multiple complete semicolon-terminated statements.");
     }
 
     [Fact]
