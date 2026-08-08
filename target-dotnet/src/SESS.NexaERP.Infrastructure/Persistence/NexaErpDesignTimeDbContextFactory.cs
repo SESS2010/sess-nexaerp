@@ -7,8 +7,11 @@ public sealed class NexaErpDesignTimeDbContextFactory : IDesignTimeDbContextFact
 {
     public NexaErpDbContext CreateDbContext(string[] args)
     {
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__NexaErp")
+            ?? throw new InvalidOperationException("Design-time connection string 'ConnectionStrings__NexaErp' must be supplied by a secure environment variable.");
+
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql("Host=localhost;Database=sess_nexaerp;Username=postgres")
+            .UseNpgsql(connectionString)
             .Options;
 
         return new NexaErpDbContext(options);
