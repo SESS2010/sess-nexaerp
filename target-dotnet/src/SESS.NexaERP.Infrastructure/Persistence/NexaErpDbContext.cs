@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
@@ -127,6 +127,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.VendorCode).IsUnique();
             entity.HasIndex(x => x.VendorStatus);
+            entity.HasIndex(x => x.PortalOrganizationId);
             entity.HasIndex(x => x.IsActive);
             entity.HasIndex(x => x.GstNumber).IsUnique().HasFilter("\"GstNumber\" IS NOT NULL");
             entity.HasIndex(x => new { x.PanNumber, x.LegalVendorName }).IsUnique().HasFilter("\"PanNumber\" IS NOT NULL");
@@ -607,3 +608,4 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         modelBuilder.Entity<AuditLog>().HasData(Rev866SeedData.CorrectiveAuditLogs);
     }
 }
+

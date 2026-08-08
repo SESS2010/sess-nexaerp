@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -75,5 +76,49 @@ public sealed class Rev867MasterFoundationTests
                 Assert.False(row.HasFullControl);
             });
         }
+    }
+
+    [Fact]
+    public void Rev867c1_self_approval_detection_blocks_creator_and_submitter_even_for_high_roles()
+    {
+        var item = new Item { CreatedBy = "SESS-001", UpdatedBy = "SESS-001" };
+        var user = new TestCurrentUser("SESS-001", "technical_director", null);
+
+        Assert.True(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt(item, user));
+    }
+
+    [Fact]
+    public void Rev867c1_customer_scope_uses_authenticated_organization_claim()
+    {
+        var user = new TestCurrentUser("customer-a", "customer", "ORG-A");
+        var rows = new[]
+        {
+            new Customer { CustomerCode = "CUST-A", LegalCustomerName = "A", Name = "A", CustomerType = "Direct", Country = "India", PortalOrganizationId = "ORG-A" },
+            new Customer { CustomerCode = "CUST-B", LegalCustomerName = "B", Name = "B", CustomerType = "Direct", Country = "India", PortalOrganizationId = "ORG-B" }
+        }.AsQueryable();
+
+        var visible = SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.ApplyCustomerOrganizationScope(rows, user).Select(x => x.CustomerCode).ToList();
+
+        Assert.Equal(["CUST-A"], visible);
+    }
+
+    [Fact]
+    public void Rev867c1_vendor_scope_uses_authenticated_organization_claim()
+    {
+        var user = new TestCurrentUser("vendor-a", "vendor", "VORG-A");
+        var rows = new[]
+        {
+            new Vendor { VendorCode = "VEND-A", LegalVendorName = "A", Name = "A", VendorType = "Material", Country = "India", PortalOrganizationId = "VORG-A" },
+            new Vendor { VendorCode = "VEND-B", LegalVendorName = "B", Name = "B", VendorType = "Material", Country = "India", PortalOrganizationId = "VORG-B" }
+        }.AsQueryable();
+
+        var visible = SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.ApplyVendorOrganizationScope(rows, user).Select(x => x.VendorCode).ToList();
+
+        Assert.Equal(["VEND-A"], visible);
+    }
+
+    private sealed record TestCurrentUser(string LoginId, string RoleCode, string? OrganizationId) : ICurrentUser
+    {
+        public bool IsAuthenticated => true;
     }
 }

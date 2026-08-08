@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
@@ -25,7 +25,7 @@ public static class MasterEndpoints
         group.MapGet("/customers", async (NexaErpDbContext db, IPagePermissionService permissions, ICurrentUser currentUser, int? page, int? pageSize, string? search, string? status, string? type, string? sortBy, string? sortDirection, CancellationToken cancellationToken) =>
         {
             var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-            var query = db.Customers.AsNoTracking();
+            var query = MasterEndpointHelpers.ApplyCustomerOrganizationScope(db.Customers.AsNoTracking(), currentUser);
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var term = search.Trim().ToUpperInvariant();
@@ -53,7 +53,7 @@ public static class MasterEndpoints
         group.MapGet("/customers/{customerCode}", async (string customerCode, NexaErpDbContext db, IPagePermissionService permissions, ICurrentUser currentUser, CancellationToken cancellationToken) =>
         {
             var code = MasterEndpointHelpers.NormalizeCode(customerCode);
-            var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(existing => existing.CustomerCode == code, cancellationToken);
+            var customer = await MasterEndpointHelpers.ApplyCustomerOrganizationScope(db.Customers.AsNoTracking(), currentUser).SingleOrDefaultAsync(existing => existing.CustomerCode == code, cancellationToken);
             if (customer is null) return Results.NotFound(new { message = "Customer not found." });
             var canViewCredit = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.customers", cancellationToken);
             return Results.Ok(ToDetail(customer, canViewCredit));
@@ -113,7 +113,7 @@ public static class MasterEndpoints
         group.MapGet("/vendors", async (NexaErpDbContext db, IPagePermissionService permissions, ICurrentUser currentUser, int? page, int? pageSize, string? search, string? status, string? type, string? sortBy, string? sortDirection, CancellationToken cancellationToken) =>
         {
             var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-            var query = db.Vendors.AsNoTracking();
+            var query = MasterEndpointHelpers.ApplyVendorOrganizationScope(db.Vendors.AsNoTracking(), currentUser);
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var term = search.Trim().ToUpperInvariant();
@@ -288,6 +288,7 @@ public static class MasterEndpoints
         vendor.CreditPeriodDays = request.CreditPeriodDays;
         vendor.BankMetadataJson = MasterEndpointHelpers.NormalizeOptional(request.BankMetadataJson);
         vendor.AttachmentMetadataJson = MasterEndpointHelpers.NormalizeOptional(request.AttachmentMetadataJson);
+        vendor.PortalOrganizationId = vendor.VendorCode;
         if (create) vendor.CreatedBy = loginId; else { vendor.UpdatedBy = loginId; vendor.UpdatedAt = DateTimeOffset.UtcNow; }
     }
 
@@ -299,3 +300,4 @@ public static class MasterEndpoints
 
     private static VendorDetail ToDetail(Vendor vendor, bool canViewBank) => new(vendor.Id, vendor.VendorCode, vendor.Name, vendor.LegalVendorName, vendor.TradeName, vendor.VendorType, vendor.GstNumber, vendor.PanNumber, vendor.MsmeStatus, vendor.MsmeNumber, vendor.ContactPerson, vendor.Phone, vendor.Email, vendor.BillingAddress, vendor.ShippingAddress, vendor.State, vendor.StateCode, vendor.Country, vendor.MaterialServiceCategories, vendor.ApprovedMakes, vendor.PaymentTerms, vendor.DeliveryTerms, vendor.CreditPeriodDays, canViewBank ? vendor.BankMetadataJson : null, vendor.AttachmentMetadataJson, vendor.ApprovalStatus, vendor.VendorStatus, vendor.IsActive, vendor.Version);
 }
+

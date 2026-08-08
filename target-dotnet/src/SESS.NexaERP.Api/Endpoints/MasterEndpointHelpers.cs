@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+using System.Linq.Expressions;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
@@ -134,12 +134,12 @@ public static partial class MasterEndpointHelpers
     {
         if (string.IsNullOrWhiteSpace(remarks)) return Results.BadRequest(new { message = "Remarks/reason are required for this action." });
         if (IsMismatch(version, entity.Version)) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-        if (action == "Approve" && string.Equals(entity.CreatedBy, currentUser.LoginId, StringComparison.OrdinalIgnoreCase))
+        var before = new { Status = getStatus(entity), ApprovalStatus = getApproval(entity), entity.Version };
+        if (action == "Approve" && IsSelfApprovalAttempt(entity, currentUser))
         {
+            await audit.WriteAsync("Security", "Denied", masterType, entity.Id.ToString(), before, new { reason = "Self-approval blocked", attemptedAction = action, role = currentUser.RoleCode }, cancellationToken);
             return Results.Forbid();
         }
-
-        var before = new { Status = getStatus(entity), ApprovalStatus = getApproval(entity), entity.Version };
         var correlationId = $"REV867_{masterType}_{action}_{Guid.NewGuid():N}";
         setStatus(entity, nextStatus, currentUser.LoginId);
         setApproval(entity, nextApprovalStatus);
@@ -163,11 +163,37 @@ public static partial class MasterEndpointHelpers
         return Results.Ok(new { code, status = nextStatus, approvalStatus = nextApprovalStatus, entity.Version });
     }
 
+
+    public static bool IsSelfApprovalAttempt(AuditableEntity entity, ICurrentUser currentUser)
+    {
+        return string.Equals(entity.CreatedBy, currentUser.LoginId, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(entity.UpdatedBy) && string.Equals(entity.UpdatedBy, currentUser.LoginId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public static bool IsCustomerPortalUser(ICurrentUser currentUser) => string.Equals(currentUser.RoleCode, "customer", StringComparison.OrdinalIgnoreCase) || string.Equals(currentUser.RoleCode, "customer_user", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsVendorPortalUser(ICurrentUser currentUser) => string.Equals(currentUser.RoleCode, "vendor", StringComparison.OrdinalIgnoreCase) || string.Equals(currentUser.RoleCode, "vendor_user", StringComparison.OrdinalIgnoreCase);
+
+    public static IQueryable<Customer> ApplyCustomerOrganizationScope(IQueryable<Customer> query, ICurrentUser currentUser)
+    {
+        if (!IsCustomerPortalUser(currentUser)) return query;
+        var organizationId = NormalizeOptional(currentUser.OrganizationId);
+        return organizationId is null ? query.Where(customer => false) : query.Where(customer => customer.PortalOrganizationId == organizationId);
+    }
+
+    public static IQueryable<Vendor> ApplyVendorOrganizationScope(IQueryable<Vendor> query, ICurrentUser currentUser)
+    {
+        if (!IsVendorPortalUser(currentUser)) return query;
+        var organizationId = NormalizeOptional(currentUser.OrganizationId);
+        return organizationId is null ? query.Where(vendor => false) : query.Where(vendor => vendor.PortalOrganizationId == organizationId);
+    }
     [GeneratedRegex(@"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")]
     private static partial Regex GstinRegex();
 
     [GeneratedRegex(@"^[A-Z]{5}[0-9]{4}[A-Z]$")]
     private static partial Regex PanRegex();
 }
+
+
 
 

@@ -12,6 +12,8 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
 
     public string RoleCode => ClaimValue(ClaimTypes.Role) ?? ClaimValue("role") ?? "none";
 
+    public string? OrganizationId => ClaimValue("organization_id") ?? ClaimValue("org_id") ?? ClaimValue("portal_organization_id");
+
     public bool IsAuthenticated => httpContextAccessor.HttpContext?.User.Identity?.IsAuthenticated == true;
 
     private string? ClaimValue(string claimType)
@@ -19,3 +21,4 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
         return httpContextAccessor.HttpContext?.User.FindFirstValue(claimType);
     }
 }
+

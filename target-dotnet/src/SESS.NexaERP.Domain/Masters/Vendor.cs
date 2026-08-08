@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Common;
 
 namespace SESS.NexaERP.Domain.Masters;
 
@@ -29,9 +29,11 @@ public sealed class Vendor : AuditableEntity
     public int? CreditPeriodDays { get; set; }
     public string? BankMetadataJson { get; set; }
     public string? AttachmentMetadataJson { get; set; }
+    public string PortalOrganizationId { get; set; } = string.Empty;
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
     public string VendorStatus { get; set; } = MasterStatuses.Draft;
     public string? ApprovedBy { get; set; }
     public DateTimeOffset? ApprovedAt { get; set; }
     public bool IsActive { get; set; } = true;
 }
+
