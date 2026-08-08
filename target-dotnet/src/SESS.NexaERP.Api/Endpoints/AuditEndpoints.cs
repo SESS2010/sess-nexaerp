@@ -28,7 +28,7 @@ public static class AuditEndpoints
                 .OrderByDescending(log => log.CreatedAt)
                 .Skip((safePage - 1) * safePageSize)
                 .Take(safePageSize)
-                .Select(log => new AuditLogSummary(log.Id, log.Module, log.Action, log.EntityName, log.EntityId, log.UserLoginId, log.CreatedAt))
+                .Select(log => new AuditLogSummary(log.Id, log.Module, log.Action, log.EntityName, log.EntityId, log.UserLoginId, log.Result, log.CorrelationId, log.CreatedAt))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(rows);

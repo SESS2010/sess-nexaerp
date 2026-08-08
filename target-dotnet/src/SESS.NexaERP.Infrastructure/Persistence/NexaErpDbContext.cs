@@ -172,6 +172,8 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.EntityName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.EntityId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.UserLoginId).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Result).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.IpAddress).HasMaxLength(80);
             entity.Property(x => x.Version).IsConcurrencyToken();
         });
@@ -337,5 +339,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         modelBuilder.Entity<EmployeeSkill>().HasData(Rev866SeedData.EmployeeSkills);
         modelBuilder.Entity<EmployeeRoleAssignment>().HasData(Rev866SeedData.EmployeeRoleAssignments);
         modelBuilder.Entity<EmployeeImportHistory>().HasData(Rev866SeedData.EmployeeImportHistories);
+        modelBuilder.Entity<EmployeeStatusHistory>().HasData(Rev866SeedData.EmployeeStatusHistories);
+        modelBuilder.Entity<AuditLog>().HasData(Rev866SeedData.CorrectiveAuditLogs);
     }
 }

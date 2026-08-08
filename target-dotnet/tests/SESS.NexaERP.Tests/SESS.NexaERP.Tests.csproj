@@ -16,10 +16,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj" />
     <ProjectReference Include="..\..\src\SESS.NexaERP.Domain\SESS.NexaERP.Domain.csproj" />
     <ProjectReference Include="..\..\src\SESS.NexaERP.Application\SESS.NexaERP.Application.csproj" />
     <ProjectReference Include="..\..\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj" />

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
@@ -90,3 +90,4 @@ app.MapEmployeeEndpoints();
 
 app.Run();
 
+public partial class Program { }

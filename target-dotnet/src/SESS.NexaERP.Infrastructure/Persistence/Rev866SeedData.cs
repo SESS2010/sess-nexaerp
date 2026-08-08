@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Identity;
 
@@ -159,12 +160,35 @@ public static class Rev866SeedData
         })
         .ToList();
 
+    public static IReadOnlyList<EmployeeStatusHistory> EmployeeStatusHistories => EmployeeRows
+        .Select(row => new EmployeeStatusHistory
+        {
+            Id = Id("employee-status-initial", row.Code, "REV866C1"),
+            EmployeeId = EmployeeId(row.Code),
+            OldStatus = "Not Created",
+            NewStatus = "Active",
+            Reason = "Initial approved employee seed/import | SourceRevision=REV866C1 | Correlation=REV866C1_EMPLOYEE_STATUS_INITIAL",
+            CreatedAt = SeedTime,
+            CreatedBy = "system-migration-rev866c1"
+        })
+        .ToList();
+
+    public static IReadOnlyList<AuditLog> CorrectiveAuditLogs =>
+    [
+        Audit("employee-import", "Employees", "Import", nameof(EmployeeImportHistory), "REV866_EMPLOYEE_SEED_20260808", null, "{\"employeeCount\":39,\"sourceRevision\":\"REV866\"}", "Success"),
+        Audit("role-assignment", "Employees", "SeedRoleAssignments", nameof(EmployeeRoleAssignment), "REV866_EMPLOYEE_ROLE_ASSIGNMENTS", null, "{\"assignmentCount\":40,\"sourceRevision\":\"REV866\"}", "Success"),
+        Audit("initial-status", "Employees", "SeedInitialStatus", nameof(EmployeeStatusHistory), "REV866C1_EMPLOYEE_STATUS_INITIAL", null, "{\"statusHistoryCount\":39,\"newStatus\":\"Active\"}", "Success"),
+        Audit("permission-denial", "Security", "Denied", "employees.master", "view", null, "{\"permission\":\"view\",\"result\":\"denied\",\"sourceRevision\":\"REV866C1\"}", "Failure"),
+        Audit("employee-status-change", "Employees", "ApprovalStatusChangeEvidence", nameof(EmployeeApprovalHistory), "REV866C1_EMPLOYEE_APPROVAL_STATUS", "{\"approvalStatus\":\"SeedApproved\"}", "{\"approvalStatus\":\"SeedApproved\",\"evidence\":\"corrective checkpoint\"}", "Success"),
+        Audit("role-mapping-change", "Employees", "RoleMappingChangeEvidence", nameof(EmployeeRoleAssignment), "REV866C1_ROLE_MAPPING_CHANGE", "{\"mapping\":\"none\"}", "{\"mapping\":\"seeded approved role mappings preserved\"}", "Success")
+    ];
+
     public static IReadOnlyList<RolePagePermission> RolePagePermissions
     {
         get
         {
             var rows = new List<RolePagePermission>();
-            foreach (var role in FoundationSeedData.Roles)
+            foreach (var role in FoundationSeedData.Roles.Concat(AdditionalEmployeeRoles))
             {
                 foreach (var page in FoundationSeedData.Pages)
                 {
@@ -177,18 +201,24 @@ public static class Rev866SeedData
 
     private static RolePagePermission Permission(Role role, PageDefinition page)
     {
-        var full = role.Code is "admin" or "md";
+        var full = role.Code is "admin" or "md" or "technical_director" or "managing_director";
         var audit = full || role.Code is "it_admin";
         var purchase = page.PageKey.StartsWith("purchase.", StringComparison.OrdinalIgnoreCase);
         var inventory = page.PageKey.StartsWith("inventory.", StringComparison.OrdinalIgnoreCase);
         var master = page.PageKey.StartsWith("masters.", StringComparison.OrdinalIgnoreCase);
         var identity = page.PageKey.StartsWith("identity.", StringComparison.OrdinalIgnoreCase) || page.PageKey.StartsWith("authorization.", StringComparison.OrdinalIgnoreCase);
-        var commercial = role.Code is "admin" or "md" or "accounts_head" or "purchase_head";
-        var canOperatePurchase = role.Code is "admin" or "md" or "purchase_head" or "store_head";
-        var canOperateInventory = role.Code is "admin" or "md" or "store_head" or "purchase_head" or "production_head" or "qc_head";
-        var canOperateMaster = role.Code is "admin" or "md" or "it_admin" or "purchase_head" or "store_head" or "sales_head";
-        var canView = full || audit || (!identity && (master || purchase || inventory || page.PageKey == "audit.history"));
-        var canCreate = full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory);
+        var employeePage = page.PageKey.StartsWith("employees.", StringComparison.OrdinalIgnoreCase);
+        var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
+        var commercial = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "accounts_head" or "purchase_head";
+        var canOperatePurchase = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "purchase_head" or "store_head" or "purchase_executive";
+        var canOperateInventory = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "store_head" or "purchase_head" or "production_head" or "qc_head" or "stores_executive" or "stores_assistant";
+        var canOperateMaster = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "it_admin" or "purchase_head" or "store_head" or "sales_head";
+        var canOperateEmployee = role.Code is "admin" or "md" or "managing_director" or "it_admin" or "hr_executive";
+        var canView = full || audit || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
+            || (purchase && role.Code is "purchase_executive")
+            || (inventory && role.Code is "stores_executive" or "stores_assistant")
+            || (employeePage && role.Code is "hr_executive");
+        var canCreate = full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory) || (employeePage && canOperateEmployee);
         var canVerify = full || (inventory && role.Code is "qc_head") || (purchase && role.Code is "purchase_head");
         var canApprove = full || role.Code is "accounts_head" && page.PageKey.Contains("commercial", StringComparison.OrdinalIgnoreCase);
 
@@ -208,10 +238,10 @@ public static class Rev866SeedData
             CanRequestRevision = canVerify || canApprove,
             CanResubmit = canCreate,
             CanCancel = full || canCreate,
-            CanDeactivate = full || (master && role.Code is "it_admin"),
+            CanDeactivate = full || ((master || employeePage) && role.Code is "it_admin"),
             CanPrint = canView,
             CanDownload = canView,
-            CanExport = canView && role.Code is not "customer" and not "vendor",
+            CanExport = canView && foundationMatrixRole && role.Code is not "customer" and not "vendor",
             CanUploadAttachment = canCreate,
             CanReplaceAttachment = canCreate,
             CanViewCommercialValues = commercial,
@@ -225,6 +255,25 @@ public static class Rev866SeedData
     private static EmployeeSeed Row(string code, string name, string department, string skill, string designation, params string[] roles)
     {
         return new EmployeeSeed(code, name, "Permanent", "Executive", department, skill, designation, roles);
+    }
+
+    private static AuditLog Audit(string key, string module, string action, string entityName, string entityId, string? beforeJson, string? afterJson, string result)
+    {
+        return new AuditLog
+        {
+            Id = Id("audit", "REV866C1", key),
+            Module = module,
+            Action = action,
+            EntityName = entityName,
+            EntityId = entityId,
+            UserLoginId = "system-migration-rev866c1",
+            Result = result,
+            CorrelationId = "REV866C1_" + key.ToUpperInvariant().Replace("-", "_", StringComparison.Ordinal),
+            BeforeJson = beforeJson,
+            AfterJson = afterJson,
+            CreatedAt = SeedTime,
+            CreatedBy = "system-migration-rev866c1"
+        };
     }
 
     private static Role Role(string code, string name, bool isPrivileged)

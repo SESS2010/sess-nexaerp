@@ -7,4 +7,6 @@ public sealed record AuditLogSummary(
     string EntityName,
     string EntityId,
     string UserLoginId,
+    string Result,
+    string CorrelationId,
     DateTimeOffset CreatedAt);
