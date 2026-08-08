@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp",
     [string]$HostName = "localhost",
@@ -29,6 +29,7 @@ $requiredPreviousMigrations = @("20260808110924_Phase1Foundation", "202608081145
 $expectedHistorySchemaForCurrentEfConfig = "public"
 $script:DiagnosticMigrationsBefore = "not checked"
 $script:DiagnosticHistoryTables = "not checked"
+$script:PsqlFieldDelimiter = [char]31
 
 function Write-Section([string]$Text) {
     Write-Host ""
@@ -44,6 +45,10 @@ function Assert-SafePgIdentifier([string]$Name, [string]$Label) {
 function Quote-PgIdentifier([string]$Name) {
     Assert-SafePgIdentifier $Name "PostgreSQL identifier"
     return '"' + $Name.Replace('"', '""') + '"'
+}
+
+function Join-PgQualifiedIdentifier([string]$SchemaName, [string]$TableName) {
+    return (Quote-PgIdentifier $SchemaName) + "." + (Quote-PgIdentifier $TableName)
 }
 
 function Resolve-ExecutablePath([string]$Path, [string]$Label) {
@@ -94,7 +99,17 @@ function Resolve-GitExecutable([string]$ExplicitGitPath) {
 
 function Invoke-Psql([string]$Sql, [string]$Db = $Database) {
     Assert-SafePgIdentifier $Db "Database name"
-    & $psql -h $HostName -p $Port -U $UserName -d $Db -v ON_ERROR_STOP=1 -At -c $Sql
+    $sqlFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sess_nexa_rev866_" + [Guid]::NewGuid().ToString("N") + ".sql")
+    try {
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($sqlFile, $Sql, $utf8NoBom)
+        & $psql -h $HostName -p $Port -U $UserName -d $Db -v ON_ERROR_STOP=1 -At -f $sqlFile
+    }
+    finally {
+        if ($sqlFile -and (Test-Path -LiteralPath $sqlFile -PathType Leaf)) {
+            Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Invoke-PsqlSafe([string]$Sql, [string]$Db = $Database) {
@@ -107,16 +122,28 @@ function Add-Report([string]$Text) {
 }
 
 function Get-HistoryTableInfo([string]$Db = $Database) {
-    $schemasRaw = Invoke-PsqlSafe "select schemaname from pg_tables where tablename = '__EFMigrationsHistory' order by case when schemaname = 'public' then 0 when schemaname = 'nexa' then 1 else 2 end, schemaname;" $Db
-    $schemas = @($schemasRaw -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($schemas.Count -eq 0) {
+    $tablesRaw = Invoke-PsqlSafe "select schemaname || chr(31) || tablename from pg_tables where tablename = '__EFMigrationsHistory' order by case when schemaname = 'public' then 0 when schemaname = 'nexa' then 1 else 2 end, schemaname, tablename;" $Db
+    $historyTables = @()
+    foreach ($line in @($tablesRaw -split "`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })) {
+        $parts = $line -split [regex]::Escape($script:PsqlFieldDelimiter), 2
+        if ($parts.Count -ne 2) {
+            throw "Could not parse EF migration history table discovery output safely."
+        }
+        Assert-SafePgIdentifier $parts[0] "Migration history schema"
+        Assert-SafePgIdentifier $parts[1] "Migration history table"
+        $historyTables += [pscustomobject]@{
+            Schema = $parts[0]
+            Table = $parts[1]
+            QualifiedTable = Join-PgQualifiedIdentifier $parts[0] $parts[1]
+        }
+    }
+
+    if ($historyTables.Count -eq 0) {
         throw "No __EFMigrationsHistory table found in database $Db."
     }
 
-    foreach ($schema in $schemas) {
-        Assert-SafePgIdentifier $schema "Migration history schema"
-        $qualified = (Quote-PgIdentifier $schema) + '."__EFMigrationsHistory"'
-        $migrationRows = Invoke-PsqlSafe "select `"MigrationId`" from $qualified order by `"MigrationId`";" $Db
+    foreach ($historyTable in $historyTables) {
+        $migrationRows = Invoke-PsqlSafe "SELECT `"MigrationId`" FROM $($historyTable.QualifiedTable) ORDER BY `"MigrationId`";" $Db
         $hasAllRequired = $true
         foreach ($migration in $requiredPreviousMigrations) {
             if ($migrationRows -notmatch [regex]::Escape($migration)) {
@@ -126,19 +153,20 @@ function Get-HistoryTableInfo([string]$Db = $Database) {
 
         if ($hasAllRequired) {
             return [pscustomobject]@{
-                Schema = $schema
-                QualifiedTable = $qualified
+                Schema = $historyTable.Schema
+                Table = $historyTable.Table
+                QualifiedTable = $historyTable.QualifiedTable
                 Migrations = $migrationRows
-                AllSchemas = ($schemas -join ',')
+                AllTables = (($historyTables | ForEach-Object { "$($_.Schema).$($_.Table)" }) -join ',')
             }
         }
     }
 
-    $diagnostic = foreach ($schema in $schemas) {
-        $qualified = (Quote-PgIdentifier $schema) + '."__EFMigrationsHistory"'
-        "[$schema]`n" + (Invoke-PsqlSafe "select `"MigrationId`" from $qualified order by `"MigrationId`";" $Db)
+    $diagnostic = foreach ($historyTable in $historyTables) {
+        $migrationRows = Invoke-PsqlSafe "SELECT `"MigrationId`" FROM $($historyTable.QualifiedTable) ORDER BY `"MigrationId`";" $Db
+        "Schema: $($historyTable.Schema); Table: $($historyTable.Table); Relation: $($historyTable.QualifiedTable); Migration rows:`n$migrationRows"
     }
-    throw "Required previous migrations were not found in any discovered __EFMigrationsHistory table. Discovered history tables: $($schemas -join ','). Rows: $($diagnostic -join ' | ')"
+    throw "Required previous migrations were not found in any discovered __EFMigrationsHistory table. Discovered history tables: $((($historyTables | ForEach-Object { "$($_.Schema).$($_.Table)" }) -join ',')). Details: $($diagnostic -join ' | ')"
 }
 
 function Write-FailureReport([string]$Message) {
@@ -202,7 +230,7 @@ try {
     $dbName = Invoke-PsqlSafe "select current_database();"
     if ($dbName -ne $Database) { throw "Connected to unexpected database: $dbName" }
     $historyInfo = Get-HistoryTableInfo $Database
-    $script:DiagnosticHistoryTables = $historyInfo.AllSchemas
+    $script:DiagnosticHistoryTables = "Schema: $($historyInfo.Schema); Table: $($historyInfo.Table); Relation: $($historyInfo.QualifiedTable)"
     $script:DiagnosticMigrationsBefore = $historyInfo.Migrations
     if ($historyInfo.Schema -ne $expectedHistorySchemaForCurrentEfConfig) {
         throw "Existing EF migration history is in schema '$($historyInfo.Schema)', but current source has no MigrationsHistoryTable configuration and generated scripts are unqualified. Stop before applying REV866."
