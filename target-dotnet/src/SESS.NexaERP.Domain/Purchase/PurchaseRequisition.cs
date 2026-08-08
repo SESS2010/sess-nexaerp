@@ -45,6 +45,8 @@ public static class PurchaseRequisitionApprovalRoutes
 public sealed class PurchaseRequisition : AuditableEntity
 {
     public string PrNumber { get; set; } = string.Empty;
+    public string FinancialYear { get; set; } = string.Empty;
+    public long PrSequence { get; set; }
     public string OrganizationId { get; set; } = string.Empty;
     public Guid? RequestingDepartmentId { get; set; }
     public Department? RequestingDepartment { get; set; }
@@ -164,7 +166,11 @@ public sealed class StockAvailabilityCheckLine : AuditableEntity
     public Guid PurchaseRequisitionLineId { get; set; }
     public PurchaseRequisitionLine? PurchaseRequisitionLine { get; set; }
     public Guid ItemId { get; set; }
-    public Guid? WarehouseId { get; set; }
+    public Guid WarehouseId { get; set; }
+    public Warehouse? Warehouse { get; set; }
+    public Guid? RackBinId { get; set; }
+    public RackBin? RackBin { get; set; }
+    public string LocationKey { get; set; } = string.Empty;
     public decimal RequestedQuantity { get; set; }
     public decimal OnHandQuantity { get; set; }
     public decimal ActiveReservedQuantity { get; set; }
@@ -172,6 +178,7 @@ public sealed class StockAvailabilityCheckLine : AuditableEntity
     public decimal InTransitQuantity { get; set; }
     public decimal ReservedQuantity { get; set; }
     public decimal ShortageQuantity { get; set; }
+    public DateTimeOffset CheckedAt { get; set; } = DateTimeOffset.UtcNow;
     public string LineResultStatus { get; set; } = string.Empty;
 }
 
@@ -182,7 +189,11 @@ public sealed class StockReservation : AuditableEntity
     public Guid PurchaseRequisitionLineId { get; set; }
     public PurchaseRequisitionLine? PurchaseRequisitionLine { get; set; }
     public Guid ItemId { get; set; }
-    public Guid? WarehouseId { get; set; }
+    public Guid WarehouseId { get; set; }
+    public Warehouse? Warehouse { get; set; }
+    public Guid? RackBinId { get; set; }
+    public RackBin? RackBin { get; set; }
+    public string LocationKey { get; set; } = string.Empty;
     public decimal ReservedQuantity { get; set; }
     public string Status { get; set; } = "Active";
     public string ReservationNumber { get; set; } = string.Empty;
@@ -210,7 +221,11 @@ public sealed class PurchaseRequirementHandoff : AuditableEntity
     public Guid PurchaseRequisitionLineId { get; set; }
     public PurchaseRequisitionLine? PurchaseRequisitionLine { get; set; }
     public Guid ItemId { get; set; }
-    public Guid? WarehouseId { get; set; }
+    public Guid WarehouseId { get; set; }
+    public Warehouse? Warehouse { get; set; }
+    public Guid? RackBinId { get; set; }
+    public RackBin? RackBin { get; set; }
+    public string LocationKey { get; set; } = string.Empty;
     public decimal HandoffQuantity { get; set; }
     public string Status { get; set; } = "PendingRFQ";
     public string HandoffNumber { get; set; } = string.Empty;
@@ -225,5 +240,14 @@ public sealed class PurchaseApprovalRouteSetting : AuditableEntity
     public decimal MinimumAmount { get; set; }
     public decimal? MaximumAmount { get; set; }
     public string ApproverRoleCode { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class PurchaseNumberSequence : AuditableEntity
+{
+    public string OrganizationId { get; set; } = string.Empty;
+    public string FinancialYear { get; set; } = string.Empty;
+    public string Prefix { get; set; } = "PR";
+    public long LastNumber { get; set; }
     public bool IsActive { get; set; } = true;
 }

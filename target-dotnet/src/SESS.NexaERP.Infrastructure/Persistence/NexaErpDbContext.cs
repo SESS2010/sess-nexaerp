@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
@@ -55,6 +55,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<StockReservationHistory> StockReservationHistories => Set<StockReservationHistory>();
     public DbSet<PurchaseRequirementHandoff> PurchaseRequirementHandoffs => Set<PurchaseRequirementHandoff>();
     public DbSet<PurchaseApprovalRouteSetting> PurchaseApprovalRouteSettings => Set<PurchaseApprovalRouteSetting>();
+    public DbSet<PurchaseNumberSequence> PurchaseNumberSequences => Set<PurchaseNumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -445,9 +446,11 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable("purchase_requisitions");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.PrNumber).IsUnique();
+            entity.HasIndex(x => new { x.OrganizationId, x.FinancialYear, x.PrSequence }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
             entity.HasIndex(x => x.RequiredByDate);
             entity.Property(x => x.PrNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.FinancialYear).HasMaxLength(12).IsRequired();
             entity.Property(x => x.OrganizationId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.Priority).HasMaxLength(40).IsRequired();
             entity.Property(x => x.PurposeJustification).HasMaxLength(2000).IsRequired();
@@ -457,8 +460,8 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.WorkOrderReference).HasMaxLength(160);
             entity.Property(x => x.CustomerReference).HasMaxLength(160);
             entity.Property(x => x.Status).HasMaxLength(60).IsRequired();
-            entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
             entity.Property(x => x.EstimatedTotal).HasPrecision(18, 2);
+            entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
             entity.Property(x => x.SubmittedBy).HasMaxLength(160);
             entity.Property(x => x.VerifiedBy).HasMaxLength(160);
             entity.Property(x => x.ApprovedBy).HasMaxLength(160);
@@ -466,7 +469,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.HasOne(x => x.RequestingDepartment).WithMany().HasForeignKey(x => x.RequestingDepartmentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.RequesterEmployee).WithMany().HasForeignKey(x => x.RequesterEmployeeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.DeliveryWarehouse).WithMany().HasForeignKey(x => x.DeliveryWarehouseId).OnDelete(DeleteBehavior.Restrict);
-            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisitions_estimated_total_nonnegative", "\"EstimatedTotal\" >= 0"));
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisitions_estimated_total_nonnegative", "\"EstimatedTotal\" >= 0 AND \"PrSequence\" > 0"));
         });
 
         modelBuilder.Entity<PurchaseRequisitionLine>(entity =>
@@ -474,7 +477,6 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable("purchase_requisition_lines");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.PurchaseRequisitionId, x.LineNumber }).IsUnique();
-            entity.HasIndex(x => x.ItemId);
             entity.Property(x => x.ItemCodeSnapshot).HasMaxLength(80).IsRequired();
             entity.Property(x => x.ItemNameSnapshot).HasMaxLength(240).IsRequired();
             entity.Property(x => x.UomSnapshot).HasMaxLength(32).IsRequired();
@@ -501,6 +503,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             {
                 table.HasCheckConstraint("CK_pr_lines_requested_qty_positive", "\"RequestedQuantity\" > 0");
                 table.HasCheckConstraint("CK_pr_lines_amounts_nonnegative", "\"EstimatedUnitPriceSnapshot\" >= 0 AND \"EstimatedLineTotal\" >= 0 AND \"ReservedQuantity\" >= 0 AND \"ShortageQuantity\" >= 0 AND \"ProcurementHandoffQuantity\" >= 0");
+                table.HasCheckConstraint("CK_pr_lines_reconcile_requested", "\"ReservedQuantity\" <= \"RequestedQuantity\" AND \"ShortageQuantity\" = GREATEST(\"RequestedQuantity\" - \"ReservedQuantity\", 0) AND \"ProcurementHandoffQuantity\" = \"ShortageQuantity\"");
             });
         });
 
@@ -570,7 +573,9 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         {
             entity.ToTable("stock_availability_check_lines");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.StockAvailabilityCheckId, x.PurchaseRequisitionLineId }).IsUnique();
+            entity.HasIndex(x => new { x.StockAvailabilityCheckId, x.PurchaseRequisitionLineId, x.LocationKey }).IsUnique();
+            entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.WarehouseId, x.RackBinId });
+            entity.Property(x => x.LocationKey).HasMaxLength(120).IsRequired();
             entity.Property(x => x.RequestedQuantity).HasPrecision(18, 3);
             entity.Property(x => x.OnHandQuantity).HasPrecision(18, 3);
             entity.Property(x => x.ActiveReservedQuantity).HasPrecision(18, 3);
@@ -582,6 +587,9 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.StockAvailabilityCheck).WithMany(x => x.Lines).HasForeignKey(x => x.StockAvailabilityCheckId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.RackBin).WithMany().HasForeignKey(x => x.RackBinId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_stock_check_lines_quantities_valid", "\"RequestedQuantity\" > 0 AND \"OnHandQuantity\" >= 0 AND \"ActiveReservedQuantity\" >= 0 AND \"AvailableQuantity\" >= 0 AND \"InTransitQuantity\" >= 0 AND \"ReservedQuantity\" >= 0 AND \"ShortageQuantity\" >= 0 AND \"ReservedQuantity\" <= \"RequestedQuantity\""));
         });
 
         modelBuilder.Entity<StockReservation>(entity =>
@@ -589,8 +597,10 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable("stock_reservations");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.ReservationNumber).IsUnique();
-            entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.Status }).IsUnique().HasFilter("\"Status\" = 'Active'");
+            entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.LocationKey, x.Status }).IsUnique().HasFilter("\"Status\" = 'Active'");
+            entity.HasIndex(x => new { x.ItemId, x.WarehouseId, x.RackBinId, x.Status });
             entity.Property(x => x.ReservationNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.LocationKey).HasMaxLength(120).IsRequired();
             entity.Property(x => x.ReservedQuantity).HasPrecision(18, 3);
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
             entity.Property(x => x.ReservedBy).HasMaxLength(160).IsRequired();
@@ -598,6 +608,8 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.RackBin).WithMany().HasForeignKey(x => x.RackBinId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(table => table.HasCheckConstraint("CK_stock_reservations_qty_positive", "\"ReservedQuantity\" > 0"));
         });
 
@@ -623,6 +635,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.HasIndex(x => x.HandoffNumber).IsUnique();
             entity.HasIndex(x => new { x.PurchaseRequisitionLineId, x.Status }).IsUnique().HasFilter("\"Status\" = 'PendingRFQ'");
             entity.Property(x => x.HandoffNumber).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.LocationKey).HasMaxLength(120).IsRequired();
             entity.Property(x => x.HandoffQuantity).HasPrecision(18, 3);
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
             entity.Property(x => x.HandoffBy).HasMaxLength(160).IsRequired();
@@ -630,6 +643,8 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.PurchaseRequisition).WithMany().HasForeignKey(x => x.PurchaseRequisitionId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.PurchaseRequisitionLine).WithMany().HasForeignKey(x => x.PurchaseRequisitionLineId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => x.WarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.RackBin).WithMany().HasForeignKey(x => x.RackBinId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_handoffs_qty_positive", "\"HandoffQuantity\" > 0"));
         });
 
@@ -643,6 +658,19 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
             entity.Property(x => x.ApproverRoleCode).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_route_limits_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")"));
+        });
+
+        modelBuilder.Entity<PurchaseNumberSequence>(entity =>
+        {
+            entity.ToTable("purchase_number_sequences");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.OrganizationId, x.FinancialYear, x.Prefix }).IsUnique();
+            entity.Property(x => x.OrganizationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.FinancialYear).HasMaxLength(12).IsRequired();
+            entity.Property(x => x.Prefix).HasMaxLength(16).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_number_sequences_last_number_nonnegative", "\"LastNumber\" >= 0"));
         });
     }
     private static void ConfigureAudit(ModelBuilder modelBuilder)

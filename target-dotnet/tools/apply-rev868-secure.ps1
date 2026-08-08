@@ -48,6 +48,18 @@ select "MigrationId"
 from "public"."__EFMigrationsHistory"
 order by "MigrationId";
 "@.Trim()
+    $queries["Required migration prerequisites through REV867C1"] = @"
+select case when count(*) = 6 then 'present' else 'missing' end
+from "public"."__EFMigrationsHistory"
+where "MigrationId" in (
+    '20260808110924_Phase1Foundation',
+    '20260808114550_Phase1AuthorizationSeed',
+    '20260808123411_Rev866EmployeePermissionMatrix',
+    '20260808142353_Rev866CorrectiveStatusPermissionAudit',
+    '20260808151207_Rev867MasterFoundation',
+    '20260808160435_Rev867C1Corrections'
+);
+"@.Trim()
     $queries["REV868 migration presence"] = @"
 select case when exists (
     select 1 from "public"."__EFMigrationsHistory"
@@ -104,11 +116,14 @@ try {
     New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
     $identity = Invoke-PsqlRead $sql["Session identity"]
     if ($identity -notmatch "database=$Database") { throw "Connected database mismatch." }
+    $prerequisites = Invoke-PsqlRead $sql["Required migration prerequisites through REV867C1"]
+    if ($prerequisites -notmatch "present") { throw "Required migrations through REV867C1 are not present. Stop before REV868." }
     $present = Invoke-PsqlRead $sql["REV868 migration presence"]
     if ($present -match "present") { throw "REV868 migration is already applied. Stop for management review." }
     Add-Report "# REV868 Preflight Report"
     Add-Report "- Source commit: $gitCommit"
     Add-Report "- Identity: $identity"
+    Add-Report "- Required migration prerequisites through REV867C1: $prerequisites"
     Add-Report "- REV868 migration presence: $present"
     if ($PreflightOnly) { Write-Host "REV868 preflight report: $reportFile"; return }
     $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$plainPassword"
@@ -125,5 +140,4 @@ finally {
     if ($plainPassword) { $plainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
-
 

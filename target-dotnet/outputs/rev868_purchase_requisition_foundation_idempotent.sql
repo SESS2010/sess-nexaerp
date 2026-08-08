@@ -5405,6 +5405,50 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808182945_Rev868PurchaseRequisitionFoundation') THEN
+    ALTER TABLE nexa.purchase_requisitions ADD COLUMN IF NOT EXISTS "FinancialYear" character varying(12) NOT NULL DEFAULT '';
+    ALTER TABLE nexa.purchase_requisitions ADD COLUMN IF NOT EXISTS "PrSequence" bigint NOT NULL DEFAULT 1;
+    CREATE TABLE IF NOT EXISTS nexa.purchase_number_sequences (
+        "Id" uuid NOT NULL,
+        "OrganizationId" character varying(120) NOT NULL,
+        "FinancialYear" character varying(12) NOT NULL,
+        "Prefix" character varying(16) NOT NULL,
+        "LastNumber" bigint NOT NULL,
+        "IsActive" boolean NOT NULL,
+        "CreatedAt" timestamp with time zone NOT NULL,
+        "CreatedBy" text NOT NULL,
+        "UpdatedAt" timestamp with time zone NULL,
+        "UpdatedBy" text NULL,
+        "Version" bigint NOT NULL,
+        CONSTRAINT "PK_purchase_number_sequences" PRIMARY KEY ("Id"),
+        CONSTRAINT "CK_purchase_number_sequences_last_number_nonnegative" CHECK ("LastNumber" >= 0)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS "IX_purchase_number_sequences_OrganizationId_FinancialYear_Prefix" ON nexa.purchase_number_sequences ("OrganizationId", "FinancialYear", "Prefix");
+    CREATE UNIQUE INDEX IF NOT EXISTS "IX_purchase_requisitions_OrganizationId_FinancialYear_PrSequence" ON nexa.purchase_requisitions ("OrganizationId", "FinancialYear", "PrSequence");
+    ALTER TABLE nexa.purchase_requisition_lines ADD CONSTRAINT "CK_pr_lines_reconcile_requested" CHECK ("ReservedQuantity" <= "RequestedQuantity" AND "ShortageQuantity" = GREATEST("RequestedQuantity" - "ReservedQuantity", 0) AND "ProcurementHandoffQuantity" = "ShortageQuantity");
+    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
+    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    ALTER TABLE nexa.stock_availability_check_lines ADD COLUMN IF NOT EXISTS "CheckedAt" timestamp with time zone NOT NULL DEFAULT TIMESTAMPTZ '1970-01-01 00:00:00+00';
+    ALTER TABLE nexa.stock_availability_check_lines ALTER COLUMN "WarehouseId" SET NOT NULL;
+    ALTER TABLE nexa.stock_availability_check_lines ADD CONSTRAINT "CK_stock_check_lines_quantities_valid" CHECK ("RequestedQuantity" > 0 AND "OnHandQuantity" >= 0 AND "ActiveReservedQuantity" >= 0 AND "AvailableQuantity" >= 0 AND "InTransitQuantity" >= 0 AND "ReservedQuantity" >= 0 AND "ShortageQuantity" >= 0 AND "ReservedQuantity" <= "RequestedQuantity");
+    DROP INDEX IF EXISTS nexa."IX_stock_availability_check_lines_StockAvailabilityCheckId_Pur~";
+    CREATE UNIQUE INDEX IF NOT EXISTS "IX_stock_availability_check_lines_Check_Line_Location" ON nexa.stock_availability_check_lines ("StockAvailabilityCheckId", "PurchaseRequisitionLineId", "LocationKey");
+    CREATE INDEX IF NOT EXISTS "IX_stock_availability_check_lines_Line_Warehouse_Bin" ON nexa.stock_availability_check_lines ("PurchaseRequisitionLineId", "WarehouseId", "RackBinId");
+    ALTER TABLE nexa.stock_reservations ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
+    ALTER TABLE nexa.stock_reservations ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    ALTER TABLE nexa.stock_reservations ALTER COLUMN "WarehouseId" SET NOT NULL;
+    DROP INDEX IF EXISTS nexa."IX_stock_reservations_PurchaseRequisitionLineId_Status";
+    CREATE UNIQUE INDEX IF NOT EXISTS "IX_stock_reservations_Line_Location_Status" ON nexa.stock_reservations ("PurchaseRequisitionLineId", "LocationKey", "Status") WHERE "Status" = 'Active';
+    CREATE INDEX IF NOT EXISTS "IX_stock_reservations_Item_Warehouse_Bin_Status" ON nexa.stock_reservations ("ItemId", "WarehouseId", "RackBinId", "Status");
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD COLUMN IF NOT EXISTS "RackBinId" uuid NULL;
+    ALTER TABLE nexa.purchase_requirement_handoffs ADD COLUMN IF NOT EXISTS "LocationKey" character varying(120) NOT NULL DEFAULT '';
+    ALTER TABLE nexa.purchase_requirement_handoffs ALTER COLUMN "WarehouseId" SET NOT NULL;
+    ALTER TABLE nexa.purchase_approval_route_settings ADD CONSTRAINT "CK_purchase_route_limits_valid" CHECK ("MinimumAmount" >= 0 AND ("MaximumAmount" IS NULL OR "MaximumAmount" >= "MinimumAmount"));
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260808182945_Rev868PurchaseRequisitionFoundation') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
     VALUES ('20260808182945_Rev868PurchaseRequisitionFoundation', '10.0.10');
     END IF;

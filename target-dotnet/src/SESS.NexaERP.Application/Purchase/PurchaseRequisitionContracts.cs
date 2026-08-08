@@ -8,7 +8,9 @@ public sealed record UpdatePurchaseRequisitionRequest(DateOnly RequiredByDate, s
 
 public sealed record PurchaseRequisitionActionRequest(string Remarks, uint Version, string? IdempotencyKey = null);
 
-public sealed record StockCheckRequest(string Remarks, uint Version, string? IdempotencyKey = null);
+public sealed record StockCheckLocationRequest(int LineNumber, string WarehouseCode, string? RackBinCode = null);
+
+public sealed record StockCheckRequest(string Remarks, uint Version, string? IdempotencyKey = null, IReadOnlyList<StockCheckLocationRequest>? Locations = null);
 
 public sealed record PurchaseRequisitionLineSummary(Guid Id, int LineNumber, string ItemCode, string ItemName, string Uom, decimal RequestedQuantity, decimal EstimatedUnitPrice, decimal EstimatedLineTotal, decimal OnHand, decimal ActiveReserved, decimal Available, decimal ReservedQuantity, decimal ShortageQuantity, decimal HandoffQuantity, string LineStatus);
 
@@ -20,6 +22,6 @@ public sealed record PurchaseRequisitionHistorySummary(Guid Id, string Action, s
 
 public sealed record StockAvailabilityCheckSummary(Guid Id, string CheckNumber, string ResultStatus, string CheckedBy, DateTimeOffset CheckedAt, string Remarks);
 
-public sealed record StockReservationSummary(Guid Id, string ReservationNumber, string PrNumber, int LineNumber, string ItemCode, decimal ReservedQuantity, string Status);
+public sealed record StockReservationSummary(Guid Id, string ReservationNumber, string PrNumber, int LineNumber, string ItemCode, string WarehouseCode, string? RackBinCode, decimal ReservedQuantity, string Status);
 
-public sealed record PurchaseRequirementHandoffSummary(Guid Id, string HandoffNumber, string PrNumber, int LineNumber, string ItemCode, decimal HandoffQuantity, string Status);
+public sealed record PurchaseRequirementHandoffSummary(Guid Id, string HandoffNumber, string PrNumber, int LineNumber, string ItemCode, string WarehouseCode, string? RackBinCode, decimal HandoffQuantity, string Status);

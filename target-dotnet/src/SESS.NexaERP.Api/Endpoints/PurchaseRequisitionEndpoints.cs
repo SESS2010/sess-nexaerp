@@ -46,13 +46,15 @@ public static partial class PurchaseRequisitionEndpoints
 
         group.MapPost("", async (CreatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
         {
-            var validation = await ValidateDraftAsync(request, db, ct);
+            var validation = await ValidateDraftAsync(request, db, user, ct);
             if (validation is not null) return validation;
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
             var pr = await BuildDraftAsync(request, db, user, ct);
-            pr.PrNumber = await NextPrNumberAsync(db, ct);
+            pr.PrNumber = await NextPrNumberAsync(db, pr.OrganizationId, pr.RequestDate, user, ct);
             AddStatus(db, pr, null, PurchaseRequisitionStatuses.Draft, "Draft created", user, Correlation("CREATE"));
             db.PurchaseRequisitions.Add(pr);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
             await audit.WriteAsync("Purchase", "CreateDraft", nameof(PurchaseRequisition), pr.Id.ToString(), null, new { pr.PrNumber, pr.EstimatedTotal }, ct);
             return Results.Created($"/api/v1/purchase/requisitions/{pr.PrNumber}", ToDetail(await Reload(pr.Id, db, ct)));
         }).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
@@ -63,7 +65,7 @@ public static partial class PurchaseRequisitionEndpoints
             if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
             if (pr.Status != PurchaseRequisitionStatuses.Draft && pr.Status != PurchaseRequisitionStatuses.RevisionRequested) return Results.Conflict(new { message = "Only draft or revision-requested PR can be updated." });
             if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-            var validation = await ValidateDraftAsync(request, db, ct);
+            var validation = await ValidateDraftAsync(request, db, user, ct);
             if (validation is not null) return validation;
             var before = ToDetail(pr);
             await ApplyDraftAsync(pr, request, db, user, ct);
