@@ -67,7 +67,8 @@ try {
     $gitStatus = (git status --short) -join "`n"
     $gitCommit = (git rev-parse HEAD).Trim()
     if ($gitStatus) { throw "Git status is not clean before database verification." }
-    if ($gitCommit -ne "330807171ce7ba85cc30a984f7467893eb32559a") { throw "Unexpected commit: $gitCommit" }
+    git merge-base --is-ancestor "330807171ce7ba85cc30a984f7467893eb32559a" HEAD | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Required REV866 source baseline 330807171ce7ba85cc30a984f7467893eb32559a is not in the current history." }
 
     if (!(Test-Path -LiteralPath $psql) -or !(Test-Path -LiteralPath $pgDump) -or !(Test-Path -LiteralPath $pgRestore)) {
         throw "PostgreSQL 17 tools were not found under $pgBin."
@@ -135,7 +136,8 @@ try {
     Add-Report "# REV866 Database and Runtime Verification"
     Add-Report ""
     Add-Report "- Revision: REV866 database verification"
-    Add-Report "- Source commit: $gitCommit"
+    Add-Report "- Source baseline commit: 330807171ce7ba85cc30a984f7467893eb32559a"
+    Add-Report "- Verification helper commit: $gitCommit"
     Add-Report "- Database: $Database on ${HostName}:$Port"
     Add-Report "- Backup file: $backupFile"
     Add-Report "- Backup size bytes: $($backupItem.Length)"
@@ -175,6 +177,7 @@ finally {
     if ($PlainPassword) { $PlainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
+
 
 
 
