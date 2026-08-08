@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SESS.NexaERP.Api/SESS.NexaERP.Api.csproj" />
+    <Project Path="src/SESS.NexaERP.Application/SESS.NexaERP.Application.csproj" />
+    <Project Path="src/SESS.NexaERP.Domain/SESS.NexaERP.Domain.csproj" />
+    <Project Path="src/SESS.NexaERP.Infrastructure/SESS.NexaERP.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SESS.NexaERP.Tests/SESS.NexaERP.Tests.csproj" />
+  </Folder>
+</Solution>

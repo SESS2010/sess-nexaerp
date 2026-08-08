@@ -1,0 +1,13 @@
+node_modules/
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+*.tmp
+*.bak
+*.gz
+outputs/*.tmp
+.dotnet10/
