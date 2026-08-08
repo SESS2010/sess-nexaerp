@@ -1,9 +1,13 @@
-namespace SESS.NexaERP.Application.Masters;
+﻿namespace SESS.NexaERP.Application.Masters;
 
-public sealed record CustomerSummary(Guid Id, string CustomerCode, string Name, string? GstNumber, string? PanNumber, bool IsActive);
+public sealed record CustomerSummary(Guid Id, string CustomerCode, string Name, string? GstNumber, string? PanNumber, string? PortalOrganizationId, string Status, string ApprovalStatus, bool IsActive, uint Version, decimal? CreditLimit);
 
-public sealed record CreateCustomerRequest(string CustomerCode, string Name, string? GstNumber, string? PanNumber);
+public sealed record CustomerDetail(Guid Id, string CustomerCode, string Name, string LegalCustomerName, string? TradeName, string CustomerType, string? GstNumber, string? PanNumber, string? BillingAddress, string? ShippingAddress, string? State, string? StateCode, string Country, string? ContactPerson, string? Phone, string? Email, string? Industry, string? PaymentTerms, int? CreditPeriodDays, decimal? CreditLimit, string PortalOrganizationId, string Status, string ApprovalStatus, bool IsActive, uint Version);
 
-public sealed record VendorSummary(Guid Id, string VendorCode, string Name, string? GstNumber, string? PanNumber, string ApprovalStatus, bool IsActive);
+public sealed record UpsertCustomerRequest(string CustomerCode, string LegalCustomerName, string? TradeName, string CustomerType, string? GstNumber, string? PanNumber, string? BillingAddress, string? ShippingAddress, string? State, string? StateCode, string Country, string? ContactPerson, string? Phone, string? Email, string? Industry, string? PaymentTerms, int? CreditPeriodDays, decimal? CreditLimit, string PortalOrganizationId, uint? Version);
 
-public sealed record CreateVendorRequest(string VendorCode, string Name, string? GstNumber, string? PanNumber);
+public sealed record VendorSummary(Guid Id, string VendorCode, string Name, string? GstNumber, string? PanNumber, string ApprovalStatus, string VendorStatus, bool IsActive, uint Version, object? BankMetadata);
+
+public sealed record VendorDetail(Guid Id, string VendorCode, string Name, string LegalVendorName, string? TradeName, string VendorType, string? GstNumber, string? PanNumber, bool MsmeStatus, string? MsmeNumber, string? ContactPerson, string? Phone, string? Email, string? BillingAddress, string? ShippingAddress, string? State, string? StateCode, string Country, string? MaterialServiceCategories, string? ApprovedMakes, string? PaymentTerms, string? DeliveryTerms, int? CreditPeriodDays, object? BankMetadata, string? AttachmentMetadataJson, string ApprovalStatus, string VendorStatus, bool IsActive, uint Version);
+
+public sealed record UpsertVendorRequest(string VendorCode, string LegalVendorName, string? TradeName, string VendorType, string? GstNumber, string? PanNumber, bool MsmeStatus, string? MsmeNumber, string? ContactPerson, string? Phone, string? Email, string? BillingAddress, string? ShippingAddress, string? State, string? StateCode, string Country, string? MaterialServiceCategories, string? ApprovedMakes, string? PaymentTerms, string? DeliveryTerms, int? CreditPeriodDays, string? BankMetadataJson, string? AttachmentMetadataJson, uint? Version);

@@ -48,7 +48,10 @@ public static class FoundationSeedData
         PageSeed("20000000-0000-0000-0000-000000000015", "audit.history", "Audit", "Audit History", "/audit/history"),
         PageSeed("20000000-0000-0000-0000-000000000016", "employees.master", "Employees", "Employee Master", "/employees"),
         PageSeed("20000000-0000-0000-0000-000000000017", "employees.role-mapping", "Employees", "Employee Role Mapping", "/employees/roles"),
-        PageSeed("20000000-0000-0000-0000-000000000018", "employees.audit-history", "Employees", "Employee Audit History", "/employees/audit-history")
+        PageSeed("20000000-0000-0000-0000-000000000018", "employees.audit-history", "Employees", "Employee Audit History", "/employees/audit-history"),
+        PageSeed("20000000-0000-0000-0000-000000000019", "masters.items", "Masters", "Item Master", "/masters/items"),
+        PageSeed("20000000-0000-0000-0000-000000000020", "masters.warehouses", "Masters", "Warehouse/Store Master", "/masters/warehouses"),
+        PageSeed("20000000-0000-0000-0000-000000000021", "masters.rack-bins", "Masters", "Rack/Bin Location Master", "/masters/rack-bins")
     ];
 
     private static Role RoleSeed(string id, string code, string name, bool isPrivileged)
@@ -80,5 +83,3 @@ public static class FoundationSeedData
         };
     }
 }
-
-
