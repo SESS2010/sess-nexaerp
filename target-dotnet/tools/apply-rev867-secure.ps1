@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp",
     [string]$HostName = "localhost",
@@ -46,7 +46,7 @@ function Get-HistoryTableInfo([string]$Db = $Database) { $raw = Invoke-Psql "sel
 function Add-Report([string]$Text) { Add-Content -LiteralPath $reportFile -Value $Text -Encoding utf8 }
 function Write-FailureReport([string]$Message) { New-Item -ItemType Directory -Force -Path $reportDir | Out-Null; Add-Report "# REV867 Verification Failed"; Add-Report ""; Add-Report "- Time: $(Get-Date -Format o)"; Add-Report "- Error: $Message"; Write-Host "REV867 verification failed. Sanitized report: $reportFile" }
 
-$securePassword = $null; $plainPassword = $null; $apiProcess = $null
+$securePassword = $null; $plainPassword = $null; $apiProcess = $null; $testOutput = @(); $buildOutput = @(); $backupItem = $null; $backupHash = ""; $rev867AlreadyApplied = $false
 try {
     Write-Section "REV867 no-secret prechecks"
     Assert-SafePgIdentifier $Database "Development database name"; Assert-SafePgIdentifier $UserName "PostgreSQL user name"
@@ -58,10 +58,50 @@ try {
     $securePassword = Read-Host -AsSecureString "Enter PostgreSQL password for local development database only"; $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword); try { $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { if ($bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) } }
     $env:PGPASSWORD = $plainPassword; $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$plainPassword"
     New-Item -ItemType Directory -Force -Path $backupDir | Out-Null; New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
-    Write-Section "Pre-REV867 database checks"; $dbName = Invoke-Psql "select current_database();"; if ($dbName -ne $Database) { throw "Connected to unexpected database: $dbName" }; $history = Get-HistoryTableInfo $Database; if ($history.Migrations -match [regex]::Escape($MigrationName)) { throw "REV867 migration is already applied. Stop and review existing evidence." }
-    Write-Section "Pre-REV867 backup"; & $pgDump -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile; if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }; $backupItem = Get-Item -LiteralPath $backupFile; if ($backupItem.Length -le 0) { throw "Backup file has zero size." }; $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
-    Write-Section "Apply REV867 migration"; Set-Location $targetRoot; & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --context NexaErpDbContext; if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
-    Write-Section "Post-migration evidence"; $after = Get-HistoryTableInfo $Database; $migrations = Invoke-Psql "SELECT `"MigrationId`" FROM $($after.QualifiedTable) ORDER BY `"MigrationId`";"; $pageCount = Invoke-Psql "select count(*) from nexa.page_definitions where `"PageKey`" in ('masters.items','masters.vendors','masters.customers','masters.warehouses','masters.rack-bins');"; $permissionCount = Invoke-Psql 'select count(*) from nexa.role_page_permissions;'; $supportTables = Invoke-Psql "select count(*) from information_schema.tables where table_schema = 'nexa' and table_name in ('item_categories','item_subcategories','uoms','manufacturers','vendor_contacts','vendor_addresses','customer_contacts','customer_addresses','master_status_history','master_approval_history','master_attachment_metadata');"
+    Write-Section "Pre-REV867 database checks"
+    $dbName = Invoke-Psql "select current_database();"
+    if ($dbName -ne $Database) { throw "Connected to unexpected database: $dbName" }
+    $history = Get-HistoryTableInfo $Database
+    $rev867AlreadyApplied = $history.Migrations -match [regex]::Escape($MigrationName)
+
+    if ($rev867AlreadyApplied) {
+        Write-Section "Pre-REV867 backup"
+        Write-Host "REV867 migration is already applied. Resuming verification with the latest existing pre-REV867 backup."
+        $backupItem = Get-ChildItem -LiteralPath $backupDir -Filter "$Database`_pre_rev867_*.dump" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $backupItem) { throw "REV867 is already applied, but no pre-REV867 backup was found in $backupDir." }
+        if ($backupItem.Length -le 0) { throw "Existing pre-REV867 backup file has zero size." }
+        $backupFile = $backupItem.FullName
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+    } else {
+        Write-Section "Pre-REV867 backup"
+        & $pgDump -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
+        if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }
+        $backupItem = Get-Item -LiteralPath $backupFile
+        if ($backupItem.Length -le 0) { throw "Backup file has zero size." }
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+
+        Write-Section "Apply REV867 migration"
+        Set-Location $targetRoot
+        & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --context NexaErpDbContext
+        if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
+    }
+
+    Write-Section "Post-migration evidence"
+    $after = Get-HistoryTableInfo $Database
+    $migrations = Invoke-Psql "SELECT `"MigrationId`" FROM $($after.QualifiedTable) ORDER BY `"MigrationId`";"
+    if ($migrations -notmatch [regex]::Escape($MigrationName)) { throw "REV867 migration is not present after verification." }
+    $pageCount = Invoke-Psql "select count(*) from nexa.page_definitions where `"PageKey`" in ('masters.items','masters.vendors','masters.customers','masters.warehouses','masters.rack-bins');"
+    $permissionCount = Invoke-Psql 'select count(*) from nexa.role_page_permissions;'
+    $supportTables = Invoke-Psql "select count(*) from information_schema.tables where table_schema = 'nexa' and table_name in ('item_categories','item_subcategories','uoms','manufacturers','vendor_contacts','vendor_addresses','customer_contacts','customer_addresses','master_status_history','master_approval_history','master_attachment_metadata');"
+
+    Write-Section "Build, tests and secret scan"
+    Set-Location $targetRoot
+    $restoreOutput = & $dotnet restore .\SESS.NexaERP.slnx 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed with exit code $LASTEXITCODE. $(($restoreOutput | ForEach-Object { $_.ToString() }) -join "`n")" }
+    $buildOutput = & $dotnet build .\SESS.NexaERP.slnx --configuration Release --no-restore 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "dotnet build failed with exit code $LASTEXITCODE. $(($buildOutput | ForEach-Object { $_.ToString() }) -join "`n")" }
+    $testOutput = & $dotnet test .\SESS.NexaERP.slnx --configuration Release --no-build 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "dotnet test failed with exit code $LASTEXITCODE. $(($testOutput | ForEach-Object { $_.ToString() }) -join "`n")" }
     $scanWordPattern = 'pass' + 'word|pwd|secret|token'
     $scanPattern = '(?i)\b(' + $scanWordPattern + ')\b\s*[:=]\s*[''"`]?(?!\$|%|\{|<|REDACTED|redacted|your_|change_me|example|placeholder)[^''"`\s;]+'
     $scanEvidence = Invoke-SecretScan $scanPattern $targetRoot
