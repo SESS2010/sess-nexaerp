@@ -71,4 +71,12 @@ Assert-True ($source -match 'SELECT `"MigrationId`" FROM \$\(\$historyTable\.Qua
 Assert-True ($source -match 'Join-PgQualifiedIdentifier') "Helper does not build schema and table as separately quoted identifiers."
 Assert-True ($source -match '-f \$sqlFile') "Helper does not preserve SQL through a script file."
 
+Assert-True ($source -match 'function Resolve-RipgrepExecutable') "Helper does not resolve rg.exe safely."
+Assert-True ($source -match 'function Invoke-SecretScan') "Helper does not wrap secret scanning in a safe function."
+Assert-True ($source -match '\$secretScanExitCode -eq 0') "Helper does not treat rg exit code 0 as finding/fail."
+Assert-True ($source -match '\$secretScanExitCode -gt 1') "Helper does not treat rg exit code greater than 1 as scanner error/fail."
+Assert-True ($source -match 'PowerShell Select-String fallback') "Helper does not provide a fallback when rg.exe is unavailable."
+Assert-True ($source -match 'function Get-LatestPreRev866Backup') "Helper does not support safe resume with an existing pre-REV866 backup."
+Assert-True ($source -match 'REV866 migration is already applied\. Resuming verification') "Helper does not resume cleanly when REV866 was already applied."
+Assert-True ($source -notmatch '\brg -n \$secretPattern \.') "Helper still contains a direct rg call instead of resolved scanner execution."
 Write-Host "REV866 helper static verification passed."

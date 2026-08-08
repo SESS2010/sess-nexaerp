@@ -97,6 +97,58 @@ function Resolve-GitExecutable([string]$ExplicitGitPath) {
     throw "git.exe was not found. Pass -GitPath with a valid git.exe path or install Git after management approval."
 }
 
+function Resolve-RipgrepExecutable {
+    $candidates = New-Object System.Collections.Generic.List[string]
+    $command = Get-Command rg.exe -ErrorAction SilentlyContinue
+    if ($command -and $command.Source) {
+        $candidates.Add($command.Source)
+    }
+
+    $codexBinRoot = "C:\Users\User\AppData\Local\OpenAI\Codex\bin"
+    if (Test-Path -LiteralPath $codexBinRoot -PathType Container) {
+        foreach ($candidate in @(Get-ChildItem -LiteralPath $codexBinRoot -Filter rg.exe -Recurse -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -ExpandProperty FullName)) {
+            $candidates.Add($candidate)
+        }
+    }
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            $item = Get-Item -LiteralPath $candidate
+            if ($item.Name -ne "rg.exe") { continue }
+            return $item.FullName
+        }
+    }
+
+    return $null
+}
+
+function Invoke-SecretScan([string]$Pattern, [string]$Root) {
+    $rgExe = Resolve-RipgrepExecutable
+    if ($rgExe) {
+        $secretScan = & $rgExe -n $Pattern $Root
+        $secretScanExitCode = $LASTEXITCODE
+        if ($secretScanExitCode -eq 0) { throw "Secret scan found prohibited patterns." }
+        if ($secretScanExitCode -gt 1) { throw "Secret scanner failed with exit code $secretScanExitCode." }
+        return "clean via rg.exe ($rgExe)"
+    }
+
+    $excludedPathPattern = '\\(\.git|bin|obj|backups|local-evidence)\\'
+    $matches = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch $excludedPathPattern } |
+        Select-String -Pattern $Pattern -ErrorAction SilentlyContinue)
+    if ($matches.Count -gt 0) { throw "Secret scan found prohibited patterns." }
+    return "clean via PowerShell Select-String fallback"
+}
+
+function Get-LatestPreRev866Backup {
+    $existingBackups = @(Get-ChildItem -LiteralPath $backupDir -Filter "$Database`_pre_rev866_*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($existingBackups.Count -eq 0) { throw "REV866 migration is already applied, but no existing pre-REV866 backup was found for resume verification." }
+    $existingBackup = $existingBackups[0]
+    if ($existingBackup.Length -le 0) { throw "Existing pre-REV866 backup has zero size: $($existingBackup.FullName)" }
+    return $existingBackup
+}
+
 function Invoke-Psql([string]$Sql, [string]$Db = $Database) {
     Assert-SafePgIdentifier $Db "Database name"
     $sqlFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sess_nexa_rev866_" + [Guid]::NewGuid().ToString("N") + ".sql")
@@ -238,19 +290,30 @@ try {
     foreach ($migration in $requiredPreviousMigrations) {
         if ($historyInfo.Migrations -notmatch [regex]::Escape($migration)) { throw "$migration migration missing before REV866." }
     }
-    if ($historyInfo.Migrations -match [regex]::Escape($MigrationName)) { throw "REV866 migration is already applied. Stop to avoid duplicate migration action." }
+    $rev866AlreadyApplied = $historyInfo.Migrations -match [regex]::Escape($MigrationName)
+    $migrationApplicationMode = "applied during this verification run"
 
-    Write-Section "Backup"
-    & $pgDump -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
-    if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }
-    $backupItem = Get-Item -LiteralPath $backupFile
-    if ($backupItem.Length -le 0) { throw "Backup file was created with zero size." }
-    $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+    if ($rev866AlreadyApplied) {
+        Write-Section "Backup"
+        Write-Host "REV866 migration is already applied. Resuming verification with the latest existing pre-REV866 backup."
+        $backupItem = Get-LatestPreRev866Backup
+        $backupFile = $backupItem.FullName
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+        $migrationApplicationMode = "already applied before this resume run"
+    }
+    else {
+        Write-Section "Backup"
+        & $pgDump -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
+        if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }
+        $backupItem = Get-Item -LiteralPath $backupFile
+        if ($backupItem.Length -le 0) { throw "Backup file was created with zero size." }
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
 
-    Write-Section "Apply REV866 migration"
-    Set-Location $targetRoot
-    & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --context NexaErpDbContext
-    if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
+        Write-Section "Apply REV866 migration"
+        Set-Location $targetRoot
+        & $dotnet ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --context NexaErpDbContext
+        if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
+    }
 
     Write-Section "Post-migration evidence"
     $historyInfoAfter = Get-HistoryTableInfo $Database
@@ -280,10 +343,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed." }
     Set-Location $repoRoot
     $secretPattern = ("SESS" + "@") + "|" + ("ERP" + "2026") + "|" + ("Signing" + "Key") + "|" + ("Jwt" + "Secret") + "|" + ("JWT" + "_SECRET") + "|" + "Pass" + "word=" + "[^$]"
-    $secretScan = rg -n $secretPattern .
-    $secretScanExitCode = $LASTEXITCODE
-    if ($secretScanExitCode -eq 0) { throw "Secret scan found prohibited patterns." }
-    if ($secretScanExitCode -gt 1) { throw "Secret scanner failed with exit code $secretScanExitCode." }
+    $secretScanEvidence = Invoke-SecretScan -Pattern $secretPattern -Root $repoRoot
 
     Write-Section "Restore verification"
     $exists = Invoke-PsqlSafe "select 1 from pg_database where datname = '$RestoreVerifyDatabase';" "postgres"
@@ -305,6 +365,7 @@ try {
     Add-Report "- Backup file: $backupFile"
     Add-Report "- Backup size bytes: $($backupItem.Length)"
     Add-Report "- Backup SHA-256: $backupHash"
+    Add-Report "- Migration application mode: $migrationApplicationMode"
     Add-Report "- Applied migrations after:"
     Add-Report '```text'
     Add-Report $migrationsAfter
@@ -327,7 +388,7 @@ try {
     Add-Report "- Restore verification migration count: $restoreMigrationCount"
     Add-Report "- Restore verification page count: $restorePageCount"
     Add-Report "- Restore removal: pending management confirmation; database was intentionally left in place."
-    Add-Report "- Secret scan: clean"
+    Add-Report "- Secret scan: $secretScanEvidence"
     Add-Report "- Runtime auth evidence: API uses JWT/OIDC runtime only; real OIDC authority/audience remains an external configuration blocker for live token-based runtime tests. No temporary header auth was added."
 
     Write-Host "REV866 database verification report: $reportFile"
