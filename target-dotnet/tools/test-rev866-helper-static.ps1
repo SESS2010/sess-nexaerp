@@ -70,6 +70,8 @@ Assert-True ($source -match 'chr\(31\)') "Helper does not use an unambiguous del
 Assert-True ($source -match 'SELECT `"MigrationId`" FROM \$\(\$historyTable\.QualifiedTable\) ORDER BY `"MigrationId`";') "Helper does not query mixed-case MigrationId through the qualified relation."
 Assert-True ($source -match 'Join-PgQualifiedIdentifier') "Helper does not build schema and table as separately quoted identifiers."
 Assert-True ($source -match '-f \$sqlFile') "Helper does not preserve SQL through a script file."
+Assert-True ($source -match '\$exitCode = \$LASTEXITCODE') "Helper does not capture psql exit code."
+Assert-True ($source -match 'psql failed with exit code') "Helper does not fail clearly on psql errors."
 
 Assert-True ($source -match 'function Resolve-RipgrepExecutable') "Helper does not resolve rg.exe safely."
 Assert-True ($source -match 'function Invoke-SecretScan') "Helper does not wrap secret scanning in a safe function."

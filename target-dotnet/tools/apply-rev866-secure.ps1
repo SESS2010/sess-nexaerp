@@ -155,7 +155,14 @@ function Invoke-Psql([string]$Sql, [string]$Db = $Database) {
     try {
         $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
         [System.IO.File]::WriteAllText($sqlFile, $Sql, $utf8NoBom)
-        & $psql -h $HostName -p $Port -U $UserName -d $Db -v ON_ERROR_STOP=1 -At -f $sqlFile
+        $output = & $psql -h $HostName -p $Port -U $UserName -d $Db -v ON_ERROR_STOP=1 -At -f $sqlFile 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $message = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+            if ([string]::IsNullOrWhiteSpace($message)) { $message = "psql failed without diagnostic output." }
+            throw "psql failed with exit code $exitCode. $message"
+        }
+        return $output
     }
     finally {
         if ($sqlFile -and (Test-Path -LiteralPath $sqlFile -PathType Leaf)) {
