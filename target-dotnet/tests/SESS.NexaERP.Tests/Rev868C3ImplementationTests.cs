@@ -63,6 +63,9 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("Resolve-DotnetEfInvocation", helper);
         Assert.Contains("Test-DotnetEfTool", helper);
         Assert.Contains("Invoke-DotnetEfTool", helper);
+        Assert.Contains("Assert-SdkStyleProject", helper);
+        Assert.Contains("Test-EfProjectMetadata", helper);
+        Assert.Contains("Get-EfProjectArgs", helper);
         Assert.Contains(MigrationId, helper);
         Assert.Contains("safe_retry_state", helper);
         Assert.Contains("active_employee_codes_expected", helper);
@@ -172,21 +175,37 @@ public sealed class Rev868C3ImplementationTests
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
 
+        var projectCheckIndex = helper.IndexOf("Assert-SdkStyleProject $InfrastructureProject", StringComparison.Ordinal);
+        var startupCheckIndex = helper.IndexOf("Assert-SdkStyleProject $StartupProject", StringComparison.Ordinal);
         var resolveIndex = helper.IndexOf("Resolve-DotnetEfInvocation $script:dotnetExe $DotnetEfPath", StringComparison.Ordinal);
         var versionCheckIndex = helper.IndexOf("Test-DotnetEfTool", resolveIndex, StringComparison.Ordinal);
+        var metadataIndex = helper.IndexOf("Test-EfProjectMetadata", versionCheckIndex, StringComparison.Ordinal);
         var passwordIndex = helper.IndexOf("Read-Host -AsSecureString", StringComparison.Ordinal);
         var backupIndex = helper.IndexOf("Find-ExistingValidPreC3Backup", passwordIndex, StringComparison.Ordinal);
-        var updateIndex = helper.IndexOf("Invoke-DotnetEfTool @('database','update',$MigrationName", StringComparison.Ordinal);
+        var updateIndex = helper.IndexOf("Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs))", StringComparison.Ordinal);
 
-        Assert.True(resolveIndex > 0);
+        Assert.True(projectCheckIndex > 0);
+        Assert.True(startupCheckIndex > projectCheckIndex);
+        Assert.True(resolveIndex > startupCheckIndex);
         Assert.True(versionCheckIndex > resolveIndex);
-        Assert.True(passwordIndex > versionCheckIndex);
+        Assert.True(metadataIndex > versionCheckIndex);
+        Assert.True(passwordIndex > metadataIndex);
         Assert.True(backupIndex > passwordIndex);
         Assert.True(updateIndex > backupIndex);
         Assert.Contains("dotnet-ef tooling is unavailable", helper);
         Assert.Contains("No password was requested and no backup/migration was attempted", helper);
+        Assert.Contains("EF project metadata/migration discovery failed before password prompt", helper);
+        Assert.Contains("migrations','list','--no-connect", helper);
+        Assert.Contains("SESS.NexaERP.Infrastructure.csproj", helper);
+        Assert.Contains("SESS.NexaERP.Api.csproj", helper);
+        Assert.Contains("--framework", helper);
+        Assert.Contains("net10.0", helper);
+        Assert.Contains("--configuration", helper);
+        Assert.Contains("Release", helper);
+        Assert.Contains("NexaErpDbContext", helper);
         Assert.Contains(".nuget\\packages\\dotnet-ef", helper);
         Assert.DoesNotContain("$script:dotnetExe ef database update", helper);
+        Assert.DoesNotContain("--project','.\\SESS.NexaERP.slnx", helper);
     }
 
     [Fact]

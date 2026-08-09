@@ -46,6 +46,10 @@ $pgBin = 'C:\Program Files\PostgreSQL\17\bin'
 $psql = Join-Path $pgBin 'psql.exe'
 $pgDump = Join-Path $pgBin 'pg_dump.exe'
 $dotnet = Join-Path $root '..\.dotnet10\dotnet.exe'
+$InfrastructureProject = Join-Path $root 'src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj'
+$StartupProject = Join-Path $root 'src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj'
+$TargetFramework = 'net10.0'
+$BuildConfiguration = 'Release'
 $evidenceDir = Join-Path $root 'local-evidence\rev868c3'
 $trxDir = Join-Path $evidenceDir 'test-results'
 $backupDir = Join-Path $root 'backups\postgresql\pre-rev868c3-isolated'
@@ -57,6 +61,21 @@ function Assert-TargetDatabaseName([string]$Name) {
     if ($RejectedDatabases -contains $Name -or $Name -match '(?i)rev861') { throw "Protected database rejected: $Name" }
 }
 function Resolve-File([string]$Path, [string]$Label) { if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }; (Resolve-Path -LiteralPath $Path).Path }
+function Assert-SdkStyleProject([string]$ProjectPath, [string]$Label) {
+    $resolved = Resolve-File $ProjectPath $Label
+    $firstLine = (Get-Content -LiteralPath $resolved -TotalCount 1)
+    if ($firstLine -notmatch '<Project\s+Sdk=') { throw "$Label is not an SDK-style project: $resolved" }
+    return $resolved
+}
+function Get-EfProjectArgs {
+    @(
+        '--project', $script:InfrastructureProjectPath,
+        '--startup-project', $script:StartupProjectPath,
+        '--context', 'NexaErpDbContext',
+        '--framework', $TargetFramework,
+        '--configuration', $BuildConfiguration
+    )
+}
 function Resolve-DotnetEfInvocation([string]$DotnetExe, [string]$ExplicitPath) {
     if ($ExplicitPath) {
         $resolved = Resolve-File $ExplicitPath 'dotnet-ef executable'
@@ -86,13 +105,34 @@ function Resolve-DotnetEfInvocation([string]$DotnetExe, [string]$ExplicitPath) {
 }
 function Invoke-DotnetEfTool([string[]]$EfArgs) {
     if ($null -eq $script:dotnetEfInvocation) { throw 'dotnet-ef invocation has not been resolved.' }
-    if ($script:dotnetEfInvocation.Mode -eq 'ToolManifest') { & $script:dotnetExe tool run dotnet-ef -- @EfArgs; return }
-    if ($script:dotnetEfInvocation.Mode -eq 'DotnetExec') { & $script:dotnetExe exec $script:dotnetEfInvocation.Command @EfArgs; return }
-    & $script:dotnetEfInvocation.Command @EfArgs
+    Push-Location -LiteralPath $root
+    try {
+        if ($script:dotnetEfInvocation.Mode -eq 'ToolManifest') { & $script:dotnetExe tool run dotnet-ef -- @EfArgs; return }
+        if ($script:dotnetEfInvocation.Mode -eq 'DotnetExec') { & $script:dotnetExe exec $script:dotnetEfInvocation.Command @EfArgs; return }
+        & $script:dotnetEfInvocation.Command @EfArgs
+    }
+    finally { Pop-Location }
 }
 function Test-DotnetEfTool {
     $output = @(Invoke-DotnetEfTool @('--version') 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "dotnet-ef resolved but failed version check. $($output -join ' ')" }
+}
+function Test-EfProjectMetadata {
+    $previousConnection = $env:ConnectionStrings__NexaErp
+    $previousExpected = $env:NexaErp__ExpectedDatabase
+    try {
+        $env:ConnectionStrings__NexaErp = "Host=127.0.0.1;Port=1;Database=$Database;Username=metadata_check"
+        $env:NexaErp__ExpectedDatabase = $Database
+        $args = @('migrations','list','--no-connect') + (Get-EfProjectArgs)
+        $output = @(Invoke-DotnetEfTool $args 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "EF project metadata/migration discovery failed before password prompt. $($output -join ' ')" }
+        $text = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        if ($text -notmatch [regex]::Escape($MigrationName)) { throw "EF migration discovery did not include $MigrationName." }
+    }
+    finally {
+        if ($null -eq $previousConnection) { Remove-Item Env:\ConnectionStrings__NexaErp -ErrorAction SilentlyContinue } else { $env:ConnectionStrings__NexaErp = $previousConnection }
+        if ($null -eq $previousExpected) { Remove-Item Env:\NexaErp__ExpectedDatabase -ErrorAction SilentlyContinue } else { $env:NexaErp__ExpectedDatabase = $previousExpected }
+    }
 }
 function Find-ExistingValidPreC3Backup {
     if (-not (Test-Path -LiteralPath $backupDir -PathType Container)) { return $null }
@@ -298,7 +338,10 @@ function Write-Plan {
     Write-Host "Rejected DBs: $($RejectedDatabases -join ', '), REV861-like names"
     Write-Host "Prerequisite migrations: $($RequiredMigrations -join ', ')"
     Write-Host "Target migration: $MigrationName"
-    Write-Host 'No-secret prechecks resolve dotnet-ef before password prompt or backup creation.'
+    Write-Host 'No-secret prechecks resolve dotnet-ef and validate EF project metadata/migration discovery before password prompt or backup creation.'
+    Write-Host "Infrastructure project: $InfrastructureProject"
+    Write-Host "Startup project: $StartupProject"
+    Write-Host "EF framework/configuration: $TargetFramework / $BuildConfiguration"
     Write-Host 'Full apply mode reuses the latest valid non-zero pre-C3 isolated backup when present; otherwise it creates one before EF migration application.'
     Write-Host 'No main DB operation is permitted.'
     Write-Host 'Preflight SQL:'
@@ -316,8 +359,11 @@ try {
     $script:psqlExe = Resolve-File $psql 'psql.exe'
     $script:pgDumpExe = Resolve-File $pgDump 'pg_dump.exe'
     $script:dotnetExe = Resolve-File $dotnet '.NET executable'
+    $script:InfrastructureProjectPath = Assert-SdkStyleProject $InfrastructureProject 'Infrastructure migration project'
+    $script:StartupProjectPath = Assert-SdkStyleProject $StartupProject 'API startup project'
     $script:dotnetEfInvocation = Resolve-DotnetEfInvocation $script:dotnetExe $DotnetEfPath
     Test-DotnetEfTool
+    Test-EfProjectMetadata
     $securePassword = Read-Host -AsSecureString 'Enter PostgreSQL password for isolated REV868C3 verification database only'
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
     try { $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
@@ -358,7 +404,7 @@ try {
         $preReport = Join-Path $evidenceDir ("rev868c3_pre_migration_backup_" + $stamp + ".md")
         @("# REV868C3 Pre-Migration Isolated Backup", "", "Database: $Database", "Backup file: $backupFile", "Backup bytes: $($backupItem.Length)", "Backup SHA-256: $backupHash", "", "Migration not yet applied at this report checkpoint.") | Set-Content -LiteralPath $preReport -Encoding UTF8
     }
-    Invoke-DotnetEfTool @('database','update',$MigrationName,'--project','.\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj','--startup-project','.\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj','--context','NexaErpDbContext')
+    Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs))
     if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
     $env:REV868C3_POSTGRES = $env:ConnectionStrings__NexaErp
     $trxName = "rev868c3_employee_reconciliation_$stamp.trx"
