@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp_rev868_verify",
     [string]$HostName = "localhost",
@@ -221,6 +221,8 @@ function Write-PlanReport([System.Collections.Specialized.OrderedDictionary]$Pre
     Add-Report "- Rejected DBs: sess_nexaerp, postgres, template0, template1, REV861-like names"
     Add-Report "- Prerequisite: existing first 8 migrations exactly once"
     Add-Report "- Target corrective migration: $correctionMigration"
+    Add-Report "- Migration that would be applied: $correctionMigration only"
+    Add-Report "- Expected migration count after execution: 9"
     Add-Report "- No backup/restore/drop/create operation"
     Add-Report "- No main DB operation"
     Add-Report ""
@@ -239,6 +241,8 @@ function Write-EvidenceReport([string]$Mode) {
     Add-Report "- Target DB: $Database"
     Add-Report "- Rejected DBs: sess_nexaerp, postgres, template0, template1, REV861-like names"
     Add-Report "- Target corrective migration: $correctionMigration"
+    Add-Report "- Migration applied by this helper: $correctionMigration only"
+    Add-Report "- Expected migration count after execution: 9"
     foreach ($entry in $evidence.GetEnumerator()) { Add-Report "## $($entry.Key)"; Add-Report '```text'; Add-Report ([string]$entry.Value); Add-Report '```' }
     Write-Host "REV868C2 approval route correction report: $reportFile"
 }

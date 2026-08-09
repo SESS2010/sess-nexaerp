@@ -382,7 +382,7 @@ public sealed class Rev868C1PreparationTests
     public void Rev868c2_approval_route_correction_sources_are_isolated_and_canonical()
     {
         var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809115500_Rev868C2ApprovalRouteCanonicalization.cs");
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs");
         var resume = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
 
         Assert.Contains("sess_nexaerp_rev868_verify", helper);
@@ -449,7 +449,6 @@ public sealed class Rev868C1PreparationTests
             "20260808160435_Rev867C1Corrections",
             "20260808182945_Rev868PurchaseRequisitionFoundation",
             "20260808190920_Rev868PurchaseLocationAllocationCorrection",
-            "20260809115500_Rev868C2ApprovalRouteCanonicalization",
             "20260809123000_Rev868C2DepartmentManagerApprovalMapping"
         };
 
@@ -457,6 +456,9 @@ public sealed class Rev868C1PreparationTests
         {
             Assert.Equal(1, migrations.Count(x => x == id));
         }
+
+        Assert.Equal(expected, migrations);
+        Assert.Equal(1, migrations.Count(x => x.Contains("Rev868C2", StringComparison.Ordinal)));
 
         for (var i = 1; i < expected.Length; i++)
         {
@@ -478,17 +480,17 @@ public sealed class Rev868C1PreparationTests
         Assert.True(target.Success);
         Assert.Equal("20260809123000_Rev868C2DepartmentManagerApprovalMapping", target.Groups[1].Value);
         Assert.Contains(target.Groups[1].Value, migrations);
+        var obsoleteRev868C2Migration = "202608091" + "15500_Rev868C2ApprovalRouteCanonicalization";
+        Assert.DoesNotContain(obsoleteRev868C2Migration, migrations);
+        Assert.DoesNotContain(obsoleteRev868C2Migration, helper);
     }
 
     [Fact]
     public void Rev868c2_snapshot_and_designer_metadata_include_context_bound_migrations()
     {
-        var routeDesigner = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809115500_Rev868C2ApprovalRouteCanonicalization.Designer.cs");
         var mappingDesigner = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.Designer.cs");
         var snapshot = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs");
 
-        Assert.Contains("[DbContext(typeof(NexaErpDbContext))]", routeDesigner);
-        Assert.Contains("[Migration(\"20260809115500_Rev868C2ApprovalRouteCanonicalization\")]", routeDesigner);
         Assert.Contains("[DbContext(typeof(NexaErpDbContext))]", mappingDesigner);
         Assert.Contains("[Migration(\"20260809123000_Rev868C2DepartmentManagerApprovalMapping\")]", mappingDesigner);
         Assert.Contains("ApproverResolutionType", snapshot);
