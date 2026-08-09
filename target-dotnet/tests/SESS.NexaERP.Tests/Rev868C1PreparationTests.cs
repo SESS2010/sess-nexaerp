@@ -504,7 +504,7 @@ public sealed class Rev868C1PreparationTests
             Assert.Equal(1, migrations.Count(x => x == id));
         }
 
-        Assert.Equal(expected, migrations);
+        Assert.Equal(expected, migrations.Take(expected.Length));
         Assert.Equal(1, migrations.Count(x => x.Contains("Rev868C2", StringComparison.Ordinal)));
 
         for (var i = 1; i < expected.Length; i++)

@@ -30,6 +30,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<EmployeeRoleAssignment> EmployeeRoleAssignments => Set<EmployeeRoleAssignment>();
     public DbSet<ReportingRelationship> ReportingRelationships => Set<ReportingRelationship>();
     public DbSet<EmployeeStatusHistory> EmployeeStatusHistories => Set<EmployeeStatusHistory>();
+    public DbSet<EmployeeDepartmentHistory> EmployeeDepartmentHistories => Set<EmployeeDepartmentHistory>();
     public DbSet<EmployeeApprovalHistory> EmployeeApprovalHistories => Set<EmployeeApprovalHistory>();
     public DbSet<EmployeeImportHistory> EmployeeImportHistories => Set<EmployeeImportHistory>();
     public DbSet<ItemCategory> ItemCategories => Set<ItemCategory>();
@@ -668,9 +669,10 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         {
             entity.ToTable("department_approval_mappings");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.EffectiveFrom }).IsUnique();
-            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.IsActive });
+            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.IsActive });
             entity.Property(x => x.ApprovalRouteCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Scope).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
@@ -772,13 +774,23 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable("employees");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.EmployeeCode).IsUnique();
+            entity.HasIndex(x => x.PayrollEmployeeId).IsUnique().HasFilter("\"PayrollEmployeeId\" IS NOT NULL");
             entity.Property(x => x.EmployeeCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.PayrollEmployeeId).HasMaxLength(40);
             entity.Property(x => x.EmployeeName).HasMaxLength(200).IsRequired();
             entity.Property(x => x.OriginalImportedName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Gender).HasMaxLength(40);
+            entity.Property(x => x.Qualification).HasMaxLength(120);
             entity.Property(x => x.EmployeeType).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Grade).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Status).HasMaxLength(40).IsRequired();
             entity.Property(x => x.OfficialEmail).HasMaxLength(254);
+            entity.Property(x => x.DateOfJoiningAccuracy).HasMaxLength(80);
+            entity.Property(x => x.ApproximateDateNote).HasMaxLength(500);
+            entity.Property(x => x.FunctionalResponsibility).HasMaxLength(500);
+            entity.Property(x => x.WorkLocation).HasMaxLength(120);
+            entity.Property(x => x.ManagerScope).HasMaxLength(80);
+            entity.Property(x => x.LegacyDepartment).HasMaxLength(120);
             entity.Property(x => x.MobileNumber).HasMaxLength(40);
             entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
@@ -829,6 +841,21 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.Reason).HasMaxLength(500).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmployeeDepartmentHistory>(entity =>
+        {
+            entity.ToTable("employee_department_history");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.EmployeeId, x.CreatedAt });
+            entity.HasIndex(x => x.CorrelationId);
+            entity.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.SourceRevision).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.PreviousDepartment).WithMany().HasForeignKey(x => x.PreviousDepartmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.NewDepartment).WithMany().HasForeignKey(x => x.NewDepartmentId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<EmployeeApprovalHistory>(entity =>

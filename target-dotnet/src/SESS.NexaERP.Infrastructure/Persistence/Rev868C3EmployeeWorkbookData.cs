@@ -110,7 +110,7 @@ public static class Rev868C3EmployeeWorkbookData
     [
         new("DQ-001", "SESS-021", "Payroll Employee ID", "Source workbook contains NA", "Assign unique payroll ID through HR; ERP code remains SESS-021", "OPEN", "HR"),
         new("DQ-002", "SESS-009 / SESS-030", "Identity", "Two Manikandan records share the same DOB in source", "Distinguished using Payroll IDs 1010 and 1050; verify legal name/DOB privately", "OPEN", "HR"),
-        new("DQ-003", "SESS-015 / SESS-019", "PAN", "Source workbook contains a duplicate PAN across two employees", "Correct in confidential HR source; PAN is excluded from this ERP-ready workbook", "OPEN", "HR"),
+        new("DQ-003", "SESS-015 / SESS-019", "Confidential statutory identifier", "Source workbook contains a duplicate confidential statutory identifier across two employees", "Correct in confidential HR source; sensitive identifier is excluded from this ERP-ready workbook", "OPEN", "HR"),
         new("DQ-004", "SESS-040", "Joining Date", "Exact joining date unknown", "Temporary DOJ set to 2026-02-09 per management instruction", "OPEN", "HR"),
         new("DQ-005", "SESS-040", "Employee Name", "Source says NARREN S; earlier management reference said Narren Valentino", "NARREN S retained as HR source name; alias remains in note until verified", "OPEN", "HR"),
         new("DQ-006", "SESS-049", "Gender", "Source workbook marked Mageshwari as Male", "Corrected to Female by management", "RESOLVED", "Management"),

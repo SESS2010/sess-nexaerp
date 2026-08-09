@@ -110,6 +110,30 @@ public static partial class PurchaseRequisitionEndpoints
         new(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector), PurchaseApproverResolutionTypes.FixedRole)
     ];
 
+    public sealed record ApprovalWorkflowStepDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, int StepNumber, string ApproverResolutionType, string? ApproverEmployeeCode, string? ApproverRoleCode, bool IsActive = true);
+    private static readonly ApprovalWorkflowStepDefinition[] DefaultApprovalWorkflowSteps =
+    [
+        new("MANAGER_ONLY", 0m, 50000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+        new("MANAGER_MD", 50000.01m, 500000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+        new("MANAGER_MD", 50000.01m, 500000m, 2, PurchaseApproverResolutionTypes.FixedRole, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector),
+        new("MANAGER_MD_TD", 500000.01m, null, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+        new("MANAGER_MD_TD", 500000.01m, null, 2, PurchaseApproverResolutionTypes.FixedRole, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector),
+        new("MANAGER_MD_TD", 500000.01m, null, 3, PurchaseApproverResolutionTypes.FixedRole, "SESS-001", PurchaseRequisitionApprovalRoutes.TechnicalDirector)
+    ];
+
+    public static IReadOnlyList<ApprovalWorkflowStepDefinition> ApprovalWorkflowFor(decimal total) => ApprovalWorkflowFor(total, DefaultApprovalWorkflowSteps);
+    public static IReadOnlyList<ApprovalWorkflowStepDefinition> ApprovalWorkflowFor(decimal total, IEnumerable<ApprovalWorkflowStepDefinition> steps)
+    {
+        if (total < 0) throw new InvalidOperationException("PR approval amount cannot be negative.");
+        var matchedRouteCodes = steps
+            .Where(x => x.IsActive)
+            .Where(x => total >= x.MinimumAmount && (!x.MaximumAmount.HasValue || total <= x.MaximumAmount.Value))
+            .Select(x => x.RouteCode)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (matchedRouteCodes.Count != 1) throw new InvalidOperationException($"No single active PR approval workflow is configured for amount {total}.");
+        return steps.Where(x => x.IsActive && string.Equals(x.RouteCode, matchedRouteCodes[0], StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.StepNumber).ToList();
+    }
     public static string RouteFor(decimal total) => RouteFor(total, DefaultApprovalRoutes);
     public static string RouteFor(decimal total, IEnumerable<ApprovalRouteDefinition> routes)
     {

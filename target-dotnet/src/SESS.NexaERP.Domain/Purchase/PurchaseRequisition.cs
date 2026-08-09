@@ -279,6 +279,7 @@ public sealed class DepartmentApprovalMapping : AuditableEntity
     public Guid DepartmentId { get; set; }
     public Department? Department { get; set; }
     public string ApprovalRouteCode { get; set; } = PurchaseRequisitionApprovalRoutes.Manager;
+    public string Scope { get; set; } = "ALL";
     public Guid PrimaryApproverEmployeeId { get; set; }
     public Employee? PrimaryApproverEmployee { get; set; }
     public Guid? AlternateApproverEmployeeId { get; set; }

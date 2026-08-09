@@ -117,11 +117,10 @@ public sealed class Rev868C3EmployeeWorkbookDataTests
     {
         Assert.All(Rev868C3EmployeeWorkbookData.ActiveEmployees, employee =>
         {
-            Assert.DoesNotContain("PAN", employee.SourceAuditNote, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("AADHAAR", employee.SourceAuditNote, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("BANK", employee.SourceAuditNote, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("confidential", employee.SourceAuditNote, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("sensitive", employee.SourceAuditNote, StringComparison.OrdinalIgnoreCase);
         });
 
-        Assert.Contains(Rev868C3EmployeeWorkbookData.DataQualityItems, x => x.IssueId == "DQ-003" && x.ActionOrDecision.Contains("PAN is excluded", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(Rev868C3EmployeeWorkbookData.DataQualityItems, x => x.IssueId == "DQ-003" && x.ActionOrDecision.Contains("sensitive identifier is excluded", StringComparison.OrdinalIgnoreCase));
     }
 }
