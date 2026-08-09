@@ -1,4 +1,13 @@
 ﻿START TRANSACTION;
+drop index if exists nexa."UX_rev868c3_conflict_purchase_approval_workflow_steps";
+drop index if exists nexa."UX_rev868c3_conflict_department_approval_mappings";
+drop index if exists nexa."UX_rev868c3_conflict_employee_role_assignments";
+drop index if exists nexa."UX_rev868c3_conflict_role_page_permissions";
+drop index if exists nexa."UX_rev868c3_conflict_roles_code";
+drop index if exists nexa."UX_rev868c3_conflict_employees_employee_code";
+drop index if exists nexa."UX_rev868c3_conflict_designations_code";
+drop index if exists nexa."UX_rev868c3_conflict_departments_code";
+
 DROP INDEX nexa."IX_employees_PayrollEmployeeId";
 
 DROP INDEX nexa."IX_department_approval_mappings_DepartmentId_Route_Scope_From";

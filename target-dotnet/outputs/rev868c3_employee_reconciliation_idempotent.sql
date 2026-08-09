@@ -6212,6 +6212,20 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    create unique index if not exists "UX_rev868c3_conflict_departments_code" on nexa.departments ("Code");
+    create unique index if not exists "UX_rev868c3_conflict_designations_code" on nexa.designations ("Code");
+    create unique index if not exists "UX_rev868c3_conflict_employees_employee_code" on nexa.employees ("EmployeeCode");
+    create unique index if not exists "UX_rev868c3_conflict_roles_code" on nexa.roles ("Code");
+    create unique index if not exists "UX_rev868c3_conflict_role_page_permissions" on nexa.role_page_permissions ("RoleId", "PageDefinitionId");
+    create unique index if not exists "UX_rev868c3_conflict_employee_role_assignments" on nexa.employee_role_assignments ("EmployeeId", "RoleId", "EffectiveFrom");
+    create unique index if not exists "UX_rev868c3_conflict_department_approval_mappings" on nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom");
+    create unique index if not exists "UX_rev868c3_conflict_purchase_approval_workflow_steps" on nexa.purchase_approval_workflow_steps ("RouteCode", "StepNumber", "EffectiveFrom");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
     insert into nexa.departments ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
     values ('0057b580-1cb1-afa2-8328-5afb1162e77e', 'MANAGEMENT', 'Management', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
     on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';

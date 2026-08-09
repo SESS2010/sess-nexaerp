@@ -220,11 +220,14 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
             table: "department_approval_mappings",
             columns: new[] { "DepartmentId", "ApprovalRouteCode", "Scope", "IsActive" });
 
+        migrationBuilder.Sql(EnsureConflictIndexesSql());
         migrationBuilder.Sql(BuildUpsertSql());
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.Sql(DropConflictIndexesSql());
+
         migrationBuilder.DropIndex(name: "IX_employees_PayrollEmployeeId", schema: "nexa", table: "employees");
         migrationBuilder.DropIndex(name: "IX_department_approval_mappings_DepartmentId_Route_Scope_From", schema: "nexa", table: "department_approval_mappings");
         migrationBuilder.DropIndex(name: "IX_department_approval_mappings_DepartmentId_Route_Scope_Active", schema: "nexa", table: "department_approval_mappings");
@@ -359,6 +362,27 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         """);
     }
 
+    private static string EnsureConflictIndexesSql() => """
+        create unique index if not exists "UX_rev868c3_conflict_departments_code" on nexa.departments ("Code");
+        create unique index if not exists "UX_rev868c3_conflict_designations_code" on nexa.designations ("Code");
+        create unique index if not exists "UX_rev868c3_conflict_employees_employee_code" on nexa.employees ("EmployeeCode");
+        create unique index if not exists "UX_rev868c3_conflict_roles_code" on nexa.roles ("Code");
+        create unique index if not exists "UX_rev868c3_conflict_role_page_permissions" on nexa.role_page_permissions ("RoleId", "PageDefinitionId");
+        create unique index if not exists "UX_rev868c3_conflict_employee_role_assignments" on nexa.employee_role_assignments ("EmployeeId", "RoleId", "EffectiveFrom");
+        create unique index if not exists "UX_rev868c3_conflict_department_approval_mappings" on nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom");
+        create unique index if not exists "UX_rev868c3_conflict_purchase_approval_workflow_steps" on nexa.purchase_approval_workflow_steps ("RouteCode", "StepNumber", "EffectiveFrom");
+        """;
+
+    private static string DropConflictIndexesSql() => """
+        drop index if exists nexa."UX_rev868c3_conflict_purchase_approval_workflow_steps";
+        drop index if exists nexa."UX_rev868c3_conflict_department_approval_mappings";
+        drop index if exists nexa."UX_rev868c3_conflict_employee_role_assignments";
+        drop index if exists nexa."UX_rev868c3_conflict_role_page_permissions";
+        drop index if exists nexa."UX_rev868c3_conflict_roles_code";
+        drop index if exists nexa."UX_rev868c3_conflict_employees_employee_code";
+        drop index if exists nexa."UX_rev868c3_conflict_designations_code";
+        drop index if exists nexa."UX_rev868c3_conflict_departments_code";
+        """;
     private static string BuildUpsertSql()
     {
         var sb = new StringBuilder();

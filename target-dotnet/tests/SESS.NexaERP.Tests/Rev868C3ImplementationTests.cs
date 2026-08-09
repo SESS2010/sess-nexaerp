@@ -487,12 +487,74 @@ public sealed class Rev868C3ImplementationTests
     }
 
     [Fact]
+    public void Rev868c3_offline_sql_every_targeted_on_conflict_has_prior_matching_arbiter()
+    {
+        var sql = Read("outputs", "rev868c3_employee_reconciliation_idempotent.sql");
+        var lines = sql.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+        var uniqueIndexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var requiredTables = new HashSet<string>(new[]
+        {
+            "departments",
+            "designations",
+            "employees",
+            "roles",
+            "role_page_permissions",
+            "employee_role_assignments",
+            "department_approval_mappings",
+            "purchase_approval_workflow_steps"
+        }, StringComparer.OrdinalIgnoreCase);
+        var failures = new List<string>();
+        string? currentInsertTable = null;
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            var unique = System.Text.RegularExpressions.Regex.Match(line, @"CREATE UNIQUE INDEX ""[^""]+"" ON nexa\.([a-z_]+) \(([^)]*)\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (unique.Success)
+            {
+                var table = unique.Groups[1].Value;
+                var columns = ExtractQuotedColumns(unique.Groups[2].Value);
+                uniqueIndexes[$"{table}|{columns}"] = i + 1;
+            }
+
+            var insert = System.Text.RegularExpressions.Regex.Match(line, @"insert into nexa\.([a-z_]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (insert.Success)
+            {
+                currentInsertTable = insert.Groups[1].Value;
+            }
+
+            var conflict = System.Text.RegularExpressions.Regex.Match(line, @"on conflict \(([^)]*)\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!conflict.Success || currentInsertTable is null || !requiredTables.Contains(currentInsertTable))
+            {
+                continue;
+            }
+
+            var conflictColumns = ExtractQuotedColumns(conflict.Groups[1].Value);
+            var key = $"{currentInsertTable}|{conflictColumns}";
+            if (!uniqueIndexes.TryGetValue(key, out var indexLine) || indexLine >= i + 1)
+            {
+                failures.Add($"line {i + 1}: {currentInsertTable} ({conflictColumns}) missing prior unique arbiter");
+            }
+        }
+
+        Assert.Empty(failures);
+        Assert.Contains("UX_rev868c3_conflict_departments_code", sql);
+        Assert.Contains("UX_rev868c3_conflict_designations_code", sql);
+        Assert.Contains("UX_rev868c3_conflict_employees_employee_code", sql);
+        Assert.Contains("UX_rev868c3_conflict_roles_code", sql);
+        Assert.Contains("UX_rev868c3_conflict_role_page_permissions", sql);
+        Assert.Contains("UX_rev868c3_conflict_employee_role_assignments", sql);
+        Assert.Contains("UX_rev868c3_conflict_department_approval_mappings", sql);
+        Assert.Contains("UX_rev868c3_conflict_purchase_approval_workflow_steps", sql);
+    }
+    [Fact]
     public void Rev868c3_sanitized_ef_failure_metadata_handles_common_postgres_and_ef_failures()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
         var sanitizer = helper[helper.IndexOf("function New-Sha256Fingerprint", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)];
 
         Assert.Contains("42P10", helper);
+        Assert.Contains("SqlState", helper);
         Assert.Contains("on_conflict_index_mismatch", helper);
         Assert.Contains("23502", helper);
         Assert.Contains("23503", helper);
@@ -527,7 +589,7 @@ public sealed class Rev868C3ImplementationTests
         var tempFile = Path.Combine(Path.GetTempPath(), "rev868c3_sanitizer_" + Guid.NewGuid().ToString("N") + ".ps1");
         var script = functions + """
 $cases = @(
-    @('Npgsql.PostgresException (0x80004005): 42P10: there is no unique or exclusion constraint matching the ON CONFLICT specification. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'on_conflict_index_mismatch'),
+    @('Npgsql.PostgresException: SqlState: 42P10 there is no unique or exclusion constraint matching the ON CONFLICT specification. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'on_conflict_index_mismatch'),
     @('PostgresException (23502): null value in column "IsPrivileged" of relation "roles" violates not-null constraint. DOB 1990-01-01 payroll PAYROLL-SECRET PRIVATE_EMPLOYEE_NAME', 'not_null_violation'),
     @('PostgresException (23503): insert or update on table "employees" violates foreign key constraint "FK_employees_departments_DepartmentId". SQL: SELECT * FROM secret_employee', 'foreign_key_violation'),
     @('System.InvalidOperationException: Unable to retrieve project metadata. PRIVATE_EMPLOYEE_NAME payroll PAYROLL-SECRET', 'ef_project_metadata')
@@ -589,6 +651,7 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("REV868C3 PostgreSQL tests failed. exit_code=", helper);
     }
 
+    private static string ExtractQuotedColumns(string text) => string.Join(",", System.Text.RegularExpressions.Regex.Matches(text, "\"([^\"]+)\"").Select(x => x.Groups[1].Value));
     private static void AssertOrdered(string text, string before, string after)
     {
         var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);
