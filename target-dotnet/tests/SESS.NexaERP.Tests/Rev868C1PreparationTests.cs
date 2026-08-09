@@ -263,7 +263,7 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do", source);
     }
 
-    private static bool IsReadOnlySql(string sql)
+    private static bool IsReadOnlySql(string? sql)
     {
         if (string.IsNullOrWhiteSpace(sql)) return false;
         var stripped = RemoveSqlNonExecutableText(sql).Trim();
@@ -333,6 +333,47 @@ public sealed class Rev868C1PreparationTests
             i++;
         }
         return new string(chars);
+    }
+    [Fact]
+    public void Rev868c1_resume_verifier_normalizes_strictmode_sensitive_collections()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("$statementParts = @($stripped.Split(';')", source);
+        Assert.Contains("$output = @(& $psql", source);
+        Assert.Contains("$filtered = @($output", source);
+        Assert.Contains("$results = @($trx.SelectNodes", source);
+        Assert.Contains("$testOutput = @(& $dotnet test", source);
+        Assert.Equal(0, CountNormalized(null));
+        Assert.Equal(1, CountNormalized("select 1;"));
+        Assert.Equal(2, CountNormalized(new[] { "select 1;", "select 2;" }));
+    }
+
+    [Fact]
+    public void Rev868c1_resume_sql_classifier_handles_zero_one_and_many_dangerous_token_matches()
+    {
+        Assert.True(IsReadOnlySql("select 1;"));
+        Assert.False(IsReadOnlySql("update nexa.purchase_requisitions set \"Status\" = 'Approved';"));
+        Assert.False(IsReadOnlySql("update nexa.purchase_requisitions set \"Status\" = 'Approved'; delete from nexa.audit_logs;"));
+        Assert.False(IsReadOnlySql(null));
+    }
+
+    [Fact]
+    public void Rev868c1_resume_failure_reporting_includes_sanitized_script_line()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("catch {", source);
+        Assert.Contains("$lineNumber = $_.InvocationInfo.ScriptLineNumber", source);
+        Assert.Contains("Sanitized failure: true", source);
+        Assert.Contains("Failure line: $lineNumber", source);
+    }
+
+    private static int CountNormalized(object? value)
+    {
+        if (value is null) return 0;
+        if (value is Array array) return array.Length;
+        return new[] { value }.Length;
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));

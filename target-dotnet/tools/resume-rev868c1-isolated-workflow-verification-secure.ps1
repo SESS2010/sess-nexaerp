@@ -263,7 +263,7 @@ function Assert-SqlSafe([string]$Title, [string]$Sql) {
     if ([string]::IsNullOrWhiteSpace($Sql)) { throw "SQL '$Title' is empty." }
     $stripped = (Remove-SqlNonExecutableText $Sql).Trim()
     if (-not $stripped.EndsWith(';')) { throw "SQL '$Title' is missing a statement terminator." }
-    $statementParts = $stripped.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 }
+    $statementParts = @($stripped.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 })
     if ($statementParts.Count -ne 1) { throw "SQL '$Title' must contain exactly one executable statement." }
     $statement = $statementParts[0]
     if ($statement -notmatch '(?is)^\s*(select|with)\b') { throw "SQL '$Title' must start with SELECT or a read-only CTE." }
@@ -276,10 +276,10 @@ function Invoke-PsqlRead([string]$Sql) {
         [System.IO.File]::WriteAllText($sqlFile, $readOnlySql, [System.Text.UTF8Encoding]::new($false))
         $old = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        try { $output = & $psql -h $HostName -p $Port -U $UserName -d $Database -v ON_ERROR_STOP=1 -At -f $sqlFile 2>&1; $exit = $LASTEXITCODE }
+        try { $output = @(& $psql -h $HostName -p $Port -U $UserName -d $Database -v ON_ERROR_STOP=1 -At -f $sqlFile 2>&1); $exit = $LASTEXITCODE }
         finally { $ErrorActionPreference = $old }
         if ($exit -ne 0) { throw "psql failed with exit code $exit. $((($output | ForEach-Object { $_.ToString() }) -join "`n"))" }
-        $filtered = $output | Where-Object { $_.ToString() -notin @('BEGIN', 'COMMIT') }
+        $filtered = @($output | Where-Object { $_.ToString() -notin @('BEGIN', 'COMMIT') })
         return ($filtered -join "`n")
     }
     finally { Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue }
@@ -290,7 +290,7 @@ function Get-TestResultSummary([string]$TrxPath) {
     $ns = New-Object System.Xml.XmlNamespaceManager($trx.NameTable)
     $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
     $counters = $trx.TestRun.ResultSummary.Counters
-    $results = $trx.SelectNodes("//t:UnitTestResult", $ns) | ForEach-Object { "$($_.testName)|$($_.outcome)" }
+    $results = @($trx.SelectNodes("//t:UnitTestResult", $ns) | ForEach-Object { "$($_.testName)|$($_.outcome)" })
     return [pscustomobject]@{
         Total = $counters.total
         Passed = $counters.passed
@@ -361,7 +361,7 @@ try {
 
     Write-Section "Run PostgreSQL-backed REV868C1 resume tests"
     Set-Location $targetRoot
-    $testOutput = & $dotnet test .\SESS.NexaERP.slnx --configuration Release --filter "Rev868C1PostgresWorkflowVerificationTests|AuthorizationIntegrationTests" --logger "trx;LogFileName=$trxName" --results-directory $trxDir 2>&1
+    $testOutput = @(& $dotnet test .\SESS.NexaERP.slnx --configuration Release --filter "Rev868C1PostgresWorkflowVerificationTests|AuthorizationIntegrationTests" --logger "trx;LogFileName=$trxName" --results-directory $trxDir 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "dotnet test failed. $((($testOutput | ForEach-Object { $_.ToString() }) -join "`n"))" }
     $trxPath = Join-Path $trxDir $trxName
     $testSummary = Get-TestResultSummary $trxPath
@@ -389,6 +389,21 @@ try {
     Add-Report (($testOutput | Select-Object -Last 80) -join "`n")
     Add-Report '```'
     Write-Host "REV868C1 isolated resume final evidence report: $reportFile"
+}
+catch {
+    $lineNumber = $_.InvocationInfo.ScriptLineNumber
+    $errorType = $_.Exception.GetType().FullName
+    $message = $_.Exception.Message
+    New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
+    Add-Report "# REV868C1 Isolated Resume Failure Report"
+    Add-Report ""
+    Add-Report "- Sanitized failure: true"
+    Add-Report "- Script line: $lineNumber"
+    Add-Report "- Error type: $errorType"
+    Add-Report "- Error message: $message"
+    Write-Host "REV868C1 isolated resume verification failed. Sanitized report: $reportFile"
+    Write-Host "Failure line: $lineNumber"
+    throw
 }
 finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
