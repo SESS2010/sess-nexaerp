@@ -75,12 +75,23 @@ join pg_catalog.pg_namespace n on n.oid = c.relnamespace
 where c.relname = '__EFMigrationsHistory'
 order by n.nspname, c.relname;
 "@.Trim()
-        "Existing migration IDs" = @"
+
+    }
+}
+function Get-MigrationHistorySql {
+@"
 select "MigrationId"
 from "public"."__EFMigrationsHistory"
 order by "MigrationId";
 "@.Trim()
-    }
+}
+function Get-PreflightState([string]$SessionIdentity, [string]$Schemas, [string]$HistoryLookup) {
+    if ($SessionIdentity -notmatch "database=$Database") { return "wrong_database" }
+    if ($SessionIdentity -match "database=sess_nexaerp(\r?\n|$)") { return "blocked_main_database" }
+    $hasNexaSchema = $Schemas -match "(^|\r?\n)nexa(\r?\n|$)"
+    $hasHistory = $HistoryLookup -match "__EFMigrationsHistory"
+    if (-not $hasNexaSchema -and -not $hasHistory) { return "empty_and_safe" }
+    return "not_empty_or_already_initialized"
 }
 function Get-PostVerificationSql {
     [ordered]@{
@@ -255,6 +266,14 @@ try {
     foreach ($entry in $preflightSql.GetEnumerator()) { Add-Evidence $entry.Key ([string]$entry.Value) }
     if ($evidence["Session identity"] -notmatch "database=$Database") { throw "Connected database did not match isolated verification database." }
     if ($evidence["Session identity"] -match "database=sess_nexaerp(\r?\n|$)") { throw "Refusing to run against main development database sess_nexaerp." }
+    $preflightState = Get-PreflightState ([string]$evidence["Session identity"]) ([string]$evidence["Existing schemas"]) ([string]$evidence["EF history relation lookup"])
+    $evidence["Preflight state"] = $preflightState
+    if ($evidence["EF history relation lookup"] -match "__EFMigrationsHistory") {
+        Add-Evidence "Existing migration IDs" (Get-MigrationHistorySql)
+    }
+    else {
+        $evidence["Existing migration IDs"] = "EF history absent; MigrationId query intentionally skipped."
+    }
     if ($PreflightOnly) {
         Add-Report "# REV868C1 Isolated Workflow Preflight Report"
         Add-Report ""
@@ -267,6 +286,8 @@ try {
         Write-Host "REV868C1 isolated workflow preflight report: $reportFile"
         return
     }
+
+    if ($preflightState -ne "empty_and_safe") { throw "Full execution requires empty_and_safe preflight state. Current state: $preflightState" }
 
     $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$plainPassword"
     $env:NexaErp__ExpectedDatabase = $Database

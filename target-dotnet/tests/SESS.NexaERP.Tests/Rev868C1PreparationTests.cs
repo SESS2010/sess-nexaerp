@@ -63,6 +63,26 @@ public sealed class Rev868C1PreparationTests
     }
 
     [Fact]
+    public void Rev868c1_preflight_handles_empty_database_without_direct_history_query()
+    {
+        var source = Read("tools", "apply-rev868c1-isolated-workflow-verification-secure.ps1");
+        var preflightStart = source.IndexOf("function Get-PreflightSql", StringComparison.Ordinal);
+        var migrationHistoryStart = source.IndexOf("function Get-MigrationHistorySql", StringComparison.Ordinal);
+        Assert.True(preflightStart >= 0, "Get-PreflightSql must exist.");
+        Assert.True(migrationHistoryStart > preflightStart, "Migration history SQL must be separate from preflight SQL.");
+        var preflightBlock = source[preflightStart..migrationHistoryStart];
+
+        Assert.Contains("EF history relation lookup", preflightBlock);
+        Assert.Contains("pg_catalog.pg_class", preflightBlock);
+        Assert.Contains("pg_catalog.pg_namespace", preflightBlock);
+        Assert.DoesNotContain("from \"public\".\"__EFMigrationsHistory\"", preflightBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("select \"MigrationId\"", preflightBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Get-MigrationHistorySql", source);
+        Assert.Contains("EF history absent; MigrationId query intentionally skipped.", source);
+        Assert.Contains("empty_and_safe", source);
+        Assert.Contains("Full execution requires empty_and_safe preflight state", source);
+    }
+    [Fact]
     public void Rev868c1_design_time_factory_requires_connection_and_expected_database()
     {
         var source = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDesignTimeDbContextFactory.cs");

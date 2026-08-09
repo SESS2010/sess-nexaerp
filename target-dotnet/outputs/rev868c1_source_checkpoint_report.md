@@ -46,3 +46,8 @@ REV868 database/schema evidence is present, but the prior read-only post-run ver
 
 ## Management Execution Boundary
 Codex must stop after source checkpoint. Management must approve and manually run preflight/execution commands in normal Windows PowerShell. REV869 must not start until REV868C1 evidence is reviewed.
+## REV868C1 Preflight Correction
+- Preflight now discovers `__EFMigrationsHistory` via `pg_catalog.pg_class` and `pg_catalog.pg_namespace` before any MigrationId query.
+- Empty isolated verification database state is valid and reported as `empty_and_safe`.
+- MigrationId query is skipped when EF history is absent.
+- Full execution is allowed only after the same empty-and-safe preflight state is proven.
