@@ -785,7 +785,49 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("passwordKey + '=<redacted>'", helper);
         Assert.Contains("TRX not created or unavailable", helper);
     }
+    [Fact]
+    public void Rev868c3_sanitizer_preserves_safe_test_evidence_and_removes_only_sensitive_values()
+    {
+        var resume = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+        var full = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
 
+        foreach (var helper in new[] { resume, full })
+        {
+            Assert.DoesNotContain("redacted-uppercase-text", helper);
+            Assert.Contains("<redacted-path>", helper);
+            Assert.Contains("<redacted-password>", helper);
+            Assert.Contains("targeted_test|$required|Missing", helper);
+            Assert.Contains("passed=$", helper);
+            Assert.Contains("Rev868c3_manager_md_td_approval_sequence_is_enforced", helper);
+        }
+    }
+
+    [Fact]
+    public void Rev868c3_postrun_readonly_verifier_is_select_only_and_covers_missing_final_evidence()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("begin transaction read only;", helper);
+        Assert.Contains("migration_acceptance_state", helper);
+        Assert.Contains("active_employee_acceptance_state", helper);
+        Assert.Contains("relieved_employee_acceptance_state", helper);
+        Assert.Contains("department_acceptance_state", helper);
+        Assert.Contains("mapping_acceptance_state", helper);
+        Assert.Contains("workflow_acceptance_state", helper);
+        Assert.Contains("manager_permission_acceptance_state", helper);
+        Assert.Contains("audit_evidence_count", helper);
+        Assert.Contains("duplicate_employee_codes", helper);
+        Assert.Contains("duplicate_payroll_ids", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain("database update", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet ef", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INSERT INTO", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DELETE FROM", helper, StringComparison.OrdinalIgnoreCase);
+    }
     [Fact]
     public void Rev868c3_resume_postgresql_test_helper_is_migration_free_and_isolated()
     {

@@ -109,7 +109,10 @@ function ConvertTo-SanitizedTestOutput([object[]]$Output) {
         $line = $line -replace ($passwordKey + '=[^;\s]+'), ($passwordKey + '=<redacted>')
         $line = $line -replace ('Host=[^;\s]+;Port=[^;\s]+;Database=[^;\s]+;Username=[^;\s]+;' + $passwordKey + '=<redacted>'), 'ConnectionString=<redacted>'
         $line = $line -replace (('SESS' + '@') + '[^\s;]+'), '<redacted-password>'
-        $line = $line -replace '\b[A-Z][A-Z. ]{2,}\b', '<redacted-uppercase-text>'
+        $line = $line -replace 'C:\Users\[^\s]+', '<redacted-path>'
+        $line = $line -replace '(?i)(Bearer|Token|Secret|ApiKey|ClientSecret)\s+[^\s;]+', '$1 <redacted>'
+        $line = $line -replace '\b\d{12}\b', '<redacted-id>'
+        $line = $line -replace '\b\d{10}\b', '<redacted-phone>'
         if ($line.Length -gt 500) { $line = $line.Substring(0, 500) + '...' }
         $lines.Add($line)
     }
