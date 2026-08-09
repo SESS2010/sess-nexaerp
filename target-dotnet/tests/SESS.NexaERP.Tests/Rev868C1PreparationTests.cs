@@ -1,4 +1,4 @@
-using SESS.NexaERP.Infrastructure.Persistence;
+﻿using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
 
@@ -161,6 +161,64 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("No PostgreSQL command", report);
         Assert.Contains("REV869", report);
         Assert.Contains("real OIDC", report, StringComparison.OrdinalIgnoreCase);
+    }
+    [Fact]
+    public void Rev868c1_resume_verifier_is_migration_free_and_main_database_blocked()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("sess_nexaerp_rev868_verify", source);
+        Assert.Contains("$blockedDatabaseNames", source);
+        Assert.Contains("sess_nexaerp", source);
+        Assert.Contains("postgres", source);
+        Assert.Contains("template0", source);
+        Assert.Contains("template1", source);
+        Assert.Contains("rev861", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Refusing unsafe database target", source);
+        Assert.Contains("Expected migration missing or duplicated", source);
+        Assert.DoesNotContain("ef database update", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet ef", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("migrations add", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("migrations remove", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createdb", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dropdb", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Rev868c1_resume_verifier_emits_explicit_final_evidence_sql()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("function Get-ResumeSql", source);
+        Assert.Contains("select \"MigrationId\", count(*)", source);
+        Assert.Contains("PR lifecycle status names and counts", source);
+        Assert.Contains("PR lifecycle branch verification", source);
+        Assert.Contains("Amount routing boundary evidence", source);
+        Assert.Contains("Security 401 403 and self approval evidence", source);
+        Assert.Contains("Workflow record counts", source);
+        Assert.Contains("Stock reconciliation scenario evidence", source);
+        Assert.Contains("Quantity reconciliation violation count", source);
+        Assert.Contains("Duplicate active reservation violation count", source);
+        Assert.Contains("Duplicate PendingRFQ handoff violation count", source);
+        Assert.Contains("Missing location evidence counts", source);
+        Assert.Contains("REV868C1-UNAUTHENTICATED-401", source);
+        Assert.Contains("REV868C1-DIRECT-API-403", source);
+        Assert.Contains("REV868C1-SELF-APPROVAL-403", source);
+        Assert.DoesNotContain("\"\"MigrationId\"\"", source);
+    }
+
+    [Fact]
+    public void Rev868c1_resume_verifier_captures_machine_readable_named_test_results()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("--logger \"trx;LogFileName=$trxName\"", source);
+        Assert.Contains("Get-TestResultSummary", source);
+        Assert.Contains("Named test results", source);
+        Assert.Contains("UnitTestResult", source);
+        Assert.Contains("Test total:", source);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));

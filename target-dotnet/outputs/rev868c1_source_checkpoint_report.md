@@ -51,3 +51,12 @@ Codex must stop after source checkpoint. Management must approve and manually ru
 - Empty isolated verification database state is valid and reported as `empty_and_safe`.
 - MigrationId query is skipped when EF history is absent.
 - Full execution is allowed only after the same empty-and-safe preflight state is proven.
+
+## REV868C1 Final Evidence Resume Correction
+- Added resume-only verifier: `tools/resume-rev868c1-isolated-workflow-verification-secure.ps1`.
+- The resume verifier is restricted to `localhost:5432 / sess_nexaerp_rev868_verify` and rejects `sess_nexaerp`, `postgres`, `template0`, `template1`, and REV861-like database names.
+- It confirms all eight migrations already exist exactly once before collecting evidence.
+- It contains no EF migration apply/update/remove command and no backup, restore, create or drop operation.
+- It captures branch-level PR lifecycle status evidence, amount boundary routing evidence, 401/403/self-approval audit evidence, reconciliation/duplicate/location violation counts, and named TRX test results.
+- If a lifecycle branch or security/audit case cannot be proven by existing controlled records/tests, the report will show `MISSING` rather than inventing evidence.
+- Codex did not execute the resume verifier or access PostgreSQL during this source-only correction.

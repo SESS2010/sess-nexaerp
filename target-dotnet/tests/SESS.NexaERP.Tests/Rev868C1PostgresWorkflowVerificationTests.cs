@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
@@ -148,6 +148,7 @@ public sealed class Rev868C1PostgresWorkflowVerificationTests
         pr.SubmittedBy = pr.CreatedBy;
         await db.SaveChangesAsync();
 
+        await AddAuditAsync(db, "Security", "Denied", "UnauthenticatedRequest", pr.Id.ToString(), "Failure", "UNAUTHENTICATED-401", "anonymous");
         await AddAuditAsync(db, "Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), "Failure", "SELF-APPROVAL-403", pr.CreatedBy);
         await AddAuditAsync(db, "Security", "Denied", "DirectApiAccess", pr.Id.ToString(), "Failure", "DIRECT-API-403", "unauthorized-user");
 
