@@ -436,7 +436,10 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("insert into nexa.purchase_approval_workflow_steps (\"Id\", \"RouteCode\", \"MinimumAmount\", \"MaximumAmount\", \"StepNumber\", \"ApproverResolutionType\", \"ApproverEmployeeCode\", \"ApproverRoleCode\", \"IsActive\", \"EffectiveFrom\", \"EffectiveTo\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.employee_status_history (\"Id\", \"EmployeeId\", \"OldStatus\", \"NewStatus\", \"Reason\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.employee_department_history (\"Id\", \"EmployeeId\", \"PreviousDepartmentId\", \"NewDepartmentId\", \"Reason\", \"SourceRevision\", \"CorrelationId\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
-        Assert.Contains("insert into nexa.audit_logs (\"Id\", \"UserLoginId\", \"UserRole\", \"Module\", \"EntityName\", \"EntityId\", \"Action\", \"OldValue\", \"NewValue\", \"Reason\", \"Result\", \"CorrelationId\", \"IpAddress\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.audit_logs (\"Id\", \"Action\", \"AfterJson\", \"BeforeJson\", \"CorrelationId\", \"CreatedAt\", \"CreatedBy\", \"EntityId\", \"EntityName\", \"IpAddress\", \"Module\", \"Result\", \"UpdatedAt\", \"UpdatedBy\", \"UserLoginId\", \"Version\")", migration);
+        Assert.DoesNotContain("\"UserRole\"", migration);
+        Assert.DoesNotContain("\"OldValue\"", migration);
+        Assert.DoesNotContain("\"NewValue\"", migration);
     }
 
     [Fact]
@@ -666,7 +669,9 @@ public sealed class Rev868C3ImplementationTests
 
         Assert.Contains("42P10", helper);
         Assert.Contains("42804", helper);
+        Assert.Contains("42703", helper);
         Assert.Contains("datatype_mismatch", helper);
+        Assert.Contains("undefined_column", helper);
         Assert.Contains("SqlState", helper);
         Assert.Contains("on_conflict_index_mismatch", helper);
         Assert.Contains("23502", helper);
@@ -705,6 +710,7 @@ $cases = @(
     @('Npgsql.PostgresException: SqlState: 42P10 there is no unique or exclusion constraint matching the ON CONFLICT specification. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'on_conflict_index_mismatch'),
     @('Npgsql.PostgresException: SqlState: 42804 column "Version" is of type bigint but expression is of type text. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'datatype_mismatch'),
     @('Npgsql.PostgresException: SqlState: 42804 column "Version" is of type bigint but expression is of type text. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'datatype_mismatch'),
+    @('Npgsql.PostgresException: SqlState: 42703 column "UserRole" does not exist. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'undefined_column'),
     @('PostgresException (23502): null value in column "IsPrivileged" of relation "roles" violates not-null constraint. DOB 1990-01-01 payroll PAYROLL-SECRET PRIVATE_EMPLOYEE_NAME', 'not_null_violation'),
     @('PostgresException (23503): insert or update on table "employees" violates foreign key constraint "FK_employees_departments_DepartmentId". SQL: SELECT * FROM secret_employee', 'foreign_key_violation'),
     @('System.InvalidOperationException: Unable to retrieve project metadata. PRIVATE_EMPLOYEE_NAME payroll PAYROLL-SECRET', 'ef_project_metadata')

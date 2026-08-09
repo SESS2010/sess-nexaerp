@@ -548,8 +548,8 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
               and (b."EmployeeId" is null or b."DepartmentId" is distinct from e."DepartmentId")
               and not exists (select 1 from nexa.employee_department_history h where h."EmployeeId" = e."Id" and h."CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION');
 
-            insert into nexa.audit_logs ("Id", "UserLoginId", "UserRole", "Module", "EntityName", "EntityId", "Action", "OldValue", "NewValue", "Reason", "Result", "CorrelationId", "IpAddress", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            values (gen_random_uuid(), 'system-migration', 'SYSTEM', 'Employees', 'EmployeeWorkbook', 'REV868C3', 'ReconcileEmployeeDepartmentManagerWorkbook', null, {Sql("{\"activeEmployees\":42,\"relievedEmployees\":9,\"departments\":12,\"managerMappings\":14}")}, 'Approved REV868C3 employee workbook source checkpoint', 'Success', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', null, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint)
+            insert into nexa.audit_logs ("Id", "Action", "AfterJson", "BeforeJson", "CorrelationId", "CreatedAt", "CreatedBy", "EntityId", "EntityName", "IpAddress", "Module", "Result", "UpdatedAt", "UpdatedBy", "UserLoginId", "Version")
+            values (gen_random_uuid(), 'ReconcileEmployeeDepartmentManagerWorkbook', {Sql("{\"activeEmployees\":42,\"relievedEmployees\":9,\"departments\":12,\"managerMappings\":14,\"reason\":\"Approved REV868C3 employee workbook source checkpoint\"}")}, null, 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', 'REV868C3', 'EmployeeWorkbook', null, 'Employees', 'Success', null, null, 'system-migration', 0::bigint)
             on conflict do nothing;
         """);
 

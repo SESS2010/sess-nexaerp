@@ -163,6 +163,7 @@ function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode, [string]$Phas
             '42P10' { 'on_conflict_index_mismatch'; break }
             default { if ($messageCategory -ne 'unclassified') { $messageCategory } else { 'ef_migration_failure' } }
         }
+        if ($sqlState -in @('42703','42804','42P10')) { $messageCategory = $category }
         return "exit_code=$ExitCode; phase=$Phase; exception_type=$exceptionType; sqlstate=$sqlState; schema=$schema; table=$table; column=$column; constraint=$constraint; message_category=$messageCategory; category=$category; raw_output_sha256=$fingerprint"
     }
     catch {
