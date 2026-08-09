@@ -806,6 +806,53 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.DoesNotContain("CREATE DATABASE", helper, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("DROP DATABASE", helper, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Rev868c3_resume_sql_generation_is_read_only_and_uses_safe_mixed_case_identifier_quoting()
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("function Get-ResumeSql", helper);
+        Assert.Contains("[switch]$GenerateSqlOnly", helper);
+        Assert.Contains("begin transaction read only;", helper);
+        Assert.Contains("select \"MigrationId\"", helper);
+        Assert.Contains("from \"public\".\"__EFMigrationsHistory\"", helper);
+        Assert.Contains("commit;", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain("\"\"MigrationId\"\"", helper);
+        Assert.DoesNotContain("\"\"__EFMigrationsHistory\"\"", helper);
+        Assert.DoesNotContain("-c $Sql", helper);
+        Assert.DoesNotContain("unterminated quoted identifier", helper, StringComparison.OrdinalIgnoreCase);
+
+        var expectedMigrationIds = new[]
+        {
+            "20260808110924_Phase1Foundation",
+            "20260808114550_Phase1AuthorizationSeed",
+            "20260808123411_Rev866EmployeePermissionMatrix",
+            "20260808142353_Rev866CorrectiveStatusPermissionAudit",
+            "20260808151207_Rev867MasterFoundation",
+            "20260808160435_Rev867C1Corrections",
+            "20260808182945_Rev868PurchaseRequisitionFoundation",
+            "20260808190920_Rev868PurchaseLocationAllocationCorrection",
+            "20260809123000_Rev868C2DepartmentManagerApprovalMapping",
+            "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation"
+        };
+        foreach (var migrationId in expectedMigrationIds) Assert.Contains(migrationId, helper);
+    }
+
+    [Fact]
+    public void Rev868c3_resume_helper_cleans_temp_sql_and_secret_environment_values()
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("$script:tempSqlFile", helper);
+        Assert.Contains("Remove-Item -LiteralPath $script:tempSqlFile", helper);
+        Assert.Contains("Remove-Item Env:\\PGPASSWORD", helper);
+        Assert.Contains("Remove-Item Env:\\ConnectionStrings__NexaErp", helper);
+        Assert.Contains("Remove-Item Env:\\NexaErp__ExpectedDatabase", helper);
+        Assert.Contains("Test-Path -LiteralPath $script:tempSqlFile", helper);
+    }
+
     private static void AssertOrdered(string text, string before, string after)
     {
         var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);
