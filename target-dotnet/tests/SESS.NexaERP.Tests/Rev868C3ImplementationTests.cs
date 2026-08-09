@@ -89,7 +89,9 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("Rev868c3_missing_department_manager_fails_closed", helper);
         Assert.Contains("Rev868c3_manager_md_td_approval_sequence_is_enforced", helper);
         Assert.Contains("database_acceptance_state", helper);
-        Assert.Contains("final_acceptance_state=PASS", helper);
+        Assert.Contains("test_acceptance_state", helper);
+        Assert.Contains("overall_acceptance_state=PASS", helper);
+        Assert.Contains("Full execution final report requires database_acceptance_state=PASS, test_acceptance_state=PASS, and overall_acceptance_state=PASS", helper);
         Assert.DoesNotContain("C:\\Users\\User\\Documents\\Codex\\2026-07-03\\see\\target-dotnet\\local-evidence\\rev868c3\\SESS_NexaERP_Final_Employee_Master_2026-08-09.xlsx", helper);
     }
 
@@ -114,7 +116,14 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("status_history_missing_employee_count", post);
         Assert.Contains("department_transfer_history_missing_employee_count", post);
         Assert.Contains("manager_role_missing_count", post);
+        Assert.Contains("manager_permission_rows=", post);
+        Assert.Contains("manager_permission_rows_expected", post);
         Assert.Contains("manager_permission_missing_count", post);
+        Assert.Contains("manager_permission_unexpected_count", post);
+        Assert.Contains("manager_permission_duplicate_count", post);
+        Assert.Contains("manager_permission_acceptance_state", post);
+        Assert.DoesNotContain("manager_permission_missing_count=' || case when count(*) > 0", post);
+        Assert.DoesNotContain("manager_permission_required_count", post);
     }
 
     [Theory]
@@ -162,11 +171,13 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("rev868c3\\_%\\_backup", helper);
         Assert.Contains("status_history_partial_count", helper);
         Assert.Contains("department_history_relation_count", helper);
+        Assert.Contains("workflow_step_relation_count", helper);
         Assert.Contains("audit_partial_count", helper);
         Assert.Contains("deterministic_employee_partial_count", helper);
         Assert.Contains("deterministic_department_partial_count", helper);
         Assert.Contains("deterministic_designation_partial_count", helper);
         Assert.Contains("safe_retry_state=' || case when prerequisite_history_count = 9", helper);
+        Assert.Contains("workflow_step_relation_count = 0", helper);
         Assert.Contains("backup_relation_count", helper);
         Assert.Contains("Backup SHA-256", helper);
     }
@@ -180,8 +191,11 @@ public sealed class Rev868C3ImplementationTests
         var preflight = helper[preflightStart..preflightEnd];
 
         Assert.Contains("department_history_relation_count", preflight);
+        Assert.Contains("workflow_step_relation_count", preflight);
         Assert.DoesNotContain("nexa.employee_department_history", preflight, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("from nexa.purchase_approval_workflow_steps", preflight, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("department_history_relation_count = 0", preflight);
+        Assert.Contains("workflow_step_relation_count = 0", preflight);
     }
 
     [Fact]
@@ -196,6 +210,23 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("SESS-002", migration);
         Assert.Contains("SESS-001", migration);
         Assert.Contains("FIXED_EMPLOYEE_ROLE", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_migration_seeds_exact_department_manager_page_permissions()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("REV868C3_DEPARTMENT_MANAGER_PERMISSION", migration);
+        Assert.Contains("insert into nexa.role_page_permissions", migration);
+        Assert.Contains("p.\"PageKey\" = 'purchase.requisitions'", migration);
+        Assert.Contains("p.\"PageKey\" = 'purchase.requisition-approvals'", migration);
+        Assert.Contains("on conflict (\"RoleId\", \"PageDefinitionId\") do update", migration);
+        Assert.Contains("CanApprove", migration);
+        Assert.Contains("CanReject", migration);
+        Assert.Contains("CanRequestClarification", migration);
+        Assert.Contains("CanRequestRevision", migration);
+        Assert.Contains("CanViewAuditHistory", migration);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));

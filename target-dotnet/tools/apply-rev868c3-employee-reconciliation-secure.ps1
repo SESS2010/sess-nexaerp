@@ -31,6 +31,7 @@ $DepartmentCodes = 'ACCOUNTS_FINANCE,DESIGN,ELECTRICAL_PLC_INSTRUMENTATION,HR_AD
 $ManagerMappingRows = 'ACCOUNTS_FINANCE:ALL:SESS-007:SESS-002,DESIGN:PROJECT:SESS-019:SESS-015,DESIGN:REGULAR_PRODUCT:SESS-015:SESS-019,ELECTRICAL_PLC_INSTRUMENTATION:ALL:SESS-038:SESS-001,HR_ADMIN:ALL:SESS-020:SESS-002,MANAGEMENT:ALL:SESS-002:SESS-001,PRODUCTION_FABRICATION:ALL:SESS-023:SESS-040,PURCHASE:ALL:SESS-012:SESS-014,QUALITY_QC:ALL:SESS-040:SESS-009,REFRIGERATION_MECHANICAL:ALL:SESS-003:SESS-004,SERVICE_TECHNICAL_SUPPORT:BANGALORE:SESS-011:SESS-004,SERVICE_TECHNICAL_SUPPORT:CHENNAI:SESS-004:SESS-003,SOFTWARE_IT:ALL:SESS-008:SESS-049,STORES:ALL:SESS-014:SESS-012'
 $LegacyMixedDepartmentCodes = 'ENGINEER_TECHNICAL,MANAGER,JUNIOR_ASSISTANT,ADMIN_ACCOUNTS_STORES'
 $ManagerRoleEmployeeCodes = 'SESS-001,SESS-002,SESS-003,SESS-004,SESS-007,SESS-008,SESS-009,SESS-011,SESS-012,SESS-014,SESS-015,SESS-019,SESS-020,SESS-023,SESS-038,SESS-040,SESS-049'
+$ManagerPermissionRows = 'purchase.requisition-approvals:V=T:A=T:R=T:C=T:RV=T:AH=T,purchase.requisitions:V=T:A=F:R=F:C=F:RV=F:AH=T'
 $ChangedDepartmentEmployeeCodes = 'SESS-001,SESS-002,SESS-003,SESS-004,SESS-005,SESS-006,SESS-007,SESS-008,SESS-009,SESS-010,SESS-011,SESS-012,SESS-013,SESS-014,SESS-015,SESS-017,SESS-019,SESS-020,SESS-021,SESS-023,SESS-024,SESS-025,SESS-026,SESS-029,SESS-030,SESS-031,SESS-033,SESS-034,SESS-035,SESS-038,SESS-040,SESS-041,SESS-042,SESS-043,SESS-044,SESS-045,SESS-046,SESS-047,SESS-048,SESS-049,SESS-050,SESS-051'
 $TargetedTestNames = @(
     'Rev868c3_unauthenticated_request_returns_401',
@@ -84,6 +85,7 @@ with artifact_counts as (
         (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname like 'rev868c3\_%\_backup' escape '\') as backup_relation_count,
         (select count(*) from nexa.employee_status_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "Reason" like 'REV868C3 employee workbook reconciliation%') as status_history_partial_count,
         (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'employee_department_history') as department_history_relation_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'purchase_approval_workflow_steps') as workflow_step_relation_count,
         (select count(*) from nexa.audit_logs where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') as audit_partial_count,
         (select count(*) from nexa.employee_role_assignments where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') as role_assignment_partial_count,
         (select count(*) from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') as role_page_permission_partial_count,
@@ -99,6 +101,7 @@ union all select 'rev868c3_history_count=' || rev868c3_history_count::text from 
 union all select 'backup_relation_count=' || backup_relation_count::text from artifact_counts
 union all select 'status_history_partial_count=' || status_history_partial_count::text from artifact_counts
 union all select 'department_history_relation_count=' || department_history_relation_count::text from artifact_counts
+union all select 'workflow_step_relation_count=' || workflow_step_relation_count::text from artifact_counts
 union all select 'audit_partial_count=' || audit_partial_count::text from artifact_counts
 union all select 'role_assignment_partial_count=' || role_assignment_partial_count::text from artifact_counts
 union all select 'role_page_permission_partial_count=' || role_page_permission_partial_count::text from artifact_counts
@@ -108,7 +111,7 @@ union all select 'deterministic_department_partial_count=' || deterministic_depa
 union all select 'deterministic_designation_partial_count=' || deterministic_designation_partial_count::text from artifact_counts
 union all select 'employee_column_count=' || employee_column_count::text from artifact_counts
 union all select 'mapping_scope_column_count=' || mapping_scope_column_count::text from artifact_counts
-union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
+union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and workflow_step_relation_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
 "@
 }
 function Get-PostMigrationSql {
@@ -167,8 +170,20 @@ select 'approval_status_mismatch_count=' || count(*)::text from nexa.employees e
 with required(code) as (select unnest(string_to_array('$RelievedEmployeeCodes', ','))), covered(code) as (select distinct e."EmployeeCode" from nexa.employee_status_history h join nexa.employees e on e."Id" = h."EmployeeId" join required r on r.code = e."EmployeeCode" where h."CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and h."NewStatus" in ('Left / Resigned','Inactive')) select 'status_history_missing_employee_count=' || (select count(*)::text from required r left join covered c using(code) where c.code is null);
 with required(code) as (select unnest(string_to_array('$ChangedDepartmentEmployeeCodes', ','))), covered(code) as (select distinct e."EmployeeCode" from nexa.employee_department_history h join nexa.employees e on e."Id" = h."EmployeeId" join required r on r.code = e."EmployeeCode" where h."CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') select 'department_transfer_history_missing_employee_count=' || (select count(*)::text from required r left join covered c using(code) where c.code is null);
 with expected(code) as (select unnest(string_to_array('$ManagerRoleEmployeeCodes', ','))), actual(code) as (select distinct e."EmployeeCode" from nexa.employee_role_assignments era join nexa.employees e on e."Id" = era."EmployeeId" where era."CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') select 'manager_role_missing_count=' || (select count(*)::text from expected e left join actual a using(code) where a.code is null) union all select 'manager_role_unexpected_count=' || (select count(*)::text from actual a left join expected e using(code) where e.code is null);
-select 'manager_permission_required_count=' || count(*)::text from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
-select 'manager_permission_missing_count=' || case when count(*) > 0 then '0' else '1' end from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
+with expected(row_key) as (select unnest(string_to_array('$ManagerPermissionRows', ','))), actual(row_key) as (
+    select p."PageKey" || ':V=' || case when rpp."CanView" then 'T' else 'F' end || ':A=' || case when rpp."CanApprove" then 'T' else 'F' end || ':R=' || case when rpp."CanReject" then 'T' else 'F' end || ':C=' || case when rpp."CanRequestClarification" then 'T' else 'F' end || ':RV=' || case when rpp."CanRequestRevision" then 'T' else 'F' end || ':AH=' || case when rpp."CanViewAuditHistory" then 'T' else 'F' end
+    from nexa.role_page_permissions rpp
+    join nexa.roles r on r."Id" = rpp."RoleId"
+    join nexa.page_definitions p on p."Id" = rpp."PageDefinitionId"
+    where r."Code" = 'DEPARTMENT_MANAGER'
+      and p."PageKey" in ('purchase.requisitions','purchase.requisition-approvals')
+), dupes as (select row_key from actual group by row_key having count(*) > 1)
+select 'manager_permission_rows=' || coalesce((select string_agg(row_key, ',' order by row_key) from actual),'')
+union all select 'manager_permission_rows_expected=$ManagerPermissionRows'
+union all select 'manager_permission_missing_count=' || (select count(*)::text from expected e left join actual a using(row_key) where a.row_key is null)
+union all select 'manager_permission_unexpected_count=' || (select count(*)::text from actual a left join expected e using(row_key) where e.row_key is null)
+union all select 'manager_permission_duplicate_count=' || (select count(*)::text from dupes)
+union all select 'manager_permission_acceptance_state=' || case when (select count(*) from expected e left join actual a using(row_key) where a.row_key is null) = 0 and (select count(*) from actual a left join expected e using(row_key) where e.row_key is null) = 0 and (select count(*) from dupes) = 0 then 'PASS' else 'FAIL' end;
 select 'narren_exact_doj=' || count(*)::text from nexa.employees where "EmployeeCode" = 'SESS-040' and "EmployeeName" = 'NARREN VALENTINO' and "DateOfJoining" = DATE '2026-02-01' and "IsDateOfJoiningApproximate" = false;
 select 'mageshwari_female=' || count(*)::text from nexa.employees where "EmployeeCode" = 'SESS-049' and "PayrollEmployeeId" = '1072' and "Gender" = 'Female';
 select 'audit_evidence_count=' || count(*)::text from nexa.audit_logs where "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION' and "Result" = 'Success';
@@ -189,12 +204,13 @@ with conditions as (
       (with required(code) as (select unnest(string_to_array('$RelievedEmployeeCodes', ','))), covered(code) as (select distinct e."EmployeeCode" from nexa.employee_status_history h join nexa.employees e on e."Id" = h."EmployeeId" join required r on r.code = e."EmployeeCode" where h."CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and h."NewStatus" in ('Left / Resigned','Inactive')) select count(*) from required r left join covered c using(code) where c.code is null) = 0 as status_history_ok,
       (with required(code) as (select unnest(string_to_array('$ChangedDepartmentEmployeeCodes', ','))), covered(code) as (select distinct e."EmployeeCode" from nexa.employee_department_history h join nexa.employees e on e."Id" = h."EmployeeId" join required r on r.code = e."EmployeeCode" where h."CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') select count(*) from required r left join covered c using(code) where c.code is null) = 0 as department_history_ok,
       (with expected(code) as (select unnest(string_to_array('$ManagerRoleEmployeeCodes', ','))), actual(code) as (select distinct e."EmployeeCode" from nexa.employee_role_assignments era join nexa.employees e on e."Id" = era."EmployeeId" where era."CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') select (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0) as manager_roles_ok,
-      (select count(*) from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') > 0 as role_permissions_ok,
+      (with expected(row_key) as (select unnest(string_to_array('$ManagerPermissionRows', ','))), actual(row_key) as (select p."PageKey" || ':V=' || case when rpp."CanView" then 'T' else 'F' end || ':A=' || case when rpp."CanApprove" then 'T' else 'F' end || ':R=' || case when rpp."CanReject" then 'T' else 'F' end || ':C=' || case when rpp."CanRequestClarification" then 'T' else 'F' end || ':RV=' || case when rpp."CanRequestRevision" then 'T' else 'F' end || ':AH=' || case when rpp."CanViewAuditHistory" then 'T' else 'F' end from nexa.role_page_permissions rpp join nexa.roles r on r."Id" = rpp."RoleId" join nexa.page_definitions p on p."Id" = rpp."PageDefinitionId" where r."Code" = 'DEPARTMENT_MANAGER' and p."PageKey" in ('purchase.requisitions','purchase.requisition-approvals')), dupes as (select row_key from actual group by row_key having count(*) > 1) select (select count(*) from expected e left join actual a using(row_key) where a.row_key is null) = 0 and (select count(*) from actual a left join expected e using(row_key) where e.row_key is null) = 0 and (select count(*) from dupes) = 0) as role_permissions_ok,
       (select count(*) from nexa.audit_logs where "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION' and "Result" = 'Success') > 0 as audit_ok
 )
 select 'database_acceptance_state=' || case when migrations_ok and active_employees_ok and relieved_employees_ok and departments_ok and mappings_ok and workflow_ok and login_ok and approval_ok and narren_ok and mageshwari_ok and dup_employee_ok and dup_payroll_ok and status_history_ok and department_history_ok and manager_roles_ok and role_permissions_ok and audit_ok then 'PASS' else 'FAIL' end from conditions;
 "@
-}function Get-TestResultSummary([string]$TrxPath) {
+}
+function Get-TestResultSummary([string]$TrxPath) {
     [xml]$trx = Get-Content -LiteralPath $TrxPath
     $ns = New-Object System.Xml.XmlNamespaceManager($trx.NameTable)
     $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
@@ -243,6 +259,8 @@ function Write-Plan {
     Write-Host (Get-PreflightSql)
     Write-Host 'Post-migration/resume SQL:'
     Write-Host (Get-PostMigrationSql)
+    Write-Host 'Full execution final report requires database_acceptance_state=PASS, test_acceptance_state=PASS, and overall_acceptance_state=PASS.'
+    Write-Host 'overall_acceptance_state is written only when database evidence passes, all six required PostgreSQL TRX tests are present and passed, failed count is zero, and no required test is skipped.'
     Write-Host 'Targeted PostgreSQL tests required in full execution:'
     $TargetedTestNames | ForEach-Object { Write-Host "required_test=$_" }
 }
@@ -291,10 +309,12 @@ try {
     $trxPath = Join-Path $trxDir $trxName
     $testSummary = Get-TestResultSummary $trxPath
     Assert-RequiredTargetedTestsPassed $testSummary
+    if ([int]$testSummary.Failed -ne 0) { throw "REV868C3 PostgreSQL test failed count must be zero. Failed: $($testSummary.Failed)" }
+    $testAcceptanceState = 'PASS'
     $databaseEvidence = Invoke-Psql (Get-PostMigrationSql)
     if ($databaseEvidence -notmatch 'database_acceptance_state=PASS') { throw "REV868C3 database acceptance failed.`n$databaseEvidence" }
     $report = Join-Path $evidenceDir ("rev868c3_employee_reconciliation_" + $stamp + ".md")
-    @("# REV868C3 Isolated Verification", "", "Backup file: $backupFile", "Backup SHA-256: $backupHash", "TRX path: $trxPath", "Test total: $($testSummary.Total); passed: $($testSummary.Passed); failed: $($testSummary.Failed); skipped: $($testSummary.Skipped)", "", '```text', $databaseEvidence, '```', "", '## Targeted PostgreSQL test evidence', '```text', (Format-RequiredTargetedTestEvidence $testSummary), '```', "", "final_acceptance_state=PASS") | Set-Content -LiteralPath $report -Encoding UTF8
+    @("# REV868C3 Isolated Verification", "", "Backup file: $backupFile", "Backup SHA-256: $backupHash", "TRX path: $trxPath", "Test total: $($testSummary.Total); passed: $($testSummary.Passed); failed: $($testSummary.Failed); skipped: $($testSummary.Skipped)", "", '```text', $databaseEvidence, '```', "", '## Targeted PostgreSQL test evidence', '```text', (Format-RequiredTargetedTestEvidence $testSummary), '```', "", "database_acceptance_state=PASS", "test_acceptance_state=$testAcceptanceState", "overall_acceptance_state=PASS") | Set-Content -LiteralPath $report -Encoding UTF8
     Write-Host "REV868C3 report: $report"
 }
 finally {
