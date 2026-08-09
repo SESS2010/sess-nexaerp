@@ -203,21 +203,84 @@ where "CorrelationId" like 'REV868C1-%' and ("WarehouseId" is null or "LocationK
 "@.Trim()
     }
 }
+function Remove-SqlNonExecutableText([string]$Sql) {
+    $builder = [System.Text.StringBuilder]::new($Sql.Length)
+    $i = 0
+    while ($i -lt $Sql.Length) {
+        $ch = $Sql[$i]
+        $next = if ($i + 1 -lt $Sql.Length) { $Sql[$i + 1] } else { [char]0 }
+        if ($ch -eq "'"[0]) {
+            [void]$builder.Append(' ')
+            $i++
+            while ($i -lt $Sql.Length) {
+                if ($Sql[$i] -eq "'"[0]) {
+                    [void]$builder.Append(' ')
+                    if ($i + 1 -lt $Sql.Length -and $Sql[$i + 1] -eq "'"[0]) { $i += 2; continue }
+                    $i++
+                    break
+                }
+                [void]$builder.Append(' ')
+                $i++
+            }
+            continue
+        }
+        if ($ch -eq '"'[0]) {
+            [void]$builder.Append(' ')
+            $i++
+            while ($i -lt $Sql.Length) {
+                [void]$builder.Append(' ')
+                if ($Sql[$i] -eq '"'[0]) {
+                    if ($i + 1 -lt $Sql.Length -and $Sql[$i + 1] -eq '"'[0]) { $i += 2; continue }
+                    $i++
+                    break
+                }
+                $i++
+            }
+            continue
+        }
+        if ($ch -eq '-'[0] -and $next -eq '-'[0]) {
+            [void]$builder.Append('  ')
+            $i += 2
+            while ($i -lt $Sql.Length -and $Sql[$i] -notin "`r", "`n") { [void]$builder.Append(' '); $i++ }
+            continue
+        }
+        if ($ch -eq '/'[0] -and $next -eq '*'[0]) {
+            [void]$builder.Append('  ')
+            $i += 2
+            while ($i -lt $Sql.Length) {
+                if ($Sql[$i] -eq '*'[0] -and $i + 1 -lt $Sql.Length -and $Sql[$i + 1] -eq '/'[0]) { [void]$builder.Append('  '); $i += 2; break }
+                [void]$builder.Append(' ')
+                $i++
+            }
+            continue
+        }
+        [void]$builder.Append($ch)
+        $i++
+    }
+    return $builder.ToString()
+}
 function Assert-SqlSafe([string]$Title, [string]$Sql) {
     if ([string]::IsNullOrWhiteSpace($Sql)) { throw "SQL '$Title' is empty." }
-    if (-not $Sql.TrimEnd().EndsWith(';')) { throw "SQL '$Title' is missing a statement terminator." }
-    if ($Sql -match '(?i)\b(insert|update|delete|drop|create|alter|truncate|restore|copy|grant|revoke)\b') { throw "SQL '$Title' is not read-only." }
+    $stripped = (Remove-SqlNonExecutableText $Sql).Trim()
+    if (-not $stripped.EndsWith(';')) { throw "SQL '$Title' is missing a statement terminator." }
+    $statementParts = $stripped.Split(';') | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -gt 0 }
+    if ($statementParts.Count -ne 1) { throw "SQL '$Title' must contain exactly one executable statement." }
+    $statement = $statementParts[0]
+    if ($statement -notmatch '(?is)^\s*(select|with)\b') { throw "SQL '$Title' must start with SELECT or a read-only CTE." }
+    if ($statement -match '(?is)\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|execute|vacuum|analyze|refresh|listen|notify)\b') { throw "SQL '$Title' is not read-only." }
 }
 function Invoke-PsqlRead([string]$Sql) {
     $sqlFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sess_nexa_rev868c1_resume_" + [Guid]::NewGuid().ToString("N") + ".sql")
     try {
-        [System.IO.File]::WriteAllText($sqlFile, $Sql, [System.Text.UTF8Encoding]::new($false))
+        $readOnlySql = "begin transaction read only;`n$Sql`ncommit;"
+        [System.IO.File]::WriteAllText($sqlFile, $readOnlySql, [System.Text.UTF8Encoding]::new($false))
         $old = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         try { $output = & $psql -h $HostName -p $Port -U $UserName -d $Database -v ON_ERROR_STOP=1 -At -f $sqlFile 2>&1; $exit = $LASTEXITCODE }
         finally { $ErrorActionPreference = $old }
         if ($exit -ne 0) { throw "psql failed with exit code $exit. $((($output | ForEach-Object { $_.ToString() }) -join "`n"))" }
-        return ($output -join "`n")
+        $filtered = $output | Where-Object { $_.ToString() -notin @('BEGIN', 'COMMIT') }
+        return ($filtered -join "`n")
     }
     finally { Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue }
 }

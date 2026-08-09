@@ -1,4 +1,5 @@
-﻿using SESS.NexaERP.Infrastructure.Persistence;
+﻿using System.Text.RegularExpressions;
+using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
 
@@ -219,6 +220,119 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("Named test results", source);
         Assert.Contains("UnitTestResult", source);
         Assert.Contains("Test total:", source);
+    }
+    [Fact]
+    public void Rev868c1_resume_sql_classifier_allows_quoted_lifecycle_update_and_rejects_executable_update()
+    {
+        Assert.True(IsReadOnlySql("select 'Update' as branch;"));
+        Assert.False(IsReadOnlySql("update nexa.purchase_requisitions set \"Status\" = 'Approved';"));
+    }
+
+    [Fact]
+    public void Rev868c1_resume_sql_classifier_rejects_writable_cte_comments_and_multiple_statements()
+    {
+        Assert.False(IsReadOnlySql("with changed as (update nexa.purchase_requisitions set \"Status\" = 'Approved' returning 1) select * from changed;"));
+        Assert.False(IsReadOnlySql("select 1; -- harmless comment\nupdate nexa.purchase_requisitions set \"Status\" = 'Approved';"));
+        Assert.False(IsReadOnlySql("select 1; select 2;"));
+        Assert.True(IsReadOnlySql("-- update appears in a comment only\nselect 1;"));
+    }
+
+    [Fact]
+    public void Rev868c1_resume_all_current_evidence_queries_pass_readonly_classification()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+        var matches = Regex.Matches(source, "\"(?<name>[^\"]+)\"\\s*=\\s*@\"\\r?\\n(?<sql>.*?)\\r?\\n\"@\\.Trim\\(\\)", RegexOptions.Singleline);
+        Assert.True(matches.Count >= 10, "Expected resume verifier SQL evidence queries to be discoverable.");
+        foreach (Match match in matches)
+        {
+            var name = match.Groups["name"].Value;
+            var sql = match.Groups["sql"].Value;
+            Assert.True(IsReadOnlySql(sql), $"Query '{name}' must classify as read-only.");
+        }
+    }
+
+    [Fact]
+    public void Rev868c1_resume_verifier_wraps_evidence_queries_in_postgresql_read_only_transaction()
+    {
+        var source = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("Remove-SqlNonExecutableText", source);
+        Assert.Contains("begin transaction read only", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("must contain exactly one executable statement", source);
+        Assert.Contains("must start with SELECT or a read-only CTE", source);
+        Assert.Contains("insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do", source);
+    }
+
+    private static bool IsReadOnlySql(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return false;
+        var stripped = RemoveSqlNonExecutableText(sql).Trim();
+        if (!stripped.EndsWith(';')) return false;
+        var statements = stripped.Split(';').Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
+        if (statements.Length != 1) return false;
+        var statement = statements[0];
+        if (!Regex.IsMatch(statement, @"(?is)^\s*(select|with)\b")) return false;
+        return !Regex.IsMatch(statement, @"(?is)\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|execute|vacuum|analyze|refresh|listen|notify)\b");
+    }
+
+    private static string RemoveSqlNonExecutableText(string sql)
+    {
+        var chars = sql.ToCharArray();
+        var i = 0;
+        while (i < chars.Length)
+        {
+            if (chars[i] == '\'')
+            {
+                chars[i++] = ' ';
+                while (i < chars.Length)
+                {
+                    if (chars[i] == '\'')
+                    {
+                        chars[i] = ' ';
+                        if (i + 1 < chars.Length && chars[i + 1] == '\'') { chars[i + 1] = ' '; i += 2; continue; }
+                        i++;
+                        break;
+                    }
+                    chars[i++] = ' ';
+                }
+                continue;
+            }
+            if (chars[i] == '"')
+            {
+                chars[i++] = ' ';
+                while (i < chars.Length)
+                {
+                    var wasQuote = chars[i] == '"';
+                    chars[i++] = ' ';
+                    if (wasQuote)
+                    {
+                        if (i < chars.Length && chars[i] == '"') { chars[i++] = ' '; continue; }
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (chars[i] == '-' && i + 1 < chars.Length && chars[i + 1] == '-')
+            {
+                chars[i++] = ' ';
+                chars[i++] = ' ';
+                while (i < chars.Length && chars[i] != '\r' && chars[i] != '\n') chars[i++] = ' ';
+                continue;
+            }
+            if (chars[i] == '/' && i + 1 < chars.Length && chars[i + 1] == '*')
+            {
+                chars[i++] = ' ';
+                chars[i++] = ' ';
+                while (i < chars.Length)
+                {
+                    if (chars[i] == '*' && i + 1 < chars.Length && chars[i + 1] == '/') { chars[i++] = ' '; chars[i++] = ' '; break; }
+                    chars[i++] = ' ';
+                }
+                continue;
+            }
+            i++;
+        }
+        return new string(chars);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
