@@ -429,9 +429,9 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         }
 
         sb.AppendLine($"""
-            insert into nexa.roles ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            values ('{Id("role", "department_manager")}', 'DEPARTMENT_MANAGER', 'Department Manager', true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0)
-            on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
+            insert into nexa.roles ("Id", "Code", "Name", "IsPrivileged", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+            values ('{Id("role", "department_manager")}', 'DEPARTMENT_MANAGER', 'Department Manager', false, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0)
+            on conflict ("Code") do update set "Name" = excluded."Name", "IsPrivileged" = false, "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
             """);
 
         sb.AppendLine($"""

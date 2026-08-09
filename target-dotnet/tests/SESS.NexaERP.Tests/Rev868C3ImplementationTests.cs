@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Metadata;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -345,7 +346,7 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("insert into nexa.departments (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.designations (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.employees (\"Id\", \"EmployeeCode\", \"PayrollEmployeeId\", \"EmployeeName\", \"OriginalImportedName\", \"Gender\", \"Qualification\", \"DateOfBirth\", \"EmployeeType\", \"Grade\", \"DepartmentId\", \"DesignationId\", \"Status\", \"DateOfJoining\", \"DateOfJoiningAccuracy\", \"IsDateOfJoiningApproximate\", \"ApproximateDateNote\", \"FunctionalResponsibility\", \"WorkLocation\", \"ManagerScope\", \"LegacyDepartment\", \"OfficialEmail\", \"MobileNumber\", \"LoginEnabled\", \"ApprovalStatus\", \"IsEmployeeCodeLocked\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
-        Assert.Contains("insert into nexa.roles (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.roles (\"Id\", \"Code\", \"Name\", \"IsPrivileged\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.role_page_permissions (\"Id\", \"RoleId\", \"PageDefinitionId\", \"CanView\", \"CanCreate\", \"CanUpdate\", \"CanSubmit\", \"CanVerify\", \"CanApprove\", \"CanReject\", \"CanRequestClarification\", \"CanRequestRevision\", \"CanResubmit\", \"CanCancel\", \"CanDeactivate\", \"CanPrint\", \"CanDownload\", \"CanExport\", \"CanUploadAttachment\", \"CanReplaceAttachment\", \"CanViewCommercialValues\", \"CanViewAuditHistory\", \"HasFullControl\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.employee_role_assignments (\"Id\", \"EmployeeId\", \"RoleId\", \"EffectiveFrom\", \"EffectiveTo\", \"ApprovalStatus\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.department_approval_mappings (\"Id\", \"DepartmentId\", \"ApprovalRouteCode\", \"Scope\", \"PrimaryApproverEmployeeId\", \"AlternateApproverEmployeeId\", \"EffectiveFrom\", \"EffectiveTo\", \"IsActive\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
@@ -354,6 +355,59 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("insert into nexa.employee_department_history (\"Id\", \"EmployeeId\", \"PreviousDepartmentId\", \"NewDepartmentId\", \"Reason\", \"SourceRevision\", \"CorrelationId\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
         Assert.Contains("insert into nexa.audit_logs (\"Id\", \"UserLoginId\", \"UserRole\", \"Module\", \"EntityName\", \"EntityId\", \"Action\", \"OldValue\", \"NewValue\", \"Reason\", \"Result\", \"CorrelationId\", \"IpAddress\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
     }
+
+    [Fact]
+    public void Rev868c3_raw_sql_inserts_supply_all_required_model_columns()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+        var suppliedColumnsByTable = ParseRawInsertColumns(migration);
+        var targetTables = new[]
+        {
+            "departments",
+            "designations",
+            "employees",
+            "roles",
+            "role_page_permissions",
+            "employee_role_assignments",
+            "department_approval_mappings",
+            "purchase_approval_workflow_steps",
+            "employee_status_history",
+            "employee_department_history",
+            "audit_logs"
+        };
+
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=sess_nexaerp_rev868_design_only;Username=design_only")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var reportRows = new List<string>();
+
+        foreach (var table in targetTables)
+        {
+            Assert.True(suppliedColumnsByTable.TryGetValue(table, out var suppliedColumns), $"No REV868C3 raw INSERT columns found for nexa.{table}");
+            var requiredColumns = RequiredRawInsertColumns(db, table);
+            var missing = requiredColumns.Except(suppliedColumns, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            reportRows.Add($"nexa.{table} | {string.Join(',', requiredColumns.Order(StringComparer.Ordinal))} | {string.Join(',', suppliedColumns.Order(StringComparer.Ordinal))} | {string.Join(',', missing)}");
+            Assert.Empty(missing);
+        }
+
+        Assert.Contains(reportRows, row => row.StartsWith("nexa.roles |", StringComparison.Ordinal) && row.Contains("IsPrivileged", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Rev868c3_department_manager_role_is_least_privilege_and_post_verified()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("'DEPARTMENT_MANAGER', 'Department Manager', false, true", migration);
+        Assert.Contains("\"IsPrivileged\" = false", migration);
+        Assert.Contains("department_manager_role_state", helper);
+        Assert.Contains("manager_role_state_ok", helper);
+        Assert.Contains("HasFullControl", helper);
+        Assert.Contains("FC=F", helper);
+    }
+
 
     [Fact]
     public void Rev868c3_employee_reconciliation_uses_actual_master_ids_from_natural_key_lookups()
@@ -418,6 +472,41 @@ public sealed class Rev868C3ImplementationTests
         Assert.DoesNotContain("EmployeeName", helper[helper.IndexOf("function Get-SanitizedEfFailure", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
         Assert.Contains("REV868C3 PostgreSQL tests failed. exit_code=", helper);
     }
+
+    private static Dictionary<string, HashSet<string>> ParseRawInsertColumns(string migration)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(migration, @"insert into nexa\.([a-z_]+) \(([^)]*)\)", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            var table = match.Groups[1].Value;
+            if (!result.TryGetValue(table, out var columns))
+            {
+                columns = new HashSet<string>(StringComparer.Ordinal);
+                result[table] = columns;
+            }
+
+            foreach (System.Text.RegularExpressions.Match column in System.Text.RegularExpressions.Regex.Matches(match.Groups[2].Value, "\\\"([^\\\"]+)\\\""))
+            {
+                columns.Add(column.Groups[1].Value);
+            }
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyCollection<string> RequiredRawInsertColumns(NexaErpDbContext db, string table)
+    {
+        var entity = Assert.Single(db.Model.GetEntityTypes(), e => e.GetSchema() == "nexa" && e.GetTableName() == table);
+        var storeObject = StoreObjectIdentifier.Table(table, "nexa");
+        return entity.GetProperties()
+            .Where(property => !property.IsNullable && property.ValueGenerated == ValueGenerated.Never)
+            .Select(property => property.GetColumnName(storeObject))
+            .Where(column => column is not null)
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+    }
+
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
 

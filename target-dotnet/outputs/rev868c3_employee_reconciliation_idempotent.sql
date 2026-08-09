@@ -6630,9 +6630,9 @@ BEGIN
     update nexa.employees
     set "Status" = 'Left / Resigned', "LoginEnabled" = false, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'
     where "EmployeeCode" = 'SESS-039';
-    insert into nexa.roles ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('ee6fe478-0775-eed9-0748-ed0cfad68284', 'DEPARTMENT_MANAGER', 'Department Manager', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
+    insert into nexa.roles ("Id", "Code", "Name", "IsPrivileged", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('ee6fe478-0775-eed9-0748-ed0cfad68284', 'DEPARTMENT_MANAGER', 'Department Manager', false, true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsPrivileged" = false, "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
     do $rev868c3_role_guard$
     begin
         if not exists (select 1 from nexa.roles where "Code" = 'DEPARTMENT_MANAGER') then
