@@ -27,18 +27,6 @@ BEGIN
               select 1
               from nexa.purchase_approval_route_settings_rev868c2_backup b
               where b."RouteSettingId" = r."Id");
-
-        update nexa.purchase_approval_route_settings
-        set "ApproverRoleCode" = case "RouteCode"
-            when 'MANAGER' then 'MANAGER'
-            when 'TECHNICAL_DIRECTOR' then 'TECHNICAL_DIRECTOR'
-            when 'MANAGING_DIRECTOR' then 'MANAGING_DIRECTOR'
-            else 'MANAGER'
-        end,
-            "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00',
-            "UpdatedBy" = 'REV868C2_ROUTE_CANONICALIZATION_ROLLBACK_NON_NULL_GUARD'
-        where "ApproverRoleCode" is null;
-
         do $$
         begin
             if exists (select 1 from nexa.purchase_approval_route_settings where "ApproverRoleCode" is null) then

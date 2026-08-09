@@ -516,7 +516,7 @@ public sealed class Rev868C1PreparationTests
         var dropDepartmentMapping = down.IndexOf("DropTable(name: \"department_approval_mappings\"", StringComparison.Ordinal);
         var restoreFromBackup = down.IndexOf("from nexa.purchase_approval_route_settings_rev868c2_backup b", StringComparison.Ordinal);
         var deleteOwnedRows = down.IndexOf("delete from nexa.purchase_approval_route_settings r", StringComparison.Ordinal);
-        var nullGuardUpdate = down.IndexOf("where \"ApproverRoleCode\" is null", StringComparison.Ordinal);
+        var nullGuardLookup = down.IndexOf("if exists (select 1 from nexa.purchase_approval_route_settings where \"ApproverRoleCode\" is null)", StringComparison.Ordinal);
         var nullGuardException = down.IndexOf("raise exception 'REV868C2 rollback cannot restore NOT NULL ApproverRoleCode", StringComparison.Ordinal);
         var alterNotNull = down.IndexOf("nullable: false", StringComparison.Ordinal);
         var dropResolutionType = down.IndexOf("DropColumn(", StringComparison.Ordinal);
@@ -525,8 +525,8 @@ public sealed class Rev868C1PreparationTests
         Assert.True(dropDepartmentMapping >= 0);
         Assert.True(restoreFromBackup > dropDepartmentMapping);
         Assert.True(deleteOwnedRows > restoreFromBackup);
-        Assert.True(nullGuardUpdate > deleteOwnedRows);
-        Assert.True(nullGuardException > nullGuardUpdate);
+        Assert.True(nullGuardLookup > deleteOwnedRows);
+        Assert.True(nullGuardException > nullGuardLookup);
         Assert.True(alterNotNull > nullGuardException);
         Assert.DoesNotContain("defaultValue: string.Empty", down);
         Assert.True(dropResolutionType > alterNotNull);
@@ -543,6 +543,8 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("\"ApproverRoleCode\" = b.\"ApproverRoleCode\"", down);
         Assert.Contains("\"IsActive\" = b.\"IsActive\"", down);
         Assert.Contains("\"Version\" = b.\"Version\"", down);
+        Assert.Contains("\"MinimumAmount\" = b.\"MinimumAmount\"", down);
+        Assert.Contains("\"MaximumAmount\" = b.\"MaximumAmount\"", down);
         Assert.Contains("r.\"CreatedBy\" = 'REV868C2_ROUTE_CANONICALIZATION'", down);
         Assert.Contains("not exists (", down);
         Assert.Contains("b.\"RouteSettingId\" = r.\"Id\"", down);
