@@ -9,6 +9,29 @@ public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
+        migrationBuilder.Sql("""
+            create table if not exists nexa.purchase_approval_route_settings_rev868c2_backup
+            (
+                "RouteSettingId" uuid primary key,
+                "RouteCode" character varying(40) not null,
+                "MinimumAmount" numeric(18,2) not null,
+                "MaximumAmount" numeric(18,2) null,
+                "ApproverRoleCode" character varying(80) not null,
+                "IsActive" boolean not null,
+                "UpdatedAt" timestamp with time zone null,
+                "UpdatedBy" text null,
+                "Version" bigint not null,
+                "CapturedAt" timestamp with time zone not null,
+                "CapturedBy" text not null
+            );
+
+            insert into nexa.purchase_approval_route_settings_rev868c2_backup
+                ("RouteSettingId", "RouteCode", "MinimumAmount", "MaximumAmount", "ApproverRoleCode", "IsActive", "UpdatedAt", "UpdatedBy", "Version", "CapturedAt", "CapturedBy")
+            select "Id", "RouteCode", "MinimumAmount", "MaximumAmount", "ApproverRoleCode", "IsActive", "UpdatedAt", "UpdatedBy", "Version", TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C2_ROUTE_BACKUP'
+            from nexa.purchase_approval_route_settings
+            where "RouteCode" in ('Manager','MANAGER','BRANCH_MANAGER','MANAGER_APPROVAL','TD','TechnicalDirector','TECHNICALDIRECTOR','TECHNICAL_DIRECTOR','MD','ManagingDirector','MANAGINGDIRECTOR','MANAGING_DIRECTOR')
+            on conflict ("RouteSettingId") do nothing;
+        """);
         migrationBuilder.AddColumn<string>(
             name: "ApproverResolutionType",
             schema: "nexa",
@@ -150,13 +173,45 @@ public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.DropTable(name: "department_approval_mappings", schema: "nexa");
+
         migrationBuilder.Sql("""
+            update nexa.purchase_approval_route_settings r
+            set "RouteCode" = b."RouteCode",
+                "MinimumAmount" = b."MinimumAmount",
+                "MaximumAmount" = b."MaximumAmount",
+                "ApproverRoleCode" = b."ApproverRoleCode",
+                "IsActive" = b."IsActive",
+                "UpdatedAt" = b."UpdatedAt",
+                "UpdatedBy" = b."UpdatedBy",
+                "Version" = b."Version"
+            from nexa.purchase_approval_route_settings_rev868c2_backup b
+            where r."Id" = b."RouteSettingId";
+
+            delete from nexa.purchase_approval_route_settings r
+            where r."Id" in ('868c2000-0000-0000-0000-000000000001', '868c2000-0000-0000-0000-000000000002', '868c2000-0000-0000-0000-000000000003')
+              and r."CreatedBy" = 'REV868C2_ROUTE_CANONICALIZATION'
+              and not exists (
+                  select 1
+                  from nexa.purchase_approval_route_settings_rev868c2_backup b
+                  where b."RouteSettingId" = r."Id");
+
             update nexa.purchase_approval_route_settings
-            set "IsActive" = false,
+            set "ApproverRoleCode" = case "RouteCode"
+                when 'MANAGER' then 'MANAGER'
+                when 'TECHNICAL_DIRECTOR' then 'TECHNICAL_DIRECTOR'
+                when 'MANAGING_DIRECTOR' then 'MANAGING_DIRECTOR'
+                else 'MANAGER'
+            end,
                 "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00',
-                "UpdatedBy" = 'REV868C2_ROUTE_CANONICALIZATION_ROLLBACK'
-            where "RouteCode" in ('MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')
-              and "CreatedBy" = 'REV868C2_ROUTE_CANONICALIZATION';
+                "UpdatedBy" = 'REV868C2_ROUTE_CANONICALIZATION_ROLLBACK_NON_NULL_GUARD'
+            where "ApproverRoleCode" is null;
+
+            do $$
+            begin
+                if exists (select 1 from nexa.purchase_approval_route_settings where "ApproverRoleCode" is null) then
+                    raise exception 'REV868C2 rollback cannot restore NOT NULL ApproverRoleCode while null values remain';
+                end if;
+            end $$;
         """);
 
         migrationBuilder.AlterColumn<string>(
@@ -166,7 +221,6 @@ public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
             type: "character varying(80)",
             maxLength: 80,
             nullable: false,
-            defaultValue: string.Empty,
             oldClrType: typeof(string),
             oldType: "character varying(80)",
             oldMaxLength: 80,
@@ -176,5 +230,8 @@ public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
             name: "ApproverResolutionType",
             schema: "nexa",
             table: "purchase_approval_route_settings");
+        migrationBuilder.Sql("""
+            drop table if exists nexa.purchase_approval_route_settings_rev868c2_backup;
+        """);
     }
 }
