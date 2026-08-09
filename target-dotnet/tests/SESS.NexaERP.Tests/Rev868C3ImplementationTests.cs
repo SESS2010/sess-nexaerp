@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Api.Endpoints;
@@ -38,7 +38,7 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("on conflict (\"EmployeeCode\") do update", migration);
         Assert.Contains("IX_employees_PayrollEmployeeId", migration);
         Assert.Contains("IsDateOfJoiningApproximate", migration);
-        Assert.Contains(Rev868C3EmployeeWorkbookData.ActiveEmployees, x => x.EmployeeCode == "SESS-040" && x.DateOfJoiningAccuracy.StartsWith("Approximate", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(Rev868C3EmployeeWorkbookData.ActiveEmployees, x => x.EmployeeCode == "SESS-040" && x.EmployeeName == "NARREN VALENTINO" && x.DateOfJoining == new DateOnly(2026, 2, 1) && !x.DateOfJoiningAccuracy.StartsWith("Approximate", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(Rev868C3EmployeeWorkbookData.ActiveEmployees, x => x.EmployeeCode == "SESS-049" && x.Gender == "Female" && x.PayrollEmployeeId == "1072");
         Assert.Contains("Gender\" = 'Female'", Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1"));
         Assert.Contains("rollback blocked: employee code integrity failure", down);
@@ -61,9 +61,16 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("ResumeVerifyOnly", helper);
         Assert.Contains(MigrationId, helper);
         Assert.Contains("safe_retry_state", helper);
-        Assert.Contains("active_employee_count", helper);
-        Assert.Contains("relieved_history_count", helper);
-        Assert.Contains("manager_mapping_count", helper);
+        Assert.Contains("active_employee_codes_expected", helper);
+        Assert.Contains("relieved_employee_codes_expected", helper);
+        Assert.Contains("backup_relation_count", helper);
+        Assert.Contains("department_history_partial_count", helper);
+        Assert.Contains("role_assignment_partial_count", helper);
+        Assert.Contains("role_page_permission_partial_count", helper);
+        Assert.Contains("manager_mapping_rows", helper);
+        Assert.Contains("workflow_step|range=500000.01-unbounded|sequence=3", helper);
+        Assert.Contains("login_enabled_mismatch_count", helper);
+        Assert.Contains("approval_status_mismatch_count", helper);
         Assert.DoesNotContain("C:\\Users\\User\\Documents\\Codex\\2026-07-03\\see\\target-dotnet\\local-evidence\\rev868c3\\SESS_NexaERP_Final_Employee_Master_2026-08-09.xlsx", helper);
     }
 
@@ -104,6 +111,23 @@ public sealed class Rev868C3ImplementationTests
         Assert.Empty(duplicatePayrollIds);
     }
 
+    [Fact]
+    public void Rev868c3_helper_preflight_safe_retry_requires_all_partial_artifacts_zero()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("rev868c3\\_%\\_backup", helper);
+        Assert.Contains("status_history_partial_count", helper);
+        Assert.Contains("department_history_partial_count", helper);
+        Assert.Contains("audit_partial_count", helper);
+        Assert.Contains("deterministic_employee_partial_count", helper);
+        Assert.Contains("deterministic_department_partial_count", helper);
+        Assert.Contains("deterministic_designation_partial_count", helper);
+        Assert.Contains("safe_retry_state=' || case when prerequisite_history_count = 9", helper);
+        Assert.Contains("backup_relation_count", helper);
+        Assert.Contains("Backup SHA-256", helper);
+    }
+
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
 
     private static string Find(params string[] relativeParts)
@@ -119,9 +143,3 @@ public sealed class Rev868C3ImplementationTests
         throw new FileNotFoundException(relativePath);
     }
 }
-
-
-
-
-
-

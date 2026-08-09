@@ -18,7 +18,7 @@ No PostgreSQL database was accessed by Codex for this checkpoint. No helper was 
 - Adds EmployeeDepartmentHistory mapping/table for department transfer evidence.
 - Adds DepartmentApprovalMapping Scope for 14 scoped manager mappings.
 - Adds Manager -> MD -> TD workflow-step model while keeping thresholds configurable.
-- Adds isolated secure helper for GeneratePlanOnly, PreflightOnly, full isolated apply and ResumeVerifyOnly modes.
+- Adds isolated secure helper for GeneratePlanOnly, PreflightOnly, full isolated apply and ResumeVerifyOnly modes. Preflight now requires all REV868C3 migration/partial-artifact counts to be zero, including backup relations, status/dept history, audit, role assignment, permission, mapping, deterministic employee, department and designation artifacts.
 
 ## Expected database evidence after management-run isolated migration
 
@@ -29,7 +29,7 @@ No PostgreSQL database was accessed by Codex for this checkpoint. No helper was 
 - New EmployeeCode evidence: SESS-041 through SESS-051
 - Duplicate EmployeeCode count: 0
 - Duplicate non-null PayrollEmployeeId count: 0
-- Narren S: SESS-040, approximate DOJ 2026-02-09 with auditable approximate-date flag
+- NARREN VALENTINO: SESS-040, management-confirmed exact DOJ 2026-02-01 with IsDateOfJoiningApproximate = false
 - Mageshwari K: SESS-049, Payroll ID 1072, Gender Female, Software/IT alternate only through effective mapping
 
 ## Rollback design
@@ -51,7 +51,7 @@ Down rollback removes only REV868C3-owned status-history, department-history, au
 ## Verification completed
 
 - Build: passed, 0 warnings, 0 errors
-- Non-PostgreSQL tests: 159 passed, 0 failed, 0 skipped
+- Non-PostgreSQL tests: 160 passed, 0 failed, 0 skipped
 - PowerShell parse: passed for tools/apply-rev868c3-employee-reconciliation-secure.ps1
 - Helper safety scan: passed; isolated target, protected DB rejects, plan/preflight/resume modes, pre-C3 backup and explicit future EF target present
 - Secret/privacy scan: passed for REV868C3 changed files; no literal credentials or prohibited sensitive identifiers found. In-process password variable placeholders are present only for secure manual helper execution.
@@ -82,3 +82,11 @@ Resume-only verifier after isolated execution:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\User\Documents\Codex\2026-07-03\see\target-dotnet\tools\apply-rev868c3-employee-reconciliation-secure.ps1" -GitPath "C:\Users\User\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe" -ResumeVerifyOnly
 ```
+
+
+## REV868C3 correction addendum
+
+- Corrected SESS-040 to management-confirmed NARREN VALENTINO.
+- Corrected SESS-040 DateOfJoining to 2026-02-01.
+- SESS-040 IsDateOfJoiningApproximate resolves false because the date is now management-confirmed.
+- Post-verification SQL now proves all 10 migrations exactly once, exact active employee codes, exact relieved employee codes, all 12 department codes, all 14 manager mappings, Manager -> MD -> TD workflow steps, LoginEnabled mismatch count, ApprovalStatus mismatch count, status-history persistence, department-transfer-history persistence, manager role/permission rows and source self-approval prevention evidence.
