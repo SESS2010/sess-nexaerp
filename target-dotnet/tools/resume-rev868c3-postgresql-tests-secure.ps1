@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$GitPath,
     [string]$DotnetPath,
     [switch]$GenerateSqlOnly
@@ -72,7 +72,7 @@ union all select 'migration_matched_count=' || matched_count from counts
 union all select 'migration_duplicate_count=' || duplicate_count from counts
 union all select 'migration_missing_count=' || missing_count from counts
 union all select 'migration_unexpected_count=' || unexpected_count from counts
-union all select 'migration_acceptance_state=' || case when expected_count = 10 and matched_count = 10 and duplicate_count = 0 and missing_count = 0 then 'PASS' else 'FAIL' end from counts;
+union all select 'migration_acceptance_state=' || case when expected_count = 10 and matched_count = 10 and duplicate_count = 0 and missing_count = 0 and unexpected_count = 0 then 'PASS' else 'FAIL' end from counts;
 select 'migration_id=' || "MigrationId"
 from "public"."__EFMigrationsHistory"
 where "MigrationId" in (select * from (values
@@ -193,6 +193,13 @@ try {
     if ($identityLine.Count -ne 1) { throw 'Database identity evidence missing from resume SQL output.' }
     Assert-TargetDatabaseName ($identityLine[0].Substring('database_identity='.Length).Trim())
     if ($resumeEvidence -notmatch 'migration_acceptance_state=PASS') { throw "REV868C3 resume requires all $($ExpectedMigrations.Count) migrations already present exactly once.`n$resumeEvidence" }
+    $returnedMigrations = @($resumeEvidence -split "`r?`n" | Where-Object { $_ -like 'migration_id=*' } | ForEach-Object { $_.Substring('migration_id='.Length).Trim() })
+    $unexpectedMigrations = @($returnedMigrations | Where-Object { $ExpectedMigrations -notcontains $_ })
+    $missingMigrations = @($ExpectedMigrations | Where-Object { $returnedMigrations -notcontains $_ })
+    $duplicateMigrations = @($returnedMigrations | Group-Object | Where-Object { $_.Count -ne 1 })
+    if ($returnedMigrations.Count -ne $ExpectedMigrations.Count -or $unexpectedMigrations.Count -ne 0 -or $missingMigrations.Count -ne 0 -or $duplicateMigrations.Count -ne 0) {
+        throw 'REV868C3 resume migration ID evidence did not contain exactly the ten expected migrations once.'
+    }
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
     $trxName = "rev868c3_resume_$stamp.trx"
     $trxPath = Join-Path $trxDir $trxName

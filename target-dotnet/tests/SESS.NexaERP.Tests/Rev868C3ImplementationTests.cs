@@ -839,6 +839,49 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         };
         foreach (var migrationId in expectedMigrationIds) Assert.Contains(migrationId, helper);
     }
+    [Theory]
+    [InlineData(10, 10, 0, 0, 0, true)]
+    [InlineData(10, 9, 0, 1, 0, false)]
+    [InlineData(10, 10, 1, 0, 0, false)]
+    [InlineData(10, 10, 0, 0, 1, false)]
+    public void Rev868c3_resume_migration_acceptance_requires_no_unexpected_migrations(int expectedCount, int matchedCount, int duplicateCount, int missingCount, int unexpectedCount, bool expectedPass)
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("unexpected_count = 0 then 'PASS'", helper);
+        var actualPass = expectedCount == 10 && matchedCount == 10 && duplicateCount == 0 && missingCount == 0 && unexpectedCount == 0;
+        Assert.Equal(expectedPass, actualPass);
+    }
+
+    [Fact]
+    public void Rev868c3_resume_runtime_guard_requires_exact_database_and_exact_ten_migration_ids_once()
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("Assert-TargetDatabaseName", helper);
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("$returnedMigrations.Count -ne $ExpectedMigrations.Count", helper);
+        Assert.Contains("$unexpectedMigrations.Count -ne 0", helper);
+        Assert.Contains("$missingMigrations.Count -ne 0", helper);
+        Assert.Contains("$duplicateMigrations.Count -ne 0", helper);
+        Assert.Contains("REV868C3 resume migration ID evidence did not contain exactly the ten expected migrations once", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_resume_helper_rejects_malformed_quoting_and_database_modification_commands()
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("Resume SQL contains doubled quoted identifier output", helper);
+        Assert.Contains("Resume SQL has unbalanced double quotes", helper);
+        Assert.Contains("begin transaction read only;", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain("-c $Sql", helper);
+        Assert.DoesNotContain("database update", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+    }
+
 
     [Fact]
     public void Rev868c3_resume_helper_cleans_temp_sql_and_secret_environment_values()
