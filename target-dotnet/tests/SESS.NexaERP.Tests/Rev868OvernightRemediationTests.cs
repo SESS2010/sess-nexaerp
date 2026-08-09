@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Domain.Purchase;
 
@@ -54,7 +54,15 @@ public sealed class Rev868OvernightRemediationTests
         Assert.Contains("stock_availability_check_lines", source);
         Assert.Contains("purchase_requirement_handoffs", source);
         Assert.Contains("purchase.requisitions", source);
+        Assert.Contains("page_definitions", source);
         Assert.Contains("role_page_permissions", source);
+        Assert.Contains("\"PageKey\"", source);
+        Assert.Contains("\"Title\"", source);
+        Assert.Contains("\"PageDefinitionId\"", source);
+        Assert.DoesNotContain("page_masters", source);
+        Assert.DoesNotContain("\"PageCode\"", source);
+        Assert.DoesNotContain("\"PageName\"", source);
+        Assert.DoesNotContain("\"PageId\"", source);
         Assert.Contains("select \"MigrationId\"", source);
         Assert.DoesNotContain("\"\"MigrationId\"\"", source);
         Assert.DoesNotContain("database update", source, StringComparison.OrdinalIgnoreCase);
@@ -63,6 +71,46 @@ public sealed class Rev868OvernightRemediationTests
         Assert.DoesNotContain("insert into", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("delete from", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("update nexa", source, StringComparison.OrdinalIgnoreCase);
+    }
+    [Fact]
+    public void Rev868_readonly_postrun_generated_sql_uses_actual_page_mapping_and_count_only_queries()
+    {
+        var verifier = Find("tools", "verify-rev868-postrun-readonly-secure.ps1");
+        var output = RunPowerShell(verifier, "-GenerateSqlOnly");
+
+        Assert.Contains("from nexa.page_definitions p", output);
+        Assert.Contains("p.\"PageKey\"", output);
+        Assert.Contains("p.\"Title\"", output);
+        Assert.Contains("rp.\"PageDefinitionId\" = p.\"Id\"", output);
+        Assert.DoesNotContain("page_masters", output);
+        Assert.DoesNotContain("\"PageCode\"", output);
+        Assert.DoesNotContain("\"PageName\"", output);
+        Assert.DoesNotContain("\"PageId\"", output);
+
+        Assert.Contains("-- Safe PR workflow counts", output);
+        Assert.Contains("'purchase_requisitions=' || count(*) from nexa.purchase_requisitions", output);
+        Assert.Contains("'purchase_requisition_lines=' || count(*) from nexa.purchase_requisition_lines", output);
+        Assert.Contains("'stock_availability_checks=' || count(*) from nexa.stock_availability_checks", output);
+        Assert.Contains("'stock_availability_check_lines=' || count(*) from nexa.stock_availability_check_lines", output);
+        Assert.Contains("'stock_reservations=' || count(*) from nexa.stock_reservations", output);
+        Assert.Contains("'stock_reservations_active=' || count(*) from nexa.stock_reservations where \"Status\" = 'Active'", output);
+        Assert.Contains("'purchase_requirement_handoffs=' || count(*) from nexa.purchase_requirement_handoffs", output);
+        Assert.Contains("'purchase_requirement_handoffs_pending_rfq=' || count(*) from nexa.purchase_requirement_handoffs where \"Status\" = 'PendingRFQ'", output);
+        Assert.Contains("'purchase_requisition_status_history=' || count(*) from nexa.purchase_requisition_status_history", output);
+        Assert.Contains("'purchase_requisition_approval_history=' || count(*) from nexa.purchase_requisition_approval_history", output);
+        Assert.Contains("'stock_reservation_history=' || count(*) from nexa.stock_reservation_history", output);
+        Assert.Contains("'audit_logs=' || count(*) from nexa.audit_logs", output);
+    }
+
+    [Fact]
+    public void Rev868_post_safety_backup_folder_is_ignored_without_hiding_other_outputs()
+    {
+        var gitignore = Read("..", ".gitignore");
+        var lines = gitignore.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Contains("target-dotnet/backups/post-rev868-safety-baseline/", lines);
+        Assert.DoesNotContain("target-dotnet/backups/", lines);
+        Assert.DoesNotContain("target-dotnet/outputs/", lines);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp",
     [string]$HostName = "localhost",
@@ -44,14 +44,27 @@ order by "MigrationId";
         "Check constraints" = "select n.nspname || '.' || c.relname || ':' || con.conname || ':' || pg_get_constraintdef(con.oid) from pg_catalog.pg_constraint con join pg_catalog.pg_class c on c.oid=con.conrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='nexa' and con.contype='c' and con.conname in ('CK_purchase_number_sequences_last_number_nonnegative','CK_pr_lines_reconcile_requested','CK_stock_check_lines_quantities_valid','CK_purchase_route_limits_valid') order by c.relname,con.conname;"
         "Foreign keys" = "select n.nspname || '.' || c.relname || ':' || con.conname || ':' || pg_get_constraintdef(con.oid) from pg_catalog.pg_constraint con join pg_catalog.pg_class c on c.oid=con.conrelid join pg_catalog.pg_namespace n on n.oid=c.relnamespace where n.nspname='nexa' and con.contype='f' and c.relname in ('stock_reservations','stock_availability_check_lines','purchase_requirement_handoffs','purchase_requisition_lines') order by c.relname,con.conname;"
         "Purchase pages and permissions" = @"
-select p."PageCode" || ':' || p."PageName" || ':permissions=' || count(rp."Id")
-from nexa.page_masters p
-left join nexa.role_page_permissions rp on rp."PageId" = p."Id"
-where p."PageCode" in ('purchase.requisitions','purchase.requisition-approvals','stores.stock-check','stores.reservations','purchase.requirement-handoff')
-group by p."PageCode", p."PageName"
-order by p."PageCode";
+select p."PageKey" || ':' || p."Title" || ':permissions=' || count(rp."Id")
+from nexa.page_definitions p
+left join nexa.role_page_permissions rp on rp."PageDefinitionId" = p."Id"
+where p."PageKey" in ('purchase.requisitions','purchase.requisition-approvals','stores.stock-check','stores.reservations','purchase.requirement-handoff')
+group by p."PageKey", p."Title"
+order by p."PageKey";
 "@.Trim()
-        "History and audit counts" = "select 'purchase_requisition_status_history=' || count(*) from nexa.purchase_requisition_status_history union all select 'purchase_requisition_approval_history=' || count(*) from nexa.purchase_requisition_approval_history union all select 'stock_reservation_history=' || count(*) from nexa.stock_reservation_history union all select 'audit_logs=' || count(*) from nexa.audit_logs;"
+        "Safe PR workflow counts" = @"
+select 'purchase_requisitions=' || count(*) from nexa.purchase_requisitions
+union all select 'purchase_requisition_lines=' || count(*) from nexa.purchase_requisition_lines
+union all select 'stock_availability_checks=' || count(*) from nexa.stock_availability_checks
+union all select 'stock_availability_check_lines=' || count(*) from nexa.stock_availability_check_lines
+union all select 'stock_reservations=' || count(*) from nexa.stock_reservations
+union all select 'stock_reservations_active=' || count(*) from nexa.stock_reservations where "Status" = 'Active'
+union all select 'purchase_requirement_handoffs=' || count(*) from nexa.purchase_requirement_handoffs
+union all select 'purchase_requirement_handoffs_pending_rfq=' || count(*) from nexa.purchase_requirement_handoffs where "Status" = 'PendingRFQ'
+union all select 'purchase_requisition_status_history=' || count(*) from nexa.purchase_requisition_status_history
+union all select 'purchase_requisition_approval_history=' || count(*) from nexa.purchase_requisition_approval_history
+union all select 'stock_reservation_history=' || count(*) from nexa.stock_reservation_history
+union all select 'audit_logs=' || count(*) from nexa.audit_logs;
+"@.Trim()
     }
 }
 function Invoke-PsqlRead([string]$Sql) {
@@ -99,5 +112,3 @@ finally {
     if ($plainPassword) { $plainPassword = $null }
     if ($securePassword) { $securePassword.Dispose() }
 }
-
-

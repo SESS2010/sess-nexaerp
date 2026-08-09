@@ -19,3 +19,4 @@ target-dotnet/outputs/rev866_database_runtime_verification_*.md
 target-dotnet/local-evidence/rev867/
 target-dotnet/local-evidence/rev867c1/
 target-dotnet/local-evidence/rev868/
+target-dotnet/backups/post-rev868-safety-baseline/
