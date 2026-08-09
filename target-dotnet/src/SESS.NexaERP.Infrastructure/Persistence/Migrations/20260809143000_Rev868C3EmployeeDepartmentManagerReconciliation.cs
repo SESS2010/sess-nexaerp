@@ -195,7 +195,6 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         migrationBuilder.CreateIndex(name: "IX_purchase_approval_workflow_steps_RouteCode_IsActive", schema: "nexa", table: "purchase_approval_workflow_steps", columns: new[] { "RouteCode", "IsActive" });
         migrationBuilder.CreateIndex(name: "IX_purchase_approval_workflow_steps_RouteCode_StepNumber_EffectiveFrom", schema: "nexa", table: "purchase_approval_workflow_steps", columns: new[] { "RouteCode", "StepNumber", "EffectiveFrom" }, unique: true);
 
-        migrationBuilder.Sql(BuildUpsertSql());
 
         migrationBuilder.CreateIndex(
             name: "IX_employees_PayrollEmployeeId",
@@ -220,6 +219,8 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
             schema: "nexa",
             table: "department_approval_mappings",
             columns: new[] { "DepartmentId", "ApprovalRouteCode", "Scope", "IsActive" });
+
+        migrationBuilder.Sql(BuildUpsertSql());
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)

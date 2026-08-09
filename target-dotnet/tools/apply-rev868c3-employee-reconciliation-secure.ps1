@@ -125,12 +125,17 @@ function Test-DotnetEfTool {
     $versionText = ($output | ForEach-Object { $_.ToString() }) -join ' '
     if ($versionText -notmatch '\b10\.\d+\.\d+\b') { throw "dotnet-ef version is not compatible with EF Core 10. Output: $versionText" }
 }
-function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode) {
+function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode, [string]$Phase) {
     $raw = ($Output | ForEach-Object { $_.ToString() }) -join "`n"
-    $sqlState = if ($raw -match 'SQLSTATE\s*\[?([0-9A-Z]{5})\]?|PostgresException \(([0-9A-Z]{5})\)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } elseif ($raw -match '\b(23502|23503|23505|23514|42P01|42703)\b') { $Matches[1] } else { 'unknown' }
+    $rawBytes = [System.Text.Encoding]::UTF8.GetBytes($raw)
+    $fingerprint = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($rawBytes))
+    $exceptionType = if ($raw -match '(?m)^([A-Za-z0-9_.]+Exception)(:|\s|$)') { $Matches[1] } elseif ($raw -match '\b(PostgresException|NpgsqlException|DbUpdateException|InvalidOperationException)\b') { $Matches[1] } else { 'unknown' }
+    $sqlState = if ($raw -match 'SQLSTATE\s*\[?([0-9A-Z]{5})\]?|PostgresException \(([0-9A-Z]{5})\)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } elseif ($raw -match '\b(23502|23503|23505|23514|42P01|42703|42P10)\b') { $Matches[1] } else { 'unknown' }
     $schema = if ($raw -match '(?i)schema\s+"([A-Za-z0-9_]+)"|SchemaName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
     $table = if ($raw -match '(?i)table\s+"([A-Za-z0-9_]+)"|TableName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
     $column = if ($raw -match '(?i)column\s+"([A-Za-z0-9_]+)"|ColumnName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
+    $constraint = if ($raw -match '(?i)constraint\s+"([A-Za-z0-9_]+)"|ConstraintName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
+    $messageCategory = if ($raw -match '(?i)no unique or exclusion constraint matching the ON CONFLICT specification|ON CONFLICT') { 'on_conflict_index_mismatch' } elseif ($raw -match '(?i)not-null|null value') { 'not_null' } elseif ($raw -match '(?i)foreign key') { 'foreign_key' } elseif ($raw -match '(?i)Unable to retrieve project metadata') { 'ef_project_metadata' } elseif ($raw -match '(?i)does not exist') { 'missing_object' } else { 'unclassified' }
     $category = switch ($sqlState) {
         '23502' { 'not_null_violation'; break }
         '23503' { 'foreign_key_violation'; break }
@@ -138,14 +143,15 @@ function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode) {
         '23514' { 'check_violation'; break }
         '42P01' { 'undefined_table'; break }
         '42703' { 'undefined_column'; break }
-        default { 'ef_migration_failure' }
+        '42P10' { 'on_conflict_index_mismatch'; break }
+        default { if ($messageCategory -ne 'unclassified') { $messageCategory } else { 'ef_migration_failure' } }
     }
-    "exit_code=$ExitCode; sqlstate=$sqlState; schema=$schema; table=$table; column=$column; category=$category"
+    "exit_code=$ExitCode; phase=$Phase; exception_type=$exceptionType; sqlstate=$sqlState; schema=$schema; table=$table; column=$column; constraint=$constraint; message_category=$messageCategory; category=$category; raw_output_sha256=$fingerprint"
 }
 function Invoke-EfDatabaseUpdateSanitized {
     $output = @(Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs)) 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        $safe = Get-SanitizedEfFailure $output $LASTEXITCODE
+        $safe = Get-SanitizedEfFailure $output $LASTEXITCODE 'database_update_rev868c3'
         throw "EF database update failed. $safe"
     }
 }

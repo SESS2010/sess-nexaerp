@@ -6177,6 +6177,41 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    CREATE UNIQUE INDEX "IX_employees_PayrollEmployeeId" ON nexa.employees ("PayrollEmployeeId") WHERE "PayrollEmployeeId" IS NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    DROP INDEX nexa."IX_department_approval_mappings_DepartmentId_ApprovalRouteCod";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    DROP INDEX nexa."IX_department_approval_mappings_DepartmentId_ApprovalRouteCod1";
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    CREATE UNIQUE INDEX "IX_department_approval_mappings_DepartmentId_Route_Scope_From" ON nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
+    CREATE INDEX "IX_department_approval_mappings_DepartmentId_Route_Scope_Active" ON nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "IsActive");
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
     insert into nexa.departments ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
     values ('0057b580-1cb1-afa2-8328-5afb1162e77e', 'MANAGEMENT', 'Management', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
     on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
@@ -6906,41 +6941,6 @@ BEGIN
         values (gen_random_uuid(), 'system-migration', 'SYSTEM', 'Employees', 'EmployeeWorkbook', 'REV868C3', 'ReconcileEmployeeDepartmentManagerWorkbook', null, '{"activeEmployees":42,"relievedEmployees":9,"departments":12,"managerMappings":14}', 'Approved REV868C3 employee workbook source checkpoint', 'Success', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', null, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
         on conflict do nothing;
 
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
-    CREATE UNIQUE INDEX "IX_employees_PayrollEmployeeId" ON nexa.employees ("PayrollEmployeeId") WHERE "PayrollEmployeeId" IS NOT NULL;
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
-    DROP INDEX nexa."IX_department_approval_mappings_DepartmentId_ApprovalRouteCod";
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
-    DROP INDEX nexa."IX_department_approval_mappings_DepartmentId_ApprovalRouteCod1";
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
-    CREATE UNIQUE INDEX "IX_department_approval_mappings_DepartmentId_Route_Scope_From" ON nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom");
-    END IF;
-END $EF$;
-
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation') THEN
-    CREATE INDEX "IX_department_approval_mappings_DepartmentId_Route_Scope_Active" ON nexa.department_approval_mappings ("DepartmentId", "ApprovalRouteCode", "Scope", "IsActive");
     END IF;
 END $EF$;
 

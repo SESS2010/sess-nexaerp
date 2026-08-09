@@ -454,6 +454,59 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("Values(IEnumerable<string> values)", migration);
     }
     [Fact]
+    public void Rev868c3_upsert_sql_runs_after_scope_aware_mapping_index_creation()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        var addScope = migration.IndexOf("AddColumn<string>(name: \"Scope\"", StringComparison.Ordinal);
+        var dropOldIndex = migration.IndexOf("DropIndex(name: \"IX_department_approval_mappings_DepartmentId_ApprovalRouteCod\"", StringComparison.Ordinal);
+        var createScopeUniqueIndex = migration.IndexOf("IX_department_approval_mappings_DepartmentId_Route_Scope_From", StringComparison.Ordinal);
+        var createScopeActiveIndex = migration.IndexOf("IX_department_approval_mappings_DepartmentId_Route_Scope_Active", StringComparison.Ordinal);
+        var upsert = migration.IndexOf("migrationBuilder.Sql(BuildUpsertSql());", StringComparison.Ordinal);
+
+        Assert.True(addScope > 0);
+        Assert.True(dropOldIndex > addScope);
+        Assert.True(createScopeUniqueIndex > dropOldIndex);
+        Assert.True(createScopeActiveIndex > createScopeUniqueIndex);
+        Assert.True(upsert > createScopeActiveIndex);
+    }
+
+    [Fact]
+    public void Rev868c3_offline_sql_places_every_on_conflict_after_matching_unique_support()
+    {
+        var sql = Read("outputs", "rev868c3_employee_reconciliation_idempotent.sql");
+
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_departments_Code\"", "on conflict (\"Code\") do update set \"Name\" = excluded.\"Name\", \"IsActive\" = true");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_designations_Code\"", "on conflict (\"Code\") do update set \"Name\" = excluded.\"Name\", \"IsActive\" = true");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_employees_EmployeeCode\"", "on conflict (\"EmployeeCode\") do update");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_roles_Code\"", "on conflict (\"Code\") do update set \"Name\" = excluded.\"Name\", \"IsPrivileged\" = false");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_role_page_permissions_RoleId_PageDefinitionId\"", "on conflict (\"RoleId\", \"PageDefinitionId\") do update");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_employee_role_assignments_EmployeeId_RoleId_EffectiveFrom\"", "on conflict (\"EmployeeId\", \"RoleId\", \"EffectiveFrom\") do nothing");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_department_approval_mappings_DepartmentId_Route_Scope_From\"", "on conflict (\"DepartmentId\", \"ApprovalRouteCode\", \"Scope\", \"EffectiveFrom\") do update");
+        AssertOrdered(sql, "CREATE UNIQUE INDEX \"IX_purchase_approval_workflow_steps_RouteCode_StepNumber_EffectiveFrom\"", "on conflict (\"RouteCode\", \"StepNumber\", \"EffectiveFrom\") do update");
+    }
+
+    [Fact]
+    public void Rev868c3_sanitized_ef_failure_metadata_handles_common_postgres_and_ef_failures()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("42P10", helper);
+        Assert.Contains("on_conflict_index_mismatch", helper);
+        Assert.Contains("23502", helper);
+        Assert.Contains("23503", helper);
+        Assert.Contains("ef_project_metadata", helper);
+        Assert.Contains("exception_type=", helper);
+        Assert.Contains("constraint=", helper);
+        Assert.Contains("message_category=", helper);
+        Assert.Contains("phase=", helper);
+        Assert.Contains("raw_output_sha256=", helper);
+        Assert.Contains("HashData", helper);
+        Assert.DoesNotContain("CommandText", helper[helper.IndexOf("function Get-SanitizedEfFailure", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
+    }
+
+
+    [Fact]
     public void Rev868c3_helper_sanitizes_ef_failure_output_and_blocks_raw_pii_leakage()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
@@ -472,6 +525,16 @@ public sealed class Rev868C3ImplementationTests
         Assert.DoesNotContain("EmployeeName", helper[helper.IndexOf("function Get-SanitizedEfFailure", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
         Assert.Contains("REV868C3 PostgreSQL tests failed. exit_code=", helper);
     }
+
+    private static void AssertOrdered(string text, string before, string after)
+    {
+        var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);
+        var afterIndex = text.IndexOf(after, StringComparison.OrdinalIgnoreCase);
+        Assert.True(beforeIndex >= 0, $"Missing before marker: {before}");
+        Assert.True(afterIndex >= 0, $"Missing after marker: {after}");
+        Assert.True(beforeIndex < afterIndex, $"Expected marker before ON CONFLICT: {before}");
+    }
+
 
     private static Dictionary<string, HashSet<string>> ParseRawInsertColumns(string migration)
     {
