@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
@@ -108,7 +108,7 @@ public static partial class PurchaseRequisitionEndpoints
             await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status }, new { reason = "Self approval blocked", user.RoleCode }, ct);
             return Results.Forbid();
         }
-        var expected = RouteFor(pr.EstimatedTotal);
+        var expected = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct);
         if (!CanApproveRoute(user.RoleCode, expected))
         {
             await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status }, new { reason = "Approval route mismatch", expected, user.RoleCode }, ct);
@@ -136,7 +136,7 @@ public static partial class PurchaseRequisitionEndpoints
         if (requiredStatus is not null && pr.Status != requiredStatus) return Results.Conflict(new { message = $"Invalid PR status sequence. Required: {requiredStatus}." });
         var correlation = Idempotency(request, action);
         if (await db.PurchaseRequisitionStatusHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct)) return Results.Ok(ToDetail(pr));
-        if (action == "DepartmentVerify") { pr.VerifiedBy = user.LoginId; pr.VerifiedAt = DateTimeOffset.UtcNow; pr.ApprovalRoute = RouteFor(pr.EstimatedTotal); }
+        if (action == "DepartmentVerify") { pr.VerifiedBy = user.LoginId; pr.VerifiedAt = DateTimeOffset.UtcNow; pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct); }
         if (action is "Reject" or "RequestRevision") AddApproval(db, pr, action, pr.Status, nextStatus, request.Remarks, user, correlation);
         if (action == "Submit") { pr.SubmittedBy = user.LoginId; pr.SubmittedAt = DateTimeOffset.UtcNow; }
         SetStatus(db, pr, nextStatus, request.Remarks, user, correlation);

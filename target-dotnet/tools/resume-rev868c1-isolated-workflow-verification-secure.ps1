@@ -106,14 +106,27 @@ from (
 order by branch;
 "@.Trim()
         "Amount routing boundary evidence" = @"
-select b.amount::text || '|expected=' || b.expected || '|actual=' || coalesce(r."RouteCode", 'NO_ROUTE') || '|' || case when b.expected = r."RouteCode" then 'PASS' else 'FAIL' end
+select b.amount::text
+    || '|expected_route=' || b.expected_route
+    || '|configured_route=' || coalesce(r."RouteCode", 'NO_ROUTE')
+    || '|calculated_route=' || coalesce(r."RouteCode", 'NO_ROUTE')
+    || '|canonical_role=' || coalesce(r."ApproverRoleCode", 'NO_ROLE')
+    || '|display=' || case coalesce(r."RouteCode", 'NO_ROUTE')
+        when 'MANAGER' then 'Manager'
+        when 'TECHNICAL_DIRECTOR' then 'Technical Director'
+        when 'MANAGING_DIRECTOR' then 'Managing Director'
+        else 'Unknown'
+       end
+    || '|' || case when b.expected_route = r."RouteCode" and b.expected_role = r."ApproverRoleCode" then 'PASS' else 'FAIL' end
 from (
   values
-    (50000::numeric, 'Manager'::text),
-    (50001::numeric, 'TechnicalDirector'::text),
-    (500000::numeric, 'TechnicalDirector'::text),
-    (500001::numeric, 'ManagingDirector'::text)
-) b(amount, expected)
+    (50000::numeric, 'MANAGER'::text, 'TECHNICAL_SUPPORT_MANAGER'::text),
+    (50000.01::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
+    (50001::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
+    (500000::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
+    (500000.01::numeric, 'MANAGING_DIRECTOR'::text, 'MANAGING_DIRECTOR'::text),
+    (500001::numeric, 'MANAGING_DIRECTOR'::text, 'MANAGING_DIRECTOR'::text)
+) b(amount, expected_route, expected_role)
 left join nexa.purchase_approval_route_settings r
   on r."IsActive" = true
  and b.amount >= r."MinimumAmount"
@@ -121,9 +134,20 @@ left join nexa.purchase_approval_route_settings r
 order by b.amount;
 "@.Trim()
         "Approval route configuration evidence" = @"
-select "RouteCode" || '|min=' || "MinimumAmount"::text || '|max=' || coalesce("MaximumAmount"::text,'NULL') || '|role=' || "ApproverRoleCode" || '|active=' || "IsActive"::text
+select "RouteCode"
+    || '|min=' || "MinimumAmount"::text
+    || '|max=' || coalesce("MaximumAmount"::text,'NULL')
+    || '|role=' || "ApproverRoleCode"
+    || '|display=' || case "RouteCode"
+        when 'MANAGER' then 'Manager'
+        when 'TECHNICAL_DIRECTOR' then 'Technical Director'
+        when 'MANAGING_DIRECTOR' then 'Managing Director'
+        else "RouteCode"
+       end
+    || '|active=' || "IsActive"::text
+    || '|order=' || row_number() over (order by "MinimumAmount")::text
 from nexa.purchase_approval_route_settings
-where "RouteCode" in ('Manager','TechnicalDirector','ManagingDirector')
+where "RouteCode" in ('MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')
 order by "MinimumAmount";
 "@.Trim()
         "Security 401 403 and self approval evidence" = @"

@@ -84,7 +84,7 @@ public static partial class PurchaseRequisitionEndpoints
             pr.EstimatedTotal += total;
             pr.Lines.Add(new PurchaseRequisitionLine { LineNumber = lineNo, ItemId = item.Id, ItemCodeSnapshot = item.ItemCode, ItemNameSnapshot = item.Name, UomSnapshot = item.Uom, SpecificationSnapshot = item.TechnicalSpecification, RequestedQuantity = request.RequestedQuantity, EstimatedUnitPriceSnapshot = request.EstimatedUnitPrice, EstimatedLineTotal = total, RequiredDate = request.RequiredDate, PreferredWarehouseId = warehouseId, ProjectReference = Norm(request.ProjectReference), MachineReference = Norm(request.MachineReference), ServiceReference = Norm(request.ServiceReference), CreatedBy = pr.CreatedBy });
         }
-        pr.ApprovalRoute = RouteFor(pr.EstimatedTotal);
+        pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct);
     }
 
     private static async Task<string> NextPrNumberAsync(NexaErpDbContext db, string organizationId, DateOnly requestDate, ICurrentUser user, CancellationToken ct)
@@ -102,7 +102,33 @@ public static partial class PurchaseRequisitionEndpoints
         return $"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000001}";
     }
 
-    public static string RouteFor(decimal total) => total <= 50000 ? PurchaseRequisitionApprovalRoutes.Manager : total <= 500000 ? PurchaseRequisitionApprovalRoutes.TechnicalDirector : PurchaseRequisitionApprovalRoutes.ManagingDirector;
+    public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string ApproverRoleCode, bool IsActive = true);
+    private static readonly ApprovalRouteDefinition[] DefaultApprovalRoutes =
+    [
+        new(PurchaseRequisitionApprovalRoutes.Manager, 0m, 50000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.Manager)),
+        new(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector)),
+        new(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector))
+    ];
+
+    public static string RouteFor(decimal total) => RouteFor(total, DefaultApprovalRoutes);
+    public static string RouteFor(decimal total, IEnumerable<ApprovalRouteDefinition> routes)
+    {
+        if (total < 0) throw new InvalidOperationException("PR approval amount cannot be negative.");
+        var matches = routes
+            .Where(x => x.IsActive)
+            .Where(x => total >= x.MinimumAmount && (!x.MaximumAmount.HasValue || total <= x.MaximumAmount.Value))
+            .Select(x => PurchaseRequisitionApprovalRoutes.Normalize(x.RouteCode))
+            .ToList();
+        return matches.Count == 1 ? matches[0] : throw new InvalidOperationException($"No single active PR approval route is configured for amount {total}.");
+    }
+    private static async Task<string> RouteForConfiguredAsync(NexaErpDbContext db, decimal total, CancellationToken ct)
+    {
+        var routes = await db.PurchaseApprovalRouteSettings.AsNoTracking()
+            .Where(x => x.IsActive)
+            .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.IsActive))
+            .ToListAsync(ct);
+        return RouteFor(total, routes.Count == 0 ? DefaultApprovalRoutes : routes);
+    }
     public static decimal AvailableQuantity(decimal onHand, decimal activeReserved) => Math.Max(onHand - activeReserved, 0);
     public static decimal ReserveQuantity(decimal requested, decimal available) => Math.Min(Math.Max(requested, 0), Math.Max(available, 0));
     public static decimal ShortageQuantity(decimal requested, decimal reserved) => Math.Max(requested - reserved, 0);
@@ -115,7 +141,7 @@ public static partial class PurchaseRequisitionEndpoints
         return activeRanges.Any(r => min <= (r.Max ?? decimal.MaxValue) && r.Min <= right);
     }
     private static string FinancialYear(DateOnly date) => date.Month >= 4 ? $"{date.Year}-{(date.Year + 1) % 100:00}" : $"{date.Year - 1}-{date.Year % 100:00}";
-    private static bool CanApproveRoute(string role, string route) => route switch { PurchaseRequisitionApprovalRoutes.Manager => role.Contains("manager", StringComparison.OrdinalIgnoreCase) || role is "admin" or "md" or "technical_director" or "managing_director", PurchaseRequisitionApprovalRoutes.TechnicalDirector => role is "technical_director" or "admin", PurchaseRequisitionApprovalRoutes.ManagingDirector => role is "managing_director" or "md" or "admin", _ => false };
+    private static bool CanApproveRoute(string role, string route) { var normalizedRole = role.Trim().ToUpperInvariant(); return PurchaseRequisitionApprovalRoutes.Normalize(route) switch { PurchaseRequisitionApprovalRoutes.Manager => normalizedRole.Contains("MANAGER", StringComparison.OrdinalIgnoreCase) || normalizedRole is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.TechnicalDirector => normalizedRole is "TECHNICAL_DIRECTOR" or "ADMIN", PurchaseRequisitionApprovalRoutes.ManagingDirector => normalizedRole is "MANAGING_DIRECTOR" or "MD" or "ADMIN", _ => false }; }
     private static IQueryable<PurchaseRequisition> Scope(IQueryable<PurchaseRequisition> query, ICurrentUser user) => string.IsNullOrWhiteSpace(user.OrganizationId) ? query : query.Where(x => x.OrganizationId == user.OrganizationId);
     private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) => query.Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee).Include(x => x.DeliveryWarehouse).Include(x => x.Lines).ThenInclude(x => x.Item);
     private static IQueryable<PurchaseRequisition> Sort(IQueryable<PurchaseRequisition> q, string? sortBy, string? dir) => (sortBy?.Trim().ToLowerInvariant(), dir?.Trim().ToLowerInvariant()) switch { ("requiredby", "desc") => q.OrderByDescending(x => x.RequiredByDate), ("requiredby", _) => q.OrderBy(x => x.RequiredByDate), ("status", "desc") => q.OrderByDescending(x => x.Status), ("status", _) => q.OrderBy(x => x.Status), ("total", "desc") => q.OrderByDescending(x => x.EstimatedTotal), ("total", _) => q.OrderBy(x => x.EstimatedTotal), ("prnumber", "desc") => q.OrderByDescending(x => x.PrNumber), _ => q.OrderBy(x => x.PrNumber) };

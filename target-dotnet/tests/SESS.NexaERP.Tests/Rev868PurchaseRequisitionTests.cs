@@ -16,6 +16,54 @@ public sealed class Rev868PurchaseRequisitionTests
         Assert.Equal(expected, PurchaseRequisitionEndpoints.RouteFor(total));
     }
 
+
+    [Fact]
+    public void Rev868c2_canonical_route_mapping_separates_route_code_role_code_and_display_label()
+    {
+        Assert.Equal("MANAGER", PurchaseRequisitionApprovalRoutes.Manager);
+        Assert.Equal("TECHNICAL_DIRECTOR", PurchaseRequisitionApprovalRoutes.TechnicalDirector);
+        Assert.Equal("MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.ManagingDirector);
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionApprovalRoutes.Normalize("TD"));
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.ManagingDirector, PurchaseRequisitionApprovalRoutes.Normalize("MD"));
+        Assert.Equal("Technical Director", PurchaseRequisitionApprovalRoutes.DisplayLabel(PurchaseRequisitionApprovalRoutes.TechnicalDirector));
+        Assert.Equal("Managing Director", PurchaseRequisitionApprovalRoutes.DisplayLabel(PurchaseRequisitionApprovalRoutes.ManagingDirector));
+        Assert.Equal("TECHNICAL_DIRECTOR", PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector));
+        Assert.Equal("MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector));
+    }
+
+    [Theory]
+    [InlineData(0, PurchaseRequisitionApprovalRoutes.Manager)]
+    [InlineData(50000, PurchaseRequisitionApprovalRoutes.Manager)]
+    [InlineData(50000.01, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
+    [InlineData(50001, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
+    [InlineData(500000, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
+    [InlineData(500000.01, PurchaseRequisitionApprovalRoutes.ManagingDirector)]
+    [InlineData(500001, PurchaseRequisitionApprovalRoutes.ManagingDirector)]
+    public void Rev868c2_configured_routes_cover_exact_currency_boundaries_without_gaps(decimal total, string expected)
+    {
+        var routes = new[]
+        {
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "TECHNICAL_SUPPORT_MANAGER"),
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR"),
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR")
+        };
+
+        Assert.Equal(expected, PurchaseRequisitionEndpoints.RouteFor(total, routes));
+    }
+
+    [Fact]
+    public void Rev868c2_configured_routes_reject_missing_duplicate_overlap_disabled_and_negative_amounts()
+    {
+        var manager = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "TECHNICAL_SUPPORT_MANAGER");
+        var td = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR");
+        var md = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR");
+
+        Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(-1, new[] { manager, td, md }));
+        Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(50000.01m, new[] { manager, md }));
+        Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(25000, new[] { manager, manager }));
+        Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(75000, new[] { td with { IsActive = false } }));
+        Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(50000.50m, new[] { manager with { MaximumAmount = 100000m }, td, md }));
+    }
     [Theory]
     [InlineData(100, 25, 75)]
     [InlineData(20, 25, 0)]

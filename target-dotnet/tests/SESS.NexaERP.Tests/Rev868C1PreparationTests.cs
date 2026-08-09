@@ -375,6 +375,48 @@ public sealed class Rev868C1PreparationTests
         if (value is Array array) return array.Length;
         return new[] { value }.Length;
     }
+    [Fact]
+    public void Rev868c2_approval_route_correction_sources_are_isolated_and_canonical()
+    {
+        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809115500_Rev868C2ApprovalRouteCanonicalization.cs");
+        var resume = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
+
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("This helper is permanently restricted to localhost:5432 / sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("20260809115500_Rev868C2ApprovalRouteCanonicalization", helper);
+        Assert.Contains("ef database update $correctionMigration", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MANAGER", migration);
+        Assert.Contains("TECHNICAL_DIRECTOR", migration);
+        Assert.Contains("MANAGING_DIRECTOR", migration);
+        Assert.Contains("TECHNICAL_SUPPORT_MANAGER", migration);
+        Assert.Contains("on conflict (\"RouteCode\") do update", migration);
+        Assert.Contains("expected_route=", resume);
+        Assert.Contains("configured_route=", resume);
+        Assert.Contains("canonical_role=", resume);
+        Assert.Contains("display=", resume);
+        Assert.DoesNotContain("expected=TechnicalDirector|actual=TD", resume);
+    }
+
+    [Fact]
+    public void Rev868c2_correction_helper_blocks_main_database_and_keeps_readonly_preflight_sql()
+    {
+        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
+
+        Assert.Contains("$blockedDatabaseNames", helper);
+        Assert.Contains("sess_nexaerp", helper);
+        Assert.Contains("postgres", helper);
+        Assert.Contains("template0", helper);
+        Assert.Contains("template1", helper);
+        Assert.Contains("rev861", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("PreflightOnly", helper);
+        Assert.Contains("GeneratePlanOnly", helper);
+        Assert.Contains("begin transaction read only", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("createdb", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dropdb", helper, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
 

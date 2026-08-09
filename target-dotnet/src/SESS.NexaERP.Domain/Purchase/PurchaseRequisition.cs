@@ -37,9 +37,33 @@ public static class PurchaseRequisitionLineStatuses
 
 public static class PurchaseRequisitionApprovalRoutes
 {
-    public const string Manager = "Manager";
-    public const string TechnicalDirector = "TD";
-    public const string ManagingDirector = "MD";
+    public const string Manager = "MANAGER";
+    public const string TechnicalDirector = "TECHNICAL_DIRECTOR";
+    public const string ManagingDirector = "MANAGING_DIRECTOR";
+
+    public static string Normalize(string? routeCode) => routeCode?.Trim().ToUpperInvariant() switch
+    {
+        "MANAGER" or "MANAGER_APPROVAL" or "BRANCH_MANAGER" => Manager,
+        "TD" or "TECHNICALDIRECTOR" or "TECHNICAL_DIRECTOR" => TechnicalDirector,
+        "MD" or "MANAGINGDIRECTOR" or "MANAGING_DIRECTOR" => ManagingDirector,
+        _ => routeCode?.Trim() ?? string.Empty
+    };
+
+    public static string DisplayLabel(string routeCode) => Normalize(routeCode) switch
+    {
+        Manager => "Manager",
+        TechnicalDirector => "Technical Director",
+        ManagingDirector => "Managing Director",
+        _ => routeCode
+    };
+
+    public static string ApproverRoleCode(string routeCode) => Normalize(routeCode) switch
+    {
+        Manager => "TECHNICAL_SUPPORT_MANAGER",
+        TechnicalDirector => "TECHNICAL_DIRECTOR",
+        ManagingDirector => "MANAGING_DIRECTOR",
+        _ => routeCode
+    };
 }
 
 public sealed class PurchaseRequisition : AuditableEntity
