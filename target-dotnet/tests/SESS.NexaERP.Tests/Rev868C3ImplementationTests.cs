@@ -308,6 +308,50 @@ public sealed class Rev868C3ImplementationTests
     }
 
     [Fact]
+    public void Rev868c3_employee_reconciliation_uses_actual_master_ids_from_natural_key_lookups()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("REV868C3 missing department lookup for employee reconciliation", migration);
+        Assert.Contains("REV868C3 missing designation lookup for employee reconciliation", migration);
+        Assert.Contains("from (values {Values(Rev868C3EmployeeWorkbookData.Departments.Select(x => x.Code))})", migration);
+        Assert.Contains("from (values {Values(designations.Select(Code))})", migration);
+        Assert.Contains("select '{Id(\"employee\", employee.EmployeeCode)}'", migration);
+        Assert.Contains("from nexa.departments d", migration);
+        Assert.Contains("join nexa.designations g on g.\"Code\" = {Sql(Code(employee.HrDesignation))}", migration);
+        Assert.Contains("where d.\"Code\" = {Sql(employee.FinalDepartmentCode)}", migration);
+        Assert.Contains("d.\"Id\", g.\"Id\", 'Active'", migration);
+        Assert.DoesNotContain("'{Id(\"department\", employee.FinalDepartmentCode)}'", migration);
+        Assert.DoesNotContain("'{Id(\"designation\", employee.HrDesignation)}'", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_role_and_permission_reconciliation_uses_actual_role_and_page_ids()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("REV868C3 missing DEPARTMENT_MANAGER role lookup", migration);
+        Assert.Contains("REV868C3 missing page lookup for department manager permissions", migration);
+        Assert.Contains("from nexa.roles r join nexa.page_definitions p on p.\"PageKey\" = 'purchase.requisitions'", migration);
+        Assert.Contains("from nexa.roles r join nexa.page_definitions p on p.\"PageKey\" = 'purchase.requisition-approvals'", migration);
+        Assert.Contains("select '{Id(\"rev868c3-department-manager-role\", employeeCode)}', e.\"Id\", r.\"Id\"", migration);
+        Assert.Contains("join nexa.roles r on r.\"Code\" = 'DEPARTMENT_MANAGER'", migration);
+        Assert.DoesNotContain("e.\"Id\", '{Id(\"role\", \"department_manager\")}'", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_fk_sources_are_audited_for_natural_key_or_persisted_row_lookup()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("join nexa.employees p on p.\"EmployeeCode\" = {Sql(mapping.PrimaryManagerCode)}", migration);
+        Assert.Contains("join nexa.employees a on a.\"EmployeeCode\" = {Sql(mapping.AlternateManagerCode)}", migration);
+        Assert.Contains("where d.\"Code\" = {Sql(mapping.DepartmentCode)}", migration);
+        Assert.Contains("select gen_random_uuid(), e.\"Id\", b.\"DepartmentId\", e.\"DepartmentId\"", migration);
+        Assert.Contains("left join nexa.rev868c3_employee_backup b on b.\"EmployeeId\" = e.\"Id\"", migration);
+        Assert.Contains("Values(IEnumerable<string> values)", migration);
+    }
+    [Fact]
     public void Rev868c3_helper_sanitizes_ef_failure_output_and_blocks_raw_pii_leakage()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");

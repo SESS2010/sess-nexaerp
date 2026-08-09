@@ -380,12 +380,40 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
                 """);
         }
 
+        sb.AppendLine($"""
+            do $rev868c3_fk_guard$
+            begin
+                if exists (
+                    select 1
+                    from (values {Values(Rev868C3EmployeeWorkbookData.Departments.Select(x => x.Code))}) as expected("Code")
+                    left join nexa.departments d on d."Code" = expected."Code"
+                    where d."Id" is null
+                ) then
+                    raise exception 'REV868C3 missing department lookup for employee reconciliation';
+                end if;
+
+                if exists (
+                    select 1
+                    from (values {Values(designations.Select(Code))}) as expected("Code")
+                    left join nexa.designations d on d."Code" = expected."Code"
+                    where d."Id" is null
+                ) then
+                    raise exception 'REV868C3 missing designation lookup for employee reconciliation';
+                end if;
+            end
+            $rev868c3_fk_guard$;
+            """);
+
+
         foreach (var employee in Rev868C3EmployeeWorkbookData.ActiveEmployees)
         {
             var approximate = employee.DateOfJoiningAccuracy.StartsWith("Approximate", StringComparison.OrdinalIgnoreCase);
             sb.AppendLine($"""
                 insert into nexa.employees ("Id", "EmployeeCode", "PayrollEmployeeId", "EmployeeName", "OriginalImportedName", "Gender", "Qualification", "DateOfBirth", "EmployeeType", "Grade", "DepartmentId", "DesignationId", "Status", "DateOfJoining", "DateOfJoiningAccuracy", "IsDateOfJoiningApproximate", "ApproximateDateNote", "FunctionalResponsibility", "WorkLocation", "ManagerScope", "LegacyDepartment", "OfficialEmail", "MobileNumber", "LoginEnabled", "ApprovalStatus", "IsEmployeeCodeLocked", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                values ('{Id("employee", employee.EmployeeCode)}', {Sql(employee.EmployeeCode)}, {Sql(employee.PayrollEmployeeId == "NA" ? null : employee.PayrollEmployeeId)}, {Sql(employee.EmployeeName)}, {Sql(employee.EmployeeName)}, {Sql(employee.Gender)}, {Sql(employee.Qualification)}, {Date(employee.DateOfBirth)}, {Sql(employee.EmploymentType)}, {Sql(employee.Grade)}, '{Id("department", employee.FinalDepartmentCode)}', '{Id("designation", employee.HrDesignation)}', 'Active', {Date(employee.DateOfJoining)}, {Sql(employee.DateOfJoiningAccuracy)}, {Bool(approximate)}, {Sql(approximate ? employee.DateOfJoiningAccuracy : null)}, {Sql(employee.FunctionalResponsibility)}, {Sql(employee.WorkLocation)}, {Sql(employee.ManagerScope)}, {Sql(employee.LegacyDepartment)}, null, null, false, 'SeedApproved', true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+                select '{Id("employee", employee.EmployeeCode)}', {Sql(employee.EmployeeCode)}, {Sql(employee.PayrollEmployeeId == "NA" ? null : employee.PayrollEmployeeId)}, {Sql(employee.EmployeeName)}, {Sql(employee.EmployeeName)}, {Sql(employee.Gender)}, {Sql(employee.Qualification)}, {Date(employee.DateOfBirth)}, {Sql(employee.EmploymentType)}, {Sql(employee.Grade)}, d."Id", g."Id", 'Active', {Date(employee.DateOfJoining)}, {Sql(employee.DateOfJoiningAccuracy)}, {Bool(approximate)}, {Sql(approximate ? employee.DateOfJoiningAccuracy : null)}, {Sql(employee.FunctionalResponsibility)}, {Sql(employee.WorkLocation)}, {Sql(employee.ManagerScope)}, {Sql(employee.LegacyDepartment)}, null, null, false, 'SeedApproved', true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
+                from nexa.departments d
+                join nexa.designations g on g."Code" = {Sql(Code(employee.HrDesignation))}
+                where d."Code" = {Sql(employee.FinalDepartmentCode)}
                 on conflict ("EmployeeCode") do update set
                     "PayrollEmployeeId" = excluded."PayrollEmployeeId", "EmployeeName" = excluded."EmployeeName", "Gender" = excluded."Gender", "Qualification" = excluded."Qualification", "DateOfBirth" = excluded."DateOfBirth", "EmployeeType" = excluded."EmployeeType", "Grade" = excluded."Grade", "DepartmentId" = excluded."DepartmentId", "DesignationId" = excluded."DesignationId", "Status" = 'Active', "DateOfJoining" = excluded."DateOfJoining", "DateOfJoiningAccuracy" = excluded."DateOfJoiningAccuracy", "IsDateOfJoiningApproximate" = excluded."IsDateOfJoiningApproximate", "ApproximateDateNote" = excluded."ApproximateDateNote", "FunctionalResponsibility" = excluded."FunctionalResponsibility", "WorkLocation" = excluded."WorkLocation", "ManagerScope" = excluded."ManagerScope", "LegacyDepartment" = excluded."LegacyDepartment", "IsEmployeeCodeLocked" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
                 """);
@@ -407,6 +435,24 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
             """);
 
         sb.AppendLine($"""
+            do $rev868c3_role_guard$
+            begin
+                if not exists (select 1 from nexa.roles where "Code" = 'DEPARTMENT_MANAGER') then
+                    raise exception 'REV868C3 missing DEPARTMENT_MANAGER role lookup';
+                end if;
+
+                if exists (
+                    select 1
+                    from (values ('purchase.requisitions'), ('purchase.requisition-approvals')) as expected("PageKey")
+                    left join nexa.page_definitions p on p."PageKey" = expected."PageKey"
+                    where p."Id" is null
+                ) then
+                    raise exception 'REV868C3 missing page lookup for department manager permissions';
+                end if;
+            end
+            $rev868c3_role_guard$;
+
+
             insert into nexa.role_page_permissions ("Id", "RoleId", "PageDefinitionId", "CanView", "CanCreate", "CanUpdate", "CanSubmit", "CanVerify", "CanApprove", "CanReject", "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanCancel", "CanDeactivate", "CanPrint", "CanDownload", "CanExport", "CanUploadAttachment", "CanReplaceAttachment", "CanViewCommercialValues", "CanViewAuditHistory", "HasFullControl", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
             select '{Id("rev868c3-department-manager-permission", "purchase-requisitions")}', r."Id", p."Id", true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
             from nexa.roles r join nexa.page_definitions p on p."PageKey" = 'purchase.requisitions'
@@ -425,8 +471,10 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         {
             sb.AppendLine($"""
                 insert into nexa.employee_role_assignments ("Id", "EmployeeId", "RoleId", "EffectiveFrom", "EffectiveTo", "ApprovalStatus", "Remarks", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                select '{Id("rev868c3-department-manager-role", employeeCode)}', e."Id", '{Id("role", "department_manager")}', DATE '2026-08-09', null, 'SeedApproved', 'REV868C3 approved department manager approval permission', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
-                from nexa.employees e where e."EmployeeCode" = {Sql(employeeCode)}
+                select '{Id("rev868c3-department-manager-role", employeeCode)}', e."Id", r."Id", DATE '2026-08-09', null, 'SeedApproved', 'REV868C3 approved department manager approval permission', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
+                from nexa.employees e
+                join nexa.roles r on r."Code" = 'DEPARTMENT_MANAGER'
+                where e."EmployeeCode" = {Sql(employeeCode)}
                 on conflict ("EmployeeId", "RoleId", "EffectiveFrom") do nothing;
                 """);
         }
@@ -492,6 +540,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
 
     private static string Code(string value) => value.ToUpperInvariant().Replace("/", "_", StringComparison.Ordinal).Replace(" ", "_", StringComparison.Ordinal).Replace("-", "_", StringComparison.Ordinal).Replace(".", string.Empty, StringComparison.Ordinal);
     private static string Sql(string value) => value is null ? "null" : "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
+    private static string Values(IEnumerable<string> values) => string.Join(", ", values.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).Select(value => $"({Sql(value)})"));
     private static string Date(DateOnly? value) => value.HasValue ? $"DATE '{value.Value:yyyy-MM-dd}'" : "null";
     private static string Bool(bool value) => value ? "true" : "false";
 }
