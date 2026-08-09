@@ -938,6 +938,74 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("Test-Path -LiteralPath $script:tempSqlFile", helper);
     }
 
+
+    [Fact]
+    public void Rev868c3_postrun_verifier_uses_independent_fail_closed_sections()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+
+        foreach (var functionName in new[]
+        {
+            "Get-MigrationEvidenceSql",
+            "Get-EmployeeEvidenceSql",
+            "Get-DepartmentEvidenceSql",
+            "Get-ManagerMappingEvidenceSql",
+            "Get-WorkflowEvidenceSql",
+            "Get-PermissionEvidenceSql",
+            "Get-HistoryAuditEvidenceSql",
+            "Get-DuplicateConflictEvidenceSql"
+        })
+        {
+            Assert.Contains($"function {functionName}", helper);
+        }
+
+        Assert.Contains("begin transaction read only;", helper);
+        Assert.Contains("-v ON_ERROR_STOP=1", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("migration_unexpected_count", helper);
+        Assert.Contains("migration_acceptance_state='||case when expected_count=10 and actual_matched_count=10 and missing_count=0 and unexpected_count=0 and duplicate_count=0", helper);
+        Assert.Contains("history_audit_acceptance_state=FAIL", helper);
+        Assert.Contains("history_audit_exact_expected_set_not_proven_from_source", helper);
+        Assert.Contains("database_acceptance_state=FAIL", helper);
+        Assert.DoesNotContain("database_acceptance_state_requires_all_previous_labels", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_postrun_verifier_preserves_exact_controlled_sets_and_trx_acceptance()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+
+        Assert.Contains("SESS-051", helper);
+        Assert.Contains("SESS-016", helper);
+        Assert.Contains("QUALITY_QC", helper);
+        Assert.Contains("ENGINEER_TECHNICAL", helper);
+        Assert.Contains("DESIGN|PROJECT|SESS-019|SESS-015", helper);
+        Assert.Contains("DESIGN|REGULAR_PRODUCT|SESS-015|SESS-019", helper);
+        Assert.Contains("purchase.requisition-approvals|V=T|A=T|R=T|C=T|RV=T|AH=T|FC=F", helper);
+        Assert.Contains("purchase.requisitions|V=T|A=F|R=F|C=F|RV=F|AH=T|FC=F", helper);
+        Assert.Contains("rev868c3_resume_20260809_210202.trx", helper);
+        Assert.Contains("test_acceptance_state=PASS", helper);
+        Assert.Contains("overall_acceptance_state=FAIL", helper);
+        Assert.Contains("Rev868c3_unauthenticated_request_returns_401", helper);
+        Assert.Contains("Rev868c3_unauthorized_role_returns_403", helper);
+        Assert.Contains("Rev868c3_creator_self_approval_returns_403", helper);
+        Assert.Contains("Rev868c3_duplicate_approver_is_prevented", helper);
+        Assert.Contains("Rev868c3_missing_department_manager_fails_closed", helper);
+        Assert.Contains("Rev868c3_manager_md_td_approval_sequence_is_enforced", helper);
+    }
+
+    [Theory]
+    [InlineData("PASS,PASS,PASS,PASS,PASS,PASS,PASS,PASS", "PASS")]
+    [InlineData("PASS,PASS,PASS,PASS,PASS,PASS,FAIL,PASS", "FAIL")]
+    [InlineData("PASS,PASS,PASS,PASS,PASS,PASS,PASS", "FAIL")]
+    [InlineData("PASS,PASS,PASS,PASS,PASS,PASS,PASS,PASS,PASS", "FAIL")]
+    public void Rev868c3_database_acceptance_formula_requires_exact_eight_section_states(string statesCsv, string expected)
+    {
+        var states = statesCsv.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var actual = states.Length == 8 && states.All(x => x == "PASS") ? "PASS" : "FAIL";
+        Assert.Equal(expected, actual);
+    }
     private static void AssertOrdered(string text, string before, string after)
     {
         var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);
