@@ -423,7 +423,9 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("GeneratePlanOnly", helper);
         Assert.Contains("begin transaction read only", helper, StringComparison.OrdinalIgnoreCase);
         var preflightOnlySection = helper.Substring(helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal), helper.IndexOf("function Get-PostMigrationSql", StringComparison.Ordinal) - helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal));
-        Assert.DoesNotContain("department_approval_mappings", preflightOnlySection);
+        Assert.Contains("department_approval_mappings_count", preflightOnlySection);
+        Assert.Contains("purchase_approval_route_settings_rev868c2_backup", preflightOnlySection);
+        Assert.DoesNotContain("conrelid = 'nexa.department_approval_mappings'::regclass", preflightOnlySection);
         Assert.Contains("department_approval_mappings", helper);
         Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
@@ -432,6 +434,49 @@ public sealed class Rev868C1PreparationTests
     }
 
 
+    [Fact]
+    public void Rev868c2_recovery_aware_preflight_emits_all_partial_artifact_checks_and_fails_closed()
+    {
+        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
+        var preflightOnlySection = helper.Substring(helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal), helper.IndexOf("function Get-PostMigrationSql", StringComparison.Ordinal) - helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal));
+        var executionSection = helper[helper.IndexOf("foreach ($entry in $preflightSql.GetEnumerator())", StringComparison.Ordinal)..];
+
+        Assert.Contains("Recovery-aware partial artifact checks", preflightOnlySection);
+        Assert.Contains("migration_history_count", preflightOnlySection);
+        Assert.Contains("department_approval_mappings_count", preflightOnlySection);
+        Assert.Contains("route_backup_table_count", preflightOnlySection);
+        Assert.Contains("approver_resolution_type_column_count", preflightOnlySection);
+        Assert.Contains("deterministic_route_rows_count", preflightOnlySection);
+        Assert.Contains("migration_owned_createdby_rows_count", preflightOnlySection);
+        Assert.Contains("safe_retry_state=", preflightOnlySection);
+        Assert.Contains("868c2000-0000-0000-0000-000000000001", preflightOnlySection);
+        Assert.Contains("REV868C2_ROUTE_CANONICALIZATION", preflightOnlySection);
+        Assert.DoesNotMatch(@"(?i)\b(insert|update|delete|merge|create|alter|drop|truncate)\b", preflightOnlySection);
+
+        Assert.Contains("PreflightOnly fails closed if any partial artifact is found", helper);
+        Assert.Contains("Assert-RecoverySafeRetry", helper);
+        Assert.True(executionSection.IndexOf("Add-Evidence", StringComparison.Ordinal) < executionSection.IndexOf("Assert-RecoverySafeRetry", StringComparison.Ordinal));
+        Assert.True(executionSection.IndexOf("Assert-RecoverySafeRetry", StringComparison.Ordinal) < executionSection.IndexOf("if ($PreflightOnly)", StringComparison.Ordinal));
+        Assert.Matches("safe_retry_state=PASS", "safe_retry_state=PASS");
+        Assert.DoesNotMatch("safe_retry_state=PASS", "safe_retry_state=FAIL");
+    }
+
+    [Fact]
+    public void Rev868c2_generate_plan_includes_exact_fk_evidence_and_rejects_malformed_fk_pattern()
+    {
+        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
+        var sql = Read("outputs", "rev868c2_down_fix_up_idempotent.sql");
+
+        Assert.Contains("Plan/Offline FK Evidence", helper);
+        Assert.Contains("DepartmentId REFERENCES nexa.departments", helper);
+        Assert.Contains("PrimaryApproverEmployeeId REFERENCES nexa.employees", helper);
+        Assert.Contains("AlternateApproverEmployeeId REFERENCES nexa.employees", helper);
+        Assert.Contains("malformed REFERENCES `\"Id`\".nexa count=$malformedCount", helper);
+        Assert.Contains("FOREIGN KEY (\"DepartmentId\") REFERENCES nexa.departments (\"Id\") ON DELETE RESTRICT", sql);
+        Assert.Contains("FOREIGN KEY (\"PrimaryApproverEmployeeId\") REFERENCES nexa.employees (\"Id\") ON DELETE RESTRICT", sql);
+        Assert.Contains("FOREIGN KEY (\"AlternateApproverEmployeeId\") REFERENCES nexa.employees (\"Id\") ON DELETE RESTRICT", sql);
+        Assert.DoesNotContain("REFERENCES \"Id\".nexa", sql);
+    }
     [Fact]
     public void Rev868c2_migrations_are_discoverable_by_ef_migrations_assembly_in_order()
     {

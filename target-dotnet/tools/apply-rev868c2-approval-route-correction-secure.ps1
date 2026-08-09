@@ -95,6 +95,24 @@ left join pg_catalog.pg_class c on c.relname = required.relname
 left join pg_catalog.pg_namespace n on n.oid = c.relnamespace and n.nspname = 'nexa'
 order by required.relname;
 "@.Trim()
+        "Recovery-aware partial artifact checks" = @"
+with artifact_counts as (
+    select
+        (select count(*) from "public"."__EFMigrationsHistory" where "MigrationId" = '20260809123000_Rev868C2DepartmentManagerApprovalMapping') as migration_history_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'department_approval_mappings') as department_approval_mappings_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'purchase_approval_route_settings_rev868c2_backup') as route_backup_table_count,
+        (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'purchase_approval_route_settings' and column_name = 'ApproverResolutionType') as approver_resolution_type_column_count,
+        (select count(*) from nexa.purchase_approval_route_settings where "Id" in ('868c2000-0000-0000-0000-000000000001'::uuid,'868c2000-0000-0000-0000-000000000002'::uuid,'868c2000-0000-0000-0000-000000000003'::uuid) and "CreatedBy" = 'REV868C2_ROUTE_CANONICALIZATION') as deterministic_route_rows_count,
+        (select count(*) from nexa.purchase_approval_route_settings where "CreatedBy" = 'REV868C2_ROUTE_CANONICALIZATION') as migration_owned_createdby_rows_count
+)
+select 'migration_history_count=' || migration_history_count::text from artifact_counts
+union all select 'department_approval_mappings_count=' || department_approval_mappings_count::text from artifact_counts
+union all select 'route_backup_table_count=' || route_backup_table_count::text from artifact_counts
+union all select 'approver_resolution_type_column_count=' || approver_resolution_type_column_count::text from artifact_counts
+union all select 'deterministic_route_rows_count=' || deterministic_route_rows_count::text from artifact_counts
+union all select 'migration_owned_createdby_rows_count=' || migration_owned_createdby_rows_count::text from artifact_counts
+union all select 'safe_retry_state=' || case when migration_history_count = 0 and department_approval_mappings_count = 0 and route_backup_table_count = 0 and approver_resolution_type_column_count = 0 and deterministic_route_rows_count = 0 and migration_owned_createdby_rows_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
+"@.Trim()
     }
 }
 function Get-PostMigrationSql {
@@ -211,6 +229,26 @@ function Invoke-PsqlRead([string]$Sql) {
     finally { Remove-Item -LiteralPath $sqlFile -Force -ErrorAction SilentlyContinue }
 }
 function Add-Evidence([string]$Title, [string]$Sql) { $evidence[$Title] = Invoke-PsqlRead $Sql }
+function Get-ForeignKeySourceEvidence {
+    $sqlPath = Join-Path $targetRoot "outputs\rev868c2_down_fix_up_idempotent.sql"
+    if (-not (Test-Path -LiteralPath $sqlPath -PathType Leaf)) { return "offline_sql_file=$sqlPath|MISSING" }
+    $sql = Get-Content -LiteralPath $sqlPath -Raw
+    $departmentFk = 'CONSTRAINT "FK_department_approval_mappings_departments_DepartmentId" FOREIGN KEY ("DepartmentId") REFERENCES nexa.departments ("Id") ON DELETE RESTRICT'
+    $primaryFk = 'CONSTRAINT "FK_department_approval_mappings_employees_PrimaryApproverEmployeeId" FOREIGN KEY ("PrimaryApproverEmployeeId") REFERENCES nexa.employees ("Id") ON DELETE RESTRICT'
+    $alternateFk = 'CONSTRAINT "FK_department_approval_mappings_employees_AlternateApproverEmployeeId" FOREIGN KEY ("AlternateApproverEmployeeId") REFERENCES nexa.employees ("Id") ON DELETE RESTRICT'
+    $malformedCount = [regex]::Matches($sql, 'REFERENCES\s+"Id"\.nexa|schema\s+"Id"|REFERENCES\s+(departments|employees)\.nexa').Count
+    return @(
+        "DepartmentId REFERENCES nexa.departments (`"Id`") ON DELETE RESTRICT=" + ($(if ($sql.Contains($departmentFk)) { "PASS" } else { "FAIL" })),
+        "PrimaryApproverEmployeeId REFERENCES nexa.employees (`"Id`") ON DELETE RESTRICT=" + ($(if ($sql.Contains($primaryFk)) { "PASS" } else { "FAIL" })),
+        "AlternateApproverEmployeeId REFERENCES nexa.employees (`"Id`") ON DELETE RESTRICT=" + ($(if ($sql.Contains($alternateFk)) { "PASS" } else { "FAIL" })),
+        "malformed REFERENCES `"Id`".nexa count=$malformedCount"
+    ) -join "`n"
+}
+function Assert-RecoverySafeRetry([string]$Evidence) {
+    if ($Evidence -notmatch 'safe_retry_state=PASS') {
+        throw "REV868C2 preflight found partial migration artifacts. Safe retry is blocked; review the reported artifact counts."
+    }
+}
 function Write-PlanReport([System.Collections.Specialized.OrderedDictionary]$PreflightSql, [System.Collections.Specialized.OrderedDictionary]$PostSql) {
     New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
     Add-Report "# REV868C2 Approval Route Correction Plan"
@@ -225,6 +263,13 @@ function Write-PlanReport([System.Collections.Specialized.OrderedDictionary]$Pre
     Add-Report "- Expected migration count after execution: 9"
     Add-Report "- No backup/restore/drop/create operation"
     Add-Report "- No main DB operation"
+    Add-Report "- Recovery-aware preflight requires migration/history count and all partial-artifact checks to be zero"
+    Add-Report "- PreflightOnly fails closed if any partial artifact is found; it reports only and does not clean, drop, alter, delete or repair"
+    Add-Report ""
+    Add-Report "## Plan/Offline FK Evidence"
+    Add-Report '```text'
+    Add-Report (Get-ForeignKeySourceEvidence)
+    Add-Report '```'
     Add-Report ""
     Add-Report "## Preflight SQL"
     foreach ($entry in $PreflightSql.GetEnumerator()) { Add-Report "### $($entry.Key)"; Add-Report '```sql'; Add-Report ([string]$entry.Value); Add-Report '```' }
@@ -257,7 +302,7 @@ try {
     $postSql = Get-PostMigrationSql
     foreach ($entry in $preflightSql.GetEnumerator()) { Assert-SqlReadOnly $entry.Key ([string]$entry.Value) }
     foreach ($entry in $postSql.GetEnumerator()) { Assert-SqlReadOnly $entry.Key ([string]$entry.Value) }
-    if (($preflightSql.Values -join "`n") -match 'department_approval_mappings') { throw "Preflight SQL must not reference post-migration table department_approval_mappings." }
+    if (($preflightSql.Values -join "`n") -notmatch 'department_approval_mappings_count') { throw "Preflight SQL must include recovery-aware department_approval_mappings artifact check." }
     if ($GeneratePlanOnly) { Write-PlanReport $preflightSql $postSql; return }
 
     $gitExe = Resolve-GitExecutable $GitPath
@@ -282,6 +327,7 @@ try {
 
     foreach ($entry in $preflightSql.GetEnumerator()) { Add-Evidence $entry.Key ([string]$entry.Value) }
     if ($evidence["Session identity"] -notmatch "database=$Database") { throw "Connected database did not match isolated verification database." }
+    Assert-RecoverySafeRetry ([string]$evidence["Recovery-aware partial artifact checks"])
     if ($PreflightOnly) { Write-EvidenceReport "Preflight"; return }
 
     Set-Location $targetRoot
