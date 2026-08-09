@@ -773,6 +773,39 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
     }
 
     private static string ExtractQuotedColumns(string text) => string.Join(",", System.Text.RegularExpressions.Regex.Matches(text, "\"([^\"]+)\"").Select(x => x.Groups[1].Value));
+    [Fact]
+    public void Rev868c3_full_helper_reports_sanitized_trx_path_on_postgresql_test_failure()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("Write-PostgresTestFailureReport", helper);
+        Assert.Contains("trx_path=$trxPath", helper);
+        Assert.Contains("sanitized_report=$testFailureReport", helper);
+        Assert.Contains("ConvertTo-SanitizedTestOutput", helper);
+        Assert.Contains("passwordKey + '=<redacted>'", helper);
+        Assert.Contains("TRX not created or unavailable", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_resume_postgresql_test_helper_is_migration_free_and_isolated()
+    {
+        var helper = Read("tools", "resume-rev868c3-postgresql-tests-secure.ps1");
+
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("REV868C3 resume requires all", helper);
+        Assert.Contains("Rev868C3PostgreSqlWorkflowVerificationTests", helper);
+        Assert.Contains("trx_path=$trxPath", helper);
+        Assert.Contains("sanitized_report=$report", helper);
+        Assert.Contains("sess_nexaerp", helper);
+        Assert.Contains("template0", helper);
+        Assert.Contains("template1", helper);
+        Assert.DoesNotContain("database update", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("migrations remove", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dotnet ef", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CREATE DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP DATABASE", helper, StringComparison.OrdinalIgnoreCase);
+    }
     private static void AssertOrdered(string text, string before, string after)
     {
         var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);

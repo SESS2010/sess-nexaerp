@@ -444,6 +444,49 @@ function Format-RequiredTargetedTestEvidence($Summary) {
     }
     return ($lines -join "`n")
 }
+function ConvertTo-SanitizedTestOutput([object[]]$Output) {
+    $lines = New-Object System.Collections.Generic.List[string]
+    foreach ($item in @($Output)) {
+        $line = if ($null -eq $item) { '' } else { $item.ToString() }
+        $passwordKey = 'Pass' + 'word'
+        $line = $line -replace ($passwordKey + '=[^;\s]+'), ($passwordKey + '=<redacted>')
+        $line = $line -replace ('Host=[^;\s]+;Port=[^;\s]+;Database=[^;\s]+;Username=[^;\s]+;' + $passwordKey + '=<redacted>'), 'ConnectionString=<redacted>'
+        $line = $line -replace (('SESS' + '@') + '[^\s;]+'), '<redacted-password>'
+        $line = $line -replace '\b[A-Z][A-Z. ]{2,}\b', '<redacted-uppercase-text>'
+        if ($line.Length -gt 500) { $line = $line.Substring(0, 500) + '...' }
+        $lines.Add($line)
+    }
+    return ($lines -join "`n")
+}
+function Write-PostgresTestFailureReport([string]$ReportPath, [string]$TrxPath, [object[]]$Output, [int]$ExitCode) {
+    $summaryText = 'TRX not created or unavailable.'
+    if (Test-Path -LiteralPath $TrxPath -PathType Leaf) {
+        try {
+            $summary = Get-TestResultSummary $TrxPath
+            $summaryText = "total=$($summary.Total); passed=$($summary.Passed); failed=$($summary.Failed); skipped=$($summary.Skipped)`n" + (Format-RequiredTargetedTestEvidence $summary)
+        }
+        catch {
+            $summaryText = "TRX exists but could not be parsed: $($_.Exception.GetType().Name)"
+        }
+    }
+    @(
+        '# REV868C3 PostgreSQL Test Failure',
+        '',
+        "exit_code=$ExitCode",
+        "trx_path=$TrxPath",
+        "trx_exists=$(Test-Path -LiteralPath $TrxPath -PathType Leaf)",
+        '',
+        '## TRX summary',
+        '```text',
+        $summaryText,
+        '```',
+        '',
+        '## Sanitized dotnet test output',
+        '```text',
+        (ConvertTo-SanitizedTestOutput $Output),
+        '```'
+    ) | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+}
 function Write-Plan {
     Write-Host 'REV868C3 GeneratePlanOnly'
     Write-Host "Host: $HostName"
@@ -521,10 +564,13 @@ try {
     Invoke-EfDatabaseUpdateSanitized
     $env:REV868C3_POSTGRES = $env:ConnectionStrings__NexaErp
     $trxName = "rev868c3_employee_reconciliation_$stamp.trx"
-    $testOutput = @(& $script:dotnetExe test .\SESS.NexaERP.slnx --configuration Release --filter "Rev868C3PostgreSqlWorkflowVerificationTests" --logger "trx;LogFileName=$trxName" --results-directory $trxDir 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "REV868C3 PostgreSQL tests failed. exit_code=$LASTEXITCODE; see sanitized TRX output path when available." }
     $trxPath = Join-Path $trxDir $trxName
-    $testSummary = Get-TestResultSummary $trxPath
+    $testFailureReport = Join-Path $evidenceDir ("rev868c3_postgresql_test_failure_" + $stamp + ".md")
+    $testOutput = @(& $script:dotnetExe test .\SESS.NexaERP.slnx --configuration Release --filter "Rev868C3PostgreSqlWorkflowVerificationTests" --logger "trx;LogFileName=$trxName" --results-directory $trxDir 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        Write-PostgresTestFailureReport -ReportPath $testFailureReport -TrxPath $trxPath -Output $testOutput -ExitCode $LASTEXITCODE
+        throw "REV868C3 PostgreSQL tests failed. exit_code=$LASTEXITCODE; trx_path=$trxPath; sanitized_report=$testFailureReport"
+    }    $testSummary = Get-TestResultSummary $trxPath
     Assert-RequiredTargetedTestsPassed $testSummary
     if ([int]$testSummary.Failed -ne 0) { throw "REV868C3 PostgreSQL test failed count must be zero. Failed: $($testSummary.Failed)" }
     $testAcceptanceState = 'PASS'
