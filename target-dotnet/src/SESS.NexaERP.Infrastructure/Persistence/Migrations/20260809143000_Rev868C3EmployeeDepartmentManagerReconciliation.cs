@@ -148,7 +148,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
                 CreatedBy = table.Column<string>(type: "text", nullable: false),
                 UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                 UpdatedBy = table.Column<string>(type: "text", nullable: true),
-                Version = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                Version = table.Column<long>(type: "bigint", nullable: false)
             },
             constraints: table =>
             {
@@ -184,7 +184,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
                 CreatedBy = table.Column<string>(type: "text", nullable: false),
                 UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                 UpdatedBy = table.Column<string>(type: "text", nullable: true),
-                Version = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+                Version = table.Column<long>(type: "bigint", nullable: false)
             },
             constraints: table =>
             {
@@ -390,7 +390,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         {
             sb.AppendLine($"""
                 insert into nexa.departments ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                values ('{Id("department", department.Code)}', {Sql(department.Code)}, {Sql(department.Name)}, {Bool(department.IsActive)}, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+                values ('{Id("department", department.Code)}', {Sql(department.Code)}, {Sql(department.Name)}, {Bool(department.IsActive)}, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint)
                 on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
                 """);
         }
@@ -400,7 +400,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         {
             sb.AppendLine($"""
                 insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                values ('{Id("designation", designation)}', {Sql(Code(designation))}, {Sql(designation)}, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+                values ('{Id("designation", designation)}', {Sql(Code(designation))}, {Sql(designation)}, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint)
                 on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
                 """);
         }
@@ -435,7 +435,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
             var approximate = employee.DateOfJoiningAccuracy.StartsWith("Approximate", StringComparison.OrdinalIgnoreCase);
             sb.AppendLine($"""
                 insert into nexa.employees ("Id", "EmployeeCode", "PayrollEmployeeId", "EmployeeName", "OriginalImportedName", "Gender", "Qualification", "DateOfBirth", "EmployeeType", "Grade", "DepartmentId", "DesignationId", "Status", "DateOfJoining", "DateOfJoiningAccuracy", "IsDateOfJoiningApproximate", "ApproximateDateNote", "FunctionalResponsibility", "WorkLocation", "ManagerScope", "LegacyDepartment", "OfficialEmail", "MobileNumber", "LoginEnabled", "ApprovalStatus", "IsEmployeeCodeLocked", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                select '{Id("employee", employee.EmployeeCode)}', {Sql(employee.EmployeeCode)}, {Sql(employee.PayrollEmployeeId == "NA" ? null : employee.PayrollEmployeeId)}, {Sql(employee.EmployeeName)}, {Sql(employee.EmployeeName)}, {Sql(employee.Gender)}, {Sql(employee.Qualification)}, {Date(employee.DateOfBirth)}, {Sql(employee.EmploymentType)}, {Sql(employee.Grade)}, d."Id", g."Id", 'Active', {Date(employee.DateOfJoining)}, {Sql(employee.DateOfJoiningAccuracy)}, {Bool(approximate)}, {Sql(approximate ? employee.DateOfJoiningAccuracy : null)}, {Sql(employee.FunctionalResponsibility)}, {Sql(employee.WorkLocation)}, {Sql(employee.ManagerScope)}, {Sql(employee.LegacyDepartment)}, null, null, false, 'SeedApproved', true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
+                select '{Id("employee", employee.EmployeeCode)}', {Sql(employee.EmployeeCode)}, {Sql(employee.PayrollEmployeeId == "NA" ? null : employee.PayrollEmployeeId)}, {Sql(employee.EmployeeName)}, {Sql(employee.EmployeeName)}, {Sql(employee.Gender)}, {Sql(employee.Qualification)}, {Date(employee.DateOfBirth)}, {Sql(employee.EmploymentType)}, {Sql(employee.Grade)}, d."Id", g."Id", 'Active', {Date(employee.DateOfJoining)}, {Sql(employee.DateOfJoiningAccuracy)}, {Bool(approximate)}, {Sql(approximate ? employee.DateOfJoiningAccuracy : null)}, {Sql(employee.FunctionalResponsibility)}, {Sql(employee.WorkLocation)}, {Sql(employee.ManagerScope)}, {Sql(employee.LegacyDepartment)}, null, null, false, 'SeedApproved', true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint
                 from nexa.departments d
                 join nexa.designations g on g."Code" = {Sql(Code(employee.HrDesignation))}
                 where d."Code" = {Sql(employee.FinalDepartmentCode)}
@@ -455,7 +455,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
 
         sb.AppendLine($"""
             insert into nexa.roles ("Id", "Code", "Name", "IsPrivileged", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            values ('{Id("role", "department_manager")}', 'DEPARTMENT_MANAGER', 'Department Manager', false, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0)
+            values ('{Id("role", "department_manager")}', 'DEPARTMENT_MANAGER', 'Department Manager', false, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0::bigint)
             on conflict ("Code") do update set "Name" = excluded."Name", "IsPrivileged" = false, "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
             """);
 
@@ -479,13 +479,13 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
 
 
             insert into nexa.role_page_permissions ("Id", "RoleId", "PageDefinitionId", "CanView", "CanCreate", "CanUpdate", "CanSubmit", "CanVerify", "CanApprove", "CanReject", "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanCancel", "CanDeactivate", "CanPrint", "CanDownload", "CanExport", "CanUploadAttachment", "CanReplaceAttachment", "CanViewCommercialValues", "CanViewAuditHistory", "HasFullControl", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            select '{Id("rev868c3-department-manager-permission", "purchase-requisitions")}', r."Id", p."Id", true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
+            select '{Id("rev868c3-department-manager-permission", "purchase-requisitions")}', r."Id", p."Id", true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0::bigint
             from nexa.roles r join nexa.page_definitions p on p."PageKey" = 'purchase.requisitions'
             where r."Code" = 'DEPARTMENT_MANAGER'
             on conflict ("RoleId", "PageDefinitionId") do update set "CanView" = excluded."CanView", "CanCreate" = excluded."CanCreate", "CanUpdate" = excluded."CanUpdate", "CanSubmit" = excluded."CanSubmit", "CanVerify" = excluded."CanVerify", "CanApprove" = excluded."CanApprove", "CanReject" = excluded."CanReject", "CanRequestClarification" = excluded."CanRequestClarification", "CanRequestRevision" = excluded."CanRequestRevision", "CanResubmit" = excluded."CanResubmit", "CanCancel" = excluded."CanCancel", "CanDeactivate" = excluded."CanDeactivate", "CanPrint" = excluded."CanPrint", "CanDownload" = excluded."CanDownload", "CanExport" = excluded."CanExport", "CanUploadAttachment" = excluded."CanUploadAttachment", "CanReplaceAttachment" = excluded."CanReplaceAttachment", "CanViewCommercialValues" = excluded."CanViewCommercialValues", "CanViewAuditHistory" = excluded."CanViewAuditHistory", "HasFullControl" = excluded."HasFullControl", "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
 
             insert into nexa.role_page_permissions ("Id", "RoleId", "PageDefinitionId", "CanView", "CanCreate", "CanUpdate", "CanSubmit", "CanVerify", "CanApprove", "CanReject", "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanCancel", "CanDeactivate", "CanPrint", "CanDownload", "CanExport", "CanUploadAttachment", "CanReplaceAttachment", "CanViewCommercialValues", "CanViewAuditHistory", "HasFullControl", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            select '{Id("rev868c3-department-manager-permission", "purchase-requisition-approvals")}', r."Id", p."Id", true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, false, false, false, true, false, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
+            select '{Id("rev868c3-department-manager-permission", "purchase-requisition-approvals")}', r."Id", p."Id", true, false, false, false, false, true, true, true, true, false, false, false, false, false, false, false, false, false, true, false, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0::bigint
             from nexa.roles r join nexa.page_definitions p on p."PageKey" = 'purchase.requisition-approvals'
             where r."Code" = 'DEPARTMENT_MANAGER'
             on conflict ("RoleId", "PageDefinitionId") do update set "CanView" = excluded."CanView", "CanCreate" = excluded."CanCreate", "CanUpdate" = excluded."CanUpdate", "CanSubmit" = excluded."CanSubmit", "CanVerify" = excluded."CanVerify", "CanApprove" = excluded."CanApprove", "CanReject" = excluded."CanReject", "CanRequestClarification" = excluded."CanRequestClarification", "CanRequestRevision" = excluded."CanRequestRevision", "CanResubmit" = excluded."CanResubmit", "CanCancel" = excluded."CanCancel", "CanDeactivate" = excluded."CanDeactivate", "CanPrint" = excluded."CanPrint", "CanDownload" = excluded."CanDownload", "CanExport" = excluded."CanExport", "CanUploadAttachment" = excluded."CanUploadAttachment", "CanReplaceAttachment" = excluded."CanReplaceAttachment", "CanViewCommercialValues" = excluded."CanViewCommercialValues", "CanViewAuditHistory" = excluded."CanViewAuditHistory", "HasFullControl" = excluded."HasFullControl", "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
@@ -496,7 +496,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         {
             sb.AppendLine($"""
                 insert into nexa.employee_role_assignments ("Id", "EmployeeId", "RoleId", "EffectiveFrom", "EffectiveTo", "ApprovalStatus", "Remarks", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                select '{Id("rev868c3-department-manager-role", employeeCode)}', e."Id", r."Id", DATE '2026-08-09', null, 'SeedApproved', 'REV868C3 approved department manager approval permission', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0
+                select '{Id("rev868c3-department-manager-role", employeeCode)}', e."Id", r."Id", DATE '2026-08-09', null, 'SeedApproved', 'REV868C3 approved department manager approval permission', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', 'REV868C3_DEPARTMENT_MANAGER_PERMISSION', null, null, 0::bigint
                 from nexa.employees e
                 join nexa.roles r on r."Code" = 'DEPARTMENT_MANAGER'
                 where e."EmployeeCode" = {Sql(employeeCode)}
@@ -508,7 +508,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         {
             sb.AppendLine($"""
                 insert into nexa.department_approval_mappings ("Id", "DepartmentId", "ApprovalRouteCode", "Scope", "PrimaryApproverEmployeeId", "AlternateApproverEmployeeId", "EffectiveFrom", "EffectiveTo", "IsActive", "Remarks", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                select '{Id("rev868c3-manager-mapping", mapping.MappingCode)}', d."Id", 'MANAGER', {Sql(mapping.Scope)}, p."Id", a."Id", DATE '2026-08-09', null, true, {Sql(mapping.ControlNote)}, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
+                select '{Id("rev868c3-manager-mapping", mapping.MappingCode)}', d."Id", 'MANAGER', {Sql(mapping.Scope)}, p."Id", a."Id", DATE '2026-08-09', null, true, {Sql(mapping.ControlNote)}, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint
                 from nexa.departments d
                 join nexa.employees p on p."EmployeeCode" = {Sql(mapping.PrimaryManagerCode)}
                 join nexa.employees a on a."EmployeeCode" = {Sql(mapping.AlternateManagerCode)}
@@ -521,19 +521,19 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         sb.AppendLine($"""
             insert into nexa.purchase_approval_workflow_steps ("Id", "RouteCode", "MinimumAmount", "MaximumAmount", "StepNumber", "ApproverResolutionType", "ApproverEmployeeCode", "ApproverRoleCode", "IsActive", "EffectiveFrom", "EffectiveTo", "Remarks", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
             values
-              ('{Id("rev868c3-workflow", "MANAGER_ONLY", "1")}', 'MANAGER_ONLY', 0.00, 50000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '0-50000 department manager approval', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
-              ('{Id("rev868c3-workflow", "MANAGER_MD", "1")}', 'MANAGER_MD', 50000.01, 500000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '50000.01-500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
-              ('{Id("rev868c3-workflow", "MANAGER_MD", "2")}', 'MANAGER_MD', 50000.01, 500000.00, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, '50000.01-500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
-              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "1")}', 'MANAGER_MD_TD', 500000.01, null, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, 'above 500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
-              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "2")}', 'MANAGER_MD_TD', 500000.01, null, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
-              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "3")}', 'MANAGER_MD_TD', 500000.01, null, 3, 'FIXED_EMPLOYEE_ROLE', 'SESS-001', 'TECHNICAL_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 TD CEO step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+              ('{Id("rev868c3-workflow", "MANAGER_ONLY", "1")}', 'MANAGER_ONLY', 0.00, 50000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '0-50000 department manager approval', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint),
+              ('{Id("rev868c3-workflow", "MANAGER_MD", "1")}', 'MANAGER_MD', 50000.01, 500000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '50000.01-500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint),
+              ('{Id("rev868c3-workflow", "MANAGER_MD", "2")}', 'MANAGER_MD', 50000.01, 500000.00, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, '50000.01-500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "1")}', 'MANAGER_MD_TD', 500000.01, null, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, 'above 500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "2")}', 'MANAGER_MD_TD', 500000.01, null, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "3")}', 'MANAGER_MD_TD', 500000.01, null, 3, 'FIXED_EMPLOYEE_ROLE', 'SESS-001', 'TECHNICAL_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 TD CEO step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint)
             on conflict ("RouteCode", "StepNumber", "EffectiveFrom") do update set
                 "MinimumAmount" = excluded."MinimumAmount", "MaximumAmount" = excluded."MaximumAmount", "ApproverResolutionType" = excluded."ApproverResolutionType", "ApproverEmployeeCode" = excluded."ApproverEmployeeCode", "ApproverRoleCode" = excluded."ApproverRoleCode", "IsActive" = true, "Remarks" = excluded."Remarks", "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
         """);
 
         sb.AppendLine($"""
             insert into nexa.employee_status_history ("Id", "EmployeeId", "OldStatus", "NewStatus", "Reason", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            select gen_random_uuid(), e."Id", b."Status", e."Status", 'REV868C3 employee workbook reconciliation; SourceWorkbook={Rev868C3EmployeeWorkbookData.SourceWorkbook}', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
+            select gen_random_uuid(), e."Id", b."Status", e."Status", 'REV868C3 employee workbook reconciliation; SourceWorkbook={Rev868C3EmployeeWorkbookData.SourceWorkbook}', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint
             from nexa.employees e
             left join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id"
             where e."EmployeeCode" like 'SESS-%'
@@ -541,7 +541,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
               and not exists (select 1 from nexa.employee_status_history h where h."EmployeeId" = e."Id" and h."Reason" like 'REV868C3 employee workbook reconciliation%');
 
             insert into nexa.employee_department_history ("Id", "EmployeeId", "PreviousDepartmentId", "NewDepartmentId", "Reason", "SourceRevision", "CorrelationId", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            select gen_random_uuid(), e."Id", b."DepartmentId", e."DepartmentId", 'REV868C3 approved department reconciliation; SourceWorkbook={Rev868C3EmployeeWorkbookData.SourceWorkbook}', 'REV868C3', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
+            select gen_random_uuid(), e."Id", b."DepartmentId", e."DepartmentId", 'REV868C3 approved department reconciliation; SourceWorkbook={Rev868C3EmployeeWorkbookData.SourceWorkbook}', 'REV868C3', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint
             from nexa.employees e
             left join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id"
             where e."EmployeeCode" like 'SESS-%'
@@ -549,7 +549,7 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
               and not exists (select 1 from nexa.employee_department_history h where h."EmployeeId" = e."Id" and h."CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION');
 
             insert into nexa.audit_logs ("Id", "UserLoginId", "UserRole", "Module", "EntityName", "EntityId", "Action", "OldValue", "NewValue", "Reason", "Result", "CorrelationId", "IpAddress", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-            values (gen_random_uuid(), 'system-migration', 'SYSTEM', 'Employees', 'EmployeeWorkbook', 'REV868C3', 'ReconcileEmployeeDepartmentManagerWorkbook', null, {Sql("{\"activeEmployees\":42,\"relievedEmployees\":9,\"departments\":12,\"managerMappings\":14}")}, 'Approved REV868C3 employee workbook source checkpoint', 'Success', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', null, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+            values (gen_random_uuid(), 'system-migration', 'SYSTEM', 'Employees', 'EmployeeWorkbook', 'REV868C3', 'ReconcileEmployeeDepartmentManagerWorkbook', null, {Sql("{\"activeEmployees\":42,\"relievedEmployees\":9,\"departments\":12,\"managerMappings\":14}")}, 'Approved REV868C3 employee workbook source checkpoint', 'Success', 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION', null, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0::bigint)
             on conflict do nothing;
         """);
 

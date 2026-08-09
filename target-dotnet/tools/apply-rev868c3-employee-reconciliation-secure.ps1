@@ -146,7 +146,7 @@ function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode, [string]$Phas
         $raw = ($rawItems | ForEach-Object { if ($null -eq $_) { '' } else { $_.ToString() } }) -join "`n"
         $fingerprint = New-Sha256Fingerprint $raw
         $exceptionType = if ($raw -match '(?m)^([A-Za-z0-9_.]+Exception)(:|\s|$)') { $Matches[1] } elseif ($raw -match '\b(PostgresException|NpgsqlException|DbUpdateException|InvalidOperationException)\b') { $Matches[1] } else { 'unknown' }
-        $sqlState = if ($raw -match '(?i)(?:SQLSTATE|SqlState)\s*:?\s*\[?([0-9A-Z]{5})\]?|PostgresException \(([0-9A-Z]{5})\)') { if ($Matches[1]) { $Matches[1].ToUpperInvariant() } else { $Matches[2].ToUpperInvariant() } } elseif ($raw -match '\b(23502|23503|23505|23514|42P01|42703|42P10)\b') { $Matches[1] } else { 'unknown' }
+        $sqlState = if ($raw -match '(?i)(?:SQLSTATE|SqlState)\s*:?\s*\[?([0-9A-Z]{5})\]?|PostgresException \(([0-9A-Z]{5})\)') { if ($Matches[1]) { $Matches[1].ToUpperInvariant() } else { $Matches[2].ToUpperInvariant() } } elseif ($raw -match '\b(23502|23503|23505|23514|42804|42P01|42703|42P10)\b') { $Matches[1] } else { 'unknown' }
         $schema = if ($raw -match '(?i)schema\s+"([A-Za-z0-9_]+)"|SchemaName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
         $table = if ($raw -match '(?i)table\s+"([A-Za-z0-9_]+)"|TableName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
         $column = if ($raw -match '(?i)column\s+"([A-Za-z0-9_]+)"|ColumnName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
@@ -157,6 +157,7 @@ function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode, [string]$Phas
             '23503' { 'foreign_key_violation'; break }
             '23505' { 'unique_violation'; break }
             '23514' { 'check_violation'; break }
+            '42804' { 'datatype_mismatch'; break }
             '42P01' { 'undefined_table'; break }
             '42703' { 'undefined_column'; break }
             '42P10' { 'on_conflict_index_mismatch'; break }

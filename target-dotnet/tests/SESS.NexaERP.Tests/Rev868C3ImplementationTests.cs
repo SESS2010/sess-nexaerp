@@ -631,12 +631,42 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("UX_rev868c3_conflict_purchase_approval_workflow_steps", sql);
     }
     [Fact]
+    public void Rev868c3_migration_version_columns_and_values_are_bigint_compatible()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.DoesNotContain("table.Column<uint>(type: \"xid\"", migration);
+        Assert.Contains("Version = table.Column<long>(type: \"bigint\", nullable: false)", migration);
+        Assert.Contains(", 0::bigint)", migration);
+        Assert.Contains(", 0::bigint", migration);
+        Assert.DoesNotContain("null, null, 0)", migration);
+        Assert.DoesNotContain("null, null, 0\r\n", migration);
+        Assert.DoesNotContain("null, null, 0\n", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_offline_sql_version_values_are_explicit_bigint_casts()
+    {
+        var sql = Read("outputs", "rev868c3_employee_reconciliation_idempotent.sql");
+        var rev868c3Start = sql.IndexOf("20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation", StringComparison.Ordinal);
+        Assert.True(rev868c3Start >= 0);
+        var rev868c3Sql = sql[rev868c3Start..];
+
+        Assert.Contains("0::bigint", rev868c3Sql);
+        Assert.DoesNotContain("null, null, 0)", rev868c3Sql);
+        Assert.DoesNotContain("null, NULL, 0)", rev868c3Sql);
+        Assert.DoesNotContain("xid", rev868c3Sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Rev868c3_sanitized_ef_failure_metadata_handles_common_postgres_and_ef_failures()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
         var sanitizer = helper[helper.IndexOf("function New-Sha256Fingerprint", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)];
 
         Assert.Contains("42P10", helper);
+        Assert.Contains("42804", helper);
+        Assert.Contains("datatype_mismatch", helper);
         Assert.Contains("SqlState", helper);
         Assert.Contains("on_conflict_index_mismatch", helper);
         Assert.Contains("23502", helper);
@@ -673,6 +703,8 @@ public sealed class Rev868C3ImplementationTests
         var script = functions + """
 $cases = @(
     @('Npgsql.PostgresException: SqlState: 42P10 there is no unique or exclusion constraint matching the ON CONFLICT specification. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'on_conflict_index_mismatch'),
+    @('Npgsql.PostgresException: SqlState: 42804 column "Version" is of type bigint but expression is of type text. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'datatype_mismatch'),
+    @('Npgsql.PostgresException: SqlState: 42804 column "Version" is of type bigint but expression is of type text. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'datatype_mismatch'),
     @('PostgresException (23502): null value in column "IsPrivileged" of relation "roles" violates not-null constraint. DOB 1990-01-01 payroll PAYROLL-SECRET PRIVATE_EMPLOYEE_NAME', 'not_null_violation'),
     @('PostgresException (23503): insert or update on table "employees" violates foreign key constraint "FK_employees_departments_DepartmentId". SQL: SELECT * FROM secret_employee', 'foreign_key_violation'),
     @('System.InvalidOperationException: Unable to retrieve project metadata. PRIVATE_EMPLOYEE_NAME payroll PAYROLL-SECRET', 'ef_project_metadata')
