@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
-[Migration("20260809123000_Rev868C2DepartmentManagerApprovalMapping")]
 public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

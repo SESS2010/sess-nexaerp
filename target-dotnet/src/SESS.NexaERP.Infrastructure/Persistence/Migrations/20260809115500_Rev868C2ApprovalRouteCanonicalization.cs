@@ -1,10 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
-[Migration("20260809115500_Rev868C2ApprovalRouteCanonicalization")]
 public partial class Rev868C2ApprovalRouteCanonicalization : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

@@ -1,4 +1,7 @@
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
@@ -426,6 +429,72 @@ public sealed class Rev868C1PreparationTests
         Assert.DoesNotMatch(@"(?i)(^|\s)(dropdb)(\s|$)", helper);
     }
 
+
+    [Fact]
+    public void Rev868c2_migrations_are_discoverable_by_ef_migrations_assembly_in_order()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=sess_nexaerp_rev868_design_only;Username=design_only")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
+
+        var expected = new[]
+        {
+            "20260808110924_Phase1Foundation",
+            "20260808114550_Phase1AuthorizationSeed",
+            "20260808123411_Rev866EmployeePermissionMatrix",
+            "20260808142353_Rev866CorrectiveStatusPermissionAudit",
+            "20260808151207_Rev867MasterFoundation",
+            "20260808160435_Rev867C1Corrections",
+            "20260808182945_Rev868PurchaseRequisitionFoundation",
+            "20260808190920_Rev868PurchaseLocationAllocationCorrection",
+            "20260809115500_Rev868C2ApprovalRouteCanonicalization",
+            "20260809123000_Rev868C2DepartmentManagerApprovalMapping"
+        };
+
+        foreach (var id in expected)
+        {
+            Assert.Equal(1, migrations.Count(x => x == id));
+        }
+
+        for (var i = 1; i < expected.Length; i++)
+        {
+            Assert.True(migrations.IndexOf(expected[i - 1]) < migrations.IndexOf(expected[i]), $"{expected[i - 1]} should appear before {expected[i]}.");
+        }
+    }
+
+    [Fact]
+    public void Rev868c2_helper_target_matches_discoverable_ef_migration_id()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=sess_nexaerp_rev868_design_only;Username=design_only")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
+        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
+        var target = Regex.Match(helper, "\\$correctionMigration\\s*=\\s*\"([^\"]+)\"");
+
+        Assert.True(target.Success);
+        Assert.Equal("20260809123000_Rev868C2DepartmentManagerApprovalMapping", target.Groups[1].Value);
+        Assert.Contains(target.Groups[1].Value, migrations);
+    }
+
+    [Fact]
+    public void Rev868c2_snapshot_and_designer_metadata_include_context_bound_migrations()
+    {
+        var routeDesigner = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809115500_Rev868C2ApprovalRouteCanonicalization.Designer.cs");
+        var mappingDesigner = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.Designer.cs");
+        var snapshot = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs");
+
+        Assert.Contains("[DbContext(typeof(NexaErpDbContext))]", routeDesigner);
+        Assert.Contains("[Migration(\"20260809115500_Rev868C2ApprovalRouteCanonicalization\")]", routeDesigner);
+        Assert.Contains("[DbContext(typeof(NexaErpDbContext))]", mappingDesigner);
+        Assert.Contains("[Migration(\"20260809123000_Rev868C2DepartmentManagerApprovalMapping\")]", mappingDesigner);
+        Assert.Contains("ApproverResolutionType", snapshot);
+        Assert.Contains("department_approval_mappings", snapshot);
+        Assert.Contains("DepartmentApprovalMapping", snapshot);
+    }
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
 
     private static string Find(params string[] relativeParts)
