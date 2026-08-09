@@ -1,38 +1,98 @@
-﻿# REV868C2 Approval Route Source Checkpoint Report
+# REV868C2 Purchase Approval Route Source Checkpoint
 
 ## Scope
-Source-only diagnosis and correction preparation for REV868C1 amount-routing evidence failures. Codex did not access PostgreSQL, execute helpers, apply migrations, create backups/restores, request a password, touch `sess_nexaerp`, touch `sess_nexaerp_rev868_verify` data, touch live REV861, or start REV869.
+Source-only correction preparation. No PostgreSQL access, helper execution, migration application, backup, restore, REV861 change or REV869 work was performed.
 
-## Root Cause
-The final REV868C1 evidence failed amount-routing checks because three concepts were mixed:
+## Blocking Finding Corrected
+The previous REV868C2 checkpoint incorrectly mapped the MANAGER route to the fixed ERP role `TECHNICAL_SUPPORT_MANAGER`. That is invalid for company-wide Purchase Requisitions because PRs can originate from Production, Stores, Purchase, Design, Service, Accounts, Engineering, Administration and other departments.
 
-- Stable route code in PR workflow: previously `Manager`, `TD`, `MD`.
-- Expected report labels: `Manager`, `TechnicalDirector`, `ManagingDirector`.
-- Approved ERP Role Master codes: `TECHNICAL_SUPPORT_MANAGER`, `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`.
+## Reused/New Table Decision
+Existing `reporting_relationships` is employee-to-employee reporting history. It does not define route-level department approval authority and cannot safely answer: "Who approves MANAGER-level PRs for this requesting department?"
 
-The persistent route configuration evidence displayed only `Manager`, proving that the isolated verification database did not yet contain all three active configurable route rows. Therefore this is not only a report-label issue; persistent route seed correction is required.
+A new normalized table is prepared:
 
-## Canonical Mapping Decision
-Stable internal route codes:
+- `nexa.department_approval_mappings`
+- Department
+- ApprovalRouteCode = `MANAGER`
+- PrimaryApproverEmployeeId
+- Optional AlternateApproverEmployeeId
+- EffectiveFrom / EffectiveTo
+- IsActive
+- Created/modified/audit fields via `AuditableEntity`
 
-| Band | Route Code | Approver Role Code | Display Label |
-| --- | --- | --- | --- |
-| 0 through 50,000 | MANAGER | TECHNICAL_SUPPORT_MANAGER | Manager |
-| 50,000.01 through 500,000 | TECHNICAL_DIRECTOR | TECHNICAL_DIRECTOR | Technical Director |
-| Above 500,000 | MANAGING_DIRECTOR | MANAGING_DIRECTOR | Managing Director |
+## Canonical Route Design
+Stable route levels remain:
 
-Legacy aliases `TD`, `MD`, `TechnicalDirector`, and `ManagingDirector` are normalized for compatibility, but new PR route decisions use canonical route codes.
+- `MANAGER`
+- `TECHNICAL_DIRECTOR`
+- `MANAGING_DIRECTOR`
 
-## Source Corrections Prepared
-- `PurchaseRequisitionApprovalRoutes` now separates canonical route code, display label, and approver role code.
-- PR route selection can use active persisted `purchase_approval_route_settings`; static thresholds remain only as no-data fallback.
-- Duplicate/missing/overlapping/disabled routes fail closed by returning no single valid configured route.
-- REV868C1 final evidence SQL now reports amount, expected route, configured route, calculated route, canonical role, display label, and PASS/FAIL.
-- Data-only corrective migration prepared: `20260809115500_Rev868C2ApprovalRouteCanonicalization`.
-- Restricted isolated helper prepared: `tools/apply-rev868c2-approval-route-correction-secure.ps1`.
+Fixed ERP role codes are retained only for:
 
-## Corrective Migration Requirement
-Required. Existing evidence showed only the `Manager` route persisted. The corrective migration safely upserts all three canonical route rows using `ON CONFLICT ("RouteCode") DO UPDATE`; it does not rewrite or delete historical PR, approval, audit, reservation, or handoff records.
+- `TECHNICAL_DIRECTOR`
+- `MANAGING_DIRECTOR`
 
-## Management Boundary
-The REV868C2 helper is prepared for future management review and manual execution only. It is restricted to `localhost:5432 / sess_nexaerp_rev868_verify` and blocks `sess_nexaerp`, `postgres`, `template0`, `template1`, and REV861-like targets.
+`MANAGER` now resolves through active Department Approval Mapping using the PR `RequestingDepartmentId`. Its route setting uses resolver code `DEPARTMENT_MANAGER`; this is not a single fixed ERP approver role.
+
+## Fail-Closed Rules Prepared
+MANAGER route fails closed when:
+
+- Requesting department is missing.
+- Requester employee is missing.
+- No active department MANAGER mapping exists.
+- More than one active mapping matches the same department/route/effective date.
+- Configured approver is inactive or login disabled.
+- Actor is not the configured primary approver or active alternate.
+- Actor lacks active manager-level role/permission.
+- Requester/creator/submitter is the same as the configured approver.
+
+Failures return a clear configuration/conflict response and write a persistent audit denial through the existing audit writer when executed.
+
+## Amount Boundaries Preserved
+- `0.00` through `50000.00` -> `MANAGER`, resolved by department.
+- `50000.01` through `500000.00` -> `TECHNICAL_DIRECTOR`.
+- `500000.01` and above -> `MANAGING_DIRECTOR`.
+
+Currency values use `decimal(18,2)` route settings and explicit `0.01` boundary starts to avoid overlap at paise precision.
+
+## Revised Migration ID
+`20260809123000_Rev868C2DepartmentManagerApprovalMapping`
+
+This migration creates the department approval mapping table. The prior source-only route canonicalization migration remains prepared and now stores MANAGER with `DEPARTMENT_MANAGER` instead of `TECHNICAL_SUPPORT_MANAGER`.
+
+## Helper Plan
+Prepared helper:
+
+`tools/apply-rev868c2-approval-route-correction-secure.ps1`
+
+It is restricted to:
+
+`localhost:5432 / sess_nexaerp_rev868_verify`
+
+It blocks `sess_nexaerp`, `postgres`, `template0`, `template1`, and REV861-like names. It has `-GeneratePlanOnly` and `-PreflightOnly` modes. It must be run manually by management only after review.
+
+## Evidence Plan Updates
+The resume/final evidence plan is prepared to show:
+
+- PR/requesting department
+- route level
+- resolved department approver employee/user
+- approver role/permission evidence
+- expected vs actual route and approver
+- PASS/FAIL
+- persisted route rows with min/max/active/order
+- department MANAGER mapping coverage
+
+## Source Tests Added
+Source/non-PostgreSQL tests cover:
+
+- MANAGER is not globally mapped to `TECHNICAL_SUPPORT_MANAGER`.
+- MANAGER uses `DEPARTMENT_MANAGER` resolver semantics.
+- Production/Stores/Technical Support style manager roles are accepted only as manager-level roles when configured.
+- TD/MD are not accepted as manager-level roles.
+- Missing manager configuration, inactive manager, self-approval and missing permission checks are present in source.
+- TD and MD boundary route logic remains unchanged.
+- No gap/overlap/duplicate/disabled route cases remain accepted by route calculation.
+
+## Pending Management Execution
+No database execution has been done. Management must run plan/preflight/full commands manually after approving this revised design.

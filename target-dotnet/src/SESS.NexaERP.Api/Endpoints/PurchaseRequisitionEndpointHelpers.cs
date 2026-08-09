@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Purchase;
@@ -128,6 +128,42 @@ public static partial class PurchaseRequisitionEndpoints
             .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.IsActive))
             .ToListAsync(ct);
         return RouteFor(total, routes.Count == 0 ? DefaultApprovalRoutes : routes);
+    }
+    public sealed record DepartmentApproverResolution(bool Success, Guid? EmployeeId, string? EmployeeCode, string? EmployeeName, string Message);
+    public static bool IsManagerLevelRoleCode(string? roleCode)
+    {
+        var normalized = roleCode?.Trim().ToUpperInvariant() ?? string.Empty;
+        return normalized.EndsWith("_MANAGER", StringComparison.OrdinalIgnoreCase) || normalized == "MANAGER" || normalized == "DEPARTMENT_MANAGER";
+    }
+
+    private static async Task<DepartmentApproverResolution> ResolveDepartmentManagerApproverAsync(PurchaseRequisition pr, NexaErpDbContext db, ICurrentUser actor, CancellationToken ct)
+    {
+        if (pr.RequestingDepartmentId is null) return new(false, null, null, null, "Requesting department is required for MANAGER approval routing.");
+        if (pr.RequesterEmployeeId is null) return new(false, null, null, null, "Requester employee is required for MANAGER approval routing.");
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var mappings = await db.DepartmentApprovalMappings.AsNoTracking()
+            .Where(x => x.DepartmentId == pr.RequestingDepartmentId.Value && x.ApprovalRouteCode == PurchaseRequisitionApprovalRoutes.Manager && x.IsActive)
+            .Where(x => x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today))
+            .OrderByDescending(x => x.EffectiveFrom)
+            .Take(2)
+            .ToListAsync(ct);
+        if (mappings.Count != 1) return new(false, null, null, null, mappings.Count == 0 ? "No active department MANAGER approval mapping is configured." : "More than one active department MANAGER approval mapping is configured.");
+        var mapping = mappings[0];
+        var actorLogin = actor.LoginId.Trim();
+        var candidateIds = new[] { mapping.PrimaryApproverEmployeeId, mapping.AlternateApproverEmployeeId }.Where(x => x.HasValue).Select(x => x!.Value).ToArray();
+        var candidates = await db.Employees.AsNoTracking()
+            .Where(x => candidateIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.EmployeeCode, x.EmployeeName, x.Status, x.LoginEnabled })
+            .ToListAsync(ct);
+        var actorEmployee = candidates.SingleOrDefault(x => string.Equals(x.EmployeeCode, actorLogin, StringComparison.OrdinalIgnoreCase));
+        if (actorEmployee is null) return new(false, mapping.PrimaryApproverEmployeeId, null, null, "Actor is not the configured department manager or active delegate.");
+        if (!string.Equals(actorEmployee.Status, "Active", StringComparison.OrdinalIgnoreCase) || !actorEmployee.LoginEnabled) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department manager is inactive or login disabled.");
+        if (actorEmployee.Id == pr.RequesterEmployeeId || string.Equals(actorEmployee.EmployeeCode, pr.CreatedBy, StringComparison.OrdinalIgnoreCase) || string.Equals(actorEmployee.EmployeeCode, pr.SubmittedBy, StringComparison.OrdinalIgnoreCase)) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Requester/submitter cannot approve their own MANAGER route PR.");
+        var hasManagerRole = await db.EmployeeRoleAssignments.AsNoTracking()
+            .Include(x => x.Role)
+            .AnyAsync(x => x.EmployeeId == actorEmployee.Id && x.ApprovalStatus == "SeedApproved" && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today) && x.Role != null && IsManagerLevelRoleCode(x.Role.Code), ct);
+        if (!hasManagerRole) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department manager lacks active manager-level approval permission.");
+        return new(true, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Department manager approval resolved.");
     }
     public static decimal AvailableQuantity(decimal onHand, decimal activeReserved) => Math.Max(onHand - activeReserved, 0);
     public static decimal ReserveQuantity(decimal requested, decimal available) => Math.Min(Math.Max(requested, 0), Math.Max(available, 0));

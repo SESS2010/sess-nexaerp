@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -12,7 +12,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql("""
                 update nexa.purchase_approval_route_settings
                 set "RouteCode" = 'MANAGER',
-                    "ApproverRoleCode" = 'TECHNICAL_SUPPORT_MANAGER',
+                    "ApproverRoleCode" = 'DEPARTMENT_MANAGER',
                     "MinimumAmount" = 0.00,
                     "MaximumAmount" = 50000.00,
                     "IsActive" = true,
@@ -55,7 +55,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 insert into nexa.purchase_approval_route_settings
                     ("Id", "RouteCode", "MinimumAmount", "MaximumAmount", "ApproverRoleCode", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
                 values
-                    ('868c2000-0000-0000-0000-000000000001', 'MANAGER', 0.00, 50000.00, 'TECHNICAL_SUPPORT_MANAGER', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C2_ROUTE_CANONICALIZATION', null, null, 0),
+                    ('868c2000-0000-0000-0000-000000000001', 'MANAGER', 0.00, 50000.00, 'DEPARTMENT_MANAGER', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C2_ROUTE_CANONICALIZATION', null, null, 0),
                     ('868c2000-0000-0000-0000-000000000002', 'TECHNICAL_DIRECTOR', 50000.01, 500000.00, 'TECHNICAL_DIRECTOR', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C2_ROUTE_CANONICALIZATION', null, null, 0),
                     ('868c2000-0000-0000-0000-000000000003', 'MANAGING_DIRECTOR', 500000.01, null, 'MANAGING_DIRECTOR', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C2_ROUTE_CANONICALIZATION', null, null, 0)
                 on conflict ("RouteCode") do update set

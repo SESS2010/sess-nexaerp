@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
@@ -384,12 +384,12 @@ public sealed class Rev868C1PreparationTests
 
         Assert.Contains("sess_nexaerp_rev868_verify", helper);
         Assert.Contains("This helper is permanently restricted to localhost:5432 / sess_nexaerp_rev868_verify", helper);
-        Assert.Contains("20260809115500_Rev868C2ApprovalRouteCanonicalization", helper);
+        Assert.Contains("20260809123000_Rev868C2DepartmentManagerApprovalMapping", helper);
         Assert.Contains("ef database update $correctionMigration", helper, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("MANAGER", migration);
         Assert.Contains("TECHNICAL_DIRECTOR", migration);
         Assert.Contains("MANAGING_DIRECTOR", migration);
-        Assert.Contains("TECHNICAL_SUPPORT_MANAGER", migration);
+        Assert.Contains("DEPARTMENT_MANAGER", migration);
         Assert.Contains("on conflict (\"RouteCode\") do update", migration);
         Assert.Contains("expected_route=", resume);
         Assert.Contains("configured_route=", resume);

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp_rev868_verify",
     [string]$HostName = "localhost",
@@ -19,7 +19,7 @@ $psqlPath = "C:\Program Files\PostgreSQL\17\bin\psql.exe"
 $reportDir = Join-Path $targetRoot "local-evidence\rev868c2"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $reportFile = Join-Path $reportDir "rev868c2_approval_route_correction_$timestamp.md"
-$correctionMigration = "20260809115500_Rev868C2ApprovalRouteCanonicalization"
+$correctionMigration = "20260809123000_Rev868C2DepartmentManagerApprovalMapping"
 $requiredBefore = @(
     "20260808110924_Phase1Foundation",
     "20260808114550_Phase1AuthorizationSeed",
@@ -64,7 +64,7 @@ where "MigrationId" in (
  '20260808160435_Rev867C1Corrections',
  '20260808182945_Rev868PurchaseRequisitionFoundation',
  '20260808190920_Rev868PurchaseLocationAllocationCorrection',
- '20260809115500_Rev868C2ApprovalRouteCanonicalization')
+ '20260809123000_Rev868C2DepartmentManagerApprovalMapping')
 group by "MigrationId"
 order by "MigrationId";
 "@.Trim()
@@ -99,8 +99,8 @@ select b.amount::text
     || '|' || case when b.expected_route = r."RouteCode" and b.expected_role = r."ApproverRoleCode" then 'PASS' else 'FAIL' end
 from (
   values
-    (0::numeric, 'MANAGER'::text, 'TECHNICAL_SUPPORT_MANAGER'::text),
-    (50000::numeric, 'MANAGER'::text, 'TECHNICAL_SUPPORT_MANAGER'::text),
+    (0::numeric, 'MANAGER'::text, 'DEPARTMENT_MANAGER'::text),
+    (50000::numeric, 'MANAGER'::text, 'DEPARTMENT_MANAGER'::text),
     (50000.01::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
     (50001::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
     (500000::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
@@ -112,6 +112,14 @@ left join nexa.purchase_approval_route_settings r
  and b.amount >= r."MinimumAmount"
  and (r."MaximumAmount" is null or b.amount <= r."MaximumAmount")
 order by b.amount;
+"@.Trim()
+        "Department manager mapping coverage" = @"
+select 'department_manager_mapping_count=' || count(*)
+    || '|active_count=' || count(*) filter (where "IsActive")
+    || '|missing_primary=' || count(*) filter (where "PrimaryApproverEmployeeId" is null)
+    || '|missing_department=' || count(*) filter (where "DepartmentId" is null)
+from "nexa"."department_approval_mappings"
+where "ApprovalRouteCode" = 'MANAGER';
 "@.Trim()
         "Route gap overlap duplicate disabled evidence" = @"
 select 'duplicate_active_routes=' || count(*) from (

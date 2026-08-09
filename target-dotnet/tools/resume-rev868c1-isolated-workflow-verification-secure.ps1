@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$Database = "sess_nexaerp_rev868_verify",
     [string]$HostName = "localhost",
@@ -112,7 +112,7 @@ select b.amount::text
     || '|calculated_route=' || coalesce(r."RouteCode", 'NO_ROUTE')
     || '|canonical_role=' || coalesce(r."ApproverRoleCode", 'NO_ROLE')
     || '|display=' || case coalesce(r."RouteCode", 'NO_ROUTE')
-        when 'MANAGER' then 'Manager'
+        when 'MANAGER' then 'Department Manager'
         when 'TECHNICAL_DIRECTOR' then 'Technical Director'
         when 'MANAGING_DIRECTOR' then 'Managing Director'
         else 'Unknown'
@@ -120,7 +120,7 @@ select b.amount::text
     || '|' || case when b.expected_route = r."RouteCode" and b.expected_role = r."ApproverRoleCode" then 'PASS' else 'FAIL' end
 from (
   values
-    (50000::numeric, 'MANAGER'::text, 'TECHNICAL_SUPPORT_MANAGER'::text),
+    (50000::numeric, 'MANAGER'::text, 'DEPARTMENT_MANAGER'::text),
     (50000.01::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
     (50001::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
     (500000::numeric, 'TECHNICAL_DIRECTOR'::text, 'TECHNICAL_DIRECTOR'::text),
@@ -139,7 +139,7 @@ select "RouteCode"
     || '|max=' || coalesce("MaximumAmount"::text,'NULL')
     || '|role=' || "ApproverRoleCode"
     || '|display=' || case "RouteCode"
-        when 'MANAGER' then 'Manager'
+        when 'MANAGER' then 'Department Manager'
         when 'TECHNICAL_DIRECTOR' then 'Technical Director'
         when 'MANAGING_DIRECTOR' then 'Managing Director'
         else "RouteCode"

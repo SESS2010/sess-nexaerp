@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Api.Endpoints;
+using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Tests;
@@ -43,7 +43,7 @@ public sealed class Rev868PurchaseRequisitionTests
     {
         var routes = new[]
         {
-            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "TECHNICAL_SUPPORT_MANAGER"),
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "DEPARTMENT_MANAGER"),
             new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR"),
             new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR")
         };
@@ -54,7 +54,7 @@ public sealed class Rev868PurchaseRequisitionTests
     [Fact]
     public void Rev868c2_configured_routes_reject_missing_duplicate_overlap_disabled_and_negative_amounts()
     {
-        var manager = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "TECHNICAL_SUPPORT_MANAGER");
+        var manager = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "DEPARTMENT_MANAGER");
         var td = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR");
         var md = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR");
 
@@ -274,4 +274,3 @@ public sealed class Rev868PurchaseRequisitionTests
         throw new FileNotFoundException($"Could not find {relativePath} from {AppContext.BaseDirectory}.");
     }
 }
-

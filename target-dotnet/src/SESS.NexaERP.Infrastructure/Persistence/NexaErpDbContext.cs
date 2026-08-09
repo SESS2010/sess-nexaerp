@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
@@ -55,6 +55,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<StockReservationHistory> StockReservationHistories => Set<StockReservationHistory>();
     public DbSet<PurchaseRequirementHandoff> PurchaseRequirementHandoffs => Set<PurchaseRequirementHandoff>();
     public DbSet<PurchaseApprovalRouteSetting> PurchaseApprovalRouteSettings => Set<PurchaseApprovalRouteSetting>();
+    public DbSet<DepartmentApprovalMapping> DepartmentApprovalMappings => Set<DepartmentApprovalMapping>();
     public DbSet<PurchaseNumberSequence> PurchaseNumberSequences => Set<PurchaseNumberSequence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -661,6 +662,22 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_route_limits_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")"));
         });
 
+
+        modelBuilder.Entity<DepartmentApprovalMapping>(entity =>
+        {
+            entity.ToTable("department_approval_mappings");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.IsActive });
+            entity.Property(x => x.ApprovalRouteCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PrimaryApproverEmployee).WithMany().HasForeignKey(x => x.PrimaryApproverEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.AlternateApproverEmployee).WithMany().HasForeignKey(x => x.AlternateApproverEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.ToTable(table => table.HasCheckConstraint("CK_department_approval_mapping_effective_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\""));
+            entity.ToTable(table => table.HasCheckConstraint("CK_department_approval_mapping_manager_route", "\"ApprovalRouteCode\" = 'MANAGER'"));
+        });
         modelBuilder.Entity<PurchaseNumberSequence>(entity =>
         {
             entity.ToTable("purchase_number_sequences");
@@ -857,4 +874,3 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         modelBuilder.Entity<AuditLog>().HasData(Rev866SeedData.CorrectiveAuditLogs);
     }
 }
-

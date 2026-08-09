@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Inventory;
 
@@ -59,7 +59,7 @@ public static class PurchaseRequisitionApprovalRoutes
 
     public static string ApproverRoleCode(string routeCode) => Normalize(routeCode) switch
     {
-        Manager => "TECHNICAL_SUPPORT_MANAGER",
+        Manager => "DEPARTMENT_MANAGER",
         TechnicalDirector => "TECHNICAL_DIRECTOR",
         ManagingDirector => "MANAGING_DIRECTOR",
         _ => routeCode
@@ -267,6 +267,20 @@ public sealed class PurchaseApprovalRouteSetting : AuditableEntity
     public bool IsActive { get; set; } = true;
 }
 
+public sealed class DepartmentApprovalMapping : AuditableEntity
+{
+    public Guid DepartmentId { get; set; }
+    public Department? Department { get; set; }
+    public string ApprovalRouteCode { get; set; } = PurchaseRequisitionApprovalRoutes.Manager;
+    public Guid PrimaryApproverEmployeeId { get; set; }
+    public Employee? PrimaryApproverEmployee { get; set; }
+    public Guid? AlternateApproverEmployeeId { get; set; }
+    public Employee? AlternateApproverEmployee { get; set; }
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public bool IsActive { get; set; } = true;
+    public string Remarks { get; set; } = string.Empty;
+}
 public sealed class PurchaseNumberSequence : AuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
