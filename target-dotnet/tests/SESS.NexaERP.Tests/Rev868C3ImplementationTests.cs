@@ -59,6 +59,10 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("GeneratePlanOnly", helper);
         Assert.Contains("PreflightOnly", helper);
         Assert.Contains("ResumeVerifyOnly", helper);
+        Assert.Contains("DotnetEfPath", helper);
+        Assert.Contains("Resolve-DotnetEfInvocation", helper);
+        Assert.Contains("Test-DotnetEfTool", helper);
+        Assert.Contains("Invoke-DotnetEfTool", helper);
         Assert.Contains(MigrationId, helper);
         Assert.Contains("safe_retry_state", helper);
         Assert.Contains("active_employee_codes_expected", helper);
@@ -164,6 +168,28 @@ public sealed class Rev868C3ImplementationTests
     }
 
     [Fact]
+    public void Rev868c3_helper_resolves_dotnet_ef_before_password_and_backup()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        var resolveIndex = helper.IndexOf("Resolve-DotnetEfInvocation $script:dotnetExe $DotnetEfPath", StringComparison.Ordinal);
+        var versionCheckIndex = helper.IndexOf("Test-DotnetEfTool", resolveIndex, StringComparison.Ordinal);
+        var passwordIndex = helper.IndexOf("Read-Host -AsSecureString", StringComparison.Ordinal);
+        var backupIndex = helper.IndexOf("Find-ExistingValidPreC3Backup", passwordIndex, StringComparison.Ordinal);
+        var updateIndex = helper.IndexOf("Invoke-DotnetEfTool @('database','update',$MigrationName", StringComparison.Ordinal);
+
+        Assert.True(resolveIndex > 0);
+        Assert.True(versionCheckIndex > resolveIndex);
+        Assert.True(passwordIndex > versionCheckIndex);
+        Assert.True(backupIndex > passwordIndex);
+        Assert.True(updateIndex > backupIndex);
+        Assert.Contains("dotnet-ef tooling is unavailable", helper);
+        Assert.Contains("No password was requested and no backup/migration was attempted", helper);
+        Assert.Contains(".nuget\\packages\\dotnet-ef", helper);
+        Assert.DoesNotContain("$script:dotnetExe ef database update", helper);
+    }
+
+    [Fact]
     public void Rev868c3_helper_preflight_safe_retry_requires_all_partial_artifacts_zero()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
@@ -180,6 +206,8 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("workflow_step_relation_count = 0", helper);
         Assert.Contains("backup_relation_count", helper);
         Assert.Contains("Backup SHA-256", helper);
+        Assert.Contains("Find-ExistingValidPreC3Backup", helper);
+        Assert.Contains("Existing non-zero pre-C3 backup reused", helper);
     }
 
     [Fact]

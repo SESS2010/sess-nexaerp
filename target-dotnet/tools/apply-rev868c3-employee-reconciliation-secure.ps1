@@ -2,7 +2,8 @@ param(
     [string]$GitPath,
     [switch]$GeneratePlanOnly,
     [switch]$PreflightOnly,
-    [switch]$ResumeVerifyOnly
+    [switch]$ResumeVerifyOnly,
+    [string]$DotnetEfPath
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -50,11 +51,55 @@ $trxDir = Join-Path $evidenceDir 'test-results'
 $backupDir = Join-Path $root 'backups\postgresql\pre-rev868c3-isolated'
 $plainPassword = $null
 $securePassword = $null
+$script:dotnetEfInvocation = $null
 function Assert-TargetDatabaseName([string]$Name) {
     if ($Name -ne $Database) { throw "REV868C3 helper is restricted to $Database. Actual: $Name" }
     if ($RejectedDatabases -contains $Name -or $Name -match '(?i)rev861') { throw "Protected database rejected: $Name" }
 }
 function Resolve-File([string]$Path, [string]$Label) { if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }; (Resolve-Path -LiteralPath $Path).Path }
+function Resolve-DotnetEfInvocation([string]$DotnetExe, [string]$ExplicitPath) {
+    if ($ExplicitPath) {
+        $resolved = Resolve-File $ExplicitPath 'dotnet-ef executable'
+        $leaf = [System.IO.Path]::GetFileName($resolved)
+        if ($leaf -notin @('dotnet-ef.exe','dotnet-ef.cmd','dotnet-ef')) { throw "Invalid dotnet-ef executable name: $leaf" }
+        return [pscustomobject]@{ Mode = 'Executable'; Command = $resolved }
+    }
+
+    $manifest = Join-Path $root '.config\dotnet-tools.json'
+    if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+        $manifestText = Get-Content -LiteralPath $manifest -Raw
+        if ($manifestText -match 'dotnet-ef') { return [pscustomobject]@{ Mode = 'ToolManifest'; Command = 'dotnet-ef' } }
+    }
+
+    $packageRoot = Join-Path $env:USERPROFILE '.nuget\packages\dotnet-ef'
+    if (Test-Path -LiteralPath $packageRoot -PathType Container) {
+        $dll = @(Get-ChildItem -LiteralPath $packageRoot -Recurse -Filter 'dotnet-ef.dll' -File -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1)
+        if ($dll.Count -eq 1) { return [pscustomobject]@{ Mode = 'DotnetExec'; Command = $dll[0].FullName } }
+    }
+
+    $globalCandidates = @(Join-Path $env:USERPROFILE '.dotnet\tools\dotnet-ef.exe'), @(Join-Path $env:USERPROFILE '.dotnet\tools\dotnet-ef.cmd')
+    foreach ($candidate in $globalCandidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return [pscustomobject]@{ Mode = 'Executable'; Command = (Resolve-Path -LiteralPath $candidate).Path } }
+    }
+
+    throw 'dotnet-ef tooling is unavailable. Install/restore the repository tool manifest or pass -DotnetEfPath to a valid dotnet-ef executable. No password was requested and no backup/migration was attempted.'
+}
+function Invoke-DotnetEfTool([string[]]$EfArgs) {
+    if ($null -eq $script:dotnetEfInvocation) { throw 'dotnet-ef invocation has not been resolved.' }
+    if ($script:dotnetEfInvocation.Mode -eq 'ToolManifest') { & $script:dotnetExe tool run dotnet-ef -- @EfArgs; return }
+    if ($script:dotnetEfInvocation.Mode -eq 'DotnetExec') { & $script:dotnetExe exec $script:dotnetEfInvocation.Command @EfArgs; return }
+    & $script:dotnetEfInvocation.Command @EfArgs
+}
+function Test-DotnetEfTool {
+    $output = @(Invoke-DotnetEfTool @('--version') 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "dotnet-ef resolved but failed version check. $($output -join ' ')" }
+}
+function Find-ExistingValidPreC3Backup {
+    if (-not (Test-Path -LiteralPath $backupDir -PathType Container)) { return $null }
+    $items = @(Get-ChildItem -LiteralPath $backupDir -Filter 'sess_nexaerp_rev868_verify_pre_rev868c3_*.dump' -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -gt 0 } | Sort-Object LastWriteTime -Descending)
+    if ($items.Count -eq 0) { return $null }
+    return $items[0]
+}
 function Invoke-Psql([string]$Sql) {
     $sqlFile = Join-Path ([System.IO.Path]::GetTempPath()) ("sess_nexa_rev868c3_" + [Guid]::NewGuid().ToString('N') + '.sql')
     try {
@@ -253,7 +298,8 @@ function Write-Plan {
     Write-Host "Rejected DBs: $($RejectedDatabases -join ', '), REV861-like names"
     Write-Host "Prerequisite migrations: $($RequiredMigrations -join ', ')"
     Write-Host "Target migration: $MigrationName"
-    Write-Host 'Full apply mode will create a non-zero pre-C3 isolated backup, calculate SHA-256, and write a sanitized pre-migration backup report before EF migration application.'
+    Write-Host 'No-secret prechecks resolve dotnet-ef before password prompt or backup creation.'
+    Write-Host 'Full apply mode reuses the latest valid non-zero pre-C3 isolated backup when present; otherwise it creates one before EF migration application.'
     Write-Host 'No main DB operation is permitted.'
     Write-Host 'Preflight SQL:'
     Write-Host (Get-PreflightSql)
@@ -270,6 +316,8 @@ try {
     $script:psqlExe = Resolve-File $psql 'psql.exe'
     $script:pgDumpExe = Resolve-File $pgDump 'pg_dump.exe'
     $script:dotnetExe = Resolve-File $dotnet '.NET executable'
+    $script:dotnetEfInvocation = Resolve-DotnetEfInvocation $script:dotnetExe $DotnetEfPath
+    Test-DotnetEfTool
     $securePassword = Read-Host -AsSecureString 'Enter PostgreSQL password for isolated REV868C3 verification database only'
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
     try { $plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
@@ -292,15 +340,25 @@ try {
     New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
     New-Item -ItemType Directory -Force -Path $trxDir | Out-Null
     $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-    $backupFile = Join-Path $backupDir ("sess_nexaerp_rev868_verify_pre_rev868c3_$stamp.dump")
-    & $script:pgDumpExe -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
-    if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }
-    $backupItem = Get-Item -LiteralPath $backupFile
-    if ($backupItem.Length -le 0) { throw 'Pre-C3 isolated backup is zero bytes. Migration blocked.' }
-    $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
-    $preReport = Join-Path $evidenceDir ("rev868c3_pre_migration_backup_" + $stamp + ".md")
-    @("# REV868C3 Pre-Migration Isolated Backup", "", "Database: $Database", "Backup file: $backupFile", "Backup bytes: $($backupItem.Length)", "Backup SHA-256: $backupHash", "", "Migration not yet applied at this report checkpoint.") | Set-Content -LiteralPath $preReport -Encoding UTF8
-    & $script:dotnetExe ef database update $MigrationName --project .\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj --startup-project .\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj --context NexaErpDbContext
+    $existingBackup = Find-ExistingValidPreC3Backup
+    if ($null -ne $existingBackup) {
+        $backupFile = $existingBackup.FullName
+        $backupItem = $existingBackup
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+        $preReport = Join-Path $evidenceDir ("rev868c3_pre_migration_backup_reused_" + $stamp + ".md")
+        @("# REV868C3 Reused Pre-Migration Isolated Backup", "", "Database: $Database", "Backup file: $backupFile", "Backup bytes: $($backupItem.Length)", "Backup SHA-256: $backupHash", "", "Existing non-zero pre-C3 backup reused. Migration not yet applied at this report checkpoint.") | Set-Content -LiteralPath $preReport -Encoding UTF8
+    }
+    else {
+        $backupFile = Join-Path $backupDir ("sess_nexaerp_rev868_verify_pre_rev868c3_$stamp.dump")
+        & $script:pgDumpExe -h $HostName -p $Port -U $UserName -d $Database -F c -f $backupFile
+        if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE." }
+        $backupItem = Get-Item -LiteralPath $backupFile
+        if ($backupItem.Length -le 0) { throw 'Pre-C3 isolated backup is zero bytes. Migration blocked.' }
+        $backupHash = (Get-FileHash -LiteralPath $backupFile -Algorithm SHA256).Hash
+        $preReport = Join-Path $evidenceDir ("rev868c3_pre_migration_backup_" + $stamp + ".md")
+        @("# REV868C3 Pre-Migration Isolated Backup", "", "Database: $Database", "Backup file: $backupFile", "Backup bytes: $($backupItem.Length)", "Backup SHA-256: $backupHash", "", "Migration not yet applied at this report checkpoint.") | Set-Content -LiteralPath $preReport -Encoding UTF8
+    }
+    Invoke-DotnetEfTool @('database','update',$MigrationName,'--project','.\src\SESS.NexaERP.Infrastructure\SESS.NexaERP.Infrastructure.csproj','--startup-project','.\src\SESS.NexaERP.Api\SESS.NexaERP.Api.csproj','--context','NexaErpDbContext')
     if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
     $env:REV868C3_POSTGRES = $env:ConnectionStrings__NexaErp
     $trxName = "rev868c3_employee_reconciliation_$stamp.trx"
