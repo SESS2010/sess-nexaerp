@@ -210,6 +210,54 @@ public sealed class Rev868C3ImplementationTests
     }
 
     [Fact]
+    public void Rev868c3_helper_accepts_nuget_dotnet_ef_dll_only_as_dotnet_exec()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("if ($leaf -eq 'dotnet-ef.dll')", helper);
+        Assert.Contains(".nuget\\packages\\dotnet-ef", helper);
+        Assert.Contains("dotnet-ef.dll must be under approved NuGet package root", helper);
+        Assert.Contains("return [pscustomobject]@{ Mode = 'DotnetExec'; Command = $resolved }", helper);
+        Assert.Contains("if ($script:dotnetEfInvocation.Mode -eq 'DotnetExec') { & $script:dotnetExe exec $script:dotnetEfInvocation.Command @EfArgs; return }", helper);
+        Assert.Contains("C:\\Users\\User\\.nuget\\", CorrectedPreflightCommand());
+    }
+
+    [Fact]
+    public void Rev868c3_helper_rejects_unapproved_dotnet_ef_paths_and_keeps_exe_mode()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("if ($leaf -eq 'dotnet-ef.exe') { return [pscustomobject]@{ Mode = 'Executable'; Command = $resolved } }", helper);
+        Assert.Contains("throw \"Invalid dotnet-ef executable name: $leaf\"", helper);
+        Assert.Contains("path traversal is rejected", helper);
+        Assert.DoesNotContain("dotnet-ef.cmd", helper);
+        Assert.DoesNotContain("unrelated.dll", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_helper_validates_ef10_and_discovers_migration_before_password_backup()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        var resolveIndex = helper.IndexOf("Resolve-DotnetEfInvocation $script:dotnetExe $DotnetEfPath", StringComparison.Ordinal);
+        var versionIndex = helper.IndexOf("Test-DotnetEfTool", resolveIndex, StringComparison.Ordinal);
+        var metadataIndex = helper.IndexOf("Test-EfProjectMetadata", versionIndex, StringComparison.Ordinal);
+        var passwordIndex = helper.IndexOf("Read-Host -AsSecureString", StringComparison.Ordinal);
+        var backupIndex = helper.IndexOf("Find-ExistingValidPreC3Backup", passwordIndex, StringComparison.Ordinal);
+
+        Assert.True(resolveIndex > 0);
+        Assert.True(versionIndex > resolveIndex);
+        Assert.True(metadataIndex > versionIndex);
+        Assert.True(passwordIndex > metadataIndex);
+        Assert.True(backupIndex > passwordIndex);
+        Assert.Contains("dotnet-ef version is not compatible with EF Core 10", helper);
+        Assert.Contains("\\b10\\.\\d+\\.\\d+\\b", helper);
+        Assert.Contains("migrations','list','--no-connect", helper);
+        Assert.Contains(MigrationId, helper);
+    }
+
+    private static string CorrectedPreflightCommand() => "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\User\\Documents\\Codex\\2026-07-03\\see\\target-dotnet\\tools\\apply-rev868c3-employee-reconciliation-secure.ps1\" -GitPath \"C:\\Users\\User\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\native\\git\\cmd\\git.exe\" -DotnetEfPath \"C:\\Users\\User\\.nuget\\packages\\dotnet-ef\\10.0.10\\tools\\net8.0\\any\\dotnet-ef.dll\" -PreflightOnly";
+    [Fact]
     public void Rev868c3_helper_preflight_safe_retry_requires_all_partial_artifacts_zero()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");

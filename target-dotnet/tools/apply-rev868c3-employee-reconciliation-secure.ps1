@@ -80,8 +80,14 @@ function Resolve-DotnetEfInvocation([string]$DotnetExe, [string]$ExplicitPath) {
     if ($ExplicitPath) {
         $resolved = Resolve-File $ExplicitPath 'dotnet-ef executable'
         $leaf = [System.IO.Path]::GetFileName($resolved)
-        if ($leaf -notin @('dotnet-ef.exe','dotnet-ef.cmd','dotnet-ef')) { throw "Invalid dotnet-ef executable name: $leaf" }
-        return [pscustomobject]@{ Mode = 'Executable'; Command = $resolved }
+        if ($leaf -eq 'dotnet-ef.dll') {
+            $approvedPackageRoot = (Resolve-Path -LiteralPath (Join-Path $env:USERPROFILE '.nuget\packages\dotnet-ef') -ErrorAction Stop).Path.TrimEnd('\') + '\'
+            if (-not $resolved.StartsWith($approvedPackageRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "dotnet-ef.dll must be under approved NuGet package root: $approvedPackageRoot" }
+            if ($resolved -match '\.\.($|[\\/])') { throw 'dotnet-ef.dll path traversal is rejected.' }
+            return [pscustomobject]@{ Mode = 'DotnetExec'; Command = $resolved }
+        }
+        if ($leaf -eq 'dotnet-ef.exe') { return [pscustomobject]@{ Mode = 'Executable'; Command = $resolved } }
+        throw "Invalid dotnet-ef executable name: $leaf"
     }
 
     $manifest = Join-Path $root '.config\dotnet-tools.json'
@@ -96,7 +102,7 @@ function Resolve-DotnetEfInvocation([string]$DotnetExe, [string]$ExplicitPath) {
         if ($dll.Count -eq 1) { return [pscustomobject]@{ Mode = 'DotnetExec'; Command = $dll[0].FullName } }
     }
 
-    $globalCandidates = @(Join-Path $env:USERPROFILE '.dotnet\tools\dotnet-ef.exe'), @(Join-Path $env:USERPROFILE '.dotnet\tools\dotnet-ef.cmd')
+    $globalCandidates = @(Join-Path $env:USERPROFILE '.dotnet\tools\dotnet-ef.exe')
     foreach ($candidate in $globalCandidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { return [pscustomobject]@{ Mode = 'Executable'; Command = (Resolve-Path -LiteralPath $candidate).Path } }
     }
@@ -116,6 +122,8 @@ function Invoke-DotnetEfTool([string[]]$EfArgs) {
 function Test-DotnetEfTool {
     $output = @(Invoke-DotnetEfTool @('--version') 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "dotnet-ef resolved but failed version check. $($output -join ' ')" }
+    $versionText = ($output | ForEach-Object { $_.ToString() }) -join ' '
+    if ($versionText -notmatch '\b10\.\d+\.\d+\b') { throw "dotnet-ef version is not compatible with EF Core 10. Output: $versionText" }
 }
 function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode) {
     $raw = ($Output | ForEach-Object { $_.ToString() }) -join "`n"
