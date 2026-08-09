@@ -297,3 +297,19 @@ public sealed class PurchaseNumberSequence : AuditableEntity
     public long LastNumber { get; set; }
     public bool IsActive { get; set; } = true;
 }
+
+
+public sealed class PurchaseApprovalWorkflowStep : AuditableEntity
+{
+    public string RouteCode { get; set; } = string.Empty;
+    public decimal MinimumAmount { get; set; }
+    public decimal? MaximumAmount { get; set; }
+    public int StepNumber { get; set; }
+    public string ApproverResolutionType { get; set; } = string.Empty;
+    public string? ApproverEmployeeCode { get; set; }
+    public string? ApproverRoleCode { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public string Remarks { get; set; } = string.Empty;
+}

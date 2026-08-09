@@ -56,6 +56,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
     public DbSet<StockReservationHistory> StockReservationHistories => Set<StockReservationHistory>();
     public DbSet<PurchaseRequirementHandoff> PurchaseRequirementHandoffs => Set<PurchaseRequirementHandoff>();
     public DbSet<PurchaseApprovalRouteSetting> PurchaseApprovalRouteSettings => Set<PurchaseApprovalRouteSetting>();
+    public DbSet<PurchaseApprovalWorkflowStep> PurchaseApprovalWorkflowSteps => Set<PurchaseApprovalWorkflowStep>();
     public DbSet<DepartmentApprovalMapping> DepartmentApprovalMappings => Set<DepartmentApprovalMapping>();
     public DbSet<PurchaseNumberSequence> PurchaseNumberSequences => Set<PurchaseNumberSequence>();
 
@@ -664,6 +665,23 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_route_limits_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")"));
         });
 
+
+        modelBuilder.Entity<PurchaseApprovalWorkflowStep>(entity =>
+        {
+            entity.ToTable("purchase_approval_workflow_steps");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.RouteCode, x.StepNumber, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.RouteCode, x.IsActive });
+            entity.Property(x => x.RouteCode).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.MinimumAmount).HasPrecision(18, 2);
+            entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
+            entity.Property(x => x.ApproverResolutionType).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.ApproverEmployeeCode).HasMaxLength(40);
+            entity.Property(x => x.ApproverRoleCode).HasMaxLength(80);
+            entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_workflow_amounts_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\") AND \"StepNumber\" > 0"));
+        });
 
         modelBuilder.Entity<DepartmentApprovalMapping>(entity =>
         {

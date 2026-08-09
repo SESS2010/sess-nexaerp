@@ -28,6 +28,7 @@ $RejectedDatabases = @('sess_nexaerp','postgres','template0','template1')
 $ActiveEmployeeCodes = 'SESS-001,SESS-002,SESS-003,SESS-004,SESS-005,SESS-006,SESS-007,SESS-008,SESS-009,SESS-010,SESS-011,SESS-012,SESS-013,SESS-014,SESS-015,SESS-017,SESS-019,SESS-020,SESS-021,SESS-023,SESS-024,SESS-025,SESS-026,SESS-029,SESS-030,SESS-031,SESS-033,SESS-034,SESS-035,SESS-038,SESS-040,SESS-041,SESS-042,SESS-043,SESS-044,SESS-045,SESS-046,SESS-047,SESS-048,SESS-049,SESS-050,SESS-051'
 $RelievedEmployeeCodes = 'SESS-016,SESS-018,SESS-022,SESS-027,SESS-028,SESS-032,SESS-036,SESS-037,SESS-039'
 $DepartmentCodes = 'ACCOUNTS_FINANCE,DESIGN,ELECTRICAL_PLC_INSTRUMENTATION,HR_ADMIN,MANAGEMENT,PRODUCTION_FABRICATION,PURCHASE,QUALITY_QC,REFRIGERATION_MECHANICAL,SERVICE_TECHNICAL_SUPPORT,SOFTWARE_IT,STORES'
+$ManagerMappingRows = 'ACCOUNTS_FINANCE:ALL:SESS-007:SESS-002,DESIGN:PROJECT:SESS-015:SESS-019,DESIGN:REGULAR_PRODUCT:SESS-015:SESS-019,ELECTRICAL_PLC_INSTRUMENTATION:ALL:SESS-038:SESS-001,HR_ADMIN:ALL:SESS-020:SESS-002,MANAGEMENT:ALL:SESS-002:SESS-001,PRODUCTION_FABRICATION:ALL:SESS-023:SESS-040,PURCHASE:ALL:SESS-012:SESS-014,QUALITY_QC:ALL:SESS-040:SESS-009,REFRIGERATION_MECHANICAL:ALL:SESS-003:SESS-004,SERVICE_TECHNICAL_SUPPORT:BANGALORE:SESS-011:SESS-004,SERVICE_TECHNICAL_SUPPORT:CHENNAI:SESS-004:SESS-003,SOFTWARE_IT:ALL:SESS-008:SESS-049,STORES:ALL:SESS-014:SESS-012'
 $pgBin = 'C:\Program Files\PostgreSQL\17\bin'
 $psql = Join-Path $pgBin 'psql.exe'
 $pgDump = Join-Path $pgBin 'pg_dump.exe'
@@ -71,7 +72,6 @@ with artifact_counts as (
         (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname like 'rev868c3\_%\_backup' escape '\') as backup_relation_count,
         (select count(*) from nexa.employee_status_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "Reason" like 'REV868C3 employee workbook reconciliation%') as status_history_partial_count,
         (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'employee_department_history') as department_history_relation_count,
-        case when exists (select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relname = 'employee_department_history') then (select count(*) from nexa.employee_department_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') else 0 end as department_history_partial_count,
         (select count(*) from nexa.audit_logs where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') as audit_partial_count,
         (select count(*) from nexa.employee_role_assignments where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') as role_assignment_partial_count,
         (select count(*) from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') as role_page_permission_partial_count,
@@ -87,7 +87,6 @@ union all select 'rev868c3_history_count=' || rev868c3_history_count::text from 
 union all select 'backup_relation_count=' || backup_relation_count::text from artifact_counts
 union all select 'status_history_partial_count=' || status_history_partial_count::text from artifact_counts
 union all select 'department_history_relation_count=' || department_history_relation_count::text from artifact_counts
-union all select 'department_history_partial_count=' || department_history_partial_count::text from artifact_counts
 union all select 'audit_partial_count=' || audit_partial_count::text from artifact_counts
 union all select 'role_assignment_partial_count=' || role_assignment_partial_count::text from artifact_counts
 union all select 'role_page_permission_partial_count=' || role_page_permission_partial_count::text from artifact_counts
@@ -97,7 +96,7 @@ union all select 'deterministic_department_partial_count=' || deterministic_depa
 union all select 'deterministic_designation_partial_count=' || deterministic_designation_partial_count::text from artifact_counts
 union all select 'employee_column_count=' || employee_column_count::text from artifact_counts
 union all select 'mapping_scope_column_count=' || mapping_scope_column_count::text from artifact_counts
-union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and department_history_partial_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
+union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
 "@
 }
 function Get-PostMigrationSql {
@@ -107,29 +106,82 @@ select 'identity|database=' || current_database() || '|user=' || current_user ||
 $(Get-MigrationRowsSql)
 select 'expected_migration_count=' || count(*)::text from "public"."__EFMigrationsHistory" where "MigrationId" in ($all);
 select 'rev868c3_migration_count=' || count(*)::text from "public"."__EFMigrationsHistory" where "MigrationId" = '$MigrationName';
-select 'active_employee_codes=' || coalesce(string_agg("EmployeeCode", ',' order by "EmployeeCode"),'') from nexa.employees where lower("Status") = 'active' and "EmployeeCode" like 'SESS-%';
-select 'active_employee_codes_expected=$ActiveEmployeeCodes';
-select 'relieved_employee_codes=' || coalesce(string_agg("EmployeeCode", ',' order by "EmployeeCode"),'') from nexa.employees where "EmployeeCode" in ('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039') and lower("Status") in ('left / resigned','inactive');
-select 'relieved_employee_codes_expected=$RelievedEmployeeCodes';
-select 'department_codes=' || coalesce(string_agg("Code", ',' order by "Code"),'') from nexa.departments where "Code" in ('MANAGEMENT','PURCHASE','STORES','ACCOUNTS_FINANCE','HR_ADMIN','PRODUCTION_FABRICATION','DESIGN','ELECTRICAL_PLC_INSTRUMENTATION','REFRIGERATION_MECHANICAL','SERVICE_TECHNICAL_SUPPORT','SOFTWARE_IT','QUALITY_QC') and "IsActive" = true;
-select 'department_codes_expected=$DepartmentCodes';
-select 'manager_mapping_rows=' || coalesce(string_agg(d."Code" || ':' || m."Scope" || ':' || p."EmployeeCode" || ':' || a."EmployeeCode", ',' order by d."Code", m."Scope"),'') from nexa.department_approval_mappings m join nexa.departments d on d."Id" = m."DepartmentId" join nexa.employees p on p."Id" = m."PrimaryApproverEmployeeId" left join nexa.employees a on a."Id" = m."AlternateApproverEmployeeId" where m."ApprovalRouteCode" = 'MANAGER' and m."IsActive" = true and m."CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-select 'workflow_step|range=0.00-50000.00|sequence=1|resolution=DEPARTMENT_MAPPING|role=MANAGER';
-select 'workflow_step|range=50000.01-500000.00|sequence=1|resolution=DEPARTMENT_MAPPING|role=MANAGER';
-select 'workflow_step|range=50000.01-500000.00|sequence=2|resolution=FIXED_EMPLOYEE_ROLE|employee=SESS-002|role=MANAGING_DIRECTOR';
-select 'workflow_step|range=500000.01-unbounded|sequence=1|resolution=DEPARTMENT_MAPPING|role=MANAGER';
-select 'workflow_step|range=500000.01-unbounded|sequence=2|resolution=FIXED_EMPLOYEE_ROLE|employee=SESS-002|role=MANAGING_DIRECTOR';
-select 'workflow_step|range=500000.01-unbounded|sequence=3|resolution=FIXED_EMPLOYEE_ROLE|employee=SESS-001|role=TECHNICAL_DIRECTOR';
+with expected(code) as (select unnest(string_to_array('$ActiveEmployeeCodes', ','))), actual(code) as (select "EmployeeCode" from nexa.employees where lower("Status") = 'active' and "EmployeeCode" like 'SESS-%')
+select 'active_employee_codes=' || coalesce((select string_agg(code, ',' order by code) from actual),'')
+union all select 'active_employee_codes_expected=$ActiveEmployeeCodes'
+union all select 'active_employee_missing_count=' || (select count(*)::text from expected e left join actual a using(code) where a.code is null)
+union all select 'active_employee_unexpected_count=' || (select count(*)::text from actual a left join expected e using(code) where e.code is null)
+union all select 'active_employee_acceptance_state=' || case when (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0 then 'PASS' else 'FAIL' end;
+with expected(code) as (select unnest(string_to_array('$RelievedEmployeeCodes', ','))), actual(code) as (select "EmployeeCode" from nexa.employees where "EmployeeCode" in ('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039') and lower("Status") in ('left / resigned','inactive'))
+select 'relieved_employee_codes=' || coalesce((select string_agg(code, ',' order by code) from actual),'')
+union all select 'relieved_employee_codes_expected=$RelievedEmployeeCodes'
+union all select 'relieved_employee_missing_count=' || (select count(*)::text from expected e left join actual a using(code) where a.code is null)
+union all select 'relieved_employee_unexpected_count=' || (select count(*)::text from actual a left join expected e using(code) where e.code is null)
+union all select 'relieved_employee_acceptance_state=' || case when (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0 then 'PASS' else 'FAIL' end;
+with expected(code) as (select unnest(string_to_array('$DepartmentCodes', ','))), actual(code) as (select "Code" from nexa.departments where "IsActive" = true and "Code" = any(string_to_array('$DepartmentCodes', ',')))
+select 'department_codes=' || coalesce((select string_agg(code, ',' order by code) from actual),'')
+union all select 'department_codes_expected=$DepartmentCodes'
+union all select 'department_missing_count=' || (select count(*)::text from expected e left join actual a using(code) where a.code is null)
+union all select 'department_unexpected_count=' || (select count(*)::text from actual a left join expected e using(code) where e.code is null)
+union all select 'department_acceptance_state=' || case when (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0 then 'PASS' else 'FAIL' end;
+with expected(row_key) as (select unnest(string_to_array('$ManagerMappingRows', ','))), actual(row_key) as (select d."Code" || ':' || m."Scope" || ':' || p."EmployeeCode" || ':' || coalesce(a."EmployeeCode", '') from nexa.department_approval_mappings m join nexa.departments d on d."Id" = m."DepartmentId" join nexa.employees p on p."Id" = m."PrimaryApproverEmployeeId" left join nexa.employees a on a."Id" = m."AlternateApproverEmployeeId" where m."ApprovalRouteCode" = 'MANAGER' and m."IsActive" = true and m."CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'), dupes as (select row_key from actual group by row_key having count(*) > 1)
+select 'manager_mapping_rows=' || coalesce((select string_agg(row_key, ',' order by row_key) from actual),'')
+union all select 'manager_mapping_rows_expected=$ManagerMappingRows'
+union all select 'missing_mapping_count=' || (select count(*)::text from expected e left join actual a using(row_key) where a.row_key is null)
+union all select 'unexpected_mapping_count=' || (select count(*)::text from actual a left join expected e using(row_key) where e.row_key is null)
+union all select 'duplicate_mapping_count=' || (select count(*)::text from dupes)
+union all select 'mapping_acceptance_state=' || case when (select count(*) from expected e left join actual a using(row_key) where a.row_key is null) = 0 and (select count(*) from actual a left join expected e using(row_key) where e.row_key is null) = 0 and (select count(*) from dupes) = 0 then 'PASS' else 'FAIL' end;
+with expected(route_code, minimum_amount, maximum_amount, step_number, resolution_type, employee_code, role_code) as (values
+    ('MANAGER_ONLY', 0.00::numeric, 50000.00::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'),
+    ('MANAGER_MD', 50000.01::numeric, 500000.00::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'),
+    ('MANAGER_MD', 50000.01::numeric, 500000.00::numeric, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR'),
+    ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'),
+    ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR'),
+    ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 3, 'FIXED_EMPLOYEE_ROLE', 'SESS-001', 'TECHNICAL_DIRECTOR')
+), actual as (select "RouteCode" route_code, "MinimumAmount" minimum_amount, "MaximumAmount" maximum_amount, "StepNumber" step_number, "ApproverResolutionType" resolution_type, "ApproverEmployeeCode" employee_code, "ApproverRoleCode" role_code from nexa.purchase_approval_workflow_steps where "IsActive" = true and "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'), missing as (select * from expected except select * from actual), unexpected as (select * from actual except select * from expected), dupes as (select route_code, step_number from actual group by route_code, step_number having count(*) > 1), sequence_bad as (select route_code from actual group by route_code having min(step_number) <> 1 or max(step_number) <> count(*))
+select 'workflow_missing_count=' || (select count(*)::text from missing)
+union all select 'workflow_unexpected_count=' || (select count(*)::text from unexpected)
+union all select 'workflow_duplicate_count=' || (select count(*)::text from dupes)
+union all select 'workflow_sequence_violation_count=' || (select count(*)::text from sequence_bad)
+union all select 'workflow_acceptance_state=' || case when (select count(*) from missing) = 0 and (select count(*) from unexpected) = 0 and (select count(*) from dupes) = 0 and (select count(*) from sequence_bad) = 0 then 'PASS' else 'FAIL' end;
+select 'duplicate_employee_codes=' || count(*)::text from (select "EmployeeCode" from nexa.employees group by "EmployeeCode" having count(*) > 1) d;
+select 'duplicate_payroll_ids=' || count(*)::text from (select "PayrollEmployeeId" from nexa.employees where "PayrollEmployeeId" is not null group by "PayrollEmployeeId" having count(*) > 1) d;
 select 'login_enabled_mismatch_count=' || count(*)::text from nexa.employees e join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id" where e."LoginEnabled" is distinct from b."LoginEnabled";
 select 'approval_status_mismatch_count=' || count(*)::text from nexa.employees e join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id" where e."ApprovalStatus" is distinct from b."ApprovalStatus";
 select 'status_history_rows=' || count(*)::text from nexa.employee_status_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "Reason" like 'REV868C3 employee workbook reconciliation%';
 select 'department_transfer_history_rows=' || count(*)::text from nexa.employee_department_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION';
 select 'manager_role_assignment_rows=' || count(*)::text from nexa.employee_role_assignments where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
 select 'manager_permission_rows=' || count(*)::text from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION';
-select 'self_approval_prevention_source=PurchaseRequisitionEndpointHelpers blocks duplicate actor before approval completion';
 select 'narren_exact_doj=' || count(*)::text from nexa.employees where "EmployeeCode" = 'SESS-040' and "EmployeeName" = 'NARREN VALENTINO' and "DateOfJoining" = DATE '2026-02-01' and "IsDateOfJoiningApproximate" = false;
 select 'mageshwari_female=' || count(*)::text from nexa.employees where "EmployeeCode" = 'SESS-049' and "PayrollEmployeeId" = '1072' and "Gender" = 'Female';
 select 'audit_evidence_count=' || count(*)::text from nexa.audit_logs where "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION';
+select 'targeted_test|unauthenticated_401|source=management_postgresql_run|required=PASS';
+select 'targeted_test|unauthorized_403|source=management_postgresql_run|required=PASS';
+select 'targeted_test|creator_self_approval_403|source=management_postgresql_run|required=PASS';
+select 'targeted_test|duplicate_approver_prevention|source=management_postgresql_run|required=PASS';
+select 'targeted_test|missing_department_manager_fail_closed|source=management_postgresql_run|required=PASS';
+select 'targeted_test|manager_md_td_sequence|source=management_postgresql_run|required=PASS';
+with conditions as (
+    select
+      (select count(*) from "public"."__EFMigrationsHistory" where "MigrationId" in ($all)) = 10 as migrations_ok,
+      (with expected(code) as (select unnest(string_to_array('$ActiveEmployeeCodes', ','))), actual(code) as (select "EmployeeCode" from nexa.employees where lower("Status") = 'active' and "EmployeeCode" like 'SESS-%') select (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0) as active_employees_ok,
+      (with expected(code) as (select unnest(string_to_array('$RelievedEmployeeCodes', ','))), actual(code) as (select "EmployeeCode" from nexa.employees where "EmployeeCode" in ('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039') and lower("Status") in ('left / resigned','inactive')) select (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0) as relieved_employees_ok,
+      (with expected(code) as (select unnest(string_to_array('$DepartmentCodes', ','))), actual(code) as (select "Code" from nexa.departments where "IsActive" = true and "Code" = any(string_to_array('$DepartmentCodes', ','))) select (select count(*) from expected e left join actual a using(code) where a.code is null) = 0 and (select count(*) from actual a left join expected e using(code) where e.code is null) = 0) as departments_ok,
+      (with expected(row_key) as (select unnest(string_to_array('$ManagerMappingRows', ','))), actual(row_key) as (select d."Code" || ':' || m."Scope" || ':' || p."EmployeeCode" || ':' || coalesce(a."EmployeeCode", '') from nexa.department_approval_mappings m join nexa.departments d on d."Id" = m."DepartmentId" join nexa.employees p on p."Id" = m."PrimaryApproverEmployeeId" left join nexa.employees a on a."Id" = m."AlternateApproverEmployeeId" where m."ApprovalRouteCode" = 'MANAGER' and m."IsActive" = true and m."CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'), dupes as (select row_key from actual group by row_key having count(*) > 1) select (select count(*) from expected e left join actual a using(row_key) where a.row_key is null) = 0 and (select count(*) from actual a left join expected e using(row_key) where e.row_key is null) = 0 and (select count(*) from dupes) = 0) as mappings_ok,
+      (with expected(route_code, minimum_amount, maximum_amount, step_number, resolution_type, employee_code, role_code) as (values ('MANAGER_ONLY', 0.00::numeric, 50000.00::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'), ('MANAGER_MD', 50000.01::numeric, 500000.00::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'), ('MANAGER_MD', 50000.01::numeric, 500000.00::numeric, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR'), ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 1, 'DEPARTMENT_MAPPING', null::text, 'MANAGER'), ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR'), ('MANAGER_MD_TD', 500000.01::numeric, null::numeric, 3, 'FIXED_EMPLOYEE_ROLE', 'SESS-001', 'TECHNICAL_DIRECTOR')), actual as (select "RouteCode" route_code, "MinimumAmount" minimum_amount, "MaximumAmount" maximum_amount, "StepNumber" step_number, "ApproverResolutionType" resolution_type, "ApproverEmployeeCode" employee_code, "ApproverRoleCode" role_code from nexa.purchase_approval_workflow_steps where "IsActive" = true and "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'), missing as (select * from expected except select * from actual), unexpected as (select * from actual except select * from expected), dupes as (select route_code, step_number from actual group by route_code, step_number having count(*) > 1), sequence_bad as (select route_code from actual group by route_code having min(step_number) <> 1 or max(step_number) <> count(*)) select (select count(*) from missing) = 0 and (select count(*) from unexpected) = 0 and (select count(*) from dupes) = 0 and (select count(*) from sequence_bad) = 0) as workflow_ok,
+      (select count(*) from nexa.employees e join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id" where e."LoginEnabled" is distinct from b."LoginEnabled") = 0 as login_ok,
+      (select count(*) from nexa.employees e join nexa.rev868c3_employee_backup b on b."EmployeeId" = e."Id" where e."ApprovalStatus" is distinct from b."ApprovalStatus") = 0 as approval_ok,
+      (select count(*) from nexa.employees where "EmployeeCode" = 'SESS-040' and "EmployeeName" = 'NARREN VALENTINO' and "DateOfJoining" = DATE '2026-02-01' and "IsDateOfJoiningApproximate" = false) = 1 as narren_ok,
+      (select count(*) from nexa.employees where "EmployeeCode" = 'SESS-049' and "PayrollEmployeeId" = '1072' and "Gender" = 'Female') = 1 as mageshwari_ok,
+      (select count(*) from (select "EmployeeCode" from nexa.employees group by "EmployeeCode" having count(*) > 1) d) = 0 as dup_employee_ok,
+      (select count(*) from (select "PayrollEmployeeId" from nexa.employees where "PayrollEmployeeId" is not null group by "PayrollEmployeeId" having count(*) > 1) d) = 0 as dup_payroll_ok,
+      (select count(*) from nexa.employee_status_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "Reason" like 'REV868C3 employee workbook reconciliation%') > 0 as status_history_ok,
+      (select count(*) from nexa.employee_department_history where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION' and "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') > 0 as department_history_ok,
+      (select count(*) from nexa.employee_role_assignments where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') > 0 as manager_roles_ok,
+      (select count(*) from nexa.role_page_permissions where "CreatedBy" = 'REV868C3_DEPARTMENT_MANAGER_PERMISSION') > 0 as role_permissions_ok,
+      (select count(*) from nexa.audit_logs where "CorrelationId" = 'REV868C3_EMPLOYEE_WORKBOOK_RECONCILIATION') > 0 as audit_ok
+)
+select 'acceptance_state=' || case when migrations_ok and active_employees_ok and relieved_employees_ok and departments_ok and mappings_ok and workflow_ok and login_ok and approval_ok and narren_ok and mageshwari_ok and dup_employee_ok and dup_payroll_ok and status_history_ok and department_history_ok and manager_roles_ok and role_permissions_ok and audit_ok then 'PASS' else 'FAIL' end from conditions;
 "@
 }
 function Write-Plan {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -163,6 +163,38 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         migrationBuilder.CreateIndex(name: "IX_employee_department_history_NewDepartmentId", schema: "nexa", table: "employee_department_history", column: "NewDepartmentId");
         migrationBuilder.CreateIndex(name: "IX_employee_department_history_PreviousDepartmentId", schema: "nexa", table: "employee_department_history", column: "PreviousDepartmentId");
 
+        migrationBuilder.CreateTable(
+            name: "purchase_approval_workflow_steps",
+            schema: "nexa",
+            columns: table => new
+            {
+                Id = table.Column<Guid>(type: "uuid", nullable: false),
+                RouteCode = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                MinimumAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
+                MaximumAmount = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: true),
+                StepNumber = table.Column<int>(type: "integer", nullable: false),
+                ApproverResolutionType = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: false),
+                ApproverEmployeeCode = table.Column<string>(type: "character varying(40)", maxLength: 40, nullable: true),
+                ApproverRoleCode = table.Column<string>(type: "character varying(80)", maxLength: 80, nullable: true),
+                IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                EffectiveFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                EffectiveTo = table.Column<DateOnly>(type: "date", nullable: true),
+                Remarks = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                CreatedBy = table.Column<string>(type: "text", nullable: false),
+                UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                UpdatedBy = table.Column<string>(type: "text", nullable: true),
+                Version = table.Column<uint>(type: "xid", rowVersion: true, nullable: false)
+            },
+            constraints: table =>
+            {
+                table.PrimaryKey("PK_purchase_approval_workflow_steps", x => x.Id);
+                table.CheckConstraint("CK_purchase_workflow_amounts_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\") AND \"StepNumber\" > 0");
+            });
+
+        migrationBuilder.CreateIndex(name: "IX_purchase_approval_workflow_steps_RouteCode_IsActive", schema: "nexa", table: "purchase_approval_workflow_steps", columns: new[] { "RouteCode", "IsActive" });
+        migrationBuilder.CreateIndex(name: "IX_purchase_approval_workflow_steps_RouteCode_StepNumber_EffectiveFrom", schema: "nexa", table: "purchase_approval_workflow_steps", columns: new[] { "RouteCode", "StepNumber", "EffectiveFrom" }, unique: true);
+
         migrationBuilder.Sql(BuildUpsertSql());
 
         migrationBuilder.CreateIndex(
@@ -288,6 +320,8 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
             end $$;
         """);
 
+        migrationBuilder.DropTable(name: "purchase_approval_workflow_steps", schema: "nexa");
+
         migrationBuilder.DropTable(name: "employee_department_history", schema: "nexa");
 
         migrationBuilder.DropColumn(name: "Scope", schema: "nexa", table: "department_approval_mappings");
@@ -398,6 +432,19 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         }
 
         sb.AppendLine($"""
+            insert into nexa.purchase_approval_workflow_steps ("Id", "RouteCode", "MinimumAmount", "MaximumAmount", "StepNumber", "ApproverResolutionType", "ApproverEmployeeCode", "ApproverRoleCode", "IsActive", "EffectiveFrom", "EffectiveTo", "Remarks", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+            values
+              ('{Id("rev868c3-workflow", "MANAGER_ONLY", "1")}', 'MANAGER_ONLY', 0.00, 50000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '0-50000 department manager approval', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
+              ('{Id("rev868c3-workflow", "MANAGER_MD", "1")}', 'MANAGER_MD', 50000.01, 500000.00, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, '50000.01-500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
+              ('{Id("rev868c3-workflow", "MANAGER_MD", "2")}', 'MANAGER_MD', 50000.01, 500000.00, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, '50000.01-500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "1")}', 'MANAGER_MD_TD', 500000.01, null, 1, 'DEPARTMENT_MAPPING', null, 'MANAGER', true, DATE '2026-08-09', null, 'above 500000 department manager step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "2")}', 'MANAGER_MD_TD', 500000.01, null, 2, 'FIXED_EMPLOYEE_ROLE', 'SESS-002', 'MANAGING_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 MD step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0),
+              ('{Id("rev868c3-workflow", "MANAGER_MD_TD", "3")}', 'MANAGER_MD_TD', 500000.01, null, 3, 'FIXED_EMPLOYEE_ROLE', 'SESS-001', 'TECHNICAL_DIRECTOR', true, DATE '2026-08-09', null, 'above 500000 TD CEO step', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+            on conflict ("RouteCode", "StepNumber", "EffectiveFrom") do update set
+                "MinimumAmount" = excluded."MinimumAmount", "MaximumAmount" = excluded."MaximumAmount", "ApproverResolutionType" = excluded."ApproverResolutionType", "ApproverEmployeeCode" = excluded."ApproverEmployeeCode", "ApproverRoleCode" = excluded."ApproverRoleCode", "IsActive" = true, "Remarks" = excluded."Remarks", "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
+        """);
+
+        sb.AppendLine($"""
             insert into nexa.employee_status_history ("Id", "EmployeeId", "OldStatus", "NewStatus", "Reason", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
             select gen_random_uuid(), e."Id", b."Status", e."Status", 'REV868C3 employee workbook reconciliation; SourceWorkbook={Rev868C3EmployeeWorkbookData.SourceWorkbook}', TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0
             from nexa.employees e
@@ -434,8 +481,3 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
     private static string Date(DateOnly? value) => value.HasValue ? $"DATE '{value.Value:yyyy-MM-dd}'" : "null";
     private static string Bool(bool value) => value ? "true" : "false";
 }
-
-
-
-
-

@@ -64,13 +64,29 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("active_employee_codes_expected", helper);
         Assert.Contains("relieved_employee_codes_expected", helper);
         Assert.Contains("backup_relation_count", helper);
-        Assert.Contains("department_history_partial_count", helper);
+        Assert.Contains("department_history_relation_count", helper);
         Assert.Contains("role_assignment_partial_count", helper);
         Assert.Contains("role_page_permission_partial_count", helper);
         Assert.Contains("manager_mapping_rows", helper);
-        Assert.Contains("workflow_step|range=500000.01-unbounded|sequence=3", helper);
+        Assert.Contains("missing_mapping_count", helper);
+        Assert.Contains("unexpected_mapping_count", helper);
+        Assert.Contains("duplicate_mapping_count", helper);
+        Assert.Contains("mapping_acceptance_state", helper);
+        Assert.Contains("purchase_approval_workflow_steps", helper);
+        Assert.Contains("workflow_missing_count", helper);
+        Assert.Contains("workflow_unexpected_count", helper);
+        Assert.Contains("workflow_duplicate_count", helper);
+        Assert.Contains("workflow_sequence_violation_count", helper);
+        Assert.Contains("workflow_acceptance_state", helper);
         Assert.Contains("login_enabled_mismatch_count", helper);
         Assert.Contains("approval_status_mismatch_count", helper);
+        Assert.Contains("targeted_test|unauthenticated_401", helper);
+        Assert.Contains("targeted_test|unauthorized_403", helper);
+        Assert.Contains("targeted_test|creator_self_approval_403", helper);
+        Assert.Contains("targeted_test|duplicate_approver_prevention", helper);
+        Assert.Contains("targeted_test|missing_department_manager_fail_closed", helper);
+        Assert.Contains("targeted_test|manager_md_td_sequence", helper);
+        Assert.Contains("acceptance_state", helper);
         Assert.DoesNotContain("C:\\Users\\User\\Documents\\Codex\\2026-07-03\\see\\target-dotnet\\local-evidence\\rev868c3\\SESS_NexaERP_Final_Employee_Master_2026-08-09.xlsx", helper);
     }
 
@@ -118,7 +134,7 @@ public sealed class Rev868C3ImplementationTests
 
         Assert.Contains("rev868c3\\_%\\_backup", helper);
         Assert.Contains("status_history_partial_count", helper);
-        Assert.Contains("department_history_partial_count", helper);
+        Assert.Contains("department_history_relation_count", helper);
         Assert.Contains("audit_partial_count", helper);
         Assert.Contains("deterministic_employee_partial_count", helper);
         Assert.Contains("deterministic_department_partial_count", helper);
@@ -126,6 +142,33 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("safe_retry_state=' || case when prerequisite_history_count = 9", helper);
         Assert.Contains("backup_relation_count", helper);
         Assert.Contains("Backup SHA-256", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_helper_preflight_does_not_query_missing_department_history_table()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+        var preflightStart = helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal);
+        var preflightEnd = helper.IndexOf("function Get-PostMigrationSql", preflightStart, StringComparison.Ordinal);
+        var preflight = helper[preflightStart..preflightEnd];
+
+        Assert.Contains("department_history_relation_count", preflight);
+        Assert.DoesNotContain("nexa.employee_department_history", preflight, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("department_history_relation_count = 0", preflight);
+    }
+
+    [Fact]
+    public void Rev868c3_migration_persists_approval_workflow_steps()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("purchase_approval_workflow_steps", migration);
+        Assert.Contains("MANAGER_ONLY", migration);
+        Assert.Contains("MANAGER_MD", migration);
+        Assert.Contains("MANAGER_MD_TD", migration);
+        Assert.Contains("SESS-002", migration);
+        Assert.Contains("SESS-001", migration);
+        Assert.Contains("FIXED_EMPLOYEE_ROLE", migration);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
