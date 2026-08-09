@@ -657,7 +657,8 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
             entity.Property(x => x.RouteCode).HasMaxLength(40).IsRequired();
             entity.Property(x => x.MinimumAmount).HasPrecision(18, 2);
             entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
-            entity.Property(x => x.ApproverRoleCode).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ApproverRoleCode).HasMaxLength(80);
+            entity.Property(x => x.ApproverResolutionType).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_route_limits_valid", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")"));
         });

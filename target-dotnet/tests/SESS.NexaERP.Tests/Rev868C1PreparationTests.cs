@@ -389,7 +389,8 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("MANAGER", migration);
         Assert.Contains("TECHNICAL_DIRECTOR", migration);
         Assert.Contains("MANAGING_DIRECTOR", migration);
-        Assert.Contains("DEPARTMENT_MANAGER", migration);
+        Assert.Contains("DEPARTMENT_MAPPING", migration);
+        Assert.Contains("FIXED_ROLE", migration);
         Assert.Contains("on conflict (\"RouteCode\") do update", migration);
         Assert.Contains("expected_route=", resume);
         Assert.Contains("configured_route=", resume);
@@ -410,12 +411,19 @@ public sealed class Rev868C1PreparationTests
         Assert.Contains("template1", helper);
         Assert.Contains("rev861", helper, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("PreflightOnly", helper);
+        Assert.Contains("Host: $HostName", helper);
+        Assert.Contains("Target DB: $Database", helper);
+        Assert.Contains("Rejected DBs: sess_nexaerp, postgres, template0, template1, REV861-like names", helper);
+        Assert.Contains("Target corrective migration: $correctionMigration", helper);
         Assert.Contains("GeneratePlanOnly", helper);
         Assert.Contains("begin transaction read only", helper, StringComparison.OrdinalIgnoreCase);
+        var preflightOnlySection = helper.Substring(helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal), helper.IndexOf("function Get-PostMigrationSql", StringComparison.Ordinal) - helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal));
+        Assert.DoesNotContain("department_approval_mappings", preflightOnlySection);
+        Assert.Contains("department_approval_mappings", helper);
         Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("createdb", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("dropdb", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotMatch(@"(?i)(^|\s)(createdb)(\s|$)", helper);
+        Assert.DoesNotMatch(@"(?i)(^|\s)(dropdb)(\s|$)", helper);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));

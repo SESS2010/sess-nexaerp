@@ -35,6 +35,12 @@ public static class PurchaseRequisitionLineStatuses
     public const string Cancelled = "Cancelled";
 }
 
+public static class PurchaseApproverResolutionTypes
+{
+    public const string DepartmentMapping = "DEPARTMENT_MAPPING";
+    public const string FixedRole = "FIXED_ROLE";
+}
+
 public static class PurchaseRequisitionApprovalRoutes
 {
     public const string Manager = "MANAGER";
@@ -57,9 +63,9 @@ public static class PurchaseRequisitionApprovalRoutes
         _ => routeCode
     };
 
-    public static string ApproverRoleCode(string routeCode) => Normalize(routeCode) switch
+    public static string? ApproverRoleCode(string routeCode) => Normalize(routeCode) switch
     {
-        Manager => "DEPARTMENT_MANAGER",
+        Manager => null,
         TechnicalDirector => "TECHNICAL_DIRECTOR",
         ManagingDirector => "MANAGING_DIRECTOR",
         _ => routeCode
@@ -263,7 +269,8 @@ public sealed class PurchaseApprovalRouteSetting : AuditableEntity
     public string RouteCode { get; set; } = string.Empty;
     public decimal MinimumAmount { get; set; }
     public decimal? MaximumAmount { get; set; }
-    public string ApproverRoleCode { get; set; } = string.Empty;
+    public string? ApproverRoleCode { get; set; }
+    public string ApproverResolutionType { get; set; } = PurchaseApproverResolutionTypes.FixedRole;
     public bool IsActive { get; set; } = true;
 }
 

@@ -102,12 +102,12 @@ public static partial class PurchaseRequisitionEndpoints
         return $"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000001}";
     }
 
-    public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string ApproverRoleCode, bool IsActive = true);
+    public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string? ApproverRoleCode, string ApproverResolutionType, bool IsActive = true);
     private static readonly ApprovalRouteDefinition[] DefaultApprovalRoutes =
     [
-        new(PurchaseRequisitionApprovalRoutes.Manager, 0m, 50000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.Manager)),
-        new(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector)),
-        new(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector))
+        new(PurchaseRequisitionApprovalRoutes.Manager, 0m, 50000m, null, PurchaseApproverResolutionTypes.DepartmentMapping),
+        new(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector), PurchaseApproverResolutionTypes.FixedRole),
+        new(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector), PurchaseApproverResolutionTypes.FixedRole)
     ];
 
     public static string RouteFor(decimal total) => RouteFor(total, DefaultApprovalRoutes);
@@ -125,7 +125,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         var routes = await db.PurchaseApprovalRouteSettings.AsNoTracking()
             .Where(x => x.IsActive)
-            .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.IsActive))
+            .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.ApproverResolutionType, x.IsActive))
             .ToListAsync(ct);
         return RouteFor(total, routes.Count == 0 ? DefaultApprovalRoutes : routes);
     }

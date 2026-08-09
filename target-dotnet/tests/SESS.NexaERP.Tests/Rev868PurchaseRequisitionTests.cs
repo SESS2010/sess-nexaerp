@@ -27,6 +27,7 @@ public sealed class Rev868PurchaseRequisitionTests
         Assert.Equal(PurchaseRequisitionApprovalRoutes.ManagingDirector, PurchaseRequisitionApprovalRoutes.Normalize("MD"));
         Assert.Equal("Technical Director", PurchaseRequisitionApprovalRoutes.DisplayLabel(PurchaseRequisitionApprovalRoutes.TechnicalDirector));
         Assert.Equal("Managing Director", PurchaseRequisitionApprovalRoutes.DisplayLabel(PurchaseRequisitionApprovalRoutes.ManagingDirector));
+        Assert.Null(PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.Manager));
         Assert.Equal("TECHNICAL_DIRECTOR", PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector));
         Assert.Equal("MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector));
     }
@@ -43,9 +44,9 @@ public sealed class Rev868PurchaseRequisitionTests
     {
         var routes = new[]
         {
-            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "DEPARTMENT_MANAGER"),
-            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR"),
-            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR")
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, null, PurchaseApproverResolutionTypes.DepartmentMapping),
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR", PurchaseApproverResolutionTypes.FixedRole),
+            new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR", PurchaseApproverResolutionTypes.FixedRole)
         };
 
         Assert.Equal(expected, PurchaseRequisitionEndpoints.RouteFor(total, routes));
@@ -54,9 +55,9 @@ public sealed class Rev868PurchaseRequisitionTests
     [Fact]
     public void Rev868c2_configured_routes_reject_missing_duplicate_overlap_disabled_and_negative_amounts()
     {
-        var manager = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, "DEPARTMENT_MANAGER");
-        var td = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR");
-        var md = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR");
+        var manager = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.Manager, 0, 50000, null, PurchaseApproverResolutionTypes.DepartmentMapping);
+        var td = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000, "TECHNICAL_DIRECTOR", PurchaseApproverResolutionTypes.FixedRole);
+        var md = new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, "MANAGING_DIRECTOR", PurchaseApproverResolutionTypes.FixedRole);
 
         Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(-1, new[] { manager, td, md }));
         Assert.Throws<InvalidOperationException>(() => PurchaseRequisitionEndpoints.RouteFor(50000.01m, new[] { manager, md }));
