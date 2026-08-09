@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -553,6 +555,55 @@ public sealed class Rev868C1PreparationTests
         Assert.DoesNotContain("delete from nexa.pr_approval_history", down, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("delete from nexa.audit_logs", down, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("set \"IsActive\" = false", down);
+    }
+    [Fact]
+    public void Rev868c2_department_mapping_foreign_key_operations_use_nexa_principal_tables()
+    {
+        var migration = new SESS.NexaERP.Infrastructure.Persistence.Migrations.Rev868C2DepartmentManagerApprovalMapping();
+        var builder = new MigrationBuilder("Npgsql.EntityFrameworkCore.PostgreSQL");
+        typeof(SESS.NexaERP.Infrastructure.Persistence.Migrations.Rev868C2DepartmentManagerApprovalMapping)
+            .GetMethod("Up", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(migration, new object[] { builder });
+
+        var createDepartmentMapping = Assert.Single(
+            builder.Operations.OfType<CreateTableOperation>(),
+            operation => operation.Schema == "nexa" && operation.Name == "department_approval_mappings");
+        var foreignKeys = createDepartmentMapping.ForeignKeys.ToDictionary(foreignKey => foreignKey.Name);
+
+        AssertDepartmentMappingForeignKey(
+            foreignKeys["FK_department_approval_mappings_departments_DepartmentId"],
+            "DepartmentId",
+            "departments");
+        AssertDepartmentMappingForeignKey(
+            foreignKeys["FK_department_approval_mappings_employees_PrimaryApproverEmployeeId"],
+            "PrimaryApproverEmployeeId",
+            "employees");
+        AssertDepartmentMappingForeignKey(
+            foreignKeys["FK_department_approval_mappings_employees_AlternateApproverEmployeeId"],
+            "AlternateApproverEmployeeId",
+            "employees");
+    }
+
+    [Fact]
+    public void Rev868c2_offline_sql_uses_correct_nexa_foreign_key_references()
+    {
+        var sql = Read("outputs", "rev868c2_down_fix_up_idempotent.sql");
+
+        Assert.Contains("REFERENCES nexa.departments (\"Id\")", sql);
+        Assert.Equal(2, Regex.Matches(sql, "REFERENCES nexa\\.employees \\(\"Id\"\\)").Count);
+        Assert.DoesNotContain("REFERENCES \"Id\".nexa", sql);
+        Assert.DoesNotContain("schema \"Id\"", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("REFERENCES departments.nexa", sql);
+        Assert.DoesNotContain("REFERENCES employees.nexa", sql);
+    }
+
+    private static void AssertDepartmentMappingForeignKey(AddForeignKeyOperation foreignKey, string column, string principalTable)
+    {
+        Assert.Equal("nexa", foreignKey.PrincipalSchema);
+        Assert.Equal(principalTable, foreignKey.PrincipalTable);
+        Assert.Equal(new[] { "Id" }, foreignKey.PrincipalColumns);
+        Assert.Equal(new[] { column }, foreignKey.Columns);
+        Assert.Equal(ReferentialAction.Restrict, foreignKey.OnDelete);
     }
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));
 

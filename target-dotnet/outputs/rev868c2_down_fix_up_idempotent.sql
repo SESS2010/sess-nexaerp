@@ -128,9 +128,9 @@ BEGIN
         CONSTRAINT "PK_department_approval_mappings" PRIMARY KEY ("Id"),
         CONSTRAINT "CK_department_approval_mapping_effective_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom"),
         CONSTRAINT "CK_department_approval_mapping_manager_route" CHECK ("ApprovalRouteCode" = 'MANAGER'),
-        CONSTRAINT "FK_department_approval_mappings_departments_DepartmentId" FOREIGN KEY ("DepartmentId") REFERENCES "Id".nexa (departments) ON DELETE RESTRICT,
-        CONSTRAINT "FK_department_approval_mappings_employees_AlternateApproverEmployeeId" FOREIGN KEY ("AlternateApproverEmployeeId") REFERENCES "Id".nexa (employees) ON DELETE RESTRICT,
-        CONSTRAINT "FK_department_approval_mappings_employees_PrimaryApproverEmployeeId" FOREIGN KEY ("PrimaryApproverEmployeeId") REFERENCES "Id".nexa (employees) ON DELETE RESTRICT
+        CONSTRAINT "FK_department_approval_mappings_departments_DepartmentId" FOREIGN KEY ("DepartmentId") REFERENCES nexa.departments ("Id") ON DELETE RESTRICT,
+        CONSTRAINT "FK_department_approval_mappings_employees_AlternateApproverEmployeeId" FOREIGN KEY ("AlternateApproverEmployeeId") REFERENCES nexa.employees ("Id") ON DELETE RESTRICT,
+        CONSTRAINT "FK_department_approval_mappings_employees_PrimaryApproverEmployeeId" FOREIGN KEY ("PrimaryApproverEmployeeId") REFERENCES nexa.employees ("Id") ON DELETE RESTRICT
     );
     END IF;
 END $EF$;

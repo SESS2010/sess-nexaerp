@@ -139,9 +139,27 @@ public partial class Rev868C2DepartmentManagerApprovalMapping : Migration
                 table.PrimaryKey("PK_department_approval_mappings", x => x.Id);
                 table.CheckConstraint("CK_department_approval_mapping_effective_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                 table.CheckConstraint("CK_department_approval_mapping_manager_route", "\"ApprovalRouteCode\" = 'MANAGER'");
-                table.ForeignKey("FK_department_approval_mappings_departments_DepartmentId", x => x.DepartmentId, "nexa", "departments", "Id", onDelete: ReferentialAction.Restrict);
-                table.ForeignKey("FK_department_approval_mappings_employees_AlternateApproverEmployeeId", x => x.AlternateApproverEmployeeId, "nexa", "employees", "Id", onDelete: ReferentialAction.Restrict);
-                table.ForeignKey("FK_department_approval_mappings_employees_PrimaryApproverEmployeeId", x => x.PrimaryApproverEmployeeId, "nexa", "employees", "Id", onDelete: ReferentialAction.Restrict);
+                table.ForeignKey(
+                    name: "FK_department_approval_mappings_departments_DepartmentId",
+                    column: x => x.DepartmentId,
+                    principalSchema: "nexa",
+                    principalTable: "departments",
+                    principalColumn: "Id",
+                    onDelete: ReferentialAction.Restrict);
+                table.ForeignKey(
+                    name: "FK_department_approval_mappings_employees_AlternateApproverEmployeeId",
+                    column: x => x.AlternateApproverEmployeeId,
+                    principalSchema: "nexa",
+                    principalTable: "employees",
+                    principalColumn: "Id",
+                    onDelete: ReferentialAction.Restrict);
+                table.ForeignKey(
+                    name: "FK_department_approval_mappings_employees_PrimaryApproverEmployeeId",
+                    column: x => x.PrimaryApproverEmployeeId,
+                    principalSchema: "nexa",
+                    principalTable: "employees",
+                    principalColumn: "Id",
+                    onDelete: ReferentialAction.Restrict);
             });
 
         migrationBuilder.CreateIndex(
