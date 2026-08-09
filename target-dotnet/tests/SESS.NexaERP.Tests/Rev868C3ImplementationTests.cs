@@ -80,14 +80,41 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("workflow_acceptance_state", helper);
         Assert.Contains("login_enabled_mismatch_count", helper);
         Assert.Contains("approval_status_mismatch_count", helper);
-        Assert.Contains("targeted_test|unauthenticated_401", helper);
-        Assert.Contains("targeted_test|unauthorized_403", helper);
-        Assert.Contains("targeted_test|creator_self_approval_403", helper);
-        Assert.Contains("targeted_test|duplicate_approver_prevention", helper);
-        Assert.Contains("targeted_test|missing_department_manager_fail_closed", helper);
-        Assert.Contains("targeted_test|manager_md_td_sequence", helper);
-        Assert.Contains("acceptance_state", helper);
+        Assert.Contains("Get-TestResultSummary", helper);
+        Assert.Contains("Assert-RequiredTargetedTestsPassed", helper);
+        Assert.Contains("Rev868c3_unauthenticated_request_returns_401", helper);
+        Assert.Contains("Rev868c3_unauthorized_role_returns_403", helper);
+        Assert.Contains("Rev868c3_creator_self_approval_returns_403", helper);
+        Assert.Contains("Rev868c3_duplicate_approver_is_prevented", helper);
+        Assert.Contains("Rev868c3_missing_department_manager_fails_closed", helper);
+        Assert.Contains("Rev868c3_manager_md_td_approval_sequence_is_enforced", helper);
+        Assert.Contains("database_acceptance_state", helper);
+        Assert.Contains("final_acceptance_state=PASS", helper);
         Assert.DoesNotContain("C:\\Users\\User\\Documents\\Codex\\2026-07-03\\see\\target-dotnet\\local-evidence\\rev868c3\\SESS_NexaERP_Final_Employee_Master_2026-08-09.xlsx", helper);
+    }
+
+    [Fact]
+    public void Rev868c3_helper_post_verification_uses_full_data_sets_and_no_static_test_evidence()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+        var postStart = helper.IndexOf("function Get-PostMigrationSql", StringComparison.Ordinal);
+        var postEnd = helper.IndexOf("function Get-TestResultSummary", postStart, StringComparison.Ordinal);
+        var post = helper[postStart..postEnd];
+
+        Assert.Contains("DESIGN:PROJECT:SESS-019:SESS-015", helper);
+        Assert.Contains("DESIGN:REGULAR_PRODUCT:SESS-015:SESS-019", helper);
+        Assert.Contains("LegacyMixedDepartmentCodes", helper);
+        Assert.Contains("legacy_mixed_department_active_count", post);
+        Assert.Contains("actual(code) as (select \"Code\" from nexa.departments where \"IsActive\" = true)", post);
+        Assert.Contains("actual(code) as (select \"EmployeeCode\" from nexa.employees where \"EmployeeCode\" like 'SESS-%' and lower(\"Status\")", post);
+        Assert.Contains("where m.\"ApprovalRouteCode\" = 'MANAGER' and m.\"IsActive\" = true", post);
+        Assert.DoesNotContain("m.\"CreatedBy\" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION'", post);
+        Assert.Contains("where \"IsActive\" = true and \"RouteCode\" in ('MANAGER_ONLY','MANAGER_MD','MANAGER_MD_TD')", post);
+        Assert.DoesNotContain("select 'targeted_test|", post);
+        Assert.Contains("status_history_missing_employee_count", post);
+        Assert.Contains("department_transfer_history_missing_employee_count", post);
+        Assert.Contains("manager_role_missing_count", post);
+        Assert.Contains("manager_permission_missing_count", post);
     }
 
     [Theory]
