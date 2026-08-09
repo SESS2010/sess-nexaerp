@@ -273,6 +273,10 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("deterministic_designation_partial_count", helper);
         Assert.Contains("safe_retry_state=' || case when prerequisite_history_count = 9", helper);
         Assert.Contains("workflow_step_relation_count = 0", helper);
+        Assert.Contains("rev868c3_owned_index_artifact_count = 0", helper);
+        Assert.Contains("conflict_duplicate_total_count = 0", helper);
+        Assert.Contains("mapping_nullable_conflict_column_state = 'PASS'", helper);
+        Assert.Contains("workflow_nullable_conflict_column_state = 'PASS'", helper);
         Assert.Contains("backup_relation_count", helper);
         Assert.Contains("Backup SHA-256", helper);
         Assert.Contains("Find-ExistingValidPreC3Backup", helper);
@@ -290,9 +294,88 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("department_history_relation_count", preflight);
         Assert.Contains("workflow_step_relation_count", preflight);
         Assert.DoesNotContain("nexa.employee_department_history", preflight, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("from nexa.purchase_approval_workflow_steps", preflight, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("case when ac.workflow_step_relation_count = 0 then 0 else", preflight);
+        Assert.Contains("query_to_xml('select count(*) as c from (select \"RouteCode\", \"StepNumber\", \"EffectiveFrom\"", preflight);
         Assert.Contains("department_history_relation_count = 0", preflight);
         Assert.Contains("workflow_step_relation_count = 0", preflight);
+    }
+
+    [Fact]
+    public void Rev868c3_helper_preflight_reports_conflict_duplicates_and_owned_index_artifacts()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+        var preflightStart = helper.IndexOf("function Get-PreflightSql", StringComparison.Ordinal);
+        var preflightEnd = helper.IndexOf("function Get-PostMigrationSql", preflightStart, StringComparison.Ordinal);
+        var preflight = helper[preflightStart..preflightEnd];
+
+        var duplicateKeys = new[]
+        {
+            "departments_code_duplicate_count",
+            "designations_code_duplicate_count",
+            "employees_employee_code_duplicate_count",
+            "roles_code_duplicate_count",
+            "role_page_permissions_duplicate_count",
+            "employee_role_assignments_duplicate_count",
+            "department_approval_mappings_duplicate_count",
+            "purchase_approval_workflow_steps_duplicate_count"
+        };
+        foreach (var key in duplicateKeys)
+        {
+            Assert.Contains(key, preflight);
+        }
+
+        var ownedIndexes = new[]
+        {
+            "ux_rev868c3_conflict_departments_code_count",
+            "ux_rev868c3_conflict_designations_code_count",
+            "ux_rev868c3_conflict_employees_employee_code_count",
+            "ux_rev868c3_conflict_roles_code_count",
+            "ux_rev868c3_conflict_role_page_permissions_count",
+            "ux_rev868c3_conflict_employee_role_assignments_count",
+            "ux_rev868c3_conflict_department_approval_mappings_count",
+            "ux_rev868c3_conflict_purchase_approval_workflow_steps_count"
+        };
+        foreach (var key in ownedIndexes)
+        {
+            Assert.Contains(key, preflight);
+        }
+
+        Assert.Contains("rev868c3_owned_index_artifact_count", preflight);
+        Assert.Contains("conflict_duplicate_total_count", preflight);
+        Assert.Contains("conflict_duplicate_state=' || case when conflict_duplicate_total_count = 0 then 'PASS' else 'FAIL' end", preflight);
+        Assert.Contains("query_to_xml('select count(*) as c from (select \"DepartmentId\", \"ApprovalRouteCode\", \"Scope\", \"EffectiveFrom\"", preflight);
+        Assert.Contains("query_to_xml('select count(*) as c from (select \"RouteCode\", \"StepNumber\", \"EffectiveFrom\"", preflight);
+        Assert.Contains("mapping_nullable_conflict_column_state", preflight);
+        Assert.Contains("workflow_nullable_conflict_column_state", preflight);
+    }
+
+    [Fact]
+    public void Rev868c3_down_removes_only_migration_owned_conflict_indexes()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+        var start = migration.IndexOf("private static string DropConflictIndexesSql", StringComparison.Ordinal);
+        var end = migration.IndexOf("private static string BuildUpsertSql", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var dropBlock = migration[start..end];
+
+        var ownedIndexes = new[]
+        {
+            "UX_rev868c3_conflict_departments_code",
+            "UX_rev868c3_conflict_designations_code",
+            "UX_rev868c3_conflict_employees_employee_code",
+            "UX_rev868c3_conflict_roles_code",
+            "UX_rev868c3_conflict_role_page_permissions",
+            "UX_rev868c3_conflict_employee_role_assignments",
+            "UX_rev868c3_conflict_department_approval_mappings",
+            "UX_rev868c3_conflict_purchase_approval_workflow_steps"
+        };
+        foreach (var index in ownedIndexes)
+        {
+            Assert.Contains($"drop index if exists nexa.\"{index}\"", dropBlock);
+        }
+
+        Assert.DoesNotContain("IX_", dropBlock, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("drop index if exists nexa.\"PK_", dropBlock, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

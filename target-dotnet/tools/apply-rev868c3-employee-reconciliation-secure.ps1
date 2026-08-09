@@ -237,26 +237,78 @@ with artifact_counts as (
         (select count(*) from nexa.departments where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION') as deterministic_department_partial_count,
         (select count(*) from nexa.designations where "CreatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION') as deterministic_designation_partial_count,
         (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'employees' and column_name in ('PayrollEmployeeId','Gender','Qualification','DateOfBirth','DateOfJoiningAccuracy','IsDateOfJoiningApproximate','ApproximateDateNote','FunctionalResponsibility','WorkLocation','ManagerScope','LegacyDepartment')) as employee_column_count,
-        (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'department_approval_mappings' and column_name = 'Scope') as mapping_scope_column_count
+        (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'department_approval_mappings' and column_name = 'Scope') as mapping_scope_column_count,
+        (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'department_approval_mappings' and column_name in ('Scope','EffectiveFrom') and is_nullable = 'NO') as mapping_conflict_not_null_column_count,
+        (select count(*) from information_schema.columns where table_schema = 'nexa' and table_name = 'purchase_approval_workflow_steps' and column_name = 'EffectiveFrom' and is_nullable = 'NO') as workflow_conflict_not_null_column_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_departments_code') as ux_rev868c3_conflict_departments_code_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_designations_code') as ux_rev868c3_conflict_designations_code_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_employees_employee_code') as ux_rev868c3_conflict_employees_employee_code_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_roles_code') as ux_rev868c3_conflict_roles_code_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_role_page_permissions') as ux_rev868c3_conflict_role_page_permissions_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_employee_role_assignments') as ux_rev868c3_conflict_employee_role_assignments_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_department_approval_mappings') as ux_rev868c3_conflict_department_approval_mappings_count,
+        (select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'nexa' and c.relkind = 'i' and c.relname = 'UX_rev868c3_conflict_purchase_approval_workflow_steps') as ux_rev868c3_conflict_purchase_approval_workflow_steps_count
+), duplicate_counts as (
+    select
+        (select count(*) from (select "Code" from nexa.departments group by "Code" having count(*) > 1) d) as departments_code_duplicate_count,
+        (select count(*) from (select "Code" from nexa.designations group by "Code" having count(*) > 1) d) as designations_code_duplicate_count,
+        (select count(*) from (select "EmployeeCode" from nexa.employees group by "EmployeeCode" having count(*) > 1) d) as employees_employee_code_duplicate_count,
+        (select count(*) from (select "Code" from nexa.roles group by "Code" having count(*) > 1) d) as roles_code_duplicate_count,
+        (select count(*) from (select "RoleId", "PageDefinitionId" from nexa.role_page_permissions group by "RoleId", "PageDefinitionId" having count(*) > 1) d) as role_page_permissions_duplicate_count,
+        (select count(*) from (select "EmployeeId", "RoleId", "EffectiveFrom" from nexa.employee_role_assignments group by "EmployeeId", "RoleId", "EffectiveFrom" having count(*) > 1) d) as employee_role_assignments_duplicate_count,
+        case when ac.mapping_scope_column_count = 0 then 0 else coalesce(((xpath('/row/c/text()', query_to_xml('select count(*) as c from (select "DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom" from nexa.department_approval_mappings group by "DepartmentId", "ApprovalRouteCode", "Scope", "EffectiveFrom" having count(*) > 1) d', false, true, '')))[1]::text::integer), 0) end as department_approval_mappings_duplicate_count,
+        case when ac.workflow_step_relation_count = 0 then 0 else coalesce(((xpath('/row/c/text()', query_to_xml('select count(*) as c from (select "RouteCode", "StepNumber", "EffectiveFrom" from nexa.purchase_approval_workflow_steps group by "RouteCode", "StepNumber", "EffectiveFrom" having count(*) > 1) d', false, true, '')))[1]::text::integer), 0) end as purchase_approval_workflow_steps_duplicate_count
+    from artifact_counts ac
+), states as (
+    select *,
+        ux_rev868c3_conflict_departments_code_count + ux_rev868c3_conflict_designations_code_count + ux_rev868c3_conflict_employees_employee_code_count + ux_rev868c3_conflict_roles_code_count + ux_rev868c3_conflict_role_page_permissions_count + ux_rev868c3_conflict_employee_role_assignments_count + ux_rev868c3_conflict_department_approval_mappings_count + ux_rev868c3_conflict_purchase_approval_workflow_steps_count as rev868c3_owned_index_artifact_count,
+        departments_code_duplicate_count + designations_code_duplicate_count + employees_employee_code_duplicate_count + roles_code_duplicate_count + role_page_permissions_duplicate_count + employee_role_assignments_duplicate_count + department_approval_mappings_duplicate_count + purchase_approval_workflow_steps_duplicate_count as conflict_duplicate_total_count,
+        case when mapping_scope_column_count = 0 or mapping_conflict_not_null_column_count = 2 then 'PASS' else 'FAIL' end as mapping_nullable_conflict_column_state,
+        case when workflow_step_relation_count = 0 or workflow_conflict_not_null_column_count = 1 then 'PASS' else 'FAIL' end as workflow_nullable_conflict_column_state
+    from artifact_counts cross join duplicate_counts
 )
-select 'prerequisite_history_count=' || prerequisite_history_count::text from artifact_counts
-union all select 'rev868c3_history_count=' || rev868c3_history_count::text from artifact_counts
-union all select 'backup_relation_count=' || backup_relation_count::text from artifact_counts
-union all select 'status_history_partial_count=' || status_history_partial_count::text from artifact_counts
-union all select 'department_history_relation_count=' || department_history_relation_count::text from artifact_counts
-union all select 'workflow_step_relation_count=' || workflow_step_relation_count::text from artifact_counts
-union all select 'audit_partial_count=' || audit_partial_count::text from artifact_counts
-union all select 'role_assignment_partial_count=' || role_assignment_partial_count::text from artifact_counts
-union all select 'role_page_permission_partial_count=' || role_page_permission_partial_count::text from artifact_counts
-union all select 'manager_mapping_partial_count=' || manager_mapping_partial_count::text from artifact_counts
-union all select 'deterministic_employee_partial_count=' || deterministic_employee_partial_count::text from artifact_counts
-union all select 'deterministic_department_partial_count=' || deterministic_department_partial_count::text from artifact_counts
-union all select 'deterministic_designation_partial_count=' || deterministic_designation_partial_count::text from artifact_counts
-union all select 'employee_column_count=' || employee_column_count::text from artifact_counts
-union all select 'mapping_scope_column_count=' || mapping_scope_column_count::text from artifact_counts
-union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and workflow_step_relation_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 then 'PASS' else 'FAIL' end from artifact_counts;
+select 'prerequisite_history_count=' || prerequisite_history_count::text from states
+union all select 'rev868c3_history_count=' || rev868c3_history_count::text from states
+union all select 'backup_relation_count=' || backup_relation_count::text from states
+union all select 'status_history_partial_count=' || status_history_partial_count::text from states
+union all select 'department_history_relation_count=' || department_history_relation_count::text from states
+union all select 'workflow_step_relation_count=' || workflow_step_relation_count::text from states
+union all select 'audit_partial_count=' || audit_partial_count::text from states
+union all select 'role_assignment_partial_count=' || role_assignment_partial_count::text from states
+union all select 'role_page_permission_partial_count=' || role_page_permission_partial_count::text from states
+union all select 'manager_mapping_partial_count=' || manager_mapping_partial_count::text from states
+union all select 'deterministic_employee_partial_count=' || deterministic_employee_partial_count::text from states
+union all select 'deterministic_department_partial_count=' || deterministic_department_partial_count::text from states
+union all select 'deterministic_designation_partial_count=' || deterministic_designation_partial_count::text from states
+union all select 'employee_column_count=' || employee_column_count::text from states
+union all select 'mapping_scope_column_count=' || mapping_scope_column_count::text from states
+union all select 'mapping_conflict_not_null_column_count=' || mapping_conflict_not_null_column_count::text from states
+union all select 'workflow_conflict_not_null_column_count=' || workflow_conflict_not_null_column_count::text from states
+union all select 'ux_rev868c3_conflict_departments_code_count=' || ux_rev868c3_conflict_departments_code_count::text from states
+union all select 'ux_rev868c3_conflict_designations_code_count=' || ux_rev868c3_conflict_designations_code_count::text from states
+union all select 'ux_rev868c3_conflict_employees_employee_code_count=' || ux_rev868c3_conflict_employees_employee_code_count::text from states
+union all select 'ux_rev868c3_conflict_roles_code_count=' || ux_rev868c3_conflict_roles_code_count::text from states
+union all select 'ux_rev868c3_conflict_role_page_permissions_count=' || ux_rev868c3_conflict_role_page_permissions_count::text from states
+union all select 'ux_rev868c3_conflict_employee_role_assignments_count=' || ux_rev868c3_conflict_employee_role_assignments_count::text from states
+union all select 'ux_rev868c3_conflict_department_approval_mappings_count=' || ux_rev868c3_conflict_department_approval_mappings_count::text from states
+union all select 'ux_rev868c3_conflict_purchase_approval_workflow_steps_count=' || ux_rev868c3_conflict_purchase_approval_workflow_steps_count::text from states
+union all select 'rev868c3_owned_index_artifact_count=' || rev868c3_owned_index_artifact_count::text from states
+union all select 'departments_code_duplicate_count=' || departments_code_duplicate_count::text from states
+union all select 'designations_code_duplicate_count=' || designations_code_duplicate_count::text from states
+union all select 'employees_employee_code_duplicate_count=' || employees_employee_code_duplicate_count::text from states
+union all select 'roles_code_duplicate_count=' || roles_code_duplicate_count::text from states
+union all select 'role_page_permissions_duplicate_count=' || role_page_permissions_duplicate_count::text from states
+union all select 'employee_role_assignments_duplicate_count=' || employee_role_assignments_duplicate_count::text from states
+union all select 'department_approval_mappings_duplicate_count=' || department_approval_mappings_duplicate_count::text from states
+union all select 'purchase_approval_workflow_steps_duplicate_count=' || purchase_approval_workflow_steps_duplicate_count::text from states
+union all select 'conflict_duplicate_total_count=' || conflict_duplicate_total_count::text from states
+union all select 'conflict_duplicate_state=' || case when conflict_duplicate_total_count = 0 then 'PASS' else 'FAIL' end from states
+union all select 'mapping_nullable_conflict_column_state=' || mapping_nullable_conflict_column_state from states
+union all select 'workflow_nullable_conflict_column_state=' || workflow_nullable_conflict_column_state from states
+union all select 'safe_retry_state=' || case when prerequisite_history_count = 9 and rev868c3_history_count = 0 and backup_relation_count = 0 and status_history_partial_count = 0 and department_history_relation_count = 0 and workflow_step_relation_count = 0 and audit_partial_count = 0 and role_assignment_partial_count = 0 and role_page_permission_partial_count = 0 and manager_mapping_partial_count = 0 and deterministic_employee_partial_count = 0 and deterministic_department_partial_count = 0 and deterministic_designation_partial_count = 0 and employee_column_count = 0 and mapping_scope_column_count = 0 and rev868c3_owned_index_artifact_count = 0 and conflict_duplicate_total_count = 0 and mapping_nullable_conflict_column_state = 'PASS' and workflow_nullable_conflict_column_state = 'PASS' then 'PASS' else 'FAIL' end from states;
 "@
 }
+
 function Get-PostMigrationSql {
 $all = ($AllExpectedMigrations | ForEach-Object { "'$_'" }) -join ','
 @"
