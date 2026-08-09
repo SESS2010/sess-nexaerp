@@ -117,6 +117,30 @@ function Test-DotnetEfTool {
     $output = @(Invoke-DotnetEfTool @('--version') 2>&1)
     if ($LASTEXITCODE -ne 0) { throw "dotnet-ef resolved but failed version check. $($output -join ' ')" }
 }
+function Get-SanitizedEfFailure([object[]]$Output, [int]$ExitCode) {
+    $raw = ($Output | ForEach-Object { $_.ToString() }) -join "`n"
+    $sqlState = if ($raw -match 'SQLSTATE\s*\[?([0-9A-Z]{5})\]?|PostgresException \(([0-9A-Z]{5})\)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } elseif ($raw -match '\b(23502|23503|23505|23514|42P01|42703)\b') { $Matches[1] } else { 'unknown' }
+    $schema = if ($raw -match '(?i)schema\s+"([A-Za-z0-9_]+)"|SchemaName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
+    $table = if ($raw -match '(?i)table\s+"([A-Za-z0-9_]+)"|TableName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
+    $column = if ($raw -match '(?i)column\s+"([A-Za-z0-9_]+)"|ColumnName:\s*([A-Za-z0-9_]+)') { if ($Matches[1]) { $Matches[1] } else { $Matches[2] } } else { 'unknown' }
+    $category = switch ($sqlState) {
+        '23502' { 'not_null_violation'; break }
+        '23503' { 'foreign_key_violation'; break }
+        '23505' { 'unique_violation'; break }
+        '23514' { 'check_violation'; break }
+        '42P01' { 'undefined_table'; break }
+        '42703' { 'undefined_column'; break }
+        default { 'ef_migration_failure' }
+    }
+    "exit_code=$ExitCode; sqlstate=$sqlState; schema=$schema; table=$table; column=$column; category=$category"
+}
+function Invoke-EfDatabaseUpdateSanitized {
+    $output = @(Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs)) 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        $safe = Get-SanitizedEfFailure $output $LASTEXITCODE
+        throw "EF database update failed. $safe"
+    }
+}
 function Test-EfProjectMetadata {
     $previousConnection = $env:ConnectionStrings__NexaErp
     $previousExpected = $env:NexaErp__ExpectedDatabase
@@ -404,12 +428,11 @@ try {
         $preReport = Join-Path $evidenceDir ("rev868c3_pre_migration_backup_" + $stamp + ".md")
         @("# REV868C3 Pre-Migration Isolated Backup", "", "Database: $Database", "Backup file: $backupFile", "Backup bytes: $($backupItem.Length)", "Backup SHA-256: $backupHash", "", "Migration not yet applied at this report checkpoint.") | Set-Content -LiteralPath $preReport -Encoding UTF8
     }
-    Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs))
-    if ($LASTEXITCODE -ne 0) { throw "EF database update failed with exit code $LASTEXITCODE." }
+    Invoke-EfDatabaseUpdateSanitized
     $env:REV868C3_POSTGRES = $env:ConnectionStrings__NexaErp
     $trxName = "rev868c3_employee_reconciliation_$stamp.trx"
     $testOutput = @(& $script:dotnetExe test .\SESS.NexaERP.slnx --configuration Release --filter "Rev868C3PostgreSqlWorkflowVerificationTests" --logger "trx;LogFileName=$trxName" --results-directory $trxDir 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "REV868C3 PostgreSQL tests failed. $((($testOutput | ForEach-Object { $_.ToString() }) -join "`n"))" }
+    if ($LASTEXITCODE -ne 0) { throw "REV868C3 PostgreSQL tests failed. exit_code=$LASTEXITCODE; see sanitized TRX output path when available." }
     $trxPath = Join-Path $trxDir $trxName
     $testSummary = Get-TestResultSummary $trxPath
     Assert-RequiredTargetedTestsPassed $testSummary

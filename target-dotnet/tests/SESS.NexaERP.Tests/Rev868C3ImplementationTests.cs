@@ -182,7 +182,7 @@ public sealed class Rev868C3ImplementationTests
         var metadataIndex = helper.IndexOf("Test-EfProjectMetadata", versionCheckIndex, StringComparison.Ordinal);
         var passwordIndex = helper.IndexOf("Read-Host -AsSecureString", StringComparison.Ordinal);
         var backupIndex = helper.IndexOf("Find-ExistingValidPreC3Backup", passwordIndex, StringComparison.Ordinal);
-        var updateIndex = helper.IndexOf("Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs))", StringComparison.Ordinal);
+        var updateIndex = helper.IndexOf("    Invoke-EfDatabaseUpdateSanitized", backupIndex, StringComparison.Ordinal);
 
         Assert.True(projectCheckIndex > 0);
         Assert.True(startupCheckIndex > projectCheckIndex);
@@ -205,6 +205,7 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("NexaErpDbContext", helper);
         Assert.Contains(".nuget\\packages\\dotnet-ef", helper);
         Assert.DoesNotContain("$script:dotnetExe ef database update", helper);
+        Assert.Contains("Invoke-DotnetEfTool (@('database','update',$MigrationName) + (Get-EfProjectArgs))", helper);
         Assert.DoesNotContain("--project','.\\SESS.NexaERP.slnx", helper);
     }
 
@@ -274,6 +275,56 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("CanRequestClarification", migration);
         Assert.Contains("CanRequestRevision", migration);
         Assert.Contains("CanViewAuditHistory", migration);
+    }
+
+
+    [Fact]
+    public void Rev868c3_designation_insert_satisfies_not_null_is_active_contract()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("insert into nexa.designations (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("{Sql(designation)}, true, TIMESTAMPTZ", migration);
+        Assert.Contains("\"IsActive\" = true", migration);
+        Assert.DoesNotContain("insert into nexa.designations (\"Id\", \"Code\", \"Name\", \"CreatedAt\"", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_migration_insert_schema_contracts_include_required_columns()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs");
+
+        Assert.Contains("insert into nexa.departments (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.designations (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.employees (\"Id\", \"EmployeeCode\", \"PayrollEmployeeId\", \"EmployeeName\", \"OriginalImportedName\", \"Gender\", \"Qualification\", \"DateOfBirth\", \"EmployeeType\", \"Grade\", \"DepartmentId\", \"DesignationId\", \"Status\", \"DateOfJoining\", \"DateOfJoiningAccuracy\", \"IsDateOfJoiningApproximate\", \"ApproximateDateNote\", \"FunctionalResponsibility\", \"WorkLocation\", \"ManagerScope\", \"LegacyDepartment\", \"OfficialEmail\", \"MobileNumber\", \"LoginEnabled\", \"ApprovalStatus\", \"IsEmployeeCodeLocked\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.roles (\"Id\", \"Code\", \"Name\", \"IsActive\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.role_page_permissions (\"Id\", \"RoleId\", \"PageDefinitionId\", \"CanView\", \"CanCreate\", \"CanUpdate\", \"CanSubmit\", \"CanVerify\", \"CanApprove\", \"CanReject\", \"CanRequestClarification\", \"CanRequestRevision\", \"CanResubmit\", \"CanCancel\", \"CanDeactivate\", \"CanPrint\", \"CanDownload\", \"CanExport\", \"CanUploadAttachment\", \"CanReplaceAttachment\", \"CanViewCommercialValues\", \"CanViewAuditHistory\", \"HasFullControl\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.employee_role_assignments (\"Id\", \"EmployeeId\", \"RoleId\", \"EffectiveFrom\", \"EffectiveTo\", \"ApprovalStatus\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.department_approval_mappings (\"Id\", \"DepartmentId\", \"ApprovalRouteCode\", \"Scope\", \"PrimaryApproverEmployeeId\", \"AlternateApproverEmployeeId\", \"EffectiveFrom\", \"EffectiveTo\", \"IsActive\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.purchase_approval_workflow_steps (\"Id\", \"RouteCode\", \"MinimumAmount\", \"MaximumAmount\", \"StepNumber\", \"ApproverResolutionType\", \"ApproverEmployeeCode\", \"ApproverRoleCode\", \"IsActive\", \"EffectiveFrom\", \"EffectiveTo\", \"Remarks\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.employee_status_history (\"Id\", \"EmployeeId\", \"OldStatus\", \"NewStatus\", \"Reason\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.employee_department_history (\"Id\", \"EmployeeId\", \"PreviousDepartmentId\", \"NewDepartmentId\", \"Reason\", \"SourceRevision\", \"CorrelationId\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+        Assert.Contains("insert into nexa.audit_logs (\"Id\", \"UserLoginId\", \"UserRole\", \"Module\", \"EntityName\", \"EntityId\", \"Action\", \"OldValue\", \"NewValue\", \"Reason\", \"Result\", \"CorrelationId\", \"IpAddress\", \"CreatedAt\", \"CreatedBy\", \"UpdatedAt\", \"UpdatedBy\", \"Version\")", migration);
+    }
+
+    [Fact]
+    public void Rev868c3_helper_sanitizes_ef_failure_output_and_blocks_raw_pii_leakage()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+
+        Assert.Contains("Get-SanitizedEfFailure", helper);
+        Assert.Contains("Invoke-EfDatabaseUpdateSanitized", helper);
+        Assert.Contains("sqlstate=", helper);
+        Assert.Contains("schema=", helper);
+        Assert.Contains("table=", helper);
+        Assert.Contains("column=", helper);
+        Assert.Contains("category=", helper);
+        Assert.Contains("not_null_violation", helper);
+        Assert.DoesNotContain("EF database update failed with exit code", helper);
+        Assert.DoesNotContain("$output -join", helper[helper.IndexOf("function Invoke-EfDatabaseUpdateSanitized", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
+        Assert.DoesNotContain("Include Error Detail", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EmployeeName", helper[helper.IndexOf("function Get-SanitizedEfFailure", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
+        Assert.Contains("REV868C3 PostgreSQL tests failed. exit_code=", helper);
     }
 
     private static string Read(params string[] relativeParts) => File.ReadAllText(Find(relativeParts));

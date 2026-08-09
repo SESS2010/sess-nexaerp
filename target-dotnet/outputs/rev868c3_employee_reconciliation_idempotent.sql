@@ -6213,81 +6213,81 @@ BEGIN
     insert into nexa.departments ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
     values ('dd127bff-444a-14b5-48c3-ff527a182050', 'QUALITY_QC', 'Quality / QC', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
     on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('086ab1d4-3404-12b7-c35a-4b77737eb97b', 'TECHNICAL_DIRECTOR', 'Technical Director', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('70375a48-3d18-2c30-36c6-74405c7a7834', 'MANAGING_DIRECTOR', 'Managing Director', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('bf4b3bb5-65e1-95ca-a25d-e1411af21604', 'REFRIGERATION_ENGINEER', 'Refrigeration Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('6114a635-1a56-0b27-452b-23f75a99091a', 'SR_SERVICE_ENGINEER', 'Sr. Service Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('e4bec48d-a248-c13d-a71a-00a2dd40e35e', 'FABRICATOR', 'Fabricator', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('2f148a82-10ab-5801-9ff1-9f510611e5fd', 'ELECTRICAL_ENGINEER', 'Electrical Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('97a5bed6-41e7-16a2-5be8-ffee4f315a85', 'JR_ACCOUNTANT', 'Jr. Accountant', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('90c527f8-3ea8-dc72-7283-c80e73a71f5d', 'SOFTWARE_DEVELOPER', 'Software Developer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('c9b4f63d-e6f5-ebd0-a62a-40b1cabbe0d8', 'SERVICE_TECHNICIAN', 'Service Technician', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('e95eef0e-cd17-95f9-5f66-60037f952028', 'JR_ENGINEER', 'Jr Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('047739a1-c38c-dba8-18b5-e5570bda686f', 'PURCHASE_INCHARGE', 'Purchase Incharge', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('05332774-506b-1a5a-56c7-3c5d37eda081', 'STORE_ASSISTANT', 'Store Assistant', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('4c9baa15-c3d4-6b41-d040-f354c5cff307', 'DESIGN_ENGINEER', 'Design Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('ce98eb0b-2746-5aba-e2c6-95dba0a230cc', 'HR_EXECUTIVE', 'HR Executive', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('8257c94c-3d24-3262-3a88-0c9b78ad714d', 'HOUSEKEEPING', 'Housekeeping', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('96908ceb-4e96-b670-db7e-59b2237f1dec', 'PRODUCTION_COORDINATOR', 'Production Coordinator', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('377a1f5f-0df5-637b-965a-d7aba799e152', 'JUNIOR_ACCOUNTANT', 'Junior Accountant', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('4c22a815-6a44-3d0b-9bd2-45743fc0a9aa', 'JUNIOR_ENGINEER', 'Junior Engineer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('18ee688d-4cf1-067e-d524-e25b2809d089', 'REFRIGERATION_TECHNICIAN', 'Refrigeration Technician', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('7fa60e14-7ae8-efd1-cae7-1c3020372f7f', 'PLC_PROGRAMMER', 'PLC Programmer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('6bb2ba80-3bb2-96ba-4779-3e8a6546e828', 'PRODUCTION_&_QUALITY_INCHARGE', 'Production & Quality Incharge', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('03ee584a-cdc5-7ff6-9628-da96730c9815', 'FABRICATION_INCHARGE', 'Fabrication Incharge', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('54d9e658-bec2-0fc7-12bb-38a679ca4abf', 'JR_SOFTWARE_DEVELOPER', 'Jr. Software Developer', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('aeb41cc9-14a7-7b0e-4f2b-3b1e80ea2b3f', 'STORE_EXECUTIVE', 'Store Executive', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
-    insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-    values ('43bea8d3-57ee-bdcd-eea0-7d58205b260f', 'SR_ACCOUNTANT', 'Sr. Accountant', TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
-    on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('086ab1d4-3404-12b7-c35a-4b77737eb97b', 'TECHNICAL_DIRECTOR', 'Technical Director', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('70375a48-3d18-2c30-36c6-74405c7a7834', 'MANAGING_DIRECTOR', 'Managing Director', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('bf4b3bb5-65e1-95ca-a25d-e1411af21604', 'REFRIGERATION_ENGINEER', 'Refrigeration Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('6114a635-1a56-0b27-452b-23f75a99091a', 'SR_SERVICE_ENGINEER', 'Sr. Service Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('e4bec48d-a248-c13d-a71a-00a2dd40e35e', 'FABRICATOR', 'Fabricator', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('2f148a82-10ab-5801-9ff1-9f510611e5fd', 'ELECTRICAL_ENGINEER', 'Electrical Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('97a5bed6-41e7-16a2-5be8-ffee4f315a85', 'JR_ACCOUNTANT', 'Jr. Accountant', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('90c527f8-3ea8-dc72-7283-c80e73a71f5d', 'SOFTWARE_DEVELOPER', 'Software Developer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('c9b4f63d-e6f5-ebd0-a62a-40b1cabbe0d8', 'SERVICE_TECHNICIAN', 'Service Technician', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('e95eef0e-cd17-95f9-5f66-60037f952028', 'JR_ENGINEER', 'Jr Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('047739a1-c38c-dba8-18b5-e5570bda686f', 'PURCHASE_INCHARGE', 'Purchase Incharge', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('05332774-506b-1a5a-56c7-3c5d37eda081', 'STORE_ASSISTANT', 'Store Assistant', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('4c9baa15-c3d4-6b41-d040-f354c5cff307', 'DESIGN_ENGINEER', 'Design Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('ce98eb0b-2746-5aba-e2c6-95dba0a230cc', 'HR_EXECUTIVE', 'HR Executive', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('8257c94c-3d24-3262-3a88-0c9b78ad714d', 'HOUSEKEEPING', 'Housekeeping', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('96908ceb-4e96-b670-db7e-59b2237f1dec', 'PRODUCTION_COORDINATOR', 'Production Coordinator', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('377a1f5f-0df5-637b-965a-d7aba799e152', 'JUNIOR_ACCOUNTANT', 'Junior Accountant', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('4c22a815-6a44-3d0b-9bd2-45743fc0a9aa', 'JUNIOR_ENGINEER', 'Junior Engineer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('18ee688d-4cf1-067e-d524-e25b2809d089', 'REFRIGERATION_TECHNICIAN', 'Refrigeration Technician', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('7fa60e14-7ae8-efd1-cae7-1c3020372f7f', 'PLC_PROGRAMMER', 'PLC Programmer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('6bb2ba80-3bb2-96ba-4779-3e8a6546e828', 'PRODUCTION_&_QUALITY_INCHARGE', 'Production & Quality Incharge', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('03ee584a-cdc5-7ff6-9628-da96730c9815', 'FABRICATION_INCHARGE', 'Fabrication Incharge', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('54d9e658-bec2-0fc7-12bb-38a679ca4abf', 'JR_SOFTWARE_DEVELOPER', 'Jr. Software Developer', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('aeb41cc9-14a7-7b0e-4f2b-3b1e80ea2b3f', 'STORE_EXECUTIVE', 'Store Executive', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
+    insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+    values ('43bea8d3-57ee-bdcd-eea0-7d58205b260f', 'SR_ACCOUNTANT', 'Sr. Accountant', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
+    on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '2026-08-09T00:00:00+00:00', "UpdatedBy" = 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION';
     insert into nexa.employees ("Id", "EmployeeCode", "PayrollEmployeeId", "EmployeeName", "OriginalImportedName", "Gender", "Qualification", "DateOfBirth", "EmployeeType", "Grade", "DepartmentId", "DesignationId", "Status", "DateOfJoining", "DateOfJoiningAccuracy", "IsDateOfJoiningApproximate", "ApproximateDateNote", "FunctionalResponsibility", "WorkLocation", "ManagerScope", "LegacyDepartment", "OfficialEmail", "MobileNumber", "LoginEnabled", "ApprovalStatus", "IsEmployeeCodeLocked", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
     values ('3543a705-924a-6599-23be-fb9730a93f06', 'SESS-001', '1001', 'A. PARAMANANTHAM', 'A. PARAMANANTHAM', 'Male', 'TO_CONFIRM', null, 'Permanent', 'Executive', '0057b580-1cb1-afa2-8328-5afb1162e77e', '086ab1d4-3404-12b7-c35a-4b77737eb97b', 'Active', null, 'Missing', false, null, 'Technical Director / CEO; top company authority', 'CHENNAI', 'ALL', 'General', null, null, false, 'SeedApproved', true, TIMESTAMPTZ '2026-08-09T00:00:00+00:00', 'REV868C3_EMPLOYEE_DEPARTMENT_MANAGER_RECONCILIATION', null, null, 0)
     on conflict ("EmployeeCode") do update set

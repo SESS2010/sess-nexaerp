@@ -374,9 +374,9 @@ public partial class Rev868C3EmployeeDepartmentManagerReconciliation : Migration
         foreach (var designation in designations)
         {
             sb.AppendLine($"""
-                insert into nexa.designations ("Id", "Code", "Name", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
-                values ('{Id("designation", designation)}', {Sql(Code(designation))}, {Sql(designation)}, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
-                on conflict ("Code") do update set "Name" = excluded."Name", "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
+                insert into nexa.designations ("Id", "Code", "Name", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+                values ('{Id("designation", designation)}', {Sql(Code(designation))}, {Sql(designation)}, true, TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', '{Actor}', null, null, 0)
+                on conflict ("Code") do update set "Name" = excluded."Name", "IsActive" = true, "UpdatedAt" = TIMESTAMPTZ '{Stamp:yyyy-MM-ddTHH:mm:sszzz}', "UpdatedBy" = '{Actor}';
                 """);
         }
 
