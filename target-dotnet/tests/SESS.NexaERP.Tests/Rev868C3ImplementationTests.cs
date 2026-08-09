@@ -490,6 +490,7 @@ public sealed class Rev868C3ImplementationTests
     public void Rev868c3_sanitized_ef_failure_metadata_handles_common_postgres_and_ef_failures()
     {
         var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+        var sanitizer = helper[helper.IndexOf("function New-Sha256Fingerprint", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)];
 
         Assert.Contains("42P10", helper);
         Assert.Contains("on_conflict_index_mismatch", helper);
@@ -501,11 +502,73 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains("message_category=", helper);
         Assert.Contains("phase=", helper);
         Assert.Contains("raw_output_sha256=", helper);
-        Assert.Contains("HashData", helper);
-        Assert.DoesNotContain("CommandText", helper[helper.IndexOf("function Get-SanitizedEfFailure", StringComparison.Ordinal)..helper.IndexOf("function Test-EfProjectMetadata", StringComparison.Ordinal)]);
+        Assert.Contains("New-Sha256Fingerprint", helper);
+        Assert.Contains("SHA256]::Create", helper);
+        Assert.Contains("ComputeHash", helper);
+        Assert.Contains("BitConverter]::ToString", helper);
+        Assert.Contains("raw_output_sha256=unavailable", helper);
+        Assert.Contains("sanitizer_failure", helper);
+        Assert.DoesNotContain("HashData", sanitizer);
+        Assert.DoesNotContain("ToHexString", sanitizer);
+        Assert.DoesNotContain("CommandText", sanitizer);
+        Assert.DoesNotContain("ArgumentList", helper);
+        Assert.DoesNotContain("GetRelativePath", helper);
+        Assert.DoesNotContain("OperatingSystem.IsWindows", helper);
     }
 
-
+    [Fact]
+    public void Rev868c3_sanitizer_runs_under_windows_powershell_51_without_raw_private_output()
+    {
+        var helper = Read("tools", "apply-rev868c3-employee-reconciliation-secure.ps1");
+        var start = helper.IndexOf("function New-Sha256Fingerprint", StringComparison.Ordinal);
+        var end = helper.IndexOf("function Invoke-EfDatabaseUpdateSanitized", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var functions = helper[start..end];
+        var tempFile = Path.Combine(Path.GetTempPath(), "rev868c3_sanitizer_" + Guid.NewGuid().ToString("N") + ".ps1");
+        var script = functions + """
+$cases = @(
+    @('Npgsql.PostgresException (0x80004005): 42P10: there is no unique or exclusion constraint matching the ON CONFLICT specification. SQL: INSERT INTO private_table VALUES (''PRIVATE_EMPLOYEE_NAME'')', 'on_conflict_index_mismatch'),
+    @('PostgresException (23502): null value in column "IsPrivileged" of relation "roles" violates not-null constraint. DOB 1990-01-01 payroll PAYROLL-SECRET PRIVATE_EMPLOYEE_NAME', 'not_null_violation'),
+    @('PostgresException (23503): insert or update on table "employees" violates foreign key constraint "FK_employees_departments_DepartmentId". SQL: SELECT * FROM secret_employee', 'foreign_key_violation'),
+    @('System.InvalidOperationException: Unable to retrieve project metadata. PRIVATE_EMPLOYEE_NAME payroll PAYROLL-SECRET', 'ef_project_metadata')
+)
+foreach ($case in $cases) {
+    $result = Get-SanitizedEfFailure -Output @($case[0]) -ExitCode 1 -Phase 'unit_test'
+    if ($result -notmatch $case[1]) { throw "Missing category $($case[1]): $result" }
+    if ($result -match 'PRIVATE_EMPLOYEE_NAME|PAYROLL-SECRET|1990-01-01|INSERT INTO|SELECT \* FROM|SQL:') { throw "Sanitized result leaked private output: $result" }
+}
+$hash = New-Sha256Fingerprint 'abc'
+if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD') { throw "Unexpected SHA-256 fingerprint $hash" }
+'OK'
+""";
+        try
+        {
+            File.WriteAllText(tempFile, script);
+            var startInfo = new System.Diagnostics.ProcessStartInfo("powershell.exe")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            startInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + tempFile + "\"";
+            using var process = System.Diagnostics.Process.Start(startInfo)!;
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, output + error);
+            Assert.Contains("OK", output);
+            Assert.DoesNotContain("PRIVATE_EMPLOYEE_NAME", output + error);
+            Assert.DoesNotContain("PAYROLL-SECRET", output + error);
+            Assert.DoesNotContain("1990-01-01", output + error);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
     [Fact]
     public void Rev868c3_helper_sanitizes_ef_failure_output_and_blocks_raw_pii_leakage()
     {
