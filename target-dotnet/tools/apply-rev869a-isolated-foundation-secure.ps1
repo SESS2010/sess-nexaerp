@@ -78,6 +78,8 @@ $approvedUomMappingContract = [pscustomobject]@{
     ItemBaseUomMappings = @() # ItemId, BaseUomId, MappingStatus, MappingBasis, ManagementApprovalReference
 }
 $uomManagementDecisionState = $approvedUomMappingContract.ApprovalStatus
+$relievedEmployeeCodes = @('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039')
+$acceptedRelievedStatuses = @('left / resigned','left/resigned','resigned','inactive')
 
 $targetRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $reportDirectory = Join-Path $targetRoot "local-evidence\rev869a"
@@ -130,7 +132,32 @@ function Assert-SelectOnlySql([string]$Title, [string]$Sql) {
     }
 }
 
+function Get-RelievedEmployeeCtesSql {
+    $expectedCodes = (($relievedEmployeeCodes | ForEach-Object { "('" + ($_ -replace "'", "''") + "')" }) -join ',')
+    $acceptedStatuses = (($acceptedRelievedStatuses | ForEach-Object { "('" + ($_ -replace "'", "''") + "')" }) -join ',')
+    return @"
+expected_relieved_employees(code) as (values $expectedCodes),
+accepted_relieved_statuses(status) as (values $acceptedStatuses),
+relieved_employee_rows as (
+    select "EmployeeCode" as code, lower("Status") as normalized_status
+    from nexa.employees
+    where "EmployeeCode" like 'SESS-%'
+), relieved_employee_metrics as (
+    select
+      (select count(*) from expected_relieved_employees) as relieved_employee_expected_count,
+      (select count(*) from relieved_employee_rows r join expected_relieved_employees e using(code) join accepted_relieved_statuses s on s.status=r.normalized_status) as relieved_employee_actual_matched_count,
+      (select count(*) from expected_relieved_employees e where not exists (select 1 from relieved_employee_rows r where r.code=e.code)) as relieved_employee_missing_count,
+      (select count(*) from relieved_employee_rows r join accepted_relieved_statuses s on s.status=r.normalized_status where not exists (select 1 from expected_relieved_employees e where e.code=r.code)) as relieved_employee_unexpected_count,
+      (select count(*) from (select r.code from relieved_employee_rows r join expected_relieved_employees e using(code) group by r.code having count(*)<>1) d) as relieved_employee_duplicate_count,
+      (select count(*) from expected_relieved_employees e where exists (select 1 from relieved_employee_rows r where r.code=e.code) and not exists (select 1 from relieved_employee_rows r join accepted_relieved_statuses s on s.status=r.normalized_status where r.code=e.code)) as relieved_employee_status_mismatch_count
+), relieved_employee_state as (
+    select *, case when relieved_employee_expected_count=9 and relieved_employee_actual_matched_count=9 and relieved_employee_missing_count=0 and relieved_employee_unexpected_count=0 and relieved_employee_duplicate_count=0 and relieved_employee_status_mismatch_count=0 then 'PASS' else 'FAIL' end as relieved_employee_acceptance_state
+    from relieved_employee_metrics
+)
+"@.Trim()
+}
 function Get-PreflightSql {
+    $relievedCtes = Get-RelievedEmployeeCtesSql
     return @"
 with expected_migrations("MigrationId", ordinal) as (
     values
@@ -149,7 +176,8 @@ with expected_migrations("MigrationId", ordinal) as (
     select null::uuid,null::text,null::text,null::integer,null::boolean,null::text,null::text,null::text where false
 ), expected_item_base_uom_mappings("ItemId","BaseUomId","MappingStatus","MappingBasis","ManagementApprovalReference") as (
     select null::uuid,null::uuid,null::text,null::text,null::text where false
-), migration_state as (
+), $relievedCtes
+, migration_state as (
     select
       (select count(*) from "public"."__EFMigrationsHistory") as total_count,
       (select count(*) from expected_migrations e left join "public"."__EFMigrationsHistory" h on h."MigrationId"=e."MigrationId" where h."MigrationId" is null) as missing_prerequisite_count,
@@ -169,7 +197,7 @@ with expected_migrations("MigrationId", ordinal) as (
         (table_name='items' and column_name='BaseUomId') or
         (table_name='uoms' and column_name in ('MeasurementDimension','QuantityPrecision')) or
         (table_name='vendors' and column_name in ('CommercialVerificationStatus','CommercialVerifiedAt','CommercialVerifiedBy','EffectiveFrom','EffectiveTo','RequiresReverification')))) as column_count,
-      (select count(*) from pg_indexes where schemaname='nexa' and indexname like '%rev869a%' or schemaname='nexa' and indexname in (
+      (select count(*) from pg_indexes where schemaname='nexa' and (indexname like '%rev869a%' or indexname in (
         'IX_items_BaseUomId','IX_employee_identity_mappings_Issuer_Subject_IsActive',
         'IX_employee_operational_scopes_OrganizationId_EmployeeId_Depar~',
         'IX_organization_policies_OrganizationId_PolicyCode_EffectiveFr~',
@@ -177,7 +205,7 @@ with expected_migrations("MigrationId", ordinal) as (
         'IX_tax_gst_settings_OrganizationId_JurisdictionCode_HsnSacCode~',
         'IX_uom_conversions_OrganizationId_FromUomId_ToUomId_EffectiveF~',
         'IX_vendor_qualifications_OrganizationId_VendorId_ItemCategoryI~',
-        'IX_warehouse_condition_locations_OrganizationId_WarehouseId_Ra~')) as index_count,
+        'IX_warehouse_condition_locations_OrganizationId_WarehouseId_Ra~'))) as index_count,
       (select count(*) from pg_constraint where connamespace='nexa'::regnamespace and (conname like '%rev869a%' or conname='AK_rack_bins_WarehouseId_Id' or conname='FK_items_uoms_BaseUomId')) as constraint_count,
       (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='nexa' and p.proname like 'rev869a_%') as function_count,
       (select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_rev869a_%') as trigger_count,
@@ -216,7 +244,6 @@ with expected_migrations("MigrationId", ordinal) as (
       (select count(*) from nexa.purchase_requisition_approval_histories) as pr_approval_history_count,
       (select count(*) from nexa.stock_reservations) as reservation_count,
       (select count(*) from nexa.employees where "Status"='Active') as active_employee_count,
-      (select count(*) from nexa.employees where "Status"='Relieved') as relieved_employee_count,
       (select count(*) from nexa.departments) as department_count,
       (select count(*) from nexa.department_approval_mappings) as manager_mapping_count
 )
@@ -254,10 +281,17 @@ union all select 'unapproved_uom_classification_count='||unapproved_uom_classifi
 union all select 'missing_base_uom_mapping_count='||missing_base_uom_mapping_count from base_mapping_state
 union all select 'invalid_base_uom_mapping_count='||invalid_base_uom_mapping_count from base_mapping_state
 union all select 'inferred_or_default_mapping_count='||inferred_or_default_mapping_count from base_mapping_state
+union all select 'relieved_employee_expected_count='||relieved_employee_expected_count from relieved_employee_state
+union all select 'relieved_employee_actual_matched_count='||relieved_employee_actual_matched_count from relieved_employee_state
+union all select 'relieved_employee_missing_count='||relieved_employee_missing_count from relieved_employee_state
+union all select 'relieved_employee_unexpected_count='||relieved_employee_unexpected_count from relieved_employee_state
+union all select 'relieved_employee_duplicate_count='||relieved_employee_duplicate_count from relieved_employee_state
+union all select 'relieved_employee_status_mismatch_count='||relieved_employee_status_mismatch_count from relieved_employee_state
+union all select 'relieved_employee_acceptance_state='||relieved_employee_acceptance_state from relieved_employee_state
 union all select 'uom_management_decision_state=$uomManagementDecisionState'
-union all select 'safe_retry_state='||case when total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state
+union all select 'safe_retry_state='||case when total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state cross join relieved_employee_state
 union all select 'data_readiness_state='||case when '$uomManagementDecisionState'='APPROVED' and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 then 'PASS' else 'FAIL' end from readiness_state cross join classification_state cross join base_mapping_state
-union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state cross join readiness_state cross join classification_state cross join base_mapping_state
+union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state cross join readiness_state cross join classification_state cross join base_mapping_state cross join relieved_employee_state
 union all select 'uom_candidate='||r."Id"||'|code='||r."Code"||'|name='||r."Name"||'|symbol=NOT_MODELED|active='||r."IsActive"||'|item_reference_count='||r.item_reference_count from referenced_uoms r
 union all select 'item_uom_problem='||i."Id"||'|item_code='||i."ItemCode"||'|uom_id='||coalesce(i."UomId"::text,'NULL')||'|status='||case when i."UomId" is null then 'NULL_UOM_ID' else 'INVALID_UOM_ID' end from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is null or u."Id" is null
 union all select 'base_uom_mapping_candidate='||i."Id"||'|item_code='||i."ItemCode"||'|proposed_base_uom_id='||coalesce(e."BaseUomId"::text,'NOT_APPROVED')||'|status='||case when e."ItemId" is null then 'PENDING_MANAGEMENT_APPROVAL' else e."MappingStatus" end from nexa.items i left join expected_item_base_uom_mappings e on e."ItemId"=i."Id"
@@ -269,13 +303,13 @@ union all select 'preserve_pr_count='||pr_count from preservation_state
 union all select 'preserve_pr_approval_history_count='||pr_approval_history_count from preservation_state
 union all select 'preserve_reservation_count='||reservation_count from preservation_state
 union all select 'preserve_active_employee_count='||active_employee_count from preservation_state
-union all select 'preserve_relieved_employee_count='||relieved_employee_count from preservation_state
 union all select 'preserve_department_count='||department_count from preservation_state
 union all select 'preserve_manager_mapping_count='||manager_mapping_count from preservation_state;
 "@.Trim()
 }
 
 function Get-PostMigrationSql {
+    $relievedCtes = Get-RelievedEmployeeCtesSql
     return @"
 with expected_migrations("MigrationId") as (values
  ('20260808110924_Phase1Foundation'),('20260808114550_Phase1AuthorizationSeed'),('20260808123411_Rev866EmployeePermissionMatrix'),('20260808142353_Rev866CorrectiveStatusPermissionAudit'),('20260808151207_Rev867MasterFoundation'),('20260808160435_Rev867C1Corrections'),('20260808182945_Rev868PurchaseRequisitionFoundation'),('20260808190920_Rev868PurchaseLocationAllocationCorrection'),('20260809123000_Rev868C2DepartmentManagerApprovalMapping'),('20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation'),('20260810110000_Rev868C3LegacyMixedDepartmentDeactivationCorrection'),('20260810120000_Rev869AIdentityMasterScopeFoundation')
@@ -284,7 +318,8 @@ with expected_migrations("MigrationId") as (values
  ('organization_policies'),('qc_inspection_policies'),('tax_gst_settings'),('uom_conversions'),
  ('vendor_qualifications'),('warehouse_condition_locations')
 ), expected_backups(name) as (values ('rev869a_items_prechange_backup'),('rev869a_uoms_prechange_backup'),('rev869a_vendors_prechange_backup')),
-schema_state as (
+$relievedCtes
+, schema_state as (
  select
   (select count(*) from "public"."__EFMigrationsHistory" where "MigrationId"='$targetMigration') as target_count,
   (select count(*) from "public"."__EFMigrationsHistory") as migration_count,
@@ -344,7 +379,6 @@ schema_state as (
   (select count(*) from nexa.purchase_requisition_approval_histories) as pr_approval_history_count,
   (select count(*) from nexa.stock_reservations) as reservation_count,
   (select count(*) from nexa.employees where "Status"='Active') as active_employee_count,
-  (select count(*) from nexa.employees where "Status"='Relieved') as relieved_employee_count,
   (select count(*) from nexa.departments) as department_count,
   (select count(*) from nexa.department_approval_mappings) as manager_mapping_count
 )
@@ -377,14 +411,20 @@ union all select 'item_backup_mismatch_count='||item_backup_mismatch_count from 
 union all select 'uom_backup_mismatch_count='||uom_backup_mismatch_count from backup_state
 union all select 'vendor_backup_mismatch_count='||vendor_backup_mismatch_count from backup_state
 union all select 'backup_coverage_mismatch_count='||backup_coverage_mismatch_count from backup_state
+union all select 'relieved_employee_expected_count='||relieved_employee_expected_count from relieved_employee_state
+union all select 'relieved_employee_actual_matched_count='||relieved_employee_actual_matched_count from relieved_employee_state
+union all select 'relieved_employee_missing_count='||relieved_employee_missing_count from relieved_employee_state
+union all select 'relieved_employee_unexpected_count='||relieved_employee_unexpected_count from relieved_employee_state
+union all select 'relieved_employee_duplicate_count='||relieved_employee_duplicate_count from relieved_employee_state
+union all select 'relieved_employee_status_mismatch_count='||relieved_employee_status_mismatch_count from relieved_employee_state
+union all select 'relieved_employee_acceptance_state='||relieved_employee_acceptance_state from relieved_employee_state
 union all select 'preserve_pr_count='||pr_count from preservation_state
 union all select 'preserve_pr_approval_history_count='||pr_approval_history_count from preservation_state
 union all select 'preserve_reservation_count='||reservation_count from preservation_state
 union all select 'preserve_active_employee_count='||active_employee_count from preservation_state
-union all select 'preserve_relieved_employee_count='||relieved_employee_count from preservation_state
 union all select 'preserve_department_count='||department_count from preservation_state
 union all select 'preserve_manager_mapping_count='||manager_mapping_count from preservation_state
-union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and role_seed_count=5 and page_seed_count=8 and permission_seed_count=66 and policy_seed_count=2 and seed_set_mismatch_count=0 and all_false_department_manager_count=0 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join seed_state cross join backup_state
+union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and role_seed_count=5 and page_seed_count=8 and permission_seed_count=66 and policy_seed_count=2 and seed_set_mismatch_count=0 and all_false_department_manager_count=0 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join seed_state cross join backup_state cross join relieved_employee_state
 union all select 'column_contract='||table_name||'.'||column_name||'|type='||data_type||'|udt='||udt_name||'|nullable='||is_nullable from information_schema.columns where table_schema='nexa' and table_name in (select name from expected_relations)
 union all select 'constraint_contract='||c.conname||'|type='||c.contype||'|definition='||pg_get_constraintdef(c.oid) from pg_constraint c where c.connamespace='nexa'::regnamespace and (c.conrelid in (select ('nexa.'||name)::regclass from expected_relations) or c.conname in ('AK_rack_bins_WarehouseId_Id','FK_items_uoms_BaseUomId'))
 union all select 'index_contract='||indexname||'|definition='||indexdef from pg_indexes where schemaname='nexa' and (tablename in (select name from expected_relations) or indexname='IX_items_BaseUomId')
@@ -451,7 +491,7 @@ function Get-EvidenceValue([string]$Evidence, [string]$Key) {
 }
 
 function Assert-Preservation([string]$Before, [string]$After) {
-    foreach ($key in @('preserve_pr_count','preserve_pr_approval_history_count','preserve_reservation_count','preserve_active_employee_count','preserve_relieved_employee_count','preserve_department_count','preserve_manager_mapping_count')) {
+    foreach ($key in @('preserve_pr_count','preserve_pr_approval_history_count','preserve_reservation_count','preserve_active_employee_count','relieved_employee_expected_count','relieved_employee_actual_matched_count','relieved_employee_missing_count','relieved_employee_unexpected_count','relieved_employee_duplicate_count','relieved_employee_status_mismatch_count','preserve_department_count','preserve_manager_mapping_count')) {
         if ((Get-EvidenceValue $Before $key) -ne (Get-EvidenceValue $After $key)) { throw "REV868/REV868C3 preservation failed for $key." }
     }
 }
@@ -534,6 +574,7 @@ try {
     if ($PreflightOnly -or $Apply) {
         $preflightEvidence = Invoke-Psql $preflightSql $true
         Assert-Evidence $preflightEvidence "database_identity=PASS"
+        Assert-Evidence $preflightEvidence "relieved_employee_acceptance_state=PASS"
         Assert-Evidence $preflightEvidence "safe_retry_state=PASS"
         Assert-Evidence $preflightEvidence "data_readiness_state=PASS"
         Assert-Evidence $preflightEvidence "preflight_acceptance_state=PASS"
@@ -566,6 +607,7 @@ try {
     }
 
     $postEvidence = Invoke-Psql $postSql $true
+    Assert-Evidence $postEvidence "relieved_employee_acceptance_state=PASS"
     Assert-Evidence $postEvidence "database_schema_acceptance_state=PASS"
     if ($Apply) {
         Assert-Preservation $preflightEvidence $postEvidence

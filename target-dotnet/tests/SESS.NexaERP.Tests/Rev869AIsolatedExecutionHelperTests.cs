@@ -9,6 +9,14 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static readonly string Source = File.ReadAllText(HelperPath);
     private static readonly string MigrationPath = Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260810120000_Rev869AIdentityMasterScopeFoundation.cs");
     private static readonly string MigrationSource = File.ReadAllText(MigrationPath);
+    private static readonly string Rev868C3WorkbookSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
+    private static readonly string Rev868C3VerifierSource = File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
+    private static readonly string[] ExpectedRelievedCodes =
+    {
+        "SESS-016", "SESS-018", "SESS-022", "SESS-027", "SESS-028", "SESS-032", "SESS-036", "SESS-037", "SESS-039"
+    };
+    private static readonly HashSet<string> AcceptedRelievedStatuses =
+        new(new[] { "left / resigned", "left/resigned", "resigned", "inactive" }, StringComparer.Ordinal);
 
     [Fact]
     public void HelperHasFourExplicitFailClosedModes()
@@ -176,6 +184,98 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
+    public void RelievedPreservationUsesExactNineCodesAndNoRelievedLiteralPredicate()
+    {
+        Assert.DoesNotContain("\"Status\"='Relieved'", Source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("relieved_employee_count", Source, StringComparison.Ordinal);
+        var declaration = Regex.Match(Source, @"\$relievedEmployeeCodes = @\((?<values>[^)]*)\)");
+        Assert.True(declaration.Success);
+        var codes = Regex.Matches(declaration.Groups["values"].Value, "SESS-[0-9]{3}").Select(x => x.Value).ToArray();
+        Assert.Equal(ExpectedRelievedCodes, codes);
+        foreach (var code in ExpectedRelievedCodes)
+            Assert.Contains($"Relieved(\"{code}\"", Rev868C3WorkbookSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RelievedStatusNormalizationMatchesAcceptedRev868C3Source()
+    {
+        Assert.Contains("@('left / resigned','left/resigned','resigned','inactive')", Source, StringComparison.Ordinal);
+        Assert.Contains("lower(\"Status\") as normalized_status", Source, StringComparison.Ordinal);
+        Assert.Contains("lower(\"Status\") in ('left / resigned','left/resigned','resigned','inactive')", Rev868C3VerifierSource, StringComparison.Ordinal);
+        Assert.True(RelievedSetPass(ExpectedRelievedCodes.Select((code, index) =>
+            new EmployeeStatusRow(code, new[] { "Left / Resigned", "LEFT/RESIGNED", "Resigned", "Inactive" }[index % 4]))));
+    }
+
+    [Fact]
+    public void RelievedMissingUnexpectedDuplicateActiveAndStatusMismatchFailClosed()
+    {
+        var canonical = AcceptedRelievedRows();
+        Assert.False(RelievedSetPass(canonical.Skip(1)));
+        Assert.False(RelievedSetPass(canonical.Append(new EmployeeStatusRow("SESS-999", "Left / Resigned"))));
+        Assert.False(RelievedSetPass(canonical.Append(new EmployeeStatusRow("SESS-016", "Left / Resigned"))));
+        var active = AcceptedRelievedRows();
+        active[0] = active[0] with { Status = "Active" };
+        Assert.False(RelievedSetPass(active));
+        var mismatched = AcceptedRelievedRows();
+        mismatched[1] = mismatched[1] with { Status = "Terminated" };
+        Assert.False(RelievedSetPass(mismatched));
+    }
+
+    [Fact]
+    public void PreflightAndPostVerificationRequireExactRelievedSetPass()
+    {
+        var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        foreach (var sql in new[] { preflight, post })
+        {
+            Assert.Contains("relieved_employee_expected_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_actual_matched_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_missing_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_unexpected_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_duplicate_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_status_mismatch_count", sql, StringComparison.Ordinal);
+            Assert.Contains("relieved_employee_acceptance_state", sql, StringComparison.Ordinal);
+        }
+        Assert.Contains("safe_retry_state='||case", preflight, StringComparison.Ordinal);
+        Assert.Contains("and relieved_employee_acceptance_state='PASS'", preflight, StringComparison.Ordinal);
+        Assert.Contains("database_schema_acceptance_state='||case", post, StringComparison.Ordinal);
+        Assert.Contains("and relieved_employee_acceptance_state='PASS'", post, StringComparison.Ordinal);
+        Assert.Equal(2, Regex.Matches(Source, "Assert-Evidence \\$(?:preflight|post)Evidence \\\"relieved_employee_acceptance_state=PASS\\\"").Count);
+    }
+
+    [Fact]
+    public void UomDecisionAndExpectedSetsRemainPendingAndEmpty()
+    {
+        Assert.Contains("ApprovalStatus = \"PENDING\"", Source, StringComparison.Ordinal);
+        Assert.Contains("UomClassifications = @()", Source, StringComparison.Ordinal);
+        Assert.Contains("ItemBaseUomMappings = @()", Source, StringComparison.Ordinal);
+        Assert.Contains("select null::uuid,null::text,null::text,null::integer,null::boolean,null::text,null::text,null::text where false", Source, StringComparison.Ordinal);
+        Assert.Contains("select null::uuid,null::uuid,null::text,null::text,null::text where false", Source, StringComparison.Ordinal);
+        Assert.Contains("'$uomManagementDecisionState'='APPROVED'", Source, StringComparison.Ordinal);
+        Assert.False(UomAcceptanceCanPass("PENDING", classifications: 0, mappings: 0));
+    }
+
+    [Fact]
+    public void NoGuessedDefaultOrInferredUomMappingWasIntroduced()
+    {
+        Assert.Contains("no guessed, default, inferred, or automatic UOM/BaseUom mapping is permitted", Source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("PENDING_MANAGEMENT_APPROVAL", Source, StringComparison.Ordinal);
+        Assert.Contains("proposed_base_uom_id='||coalesce(e.\"BaseUomId\"::text,'NOT_APPROVED')", Source, StringComparison.Ordinal);
+        Assert.DoesNotMatch(new Regex(@"(?i)(legacy|candidate).*(insert|update).*BaseUom"), Source);
+    }
+
+    [Fact]
+    public void ArtifactPredicateAndExistingSafetyBoundariesRemainFailClosed()
+    {
+        Assert.Contains("pg_indexes where schemaname='nexa' and (indexname like '%rev869a%' or indexname in (", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("schemaname='nexa' and indexname like '%rev869a%' or schemaname='nexa'", Source, StringComparison.Ordinal);
+        Assert.Contains("$Database -cne $targetDatabase", Source, StringComparison.Ordinal);
+        Assert.Contains("rev861|production|prod|live|main", Source, StringComparison.Ordinal);
+        Assert.Contains("Full apply requires approved pre-REV869A backup path and SHA-256 evidence", Source, StringComparison.Ordinal);
+        Assert.Contains("Assert-SelectOnlySql \"Preflight\"", Source, StringComparison.Ordinal);
+        Assert.Contains("Assert-SelectOnlySql \"Post-migration verification\"", Source, StringComparison.Ordinal);
+    }
+    [Fact]
     public void BackupsCoverEveryAlteredMasterBeforeMutationAndDropLast()
     {
         var firstMutation = MigrationSource.IndexOf("migrationBuilder.AddColumn", StringComparison.Ordinal);
@@ -205,6 +305,33 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("backup/current legacy-column comparisons must be zero", Source);
     }
 
+    private sealed record EmployeeStatusRow(string Code, string Status);
+
+    private static EmployeeStatusRow[] AcceptedRelievedRows() =>
+        ExpectedRelievedCodes.Select(code => new EmployeeStatusRow(code, "Left / Resigned")).ToArray();
+
+    private static bool RelievedSetPass(IEnumerable<EmployeeStatusRow> sourceRows)
+    {
+        var rows = sourceRows.Select(x => x with { Status = x.Status.ToLowerInvariant() }).ToArray();
+        var expected = ExpectedRelievedCodes.ToHashSet(StringComparer.Ordinal);
+        var matched = rows.Count(x => expected.Contains(x.Code) && AcceptedRelievedStatuses.Contains(x.Status));
+        var missing = expected.Count(code => rows.All(x => x.Code != code));
+        var unexpected = rows.Count(x => !expected.Contains(x.Code) && AcceptedRelievedStatuses.Contains(x.Status));
+        var duplicates = rows.Where(x => expected.Contains(x.Code)).GroupBy(x => x.Code, StringComparer.Ordinal).Count(x => x.Count() != 1);
+        var statusMismatch = expected.Count(code => rows.Any(x => x.Code == code) && !rows.Any(x => x.Code == code && AcceptedRelievedStatuses.Contains(x.Status)));
+        return expected.Count == 9 && matched == 9 && missing == 0 && unexpected == 0 && duplicates == 0 && statusMismatch == 0;
+    }
+
+    private static bool UomAcceptanceCanPass(string decision, int classifications, int mappings) =>
+        decision == "APPROVED" && classifications > 0 && mappings > 0;
+
+    private static string FunctionBlock(string startMarker, string endMarker)
+    {
+        var start = Source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = Source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return Source[start..end];
+    }
     private sealed record UomContract(Guid Id, string Code, bool Approved);
     private sealed record UomSetResult(int Missing, int Unexpected, int Duplicate, int Unapproved);
 

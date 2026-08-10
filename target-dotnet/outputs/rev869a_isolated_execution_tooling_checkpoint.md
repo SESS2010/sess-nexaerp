@@ -179,7 +179,7 @@ and missing BaseUom mappings = 0
 and invalid BaseUom mappings = 0
 and inferred/default mappings = 0.
 
-While management state is PENDING, both data readiness and preflight acceptance are FAIL. Safe retry may describe only schema retry cleanliness; it does not override business readiness.
+While management state is PENDING, both data readiness and preflight acceptance are FAIL. Safe retry additionally requires exact relieved-employee acceptance; it does not override business readiness.
 
 ### Exact migrations, seeds and backups
 
@@ -197,7 +197,7 @@ For each of these keys, the post count must equal the captured preflight count e
 - purchase-requisition approval histories;
 - stock reservations;
 - active employees;
-- relieved employees;
+- the exact nine-code relieved-employee metrics and accepted-status state;
 - departments;
 - department approval mappings.
 
@@ -210,12 +210,29 @@ For each of these keys, the post count must equal the captured preflight count e
 ### Offline negative coverage
 
 Focused source tests now fail closed for missing, unexpected, duplicate and unapproved UOM classifications; null/invalid item Uom IDs; missing BaseUom mapping; inferred/default mapping; preservation mismatch; protected databases; non-read-only preflight SQL; and any GeneratePlanOnly path reaching password, PostgreSQL, EF apply or other database action.
+### Source-only relieved-employee preservation correction
+
+Correction starting commit: `9c93ec8522a03b3c25e1dd599c0233d83a76a9f7`.
+
+Both preflight and post-migration preservation SQL incorrectly counted `nexa.employees where "Status"='Relieved'`. REV868C3 instead persists `Left / Resigned`. The committed workbook data and accepted verifier establish exactly these codes: `SESS-016`, `SESS-018`, `SESS-022`, `SESS-027`, `SESS-028`, `SESS-032`, `SESS-036`, `SESS-037`, and `SESS-039`; accepted normalized statuses are `left / resigned`, `left/resigned`, `resigned`, and `inactive`.
+
+A shared source-owned CTE contract is now embedded into both SQL builders. Each emits expected, actual matched, missing, unexpected, duplicate and status-mismatch counts plus `relieved_employee_acceptance_state`. PASS requires expected and matched counts of nine with every negative count zero. It is not inferred from total minus active employees.
+
+`safe_retry_state` and `preflight_acceptance_state` now require `relieved_employee_acceptance_state=PASS`. Post-migration `database_schema_acceptance_state`, the explicit PowerShell post gate, and pre/post preservation equality require the same exact-set evidence. Existing migration, artifact, collision, seed, schema, backup, permission and preservation gates remain intact.
+
+The preflight `pg_indexes` artifact predicate is now explicitly `schemaname='nexa' AND (...)`, so every `OR` branch remains constrained to the `nexa` schema without changing the intended artifact set.
+
+The UOM management decision remains `PENDING`. `UomClassifications` and `ItemBaseUomMappings` remain empty, and their SQL expected sets remain empty `WHERE false` contracts. No guessed, default, inferred or automatic classification/BaseUom mapping was introduced. Read-only candidate evidence remains available while data and preflight acceptance remain FAIL pending approval.
+
 ### Correction validation evidence
 
-- PowerShell parser: PASS, zero errors.
+- Windows PowerShell 5.1 parser: PASS, zero errors.
 - Build: PASS, zero warnings and zero errors.
-- Focused helper tests: PASS, 25 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 253 passed, 0 failed, 0 skipped.
+- Focused helper tests: PASS, 32 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 330 passed, 0 failed, 0 skipped.
 - Migration source changes: zero.
+- Acceptance-formula scan: PASS.
+- UOM/artifact/safety scan: PASS.
+- Changed-line secret and privacy scans: PASS.
 - `git diff --check`: PASS.
 - No helper mode, PostgreSQL test, database, migration, backup/restore or production operation was executed.
