@@ -368,3 +368,18 @@ All preflight, schema, ownership, preservation, relieved-employee, Department Ma
 Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused isolated-execution-helper tests 51/51 PASS; complete non-PostgreSQL tests 346/346 PASS; catalogue-character scan PASS; read-only/prohibited-operation scan PASS; secret/privacy/safety scans PASS; `git diff --check` PASS.
 
 No helper mode, PostgreSQL/database access, migration application/removal/rollback, backup/restore, production, REV861, frontend, AWS, or REV869B action occurred. The existing REV869A migration and model snapshot were unchanged. `../legacy-reference/` remained read-only, unchanged, and untracked.
+## 2026-08-10 exact seed-set verifier correction
+
+Starting commit: `1deb0ea03283401cb2471acdfe7d91fd75a5b00e`.
+
+Root cause of `seed_set_mismatch_count=32`: the former permission-unexpected component used a broad, case-sensitive role-code allow-list. Four reused REV866 roles are physically persisted lowercase (`purchase_executive`, `stores_executive`, `technical_director`, and `managing_director`), while that allow-list contained uppercase values. All eight REV869A page permissions for each of those four roles were falsely classified as unexpected: 4 roles x 8 pages = 32. The actual 74 permission rows were not defective.
+
+The verifier now defines exact source-derived contracts for 4 roles, 8 pages, 2 policies, and all 74 permissions. Each permission contract contains its deterministic permission ID, normalized logical role used to resolve the exact current RoleId, exact PageDefinitionId, and all 20 permission flags. This includes the eight existing-role `DEPARTMENT_MANAGER` permissions with view/print/download/audit-history only. The broad role-code allow-list and fragile distinct role/page count were removed.
+
+`seed_set_mismatch_count` is now the sum of 12 independently emitted and enforced metrics: role unexpected/missing, page unexpected/missing, policy unexpected/missing, permission unexpected/missing, permission flag mismatch, permission RoleId mismatch, permission PageDefinitionId mismatch, and owned role/page duplicate count. `database_schema_acceptance_state` still requires exact counts 4/8/74/2, total 88, every independent mismatch count zero, and all existing schema, preservation, Department Manager, UOM, Item, history, and backup gates to pass.
+
+Offline negative coverage proves wrong RoleId, wrong PageDefinitionId, one changed flag, missing permission, unexpected permission, duplicate permission, wrong `CreatedBy`, and wrong policy value each produce a positive seed mismatch and database acceptance failure.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 62/62 PASS; complete non-PostgreSQL tests 357/357 PASS; exact 74-record/20-flag contract scan PASS; read-only/prohibited-operation scan PASS; secret/privacy/safety scans PASS; `git diff --check` PASS.
+
+No helper mode, PostgreSQL/database access, migration application/removal/rollback, restore, repair, backup, database-data change, production, REV861, frontend, AWS, or REV869B action occurred. The applied REV869A migration source and model snapshot were unchanged. `../legacy-reference/` remained read-only, unchanged, and untracked.

@@ -387,6 +387,102 @@ with expected_migrations("MigrationId") as (values
  ('organization_policies'),('qc_inspection_policies'),('tax_gst_settings'),('uom_conversions'),
  ('vendor_qualifications'),('warehouse_condition_locations')
 ), expected_backups(name) as (values ('rev869a_items_prechange_backup'),('rev869a_uoms_prechange_backup'),('rev869a_vendors_prechange_backup')),
+expected_role_seeds("Id","Code","Name","IsPrivileged","IsActive","CreatedBy") as (values
+ ('30000000-0000-0000-0000-000000000001'::uuid,'PURCHASE_MANAGER','Purchase Manager',true,true,'migration-rev869a'),
+ ('30000000-0000-0000-0000-000000000002'::uuid,'STORES_MANAGER','Stores Manager',true,true,'migration-rev869a'),
+ ('30000000-0000-0000-0000-000000000003'::uuid,'QC_MANAGER','QC Manager',true,true,'migration-rev869a'),
+ ('30000000-0000-0000-0000-000000000004'::uuid,'QC_INSPECTOR','QC Inspector',false,true,'migration-rev869a')
+), expected_page_seeds("Id","PageKey","Module","Title","Route","IsActive","CreatedBy") as (values
+ ('40000000-0000-0000-0000-000000000001'::uuid,'security.employee-identities','Security','Employee Identities','/security/employee-identities',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000002'::uuid,'security.operational-scopes','Security','Operational Scopes','/security/operational-scopes',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000003'::uuid,'masters.uoms','Masters','UOM Master','/masters/uoms',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000004'::uuid,'masters.uom-conversions','Masters','UOM Conversion Master','/masters/uom-conversions',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000005'::uuid,'settings.tax-gst','Settings','Tax/GST Settings','/settings/tax-gst',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000006'::uuid,'masters.vendor-qualifications','Masters','Vendor Qualifications','/masters/vendor-qualifications',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000007'::uuid,'masters.warehouse-condition-locations','Masters','Warehouse Condition Locations','/masters/warehouse-condition-locations',true,'migration-rev869a'),
+ ('40000000-0000-0000-0000-000000000008'::uuid,'qc.inspection-policies','QC','QC Inspection Policies','/qc/inspection-policies',true,'migration-rev869a')
+), expected_policy_seeds("Id","OrganizationId","PolicyCode","PolicyValue","EffectiveFrom","IsActive","CreatedBy") as (values
+ ('50000000-0000-0000-0000-000000000001'::uuid,'SESS','VENDOR_FINAL_APPROVER','MANAGING_DIRECTOR',date '2026-08-10',true,'migration-rev869a'),
+ ('50000000-0000-0000-0000-000000000002'::uuid,'SESS','INVENTORY_VALUATION_METHOD','WEIGHTED_AVERAGE',date '2026-08-10',true,'migration-rev869a')
+), expected_permission_specs("Id","RoleCode","PageDefinitionId","CanView","CanCreate","CanUpdate","CanSubmit","CanVerify","CanApprove","CanReject","CanRequestClarification","CanRequestRevision","CanResubmit","CanCancel","CanDeactivate","CanPrint","CanDownload","CanExport","CanUploadAttachment","CanReplaceAttachment","CanViewCommercialValues","CanViewAuditHistory","HasFullControl") as (values
+    ('ec586367-c47c-fa2c-a3a6-7b652a8bcf03'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,true,false,false),
+    ('6f876ecb-f37c-9c97-c30e-fe992cf56d10'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,true,false,false),
+    ('4a045df1-dc0e-e920-6a8e-02afdc1f9f37'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000003'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,true,false,false),
+    ('1c7a6074-478b-76b5-920b-da17f5147d7c'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000004'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,true,false,false),
+    ('4be63323-a734-943b-8d03-b7d80fd58683'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000005'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,true,false,false),
+    ('21c63dbc-0985-5d45-72a0-6db78ecf2a39'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000006'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,true,false,false),
+    ('c6c95969-c68e-f1d9-c708-d280df85c29e'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,true,false,false),
+    ('b2cfa60a-5fc8-d083-5d04-5a01d70cbc02'::uuid,'PURCHASE_MANAGER','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,true,false,false),
+    ('2a6b1d70-e88b-a9f8-3f68-1e4cbfdd8b67'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('c66d4c06-b1a6-2b18-37b1-56b7d9677643'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('8fec4773-1c6b-0cae-e623-f394e71f3901'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000003'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('65ac8a90-8d09-c31b-1285-cf09b38f6c6f'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000004'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('c78eb0ff-8d8e-0082-a51f-f862c75a0ca9'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('5ceb4c02-d702-580c-00ca-75404dada0f7'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('11038140-87fb-6522-7425-da633f209502'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('338f3857-ff34-b27c-d671-ad42eb33fe3d'::uuid,'PURCHASE_EXECUTIVE','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('ce23c00d-3772-21ee-ec50-8e903fe1fc81'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('062c8d00-221a-5347-8c3b-bd87604fc083'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('e7b9e221-0799-7867-f623-9ec602b64c84'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000003'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,false,false,false),
+    ('a3c118c5-33e2-98c4-a904-8a7cf3a5a7ad'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000004'::uuid,true,true,true,true,false,false,false,false,false,true,true,false,true,true,false,true,false,false,false,false),
+    ('125a37ad-46bf-b2c4-c02f-d588f0969a84'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('c63323be-cd04-b0e3-eb1c-97442843e6ba'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('0f9deb7e-4745-0527-9d8e-bb60c8cececa'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000007'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,false,true,false,false,true,false),
+    ('2d3b700e-1aeb-d373-de93-2c2fa8a3370e'::uuid,'STORES_MANAGER','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('eaa52044-6e94-fcd9-82d8-9a3323450753'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('0229a2fa-bdb6-b6b5-4da0-db1e3bc6d395'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('b1302fd0-129b-62d1-3006-293ac6bf6a87'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000003'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('1913267c-7d4c-e241-5011-8cf30bd84137'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000004'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('dc466d18-679e-85aa-a346-e4062dfbeddc'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('bd4fa4d4-57b6-6b58-3f9d-f5e17b47865e'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('d15f336b-f96e-94d4-9ac0-764d82895884'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('a41ce315-d082-63f6-b0cb-5cde4bd4fe03'::uuid,'STORES_EXECUTIVE','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('a9d6e145-ea26-2b7f-1844-90682dffd78f'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('68b94637-ea35-95bb-731a-68ab0d83b6f5'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('799bd43d-d80a-0eb5-777d-6ba1afc0717b'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000003'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('d8d1e9af-6bf3-d7f7-cb14-7a9f6d1d13ab'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000004'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('2139e45b-4437-632d-a851-c87145ba4071'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('cecbb5f3-5709-025a-d5f7-807d4151a665'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('8626e388-a399-ab33-a557-df27a097aa40'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('451ff88f-816b-39fb-0097-18ecd1e752d2'::uuid,'QC_MANAGER','40000000-0000-0000-0000-000000000008'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,false,false,true,false),
+    ('f5240291-ec17-bea1-5a31-eead7c8a0ec9'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('dc9b2f94-6506-f50d-5518-46d6e04af43a'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('01b635f9-b7c0-6952-aad1-db0a13aabe39'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000003'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('5d19be17-57d3-0652-d98b-5a11f62faf19'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000004'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('8c9dff2e-5ed3-13c3-668b-b11f7602e9d8'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('973f3950-0ae0-1df9-ad6f-570f6cd38b89'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('7f52e39c-fb55-8e9b-3865-d29bffaee942'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('7170ddae-3c8f-154e-5e20-e51f8d572074'::uuid,'QC_INSPECTOR','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,false,false),
+    ('a1153b99-f614-049c-8f62-2e6672c1163d'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,true,false,true,true,true,false,false,false,true,true,true,false,false,true,true,false),
+    ('6ecea443-25c0-ccd6-067d-c53b9cb5369b'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,true,false,true,true,true,false,false,false,true,true,true,false,false,true,true,false),
+    ('8642768b-72de-85b7-3700-52f204bc2412'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000003'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('625a6c21-32f6-45b9-911c-fef812d43657'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000004'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('baff3f8c-6e8c-e814-86d6-9431df1251d1'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000005'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('fcf487a0-7345-b5f0-8f88-784ce8f0016a'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000006'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('35376d76-a0b1-7ee1-b32d-1499b7e24f06'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000007'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('7fa66608-1650-7481-0d97-33b93ff14201'::uuid,'TECHNICAL_DIRECTOR','40000000-0000-0000-0000-000000000008'::uuid,true,true,true,true,true,false,true,true,true,true,true,false,true,true,true,true,false,true,true,false),
+    ('97eb4bbf-2fea-a75a-5226-bbfd8aa0d667'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000001'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('61063a45-9de0-6ada-716f-b308ab881c76'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000002'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('d1224cfb-0e09-3337-c4dc-b5fc728b4450'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000003'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('7492c61c-6d29-ca2a-0f2c-e7fe98b66bc0'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000004'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('90b24916-a7da-926c-85db-d40df0bb5cb5'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000005'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('8db2124b-a20d-c86d-0c55-44f6a9b83dcb'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000006'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('99230bc2-6f8e-6513-4b7a-d6424d3cf345'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000007'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('8c9ccb5e-d2ee-b5c2-70b3-26f0805ab6d3'::uuid,'MANAGING_DIRECTOR','40000000-0000-0000-0000-000000000008'::uuid,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true,true,true),
+    ('75b705db-ab96-19a0-0fc7-1f5ec2ada945'::uuid,'ACCOUNTS_HEAD','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,true,false,true,true,true,false,false,false,true,true,true,false,false,true,true,false),
+    ('f9c9f6cc-48b9-8727-4c81-4196e4444b59'::uuid,'ACCOUNTS_HEAD','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,true,false,true,true,true,false,false,false,true,true,true,false,false,true,true,false),
+    ('aea2e8a1-18a6-72d2-a954-6f5513b80eeb'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000001'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('f8e7d0a6-f056-175a-e604-14c1f9f6ad83'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000002'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000003'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('15ee5b19-d532-c28c-b755-de4152769a7a'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000004'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('5794f740-90b1-5a70-413a-d59bbc97ce78'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000005'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('42e2a253-d767-6191-caf9-e1f79652c44f'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000006'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('38371df3-5a46-5137-8204-4c5391633180'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000007'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false),
+    ('680f7358-4b7c-0733-be42-f9d52e746d1b'::uuid,'DEPARTMENT_MANAGER','40000000-0000-0000-0000-000000000008'::uuid,true,false,false,false,false,false,false,false,false,false,false,false,true,true,false,false,false,false,true,false)
+), expected_permission_seeds as (
+ select e.*, (select case when count(*)=1 then min(r."Id"::text)::uuid else null end from nexa.roles r where upper(trim(r."Code"))=e."RoleCode") as "RoleId"
+ from expected_permission_specs e
+),
 $relievedCtes
 , schema_state as (
  select
@@ -430,26 +526,33 @@ $relievedCtes
 ), role_state as (
  select *, case when existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0 and existing_department_manager_suitable_count=1 then 'PASS' else 'FAIL' end as existing_department_manager_reuse_state
  from role_counts
-), seed_state as (
+), seed_counts as (
  select
   (select count(*) from nexa.roles where "CreatedBy"='migration-rev869a') as role_seed_count,
   (select count(*) from nexa.page_definitions where "CreatedBy"='migration-rev869a') as page_seed_count,
   (select count(*) from nexa.role_page_permissions where "CreatedBy"='migration-rev869a') as permission_seed_count,
-  (select count(*) from nexa.organization_policies where "CreatedBy"='migration-rev869a') as policy_seed_count,
-  ((select count(*) from nexa.roles where "CreatedBy"='migration-rev869a' and "Code" not in ('PURCHASE_MANAGER','STORES_MANAGER','QC_MANAGER','QC_INSPECTOR')) +
-   (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR')) e(code) where (select count(*) from nexa.roles r where r."CreatedBy"='migration-rev869a' and r."Code"=e.code)<>1) +
-   (select count(*) from nexa.page_definitions where "CreatedBy"='migration-rev869a' and "PageKey" not in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies')) +
-   (select count(*) from (values ('security.employee-identities'),('security.operational-scopes'),('masters.uoms'),('masters.uom-conversions'),('settings.tax-gst'),('masters.vendor-qualifications'),('masters.warehouse-condition-locations'),('qc.inspection-policies')) e(page_key) where (select count(*) from nexa.page_definitions p where p."CreatedBy"='migration-rev869a' and p."PageKey"=e.page_key)<>1) +
-   (select count(*) from nexa.organization_policies where "CreatedBy"='migration-rev869a' and ("OrganizationId"<>'SESS' or ("PolicyCode","PolicyValue") not in (('VENDOR_FINAL_APPROVER','MANAGING_DIRECTOR'),('INVENTORY_VALUATION_METHOD','WEIGHTED_AVERAGE')))) +
-   (select count(*) from (values ('VENDOR_FINAL_APPROVER','MANAGING_DIRECTOR'),('INVENTORY_VALUATION_METHOD','WEIGHTED_AVERAGE')) e(code,value) where (select count(*) from nexa.organization_policies p where p."CreatedBy"='migration-rev869a' and p."OrganizationId"='SESS' and p."PolicyCode"=e.code and p."PolicyValue"=e.value)<>1) +
-   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a' and not ((r."Code" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE','STORES_MANAGER','STORES_EXECUTIVE','QC_MANAGER','QC_INSPECTOR','DEPARTMENT_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies')) or (r."Code"='accounts_head' and d."PageKey" in ('masters.vendor-qualifications','settings.tax-gst')))) +
-   (select greatest(0,74-count(distinct (r."Code",d."PageKey"))) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a') +
-   (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions where "CreatedBy"='migration-rev869a' group by "RoleId","PageDefinitionId" having count(*)<>1) q)) as seed_set_mismatch_count,
+  (select count(*) from nexa.organization_policies where "CreatedBy"='migration-rev869a') as policy_seed_count
+), seed_metrics as (
+ select
+  (select count(*) from nexa.roles r where r."CreatedBy"='migration-rev869a' and not exists (select 1 from expected_role_seeds e where e."Id"=r."Id" and e."Code"=r."Code" and e."Name"=r."Name" and e."IsPrivileged"=r."IsPrivileged" and e."IsActive"=r."IsActive" and e."CreatedBy"=r."CreatedBy")) as role_seed_unexpected_count,
+  (select count(*) from expected_role_seeds e where (select count(*) from nexa.roles r where r."Id"=e."Id" and r."Code"=e."Code" and r."Name"=e."Name" and r."IsPrivileged"=e."IsPrivileged" and r."IsActive"=e."IsActive" and r."CreatedBy"=e."CreatedBy")<>1) as role_seed_missing_count,
+  (select count(*) from nexa.page_definitions p where p."CreatedBy"='migration-rev869a' and not exists (select 1 from expected_page_seeds e where e."Id"=p."Id" and e."PageKey"=p."PageKey" and e."Module"=p."Module" and e."Title"=p."Title" and e."Route"=p."Route" and e."IsActive"=p."IsActive" and e."CreatedBy"=p."CreatedBy")) as page_seed_unexpected_count,
+  (select count(*) from expected_page_seeds e where (select count(*) from nexa.page_definitions p where p."Id"=e."Id" and p."PageKey"=e."PageKey" and p."Module"=e."Module" and p."Title"=e."Title" and p."Route"=e."Route" and p."IsActive"=e."IsActive" and p."CreatedBy"=e."CreatedBy")<>1) as page_seed_missing_count,
+  (select count(*) from nexa.organization_policies p where p."CreatedBy"='migration-rev869a' and not exists (select 1 from expected_policy_seeds e where e."Id"=p."Id" and e."OrganizationId"=p."OrganizationId" and e."PolicyCode"=p."PolicyCode" and e."PolicyValue"=p."PolicyValue" and e."EffectiveFrom"=p."EffectiveFrom" and e."IsActive"=p."IsActive" and e."CreatedBy"=p."CreatedBy")) as policy_seed_unexpected_count,
+  (select count(*) from expected_policy_seeds e where (select count(*) from nexa.organization_policies p where p."Id"=e."Id" and p."OrganizationId"=e."OrganizationId" and p."PolicyCode"=e."PolicyCode" and p."PolicyValue"=e."PolicyValue" and p."EffectiveFrom"=e."EffectiveFrom" and p."IsActive"=e."IsActive" and p."CreatedBy"=e."CreatedBy")<>1) as policy_seed_missing_count,
+  (select count(*) from nexa.role_page_permissions p where p."CreatedBy"='migration-rev869a' and not exists (select 1 from expected_permission_seeds e where e."Id"=p."Id")) as permission_seed_unexpected_count,
+  (select count(*) from expected_permission_seeds e where (select count(*) from nexa.role_page_permissions p where p."Id"=e."Id" and p."CreatedBy"='migration-rev869a')<>1) as permission_seed_missing_count,
+  (select count(*) from expected_permission_seeds e join nexa.role_page_permissions p on p."Id"=e."Id" where row(p."CanView",p."CanCreate",p."CanUpdate",p."CanSubmit",p."CanVerify",p."CanApprove",p."CanReject",p."CanRequestClarification",p."CanRequestRevision",p."CanResubmit",p."CanCancel",p."CanDeactivate",p."CanPrint",p."CanDownload",p."CanExport",p."CanUploadAttachment",p."CanReplaceAttachment",p."CanViewCommercialValues",p."CanViewAuditHistory",p."HasFullControl") is distinct from row(e."CanView",e."CanCreate",e."CanUpdate",e."CanSubmit",e."CanVerify",e."CanApprove",e."CanReject",e."CanRequestClarification",e."CanRequestRevision",e."CanResubmit",e."CanCancel",e."CanDeactivate",e."CanPrint",e."CanDownload",e."CanExport",e."CanUploadAttachment",e."CanReplaceAttachment",e."CanViewCommercialValues",e."CanViewAuditHistory",e."HasFullControl")) as permission_flag_mismatch_count,
+  (select count(*) from expected_permission_seeds e join nexa.role_page_permissions p on p."Id"=e."Id" where p."RoleId" is distinct from e."RoleId") as permission_role_mapping_mismatch_count,
+  (select count(*) from expected_permission_seeds e join nexa.role_page_permissions p on p."Id"=e."Id" where p."PageDefinitionId" is distinct from e."PageDefinitionId") as permission_page_mapping_mismatch_count,
+  (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions where "CreatedBy"='migration-rev869a' group by "RoleId","PageDefinitionId" having count(*)<>1) d) as duplicate_role_page_permission_count
+), seed_state as (
+ select c.*,m.*,
+  (role_seed_unexpected_count+role_seed_missing_count+page_seed_unexpected_count+page_seed_missing_count+policy_seed_unexpected_count+policy_seed_missing_count+permission_seed_unexpected_count+permission_seed_missing_count+permission_flag_mismatch_count+permission_role_mapping_mismatch_count+permission_page_mapping_mismatch_count+duplicate_role_page_permission_count) as seed_set_mismatch_count,
   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" where r."Code"='DEPARTMENT_MANAGER' and not (p."CanView" or p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanPrint" or p."CanDownload" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."CanViewAuditHistory" or p."HasFullControl")) as all_false_department_manager_count,
   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where r."Code"='DEPARTMENT_MANAGER' and p."CreatedBy"='migration-rev869a' and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies') and not (p."CanView" and p."CanPrint" and p."CanDownload" and p."CanViewAuditHistory" and not (p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."HasFullControl"))) as department_manager_permission_mismatch_count,
-  (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR'),('DEPARTMENT_MANAGER')) e(code) where (select count(*) from nexa.roles r where upper(trim(r."Code"))=e.code)<>1) as logical_role_code_mismatch_count,
-  (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions group by "RoleId","PageDefinitionId" having count(*)<>1) d) as duplicate_role_page_permission_count
-), approved_uom_state as (
+  (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR'),('DEPARTMENT_MANAGER')) e(code) where (select count(*) from nexa.roles r where upper(trim(r."Code"))=e.code)<>1) as logical_role_code_mismatch_count
+ from seed_counts c cross join seed_metrics m), approved_uom_state as (
  select
   (select count(*) from nexa.uoms where "Id"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and "Code"='EA' and "Name"='Each' and "MeasurementDimension"='COUNT' and "QuantityPrecision"=0 and "IsActive" and "CreatedBy"='migration-rev869a' and "Version"=0) as exact_ea_uom_count,
   (select count(*) from nexa.uoms where "Id"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and not ("Code"='EA' and "Name"='Each' and "MeasurementDimension"='COUNT' and "QuantityPrecision"=0 and "IsActive" and "CreatedBy"='migration-rev869a')) as ea_uom_attribute_mismatch_count,
@@ -502,6 +605,18 @@ union all select 'role_seed_count='||role_seed_count from seed_state
 union all select 'page_seed_count='||page_seed_count from seed_state
 union all select 'permission_seed_count='||permission_seed_count from seed_state
 union all select 'policy_seed_count='||policy_seed_count from seed_state
+union all select 'role_seed_unexpected_count='||role_seed_unexpected_count from seed_state
+union all select 'role_seed_missing_count='||role_seed_missing_count from seed_state
+union all select 'page_seed_unexpected_count='||page_seed_unexpected_count from seed_state
+union all select 'page_seed_missing_count='||page_seed_missing_count from seed_state
+union all select 'policy_seed_unexpected_count='||policy_seed_unexpected_count from seed_state
+union all select 'policy_seed_missing_count='||policy_seed_missing_count from seed_state
+union all select 'permission_seed_unexpected_count='||permission_seed_unexpected_count from seed_state
+union all select 'permission_seed_missing_count='||permission_seed_missing_count from seed_state
+union all select 'permission_flag_mismatch_count='||permission_flag_mismatch_count from seed_state
+union all select 'permission_role_mapping_mismatch_count='||permission_role_mapping_mismatch_count from seed_state
+union all select 'permission_page_mapping_mismatch_count='||permission_page_mapping_mismatch_count from seed_state
+union all select 'duplicate_role_page_permission_count='||duplicate_role_page_permission_count from seed_state
 union all select 'seed_set_mismatch_count='||seed_set_mismatch_count from seed_state
 union all select 'migration_owned_seed_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count) from seed_state
 union all select 'security_configuration_owned_seed_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count) from seed_state
@@ -518,7 +633,6 @@ union all select 'exact_ea_approval_history_count='||exact_ea_approval_history_c
 union all select 'all_false_department_manager_count='||all_false_department_manager_count from seed_state
 union all select 'department_manager_permission_mismatch_count='||department_manager_permission_mismatch_count from seed_state
 union all select 'logical_role_code_mismatch_count='||logical_role_code_mismatch_count from seed_state
-union all select 'duplicate_role_page_permission_count='||duplicate_role_page_permission_count from seed_state
 union all select 'item_backup_mismatch_count='||item_backup_mismatch_count from backup_state
 union all select 'uom_backup_mismatch_count='||uom_backup_mismatch_count from backup_state
 union all select 'vendor_backup_mismatch_count='||vendor_backup_mismatch_count from backup_state
@@ -760,6 +874,18 @@ try {
     Assert-Evidence $postEvidence "page_seed_count=8"
     Assert-Evidence $postEvidence "permission_seed_count=74"
     Assert-Evidence $postEvidence "policy_seed_count=2"
+    Assert-Evidence $postEvidence "role_seed_unexpected_count=0"
+    Assert-Evidence $postEvidence "role_seed_missing_count=0"
+    Assert-Evidence $postEvidence "page_seed_unexpected_count=0"
+    Assert-Evidence $postEvidence "page_seed_missing_count=0"
+    Assert-Evidence $postEvidence "policy_seed_unexpected_count=0"
+    Assert-Evidence $postEvidence "policy_seed_missing_count=0"
+    Assert-Evidence $postEvidence "permission_seed_unexpected_count=0"
+    Assert-Evidence $postEvidence "permission_seed_missing_count=0"
+    Assert-Evidence $postEvidence "permission_flag_mismatch_count=0"
+    Assert-Evidence $postEvidence "permission_role_mapping_mismatch_count=0"
+    Assert-Evidence $postEvidence "permission_page_mapping_mismatch_count=0"
+    Assert-Evidence $postEvidence "duplicate_role_page_permission_count=0"
     Assert-Evidence $postEvidence "migration_owned_seed_count=88"
     Assert-Evidence $postEvidence "security_configuration_owned_seed_count=88"
     Assert-Evidence $postEvidence "migration_created_uom_count=1"
@@ -774,7 +900,6 @@ try {
     Assert-Evidence $postEvidence "exact_ea_approval_history_count=1"
     Assert-Evidence $postEvidence "preexisting_ea_backup_collision_count=0"
     Assert-Evidence $postEvidence "logical_role_code_mismatch_count=0"
-    Assert-Evidence $postEvidence "duplicate_role_page_permission_count=0"
     Assert-Evidence $postEvidence "all_false_department_manager_count=0"
     Assert-Evidence $postEvidence "department_manager_permission_mismatch_count=0"
     Assert-Evidence $postEvidence "database_schema_acceptance_state=PASS"

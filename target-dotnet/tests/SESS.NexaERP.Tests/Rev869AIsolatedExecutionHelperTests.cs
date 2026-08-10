@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
 
@@ -246,8 +248,8 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0", preflight, StringComparison.Ordinal);
         Assert.Contains("new_role_collision_count=0", preflight, StringComparison.Ordinal);
         Assert.Contains("Get-EvidenceTextValue $Before 'department_manager_role_fingerprint'", Source, StringComparison.Ordinal);
-        Assert.Contains("greatest(0,74-count(distinct (r.\"Code\",d.\"PageKey\")))", post, StringComparison.Ordinal);
-        Assert.Contains("'DEPARTMENT_MANAGER','TECHNICAL_DIRECTOR'", post, StringComparison.Ordinal);
+        Assert.Contains("expected_permission_specs", post, StringComparison.Ordinal);
+        Assert.Contains("'DEPARTMENT_MANAGER'", post, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -483,6 +485,84 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("Assert-SelectOnlySql \"Post-migration verification\"", Source, StringComparison.Ordinal);
     }
     [Fact]
+    public void LegacyBroadAllowListProducedExactlyThirtyTwoFalseMismatches()
+    {
+        var lowerCaseReusedRoleCodes = new[] { "purchase_executive", "stores_executive", "technical_director", "managing_director" };
+        Assert.All(lowerCaseReusedRoleCodes, code => Assert.Contains(code, Rev866SeedData.AdditionalEmployeeRoles.Select(x => x.Code)));
+        Assert.Equal(32, lowerCaseReusedRoleCodes.Length * Rev869ASeedData.Pages.Length);
+        Assert.DoesNotContain("r.\"Code\" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE'", FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql"), StringComparison.Ordinal);
+    }
+    [Fact]
+    public void SeedVerifierUsesExactDeterministicSeventyFourPermissionContracts()
+    {
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        var actual = ParsePermissionContracts(post);
+        var expected = SourceDefinedPermissionContracts();
+        Assert.Equal(74, actual.Count);
+        Assert.Equal(74, actual.Select(x => x.Id).Distinct().Count());
+        Assert.Equal(expected.OrderBy(x => x.Id), actual.OrderBy(x => x.Id));
+        Assert.Contains("min(r.\"Id\"::text)::uuid", post, StringComparison.Ordinal);
+        Assert.Contains("p.\"RoleId\" is distinct from e.\"RoleId\"", post, StringComparison.Ordinal);
+        Assert.Contains("p.\"PageDefinitionId\" is distinct from e.\"PageDefinitionId\"", post, StringComparison.Ordinal);
+        Assert.DoesNotContain("r.\"Code\" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE'", post, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SeedMismatchIsTheSumOfEveryIndependentCanonicalMetric()
+    {
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        foreach (var label in SeedMismatchLabels)
+        {
+            Assert.Single(Regex.Matches(post, "union all select '" + Regex.Escape(label) + "=").Cast<Match>());
+            Assert.Single(Regex.Matches(Source, "Assert-Evidence \\$postEvidence \\\"" + Regex.Escape(label) + "=0\\\"").Cast<Match>());
+        }
+        Assert.Contains("role_seed_unexpected_count+role_seed_missing_count+page_seed_unexpected_count+page_seed_missing_count+policy_seed_unexpected_count+policy_seed_missing_count+permission_seed_unexpected_count+permission_seed_missing_count+permission_flag_mismatch_count+permission_role_mapping_mismatch_count+permission_page_mapping_mismatch_count+duplicate_role_page_permission_count", post, StringComparison.Ordinal);
+        Assert.Contains("seed_set_mismatch_count=0", post, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("wrong-role")]
+    [InlineData("wrong-page")]
+    [InlineData("wrong-flag")]
+    [InlineData("missing")]
+    [InlineData("unexpected")]
+    [InlineData("duplicate")]
+    [InlineData("wrong-created-by")]
+    public void AnyPermissionSeedDefectFailsTheExactSeedSetAndDatabaseAcceptance(string defect)
+    {
+        var expected = MaterializePermissions(ParsePermissionContracts(FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql")));
+        var actual = expected.Select(Clone).ToList();
+        switch (defect)
+        {
+            case "wrong-role": actual[0] = actual[0] with { RoleId = Guid.NewGuid() }; break;
+            case "wrong-page": actual[0] = actual[0] with { PageId = Guid.NewGuid() }; break;
+            case "wrong-flag": actual[0].Flags[0] = !actual[0].Flags[0]; break;
+            case "missing": actual.RemoveAt(0); break;
+            case "unexpected": actual.Add(new SeedPermission(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new bool[20], "migration-rev869a")); break;
+            case "duplicate": actual.Add(actual[0] with { Id = Guid.NewGuid(), Flags = actual[0].Flags.ToArray() }); break;
+            case "wrong-created-by": actual[0] = actual[0] with { CreatedBy = "wrong-owner" }; break;
+            default: throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+        var mismatch = PermissionSeedMismatch(expected, actual);
+        Assert.True(mismatch > 0);
+        Assert.False(DatabaseSeedAcceptance(mismatch));
+    }
+
+    [Fact]
+    public void WrongPolicyValueFailsTheExactSeedSetAndDatabaseAcceptance()
+    {
+        var expected = new[]
+        {
+            new SeedPolicy(Guid.Parse("50000000-0000-0000-0000-000000000001"), "SESS", "VENDOR_FINAL_APPROVER", "MANAGING_DIRECTOR", "migration-rev869a"),
+            new SeedPolicy(Guid.Parse("50000000-0000-0000-0000-000000000002"), "SESS", "INVENTORY_VALUATION_METHOD", "WEIGHTED_AVERAGE", "migration-rev869a")
+        };
+        var actual = expected.Select(x => x with { }).ToArray();
+        actual[0] = actual[0] with { Value = "TECHNICAL_DIRECTOR" };
+        var mismatch = PolicySeedMismatch(expected, actual);
+        Assert.True(mismatch > 0);
+        Assert.False(DatabaseSeedAcceptance(mismatch));
+    }
+    [Fact]
     public void ArtifactPredicateAndExistingSafetyBoundariesRemainFailClosed()
     {
         Assert.Contains("pg_indexes where schemaname='nexa' and (indexname like '%rev869a%' or indexname in (", Source, StringComparison.Ordinal);
@@ -525,6 +605,86 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("Backup comparisons exclude only that approved mapping", Source);
     }
 
+    private static readonly string[] SeedMismatchLabels =
+    {
+        "role_seed_unexpected_count", "role_seed_missing_count", "page_seed_unexpected_count", "page_seed_missing_count",
+        "policy_seed_unexpected_count", "policy_seed_missing_count", "permission_seed_unexpected_count", "permission_seed_missing_count",
+        "permission_flag_mismatch_count", "permission_role_mapping_mismatch_count", "permission_page_mapping_mismatch_count",
+        "duplicate_role_page_permission_count"
+    };
+
+    private sealed record PermissionSpec(Guid Id, string RoleCode, Guid PageId, string FlagBits);
+    private sealed record SeedPermission(Guid Id, Guid RoleId, Guid PageId, bool[] Flags, string CreatedBy);
+    private sealed record SeedPolicy(Guid Id, string Organization, string Code, string Value, string CreatedBy);
+
+    private static IReadOnlyList<PermissionSpec> ParsePermissionContracts(string post)
+    {
+        var start = post.IndexOf("expected_permission_specs", StringComparison.Ordinal);
+        var end = post.IndexOf("), expected_permission_seeds as (", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        var pattern = new Regex(@"\('(?<id>[0-9a-f-]{36})'::uuid,'(?<role>[A-Z_]+)','(?<page>[0-9a-f-]{36})'::uuid,(?<flags>(?:true|false)(?:,(?:true|false)){19})\)", RegexOptions.IgnoreCase);
+        return pattern.Matches(post[start..end]).Select(m => new PermissionSpec(
+            Guid.Parse(m.Groups["id"].Value), m.Groups["role"].Value.ToUpperInvariant(), Guid.Parse(m.Groups["page"].Value),
+            string.Concat(m.Groups["flags"].Value.Split(',').Select(x => x == "true" ? '1' : '0')))).ToArray();
+    }
+
+    private static IReadOnlyList<PermissionSpec> SourceDefinedPermissionContracts()
+    {
+        var roles = FoundationSeedData.Roles.Concat(Rev866SeedData.AdditionalEmployeeRoles).Concat(Rev869ASeedData.Roles).ToDictionary(x => x.Id);
+        var expected = Rev869ASeedData.RolePagePermissions.Select(p => new PermissionSpec(
+            p.Id, roles[p.RoleId].Code.Equals("accounts_head", StringComparison.OrdinalIgnoreCase) ? "ACCOUNTS_HEAD" : Rev869ARoleCodes.Normalize(roles[p.RoleId].Code),
+            p.PageDefinitionId, FlagBits(p))).ToList();
+        var departmentManagerIds = new[]
+        {
+            "aea2e8a1-18a6-72d2-a954-6f5513b80eeb", "f8e7d0a6-f056-175a-e604-14c1f9f6ad83",
+            "a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12", "15ee5b19-d532-c28c-b755-de4152769a7a",
+            "5794f740-90b1-5a70-413a-d59bbc97ce78", "42e2a253-d767-6191-caf9-e1f79652c44f",
+            "38371df3-5a46-5137-8204-4c5391633180", "680f7358-4b7c-0733-be42-f9d52e746d1b"
+        };
+        const string departmentManagerFlags = "10000000000011000010";
+        expected.AddRange(Rev869ASeedData.Pages.Select((page, index) => new PermissionSpec(Guid.Parse(departmentManagerIds[index]), "DEPARTMENT_MANAGER", page.Id, departmentManagerFlags)));
+        return expected;
+    }
+
+    private static string FlagBits(RolePagePermission p) => string.Concat(new[]
+    {
+        p.CanView,p.CanCreate,p.CanUpdate,p.CanSubmit,p.CanVerify,p.CanApprove,p.CanReject,p.CanRequestClarification,p.CanRequestRevision,p.CanResubmit,
+        p.CanCancel,p.CanDeactivate,p.CanPrint,p.CanDownload,p.CanExport,p.CanUploadAttachment,p.CanReplaceAttachment,p.CanViewCommercialValues,p.CanViewAuditHistory,p.HasFullControl
+    }.Select(x => x ? '1' : '0'));
+
+    private static IReadOnlyList<SeedPermission> MaterializePermissions(IReadOnlyList<PermissionSpec> specs)
+    {
+        var roleIds = specs.Select(x => x.RoleCode).Distinct().ToDictionary(x => x, x => DeterministicGuid("role-contract", x));
+        return specs.Select(x => new SeedPermission(x.Id, roleIds[x.RoleCode], x.PageId, x.FlagBits.Select(c => c == '1').ToArray(), "migration-rev869a")).ToArray();
+    }
+
+    private static SeedPermission Clone(SeedPermission value) => value with { Flags = value.Flags.ToArray() };
+
+    private static int PermissionSeedMismatch(IReadOnlyList<SeedPermission> expected, IReadOnlyList<SeedPermission> actual)
+    {
+        var unexpected = actual.Count(a => a.CreatedBy == "migration-rev869a" && expected.All(e => e.Id != a.Id));
+        var missing = expected.Count(e => actual.Count(a => a.Id == e.Id && a.CreatedBy == "migration-rev869a") != 1);
+        var flags = expected.Sum(e => actual.Where(a => a.Id == e.Id).Count(a => !a.Flags.SequenceEqual(e.Flags)));
+        var roles = expected.Sum(e => actual.Where(a => a.Id == e.Id).Count(a => a.RoleId != e.RoleId));
+        var pages = expected.Sum(e => actual.Where(a => a.Id == e.Id).Count(a => a.PageId != e.PageId));
+        var duplicates = actual.Where(a => a.CreatedBy == "migration-rev869a").GroupBy(a => (a.RoleId, a.PageId)).Count(g => g.Count() != 1);
+        return unexpected + missing + flags + roles + pages + duplicates;
+    }
+
+    private static int PolicySeedMismatch(IReadOnlyList<SeedPolicy> expected, IReadOnlyList<SeedPolicy> actual)
+    {
+        var unexpected = actual.Count(a => a.CreatedBy == "migration-rev869a" && !expected.Contains(a));
+        var missing = expected.Count(e => actual.Count(a => a == e) != 1);
+        return unexpected + missing;
+    }
+
+    private static bool DatabaseSeedAcceptance(int seedSetMismatchCount) => seedSetMismatchCount == 0;
+
+    private static Guid DeterministicGuid(params string[] values)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join('|', values)));
+        return new Guid(hash[..16]);
+    }
     private sealed record EmployeeStatusRow(string Code, string Status);
 
     private static EmployeeStatusRow[] AcceptedRelievedRows() =>
