@@ -57,9 +57,11 @@ Runtime evidence is written outside committed reports under `local-evidence/rev8
 - Relieved SESS employee count is exactly 9.
 - Active accepted clean department count is exactly 12.
 - Active `MANAGER` department-approval mapping count is exactly 14.
+- Schema contract state is PASS.
+- Preservation relation count is exactly 20 and preservation evidence state is PASS.
 - Preservation counts are collected for employees, departments, department manager mappings, purchase requisitions, PR approval/status history, stock availability, reservations/history, pending handoffs, workflow route/steps, page/role permissions, audit logs, and employee status/department/approval/import histories.
 
-No partial result is accepted. Target existence, any migration-set deviation, or any REV868C3 count deviation fails closed.
+Each canonical source label must be well formed and occur exactly once. No partial result is accepted. Target existence, any migration-set deviation, schema/preservation failure, malformed or duplicate evidence, or any REV868C3 count deviation fails closed.
 
 ## Exact accepted migration set
 
@@ -131,6 +133,36 @@ Failure evidence now identifies `failed_phase`, `failed_query_label`, SQLSTATE w
 
 The exact eleven accepted migrations, zero missing/unexpected/duplicate migrations, 42 active employees, 9 relieved employees, 12 active clean departments, 14 active manager mappings, target absence, preservation equality, and all existing fail-closed acceptance requirements are unchanged.
 
+## Source-only evidence-contract correction
+
+The canonical SQL label was already emitted once with the correct name. It was not aliased or duplicated in the SQL. The defect was in `Convert-Evidence`: it assumed each PowerShell native-output object contained exactly one psql line. When psql output arrived as one CRLF-framed string, the parser found the first `=` and treated the entire payload as one value, so later labels—including `provisioning_readiness_state`—were not captured. The previous hashtable parser also overwrote duplicate labels instead of rejecting them.
+
+The corrected parser splits every native-output object on CRLF or LF, ignores only normal `BEGIN`/`COMMIT` framing and blank lines, accepts only canonical safe `key=value` records, tracks each label's cardinality, removes duplicate values from acceptance, and records malformed-line count. PowerShell acceptance now requires every required label to be well formed, present exactly once, and equal to its exact expected value. Missing, duplicate, malformed, or explicit `FAIL` readiness evidence fails closed.
+
+The single canonical label is:
+
+`provisioning_readiness_state=PASS|FAIL`
+
+It is computed directly from `all_source_conditions_pass`; it is not inferred from or aliased to `safe_source_state`. PASS requires all of these simultaneously:
+
+- `database_identity=sess_nexaerp_rev868_verify`;
+- `target_database_count=0`;
+- `expected_migration_count=11`;
+- `actual_matched_migration_count=11`;
+- `missing_migration_count=0`;
+- `unexpected_migration_count=0`;
+- `duplicate_migration_count=0`;
+- `active_employee_count=42`;
+- `relieved_employee_count=9`;
+- `active_clean_department_count=12`;
+- `active_manager_mapping_count=14`;
+- `schema_contract_state=PASS`;
+- `preservation_relation_count=20`;
+- `preservation_evidence_state=PASS`.
+
+The source query still emits `safe_source_state` independently from the same complete boolean formula. The readiness label appears exactly once in the SQL result. Source PowerShell enforcement also requires both state labels exactly once and requires all count/identity/state labels above exactly once. No partial count set can produce accepted readiness.
+
+Future sanitized failure evidence includes every safely parsed database identity, count, state, and preservation-count label returned before rejection, plus returned-evidence malformed count. Unsafe or malformed lines are not persisted. Raw SQL, temporary SQL contents, passwords, connection strings, migration SQL, and employee data remain excluded. Any evidence-contract failure retains `failed_phase=SOURCE_PREFLIGHT`, the precise query label, and `target_state=NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT`; target creation remains after complete source assertion.
 ## Scope confirmation
 
 Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. During this source-only correction turn, no helper mode was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
@@ -139,8 +171,8 @@ Only the secure provisioning helper, its focused offline tests, and this report 
 
 - Windows PowerShell 5.1 parser: PASS, zero parse errors.
 - Solution build: PASS, zero warnings and zero errors.
-- Focused provisioning-helper tests: PASS, 32 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 285 passed, 0 failed, 0 skipped.
+- Focused provisioning-helper tests: PASS, 37 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 290 passed, 0 failed, 0 skipped.
 - Changed-file secret scan: PASS.
 - Changed-file privacy scan: PASS.
 - Changed-file safety scan: PASS.

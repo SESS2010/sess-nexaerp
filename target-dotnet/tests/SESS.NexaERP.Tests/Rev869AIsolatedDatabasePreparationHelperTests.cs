@@ -313,14 +313,82 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     {
         foreach (var formula in new[]
         {
-            "expected_migration_count=11", "missing_migration_count=0", "unexpected_migration_count=0",
-            "duplicate_migration_count=0", "active_employee_count=42", "relieved_employee_count=9",
-            "active_clean_department_count=12", "active_manager_mapping_count=14", "target_database_count = 0"
+            "expected_migration_count=11", "actual_matched_migration_count=11", "missing_migration_count=0",
+            "unexpected_migration_count=0", "duplicate_migration_count=0", "active_employee_count=42",
+            "relieved_employee_count=9", "active_clean_department_count=12", "active_manager_mapping_count=14",
+            "target_database_count = 0", "'$SchemaContractState'='PASS'", "preservation_evidence_state='PASS'"
         }) Assert.Contains(formula, Source, StringComparison.Ordinal);
 
         Assert.Contains("Assert-PreservationEqual $sourceEvidence $targetEvidence", Source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EvidenceSqlEmitsCanonicalReadinessExactlyOnceWithoutAliasing()
+    {
+        var evidenceBuilder = FunctionBlock("function New-EvidenceSql", "function Convert-Evidence");
+        Assert.Single(Regex.Matches(evidenceBuilder, "'provisioning_readiness_state='"));
+        Assert.Contains("actual_matched_migration_count=11", evidenceBuilder, StringComparison.Ordinal);
+        Assert.Contains("current_database()='$ExpectedDatabase'", evidenceBuilder, StringComparison.Ordinal);
+        Assert.Contains("'$SchemaContractState'='PASS'", evidenceBuilder, StringComparison.Ordinal);
+        Assert.Contains("preservation_evidence_state='PASS'", evidenceBuilder, StringComparison.Ordinal);
+        Assert.Contains("case when all_source_conditions_pass then 'PASS' else 'FAIL'", evidenceBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("case when safe_source_state='PASS'", evidenceBuilder, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CrLfAndNormalPsqlFramingCaptureExactlyOnePass()
+    {
+        var payload = "BEGIN\r\n" + string.Join("\r\n", CanonicalSourceEvidence().Select(x => $"{x.Key}={x.Value}")) + "\r\nCOMMIT\r\n";
+        var parsed = ParsePsqlEvidence(payload);
+        Assert.True(SourceReadinessPass(parsed));
+        Assert.Equal("PASS", parsed.Values["provisioning_readiness_state"]);
+        Assert.Equal(1, parsed.Counts["provisioning_readiness_state"]);
+        Assert.Equal(0, parsed.MalformedCount);
+    }
+
+    [Fact]
+    public void MissingDuplicateMalformedOrFailReadinessIsRejected()
+    {
+        var canonical = CanonicalSourceEvidence();
+
+        var missing = canonical.Where(x => x.Key != "provisioning_readiness_state").Select(x => $"{x.Key}={x.Value}").ToArray();
+        Assert.False(SourceReadinessPass(ParsePsqlEvidence(missing)));
+
+        var duplicate = canonical.Select(x => $"{x.Key}={x.Value}").Append("provisioning_readiness_state=PASS").ToArray();
+        Assert.False(SourceReadinessPass(ParsePsqlEvidence(duplicate)));
+
+        var malformed = canonical.Select(x => x.Key == "provisioning_readiness_state" ? "provisioning_readiness_state:PASS" : $"{x.Key}={x.Value}").ToArray();
+        Assert.False(SourceReadinessPass(ParsePsqlEvidence(malformed)));
+
+        var failed = canonical.Select(x => x.Key == "provisioning_readiness_state" ? "provisioning_readiness_state=FAIL" : $"{x.Key}={x.Value}").ToArray();
+        Assert.False(SourceReadinessPass(ParsePsqlEvidence(failed)));
+    }
+
+    [Fact]
+    public void NoRequiredFailedOrMissingCountCanProduceReadinessPass()
+    {
+        var canonical = CanonicalSourceEvidence();
+        foreach (var key in canonical.Keys.Where(x => x.EndsWith("_count", StringComparison.Ordinal)).ToArray())
+        {
+            var missing = canonical.Where(x => x.Key != key).Select(x => $"{x.Key}={x.Value}").ToArray();
+            Assert.False(SourceReadinessPass(ParsePsqlEvidence(missing)));
+
+            var changed = canonical.Select(x => x.Key == key ? $"{x.Key}={DifferentValue(x.Value)}" : $"{x.Key}={x.Value}").ToArray();
+            Assert.False(SourceReadinessPass(ParsePsqlEvidence(changed)));
+        }
+    }
+
+    [Fact]
+    public void IncompletePreflightEvidenceRemainsBeforeTargetCreationAndIsSafelyReported()
+    {
+        var assertion = Source.IndexOf("Assert-SourceEvidence $sourceEvidence", StringComparison.Ordinal);
+        var create = Source.IndexOf("Invoke-Native $CreateDbPath", assertion, StringComparison.Ordinal);
+        Assert.True(assertion >= 0 && create > assertion);
+        Assert.Contains("returned_evidence_malformed_count=", Source, StringComparison.Ordinal);
+        Assert.Contains("returned_evidence.$line", Source, StringComparison.Ordinal);
+        Assert.Contains("target_state=$state", Source, StringComparison.Ordinal);
+        Assert.False(TargetCreationAllowed(sourcePreflightPassed: false));
+    }
     [Fact]
     public void HelperRemainsPowerShell51Compatible()
     {
@@ -330,6 +398,75 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.Contains("Set-StrictMode -Version Latest", Source, StringComparison.Ordinal);
     }
 
+    private static IReadOnlyDictionary<string, string> CanonicalSourceEvidence() =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["database_identity"] = "sess_nexaerp_rev868_verify",
+            ["expected_migration_count"] = "11",
+            ["actual_matched_migration_count"] = "11",
+            ["missing_migration_count"] = "0",
+            ["unexpected_migration_count"] = "0",
+            ["duplicate_migration_count"] = "0",
+            ["target_database_count"] = "0",
+            ["active_employee_count"] = "42",
+            ["relieved_employee_count"] = "9",
+            ["active_clean_department_count"] = "12",
+            ["active_manager_mapping_count"] = "14",
+            ["schema_contract_state"] = "PASS",
+            ["preservation_relation_count"] = "20",
+            ["preservation_evidence_state"] = "PASS",
+            ["safe_source_state"] = "PASS",
+            ["provisioning_readiness_state"] = "PASS"
+        };
+
+    private static ParsedEvidence ParsePsqlEvidence(params string[] output)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var malformed = 0;
+        foreach (var raw in output)
+        {
+            foreach (var segment in Regex.Split(raw, "\\r?\\n"))
+            {
+                var text = segment.Trim();
+                if (text.Length == 0 || text is "BEGIN" or "COMMIT") continue;
+                var match = Regex.Match(text, "^(?<key>[a-z][a-z0-9_.]*)=(?<value>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*)$");
+                if (!match.Success) { malformed++; continue; }
+                var key = match.Groups["key"].Value;
+                counts[key] = counts.GetValueOrDefault(key) + 1;
+                if (counts[key] == 1) values[key] = match.Groups["value"].Value;
+                else values.Remove(key);
+            }
+        }
+        return new ParsedEvidence(values, counts, malformed);
+    }
+
+    private static bool SourceReadinessPass(ParsedEvidence evidence)
+    {
+        if (evidence.MalformedCount != 0) return false;
+        foreach (var expected in CanonicalSourceEvidence())
+            if (!evidence.Counts.TryGetValue(expected.Key, out var count) || count != 1 ||
+                !evidence.Values.TryGetValue(expected.Key, out var value) || value != expected.Value)
+                return false;
+        return true;
+    }
+
+    private static string DifferentValue(string value) => value switch
+    {
+        "0" => "1",
+        "11" => "10",
+        "42" => "41",
+        "9" => "8",
+        "12" => "11",
+        "14" => "13",
+        "20" => "19",
+        _ => "FAIL"
+    };
+
+    private sealed record ParsedEvidence(
+        IReadOnlyDictionary<string, string> Values,
+        IReadOnlyDictionary<string, int> Counts,
+        int MalformedCount);
     private static string FunctionBlock(string startMarker, string endMarker)
     {
         var start = Source.IndexOf(startMarker, StringComparison.Ordinal);

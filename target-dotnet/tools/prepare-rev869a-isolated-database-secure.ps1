@@ -49,6 +49,8 @@ $failureSqlState = "NOT_AVAILABLE"
 $failureSchema = "NOT_AVAILABLE"
 $failureTable = "NOT_AVAILABLE"
 $failureColumn = "NOT_AVAILABLE"
+$lastSafeEvidenceLines = @()
+$lastEvidenceMalformedCount = 0
 
 function Assert-Mode {
     $count = @($GeneratePlanOnly, $SourcePreflightOnly, $Provision, $PostProvisionVerification | Where-Object { $_ }).Count
@@ -226,8 +228,11 @@ commit;
 "@
 }
 
-function New-EvidenceSql([bool]$RequireTargetAbsent) {
+function New-EvidenceSql([bool]$RequireTargetAbsent, [string]$ExpectedDatabase, [string]$SchemaContractState) {
+    if ($ExpectedDatabase -cne $acceptedSource -and $ExpectedDatabase -cne $acceptedTarget) { throw "Unexpected evidence database contract." }
+    if ($SchemaContractState -cne "PASS" -and $SchemaContractState -cne "FAIL") { throw "Malformed schema contract state." }
     $expected = Get-ExpectedMigrationValues
+    $requiredPreservationCount = $preservationTables.Count
     $absenceClause = if ($RequireTargetAbsent) { "AND target_database_count = 0" } else { "" }
     $tableCountSql = (($preservationRelations.GetEnumerator() | ForEach-Object {
         "  select '" + $_.Key + "' as name, count(*)::bigint as row_count from " + $_.Value
@@ -241,6 +246,7 @@ $expected
 ), migration_evidence as (
   select
     (select count(*) from expected_migrations) expected_migration_count,
+    (select count(*) from actual_migrations a join expected_migrations e using(id) where a.copies = 1) actual_matched_migration_count,
     (select count(*) from expected_migrations e left join actual_migrations a using(id) where a.id is null) missing_migration_count,
     (select count(*) from actual_migrations a left join expected_migrations e using(id) where e.id is null) unexpected_migration_count,
     (select count(*) from actual_migrations where copies <> 1) duplicate_migration_count,
@@ -259,15 +265,23 @@ $expected
 ), table_counts as (
 $tableCountSql
 
+), preservation_evidence as (
+  select count(*)::int preservation_relation_count,
+    case when count(*)=$requiredPreservationCount then 'PASS' else 'FAIL' end preservation_evidence_state
+  from table_counts
 ), gates as (
   select *,
-    case when expected_migration_count=11 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0
+    (current_database()='$ExpectedDatabase'
+      and expected_migration_count=11 and actual_matched_migration_count=11
+      and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0
       and active_employee_count=42 and relieved_employee_count=9 and active_clean_department_count=12 and active_manager_mapping_count=14
-      $absenceClause then 'PASS' else 'FAIL' end safe_source_state
-  from migration_evidence cross join counts
+      and '$SchemaContractState'='PASS' and preservation_evidence_state='PASS'
+      $absenceClause) all_source_conditions_pass
+  from migration_evidence cross join counts cross join preservation_evidence
 )
 select 'database_identity=' || current_database()
 union all select 'expected_migration_count=' || expected_migration_count from gates
+union all select 'actual_matched_migration_count=' || actual_matched_migration_count from gates
 union all select 'missing_migration_count=' || missing_migration_count from gates
 union all select 'unexpected_migration_count=' || unexpected_migration_count from gates
 union all select 'duplicate_migration_count=' || duplicate_migration_count from gates
@@ -277,8 +291,11 @@ union all select 'active_employee_count=' || active_employee_count from gates
 union all select 'relieved_employee_count=' || relieved_employee_count from gates
 union all select 'active_clean_department_count=' || active_clean_department_count from gates
 union all select 'active_manager_mapping_count=' || active_manager_mapping_count from gates
-union all select 'safe_source_state=' || safe_source_state from gates
-union all select 'provisioning_readiness_state=' || case when safe_source_state='PASS' then 'PASS' else 'FAIL' end from gates
+union all select 'schema_contract_state=$SchemaContractState' from gates
+union all select 'preservation_relation_count=' || preservation_relation_count from gates
+union all select 'preservation_evidence_state=' || preservation_evidence_state from gates
+union all select 'safe_source_state=' || case when all_source_conditions_pass then 'PASS' else 'FAIL' end from gates
+union all select 'provisioning_readiness_state=' || case when all_source_conditions_pass then 'PASS' else 'FAIL' end from gates
 union all select 'preservation.' || name || '=' || row_count from table_counts
 order by 1;
 commit;
@@ -287,17 +304,55 @@ commit;
 
 function Convert-Evidence([object[]]$Lines) {
     $map = @{}
-    foreach ($line in $Lines) {
-        $text = [string]$line
-        $at = $text.IndexOf('=')
-        if ($at -gt 0) { $map[$text.Substring(0, $at)] = $text.Substring($at + 1) }
+    $counts = @{}
+    $safeLines = New-Object System.Collections.Generic.List[string]
+    $malformedCount = 0
+    foreach ($raw in $Lines) {
+        foreach ($segment in ([string]$raw -split "`r?`n")) {
+            $text = $segment.Trim()
+            if ([string]::IsNullOrWhiteSpace($text) -or $text -ceq "BEGIN" -or $text -ceq "COMMIT") { continue }
+            $match = [regex]::Match($text, '^(?<key>[a-z][a-z0-9_.]*)=(?<value>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)*)$')
+            if (-not $match.Success) { $malformedCount++; continue }
+            $key = $match.Groups['key'].Value
+            $value = $match.Groups['value'].Value
+            if (-not $counts.ContainsKey($key)) { $counts[$key] = 0 }
+            $counts[$key] = [int]$counts[$key] + 1
+            $safeLines.Add("$key=$value")
+            if ($counts[$key] -eq 1) { $map[$key] = $value } else { $map.Remove($key) }
+        }
     }
+    $map['__label_counts'] = $counts
+    $map['__malformed_count'] = $malformedCount
+    $map['__safe_lines'] = @($safeLines)
+    $script:lastSafeEvidenceLines = @($safeLines)
+    $script:lastEvidenceMalformedCount = $malformedCount
     return $map
 }
 
+function Assert-EvidenceValue([hashtable]$Evidence, [string]$Key, [string]$ExpectedValue, [string]$Section) {
+    if (-not $Evidence.ContainsKey('__label_counts') -or -not ($Evidence['__label_counts'] -is [hashtable])) { throw "$Section evidence cardinality metadata is missing." }
+    $counts = [hashtable]$Evidence['__label_counts']
+    $count = if ($counts.ContainsKey($Key)) { [int]$counts[$Key] } else { 0 }
+    if ($count -ne 1) { throw "$Section evidence label $Key must occur exactly once; actual_count=$count." }
+    if (-not $Evidence.ContainsKey($Key) -or $Evidence[$Key] -cne $ExpectedValue) { throw "$Section evidence label $Key must equal $ExpectedValue." }
+}
+
+function Get-EvidenceValueExactlyOnce([hashtable]$Evidence, [string]$Key, [string]$Section) {
+    if (-not $Evidence.ContainsKey('__label_counts') -or -not ($Evidence['__label_counts'] -is [hashtable])) { throw "$Section evidence cardinality metadata is missing." }
+    $counts = [hashtable]$Evidence['__label_counts']
+    $count = if ($counts.ContainsKey($Key)) { [int]$counts[$Key] } else { 0 }
+    if ($count -ne 1 -or -not $Evidence.ContainsKey($Key)) { throw "$Section evidence label $Key must occur exactly once; actual_count=$count." }
+    return [string]$Evidence[$Key]
+}
+
+function Assert-EvidenceIsWellFormed([hashtable]$Evidence, [string]$Section) {
+    if (-not $Evidence.ContainsKey('__malformed_count') -or [int]$Evidence['__malformed_count'] -ne 0) { throw "$Section evidence contains malformed output." }
+}
+
 function Assert-SchemaContractEvidence([hashtable]$Evidence) {
+    Assert-EvidenceIsWellFormed $Evidence "Schema contract"
     foreach ($pair in @{ missing_relation_count='0'; missing_column_count='0'; schema_contract_state='PASS' }.GetEnumerator()) {
-        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Schema contract evidence is incomplete: $($pair.Key)." }
+        Assert-EvidenceValue $Evidence $pair.Key $pair.Value "Schema contract"
     }
 }
 
@@ -307,38 +362,49 @@ function Get-DatabaseSchemaContract([string]$Database, [string]$QueryLabel) {
 }
 
 function Assert-SourceEvidence([hashtable]$Evidence) {
+    Assert-EvidenceIsWellFormed $Evidence "Source preflight"
     foreach ($pair in @{
-        database_identity=$acceptedSource; expected_migration_count='11'; missing_migration_count='0';
-        unexpected_migration_count='0'; duplicate_migration_count='0'; target_database_count='0';
+        database_identity=$acceptedSource; expected_migration_count='11'; actual_matched_migration_count='11';
+        missing_migration_count='0'; unexpected_migration_count='0'; duplicate_migration_count='0'; target_database_count='0';
         active_employee_count='42'; relieved_employee_count='9'; active_clean_department_count='12';
-        active_manager_mapping_count='14'; safe_source_state='PASS'; provisioning_readiness_state='PASS'
+        active_manager_mapping_count='14'; schema_contract_state='PASS'; preservation_relation_count='20';
+        preservation_evidence_state='PASS'; safe_source_state='PASS'; provisioning_readiness_state='PASS'
     }.GetEnumerator()) {
-        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Source preflight evidence is incomplete: $($pair.Key)." }
+        Assert-EvidenceValue $Evidence $pair.Key $pair.Value "Source preflight"
     }
 }
 
 function Assert-AcceptedCoreEvidence([hashtable]$Evidence, [string]$ExpectedDatabase) {
+    Assert-EvidenceIsWellFormed $Evidence "Accepted core"
     foreach ($pair in @{
-        database_identity=$ExpectedDatabase; expected_migration_count='11'; missing_migration_count='0';
-        unexpected_migration_count='0'; duplicate_migration_count='0'; active_employee_count='42';
-        relieved_employee_count='9'; active_clean_department_count='12'; active_manager_mapping_count='14'
+        database_identity=$ExpectedDatabase; expected_migration_count='11'; actual_matched_migration_count='11';
+        missing_migration_count='0'; unexpected_migration_count='0'; duplicate_migration_count='0'; active_employee_count='42';
+        relieved_employee_count='9'; active_clean_department_count='12'; active_manager_mapping_count='14';
+        schema_contract_state='PASS'; preservation_relation_count='20'; preservation_evidence_state='PASS';
+        safe_source_state='PASS'; provisioning_readiness_state='PASS'
     }.GetEnumerator()) {
-        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Accepted core evidence is incomplete: $($pair.Key)." }
+        Assert-EvidenceValue $Evidence $pair.Key $pair.Value "Accepted core"
     }
 }
 function Get-SourceEvidence {
     $schemaEvidence = Get-DatabaseSchemaContract $acceptedSource "SOURCE_PREFLIGHT_SCHEMA_CONTRACT"
     Assert-SchemaContractEvidence $schemaEvidence
-    $sql = New-EvidenceSql $true
+    $sql = New-EvidenceSql $true $acceptedSource $schemaEvidence['schema_contract_state']
     return Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "SOURCE_PREFLIGHT_ACCEPTANCE_AND_PRESERVATION" $sql)
 }
 
 function Assert-PreservationEqual([hashtable]$Source, [hashtable]$Target) {
+    Assert-EvidenceIsWellFormed $Source "Source preservation"
+    Assert-EvidenceIsWellFormed $Target "Target preservation"
     foreach ($table in $preservationTables) {
         $key = "preservation.$table"
-        if (-not $Source.ContainsKey($key) -or -not $Target.ContainsKey($key) -or $Source[$key] -cne $Target[$key]) { throw "Preservation mismatch for $table." }
+        $sourceValue = Get-EvidenceValueExactlyOnce $Source $key "Source preservation"
+        $targetValue = Get-EvidenceValueExactlyOnce $Target $key "Target preservation"
+        if ($sourceValue -cne $targetValue) { throw "Preservation mismatch for $table." }
     }
-    if ($Source['migration_fingerprint'] -cne $Target['migration_fingerprint']) { throw "Migration sets do not match." }
+    $sourceFingerprint = Get-EvidenceValueExactlyOnce $Source 'migration_fingerprint' "Source preservation"
+    $targetFingerprint = Get-EvidenceValueExactlyOnce $Target 'migration_fingerprint' "Target preservation"
+    if ($sourceFingerprint -cne $targetFingerprint) { throw "Migration sets do not match." }
 }
 
 function New-SanitizedEvidencePath {
@@ -395,9 +461,10 @@ try {
         Assert-SchemaContractEvidence $sourceSchemaEvidence
         $targetSchemaEvidence = Get-DatabaseSchemaContract $acceptedTarget "POST_PROVISION_TARGET_SCHEMA_CONTRACT"
         Assert-SchemaContractEvidence $targetSchemaEvidence
-        $sourceSql = New-EvidenceSql $false
+        $sourceSql = New-EvidenceSql $false $acceptedSource $sourceSchemaEvidence['schema_contract_state']
+        $targetSql = New-EvidenceSql $false $acceptedTarget $targetSchemaEvidence['schema_contract_state']
         $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "POST_PROVISION_SOURCE_ACCEPTANCE_AND_PRESERVATION" $sourceSql)
-        $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $sourceSql)
+        $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $targetSql)
         Assert-AcceptedCoreEvidence $sourceEvidence $acceptedSource
         Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
         Assert-PreservationEqual $sourceEvidence $targetEvidence
@@ -440,7 +507,7 @@ try {
     $failedPhase = "POST_PROVISION_VERIFICATION"
     $targetSchemaEvidence = Get-DatabaseSchemaContract $acceptedTarget "POST_PROVISION_TARGET_SCHEMA_CONTRACT"
     Assert-SchemaContractEvidence $targetSchemaEvidence
-    $verificationSql = New-EvidenceSql $false
+    $verificationSql = New-EvidenceSql $false $acceptedTarget $targetSchemaEvidence['schema_contract_state']
     $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $verificationSql)
     Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
     Assert-PreservationEqual $sourceEvidence $targetEvidence
@@ -455,6 +522,15 @@ try {
 catch {
     $state = if ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
     $details = @("provision_acceptance_state=FAIL", "failed_phase=$failedPhase", "failed_query_label=$failedQueryLabel", "sqlstate=$failureSqlState", "failure_schema=$failureSchema", "failure_table=$failureTable", "failure_column=$failureColumn", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
+    $details += "returned_evidence_malformed_count=$lastEvidenceMalformedCount"
+    foreach ($line in $lastSafeEvidenceLines) {
+        $separator = $line.IndexOf('=')
+        if ($separator -le 0) { continue }
+        $key = $line.Substring(0, $separator)
+        if ($key -ceq 'database_identity' -or $key -match '(_count|_state)$' -or $key -match '^preservation\.') {
+            $details += "returned_evidence.$line"
+        }
+    }
     if ($backupPath) { $details += "backup_path=$backupPath" }
     if ($backupSha256) { $details += "backup_sha256=$backupSha256" }
     $failureEvidencePath = New-SanitizedEvidencePath
@@ -478,6 +554,8 @@ finally {
     $failureSchema = "NOT_AVAILABLE"
     $failureTable = "NOT_AVAILABLE"
     $failureColumn = "NOT_AVAILABLE"
+    $lastSafeEvidenceLines = @()
+    $lastEvidenceMalformedCount = 0
     if ($password -is [IDisposable]) { $password.Dispose() }
     $password = $null
 }
