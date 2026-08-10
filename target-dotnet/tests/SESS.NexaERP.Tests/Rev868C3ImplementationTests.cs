@@ -965,9 +965,12 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("migration_unexpected_count", helper);
         Assert.Contains("migration_acceptance_state='||case when expected_count=10 and actual_matched_count=10 and missing_count=0 and unexpected_count=0 and duplicate_count=0", helper);
-        Assert.Contains("history_audit_acceptance_state=FAIL", helper);
-        Assert.Contains("history_audit_exact_expected_set_not_proven_from_source", helper);
-        Assert.Contains("database_acceptance_state=FAIL", helper);
+        Assert.Contains("except all select * from sa", helper);
+        Assert.Contains("status_history_duplicate_count", helper);
+        Assert.Contains("department_history_duplicate_count", helper);
+        Assert.Contains("history_audit_acceptance_state='||case when", helper);
+        Assert.Contains("Get-DatabaseAcceptanceEvidence", helper);
+        Assert.Contains("if($matches.Count -ne 1){return 'FAIL'}", helper);
         Assert.DoesNotContain("database_acceptance_state_requires_all_previous_labels", helper);
     }
 
@@ -986,7 +989,9 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("purchase.requisitions|V=T|A=F|R=F|C=F|RV=F|AH=T|FC=F", helper);
         Assert.Contains("rev868c3_resume_20260809_210202.trx", helper);
         Assert.Contains("test_acceptance_state=PASS", helper);
-        Assert.Contains("overall_acceptance_state=FAIL", helper);
+        Assert.Contains("Get-OverallAcceptanceEvidence", helper);
+        Assert.Contains("database_acceptance_blocker=database_sql_not_executed_in_generate_sql_only_mode", helper);
+        Assert.Contains("if($overallEvidence -ne 'overall_acceptance_state=PASS')", helper);
         Assert.Contains("Rev868c3_unauthenticated_request_returns_401", helper);
         Assert.Contains("Rev868c3_unauthorized_role_returns_403", helper);
         Assert.Contains("Rev868c3_creator_self_approval_returns_403", helper);
@@ -1005,6 +1010,23 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         var states = statesCsv.Split(',', StringSplitOptions.RemoveEmptyEntries);
         var actual = states.Length == 8 && states.All(x => x == "PASS") ? "PASS" : "FAIL";
         Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Rev868c3_postrun_verifier_proves_history_and_audit_exactly_and_rejects_ambiguous_evidence()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+
+        Assert.Contains("nexa.rev868c3_employee_backup", helper);
+        Assert.Contains("except all select * from sa", helper);
+        Assert.Contains("except all select * from da", helper);
+        Assert.Contains("SourceWorkbook=SESS_NexaERP_Final_Employee_Master_2026-08-09.xlsx", helper);
+        Assert.Contains("audit_scoped_count", helper);
+        Assert.Contains("ascoped=1 and aexact=1", helper);
+        Assert.Contains("$units.Count -eq 6", helper);
+        Assert.Contains("$results.Count -eq 6", helper);
+        Assert.Contains("$notPassed -eq 0", helper);
+        Assert.Contains("Database identity evidence missing or duplicated.", helper);
     }
     private static void AssertOrdered(string text, string before, string after)
     {
