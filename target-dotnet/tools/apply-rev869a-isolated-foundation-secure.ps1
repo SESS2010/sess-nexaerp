@@ -254,7 +254,7 @@ with expected_migrations("MigrationId", ordinal) as (
 ), preservation_state as (
     select
       (select count(*) from nexa.purchase_requisitions) as pr_count,
-      (select count(*) from nexa.purchase_requisition_approval_histories) as pr_approval_history_count,
+      (select count(*) from nexa.purchase_requisition_approval_history) as pr_approval_history_count,
       (select count(*) from nexa.stock_reservations) as reservation_count,
       (select count(*) from nexa.employees where "Status"='Active') as active_employee_count,
       (select count(*) from nexa.departments) as department_count,
@@ -389,7 +389,7 @@ $relievedCtes
 ), preservation_state as (
  select
   (select count(*) from nexa.purchase_requisitions) as pr_count,
-  (select count(*) from nexa.purchase_requisition_approval_histories) as pr_approval_history_count,
+  (select count(*) from nexa.purchase_requisition_approval_history) as pr_approval_history_count,
   (select count(*) from nexa.stock_reservations) as reservation_count,
   (select count(*) from nexa.employees where "Status"='Active') as active_employee_count,
   (select count(*) from nexa.departments) as department_count,

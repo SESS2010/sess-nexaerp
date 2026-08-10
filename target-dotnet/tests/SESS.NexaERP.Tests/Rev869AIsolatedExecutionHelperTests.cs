@@ -9,6 +9,10 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static readonly string Source = File.ReadAllText(HelperPath);
     private static readonly string MigrationPath = Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260810120000_Rev869AIdentityMasterScopeFoundation.cs");
     private static readonly string MigrationSource = File.ReadAllText(MigrationPath);
+    private static readonly string DbContextSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs")) + Environment.NewLine +
+        File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.Rev869A.cs"));
+    private static readonly string ModelSnapshotSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
+    private static readonly string ProvisioningHelperSource = File.ReadAllText(Path.Combine(Root, "tools", "prepare-rev869a-isolated-database-secure.ps1"));
     private static readonly string Rev868C3WorkbookSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
     private static readonly string Rev868C3VerifierSource = File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
     private static readonly string[] ExpectedRelievedCodes =
@@ -17,6 +21,22 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     };
     private static readonly HashSet<string> AcceptedRelievedStatuses =
         new(new[] { "left / resigned", "left/resigned", "resigned", "inactive" }, StringComparer.Ordinal);
+    private static readonly string[] CanonicalHelperRelations =
+    {
+        "controlled_configuration_histories", "department_approval_mappings", "departments", "employee_identity_mappings", "employees",
+        "items", "organization_policies", "page_definitions", "purchase_requisition_approval_history", "purchase_requisitions",
+        "qc_inspection_policies", "rack_bins", "rev869a_items_prechange_backup", "rev869a_uoms_prechange_backup",
+        "rev869a_vendors_prechange_backup", "role_page_permissions", "roles", "stock_reservations", "tax_gst_settings",
+        "uom_conversions", "uoms", "vendor_qualifications", "vendors", "warehouse_condition_locations", "warehouses"
+    };
+    private static readonly string[] CanonicalPreservationRelations =
+    {
+        "employees", "departments", "department_approval_mappings", "purchase_requisitions",
+        "purchase_requisition_approval_history", "purchase_requisition_status_history", "stock_availability_checks",
+        "stock_availability_check_lines", "stock_reservations", "stock_reservation_history", "purchase_requirement_handoffs",
+        "purchase_approval_route_settings", "purchase_approval_workflow_steps", "page_definitions", "role_page_permissions",
+        "audit_logs", "employee_status_history", "employee_department_history", "employee_approval_history", "employee_import_history"
+    };
 
     [Fact]
     public void HelperHasFourExplicitFailClosedModes()
@@ -148,6 +168,62 @@ public sealed class Rev869AIsolatedExecutionHelperTests
 
         Assert.False(duplicateId.Duplicate == 0);
         Assert.False(duplicateCode.Duplicate == 0);
+    }
+
+    [Fact]
+    public void EveryGeneratedSqlRelationMatchesCanonicalPhysicalContract()
+    {
+        var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var actual = new[] { preflight, post, transactional }.SelectMany(PhysicalRelations).Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(CanonicalHelperRelations.OrderBy(x => x, StringComparer.Ordinal), actual);
+        foreach (var relation in actual.Where(x => !x.StartsWith("rev869a_", StringComparison.Ordinal)))
+        {
+            Assert.Contains($"ToTable(\"{relation}\"", DbContextSource, StringComparison.Ordinal);
+            Assert.Contains($"ToTable(\"{relation}\", \"nexa\"", ModelSnapshotSource, StringComparison.Ordinal);
+        }
+        foreach (var backup in actual.Where(x => x.StartsWith("rev869a_", StringComparison.Ordinal)))
+            Assert.Contains(backup, MigrationSource, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("nexa.purchase_requisition_approval_histories", Source, StringComparison.Ordinal);
+        Assert.Contains("nexa.purchase_requisition_approval_history", preflight, StringComparison.Ordinal);
+        Assert.Contains("nexa.purchase_requisition_approval_history", post, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AcceptedPreservationRelationsMatchProvisioningEfAndSnapshotContracts()
+    {
+        foreach (var relation in CanonicalPreservationRelations)
+        {
+            Assert.Contains($"{relation} = \"nexa.{relation}\"", ProvisioningHelperSource, StringComparison.Ordinal);
+            Assert.Contains($"ToTable(\"{relation}\"", DbContextSource, StringComparison.Ordinal);
+            Assert.Contains($"ToTable(\"{relation}\", \"nexa\"", ModelSnapshotSource, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void MissingOrInventedPhysicalRelationFailsExactContract()
+    {
+        Assert.True(HasExactPhysicalRelations(CanonicalHelperRelations));
+        Assert.False(HasExactPhysicalRelations(CanonicalHelperRelations.Skip(1)));
+        Assert.False(HasExactPhysicalRelations(CanonicalHelperRelations.Append("purchase_requisition_approval_histories")));
+    }
+
+    [Fact]
+    public void RequiredPreservationCountsHaveNoGuessedOrSilentFallback()
+    {
+        var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        const string requiredCount = "(select count(*) from nexa.purchase_requisition_approval_history) as pr_approval_history_count";
+
+        Assert.Single(Regex.Matches(preflight, Regex.Escape(requiredCount)).Cast<Match>());
+        Assert.Single(Regex.Matches(post, Regex.Escape(requiredCount)).Cast<Match>());
+        Assert.DoesNotMatch(new Regex(@"(?i)to_regclass\([^\r\n]*purchase_requisition_approval_histor"), preflight + post);
+        Assert.DoesNotMatch(new Regex(@"(?i)information_schema[^\r\n]*purchase_requisition_approval_histor"), preflight + post);
+        Assert.True(IsSelectOnly(preflight));
+        Assert.True(IsSelectOnly(post));
     }
 
     [Fact]
@@ -383,6 +459,13 @@ public sealed class Rev869AIsolatedExecutionHelperTests
                         expected.GroupBy(e => e.Code.Trim(), StringComparer.OrdinalIgnoreCase).Count(g => g.Count() != 1);
         return new(missing, unexpected, duplicate, expected.Count(e => !e.Approved));
     }
+
+    private static IEnumerable<string> PhysicalRelations(string sqlBlock) =>
+        Regex.Matches(sqlBlock, @"(?i)\bnexa\.([a-z_][a-z0-9_]*)")
+            .Select(match => match.Groups[1].Value.ToLowerInvariant());
+
+    private static bool HasExactPhysicalRelations(IEnumerable<string> actual) =>
+        CanonicalHelperRelations.ToHashSet(StringComparer.Ordinal).SetEquals(actual);
 
     private static bool ItemUomReady(Guid? uomId, bool uomExists, bool baseMappingPresent, string mappingBasis) =>
         uomId.HasValue && uomExists && baseMappingPresent && mappingBasis == "MANAGEMENT_APPROVED";

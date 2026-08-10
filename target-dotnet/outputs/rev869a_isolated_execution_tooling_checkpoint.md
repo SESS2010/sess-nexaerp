@@ -281,3 +281,37 @@ All existing gates remain unchanged: exactly 11 prerequisites; the exact nine re
 - Changed-line secret, privacy and safety scans: PASS.
 - `git diff --check`: PASS.
 - No helper mode, PostgreSQL test, PostgreSQL/database access, migration, backup/restore, production, REV861, frontend or REV869B operation was executed.
+### Source-only physical-relation contract correction
+
+Correction starting commit: `984efe1eb90cdb6566022abeb2415683cf100f73`.
+
+The authoritative physical name is `nexa.purchase_requisition_approval_history`. It is confirmed by `NexaErpDbContext`, the current model snapshot, accepted REV868 migrations and verification tooling, and the isolated provisioning helper preservation map. Accepted provisioning evidence records the source/target count as 3. The execution helper had invented the plural `nexa.purchase_requisition_approval_histories` in exactly two places. Both the preflight and post-migration preservation queries now directly count the singular relation.
+
+The generated-SQL audit covers all three builders: preflight, post-migration verification, and transaction-rolled-back constraint verification. Their complete canonical 25-relation union is:
+
+- `controlled_configuration_histories`, `department_approval_mappings`, `departments`, `employee_identity_mappings`, `employees`
+- `items`, `organization_policies`, `page_definitions`, `purchase_requisition_approval_history`, `purchase_requisitions`
+- `qc_inspection_policies`, `rack_bins`, `rev869a_items_prechange_backup`, `rev869a_uoms_prechange_backup`, `rev869a_vendors_prechange_backup`
+- `role_page_permissions`, `roles`, `stock_reservations`, `tax_gst_settings`, `uom_conversions`
+- `uoms`, `vendor_qualifications`, `vendors`, `warehouse_condition_locations`, `warehouses`
+
+Every non-backup relation is confirmed by the current DbContext and snapshot; each migration-owned backup relation is confirmed by the REV869A migration source. Unknown or invented relation names fail the offline exact-set contract.
+
+The provisioning/EF/snapshot audit separately confirms all 20 accepted preservation relations: `employees`, `departments`, `department_approval_mappings`, `purchase_requisitions`, `purchase_requisition_approval_history`, `purchase_requisition_status_history`, `stock_availability_checks`, `stock_availability_check_lines`, `stock_reservations`, `stock_reservation_history`, `purchase_requirement_handoffs`, `purchase_approval_route_settings`, `purchase_approval_workflow_steps`, `page_definitions`, `role_page_permissions`, `audit_logs`, `employee_status_history`, `employee_department_history`, `employee_approval_history`, and `employee_import_history`.
+
+Both required approval-history preservation counts remain unconditional direct relation reads. There is no guessed alternate name, dynamic fallback, or `information_schema`/`to_regclass` silent skip for this required evidence. Preflight and post-migration verification remain SELECT-only and fail closed.
+
+All prior gates remain unchanged: exactly 11 prerequisite migrations; exact nine relieved-employee comparison; UOM management state `PENDING`; empty approved UOM classification and Item/BaseUom sets; data readiness FAIL pending approval; safe-retry artifact/collision checks; and all preservation and acceptance formulas.
+
+### Physical-relation correction validation evidence
+
+- Windows PowerShell 5.1 parser: PASS, zero errors.
+- Build: PASS, zero warnings and zero errors.
+- Focused isolated-execution helper tests: PASS, 40 passed, 0 failed, 0 skipped.
+- Complete offline suite with all three PostgreSQL-backed verification classes excluded: PASS, 333 passed, 0 failed, 0 skipped.
+- Physical-relation contract scan: PASS; 25 exact generated-SQL relations and 20 accepted preservation relations confirmed.
+- PostgreSQL SQL-contract scan: PASS.
+- Acceptance-formula scan: PASS.
+- Changed-line secret, privacy and safety scans: PASS.
+- `git diff --check`: PASS.
+- No helper mode, PostgreSQL test, PostgreSQL/database access, migration, backup/restore, production, REV861, AWS, frontend or REV869B operation was executed.
