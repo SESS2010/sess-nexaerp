@@ -90,22 +90,66 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
         Assert.Contains("backup_relation_count", helper);
         Assert.Contains("migration_owned_department_count", helper);
         Assert.Contains("safe_retry_state", helper);
+        Assert.Contains("prerequisite_expected_count=10", helper);
+        Assert.Contains("prerequisite_actual_matched_count=10", helper);
+        Assert.Contains("prerequisite_missing_count=0", helper);
+        Assert.Contains("prerequisite_unexpected_count=0", helper);
+        Assert.Contains("prerequisite_duplicate_count=0", helper);
+        Assert.Contains("target_correction_migration_count=0", helper);
         Assert.Contains("legacy_department_missing_count", helper);
         Assert.Contains("legacy_department_count=4", helper);
-        Assert.Contains("active_employee_reference_count=42", helper);
+        Assert.Contains("active_legacy_department_count=4", helper);
+        Assert.Contains("active_employee_legacy_department_reference_count=0", helper);
+        Assert.Contains("active_manager_mapping_legacy_department_reference_count=0", helper);
+        Assert.Contains("total_active_sess_employee_count=42", helper);
         Assert.Contains("\"EmployeeCode\" like 'SESS-%'", helper);
-        Assert.Contains("active_manager_mapping_reference_count=14", helper);
+        Assert.Contains("total_active_manager_mapping_count=14", helper);
+        Assert.Contains("active_open_pr_legacy_department_reference_count=0", helper);
+        Assert.Contains("historical_pr_legacy_department_reference_count", helper);
         Assert.Contains("active_clean_department_count=12", helper);
         Assert.Contains("missing_clean_department_count=0", helper);
         Assert.Contains("unexpected_active_department_count=0", helper);
         Assert.Contains("active_legacy_department_count=0", helper);
+        Assert.Contains("inactive_legacy_department_count=4", helper);
         Assert.Contains("database_acceptance_state=PASS", helper);
+        Assert.Contains("Expected host: $HostName", helper);
+        Assert.Contains("Expected port: $Port", helper);
+        Assert.Contains("Isolated target database: $ExpectedDatabase", helper);
+        Assert.Contains("Protected databases:", helper);
+        Assert.Contains("No main-DB, database create/drop, backup, restore, or database cleanup operation", helper);
+        Assert.Contains("Historical PR legacy-department references (read-only; retained)", helper);
         Assert.Contains("-v ON_ERROR_STOP=1", helper);
         Assert.Contains("-f $script:tempSqlFile", helper);
         Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("drop database", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dropdb", helper, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("active_legacy_department_count")]
+    [InlineData("active_employee_legacy_department_reference_count")]
+    [InlineData("active_manager_mapping_legacy_department_reference_count")]
+    [InlineData("active_open_pr_legacy_department_reference_count")]
+    public void Legacy_reference_negative_states_fail_preflight_and_post_verification(string defect)
+    {
+        var preActiveLegacy = 4;
+        var postActiveLegacy = 0;
+        var postInactiveLegacy = 4;
+        var employeeReferences = 0;
+        var managerReferences = 0;
+        var activeOpenPrReferences = 0;
+        switch (defect)
+        {
+            case "active_legacy_department_count": preActiveLegacy = 3; postActiveLegacy = 1; break;
+            case "active_employee_legacy_department_reference_count": employeeReferences = 1; break;
+            case "active_manager_mapping_legacy_department_reference_count": managerReferences = 1; break;
+            case "active_open_pr_legacy_department_reference_count": activeOpenPrReferences = 1; break;
+            default: throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+
+        Assert.False(PreflightLegacyReferenceAcceptance(preActiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
+        Assert.False(PostLegacyReferenceAcceptance(postActiveLegacy, postInactiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
     }
 
     [Theory]
@@ -157,6 +201,12 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
             && actual.All(expected.Contains)
             && LegacyDepartments.All(code => !actual.Contains(code));
     }
+
+    private static bool PreflightLegacyReferenceAcceptance(int activeLegacy, int employeeReferences, int managerReferences, int activeOpenPrReferences) =>
+        activeLegacy == 4 && employeeReferences == 0 && managerReferences == 0 && activeOpenPrReferences == 0;
+
+    private static bool PostLegacyReferenceAcceptance(int activeLegacy, int inactiveLegacy, int employeeReferences, int managerReferences, int activeOpenPrReferences) =>
+        activeLegacy == 0 && inactiveLegacy == 4 && employeeReferences == 0 && managerReferences == 0 && activeOpenPrReferences == 0;
 
     private static string Section(string source, string startMarker, string endMarker)
     {
