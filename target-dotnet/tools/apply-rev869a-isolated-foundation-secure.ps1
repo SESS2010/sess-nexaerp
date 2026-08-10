@@ -9,10 +9,13 @@ param(
     [string]$PsqlPath = "C:\Program Files\PostgreSQL\17\bin\psql.exe",
     [string]$ApprovedBackupPath = "",
     [string]$ApprovedBackupSha256 = "",
+    [string]$ApprovedPreApplyEvidencePath = "",
+    [string]$ApprovedPreApplyEvidenceSha256 = "",
     [switch]$GeneratePlanOnly,
     [switch]$PreflightOnly,
     [switch]$Apply,
-    [switch]$PostMigrationVerification
+    [switch]$PostMigrationVerification,
+    [switch]$ResumePostApplyAcceptance
 )
 
 Set-StrictMode -Version Latest
@@ -95,7 +98,7 @@ $acceptedRelievedStatuses = @('left / resigned','left/resigned','resigned','inac
 
 $targetRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $reportDirectory = Join-Path $targetRoot "local-evidence\rev869a"
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $reportPath = Join-Path $reportDirectory "rev869a_isolated_execution_$timestamp.md"
 $securePassword = $null
 $plainPassword = $null
@@ -104,8 +107,8 @@ $postEvidence = ""
 $testEvidence = "NOT_RUN"
 
 function Assert-Mode {
-    $selected = @(@($GeneratePlanOnly, $PreflightOnly, $Apply, $PostMigrationVerification) | Where-Object { $_ }).Count
-    if ($selected -ne 1) { throw "Select exactly one mode: -GeneratePlanOnly, -PreflightOnly, -Apply, or -PostMigrationVerification." }
+    $selected = @(@($GeneratePlanOnly, $PreflightOnly, $Apply, $PostMigrationVerification, $ResumePostApplyAcceptance) | Where-Object { $_ }).Count
+    if ($selected -ne 1) { throw "Select exactly one mode: -GeneratePlanOnly, -PreflightOnly, -Apply, -PostMigrationVerification, or -ResumePostApplyAcceptance." }
 }
 
 function Assert-TargetSafety {
@@ -666,24 +669,26 @@ function Get-TransactionalVerificationSql {
     return @"
 begin;
 do `$test`$
-declare e uuid; u1 uuid; u2 uuid; w1 uuid; w2 uuid; rb uuid; v uuid; failed boolean;
+declare e uuid; u1 uuid; test_u uuid := '869a0000-0000-0000-0000-000000000098'; w1 uuid; invalid_w uuid := '869a0000-0000-0000-0000-000000000099'; rb uuid; v uuid; failed boolean;
 begin
  select "Id" into e from nexa.employees where "Status"='Active' and "LoginEnabled"=true order by "Id" limit 1;
  select "Id" into u1 from nexa.uoms order by "Id" limit 1;
- select "Id" into u2 from nexa.uoms where "Id"<>u1 order by "Id" limit 1;
  select "Id" into w1 from nexa.warehouses order by "Id" limit 1;
- select "Id" into w2 from nexa.warehouses where "Id"<>w1 order by "Id" limit 1;
  select "Id" into rb from nexa.rack_bins where "WarehouseId"=w1 order by "Id" limit 1;
  select "Id" into v from nexa.vendors order by "Id" limit 1;
- if e is null or u1 is null or u2 is null or w1 is null or w2 is null or rb is null or v is null then raise exception 'REV869A transactional prerequisites unavailable'; end if;
+ if e is null or u1 is null or w1 is null or rb is null or v is null then raise exception 'REV869A transactional prerequisites unavailable'; end if;
+ if exists (select 1 from nexa.uoms where "Id"=test_u or upper(trim("Code"))='REV869A_TEST') then raise exception 'REV869A reserved test UOM identifier or code is already in use'; end if;
+ if exists (select 1 from nexa.warehouses where "Id"=invalid_w) then raise exception 'REV869A reserved invalid warehouse test identifier is already in use'; end if;
+
+ insert into nexa.uoms ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version","MeasurementDimension","QuantityPrecision") values (test_u,'REV869A_TEST','REV869A rolled-back test UOM',true,now(),'REV869A_TEST',0,'TEST',6);
 
  insert into nexa.employee_identity_mappings ("Id","OrganizationId","Issuer","Subject","EmployeeId","IdentityType","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000001','SESS','https://offline.invalid','rev869a-test-subject',e,'HUMAN',current_date,true,now(),'REV869A_TEST',0);
  failed:=false; begin insert into nexa.employee_identity_mappings ("Id","OrganizationId","Issuer","Subject","EmployeeId","IdentityType","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000002','OTHER','https://offline.invalid','rev869a-test-subject',e,'HUMAN',current_date,true,now(),'REV869A_TEST',0); exception when unique_violation then failed:=true; end; if not failed then raise exception 'duplicate identity did not fail closed'; end if;
- failed:=false; begin insert into nexa.uom_conversions ("Id","OrganizationId","FromUomId","ToUomId","MeasurementDimension","ConversionFactor","QuantityPrecision","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000003','SESS',u1,u2,'TEST',0,6,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid UOM conversion was accepted'; end if;
+ failed:=false; begin insert into nexa.uom_conversions ("Id","OrganizationId","FromUomId","ToUomId","MeasurementDimension","ConversionFactor","QuantityPrecision","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000003','SESS',u1,test_u,'TEST',0,6,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid UOM conversion was accepted'; end if;
  failed:=false; begin insert into nexa.tax_gst_settings ("Id","OrganizationId","JurisdictionCode","HsnSacCode","SupplierStateCode","PlaceOfSupplyStateCode","SupplyType","VendorRegistrationType","GstRate","CgstRate","SgstRate","IgstRate","CessRate","IsExempt","IsReverseCharge","CurrencyCode","RoundingScale","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000004','SESS','IN','TEST','27','29','INTRASTATE','REGISTERED',18,9,9,0,0,false,false,'INR',2,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid state GST rule was accepted'; end if;
  failed:=false; begin insert into nexa.qc_inspection_policies ("Id","OrganizationId","ParameterCode","MeasurementUomId","InspectionMethod","SampleSize","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000005','SESS','TEST',u1,'TEST',1,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'QC owner fail-closed constraint was bypassed'; end if;
  failed:=false; begin insert into nexa.vendor_qualifications ("Id","OrganizationId","VendorId","QualificationCode","EffectiveFrom","EffectiveTo","VerificationStatus","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000008','SESS',v,'TEST',current_date,current_date-1,'PendingApproval','PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid vendor qualification dates were accepted'; end if;
- failed:=false; begin insert into nexa.warehouse_condition_locations ("Id","OrganizationId","WarehouseId","RackBinId","ConditionCode","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000006','SESS',w2,rb,'AVAILABLE',current_date,true,now(),'REV869A_TEST',0); exception when foreign_key_violation then failed:=true; end; if not failed then raise exception 'cross-warehouse RackBin was accepted'; end if;
+ failed:=false; begin insert into nexa.warehouse_condition_locations ("Id","OrganizationId","WarehouseId","RackBinId","ConditionCode","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000006','SESS',invalid_w,rb,'AVAILABLE',current_date,true,now(),'REV869A_TEST',0); exception when foreign_key_violation then failed:=true; end; if not failed then raise exception 'cross-warehouse RackBin was accepted'; end if;
  insert into nexa.controlled_configuration_histories ("Id","OrganizationId","EntityType","EntityId","Action","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000007','SESS','TEST','869a0000-0000-0000-0000-000000000007','Create','REV869A_TEST','TEST','TEST','REV869A_TEST',now(),'REV869A_TEST',0);
  failed:=false; begin update nexa.controlled_configuration_histories set "Remarks"='REWRITE' where "Id"='869a0000-0000-0000-0000-000000000007'; exception when raise_exception then failed:=true; end; if not failed then raise exception 'configuration history update was accepted'; end if;
 end `$test`$;
@@ -720,9 +725,9 @@ function Assert-Evidence([string]$Evidence, [string]$RequiredLine) {
 }
 
 function Get-EvidenceValue([string]$Evidence, [string]$Key) {
-    $match = [regex]::Match($Evidence, '(?m)^' + [regex]::Escape($Key) + '=(\d+)$')
-    if (-not $match.Success) { throw "Evidence key is missing: $Key" }
-    return [long]$match.Groups[1].Value
+    $matches = [regex]::Matches($Evidence, '(?m)^' + [regex]::Escape($Key) + '=(\d+)$')
+    if ($matches.Count -ne 1) { throw "Numeric evidence key must occur exactly once and contain digits only: $Key" }
+    return [long]$matches[0].Groups[1].Value
 }
 
 function Get-EvidenceTextValue([string]$Evidence, [string]$Key) {
@@ -736,6 +741,32 @@ function Assert-Preservation([string]$Before, [string]$After) {
         if ((Get-EvidenceValue $Before $key) -ne (Get-EvidenceValue $After $key)) { throw "REV868/REV868C3 preservation failed for $key." }
     }
     if ((Get-EvidenceTextValue $Before 'department_manager_role_fingerprint') -cne (Get-EvidenceTextValue $After 'department_manager_role_fingerprint')) { throw "Reused DEPARTMENT_MANAGER role values changed." }
+}
+
+function Get-ApprovedPreApplyEvidence {
+    if ([string]::IsNullOrWhiteSpace($ApprovedPreApplyEvidencePath) -or [string]::IsNullOrWhiteSpace($ApprovedPreApplyEvidenceSha256)) {
+        throw "ResumePostApplyAcceptance requires approved pre-apply evidence path and SHA-256."
+    }
+    if ($ApprovedPreApplyEvidenceSha256 -notmatch '^[A-Fa-f0-9]{64}$') { throw "Approved pre-apply evidence SHA-256 is malformed." }
+    $resolved = Resolve-Path -LiteralPath $ApprovedPreApplyEvidencePath -ErrorAction Stop
+    $allowedRoot = [IO.Path]::GetFullPath((Join-Path $targetRoot "local-evidence\rev869a")) + [IO.Path]::DirectorySeparatorChar
+    $fullPath = [IO.Path]::GetFullPath($resolved.Path)
+    if (-not $fullPath.StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "Approved pre-apply evidence must be under local-evidence\rev869a." }
+    $actualHash = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash
+    if ($actualHash -cne $ApprovedPreApplyEvidenceSha256.ToUpperInvariant()) { throw "Approved pre-apply evidence SHA-256 does not match." }
+    $content = [IO.File]::ReadAllText($fullPath)
+    $sections = [regex]::Matches($content, '(?ms)^## Preflight evidence\r?\n```text\r?\n(?<evidence>.*?)\r?\n```')
+    if ($sections.Count -ne 1) { throw "Approved pre-apply evidence must contain exactly one canonical Preflight evidence section." }
+    $headerTarget = [regex]::Matches($content, '(?m)^- target_database=([^\r\n]+)$')
+    $headerMigration = [regex]::Matches($content, '(?m)^- target_migration=([^\r\n]+)$')
+    if ($headerTarget.Count -ne 1 -or $headerTarget[0].Groups[1].Value -cne $targetDatabase) { throw "Approved pre-apply evidence target is missing, duplicate, or conflicting." }
+    if ($headerMigration.Count -ne 1 -or $headerMigration[0].Groups[1].Value -cne $targetMigration) { throw "Approved pre-apply evidence migration is missing, duplicate, or conflicting." }
+    $evidence = $sections[0].Groups['evidence'].Value
+    Assert-Evidence $evidence "database_identity=PASS"
+    Assert-Evidence $evidence "target_migration_count=0"
+    Assert-Evidence $evidence "preflight_acceptance_state=PASS"
+    foreach ($key in @('preserve_pr_count','preserve_pr_approval_history_count','preserve_reservation_count','preserve_active_employee_count','preserve_department_count','preserve_manager_mapping_count')) { [void](Get-EvidenceValue $evidence $key) }
+    return $evidence
 }
 function Write-Plan([string]$PreflightSql, [string]$PostSql) {
     Write-Output "REV869A GeneratePlanOnly"
@@ -790,6 +821,8 @@ function Write-SanitizedReport([string]$Mode, [string]$Preflight, [string]$Post,
         "- target_migration=$targetMigration",
         "- backup_path_evidence=$(if ($ApprovedBackupPath) { Split-Path -Leaf $ApprovedBackupPath } else { 'NOT_REQUIRED_FOR_MODE' })",
         "- backup_sha256_evidence=$(if ($ApprovedBackupSha256) { $ApprovedBackupSha256.ToUpperInvariant() } else { 'NOT_REQUIRED_FOR_MODE' })",
+        "- approved_preapply_evidence=$(if ($ApprovedPreApplyEvidencePath) { Split-Path -Leaf $ApprovedPreApplyEvidencePath } else { 'NOT_REQUIRED_FOR_MODE' })",
+        "- approved_preapply_sha256=$(if ($ApprovedPreApplyEvidenceSha256) { $ApprovedPreApplyEvidenceSha256.ToUpperInvariant() } else { 'NOT_REQUIRED_FOR_MODE' })",
         "- overall_acceptance_state=$OverallState",
         "",
         "## Preflight evidence",
@@ -803,6 +836,32 @@ function Write-SanitizedReport([string]$Mode, [string]$Preflight, [string]$Post,
     Write-Host "Sanitized REV869A evidence report: $reportPath"
 }
 
+function Invoke-ResumeAcceptanceTests {
+    $dotnet = Resolve-Executable $DotnetPath "dotnet.exe" "dotnet.exe"
+    $env:ConnectionStrings__NexaErp = "Host=$HostName;Port=$Port;Database=$Database;Username=$UserName;Password=$script:plainPassword"
+    $env:NexaErp__ExpectedDatabase = $Database
+    $env:REV869A_POSTGRES = $env:ConnectionStrings__NexaErp
+    Set-Location $targetRoot
+    $trxDirectory = Join-Path $reportDirectory ("trx\" + $timestamp)
+    New-Item -ItemType Directory -Force -Path $trxDirectory | Out-Null
+    $trxPath = Join-Path $trxDirectory "rev869a_resume_acceptance.trx"
+    try {
+        Invoke-Psql (Get-TransactionalVerificationSql) $false | Out-Null
+        $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=NOT_RUN"
+    }
+    catch {
+        $script:testEvidence = "transactional_constraint_test_state=FAIL`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=FAIL`nerror=" + (Protect-Text $_.Exception.Message)
+        throw
+    }
+    $testOutput = @(& $dotnet test .\tests\SESS.NexaERP.Tests\SESS.NexaERP.Tests.csproj --no-restore --filter "FullyQualifiedName~Rev869APostgresAcceptanceTests" --logger "trx;LogFileName=rev869a_resume_acceptance.trx" --results-directory $trxDirectory --logger "console;verbosity=minimal" 2>&1)
+    $safeOutput = Protect-Text (($testOutput | Select-Object -Last 25 | ForEach-Object { $_.ToString() }) -join "`n")
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
+        $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=FAIL`ntest_acceptance_state=FAIL`n$safeOutput"
+        throw "REV869A PostgreSQL-backed tests failed or did not create TRX evidence."
+    }
+    $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=PASS`ntest_acceptance_state=PASS`n$safeOutput"
+}
+
 try {
     Assert-Mode
     Assert-TargetSafety
@@ -813,6 +872,10 @@ try {
 
     if ($GeneratePlanOnly) { Write-Plan $preflightSql $postSql; return }
 
+    if ($ResumePostApplyAcceptance) {
+        $preflightEvidence = Get-ApprovedPreApplyEvidence
+        $testEvidence = "transactional_constraint_test_state=NOT_RUN`ntrx_evidence_path=NOT_CREATED`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=NOT_RUN"
+    }
     Initialize-DatabaseAccess
 
     if ($PreflightOnly -or $Apply) {
@@ -868,6 +931,8 @@ try {
     }
 
     $postEvidence = Invoke-Psql $postSql $true
+    Assert-Evidence $postEvidence "migration_count=12"
+    Assert-Evidence $postEvidence "target_migration_count=1"
     Assert-Evidence $postEvidence "relieved_employee_acceptance_state=PASS"
     Assert-Evidence $postEvidence "existing_department_manager_reuse_state=PASS"
     Assert-Evidence $postEvidence "role_seed_count=4"
@@ -903,7 +968,7 @@ try {
     Assert-Evidence $postEvidence "all_false_department_manager_count=0"
     Assert-Evidence $postEvidence "department_manager_permission_mismatch_count=0"
     Assert-Evidence $postEvidence "database_schema_acceptance_state=PASS"
-    if ($Apply) {
+    if ($Apply -or $ResumePostApplyAcceptance) {
         Assert-Preservation $preflightEvidence $postEvidence
         $postEvidence = $postEvidence + "`ndatabase_preservation_acceptance_state=PASS`ndatabase_acceptance_state=PASS"
     }
@@ -912,6 +977,20 @@ try {
     if ($PostMigrationVerification) {
         $testEvidence = "Post-verification-only mode does not rerun transactional tests.`ntest_acceptance_state=NOT_RUN"
         Write-SanitizedReport "PostMigrationVerification" "NOT_RUN" $postEvidence $testEvidence "NOT_CLAIMED"
+        return
+    }
+
+    if ($ResumePostApplyAcceptance) {
+        Assert-Evidence $postEvidence "database_schema_acceptance_state=PASS"
+        Assert-Evidence $postEvidence "database_preservation_acceptance_state=PASS"
+        Assert-Evidence $postEvidence "database_acceptance_state=PASS"
+        Invoke-ResumeAcceptanceTests
+        Assert-Evidence $testEvidence "transactional_constraint_test_state=PASS"
+        Assert-Evidence $testEvidence "rev869a_postgresql_test_state=PASS"
+        Assert-Evidence $testEvidence "test_acceptance_state=PASS"
+        $postEvidence = $postEvidence + "`noverall_acceptance_state=PASS"
+        Assert-Evidence $postEvidence "overall_acceptance_state=PASS"
+        Write-SanitizedReport "ResumePostApplyAcceptance" $preflightEvidence $postEvidence $testEvidence "PASS"
         return
     }
 

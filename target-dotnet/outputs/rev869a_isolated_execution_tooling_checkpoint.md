@@ -383,3 +383,23 @@ Offline negative coverage proves wrong RoleId, wrong PageDefinitionId, one chang
 Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 62/62 PASS; complete non-PostgreSQL tests 357/357 PASS; exact 74-record/20-flag contract scan PASS; read-only/prohibited-operation scan PASS; secret/privacy/safety scans PASS; `git diff --check` PASS.
 
 No helper mode, PostgreSQL/database access, migration application/removal/rollback, restore, repair, backup, database-data change, production, REV861, frontend, AWS, or REV869B action occurred. The applied REV869A migration source and model snapshot were unchanged. `../legacy-reference/` remained read-only, unchanged, and untracked.
+
+## 2026-08-10 final post-apply acceptance resume checkpoint
+
+Starting source commit: `772d6b2148b9b7e30f317211fbf65aaf2a0e7598`.
+
+The earlier `REV869A transactional prerequisites unavailable` failure was caused by a verifier-only assumption, not an applied-schema defect. The accepted pre-apply evidence proves zero UOM rows before REV869A, and the accepted post-apply contract creates exactly one EA UOM. The old transactional SQL nevertheless required a second distinct UOM (`u2`), so the prerequisite guard failed before any constraint assertion ran. It also unnecessarily required a second warehouse.
+
+The rolled-back verifier now creates its own collision-guarded temporary UOM inside the transaction and uses it to test the zero conversion-factor check with distinct UOM IDs. It uses a collision-guarded nonexistent warehouse ID to test the Rack/Bin composite foreign key. Every test write remains between explicit `begin` and `rollback`; no second business UOM or warehouse is required and no test data persists.
+
+The new `ResumePostApplyAcceptance` mode is restricted to `sess_nexaerp_rev869a_verify`. It requires a SHA-256-pinned approved pre-apply evidence report under `local-evidence/rev869a`, exactly one canonical preflight evidence section, the exact target/migration headers, pre-apply target migration count zero, and preflight acceptance PASS. Numeric and state labels must each occur exactly once and be well formed.
+
+Before tests, resume mode performs the existing read-only post-migration verification and requires exactly 12 migrations, REV869A exactly once, and `database_schema_acceptance_state=PASS`. It then requires exact pre/post equality for purchase requisitions, purchase requisition approval history, stock reservations, active employees, departments, and department approval mappings. Only then may it emit `database_preservation_acceptance_state=PASS` and `database_acceptance_state=PASS`.
+
+The resume test boundary contains no EF migration update/remove, backup, restore, database create/drop, cleanup, repair, or main-database logic. It runs only the transaction-rolled-back REV869A constraint SQL and the exact `Rev869APostgresAcceptanceTests` class. That class is connection-free during ordinary offline runs and, when explicitly enabled by the helper, verifies the exact target, disables detailed errors, opens a read-only rolled-back transaction, and checks the 12/1 migration contract plus preservation counts 7/3/4/42/16/14. Test output and a unique TRX path are sanitized into the evidence report on success or failure. Overall PASS is emitted only after database and test acceptance both pass.
+
+The approved pre-apply report for future review is `rev869a_isolated_execution_20260810_225308.md`, with SHA-256 `078816A6C3D2A05C0E114B29597BF82C9D7585B840862197553476A51EB25485`.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 67/67 PASS; complete non-PostgreSQL tests 362/362 PASS. Safety, privacy, secret, prohibited-operation and diff checks are recorded in the committed checkpoint result.
+
+No helper mode, PostgreSQL/database access, migration application/removal/rollback, backup/restore, database create/drop/repair, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. The applied migration and model snapshot were unchanged, and `../legacy-reference/` remained read-only, unchanged, and untracked.

@@ -1,4 +1,6 @@
+using System.Data;
 using System.Text.RegularExpressions;
+using Npgsql;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -41,12 +43,13 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     };
 
     [Fact]
-    public void HelperHasFourExplicitFailClosedModes()
+    public void HelperHasFiveExplicitFailClosedModes()
     {
         Assert.Contains("[switch]$GeneratePlanOnly", Source);
         Assert.Contains("[switch]$PreflightOnly", Source);
         Assert.Contains("[switch]$Apply", Source);
         Assert.Contains("[switch]$PostMigrationVerification", Source);
+        Assert.Contains("[switch]$ResumePostApplyAcceptance", Source);
         Assert.Contains("Select exactly one mode", Source);
     }
 
@@ -352,6 +355,76 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("cross-warehouse RackBin was accepted", Source);
         Assert.Contains("configuration history update was accepted", Source);
         Assert.Contains("invalid vendor qualification dates were accepted", Source);
+    }
+
+    [Fact]
+    public void ResumeModeUsesApprovedPreApplyEvidenceAndExactPreservationGates()
+    {
+        foreach (var value in new[]
+        {
+            "ApprovedPreApplyEvidencePath", "ApprovedPreApplyEvidenceSha256", "Get-FileHash -LiteralPath $fullPath -Algorithm SHA256",
+            "database_identity=PASS", "target_migration_count=0", "preflight_acceptance_state=PASS",
+            "migration_count=12", "target_migration_count=1", "database_schema_acceptance_state=PASS",
+            "database_preservation_acceptance_state=PASS", "database_acceptance_state=PASS", "overall_acceptance_state=PASS"
+        }) Assert.Contains(value, Source, StringComparison.Ordinal);
+
+        foreach (var key in new[]
+        {
+            "preserve_pr_count", "preserve_pr_approval_history_count", "preserve_reservation_count",
+            "preserve_active_employee_count", "preserve_department_count", "preserve_manager_mapping_count"
+        }) Assert.Contains(key, Source, StringComparison.Ordinal);
+        Assert.Contains("Numeric evidence key must occur exactly once and contain digits only", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingDuplicateMalformedOrConflictingResumeEvidenceFailsClosed()
+    {
+        Assert.False(HasExactlyOneEvidence("", "state", "PASS"));
+        Assert.False(HasExactlyOneEvidence("state=PASS\nstate=PASS", "state", "PASS"));
+        Assert.False(HasExactlyOneEvidence("state=pass", "state", "PASS"));
+        Assert.False(HasExactlyOneEvidence("state=FAIL", "state", "PASS"));
+        Assert.True(HasExactlyOneEvidence("state=PASS", "state", "PASS"));
+        Assert.False(HasExactlyOneNumericEvidence("count=abc", "count"));
+        Assert.False(HasExactlyOneNumericEvidence("count=1\ncount=1", "count"));
+        Assert.True(HasExactlyOneNumericEvidence("count=12", "count"));
+    }
+
+    [Fact]
+    public void ResumeWorkflowRunsOnlyRolledBackConstraintsAndExactRev869APostgresTests()
+    {
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var resumeTests = FunctionBlock("function Invoke-ResumeAcceptanceTests", "try {\n    Assert-Mode");
+        Assert.StartsWith("function Invoke-ResumeAcceptanceTests", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("Invoke-Psql (Get-TransactionalVerificationSql) $false", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("FullyQualifiedName~Rev869APostgresAcceptanceTests", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("--logger \"trx;LogFileName=rev869a_resume_acceptance.trx\"", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("begin;", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("rollback;", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotMatch(new Regex(@"(?i)\b(ef\s+database|pg_dump|pg_restore|createdb|create\s+database|drop\s+database|database\s+(?:update|remove)|repair)\b"), resumeTests);
+    }
+
+    [Fact]
+    public void TransactionalVerifierNoLongerRequiresUnapprovedSecondUomOrWarehouse()
+    {
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        Assert.DoesNotContain("w2 uuid", transactional, StringComparison.Ordinal);
+        Assert.DoesNotContain("where \"Id\"<>u1", transactional, StringComparison.Ordinal);
+        Assert.DoesNotContain("where \"Id\"<>w1", transactional, StringComparison.Ordinal);
+        Assert.Contains("test_u uuid := '869a0000-0000-0000-0000-000000000098'", transactional, StringComparison.Ordinal);
+        Assert.Contains("insert into nexa.uoms", transactional, StringComparison.Ordinal);
+        Assert.Contains("'SESS',u1,test_u,'TEST',0,6", transactional, StringComparison.Ordinal);
+        Assert.Contains("invalid_w uuid := '869a0000-0000-0000-0000-000000000099'", transactional, StringComparison.Ordinal);
+        Assert.Contains("if exists (select 1 from nexa.warehouses where \"Id\"=invalid_w)", transactional, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResumeTestEvidenceIsSanitizedAndCapturedOnFailure()
+    {
+        var resumeTests = FunctionBlock("function Invoke-ResumeAcceptanceTests", "try {\n    Assert-Mode");
+        foreach (var label in new[] { "transactional_constraint_test_state", "trx_evidence_path", "rev869a_postgresql_test_state", "test_acceptance_state" })
+            Assert.Contains(label, resumeTests, StringComparison.Ordinal);
+        Assert.Contains("Protect-Text", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("Test-Path -LiteralPath $trxPath -PathType Leaf", resumeTests, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -746,6 +819,16 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static bool PreservationMatches(IReadOnlyDictionary<string, long> before, IReadOnlyDictionary<string, long> after) =>
         before.Count == after.Count && before.All(pair => after.TryGetValue(pair.Key, out var value) && value == pair.Value);
 
+    private static bool HasExactlyOneEvidence(string evidence, string key, string expected)
+    {
+        var matches = Regex.Matches(evidence, "^" + Regex.Escape(key) + "=(.*)$", RegexOptions.Multiline);
+        return matches.Count == 1 && matches[0].Groups[1].Value == expected;
+    }
+
+    private static bool HasExactlyOneNumericEvidence(string evidence, string key) =>
+        Regex.Matches(evidence, "^" + Regex.Escape(key) + "=(\\d+)$", RegexOptions.Multiline).Count == 1 &&
+        Regex.Matches(evidence, "^" + Regex.Escape(key) + "=", RegexOptions.Multiline).Count == 1;
+
     private static bool IsPermittedDatabase(string database) =>
         database == "sess_nexaerp_rev869a_verify" && !Regex.IsMatch(database, "rev861|production|prod|live|main", RegexOptions.IgnoreCase);
 
@@ -768,5 +851,43 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "SESS.NexaERP.slnx"))) directory = directory.Parent;
         return directory?.FullName ?? throw new InvalidOperationException("Repository root was not found.");
+    }
+}
+
+public sealed class Rev869APostgresAcceptanceTests
+{
+    private const string ExpectedDatabase = "sess_nexaerp_rev869a_verify";
+    private const string TargetMigration = "20260810120000_Rev869AIdentityMasterScopeFoundation";
+
+    [Fact]
+    public async Task Rev869A_applied_migration_and_preservation_contract_are_exact()
+    {
+        var raw = Environment.GetEnvironmentVariable("REV869A_POSTGRES");
+        if (string.IsNullOrWhiteSpace(raw)) return;
+        var builder = new NpgsqlConnectionStringBuilder(raw);
+        Assert.Equal(ExpectedDatabase, builder.Database);
+        Assert.False(builder.IncludeErrorDetail);
+
+        await using var connection = new NpgsqlConnection(builder.ConnectionString);
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        await using (var readOnly = new NpgsqlCommand("set transaction read only", connection, transaction))
+            await readOnly.ExecuteNonQueryAsync();
+
+        Assert.Equal(12, await ScalarAsync(connection, transaction, "select count(*) from public.\"__EFMigrationsHistory\""));
+        Assert.Equal(1, await ScalarAsync(connection, transaction, $"select count(*) from public.\"__EFMigrationsHistory\" where \"MigrationId\"='{TargetMigration}'"));
+        Assert.Equal(7, await ScalarAsync(connection, transaction, "select count(*) from nexa.purchase_requisitions"));
+        Assert.Equal(3, await ScalarAsync(connection, transaction, "select count(*) from nexa.purchase_requisition_approval_history"));
+        Assert.Equal(4, await ScalarAsync(connection, transaction, "select count(*) from nexa.stock_reservations"));
+        Assert.Equal(42, await ScalarAsync(connection, transaction, "select count(*) from nexa.employees where \"Status\"='Active' and \"LoginEnabled\"=true"));
+        Assert.Equal(16, await ScalarAsync(connection, transaction, "select count(*) from nexa.departments"));
+        Assert.Equal(14, await ScalarAsync(connection, transaction, "select count(*) from nexa.department_approval_mappings where \"IsActive\"=true"));
+        await transaction.RollbackAsync();
+    }
+
+    private static async Task<long> ScalarAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string sql)
+    {
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        return Convert.ToInt64(await command.ExecuteScalarAsync());
     }
 }
