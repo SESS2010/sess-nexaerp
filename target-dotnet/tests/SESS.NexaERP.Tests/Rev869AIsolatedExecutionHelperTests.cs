@@ -108,7 +108,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
             "unexpected_uom_classification_count", "duplicate_uom_classification_count",
             "unapproved_uom_classification_count", "missing_base_uom_mapping_count",
             "invalid_base_uom_mapping_count", "inferred_or_default_mapping_count",
-            "symbol=NOT_MODELED", "item_reference_count", "proposed_base_uom_id", "uom_ambiguity=CODE", "uom_ambiguity=NAME", "PENDING_MANAGEMENT_APPROVAL"
+            "uom_master_candidate=", "item_reference_count", "proposed_base_uom_id", "uom_ambiguity=CODE", "uom_ambiguity=NAME", "PENDING_MANAGEMENT_APPROVAL"
         }) Assert.Contains(evidence, Source);
         foreach (var field in new[] { "UomId", "UomCode", "MeasurementDimension", "QuantityPrecision", "IsCanonicalBase", "ConversionPolicy", "ManagementApprovalReference" })
             Assert.Contains(field, Source);
@@ -227,6 +227,50 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
+    public void ExistingDepartmentManagerIsReusedAndRoleReadinessFailsClosed()
+    {
+        var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        foreach (var label in new[] { "existing_department_manager_role_count", "existing_department_manager_active_count", "existing_department_manager_duplicate_count", "existing_department_manager_reuse_state", "department_manager_role_fingerprint" })
+        {
+            Assert.Contains(label, preflight, StringComparison.Ordinal);
+            Assert.Contains(label, post, StringComparison.Ordinal);
+        }
+        Assert.Contains("new_role_collision_count", preflight, StringComparison.Ordinal);
+        Assert.Contains("role_readiness_state", preflight, StringComparison.Ordinal);
+        Assert.Contains("existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0", preflight, StringComparison.Ordinal);
+        Assert.Contains("new_role_collision_count=0", preflight, StringComparison.Ordinal);
+        Assert.Contains("Get-EvidenceTextValue $Before 'department_manager_role_fingerprint'", Source, StringComparison.Ordinal);
+        Assert.Contains("greatest(0,74-count(distinct (r.\"Code\",d.\"PageKey\")))", post, StringComparison.Ordinal);
+        Assert.Contains("'DEPARTMENT_MANAGER','TECHNICAL_DIRECTOR'", post, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(1, 0, 1)]
+    [InlineData(2, 2, 2)]
+    [InlineData(1, 1, 0)]
+    public void MissingInactiveDuplicateOrUnsuitableDepartmentManagerFailsClosed(int count, int active, int suitable)
+    {
+        Assert.False(DepartmentManagerReusable(count, active, suitable));
+    }
+
+    [Fact]
+    public void AllUomMastersAndSafeUnmappedItemFieldsAreReportedWithoutApproval()
+    {
+        var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
+        foreach (var evidence in new[] { "uom_master_count", "uom_master_candidate=", "referenced_uom_count", "unreferenced_uom_count", "null_item_uom_count", "invalid_item_uom_count", "uom_creation_management_decision_required=" })
+            Assert.Contains(evidence, preflight, StringComparison.Ordinal);
+        foreach (var field in new[] { "item_code=", "item_name=", "material_type=", "current_uom_id=", "current_uom_code=", "current_uom_name=", "item_status=", "proposed_base_uom=NOT_APPROVED" })
+            Assert.Contains(field, preflight, StringComparison.Ordinal);
+        Assert.Contains("from nexa.uoms u left join nexa.items", preflight, StringComparison.Ordinal);
+        Assert.Contains("uom_master_count>0", preflight, StringComparison.Ordinal);
+        Assert.Contains("ApprovalStatus = \"PENDING\"", Source, StringComparison.Ordinal);
+        Assert.Contains("UomClassifications = @()", Source, StringComparison.Ordinal);
+        Assert.Contains("ItemBaseUomMappings = @()", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NullOrInvalidItemUomAndMissingBaseMappingFail()
     {
         Assert.False(ItemUomReady(null, false, true, "MANAGEMENT_APPROVED"));
@@ -287,7 +331,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         {
             "foundation_table_count=9", "backup_table_count=3", "null_safe_index_count=7",
             "primary_key_count=9", "restrictive_fk_count=15", "check_constraint_count=22",
-            "actual_column_count=149", "migration_owned_seed_count", "seed_set_mismatch_count=0", "all_false_department_manager_count=0",
+            "actual_column_count=149", "role_seed_count=4", "permission_seed_count=74", "migration_owned_seed_count=88", "seed_set_mismatch_count=0", "all_false_department_manager_count=0", "department_manager_permission_mismatch_count=0",
             "uom_backfill_mismatch_count=0", "tax_resolution_mismatch_count=0",
             "item_backup_mismatch_count=0", "uom_backup_mismatch_count=0", "vendor_backup_mismatch_count=0", "backup_coverage_mismatch_count=0",
             "database_schema_acceptance_state=PASS", "database_preservation_acceptance_state=PASS", "database_acceptance_state=PASS", "test_acceptance_state=PASS", "overall_acceptance_state=PASS"
@@ -415,7 +459,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     [Fact]
     public void RollbackEvidenceIsExplicitAndMigrationSourceIsUnchangedByToolingCheckpoint()
     {
-        Assert.Contains("Down removes exactly 81 migration-owned seeds", Source);
+        Assert.Contains("Down removes exactly 88 migration-owned seeds", Source);
         Assert.Contains("preserves REV868/REV868C3 business/history rows", Source);
         Assert.Contains("drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last", Source);
         Assert.Contains("backup/current legacy-column comparisons must be zero", Source);
@@ -466,6 +510,9 @@ public sealed class Rev869AIsolatedExecutionHelperTests
 
     private static bool HasExactPhysicalRelations(IEnumerable<string> actual) =>
         CanonicalHelperRelations.ToHashSet(StringComparer.Ordinal).SetEquals(actual);
+
+    private static bool DepartmentManagerReusable(int count, int active, int suitable) =>
+        count == 1 && active == 1 && suitable == 1;
 
     private static bool ItemUomReady(Guid? uomId, bool uomExists, bool baseMappingPresent, string mappingBasis) =>
         uomId.HasValue && uomExists && baseMappingPresent && mappingBasis == "MANAGEMENT_APPROVED";

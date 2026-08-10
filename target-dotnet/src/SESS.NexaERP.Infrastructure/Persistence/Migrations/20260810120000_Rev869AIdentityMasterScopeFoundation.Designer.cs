@@ -35107,17 +35107,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             Name = "QC Inspector",
                             Version = 0L
                         },
-                        new
-                        {
-                            Id = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Code = "DEPARTMENT_MANAGER",
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            IsActive = true,
-                            IsPrivileged = true,
-                            Name = "Department Manager",
-                            Version = 0L
-                        },
+
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000001"),

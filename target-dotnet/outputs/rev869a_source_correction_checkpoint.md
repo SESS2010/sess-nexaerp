@@ -74,7 +74,7 @@ Checks: identity type/date; scope date and RackBin-requires-Warehouse; policy da
 
 ## Seeds and exact symmetry
 
-Up owns exactly 81 business/configuration rows: 5 roles + 8 pages + 66 permission rows + 2 organization policies. The prior 89 count comprised those rows plus eight all-false Department Manager permissions. Down now has exactly 81 deterministic `DeleteData` operations; the two policy rows are explicitly deleted before their table is dropped. No employee-specific workflow row is seeded.
+Up owns exactly 88 business/configuration rows: 4 new roles + 8 pages + 74 permission rows + 2 organization policies. The pre-existing active `DEPARTMENT_MANAGER` role is reused and is neither seeded nor mutated. Down removes exactly 88 owned rows: 80 deterministic `DeleteData` rows plus eight owned-only Department Manager permission rows; it never deletes the reused role; the two policy rows are explicitly deleted before their table is dropped. No employee-specific workflow row is seeded.
 
 ## Rollback ordering
 
@@ -134,3 +134,15 @@ Down first removes migration-owned triggers/functions, explicitly removes the tw
 - REV869A contains no material-issue transaction; that excluded future workflow must reuse the corrected `AVAILABLE` condition and operational-scope authorizer.
 
 No management data decision was fabricated in this checkpoint.
+
+## 2026-08-10 role-reuse and UOM-evidence correction addendum
+
+Starting source commit: `0691a0d31c6d17a99df1e9a211eecf08dc7cbeb9`.
+
+The observed collision is the normalized role code `DEPARTMENT_MANAGER`. Authoritative committed evidence is `20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation`: it creates or reuses that role through the unique role-code contract and attaches the accepted Department Manager permissions and employee assignments. REV869A now fails closed unless exactly one suitable active pre-existing role exists and the four genuinely new role codes have zero collisions.
+
+REV869A preserves every modeled role field by performing no role update and comparing a pre/post fingerprint over Id, Code, Name, IsActive, IsPrivileged, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy, and Version. `Role` has no mapped Description property/column in the authoritative current source, so no nonexistent field is fabricated. Existing assignments and legacy permissions are untouched. Eight new REV869A page permissions are inserted by selecting the reused role Id at apply time; they grant view, print, download, and audit-history visibility only. Down removes those eight rows only by REV869A ownership, reused role code, and the exact eight page IDs, and never deletes or mutates the reused role.
+
+Exact derived ownership is 4 created roles + 8 pages + 74 permissions + 2 policies = 88 rows. The 74 permissions comprise 64 rows for eight non-Department-Manager logical roles across eight pages, 8 rows for the reused Department Manager, and 2 Accounts rows. Down removes the same 88 owned rows: 80 deterministic EF `DeleteData` rows plus the 8 ownership-qualified reused-role permissions.
+
+UOM approval remains `PENDING`; both approved expected sets remain empty. Preflight reads all UOM masters with Id, Code, Name, active state, and item-reference count; emits referenced/unreferenced/null/invalid counts; emits a zero-master management-decision label; and reports safe item identity/classification fields while keeping proposed BaseUom `NOT_APPROVED`. No UOM or BaseUom value is guessed, inferred, defaulted, or approved.

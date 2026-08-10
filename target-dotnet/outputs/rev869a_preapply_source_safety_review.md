@@ -28,7 +28,7 @@ The only permitted future verification database remains `sess_nexaerp_rev869a_ve
 8. Existing UOM rows receive `MeasurementDimension=''`. This does not block DDL but is not usable backfill readiness. The conversion service rejects incompatible dimensions later; no controlled dimension mapping is supplied.
 9. The India tax key has `SupplyType` but no explicit supply-state field. The approved HSN/SAC + supply state + vendor registration resolution key is therefore incomplete.
 10. Effective-dated unique indexes containing nullable owner/scope columns use PostgreSQL's default `NULLS DISTINCT`. Duplicate logical rows remain possible for operational scopes, item-owned/category-owned QC policies, and vendor qualifications when nullable columns are null.
-11. The nine-role seed gives `DEPARTMENT_MANAGER` eight permission rows with every permission flag false, including `CanView`. This does not implement a usable Department Manager permission group.
+11. **Corrected in the 2026-08-10 role-reuse checkpoint:** REV869A no longer seeds a duplicate `DEPARTMENT_MANAGER`; it reuses the single suitable active legacy role and adds eight owned view/print/download/audit-history permission rows for the new pages.
 12. Controlled configuration history has no database immutability control. The provided endpoints append history, but the table permits update/delete through other backend code or direct SQL.
 
 Any one of defects 1–7 is sufficient to withhold application. Together they make `database_acceptance_state=PASS` impossible to justify safely.
@@ -280,7 +280,7 @@ There is no `UPDATE` or backfill operation. No existing row is otherwise rewritt
 
 ## 5. Exact inserted, updated and seeded rows
 
-There are **89 inserted rows, zero updated rows, and zero deleted rows in Up**:
+There are **88 REV869A-owned inserted rows, zero updated legacy rows, and zero deleted rows in Up**:
 
 - Two `organization_policies` rows:
   - `50000000-0000-0000-0000-000000000001`: organization `SESS`, code `VENDOR_FINAL_APPROVER`, value `MANAGING_DIRECTOR`, effective 2026-08-10, active, Version 0.
@@ -294,14 +294,14 @@ There are **89 inserted rows, zero updated rows, and zero deleted rows in Up**:
   - `masters.vendor-qualifications`, Masters, Vendor Qualifications, `/masters/vendor-qualifications`.
   - `masters.warehouse-condition-locations`, Masters, Warehouse Condition Locations, `/masters/warehouse-condition-locations`.
   - `qc.inspection-policies`, QC, QC Inspection Policies, `/qc/inspection-policies`.
-- Five `roles` rows:
+- Four new `roles` rows:
   - `30000000-0000-0000-0000-000000000001`, `PURCHASE_MANAGER`, Purchase Manager, privileged.
   - `30000000-0000-0000-0000-000000000002`, `STORES_MANAGER`, Stores Manager, privileged.
   - `30000000-0000-0000-0000-000000000003`, `QC_MANAGER`, QC Manager, privileged.
   - `30000000-0000-0000-0000-000000000004`, `QC_INSPECTOR`, QC Inspector, not privileged.
-  - `30000000-0000-0000-0000-000000000005`, `DEPARTMENT_MANAGER`, Department Manager, privileged.
+- The single active pre-existing `DEPARTMENT_MANAGER` role is reused. REV869A does not insert, update, or delete it; its modeled values, assignments, and legacy permissions remain legacy-owned. REV869A adds only eight owned permissions for the eight new pages.
 - Seventy-four `role_page_permissions` rows:
-  - The complete Cartesian product of the eight page IDs above and these nine roles: the five new roles plus existing `purchase_executive` (`46899b83-f5d7-793d-f008-5b15bcf06b17`), `stores_executive` (`8481d263-cb63-6bc1-76ac-b4c2a56fc1c5`), `technical_director` (`45eb9032-3689-8526-caee-41db0e7e2644`), and `managing_director` (`03325f4f-c6d4-b3f3-f4b3-11b728c275da`): 72 rows.
+  - The complete Cartesian product of the eight page IDs above and eight roles: the four new roles plus existing `purchase_executive` (`46899b83-f5d7-793d-f008-5b15bcf06b17`), `stores_executive` (`8481d263-cb63-6bc1-76ac-b4c2a56fc1c5`), `technical_director` (`45eb9032-3689-8526-caee-41db0e7e2644`), and `managing_director` (`03325f4f-c6d4-b3f3-f4b3-11b728c275da`): 64 rows, plus eight view/print/download/audit-history permission rows for the reused Department Manager role.
   - Existing `accounts_head` (`10000000-0000-0000-0000-000000000003`) on `masters.vendor-qualifications` and `settings.tax-gst`: two rows.
 
 Every permission row has `CreatedAt=1970-01-01T00:00:00Z`, `CreatedBy='migration-rev869a'`, `UpdatedAt/UpdatedBy=NULL`, `Version=0`, `CanReplaceAttachment=FALSE`, and an exact deterministic ID equal to the first 16 SHA-256 bytes interpreted as a GUID for `rev869a-permission|<stored role code>|<page key>`.
@@ -313,13 +313,13 @@ The exact flag algorithm in the committed seed is:
 - Stores Manager: view all; create/update/submit/resubmit/cancel/upload on UOM, conversion, and warehouse-condition pages; verifies warehouse-condition; no export.
 - QC Manager: view all; create/update/submit/resubmit/cancel/upload/verify/approve/reject/deactivate on QC policy; no export.
 - Purchase Executive, Stores Executive, and QC Inspector: view/print/download every one of the eight pages and no mutation/export/attachment/history/commercial permission.
-- Department Manager: all flags false on all eight rows — material permission defect.
+- Department Manager: the single suitable active pre-existing role is reused without mutation; REV869A adds eight owned view/print/download/audit-history rows for its new pages. Existing assignments and legacy permissions remain legacy-owned, and the role values are protected by pre/post fingerprint equality.
 - Accounts Head: view/print/download/export/commercial/history plus verify/reject/request clarification/request revision on tax and vendor qualification; no create/approve/upload.
 - Identity-page override: only MD creates/approves; TD and MD verify; corresponding rejection/revision/clarification and audit-history flags follow verify/approve.
 
 ## 6. ON CONFLICT targets and unique arbiters
 
-There are **no `ON CONFLICT` clauses** in Up or Down. All 89 seed inserts are plain inserts. Therefore there is no ON CONFLICT target or arbiter to match.
+There are **no `ON CONFLICT` clauses** in Up or Down. All 88 REV869A-owned seed inserts are plain inserts. Therefore there is no ON CONFLICT target or arbiter to match.
 
 Application can be blocked by collisions against existing arbiters:
 
@@ -337,7 +337,7 @@ Up order:
 2. Add two UOM columns.
 3. Add nullable `items.BaseUomId`.
 4. Create the nine tables in this order: controlled history, identity mapping, operational scope, organization policy, QC policy, tax setting, UOM conversion, vendor qualification, warehouse condition location.
-5. Insert two policies, eight pages, five roles, and 74 permissions.
+5. After the Department Manager reuse guard passes, insert two policies, eight pages, four roles, and 74 permissions.
 6. Create the item BaseUOM index, all new-table normal/unique indexes, then add the BaseUOM FK.
 7. EF records the migration history row. Generated SQL is wrapped by one `START TRANSACTION`/`COMMIT`.
 
@@ -346,9 +346,9 @@ Down order:
 1. Drop the BaseUOM FK.
 2. Drop all nine new tables in the same table order used by scaffolded Down.
 3. Drop `IX_items_BaseUomId`.
-4. Delete all 74 permission rows by exact UUID.
+4. Delete the 66 statically seeded permission rows by exact UUID, then delete the eight reused-role permissions only when `CreatedBy='migration-rev869a'`, the role code is `DEPARTMENT_MANAGER`, and the page ID is one of the eight REV869A pages.
 5. Delete the eight page rows by exact UUID.
-6. Delete the five role rows by exact UUID.
+6. Delete the four REV869A-created role rows by exact UUID; never delete the reused Department Manager role.
 7. Drop the six vendor columns, two UOM columns, and item BaseUOM column.
 8. EF removes the migration history row. Generated SQL is transaction wrapped.
 
@@ -358,9 +358,9 @@ Structural symmetry exists for objects and source-owned seeds. Data symmetry doe
 
 - Anything other than exactly the accepted 11 prerequisite migrations, each once, must fail preflight.
 - Presence of REV869A in migration history or any partial new table, new existing-table column, new index/FK/check, seed ID, seed natural key, or migration-owned backup relation must fail preflight.
-- Existing `roles.Code` collisions for PURCHASE_MANAGER, STORES_MANAGER, QC_MANAGER, QC_INSPECTOR, or DEPARTMENT_MANAGER, including a different ID, block plain inserts.
+- Any collision for the four new role codes PURCHASE_MANAGER, STORES_MANAGER, QC_MANAGER, or QC_INSPECTOR blocks application. The normalized DEPARTMENT_MANAGER code must instead resolve to exactly one active suitable pre-existing role; missing, duplicate, inactive, or unsuitable reuse evidence fails closed.
 - Existing page IDs or any of the eight PageKeys block plain inserts.
-- Existing permission IDs or any of the 74 `(RoleId, PageDefinitionId)` pairs block plain inserts.
+- Existing permission IDs or any of the 74 REV869A-owned `(RoleId, PageDefinitionId)` pairs block plain inserts.
 - A conflicting object/index/constraint name blocks DDL even if the object shape differs.
 - Existing items do not block nullable BaseUomId DDL, but any item without a controlled Base UOM remains semantically unready. All current items should be proven backfillable from `UomId` before correction.
 - Existing UOMs do not block the empty-string dimension default, but every empty/unknown dimension is semantically unready.
@@ -449,3 +449,15 @@ The sole eventual target migration remains `20260810120000_Rev869AIdentityMaster
 ## Required correction checkpoint
 
 Do not apply REV869A. Correct the 12 defects above, regenerate/reconcile the migration and snapshot without modifying committed REV868/REV868C3 migrations, add exact preflight duplicate/readiness queries and end-to-end authorization tests, repeat offline Up/Down review, and obtain a new management pre-apply approval before creating any application helper.
+
+## 2026-08-10 role-reuse and UOM-evidence correction addendum
+
+Starting source commit: `0691a0d31c6d17a99df1e9a211eecf08dc7cbeb9`.
+
+The observed collision is the normalized role code `DEPARTMENT_MANAGER`. Authoritative committed evidence is `20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation`: it creates or reuses that role through the unique role-code contract and attaches the accepted Department Manager permissions and employee assignments. REV869A now fails closed unless exactly one suitable active pre-existing role exists and the four genuinely new role codes have zero collisions.
+
+REV869A preserves every modeled role field by performing no role update and comparing a pre/post fingerprint over Id, Code, Name, IsActive, IsPrivileged, CreatedAt, CreatedBy, UpdatedAt, UpdatedBy, and Version. `Role` has no mapped Description property/column in the authoritative current source, so no nonexistent field is fabricated. Existing assignments and legacy permissions are untouched. Eight new REV869A page permissions are inserted by selecting the reused role Id at apply time; they grant view, print, download, and audit-history visibility only. Down removes those eight rows only by REV869A ownership, reused role code, and the exact eight page IDs, and never deletes or mutates the reused role.
+
+Exact derived ownership is 4 created roles + 8 pages + 74 permissions + 2 policies = 88 rows. The 74 permissions comprise 64 rows for eight non-Department-Manager logical roles across eight pages, 8 rows for the reused Department Manager, and 2 Accounts rows. Down removes the same 88 owned rows: 80 deterministic EF `DeleteData` rows plus the 8 ownership-qualified reused-role permissions.
+
+UOM approval remains `PENDING`; both approved expected sets remain empty. Preflight reads all UOM masters with Id, Code, Name, active state, and item-reference count; emits referenced/unreferenced/null/invalid counts; emits a zero-master management-decision label; and reports safe item identity/classification fields while keeping proposed BaseUom `NOT_APPROVED`. No UOM or BaseUom value is guessed, inferred, defaulted, or approved.

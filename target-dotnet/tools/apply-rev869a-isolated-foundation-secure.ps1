@@ -209,22 +209,34 @@ with expected_migrations("MigrationId", ordinal) as (
       (select count(*) from pg_constraint where connamespace='nexa'::regnamespace and (conname like '%rev869a%' or conname='AK_rack_bins_WarehouseId_Id' or conname='FK_items_uoms_BaseUomId')) as constraint_count,
       (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='nexa' and p.proname like 'rev869a_%') as function_count,
       (select count(*) from pg_trigger where not tgisinternal and tgname like 'trg_rev869a_%') as trigger_count,
-      (select count(*) from nexa.roles where "CreatedBy"='migration-rev869a' or "Id" in ('30000000-0000-0000-0000-000000000001'::uuid,'30000000-0000-0000-0000-000000000002'::uuid,'30000000-0000-0000-0000-000000000003'::uuid,'30000000-0000-0000-0000-000000000004'::uuid,'30000000-0000-0000-0000-000000000005'::uuid)) +
+      (select count(*) from nexa.roles where "CreatedBy"='migration-rev869a' or "Id" in ('30000000-0000-0000-0000-000000000001'::uuid,'30000000-0000-0000-0000-000000000002'::uuid,'30000000-0000-0000-0000-000000000003'::uuid,'30000000-0000-0000-0000-000000000004'::uuid)) +
       (select count(*) from nexa.page_definitions where "CreatedBy"='migration-rev869a' or "Id"::text like '40000000-0000-0000-0000-00000000000%') +
-      (select count(*) from nexa.role_page_permissions where "CreatedBy"='migration-rev869a') as seed_count
+      (select count(*) from nexa.role_page_permissions where "CreatedBy"='migration-rev869a' or "Id" in ('aea2e8a1-18a6-72d2-a954-6f5513b80eeb'::uuid,'f8e7d0a6-f056-175a-e604-14c1f9f6ad83'::uuid,'a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12'::uuid,'15ee5b19-d532-c28c-b755-de4152769a7a'::uuid,'5794f740-90b1-5a70-413a-d59bbc97ce78'::uuid,'42e2a253-d767-6191-caf9-e1f79652c44f'::uuid,'38371df3-5a46-5137-8204-4c5391633180'::uuid,'680f7358-4b7c-0733-be42-f9d52e746d1b'::uuid)) as seed_count
+), role_counts as (
+    select
+      (select count(*) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as existing_department_manager_role_count,
+      (select count(*) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER' and "IsActive") as existing_department_manager_active_count,
+      (select greatest(count(*)-1,0) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as existing_department_manager_duplicate_count,
+      (select count(*) from nexa.roles where "Code"='DEPARTMENT_MANAGER' and "IsActive" and nullif(trim("Name"),'') is not null and nullif(trim("CreatedBy"),'') is not null and "CreatedBy"<>'migration-rev869a' and "Id" not in ('30000000-0000-0000-0000-000000000001'::uuid,'30000000-0000-0000-0000-000000000002'::uuid,'30000000-0000-0000-0000-000000000003'::uuid,'30000000-0000-0000-0000-000000000004'::uuid)) as existing_department_manager_suitable_count,
+      (select count(*) from nexa.roles where upper(trim("Code")) in ('PURCHASE_MANAGER','STORES_MANAGER','QC_MANAGER','QC_INSPECTOR')) as new_role_collision_count,
+      (select coalesce(string_agg(md5(concat_ws('|',"Id"::text,"Code","Name","IsActive"::text,"IsPrivileged"::text,"CreatedAt"::text,"CreatedBy",coalesce("UpdatedAt"::text,''),coalesce("UpdatedBy",''),"Version"::text)),',' order by "Id"),'MISSING') from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as department_manager_role_fingerprint
+), role_state as (
+    select *,
+      case when existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0 and existing_department_manager_suitable_count=1 then 'PASS' else 'FAIL' end as existing_department_manager_reuse_state,
+      case when existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0 and existing_department_manager_suitable_count=1 and new_role_collision_count=0 then 'PASS' else 'FAIL' end as role_readiness_state
+    from role_counts
 ), collision_state as (
     select
-      (select count(*) from nexa.roles where upper("Code") in ('PURCHASE_MANAGER','STORES_MANAGER','QC_MANAGER','QC_INSPECTOR','DEPARTMENT_MANAGER') and "Id" not in ('30000000-0000-0000-0000-000000000001'::uuid,'30000000-0000-0000-0000-000000000002'::uuid,'30000000-0000-0000-0000-000000000003'::uuid,'30000000-0000-0000-0000-000000000004'::uuid,'30000000-0000-0000-0000-000000000005'::uuid)) as role_collision_count,
       (select count(*) from nexa.page_definitions where "PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies') and "Id"::text not like '40000000-0000-0000-0000-00000000000%') as page_collision_count,
       (select count(*) from (select "WarehouseId","Id",count(*) from nexa.rack_bins group by "WarehouseId","Id" having count(*)>1) d) as rack_key_duplicate_count
-), referenced_uoms as (
+), uom_master as (
     select u."Id",u."Code",u."Name",u."IsActive",count(i."Id") as item_reference_count
-    from nexa.uoms u join nexa.items i on i."UomId"=u."Id"
+    from nexa.uoms u left join nexa.items i on i."UomId"=u."Id"
     group by u."Id",u."Code",u."Name",u."IsActive"
 ), classification_state as (
     select
-      (select count(*) from referenced_uoms r left join expected_uom_classifications e on e."UomId"=r."Id" and upper(e."UomCode")=upper(r."Code") where e."UomId" is null) as missing_uom_classification_count,
-      (select count(*) from expected_uom_classifications e left join referenced_uoms r on r."Id"=e."UomId" and upper(r."Code")=upper(e."UomCode") where r."Id" is null) as unexpected_uom_classification_count,
+      (select count(*) from uom_master r left join expected_uom_classifications e on e."UomId"=r."Id" and upper(e."UomCode")=upper(r."Code") where e."UomId" is null) as missing_uom_classification_count,
+      (select count(*) from expected_uom_classifications e left join uom_master r on r."Id"=e."UomId" and upper(r."Code")=upper(e."UomCode") where r."Id" is null) as unexpected_uom_classification_count,
       ((select count(*) from (
           select "UomId"
           from expected_uom_classifications
@@ -247,8 +259,13 @@ with expected_migrations("MigrationId", ordinal) as (
       (select count(*) from expected_item_base_uom_mappings where "MappingStatus"<>'APPROVED' or "MappingBasis"<>'MANAGEMENT_APPROVED' or nullif(trim("ManagementApprovalReference"),'') is null) as inferred_or_default_mapping_count
 ), readiness_state as (
     select
+      (select count(*) from uom_master) as uom_master_count,
+      (select count(*) from uom_master where item_reference_count>0) as referenced_uom_count,
+      (select count(*) from uom_master where item_reference_count=0) as unreferenced_uom_count,
       (select count(*) from nexa.items where "UomId" is null) as unmapped_item_count,
+      (select count(*) from nexa.items where "UomId" is null) as null_item_uom_count,
       (select count(*) from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is not null and u."Id" is null) as invalid_uom_reference_count,
+      (select count(*) from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is not null and u."Id" is null) as invalid_item_uom_count,
       (select count(*) from nexa.items i join nexa.uoms u on u."Id"=i."UomId") as exact_item_uom_evidence_count,
       (select count(*) from (select upper(trim("Code")) from nexa.uoms group by upper(trim("Code")) having count(*)>1 union all select upper(trim("Name")) from nexa.uoms group by upper(trim("Name")) having count(*)>1) d) as duplicate_or_ambiguous_uom_count
 ), preservation_state as (
@@ -278,13 +295,24 @@ union all select 'partial_constraint_count='||constraint_count from artifact_sta
 union all select 'partial_function_count='||function_count from artifact_state
 union all select 'partial_trigger_count='||trigger_count from artifact_state
 union all select 'partial_seed_count='||seed_count from artifact_state
-union all select 'role_collision_count='||role_collision_count from collision_state
+union all select 'existing_department_manager_role_count='||existing_department_manager_role_count from role_state
+union all select 'existing_department_manager_active_count='||existing_department_manager_active_count from role_state
+union all select 'existing_department_manager_duplicate_count='||existing_department_manager_duplicate_count from role_state
+union all select 'existing_department_manager_reuse_state='||existing_department_manager_reuse_state from role_state
+union all select 'new_role_collision_count='||new_role_collision_count from role_state
+union all select 'role_readiness_state='||role_readiness_state from role_state
+union all select 'department_manager_role_fingerprint='||department_manager_role_fingerprint from role_state
 union all select 'page_collision_count='||page_collision_count from collision_state
 union all select 'rack_key_duplicate_count='||rack_key_duplicate_count from collision_state
 union all select 'future_unique_duplicate_count='||case when relation_count=0 then 0 else -1 end from artifact_state
 union all select 'future_effective_overlap_count='||case when relation_count=0 then 0 else -1 end from artifact_state
+union all select 'uom_master_count='||uom_master_count from readiness_state
+union all select 'referenced_uom_count='||referenced_uom_count from readiness_state
+union all select 'unreferenced_uom_count='||unreferenced_uom_count from readiness_state
 union all select 'unmapped_item_count='||unmapped_item_count from readiness_state
+union all select 'null_item_uom_count='||null_item_uom_count from readiness_state
 union all select 'invalid_uom_reference_count='||invalid_uom_reference_count from readiness_state
+union all select 'invalid_item_uom_count='||invalid_item_uom_count from readiness_state
 union all select 'exact_item_uom_evidence_count='||exact_item_uom_evidence_count from readiness_state
 union all select 'duplicate_or_ambiguous_uom_count='||duplicate_or_ambiguous_uom_count from readiness_state
 union all select 'missing_uom_classification_count='||missing_uom_classification_count from classification_state
@@ -302,11 +330,12 @@ union all select 'relieved_employee_duplicate_count='||relieved_employee_duplica
 union all select 'relieved_employee_status_mismatch_count='||relieved_employee_status_mismatch_count from relieved_employee_state
 union all select 'relieved_employee_acceptance_state='||relieved_employee_acceptance_state from relieved_employee_state
 union all select 'uom_management_decision_state=$uomManagementDecisionState'
-union all select 'safe_retry_state='||case when total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state cross join relieved_employee_state
-union all select 'data_readiness_state='||case when '$uomManagementDecisionState'='APPROVED' and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 then 'PASS' else 'FAIL' end from readiness_state cross join classification_state cross join base_mapping_state
-union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_collision_count=0 and page_collision_count=0 and rack_key_duplicate_count=0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join collision_state cross join readiness_state cross join classification_state cross join base_mapping_state cross join relieved_employee_state
-union all select 'uom_candidate='||r."Id"||'|code='||r."Code"||'|name='||r."Name"||'|symbol=NOT_MODELED|active='||r."IsActive"||'|item_reference_count='||r.item_reference_count from referenced_uoms r
-union all select 'item_uom_problem='||i."Id"||'|item_code='||i."ItemCode"||'|uom_id='||coalesce(i."UomId"::text,'NULL')||'|status='||case when i."UomId" is null then 'NULL_UOM_ID' else 'INVALID_UOM_ID' end from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is null or u."Id" is null
+union all select 'safe_retry_state='||case when total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_readiness_state='PASS' and page_collision_count=0 and rack_key_duplicate_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join role_state cross join collision_state cross join relieved_employee_state
+union all select 'data_readiness_state='||case when '$uomManagementDecisionState'='APPROVED' and uom_master_count>0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 then 'PASS' else 'FAIL' end from readiness_state cross join classification_state cross join base_mapping_state
+union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_readiness_state='PASS' and page_collision_count=0 and rack_key_duplicate_count=0 and uom_master_count>0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join role_state cross join collision_state cross join readiness_state cross join classification_state cross join base_mapping_state cross join relieved_employee_state
+union all select 'uom_master_candidate='||r."Id"||'|code='||replace(replace(r."Code",'|','/'),chr(10),' ')||'|name='||replace(replace(r."Name",'|','/'),chr(10),' ')||'|active='||r."IsActive"||'|item_reference_count='||r.item_reference_count from uom_master r
+union all select 'uom_creation_management_decision_required='||case when uom_master_count=0 then 'YES' else 'NO' end from readiness_state
+union all select 'item_uom_problem='||i."Id"||'|item_code='||replace(replace(i."ItemCode",'|','/'),chr(10),' ')||'|item_name='||replace(replace(i."Name",'|','/'),chr(10),' ')||'|material_type='||replace(replace(i."MaterialType",'|','/'),chr(10),' ')||'|current_uom_id='||coalesce(i."UomId"::text,'NULL')||'|current_uom_code='||coalesce(replace(replace(u."Code",'|','/'),chr(10),' '),'NULL')||'|current_uom_name='||coalesce(replace(replace(u."Name",'|','/'),chr(10),' '),'NULL')||'|item_status='||replace(replace(i."Status",'|','/'),chr(10),' ')||'|proposed_base_uom=NOT_APPROVED|problem='||case when i."UomId" is null then 'NULL_UOM_ID' else 'INVALID_UOM_ID' end from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is null or u."Id" is null
 union all select 'base_uom_mapping_candidate='||i."Id"||'|item_code='||i."ItemCode"||'|proposed_base_uom_id='||coalesce(e."BaseUomId"::text,'NOT_APPROVED')||'|status='||case when e."ItemId" is null then 'PENDING_MANAGEMENT_APPROVAL' else e."MappingStatus" end from nexa.items i left join expected_item_base_uom_mappings e on e."ItemId"=i."Id"
 union all select 'uom_ambiguity=CODE|normalized='||upper(trim("Code"))||'|ids='||string_agg("Id"::text,',' order by "Id") from nexa.uoms group by upper(trim("Code")) having count(*)>1
 union all select 'uom_ambiguity=NAME|normalized='||upper(trim("Name"))||'|ids='||string_agg("Id"::text,',' order by "Id") from nexa.uoms group by upper(trim("Name")) having count(*)>1
@@ -364,22 +393,35 @@ $relievedCtes
   (select count(*) from information_schema.columns where table_schema='nexa' and table_name='items' and column_name='BaseUomId' and data_type='uuid' and is_nullable='NO') as base_uom_column_count,
   (select count(*) from nexa.items where "BaseUomId" is distinct from "UomId") as uom_backfill_mismatch_count,
   (select count(*) from nexa.tax_gst_settings where not (("SupplierStateCode"="PlaceOfSupplyStateCode" and "SupplyType"='INTRASTATE' and "IgstRate"=0 and "CgstRate"+"SgstRate"="GstRate") or ("SupplierStateCode"<>"PlaceOfSupplyStateCode" and "SupplyType"='INTERSTATE' and "CgstRate"=0 and "SgstRate"=0 and "IgstRate"="GstRate"))) as tax_resolution_mismatch_count
+), role_counts as (
+ select
+  (select count(*) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as existing_department_manager_role_count,
+  (select count(*) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER' and "IsActive") as existing_department_manager_active_count,
+  (select greatest(count(*)-1,0) from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as existing_department_manager_duplicate_count,
+  (select count(*) from nexa.roles where "Code"='DEPARTMENT_MANAGER' and "IsActive" and nullif(trim("Name"),'') is not null and nullif(trim("CreatedBy"),'') is not null and "CreatedBy"<>'migration-rev869a' and "Id" not in ('30000000-0000-0000-0000-000000000001'::uuid,'30000000-0000-0000-0000-000000000002'::uuid,'30000000-0000-0000-0000-000000000003'::uuid,'30000000-0000-0000-0000-000000000004'::uuid)) as existing_department_manager_suitable_count,
+  (select coalesce(string_agg(md5(concat_ws('|',"Id"::text,"Code","Name","IsActive"::text,"IsPrivileged"::text,"CreatedAt"::text,"CreatedBy",coalesce("UpdatedAt"::text,''),coalesce("UpdatedBy",''),"Version"::text)),',' order by "Id"),'MISSING') from nexa.roles where upper(trim("Code"))='DEPARTMENT_MANAGER') as department_manager_role_fingerprint
+), role_state as (
+ select *, case when existing_department_manager_role_count=1 and existing_department_manager_active_count=1 and existing_department_manager_duplicate_count=0 and existing_department_manager_suitable_count=1 then 'PASS' else 'FAIL' end as existing_department_manager_reuse_state
+ from role_counts
 ), seed_state as (
  select
   (select count(*) from nexa.roles where "CreatedBy"='migration-rev869a') as role_seed_count,
   (select count(*) from nexa.page_definitions where "CreatedBy"='migration-rev869a') as page_seed_count,
   (select count(*) from nexa.role_page_permissions where "CreatedBy"='migration-rev869a') as permission_seed_count,
   (select count(*) from nexa.organization_policies where "CreatedBy"='migration-rev869a') as policy_seed_count,
-  ((select count(*) from nexa.roles where "CreatedBy"='migration-rev869a' and "Code" not in ('PURCHASE_MANAGER','STORES_MANAGER','QC_MANAGER','QC_INSPECTOR','DEPARTMENT_MANAGER')) +
-   (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR'),('DEPARTMENT_MANAGER')) e(code) where (select count(*) from nexa.roles r where r."CreatedBy"='migration-rev869a' and r."Code"=e.code)<>1) +
+  ((select count(*) from nexa.roles where "CreatedBy"='migration-rev869a' and "Code" not in ('PURCHASE_MANAGER','STORES_MANAGER','QC_MANAGER','QC_INSPECTOR')) +
+   (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR')) e(code) where (select count(*) from nexa.roles r where r."CreatedBy"='migration-rev869a' and r."Code"=e.code)<>1) +
    (select count(*) from nexa.page_definitions where "CreatedBy"='migration-rev869a' and "PageKey" not in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies')) +
    (select count(*) from (values ('security.employee-identities'),('security.operational-scopes'),('masters.uoms'),('masters.uom-conversions'),('settings.tax-gst'),('masters.vendor-qualifications'),('masters.warehouse-condition-locations'),('qc.inspection-policies')) e(page_key) where (select count(*) from nexa.page_definitions p where p."CreatedBy"='migration-rev869a' and p."PageKey"=e.page_key)<>1) +
    (select count(*) from nexa.organization_policies where "CreatedBy"='migration-rev869a' and ("OrganizationId"<>'SESS' or ("PolicyCode","PolicyValue") not in (('VENDOR_FINAL_APPROVER','MANAGING_DIRECTOR'),('INVENTORY_VALUATION_METHOD','WEIGHTED_AVERAGE')))) +
    (select count(*) from (values ('VENDOR_FINAL_APPROVER','MANAGING_DIRECTOR'),('INVENTORY_VALUATION_METHOD','WEIGHTED_AVERAGE')) e(code,value) where (select count(*) from nexa.organization_policies p where p."CreatedBy"='migration-rev869a' and p."OrganizationId"='SESS' and p."PolicyCode"=e.code and p."PolicyValue"=e.value)<>1) +
-   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a' and not ((r."Code" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE','STORES_MANAGER','STORES_EXECUTIVE','QC_MANAGER','QC_INSPECTOR','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies')) or (r."Code"='accounts_head' and d."PageKey" in ('masters.vendor-qualifications','settings.tax-gst')))) +
-   (select greatest(0,66-count(distinct (r."Code",d."PageKey"))) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a') +
+   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a' and not ((r."Code" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE','STORES_MANAGER','STORES_EXECUTIVE','QC_MANAGER','QC_INSPECTOR','DEPARTMENT_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies')) or (r."Code"='accounts_head' and d."PageKey" in ('masters.vendor-qualifications','settings.tax-gst')))) +
+   (select greatest(0,74-count(distinct (r."Code",d."PageKey"))) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where p."CreatedBy"='migration-rev869a') +
    (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions where "CreatedBy"='migration-rev869a' group by "RoleId","PageDefinitionId" having count(*)<>1) q)) as seed_set_mismatch_count,
-  (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" where r."Code"='DEPARTMENT_MANAGER' and not (p."CanView" or p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanPrint" or p."CanDownload" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."CanViewAuditHistory" or p."HasFullControl")) as all_false_department_manager_count
+  (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" where r."Code"='DEPARTMENT_MANAGER' and not (p."CanView" or p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanPrint" or p."CanDownload" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."CanViewAuditHistory" or p."HasFullControl")) as all_false_department_manager_count,
+  (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where r."Code"='DEPARTMENT_MANAGER' and p."CreatedBy"='migration-rev869a' and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies') and not (p."CanView" and p."CanPrint" and p."CanDownload" and p."CanViewAuditHistory" and not (p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."HasFullControl"))) as department_manager_permission_mismatch_count,
+  (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR'),('DEPARTMENT_MANAGER')) e(code) where (select count(*) from nexa.roles r where upper(trim(r."Code"))=e.code)<>1) as logical_role_code_mismatch_count,
+  (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions group by "RoleId","PageDefinitionId" having count(*)<>1) d) as duplicate_role_page_permission_count
 ), backup_state as (
  select
   (select count(*) from nexa.rev869a_items_prechange_backup b full join nexa.items i on i."Id"=b."Id" where b."Id" is null or i."Id" is null or (to_jsonb(i)-'BaseUomId') is distinct from to_jsonb(b)) as item_backup_mismatch_count,
@@ -413,6 +455,11 @@ union all select 'table_shape_mismatch_count='||table_shape_mismatch_count from 
 union all select 'base_uom_column_count='||base_uom_column_count from column_state
 union all select 'uom_backfill_mismatch_count='||uom_backfill_mismatch_count from column_state
 union all select 'tax_resolution_mismatch_count='||tax_resolution_mismatch_count from column_state
+union all select 'existing_department_manager_role_count='||existing_department_manager_role_count from role_state
+union all select 'existing_department_manager_active_count='||existing_department_manager_active_count from role_state
+union all select 'existing_department_manager_duplicate_count='||existing_department_manager_duplicate_count from role_state
+union all select 'existing_department_manager_reuse_state='||existing_department_manager_reuse_state from role_state
+union all select 'department_manager_role_fingerprint='||department_manager_role_fingerprint from role_state
 union all select 'role_seed_count='||role_seed_count from seed_state
 union all select 'page_seed_count='||page_seed_count from seed_state
 union all select 'permission_seed_count='||permission_seed_count from seed_state
@@ -420,6 +467,9 @@ union all select 'policy_seed_count='||policy_seed_count from seed_state
 union all select 'seed_set_mismatch_count='||seed_set_mismatch_count from seed_state
 union all select 'migration_owned_seed_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count) from seed_state
 union all select 'all_false_department_manager_count='||all_false_department_manager_count from seed_state
+union all select 'department_manager_permission_mismatch_count='||department_manager_permission_mismatch_count from seed_state
+union all select 'logical_role_code_mismatch_count='||logical_role_code_mismatch_count from seed_state
+union all select 'duplicate_role_page_permission_count='||duplicate_role_page_permission_count from seed_state
 union all select 'item_backup_mismatch_count='||item_backup_mismatch_count from backup_state
 union all select 'uom_backup_mismatch_count='||uom_backup_mismatch_count from backup_state
 union all select 'vendor_backup_mismatch_count='||vendor_backup_mismatch_count from backup_state
@@ -437,7 +487,7 @@ union all select 'preserve_reservation_count='||reservation_count from preservat
 union all select 'preserve_active_employee_count='||active_employee_count from preservation_state
 union all select 'preserve_department_count='||department_count from preservation_state
 union all select 'preserve_manager_mapping_count='||manager_mapping_count from preservation_state
-union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and role_seed_count=5 and page_seed_count=8 and permission_seed_count=66 and policy_seed_count=2 and seed_set_mismatch_count=0 and all_false_department_manager_count=0 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join seed_state cross join backup_state cross join relieved_employee_state
+union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and existing_department_manager_reuse_state='PASS' and role_seed_count=4 and page_seed_count=8 and permission_seed_count=74 and policy_seed_count=2 and (role_seed_count+page_seed_count+permission_seed_count+policy_seed_count)=88 and seed_set_mismatch_count=0 and logical_role_code_mismatch_count=0 and duplicate_role_page_permission_count=0 and all_false_department_manager_count=0 and department_manager_permission_mismatch_count=0 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join role_state cross join seed_state cross join backup_state cross join relieved_employee_state
 union all select 'column_contract='||table_name||'.'||column_name||'|type='||data_type||'|udt='||udt_name||'|nullable='||is_nullable from information_schema.columns where table_schema='nexa' and table_name in (select name from expected_relations)
 union all select 'constraint_contract='||c.conname||'|type='||c.contype||'|definition='||pg_get_constraintdef(c.oid) from pg_constraint c where c.connamespace='nexa'::regnamespace and (c.conrelid in (select ('nexa.'||name)::regclass from expected_relations) or c.conname in ('AK_rack_bins_WarehouseId_Id','FK_items_uoms_BaseUomId'))
 union all select 'index_contract='||indexname||'|definition='||indexdef from pg_indexes where schemaname='nexa' and (tablename in (select name from expected_relations) or indexname='IX_items_BaseUomId')
@@ -503,10 +553,17 @@ function Get-EvidenceValue([string]$Evidence, [string]$Key) {
     return [long]$match.Groups[1].Value
 }
 
+function Get-EvidenceTextValue([string]$Evidence, [string]$Key) {
+    $matches = [regex]::Matches($Evidence, '(?m)^' + [regex]::Escape($Key) + '=([^\r\n]+)$')
+    if ($matches.Count -ne 1) { throw "Evidence key must occur exactly once: $Key" }
+    return $matches[0].Groups[1].Value
+}
+
 function Assert-Preservation([string]$Before, [string]$After) {
     foreach ($key in @('preserve_pr_count','preserve_pr_approval_history_count','preserve_reservation_count','preserve_active_employee_count','relieved_employee_expected_count','relieved_employee_actual_matched_count','relieved_employee_missing_count','relieved_employee_unexpected_count','relieved_employee_duplicate_count','relieved_employee_status_mismatch_count','preserve_department_count','preserve_manager_mapping_count')) {
         if ((Get-EvidenceValue $Before $key) -ne (Get-EvidenceValue $After $key)) { throw "REV868/REV868C3 preservation failed for $key." }
     }
+    if ((Get-EvidenceTextValue $Before 'department_manager_role_fingerprint') -cne (Get-EvidenceTextValue $After 'department_manager_role_fingerprint')) { throw "Reused DEPARTMENT_MANAGER role values changed." }
 }
 function Write-Plan([string]$PreflightSql, [string]$PostSql) {
     Write-Output "REV869A GeneratePlanOnly"
@@ -531,7 +588,9 @@ function Write-Plan([string]$PreflightSql, [string]$PostSql) {
     Write-Output "Post-migration verification SQL (SELECT-only/read-only):"
     Write-Output $PostSql
     Write-Output "Full apply additionally runs transaction-rolled-back negative constraint tests and PostgreSQL-backed .NET tests."
-    Write-Output "Rollback design: Down removes exactly 81 migration-owned seeds, removes only REV869A-owned objects, preserves REV868/REV868C3 business/history rows, and drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last."
+    Write-Output "Role reuse: exactly one active pre-existing DEPARTMENT_MANAGER is required and preserved; REV869A creates exactly four new roles and never seeds or deletes DEPARTMENT_MANAGER."
+    Write-Output "Seed contract: 4 REV869A roles + 8 pages + 74 permissions + 2 policies = 88 migration-owned rows; five logical REV869A role codes include the reused DEPARTMENT_MANAGER."
+    Write-Output "Rollback design: Down removes exactly 88 migration-owned seeds, removes only REV869A-owned objects, preserves REV868/REV868C3 business/history rows, and drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last."
     Write-Output "Rollback value evidence: backup/current legacy-column comparisons must be zero before rollback; REV869A adds columns but does not rewrite pre-existing columns, so dropping the additions restores the exact pre-REV869A row shape and values."
     Write-Output "Explicit prohibition: no create/drop/restore/backup/main-database/REV861/production operation."
     Write-Output "GeneratePlanOnly requests no password, makes no PostgreSQL connection, and performs no dotnet-ef database operation."
@@ -588,6 +647,8 @@ try {
         $preflightEvidence = Invoke-Psql $preflightSql $true
         Assert-Evidence $preflightEvidence "database_identity=PASS"
         Assert-Evidence $preflightEvidence "relieved_employee_acceptance_state=PASS"
+        Assert-Evidence $preflightEvidence "existing_department_manager_reuse_state=PASS"
+        Assert-Evidence $preflightEvidence "role_readiness_state=PASS"
         Assert-Evidence $preflightEvidence "safe_retry_state=PASS"
         Assert-Evidence $preflightEvidence "data_readiness_state=PASS"
         Assert-Evidence $preflightEvidence "preflight_acceptance_state=PASS"
@@ -621,6 +682,16 @@ try {
 
     $postEvidence = Invoke-Psql $postSql $true
     Assert-Evidence $postEvidence "relieved_employee_acceptance_state=PASS"
+    Assert-Evidence $postEvidence "existing_department_manager_reuse_state=PASS"
+    Assert-Evidence $postEvidence "role_seed_count=4"
+    Assert-Evidence $postEvidence "page_seed_count=8"
+    Assert-Evidence $postEvidence "permission_seed_count=74"
+    Assert-Evidence $postEvidence "policy_seed_count=2"
+    Assert-Evidence $postEvidence "migration_owned_seed_count=88"
+    Assert-Evidence $postEvidence "logical_role_code_mismatch_count=0"
+    Assert-Evidence $postEvidence "duplicate_role_page_permission_count=0"
+    Assert-Evidence $postEvidence "all_false_department_manager_count=0"
+    Assert-Evidence $postEvidence "department_manager_permission_mismatch_count=0"
     Assert-Evidence $postEvidence "database_schema_acceptance_state=PASS"
     if ($Apply) {
         Assert-Preservation $preflightEvidence $postEvidence

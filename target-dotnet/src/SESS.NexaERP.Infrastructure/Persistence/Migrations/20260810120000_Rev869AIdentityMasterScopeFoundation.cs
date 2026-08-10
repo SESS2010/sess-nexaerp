@@ -13,7 +13,41 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                DO $rev869a_role_reuse$
+                DECLARE
+                    department_manager_count integer;
+                    department_manager_active_count integer;
+                    department_manager_suitable_count integer;
+                    new_role_collision_count integer;
+                BEGIN
+                    SELECT count(*), count(*) FILTER (WHERE "IsActive"), count(*) FILTER (
+                        WHERE "Code" = 'DEPARTMENT_MANAGER'
+                          AND "IsActive"
+                          AND nullif(trim("Name"), '') IS NOT NULL
+                          AND nullif(trim("CreatedBy"), '') IS NOT NULL
+                          AND "CreatedBy" <> 'migration-rev869a'
+                          AND "Id" NOT IN (
+                            '30000000-0000-0000-0000-000000000001'::uuid,
+                            '30000000-0000-0000-0000-000000000002'::uuid,
+                            '30000000-0000-0000-0000-000000000003'::uuid,
+                            '30000000-0000-0000-0000-000000000004'::uuid))
+                    INTO department_manager_count, department_manager_active_count, department_manager_suitable_count
+                    FROM nexa.roles
+                    WHERE upper(trim("Code")) = 'DEPARTMENT_MANAGER';
 
+                    SELECT count(*) INTO new_role_collision_count
+                    FROM nexa.roles
+                    WHERE upper(trim("Code")) IN ('PURCHASE_MANAGER', 'STORES_MANAGER', 'QC_MANAGER', 'QC_INSPECTOR');
+
+                    IF department_manager_count <> 1 OR department_manager_active_count <> 1 OR department_manager_suitable_count <> 1 THEN
+                        RAISE EXCEPTION 'REV869A requires exactly one active suitable pre-existing DEPARTMENT_MANAGER role';
+                    END IF;
+                    IF new_role_collision_count <> 0 THEN
+                        RAISE EXCEPTION 'REV869A new-role collision detected';
+                    END IF;
+                END $rev869a_role_reuse$;
+                """);
 
                         migrationBuilder.Sql("""
                 CREATE TABLE nexa.rev869a_items_prechange_backup AS TABLE nexa.items;
@@ -565,8 +599,7 @@ migrationBuilder.AddColumn<string>(
                     { new Guid("30000000-0000-0000-0000-000000000001"), "PURCHASE_MANAGER", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, true, "Purchase Manager", null, null, 0L },
                     { new Guid("30000000-0000-0000-0000-000000000002"), "STORES_MANAGER", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, true, "Stores Manager", null, null, 0L },
                     { new Guid("30000000-0000-0000-0000-000000000003"), "QC_MANAGER", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, true, "QC Manager", null, null, 0L },
-                    { new Guid("30000000-0000-0000-0000-000000000004"), "QC_INSPECTOR", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, false, "QC Inspector", null, null, 0L },
-                    { new Guid("30000000-0000-0000-0000-000000000005"), "DEPARTMENT_MANAGER", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, true, "Department Manager", null, null, 0L }
+                    { new Guid("30000000-0000-0000-0000-000000000004"), "QC_INSPECTOR", new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, false, "QC Inspector", null, null, 0L }
                 });
 
             migrationBuilder.InsertData(
@@ -642,6 +675,25 @@ migrationBuilder.AddColumn<string>(
                     { new Guid("f9c9f6cc-48b9-8727-4c81-4196e4444b59"), false, false, false, false, true, true, true, true, false, true, true, false, false, false, false, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("10000000-0000-0000-0000-000000000003"), null, null, 0L },
                     { new Guid("fcf487a0-7345-b5f0-8f88-784ce8f0016a"), false, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L }
                 });
+
+            migrationBuilder.Sql("""
+                INSERT INTO nexa.role_page_permissions
+                    ("Id", "CanApprove", "CanCancel", "CanCreate", "CanDeactivate", "CanDownload", "CanExport", "CanPrint", "CanReject", "CanReplaceAttachment", "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanSubmit", "CanUpdate", "CanUploadAttachment", "CanVerify", "CanView", "CanViewAuditHistory", "CanViewCommercialValues", "CreatedAt", "CreatedBy", "HasFullControl", "PageDefinitionId", "RoleId", "UpdatedAt", "UpdatedBy", "Version")
+                SELECT v."Id", false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, true, false,
+                       TIMESTAMPTZ '1970-01-01T00:00:00+00:00', 'migration-rev869a', false, v."PageDefinitionId", r."Id", null, null, 0::bigint
+                FROM (VALUES
+                    ('aea2e8a1-18a6-72d2-a954-6f5513b80eeb'::uuid, '40000000-0000-0000-0000-000000000001'::uuid),
+                    ('f8e7d0a6-f056-175a-e604-14c1f9f6ad83'::uuid, '40000000-0000-0000-0000-000000000002'::uuid),
+                    ('a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12'::uuid, '40000000-0000-0000-0000-000000000003'::uuid),
+                    ('15ee5b19-d532-c28c-b755-de4152769a7a'::uuid, '40000000-0000-0000-0000-000000000004'::uuid),
+                    ('5794f740-90b1-5a70-413a-d59bbc97ce78'::uuid, '40000000-0000-0000-0000-000000000005'::uuid),
+                    ('42e2a253-d767-6191-caf9-e1f79652c44f'::uuid, '40000000-0000-0000-0000-000000000006'::uuid),
+                    ('38371df3-5a46-5137-8204-4c5391633180'::uuid, '40000000-0000-0000-0000-000000000007'::uuid),
+                    ('680f7358-4b7c-0733-be42-f9d52e746d1b'::uuid, '40000000-0000-0000-0000-000000000008'::uuid)
+                ) AS v("Id", "PageDefinitionId")
+                CROSS JOIN nexa.roles r
+                WHERE r."Code" = 'DEPARTMENT_MANAGER';
+                """);
 
             migrationBuilder.CreateIndex(
                 name: "IX_items_BaseUomId",
@@ -876,6 +928,24 @@ migrationBuilder.AddColumn<string>(
 
             migrationBuilder.DeleteData(schema: "nexa", table: "organization_policies", keyColumn: "Id", keyColumnType: "uuid", keyValue: new Guid("50000000-0000-0000-0000-000000000001"));
             migrationBuilder.DeleteData(schema: "nexa", table: "organization_policies", keyColumn: "Id", keyColumnType: "uuid", keyValue: new Guid("50000000-0000-0000-0000-000000000002"));
+
+            migrationBuilder.Sql("""
+                DELETE FROM nexa.role_page_permissions p
+                USING nexa.roles r
+                WHERE p."RoleId" = r."Id"
+                  AND r."Code" = 'DEPARTMENT_MANAGER'
+                  AND p."CreatedBy" = 'migration-rev869a'
+                  AND p."PageDefinitionId" IN (
+                    '40000000-0000-0000-0000-000000000001'::uuid,
+                    '40000000-0000-0000-0000-000000000002'::uuid,
+                    '40000000-0000-0000-0000-000000000003'::uuid,
+                    '40000000-0000-0000-0000-000000000004'::uuid,
+                    '40000000-0000-0000-0000-000000000005'::uuid,
+                    '40000000-0000-0000-0000-000000000006'::uuid,
+                    '40000000-0000-0000-0000-000000000007'::uuid,
+                    '40000000-0000-0000-0000-000000000008'::uuid
+                  );
+                """);
 
 
 
@@ -1476,12 +1546,6 @@ migrationBuilder.AddColumn<string>(
                 keyColumnType: "uuid",
                 keyValue: new Guid("30000000-0000-0000-0000-000000000004"));
 
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "roles",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("30000000-0000-0000-0000-000000000005"));
 
             migrationBuilder.DropColumn(
                 name: "CommercialVerificationStatus",

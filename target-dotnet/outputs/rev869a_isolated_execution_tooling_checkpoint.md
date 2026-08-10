@@ -100,7 +100,7 @@ The helper requires and reports:
 - mandatory `items.BaseUomId` only after an exact management-approved item mapping; the current migration assignment cannot be accepted while the contract is PENDING;
 - state-aware GST consistency;
 - database configuration guard triggers;
-- exactly 81 migration-owned seeds: 5 roles, 8 pages, 66 permissions, 2 policies;
+- exactly 88 migration-owned seeds: 4 new roles, 8 pages, 74 permissions, and 2 policies; the single suitable active pre-existing `DEPARTMENT_MANAGER` role is reused and remains legacy-owned;
 - exact role/page/permission/policy seed sets and zero all-false Department Manager permissions anywhere;
 - zero legacy-column differences between current items/UOMs/vendors and the three pre-change backup tables;
 - exact REV868/REV868C3 pre/post preservation counts;
@@ -110,7 +110,7 @@ Identity fallback, direct record-scope denial, missing/non-`AVAILABLE` reservati
 
 ## Rollback design evidence
 
-- Down contains exactly 81 migration-owned seed deletions.
+- Down contains exactly 88 migration-owned seed deletions and does not delete or modify the reused Department Manager role.
 - Post-verification compares exact pre-existing item/UOM/vendor JSON values, excluding only REV869A-added columns, against migration-owned backups.
 - REV869A does not rewrite pre-existing columns; Down removes only REV869A additions and therefore restores the exact prior row shape while preserving legacy values.
 - REV868/REV868C3 PR, approval, reservation, employee, department, mapping, history, and audit records are outside the removal boundary.
@@ -125,7 +125,7 @@ Identity fallback, direct record-scope denial, missing/non-`AVAILABLE` reservati
 - EF `migrations list --no-connect`: PASS; exact 11 prerequisites followed by REV869A.
 - EF model/snapshot check: PASS; no pending model changes.
 - Offline Up SQL: 79,970 bytes, one transaction, 12 table creates, 7 null-safe unique indexes.
-- Offline Down SQL: 9,313 bytes, 12 table drops and exactly 81 seed deletions.
+- Offline Down SQL: offline regenerated SQL reviewed with 12 table drops and exactly 88 owned deletions: 4 roles, 8 pages, 74 permissions, and 2 policies.
 - Secret/privacy/protected-database scan: PASS.
 - Helper safety scan: PASS; no `createdb`, `dropdb`, `pg_restore`, `pg_dump`, migration remove, arbitrary migration target, or database replacement command.
 - Accepted migration diff: zero; migration/designer/snapshot unchanged.
@@ -185,7 +185,7 @@ While management state is PENDING, both data readiness and preflight acceptance 
 
 Pre-apply requires exactly the 11 prerequisite migrations once each, no unexpected or duplicate migration, and REV869A absent. Final schema acceptance requires exactly the expected set of 12 migrations once each, including REV869A, with zero missing, unexpected or duplicate rows.
 
-Final seed acceptance requires exactly 5 REV869A roles, 8 pages, 66 permission role/page pairs and 2 policies, with the exact stable role/page/policy natural-key sets, zero unexpected/duplicate/missing pairs, and no all-false Department Manager permission anywhere.
+Final seed acceptance requires exactly 4 REV869A-created roles, 1 unchanged reused Department Manager role, 8 pages, 74 REV869A-owned permission role/page pairs, and 2 policies. The exact stable role/page/policy natural-key sets must have zero unexpected, duplicate, or missing pairs and no all-false Department Manager permission anywhere.
 
 Before mutation, all three altered tables—items, UOMs and vendors—must have complete migration-owned backup coverage. Post-verification requires zero missing/extra backup IDs, equal row coverage and exact equality of every pre-existing value after excluding only REV869A-added columns. Down keeps the three backup tables until last.
 
@@ -315,3 +315,30 @@ All prior gates remain unchanged: exactly 11 prerequisite migrations; exact nine
 - Changed-line secret, privacy and safety scans: PASS.
 - `git diff --check`: PASS.
 - No helper mode, PostgreSQL test, PostgreSQL/database access, migration, backup/restore, production, REV861, AWS, frontend or REV869B operation was executed.
+
+## Final source-only role-reuse/UOM evidence checkpoint
+
+Starting commit: `0691a0d31c6d17a99df1e9a211eecf08dc7cbeb9`.
+
+- Colliding code: `DEPARTMENT_MANAGER`, proven by the accepted REV868C3 reconciliation migration's role-code upsert, permission rows, and employee assignments.
+- Reuse gate: exactly one normalized role, exactly one active role, zero duplicates, exactly one suitable legacy-owned identity, and zero collisions among PURCHASE_MANAGER, STORES_MANAGER, QC_MANAGER, and QC_INSPECTOR.
+- Preservation: no insert/update/delete of the reused role; exact modeled-value fingerprint equality; existing assignments and permissions unchanged.
+- New permission boundary: eight REV869A-owned Department Manager rows on the eight new pages, with exact view/print/download/audit-history rights and no mutation/export/commercial/full-control rights.
+- Exact ownership: 4 roles + 8 pages + 74 permissions + 2 policies = 88. Down removes only those 88 owned rows and drops backup tables last.
+- UOM evidence: all master rows and safe unmapped-item fields are reported read-only; zero-master management decision is explicit; approval remains PENDING and both approved expected sets remain empty.
+
+Final offline validation:
+
+- Windows PowerShell 5.1 parse: PASS, 0 errors.
+- Build: PASS, 0 warnings, 0 errors.
+- Focused REV869A tests: 64 passed, 0 failed, 0 skipped.
+- Complete non-PostgreSQL tests: 332 passed, 0 failed, 0 skipped.
+- EF migration discovery with `--no-connect`: PASS, exact 11 prerequisites plus unchanged target migration.
+- Pending-model-change check: PASS, no model changes after the migration.
+- Offline Up SQL: 82,328 bytes, one transaction, one dynamic reused-role permission insert, all 8 deterministic permission IDs present.
+- Offline Down SQL: 9,539 bytes, one transaction, 81 SQL delete statements effecting exactly 88 owned-row deletions; the ownership-qualified Department Manager delete is present and backup tables drop last.
+- Relation/schema/acceptance scan: PASS.
+- Secret/privacy/safety scan: PASS.
+- `git diff --check`: PASS.
+
+No helper mode or PostgreSQL/database/migration-apply/backup/production/REV861/REV869B action occurred. `../legacy-reference/` remained read-only, unchanged, and untracked.

@@ -101,11 +101,38 @@ public sealed class Rev869ASourceCorrectionTests
     [Fact]
     public void PermissionSeedsAndDownAreExactlySymmetric()
     {
-        var departmentManager = Rev869ASeedData.Roles.Single(x => x.Code == Rev869ARoleCodes.DepartmentManager);
-        Assert.DoesNotContain(Rev869ASeedData.RolePagePermissions, x => x.RoleId == departmentManager.Id);
+        Assert.Equal(4, Rev869ASeedData.Roles.Length);
+        Assert.DoesNotContain(Rev869ASeedData.Roles, x => x.Code == Rev869ARoleCodes.DepartmentManager);
+        Assert.Equal(66, Rev869ASeedData.RolePagePermissions.Count);
         var upSeeds = Rev869ASeedData.Roles.Length + Rev869ASeedData.Pages.Length + Rev869ASeedData.OrganizationPolicies.Length + Rev869ASeedData.RolePagePermissions.Count;
-        Assert.Equal(81, upSeeds);
-        Assert.Equal(81, Count(Migration(), "migrationBuilder.DeleteData("));
+        Assert.Equal(80, upSeeds);
+        Assert.Equal(80, Count(Migration(), "migrationBuilder.DeleteData("));
+        Assert.Contains("INSERT INTO nexa.role_page_permissions", Migration(), StringComparison.Ordinal);
+        foreach (var id in new[] { "aea2e8a1-18a6-72d2-a954-6f5513b80eeb", "f8e7d0a6-f056-175a-e604-14c1f9f6ad83", "a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12", "15ee5b19-d532-c28c-b755-de4152769a7a", "5794f740-90b1-5a70-413a-d59bbc97ce78", "42e2a253-d767-6191-caf9-e1f79652c44f", "38371df3-5a46-5137-8204-4c5391633180", "680f7358-4b7c-0733-be42-f9d52e746d1b" })
+            Assert.Equal(1, Count(Migration(), id));
+        Assert.DoesNotContain("30000000-0000-0000-0000-000000000005", Migration(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"DEPARTMENT_MANAGER\", new DateTimeOffset", Migration(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DepartmentManagerReuseNeverSeedsUpdatesOrDeletesTheExistingRole()
+    {
+        var migration = Migration();
+        var designer = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260810120000_Rev869AIdentityMasterScopeFoundation.Designer.cs");
+        var snapshot = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs");
+        var expectedCreatedCodes = new[] { Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresManager, Rev869ARoleCodes.QcManager, Rev869ARoleCodes.QcInspector };
+
+        Assert.Equal(expectedCreatedCodes.Order(), Rev869ASeedData.Roles.Select(x => x.Code).Order());
+        Assert.DoesNotContain(Rev869ARoleCodes.DepartmentManager, Rev869ASeedData.Roles.Select(x => x.Code));
+        Assert.DoesNotContain("30000000-0000-0000-0000-000000000005", migration + designer + snapshot, StringComparison.Ordinal);
+        Assert.Equal(4, Count(migration, "table: \"roles\"" ) - 1);
+        Assert.Equal(66, Count(migration, "table: \"role_page_permissions\"") - 1);
+        Assert.Contains("DELETE FROM nexa.role_page_permissions p", migration, StringComparison.Ordinal);
+        Assert.Contains("p.\"CreatedBy\" = 'migration-rev869a'", migration, StringComparison.Ordinal);
+        Assert.Contains("r.\"Code\" = 'DEPARTMENT_MANAGER'", migration, StringComparison.Ordinal);
+        Assert.DoesNotContain("update nexa.roles", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires exactly one active suitable pre-existing DEPARTMENT_MANAGER role", migration, StringComparison.Ordinal);
+        Assert.Contains("REV869A new-role collision detected", migration, StringComparison.Ordinal);
     }
 
     [Fact]

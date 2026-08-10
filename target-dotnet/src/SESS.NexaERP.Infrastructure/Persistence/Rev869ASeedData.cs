@@ -16,8 +16,7 @@ public static class Rev869ASeedData
         Role("30000000-0000-0000-0000-000000000001", Rev869ARoleCodes.PurchaseManager, "Purchase Manager", true),
         Role("30000000-0000-0000-0000-000000000002", Rev869ARoleCodes.StoresManager, "Stores Manager", true),
         Role("30000000-0000-0000-0000-000000000003", Rev869ARoleCodes.QcManager, "QC Manager", true),
-        Role("30000000-0000-0000-0000-000000000004", Rev869ARoleCodes.QcInspector, "QC Inspector", false),
-        Role("30000000-0000-0000-0000-000000000005", Rev869ARoleCodes.DepartmentManager, "Department Manager", true)
+        Role("30000000-0000-0000-0000-000000000004", Rev869ARoleCodes.QcInspector, "QC Inspector", false)
     ];
 
     public static readonly PageDefinition[] Pages =
