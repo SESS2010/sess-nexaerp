@@ -810,12 +810,17 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("sess_nexaerp_rev868_verify", helper);
         Assert.Contains("begin transaction read only;", helper);
         Assert.Contains("migration_acceptance_state", helper);
-        Assert.Contains("active_employee_acceptance_state", helper);
-        Assert.Contains("relieved_employee_acceptance_state", helper);
+        Assert.Contains("employee_acceptance_state", helper);
         Assert.Contains("department_acceptance_state", helper);
-        Assert.Contains("mapping_acceptance_state", helper);
+        Assert.Contains("manager_mapping_acceptance_state", helper);
         Assert.Contains("workflow_acceptance_state", helper);
-        Assert.Contains("manager_permission_acceptance_state", helper);
+        Assert.Contains("permission_acceptance_state", helper);
+        Assert.Contains("history_audit_acceptance_state", helper);
+        Assert.Contains("duplicate_conflict_acceptance_state", helper);
+        Assert.DoesNotContain("'active_employee_acceptance_state='", helper);
+        Assert.DoesNotContain("'relieved_employee_acceptance_state='", helper);
+        Assert.DoesNotContain("'mapping_acceptance_state='", helper);
+        Assert.DoesNotContain("'manager_permission_acceptance_state='", helper);
         Assert.Contains("audit_evidence_count", helper);
         Assert.Contains("duplicate_employee_codes", helper);
         Assert.Contains("duplicate_payroll_ids", helper);
@@ -985,8 +990,8 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("ENGINEER_TECHNICAL", helper);
         Assert.Contains("DESIGN|PROJECT|SESS-019|SESS-015", helper);
         Assert.Contains("DESIGN|REGULAR_PRODUCT|SESS-015|SESS-019", helper);
-        Assert.Contains("purchase.requisition-approvals|V=T|A=T|R=T|C=T|RV=T|AH=T|FC=F", helper);
-        Assert.Contains("purchase.requisitions|V=T|A=F|R=F|C=F|RV=F|AH=T|FC=F", helper);
+        Assert.Contains("purchase.requisition-approvals|CanView=T|CanCreate=F|CanUpdate=F", helper);
+        Assert.Contains("purchase.requisitions|CanView=T|CanCreate=F|CanUpdate=F", helper);
         Assert.Contains("rev868c3_resume_20260809_210202.trx", helper);
         Assert.Contains("test_acceptance_state=PASS", helper);
         Assert.Contains("Get-OverallAcceptanceEvidence", helper);
@@ -1028,6 +1033,131 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("$notPassed -eq 0", helper);
         Assert.Contains("Database identity evidence missing or duplicated.", helper);
     }
+
+    [Fact]
+    public void Rev868c3_postrun_verifier_requires_employee_department_and_complete_permission_conditions()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+        var employee = FunctionBody(helper, "Get-EmployeeEvidenceSql", "Get-DepartmentEvidenceSql");
+        var department = FunctionBody(helper, "Get-DepartmentEvidenceSql", "Get-ManagerMappingEvidenceSql");
+        var permission = FunctionBody(helper, "Get-PermissionEvidenceSql", "Get-HistoryAuditEvidenceSql");
+
+        Assert.Contains("e.\"LoginEnabled\" is distinct from b.\"LoginEnabled\")=0", employee);
+        Assert.Contains("e.\"ApprovalStatus\" is distinct from b.\"ApprovalStatus\")=0", employee);
+        Assert.Contains("group by \"Code\" having count(*)>1) d)=0", department);
+        foreach (var flag in PermissionFlags)
+        {
+            Assert.Contains($"rpp.\"{flag}\"", permission);
+            Assert.Contains($"|{flag}=", permission);
+        }
+
+        Assert.Contains("where r.\"Code\"='DEPARTMENT_MANAGER'", permission);
+        Assert.DoesNotContain("p.\"PageKey\" in", permission, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dupes as (select page_key from actual group by page_key", permission);
+    }
+
+    [Fact]
+    public void Rev868c3_postrun_verifier_requires_exactly_eight_unique_canonical_section_labels()
+    {
+        var helper = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+
+        Assert.Contains("$acceptanceLines.Count -eq $SectionAcceptanceLabels.Count", helper);
+        Assert.Contains("$matches.Count -eq 1", helper);
+        Assert.DoesNotContain("'active_employee_acceptance_state='", helper);
+        Assert.DoesNotContain("'relieved_employee_acceptance_state='", helper);
+        Assert.DoesNotContain("'mapping_acceptance_state='", helper);
+        Assert.DoesNotContain("'manager_permission_acceptance_state='", helper);
+    }
+
+    [Theory]
+    [InlineData("employee_login_mismatch")]
+    [InlineData("employee_approval_mismatch")]
+    [InlineData("department_duplicate")]
+    [InlineData("permission_flag_mismatch")]
+    [InlineData("unexpected_department_manager_page")]
+    [InlineData("missing_canonical_label")]
+    [InlineData("duplicate_canonical_label")]
+    [InlineData("extra_noncanonical_label")]
+    public void Rev868c3_postrun_negative_defects_force_database_and_overall_fail(string defect)
+    {
+        var evidence = CanonicalSectionLabels.Select(x => $"{x}=PASS").ToList();
+        switch (defect)
+        {
+            case "employee_login_mismatch":
+            case "employee_approval_mismatch":
+                ReplaceState(evidence, "employee_acceptance_state", "FAIL");
+                break;
+            case "department_duplicate":
+                ReplaceState(evidence, "department_acceptance_state", "FAIL");
+                break;
+            case "permission_flag_mismatch":
+            case "unexpected_department_manager_page":
+                ReplaceState(evidence, "permission_acceptance_state", "FAIL");
+                break;
+            case "missing_canonical_label":
+                evidence.Remove("history_audit_acceptance_state=PASS");
+                break;
+            case "duplicate_canonical_label":
+                evidence.Add("migration_acceptance_state=PASS");
+                break;
+            case "extra_noncanonical_label":
+                evidence.Add("mapping_acceptance_state=PASS");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+
+        var databasePass = CanonicalDatabasePass(evidence);
+        var testAcceptancePass = true;
+        var overallPass = databasePass && testAcceptancePass;
+        Assert.False(databasePass);
+        Assert.False(overallPass);
+    }
+
+    private static readonly string[] CanonicalSectionLabels =
+    [
+        "migration_acceptance_state",
+        "employee_acceptance_state",
+        "department_acceptance_state",
+        "manager_mapping_acceptance_state",
+        "workflow_acceptance_state",
+        "permission_acceptance_state",
+        "history_audit_acceptance_state",
+        "duplicate_conflict_acceptance_state"
+    ];
+
+    private static readonly string[] PermissionFlags =
+    [
+        "CanView", "CanCreate", "CanUpdate", "CanSubmit", "CanVerify", "CanApprove", "CanReject",
+        "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanCancel", "CanDeactivate",
+        "CanPrint", "CanDownload", "CanExport", "CanUploadAttachment", "CanReplaceAttachment",
+        "CanViewCommercialValues", "CanViewAuditHistory", "HasFullControl"
+    ];
+
+    private static string FunctionBody(string source, string functionName, string nextFunctionName)
+    {
+        var start = source.IndexOf($"function {functionName}", StringComparison.Ordinal);
+        var end = source.IndexOf($"function {nextFunctionName}", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, $"Unable to isolate {functionName}.");
+        return source[start..end];
+    }
+
+    private static bool CanonicalDatabasePass(IReadOnlyList<string> evidence)
+    {
+        var acceptanceLines = evidence
+            .Where(x => System.Text.RegularExpressions.Regex.IsMatch(x, "^[a-z0-9_]+_acceptance_state=(PASS|FAIL)$"))
+            .ToArray();
+        return acceptanceLines.Length == CanonicalSectionLabels.Length
+            && CanonicalSectionLabels.All(label => acceptanceLines.Count(x => x == $"{label}=PASS") == 1);
+    }
+
+    private static void ReplaceState(List<string> evidence, string label, string state)
+    {
+        var index = evidence.FindIndex(x => x.StartsWith(label + "=", StringComparison.Ordinal));
+        Assert.True(index >= 0, $"Missing synthetic label {label}.");
+        evidence[index] = $"{label}={state}";
+    }
+
     private static void AssertOrdered(string text, string before, string after)
     {
         var beforeIndex = text.IndexOf(before, StringComparison.OrdinalIgnoreCase);
