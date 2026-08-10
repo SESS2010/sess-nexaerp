@@ -97,14 +97,14 @@ The helper requires and reports:
 - full actual column contracts with datatype and nullability;
 - 9 PKs, 15 restrictive FKs, 22 checks, composite Warehouse/RackBin integrity, and actual constraint definitions;
 - all actual index definitions and exactly 7 `NULLS NOT DISTINCT` indexes;
-- mandatory `items.BaseUomId`, exact `BaseUomId = UomId` backfill, and zero mismatches;
+- mandatory `items.BaseUomId` only after an exact management-approved item mapping; the current migration assignment cannot be accepted while the contract is PENDING;
 - state-aware GST consistency;
 - database configuration guard triggers;
 - exactly 81 migration-owned seeds: 5 roles, 8 pages, 66 permissions, 2 policies;
-- every migration-owned seed ID and zero all-false REV869A Department Manager permissions;
+- exact role/page/permission/policy seed sets and zero all-false Department Manager permissions anywhere;
 - zero legacy-column differences between current items/UOMs/vendors and the three pre-change backup tables;
 - exact REV868/REV868C3 pre/post preservation counts;
-- `database_acceptance_state=PASS`, `test_acceptance_state=PASS`, and `overall_acceptance_state=PASS` before full acceptance is reported.
+- schema PASS plus exact pre/post preservation equality before `database_acceptance_state=PASS`; PostgreSQL test PASS is additionally required before overall PASS.
 
 Identity fallback, direct record-scope denial, missing/non-`AVAILABLE` reservation denial, and no email/name/employee-code linking are covered by the focused source tests that full apply is configured to run. The helper never treats UI hiding as authorization.
 
@@ -144,3 +144,78 @@ Identity fallback, direct record-scope denial, missing/non-`AVAILABLE` reservati
 No PostgreSQL access occurred. No helper mode was executed. No migration was applied, removed, or modified. No database was created, dropped, restored, backed up, repaired, or cleaned. No protected database, REV861, production, frontend, REV869B, or legacy ZIP/source was accessed or changed.
 
 Git also reported an unrelated untracked `../legacy-reference/` directory outside the target workspace. It was not read, modified, staged, or removed.
+## Source-only UOM readiness and preservation correction
+
+This section supersedes the earlier UOM-readiness counting rule. No helper mode or database operation was executed for this correction.
+
+### UOM management contract and state
+
+The source contract is intentionally empty and has `ApprovalStatus = PENDING`. Its future approved UOM rows require stable `UomId`, `UomCode`, `MeasurementDimension`, `QuantityPrecision`, `IsCanonicalBase`, `ConversionPolicy`, `ManagementApprovalReference`, and `ApprovalStatus`. Exact item mappings require `ItemId`, `BaseUomId`, `MappingStatus`, `MappingBasis = MANAGEMENT_APPROVED`, and the same approval reference.
+
+Legacy `m`, `kg`, and ambiguous `no` remain candidate-only. They do not populate the contract. There is no guessed, default, inferred or automatic classification/BaseUom acceptance.
+
+Preflight emits read-only candidates:
+
+- UOM ID, code, name, explicit `symbol=NOT_MODELED`, active state and item-reference count;
+- duplicate/ambiguous normalized code/name counts;
+- exact item IDs/codes having null or invalid `UomId`;
+- every item's BaseUom mapping status;
+- the management decisions still required.
+
+### Correct readiness formula
+
+The former `unclassified_measurement_dimension_count = distinct referenced UomId count` rule is removed.
+
+`data_readiness_state = PASS` only when:
+
+`uom_management_decision_state = APPROVED`
+and null item Uom IDs = 0
+and invalid item Uom references = 0
+and missing expected classifications = 0
+and unexpected expected classifications = 0
+and duplicate expected classifications = 0
+and unapproved/invalid classifications = 0
+and missing BaseUom mappings = 0
+and invalid BaseUom mappings = 0
+and inferred/default mappings = 0.
+
+While management state is PENDING, both data readiness and preflight acceptance are FAIL. Safe retry may describe only schema retry cleanliness; it does not override business readiness.
+
+### Exact migrations, seeds and backups
+
+Pre-apply requires exactly the 11 prerequisite migrations once each, no unexpected or duplicate migration, and REV869A absent. Final schema acceptance requires exactly the expected set of 12 migrations once each, including REV869A, with zero missing, unexpected or duplicate rows.
+
+Final seed acceptance requires exactly 5 REV869A roles, 8 pages, 66 permission role/page pairs and 2 policies, with the exact stable role/page/policy natural-key sets, zero unexpected/duplicate/missing pairs, and no all-false Department Manager permission anywhere.
+
+Before mutation, all three altered tables—items, UOMs and vendors—must have complete migration-owned backup coverage. Post-verification requires zero missing/extra backup IDs, equal row coverage and exact equality of every pre-existing value after excluding only REV869A-added columns. Down keeps the three backup tables until last.
+
+### Correct preservation and database acceptance formula
+
+For each of these keys, the post count must equal the captured preflight count exactly:
+
+- purchase requisitions;
+- purchase-requisition approval histories;
+- stock reservations;
+- active employees;
+- relieved employees;
+- departments;
+- department approval mappings.
+
+`database_schema_acceptance_state = PASS` covers exact migrations/schema/seeds/backups. It is insufficient by itself.
+
+`database_preservation_acceptance_state = PASS` is added only after every pre/post equality succeeds.
+
+`database_acceptance_state = PASS` is emitted only after both schema acceptance and preservation equality pass. Standalone post-verification has no baseline and therefore reports database/preservation acceptance as NOT_CLAIMED. Overall acceptance still additionally requires PostgreSQL-backed tests, which were not run here.
+
+### Offline negative coverage
+
+Focused source tests now fail closed for missing, unexpected, duplicate and unapproved UOM classifications; null/invalid item Uom IDs; missing BaseUom mapping; inferred/default mapping; preservation mismatch; protected databases; non-read-only preflight SQL; and any GeneratePlanOnly path reaching password, PostgreSQL, EF apply or other database action.
+### Correction validation evidence
+
+- PowerShell parser: PASS, zero errors.
+- Build: PASS, zero warnings and zero errors.
+- Focused helper tests: PASS, 25 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 253 passed, 0 failed, 0 skipped.
+- Migration source changes: zero.
+- `git diff --check`: PASS.
+- No helper mode, PostgreSQL test, database, migration, backup/restore or production operation was executed.
