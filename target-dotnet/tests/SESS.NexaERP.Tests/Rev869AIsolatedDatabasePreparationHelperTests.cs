@@ -152,7 +152,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.False(PreservationPass(source, target));
         target["audit_logs"] = "1";
         Assert.True(PreservationPass(source, target));
-        foreach (var name in RequiredPreservation()) Assert.Contains($"\"{name}\"", Source, StringComparison.Ordinal);
+        foreach (var name in RequiredPreservation()) Assert.Contains($"nexa.{name}", Source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -167,6 +167,78 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
             Assert.Contains(marker, Source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void EveryApplicationRelationIsExplicitlyNexaQualified()
+    {
+        foreach (var relation in RequiredPreservation())
+            Assert.Contains($"nexa.{relation}", Source, StringComparison.Ordinal);
+
+        foreach (var required in new[]
+        {
+            "from nexa.employees", "from nexa.departments", "from nexa.department_approval_mappings",
+            "nexa.purchase_approval_workflow_steps", "nexa.employee_status_history",
+            "nexa.employee_department_history", "nexa.audit_logs"
+        }) Assert.Contains(required, Source, StringComparison.Ordinal);
+
+        Assert.DoesNotMatch(new Regex(@"(?im)\b(from|join)\s+(employees|departments|department_approval_mappings)\b"), Source);
+    }
+
+    [Fact]
+    public void MigrationHistoryIsPublicQualifiedWithoutSearchPathWorkaround()
+    {
+        Assert.Contains("from public.\"__EFMigrationsHistory\"", Source, StringComparison.Ordinal);
+        Assert.DoesNotMatch(new Regex("(?im)\\bfrom\\s+\\\"__EFMigrationsHistory\\\""), Source);
+        Assert.DoesNotContain("SET search_path", Source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UndefinedRelationFailureRemainsFailClosedWithSanitizedEvidence()
+    {
+        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw", Source, StringComparison.Ordinal);
+        Assert.Contains("provision_acceptance_state=FAIL", Source, StringComparison.Ordinal);
+        Assert.Contains("failed_phase=$failedPhase", Source, StringComparison.Ordinal);
+        Assert.Contains("target_state=$state", Source, StringComparison.Ordinal);
+        Assert.Contains("sanitized_evidence_path=$failureEvidencePath", Source, StringComparison.Ordinal);
+        Assert.Contains("(DETAIL|CONTEXT|STATEMENT)", Source, StringComparison.Ordinal);
+        Assert.Equal("NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT", FailureTargetState(targetCreated: false));
+    }
+
+    [Fact]
+    public void FailurePathIsPrintedBeforeEvidenceWriteAndThrow()
+    {
+        var catchStart = Source.LastIndexOf("catch {", StringComparison.Ordinal);
+        var catchSection = Source[catchStart..Source.IndexOf("finally {", catchStart, StringComparison.Ordinal)];
+        var printedPath = catchSection.IndexOf("Write-Output \"sanitized_evidence_path=$failureEvidencePath\"", StringComparison.Ordinal);
+        var evidenceWrite = catchSection.IndexOf("Write-SanitizedEvidence $details $failureEvidencePath", StringComparison.Ordinal);
+        var failThrow = catchSection.IndexOf("throw (Protect-Text", StringComparison.Ordinal);
+        Assert.True(printedPath >= 0 && printedPath < evidenceWrite && evidenceWrite < failThrow);
+    }
+
+    [Fact]
+    public void SourcePreflightFailureCannotReachTargetCreation()
+    {
+        var provisionPreflight = Source.IndexOf("$failedPhase = \"SOURCE_PREFLIGHT\"", StringComparison.Ordinal);
+        var preflightCall = Source.IndexOf("$sourceEvidence = Get-SourceEvidence", provisionPreflight, StringComparison.Ordinal);
+        var preflightAssertion = Source.IndexOf("Assert-SourceEvidence $sourceEvidence", preflightCall, StringComparison.Ordinal);
+        var createPhase = Source.IndexOf("$failedPhase = \"TARGET_CREATE\"", preflightAssertion, StringComparison.Ordinal);
+        var createCall = Source.IndexOf("Invoke-Native $CreateDbPath", createPhase, StringComparison.Ordinal);
+        Assert.True(provisionPreflight >= 0 && provisionPreflight < preflightCall && preflightCall < preflightAssertion);
+        Assert.True(preflightAssertion < createPhase && createPhase < createCall);
+        Assert.False(TargetCreationAllowed(sourcePreflightPassed: false));
+    }
+
+    [Fact]
+    public void SchemaCorrectionDoesNotWeakenAcceptanceFormula()
+    {
+        foreach (var formula in new[]
+        {
+            "expected_migration_count=11", "missing_migration_count=0", "unexpected_migration_count=0",
+            "duplicate_migration_count=0", "active_employee_count=42", "relieved_employee_count=9",
+            "active_clean_department_count=12", "active_manager_mapping_count=14", "target_database_count = 0"
+        }) Assert.Contains(formula, Source, StringComparison.Ordinal);
+
+        Assert.Contains("Assert-PreservationEqual $sourceEvidence $targetEvidence", Source, StringComparison.Ordinal);
+    }
     [Fact]
     public void HelperRemainsPowerShell51Compatible()
     {
@@ -209,6 +281,10 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     private static bool BackupEvidencePass(string hash, long bytes, DateTime created) =>
         Regex.IsMatch(hash, "^[A-Fa-f0-9]{64}$") && bytes > 0 && created != default;
 
+    private static string FailureTargetState(bool targetCreated) =>
+        targetCreated ? "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" : "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT";
+
+    private static bool TargetCreationAllowed(bool sourcePreflightPassed) => sourcePreflightPassed;
     private static string[] RequiredPreservation() =>
     [
         "employees", "departments", "department_approval_mappings", "purchase_requisitions",

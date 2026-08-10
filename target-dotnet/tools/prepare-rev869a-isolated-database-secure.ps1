@@ -64,6 +64,7 @@ function Protect-Text([string]$Text) {
     if ($null -eq $Text) { return "" }
     $safe = $Text -replace "(?i)(password|pwd|secret|token)\s*[=:]\s*[^;\s]+", '$1=[REDACTED]'
     $safe = $safe -replace "(?i)(employee(code|name)?|email)\s*[=:]\s*[^;\r\n]+", '$1=[REDACTED]'
+    $safe = $safe -replace "(?is)\b(DETAIL|CONTEXT|STATEMENT):.*", '$1=[REDACTED]'
     return $safe
 }
 
@@ -122,25 +123,42 @@ function Get-ExpectedMigrationValues {
     return (($expectedMigrations | ForEach-Object { "('" + $_ + "')" }) -join ",`n")
 }
 
-$preservationTables = @(
-    "employees", "departments", "department_approval_mappings", "purchase_requisitions",
-    "purchase_requisition_approval_history", "purchase_requisition_status_history",
-    "stock_availability_checks", "stock_availability_check_lines", "stock_reservations",
-    "stock_reservation_history", "purchase_requirement_handoffs", "purchase_approval_route_settings",
-    "purchase_approval_workflow_steps", "page_definitions", "role_page_permissions", "audit_logs",
-    "employee_status_history", "employee_department_history", "employee_approval_history", "employee_import_history"
-)
+$preservationRelations = [ordered]@{
+    employees = "nexa.employees"
+    departments = "nexa.departments"
+    department_approval_mappings = "nexa.department_approval_mappings"
+    purchase_requisitions = "nexa.purchase_requisitions"
+    purchase_requisition_approval_history = "nexa.purchase_requisition_approval_history"
+    purchase_requisition_status_history = "nexa.purchase_requisition_status_history"
+    stock_availability_checks = "nexa.stock_availability_checks"
+    stock_availability_check_lines = "nexa.stock_availability_check_lines"
+    stock_reservations = "nexa.stock_reservations"
+    stock_reservation_history = "nexa.stock_reservation_history"
+    purchase_requirement_handoffs = "nexa.purchase_requirement_handoffs"
+    purchase_approval_route_settings = "nexa.purchase_approval_route_settings"
+    purchase_approval_workflow_steps = "nexa.purchase_approval_workflow_steps"
+    page_definitions = "nexa.page_definitions"
+    role_page_permissions = "nexa.role_page_permissions"
+    audit_logs = "nexa.audit_logs"
+    employee_status_history = "nexa.employee_status_history"
+    employee_department_history = "nexa.employee_department_history"
+    employee_approval_history = "nexa.employee_approval_history"
+    employee_import_history = "nexa.employee_import_history"
+}
+$preservationTables = @($preservationRelations.Keys)
 
 function New-EvidenceSql([bool]$RequireTargetAbsent) {
     $expected = Get-ExpectedMigrationValues
     $absenceClause = if ($RequireTargetAbsent) { "AND target_database_count = 0" } else { "" }
-    $tableValues = (($preservationTables | ForEach-Object { "('" + $_ + "')" }) -join ",")
+    $tableCountSql = (($preservationRelations.GetEnumerator() | ForEach-Object {
+        "  select '" + $_.Key + "' as name, count(*)::bigint as row_count from " + $_.Value
+    }) -join "`n  union all`n")
     return @"
 begin transaction read only;
 with expected_migrations(id) as (values
 $expected
 ), actual_migrations as (
-  select "MigrationId" as id, count(*)::int as copies from "__EFMigrationsHistory" group by "MigrationId"
+  select "MigrationId" as id, count(*)::int as copies from public."__EFMigrationsHistory" group by "MigrationId"
 ), migration_evidence as (
   select
     (select count(*) from expected_migrations) expected_migration_count,
@@ -154,14 +172,14 @@ $expected
  ('SERVICE_TECHNICAL_SUPPORT'),('SOFTWARE_IT'),('QUALITY_QC')
 ), counts as (
   select
-    (select count(*) from pg_database where datname = '$acceptedTarget') target_database_count,
-    (select count(*) from employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'active') active_employee_count,
-    (select count(*) from employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved') relieved_employee_count,
-    (select count(*) from departments d join clean_departments c on c.code=d."Code" where d."IsActive") active_clean_department_count,
-    (select count(*) from department_approval_mappings where "RouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
+    (select count(*) from pg_catalog.pg_database where datname = '$acceptedTarget') target_database_count,
+    (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'active') active_employee_count,
+    (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved') relieved_employee_count,
+    (select count(*) from nexa.departments d join clean_departments c on c.code=d."Code" where d."IsActive") active_clean_department_count,
+    (select count(*) from nexa.department_approval_mappings where "RouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
 ), table_counts as (
-  select v.name, (xpath('/row/count/text()', query_to_xml(format('select count(*) as count from %I', v.name), false, true, '')))[1]::text::bigint as row_count
-  from (values $tableValues) v(name)
+$tableCountSql
+
 ), gates as (
   select *,
     case when expected_migration_count=11 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0
@@ -231,11 +249,15 @@ function Assert-PreservationEqual([hashtable]$Source, [hashtable]$Target) {
     if ($Source['migration_fingerprint'] -cne $Target['migration_fingerprint']) { throw "Migration sets do not match." }
 }
 
-function Write-SanitizedEvidence([string[]]$Lines) {
+function New-SanitizedEvidencePath {
+    return Join-Path $evidenceRoot ("rev869a-isolated-provisioning-" + (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss") + "-" + [guid]::NewGuid().ToString("N") + ".txt")
+}
+
+function Write-SanitizedEvidence([string[]]$Lines, [string]$Path = "") {
+    if ([string]::IsNullOrWhiteSpace($Path)) { $Path = New-SanitizedEvidencePath }
     if (-not (Test-Path -LiteralPath $evidenceRoot)) { New-Item -ItemType Directory -Path $evidenceRoot | Out-Null }
-    $path = Join-Path $evidenceRoot ("rev869a-isolated-provisioning-" + (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss") + ".txt")
-    [IO.File]::WriteAllLines($path, @($Lines | ForEach-Object { Protect-Text $_ }), [Text.UTF8Encoding]::new($false))
-    return $path
+    [IO.File]::WriteAllLines($Path, @($Lines | ForEach-Object { Protect-Text $_ }), [Text.UTF8Encoding]::new($false))
+    return $Path
 }
 
 function Write-Plan {
@@ -263,9 +285,11 @@ if ($GeneratePlanOnly) { Write-Plan; return }
 $targetCreated = $false
 $backupPath = $null
 $backupSha256 = $null
+$failedPhase = "INITIALIZE_DATABASE_ACCESS"
 try {
     Initialize-DatabaseAccess
     if ($SourcePreflightOnly) {
+        $failedPhase = "SOURCE_PREFLIGHT"
         $sourceEvidence = Get-SourceEvidence
         Assert-SourceEvidence $sourceEvidence
         Write-Output "safe_source_state=PASS"
@@ -274,6 +298,7 @@ try {
     }
 
     if ($PostProvisionVerification) {
+        $failedPhase = "POST_PROVISION_VERIFICATION"
         $sourceSql = New-EvidenceSql $false
         $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "Source preservation verification" $sourceSql)
         $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Target preservation verification" $sourceSql)
@@ -284,8 +309,10 @@ try {
         return
     }
 
+    $failedPhase = "SOURCE_PREFLIGHT"
     $sourceEvidence = Get-SourceEvidence
     Assert-SourceEvidence $sourceEvidence
+    $failedPhase = "SOURCE_BACKUP"
     if (-not (Test-Path -LiteralPath $approvedBackupRoot)) { New-Item -ItemType Directory -Path $approvedBackupRoot | Out-Null }
     $resolvedBackupRoot = (Resolve-Path -LiteralPath $approvedBackupRoot).Path
     $expectedRoot = [IO.Path]::GetFullPath($approvedBackupRoot)
@@ -299,15 +326,19 @@ try {
     if ($backupSha256 -notmatch '^[A-Fa-f0-9]{64}$') { throw "Backup SHA-256 is missing." }
     $backupCreatedUtc = $backupItem.CreationTimeUtc.ToString("o")
 
+    $failedPhase = "SOURCE_PREFLIGHT_RECHECK"
     $sourceEvidence = Get-SourceEvidence
     Assert-SourceEvidence $sourceEvidence
+    $failedPhase = "TARGET_CREATE"
     $createArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "--maintenance-db=postgres", "--encoding=UTF8", "--template=template0", $acceptedTarget)
     Invoke-Native $CreateDbPath $createArgs "Create isolated target" | Out-Null
     $targetCreated = $true
+    $failedPhase = "TARGET_RESTORE"
     $restoreArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $acceptedTarget, "--no-owner", "--no-privileges", $backupPath)
     Assert-SafeRestoreArguments $restoreArgs
     Invoke-Native $PgRestorePath $restoreArgs "Restore isolated target" | Out-Null
 
+    $failedPhase = "POST_PROVISION_VERIFICATION"
     $verificationSql = New-EvidenceSql $false
     $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Post-provision verification" $verificationSql)
     Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
@@ -322,11 +353,16 @@ try {
 }
 catch {
     $state = if ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
-    $details = @("provision_acceptance_state=FAIL", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
+    $details = @("provision_acceptance_state=FAIL", "failed_phase=$failedPhase", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
     if ($backupPath) { $details += "backup_path=$backupPath" }
     if ($backupSha256) { $details += "backup_sha256=$backupSha256" }
-    Write-SanitizedEvidence $details | Out-Null
-    throw (Protect-Text "Provisioning failed closed. target_state=$state")
+    $failureEvidencePath = New-SanitizedEvidencePath
+    Write-Output "provision_acceptance_state=FAIL"
+    Write-Output "failed_phase=$failedPhase"
+    Write-Output "target_state=$state"
+    Write-Output "sanitized_evidence_path=$failureEvidencePath"
+    Write-SanitizedEvidence $details $failureEvidencePath | Out-Null
+    throw (Protect-Text "Provisioning failed closed. failed_phase=$failedPhase target_state=$state")
 }
 finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue

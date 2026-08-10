@@ -93,20 +93,34 @@ Missing keys, count differences, migration differences, or database identity dif
 
 The focused tests cover wrong source/target, protected/main/REV861/production-like databases, wrong host/port, existing target, missing/unexpected/duplicate migrations, source-side modification SQL, unsafe dump/restore options, password or connection-string leakage, missing/invalid backup SHA-256 or size, absent restore isolation flags, automatic cleanup after failure, false acceptance from incomplete preservation evidence, exact REV868C3 counts, and PowerShell 5.1 source compatibility.
 
+## Source-only schema-qualification correction
+
+The observed `SourcePreflightOnly` undefined-relation failure was caused by unqualified application relations in `New-EvidenceSql`. This source-only correction makes the schema contract explicit without using `SET search_path`:
+
+- EF migration history is read only as `public."__EFMigrationsHistory"`.
+- Direct acceptance counts read `nexa.employees`, `nexa.departments`, and `nexa.department_approval_mappings`.
+- Every preservation relation is mapped explicitly to its `nexa` identifier: employees, departments, manager mappings, purchase requisitions and their approval/status histories, stock availability checks/lines, reservations/history, requirement handoffs, approval routes/steps, page/role permissions, audit logs, and employee status/department/approval/import histories.
+- Dynamic unqualified `%I` relation lookup was removed. Preservation count SQL is generated only from the fixed ordered source-owned `nexa.<relation>` map.
+- System catalog target-existence lookup is explicitly `pg_catalog.pg_database`.
+
+The exact eleven-migration set, zero missing/unexpected/duplicate requirements, 42 active employees, 9 relieved employees, 12 active clean departments, 14 active manager mappings, target absence, source/target preservation equality, and all fail-closed gates are unchanged.
+
+Failure evidence now records and prints `provision_acceptance_state`, the failed phase, safe target state, and sanitized evidence-report path. Before-target failures preserve `target_state=NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT`. The report path is printed before evidence persistence and the sanitized report redacts credential fields, employee/email fields, and PostgreSQL `DETAIL`, `CONTEXT`, or `STATEMENT` diagnostics. Target creation remains ordered strictly after successful source evidence validation; there is still no automatic cleanup, drop, or repair path.
 ## Scope confirmation
 
-Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. No helper was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
+Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. During this source-only correction turn, no helper mode was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
 
 ## Source-only validation evidence
 
 - Windows PowerShell 5.1 parser: PASS, zero parse errors.
 - Solution build: PASS, zero warnings and zero errors.
-- Focused provisioning-helper tests: PASS, 22 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 275 passed, 0 failed, 0 skipped.
+- Focused provisioning-helper tests: PASS, 28 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 281 passed, 0 failed, 0 skipped.
 - Changed-file secret scan: PASS.
 - Changed-file privacy scan: PASS.
 - Changed-file safety scan: PASS.
 - `git diff --check`: PASS.
+
 ## Future plan-only command
 
 ```powershell
