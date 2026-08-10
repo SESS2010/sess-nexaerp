@@ -22,6 +22,8 @@ $acceptedSource = "sess_nexaerp_rev868_verify"
 $acceptedTarget = "sess_nexaerp_rev869a_verify"
 $acceptedHost = "localhost"
 $acceptedPort = 5432
+$relievedEmployeeCodes = @('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039')
+$acceptedRelievedStatuses = @('left / resigned','left/resigned','resigned','inactive')
 $expectedMigrations = @(
     "20260808110924_Phase1Foundation",
     "20260808114550_Phase1AuthorizationSeed",
@@ -232,6 +234,8 @@ function New-EvidenceSql([bool]$RequireTargetAbsent, [string]$ExpectedDatabase, 
     if ($ExpectedDatabase -cne $acceptedSource -and $ExpectedDatabase -cne $acceptedTarget) { throw "Unexpected evidence database contract." }
     if ($SchemaContractState -cne "PASS" -and $SchemaContractState -cne "FAIL") { throw "Malformed schema contract state." }
     $expected = Get-ExpectedMigrationValues
+    $relievedExpected = (($relievedEmployeeCodes | ForEach-Object { " ('" + ($_ -replace "'", "''") + "')" }) -join ",`n")
+    $relievedStatuses = (($acceptedRelievedStatuses | ForEach-Object { " ('" + ($_ -replace "'", "''") + "')" }) -join ",`n")
     $requiredPreservationCount = $preservationTables.Count
     $absenceClause = if ($RequireTargetAbsent) { "AND target_database_count = 0" } else { "" }
     $tableCountSql = (($preservationRelations.GetEnumerator() | ForEach-Object {
@@ -255,11 +259,32 @@ $expected
  ('MANAGEMENT'),('PURCHASE'),('STORES'),('ACCOUNTS_FINANCE'),('HR_ADMIN'),('PRODUCTION_FABRICATION'),
  ('DESIGN'),('ELECTRICAL_PLC_INSTRUMENTATION'),('REFRIGERATION_MECHANICAL'),
  ('SERVICE_TECHNICAL_SUPPORT'),('SOFTWARE_IT'),('QUALITY_QC')
+), relieved_expected(code) as (values
+$relievedExpected
+), accepted_relieved_statuses(status) as (values
+$relievedStatuses
+), relieved_rows as (
+  select "EmployeeCode" as code, lower("Status") as normalized_status
+  from nexa.employees
+  where "EmployeeCode" like 'SESS-%'
+), relieved_metrics as (
+  select
+    (select count(*) from relieved_expected) relieved_employee_expected_count,
+    (select count(*) from relieved_rows r join relieved_expected e using(code) join accepted_relieved_statuses s on s.status=r.normalized_status) relieved_employee_actual_matched_count,
+    (select count(*) from relieved_expected e where not exists (select 1 from relieved_rows r where r.code=e.code)) relieved_employee_missing_count,
+    (select count(*) from relieved_rows r join accepted_relieved_statuses s on s.status=r.normalized_status where not exists (select 1 from relieved_expected e where e.code=r.code)) relieved_employee_unexpected_count,
+    (select count(*) from (select r.code from relieved_rows r join relieved_expected e using(code) group by r.code having count(*) <> 1) duplicates) relieved_employee_duplicate_count,
+    (select count(*) from relieved_expected e where exists (select 1 from relieved_rows r where r.code=e.code) and not exists (select 1 from relieved_rows r join accepted_relieved_statuses s on s.status=r.normalized_status where r.code=e.code)) relieved_employee_status_mismatch_count
+), relieved_evidence as (
+  select *, case when relieved_employee_expected_count=9 and relieved_employee_actual_matched_count=9
+    and relieved_employee_missing_count=0 and relieved_employee_unexpected_count=0
+    and relieved_employee_duplicate_count=0 and relieved_employee_status_mismatch_count=0
+    then 'PASS' else 'FAIL' end relieved_employee_acceptance_state
+  from relieved_metrics
 ), counts as (
   select
     (select count(*) from pg_catalog.pg_database where datname = '$acceptedTarget') target_database_count,
     (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'active') active_employee_count,
-    (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved') relieved_employee_count,
     (select count(*) from nexa.departments d join clean_departments c on c.code=d."Code" where d."IsActive") active_clean_department_count,
     (select count(*) from nexa.department_approval_mappings where "ApprovalRouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
 ), table_counts as (
@@ -274,10 +299,14 @@ $tableCountSql
     (current_database()='$ExpectedDatabase'
       and expected_migration_count=11 and actual_matched_migration_count=11
       and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0
-      and active_employee_count=42 and relieved_employee_count=9 and active_clean_department_count=12 and active_manager_mapping_count=14
+      and active_employee_count=42 and relieved_employee_expected_count=9 and relieved_employee_actual_matched_count=9
+      and relieved_employee_missing_count=0 and relieved_employee_unexpected_count=0
+      and relieved_employee_duplicate_count=0 and relieved_employee_status_mismatch_count=0
+      and relieved_employee_acceptance_state='PASS'
+      and active_clean_department_count=12 and active_manager_mapping_count=14
       and '$SchemaContractState'='PASS' and preservation_evidence_state='PASS'
       $absenceClause) all_source_conditions_pass
-  from migration_evidence cross join counts cross join preservation_evidence
+  from migration_evidence cross join counts cross join relieved_evidence cross join preservation_evidence
 )
 select 'database_identity=' || current_database()
 union all select 'expected_migration_count=' || expected_migration_count from gates
@@ -288,7 +317,13 @@ union all select 'duplicate_migration_count=' || duplicate_migration_count from 
 union all select 'migration_fingerprint=' || migration_fingerprint from gates
 union all select 'target_database_count=' || target_database_count from gates
 union all select 'active_employee_count=' || active_employee_count from gates
-union all select 'relieved_employee_count=' || relieved_employee_count from gates
+union all select 'relieved_employee_expected_count=' || relieved_employee_expected_count from gates
+union all select 'relieved_employee_actual_matched_count=' || relieved_employee_actual_matched_count from gates
+union all select 'relieved_employee_missing_count=' || relieved_employee_missing_count from gates
+union all select 'relieved_employee_unexpected_count=' || relieved_employee_unexpected_count from gates
+union all select 'relieved_employee_duplicate_count=' || relieved_employee_duplicate_count from gates
+union all select 'relieved_employee_status_mismatch_count=' || relieved_employee_status_mismatch_count from gates
+union all select 'relieved_employee_acceptance_state=' || relieved_employee_acceptance_state from gates
 union all select 'active_clean_department_count=' || active_clean_department_count from gates
 union all select 'active_manager_mapping_count=' || active_manager_mapping_count from gates
 union all select 'schema_contract_state=$SchemaContractState' from gates
@@ -301,7 +336,6 @@ order by 1;
 commit;
 "@
 }
-
 function Convert-Evidence([object[]]$Lines) {
     $map = @{}
     $counts = @{}
@@ -366,7 +400,9 @@ function Assert-SourceEvidence([hashtable]$Evidence) {
     foreach ($pair in @{
         database_identity=$acceptedSource; expected_migration_count='11'; actual_matched_migration_count='11';
         missing_migration_count='0'; unexpected_migration_count='0'; duplicate_migration_count='0'; target_database_count='0';
-        active_employee_count='42'; relieved_employee_count='9'; active_clean_department_count='12';
+        active_employee_count='42'; relieved_employee_expected_count='9'; relieved_employee_actual_matched_count='9';
+        relieved_employee_missing_count='0'; relieved_employee_unexpected_count='0'; relieved_employee_duplicate_count='0';
+        relieved_employee_status_mismatch_count='0'; relieved_employee_acceptance_state='PASS'; active_clean_department_count='12';
         active_manager_mapping_count='14'; schema_contract_state='PASS'; preservation_relation_count='20';
         preservation_evidence_state='PASS'; safe_source_state='PASS'; provisioning_readiness_state='PASS'
     }.GetEnumerator()) {
@@ -379,7 +415,9 @@ function Assert-AcceptedCoreEvidence([hashtable]$Evidence, [string]$ExpectedData
     foreach ($pair in @{
         database_identity=$ExpectedDatabase; expected_migration_count='11'; actual_matched_migration_count='11';
         missing_migration_count='0'; unexpected_migration_count='0'; duplicate_migration_count='0'; active_employee_count='42';
-        relieved_employee_count='9'; active_clean_department_count='12'; active_manager_mapping_count='14';
+        relieved_employee_expected_count='9'; relieved_employee_actual_matched_count='9'; relieved_employee_missing_count='0';
+        relieved_employee_unexpected_count='0'; relieved_employee_duplicate_count='0'; relieved_employee_status_mismatch_count='0';
+        relieved_employee_acceptance_state='PASS'; active_clean_department_count='12'; active_manager_mapping_count='14';
         schema_contract_state='PASS'; preservation_relation_count='20'; preservation_evidence_state='PASS';
         safe_source_state='PASS'; provisioning_readiness_state='PASS'
     }.GetEnumerator()) {

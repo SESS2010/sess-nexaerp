@@ -11,6 +11,14 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     private static readonly string SnapshotSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
     private static readonly string Rev868C2Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs"));
     private static readonly string Rev868C3Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs"));
+    private static readonly string Rev868C3WorkbookData = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
+    private static readonly string Rev868C3Verifier = File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
+    private static readonly string[] ExpectedRelievedEmployeeCodes =
+    {
+        "SESS-016", "SESS-018", "SESS-022", "SESS-027", "SESS-028", "SESS-032", "SESS-036", "SESS-037", "SESS-039"
+    };
+    private static readonly HashSet<string> AcceptedRelievedStatuses =
+        new(new[] { "left / resigned", "left/resigned", "resigned", "inactive" }, StringComparer.Ordinal);
 
     private static readonly string[] ExpectedMigrations =
     {
@@ -64,7 +72,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     [Fact]
     public void TargetAlreadyExistsFailsSourceReadiness()
     {
-        Assert.False(SourceEvidencePass(ExpectedMigrations, targetCount: 1, 42, 9, 12, 14));
+        Assert.False(SourceEvidencePass(ExpectedMigrations, targetCount: 1, 42, relievedSetAccepted: true, 12, 14));
         Assert.Contains("target_database_count = 0", Source, StringComparison.Ordinal);
         Assert.Contains("Provision must fail closed", Checkpoint(), StringComparison.OrdinalIgnoreCase);
     }
@@ -162,11 +170,11 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     [Fact]
     public void ExactRev868C3CountsAndFailClosedStatesAreRequired()
     {
-        Assert.True(SourceEvidencePass(ExpectedMigrations, 0, 42, 9, 12, 14));
-        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 41, 9, 12, 14));
-        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, 8, 12, 14));
-        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, 9, 11, 14));
-        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, 9, 12, 13));
+        Assert.True(SourceEvidencePass(ExpectedMigrations, 0, 42, true, 12, 14));
+        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 41, true, 12, 14));
+        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, false, 12, 14));
+        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, true, 11, 14));
+        Assert.False(SourceEvidencePass(ExpectedMigrations, 0, 42, true, 12, 13));
         foreach (var marker in new[] { "safe_source_state=PASS", "provisioning_readiness_state=PASS", "provision_acceptance_state=PASS" })
             Assert.Contains(marker, Source, StringComparison.Ordinal);
     }
@@ -315,7 +323,10 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         {
             "expected_migration_count=11", "actual_matched_migration_count=11", "missing_migration_count=0",
             "unexpected_migration_count=0", "duplicate_migration_count=0", "active_employee_count=42",
-            "relieved_employee_count=9", "active_clean_department_count=12", "active_manager_mapping_count=14",
+            "relieved_employee_expected_count=9", "relieved_employee_actual_matched_count=9",
+            "relieved_employee_missing_count=0", "relieved_employee_unexpected_count=0",
+            "relieved_employee_duplicate_count=0", "relieved_employee_status_mismatch_count=0",
+            "relieved_employee_acceptance_state='PASS'", "active_clean_department_count=12", "active_manager_mapping_count=14",
             "target_database_count = 0", "'$SchemaContractState'='PASS'", "preservation_evidence_state='PASS'"
         }) Assert.Contains(formula, Source, StringComparison.Ordinal);
 
@@ -390,6 +401,101 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.False(TargetCreationAllowed(sourcePreflightPassed: false));
     }
     [Fact]
+    public void RelievedEmployeeContractUsesExactNineCommittedCodes()
+    {
+        var declaration = Regex.Match(Source, @"\$relievedEmployeeCodes = @\((?<values>[^)]*)\)");
+        Assert.True(declaration.Success);
+        var helperCodes = Regex.Matches(declaration.Groups["values"].Value, "SESS-[0-9]{3}")
+            .Select(x => x.Value).ToArray();
+        Assert.Equal(ExpectedRelievedEmployeeCodes, helperCodes);
+        Assert.Equal(9, helperCodes.Length);
+        foreach (var code in ExpectedRelievedEmployeeCodes)
+            Assert.Contains($"Relieved(\"{code}\"", Rev868C3WorkbookData, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RelievedStatusNormalizationMatchesCommittedRev868C3Sources()
+    {
+        Assert.Contains("@('left / resigned','left/resigned','resigned','inactive')", Source, StringComparison.Ordinal);
+        Assert.Contains("lower(\"Status\") as normalized_status", Source, StringComparison.Ordinal);
+        Assert.Contains("lower(\"Status\") in ('left / resigned','left/resigned','resigned','inactive')", Rev868C3Verifier, StringComparison.Ordinal);
+        Assert.Contains("set \"Status\" = 'Left / Resigned'", Rev868C3Migration, StringComparison.Ordinal);
+        Assert.Contains("new(code, name, \"LEFT / RESIGNED\"", Rev868C3WorkbookData, StringComparison.Ordinal);
+        Assert.True(RelievedSetPass(ExpectedRelievedEmployeeCodes.Select((code, index) =>
+            new EmployeeStatusRow(code, new[] { "Left / Resigned", "LEFT/RESIGNED", "Resigned", "Inactive" }[index % 4]))));
+    }
+
+    [Fact]
+    public void MissingExpectedRelievedEmployeeFailsClosed()
+    {
+        Assert.False(RelievedSetPass(AcceptedRelievedRows().Skip(1)));
+    }
+
+    [Fact]
+    public void ActiveExpectedRelievedEmployeeFailsClosed()
+    {
+        var rows = AcceptedRelievedRows();
+        rows[0] = rows[0] with { Status = "Active" };
+        Assert.False(RelievedSetPass(rows));
+    }
+
+    [Fact]
+    public void UnexpectedRelievedEmployeeFailsClosed()
+    {
+        Assert.False(RelievedSetPass(AcceptedRelievedRows().Append(new EmployeeStatusRow("SESS-999", "Left / Resigned"))));
+    }
+
+    [Fact]
+    public void DuplicateExpectedRelievedEmployeeFailsClosed()
+    {
+        Assert.False(RelievedSetPass(AcceptedRelievedRows().Append(new EmployeeStatusRow("SESS-016", "Left / Resigned"))));
+    }
+
+    [Fact]
+    public void RelievedStatusMismatchFailsClosed()
+    {
+        var rows = AcceptedRelievedRows();
+        rows[4] = rows[4] with { Status = "Terminated" };
+        Assert.False(RelievedSetPass(rows));
+    }
+
+    [Fact]
+    public void RelievedExpectedCountCannotBeChangedToZeroOrInferredFromTotals()
+    {
+        Assert.Contains("relieved_employee_expected_count=9", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("relieved_employee_expected_count=0", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("51", FunctionBlock("function New-EvidenceSql", "function Convert-Evidence"), StringComparison.Ordinal);
+        Assert.False(RelievedSetPass(Array.Empty<EmployeeStatusRow>()));
+    }
+
+    [Fact]
+    public void ProvisioningReadinessRequiresExactRelievedSetAcceptance()
+    {
+        var evidenceSql = FunctionBlock("function New-EvidenceSql", "function Convert-Evidence");
+        Assert.Contains("and relieved_employee_acceptance_state='PASS'", evidenceSql, StringComparison.Ordinal);
+        Assert.Contains("'relieved_employee_acceptance_state=' || relieved_employee_acceptance_state", evidenceSql, StringComparison.Ordinal);
+        Assert.Contains("relieved_employee_acceptance_state='PASS'", FunctionBlock("function Assert-SourceEvidence", "function Assert-AcceptedCoreEvidence"), StringComparison.Ordinal);
+
+        var failed = CanonicalSourceEvidence()
+            .Select(x => x.Key == "relieved_employee_acceptance_state" ? $"{x.Key}=FAIL" : $"{x.Key}={x.Value}")
+            .ToArray();
+        Assert.False(SourceReadinessPass(ParsePsqlEvidence(failed)));
+    }
+
+    [Fact]
+    public void ExactRelievedSetGatePreservesSchemaMigrationAndPreservationRequirements()
+    {
+        var evidenceSql = FunctionBlock("function New-EvidenceSql", "function Convert-Evidence");
+        foreach (var gate in new[]
+        {
+            "expected_migration_count=11", "actual_matched_migration_count=11", "missing_migration_count=0",
+            "unexpected_migration_count=0", "duplicate_migration_count=0", "active_employee_count=42",
+            "active_clean_department_count=12", "active_manager_mapping_count=14", "'$SchemaContractState'='PASS'",
+            "preservation_evidence_state='PASS'", "target_database_count = 0"
+        }) Assert.Contains(gate, evidenceSql, StringComparison.Ordinal);
+        Assert.Contains("Assert-PreservationEqual $sourceEvidence $targetEvidence", Source, StringComparison.Ordinal);
+    }
+    [Fact]
     public void HelperRemainsPowerShell51Compatible()
     {
         Assert.DoesNotContain("ForEach-Object -Parallel", Source, StringComparison.OrdinalIgnoreCase);
@@ -398,6 +504,23 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.Contains("Set-StrictMode -Version Latest", Source, StringComparison.Ordinal);
     }
 
+    private static EmployeeStatusRow[] AcceptedRelievedRows() =>
+        ExpectedRelievedEmployeeCodes.Select(code => new EmployeeStatusRow(code, "Left / Resigned")).ToArray();
+
+    private static bool RelievedSetPass(IEnumerable<EmployeeStatusRow> sourceRows)
+    {
+        var rows = sourceRows.Select(x => x with { Status = x.Status.ToLowerInvariant() }).ToArray();
+        var expected = ExpectedRelievedEmployeeCodes.ToHashSet(StringComparer.Ordinal);
+        var actualMatched = rows.Count(x => expected.Contains(x.Code) && AcceptedRelievedStatuses.Contains(x.Status));
+        var missing = expected.Count(code => rows.All(x => x.Code != code));
+        var unexpected = rows.Count(x => !expected.Contains(x.Code) && AcceptedRelievedStatuses.Contains(x.Status));
+        var duplicates = rows.Where(x => expected.Contains(x.Code)).GroupBy(x => x.Code, StringComparer.Ordinal).Count(x => x.Count() != 1);
+        var statusMismatches = expected.Count(code => rows.Any(x => x.Code == code) &&
+            !rows.Any(x => x.Code == code && AcceptedRelievedStatuses.Contains(x.Status)));
+        return expected.Count == 9 && actualMatched == 9 && missing == 0 && unexpected == 0 && duplicates == 0 && statusMismatches == 0;
+    }
+
+    private sealed record EmployeeStatusRow(string Code, string Status);
     private static IReadOnlyDictionary<string, string> CanonicalSourceEvidence() =>
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -409,7 +532,13 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
             ["duplicate_migration_count"] = "0",
             ["target_database_count"] = "0",
             ["active_employee_count"] = "42",
-            ["relieved_employee_count"] = "9",
+            ["relieved_employee_expected_count"] = "9",
+            ["relieved_employee_actual_matched_count"] = "9",
+            ["relieved_employee_missing_count"] = "0",
+            ["relieved_employee_unexpected_count"] = "0",
+            ["relieved_employee_duplicate_count"] = "0",
+            ["relieved_employee_status_mismatch_count"] = "0",
+            ["relieved_employee_acceptance_state"] = "PASS",
             ["active_clean_department_count"] = "12",
             ["active_manager_mapping_count"] = "14",
             ["schema_contract_state"] = "PASS",
@@ -523,8 +652,8 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
                rows.Order(StringComparer.Ordinal).SequenceEqual(ExpectedMigrations.Order(StringComparer.Ordinal), StringComparer.Ordinal);
     }
 
-    private static bool SourceEvidencePass(IEnumerable<string> migrations, int targetCount, int active, int relieved, int departments, int mappings) =>
-        MigrationSetPass(migrations) && targetCount == 0 && active == 42 && relieved == 9 && departments == 12 && mappings == 14;
+    private static bool SourceEvidencePass(IEnumerable<string> migrations, int targetCount, int active, bool relievedSetAccepted, int departments, int mappings) =>
+        MigrationSetPass(migrations) && targetCount == 0 && active == 42 && relievedSetAccepted && departments == 12 && mappings == 14;
 
     private static bool IsReadOnlySql(string sql)
     {

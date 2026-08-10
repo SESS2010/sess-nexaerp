@@ -54,7 +54,7 @@ Runtime evidence is written outside committed reports under `local-evidence/rev8
 - The exact eleven accepted EF migration IDs exist once each.
 - Missing, unexpected, and duplicate migration counts are all zero.
 - Active SESS employee count is exactly 42.
-- Relieved SESS employee count is exactly 9.
+- The exact nine-code relieved-employee set and accepted persisted statuses pass all expected/matched/missing/unexpected/duplicate/status-mismatch checks.
 - Active accepted clean department count is exactly 12.
 - Active `MANAGER` department-approval mapping count is exactly 14.
 - Schema contract state is PASS.
@@ -153,7 +153,13 @@ It is computed directly from `all_source_conditions_pass`; it is not inferred fr
 - `unexpected_migration_count=0`;
 - `duplicate_migration_count=0`;
 - `active_employee_count=42`;
-- `relieved_employee_count=9`;
+- `relieved_employee_expected_count=9`;
+- `relieved_employee_actual_matched_count=9`;
+- `relieved_employee_missing_count=0`;
+- `relieved_employee_unexpected_count=0`;
+- `relieved_employee_duplicate_count=0`;
+- `relieved_employee_status_mismatch_count=0`;
+- `relieved_employee_acceptance_state=PASS`;
 - `active_clean_department_count=12`;
 - `active_manager_mapping_count=14`;
 - `schema_contract_state=PASS`;
@@ -163,6 +169,30 @@ It is computed directly from `all_source_conditions_pass`; it is not inferred fr
 The source query still emits `safe_source_state` independently from the same complete boolean formula. The readiness label appears exactly once in the SQL result. Source PowerShell enforcement also requires both state labels exactly once and requires all count/identity/state labels above exactly once. No partial count set can produce accepted readiness.
 
 Future sanitized failure evidence includes every safely parsed database identity, count, state, and preservation-count label returned before rejection, plus returned-evidence malformed count. Unsafe or malformed lines are not persisted. Raw SQL, temporary SQL contents, passwords, connection strings, migration SQL, and employee data remain excluded. Any evidence-contract failure retains `failed_phase=SOURCE_PREFLIGHT`, the precise query label, and `target_state=NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT`; target creation remains after complete source assertion.
+## Source-only relieved-employee exact-set correction
+
+Correction starting commit: `776b8d9838d7c84159906247ebe58a7bdb96cd67`
+
+The incorrect source-preflight predicate was:
+
+`"EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved'`
+
+REV868C3 does not persist `Relieved`. Its migration writes `Left / Resigned`; the committed workbook decision records `LEFT / RESIGNED`; and the accepted read-only REV868C3 verifier normalizes with `lower("Status")` and accepts exactly `left / resigned`, `left/resigned`, `resigned`, or `inactive`. The accepted nine codes are `SESS-016`, `SESS-018`, `SESS-022`, `SESS-027`, `SESS-028`, `SESS-032`, `SESS-036`, `SESS-037`, and `SESS-039`.
+
+The corrected source-preflight SQL uses fixed `relieved_expected` and `accepted_relieved_statuses` CTEs plus source rows from `nexa.employees`. It emits exactly:
+
+- `relieved_employee_expected_count=9`;
+- `relieved_employee_actual_matched_count=9`;
+- `relieved_employee_missing_count=0`;
+- `relieved_employee_unexpected_count=0`;
+- `relieved_employee_duplicate_count=0`;
+- `relieved_employee_status_mismatch_count=0`;
+- `relieved_employee_acceptance_state=PASS|FAIL`.
+
+PASS requires the fixed expected set to contain nine codes, nine correctly status-matched rows, and zero missing codes, accepted-status rows outside the expected set, duplicate expected-code rows, or expected-code status mismatches. It is not inferred from `51 - 42`. Both `all_source_conditions_pass` outputs - `safe_source_state` and `provisioning_readiness_state` explicitly require `relieved_employee_acceptance_state='PASS'`, and PowerShell independently requires every relieved evidence label exactly once with its canonical value.
+
+All exact migration, database identity/absence, active employee, department, manager-mapping, schema-contract, preservation relation, source/target equality, and fail-closed target-ordering gates remain unchanged. The accepted REV868/REV868C3 source, migration, application model, and employee data are unchanged.
+
 ## Scope confirmation
 
 Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. During this source-only correction turn, no helper mode was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
@@ -171,11 +201,12 @@ Only the secure provisioning helper, its focused offline tests, and this report 
 
 - Windows PowerShell 5.1 parser: PASS, zero parse errors.
 - Solution build: PASS, zero warnings and zero errors.
-- Focused provisioning-helper tests: PASS, 37 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 290 passed, 0 failed, 0 skipped.
-- Changed-file secret scan: PASS.
-- Changed-file privacy scan: PASS.
-- Changed-file safety scan: PASS.
+- Focused provisioning-helper tests: PASS, 47 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 313 passed, 0 failed, 0 skipped.
+- Changed-line secret scan: PASS.
+- Changed-line privacy scan: PASS.
+- Source-preflight SQL safety scan: PASS.
+- Exact relieved-set/formula scan: PASS.
 - `git diff --check`: PASS.
 
 ## Future plan-only command
