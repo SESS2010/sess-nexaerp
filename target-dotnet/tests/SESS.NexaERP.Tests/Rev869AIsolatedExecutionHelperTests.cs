@@ -111,6 +111,46 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
+    public void GeneratedSqlContainsNoUnsupportedUuidMinOrMaxAggregate()
+    {
+        Assert.DoesNotMatch(new Regex(@"(?is)\b(?:min|max)\s*\(\s*""[^""]*(?:Id|ID)""\s*\)"), Source);
+        Assert.DoesNotMatch(new Regex(@"(?is)\b(?:min|max)\s*\(\s*""UomId""\s*::\s*text"), Source);
+    }
+
+    [Fact]
+    public void DuplicateUomIdAndNormalizedCodeGroupsAreCountedSeparatelyAndAdded()
+    {
+        Assert.Contains("select \"UomId\"\n          from expected_uom_classifications\n          group by \"UomId\"", Source.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        Assert.Contains("select upper(trim(\"UomCode\")) as normalized_uom_code", Source, StringComparison.Ordinal);
+        Assert.Contains("group by upper(trim(\"UomCode\"))", Source, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"(?s)\) duplicate_uom_ids\)\s*\+\s*\(select count\(\*\) from \(.*?\) duplicate_uom_codes\)\s*\) as duplicate_uom_classification_count"), Source);
+    }
+
+    [Fact]
+    public void DuplicateClassificationCountsAreAdditiveAndEmptySetIsZero()
+    {
+        Assert.Equal(0, CompareUomSet(Array.Empty<UomContract>(), Array.Empty<(Guid, string)>()).Duplicate);
+
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        Assert.Equal(1, CompareUomSet(new[] { new UomContract(a, "EA", true), new UomContract(a, "KG", true) }, Array.Empty<(Guid, string)>()).Duplicate);
+        Assert.Equal(1, CompareUomSet(new[] { new UomContract(a, " EA ", true), new UomContract(b, "ea", true) }, Array.Empty<(Guid, string)>()).Duplicate);
+        Assert.Equal(2, CompareUomSet(new[] { new UomContract(a, "EA", true), new UomContract(a, " ea ", true) }, Array.Empty<(Guid, string)>()).Duplicate);
+    }
+
+    [Fact]
+    public void EitherDuplicateIdOrDuplicateNormalizedCodeFailsReadiness()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var duplicateId = CompareUomSet(new[] { new UomContract(a, "EA", true), new UomContract(a, "KG", true) }, Array.Empty<(Guid, string)>());
+        var duplicateCode = CompareUomSet(new[] { new UomContract(a, "EA", true), new UomContract(b, " ea ", true) }, Array.Empty<(Guid, string)>());
+
+        Assert.False(duplicateId.Duplicate == 0);
+        Assert.False(duplicateCode.Duplicate == 0);
+    }
+
+    [Fact]
     public void NullOrInvalidItemUomAndMissingBaseMappingFail()
     {
         Assert.False(ItemUomReady(null, false, true, "MANAGEMENT_APPROVED"));
@@ -340,7 +380,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         var missing = actual.Count(a => !expected.Any(e => e.Id == a.Id && string.Equals(e.Code, a.Code, StringComparison.OrdinalIgnoreCase)));
         var unexpected = expected.Count(e => !actual.Any(a => a.Id == e.Id && string.Equals(a.Code, e.Code, StringComparison.OrdinalIgnoreCase)));
         var duplicate = expected.GroupBy(e => e.Id).Count(g => g.Count() != 1) +
-                        expected.GroupBy(e => e.Code, StringComparer.OrdinalIgnoreCase).Count(g => g.Count() != 1);
+                        expected.GroupBy(e => e.Code.Trim(), StringComparer.OrdinalIgnoreCase).Count(g => g.Count() != 1);
         return new(missing, unexpected, duplicate, expected.Count(e => !e.Approved));
     }
 

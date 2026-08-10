@@ -236,3 +236,48 @@ The UOM management decision remains `PENDING`. `UomClassifications` and `ItemBas
 - Changed-line secret and privacy scans: PASS.
 - `git diff --check`: PASS.
 - No helper mode, PostgreSQL test, database, migration, backup/restore or production operation was executed.
+### Source-only UUID aggregation correction
+
+Correction starting commit: `1f0cb3da543612a2b1a9c15317005307a8f097fb`.
+
+The expected-UOM classification comparison used `min("UomId")` to manufacture one representative value per duplicate normalized-code group. PostgreSQL does not define `min(uuid)`, so the otherwise read-only preflight stopped before it could emit readiness evidence.
+
+The duplicate formula is now type-safe and additive:
+
+```sql
+(
+  (select count(*)
+   from (
+     select "UomId"
+     from expected_uom_classifications
+     group by "UomId"
+     having count(*) <> 1
+   ) duplicate_uom_ids)
+  +
+  (select count(*)
+   from (
+     select upper(trim("UomCode")) as normalized_uom_code
+     from expected_uom_classifications
+     group by upper(trim("UomCode"))
+     having count(*) <> 1
+   ) duplicate_uom_codes)
+) as duplicate_uom_classification_count
+```
+
+The first subquery counts duplicate UUID-key groups without aggregating UUID values. The second counts duplicate normalized-code groups. Addition means either defect contributes to failure and simultaneous defects cannot cancel. An empty expected classification contract yields `0 + 0`. No UUID-to-text aggregate workaround is used.
+
+A complete source scan of every SQL builder in this helper found no remaining `min(...)` or `max(...)` aggregate over UUID identifier columns. Offline tests cover the generated SQL contract, both duplicate dimensions, additive behavior, the empty-set result and fail-closed readiness for either duplicate type.
+
+All existing gates remain unchanged: exactly 11 prerequisites; the exact nine relieved employees; artifact, collision, backup, seed, schema, permission and preservation checks; SELECT-only preflight; protected-database checks; and no automatic cleanup or repair. `uom_management_decision_state` remains `PENDING`; both approved UOM classifications and approved Item/BaseUom mappings remain empty; and `data_readiness_state` cannot pass until management approval. No guessed, default, inferred or automatic UOM mapping was added.
+
+### UUID correction validation evidence
+
+- Windows PowerShell 5.1 parser: PASS, zero errors.
+- Build: PASS, zero warnings and zero errors.
+- Focused isolated-execution helper tests: PASS, 36 passed, 0 failed, 0 skipped.
+- Complete offline suite with all three PostgreSQL-backed verification classes excluded: PASS, 329 passed, 0 failed, 0 skipped.
+- PostgreSQL SQL-contract scan: PASS; zero UUID `min`/`max` aggregate matches.
+- Acceptance-formula and UOM-state scan: PASS.
+- Changed-line secret, privacy and safety scans: PASS.
+- `git diff --check`: PASS.
+- No helper mode, PostgreSQL test, PostgreSQL/database access, migration, backup/restore, production, REV861, frontend or REV869B operation was executed.

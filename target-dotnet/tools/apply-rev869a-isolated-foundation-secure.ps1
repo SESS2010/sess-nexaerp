@@ -225,7 +225,20 @@ with expected_migrations("MigrationId", ordinal) as (
     select
       (select count(*) from referenced_uoms r left join expected_uom_classifications e on e."UomId"=r."Id" and upper(e."UomCode")=upper(r."Code") where e."UomId" is null) as missing_uom_classification_count,
       (select count(*) from expected_uom_classifications e left join referenced_uoms r on r."Id"=e."UomId" and upper(r."Code")=upper(e."UomCode") where r."Id" is null) as unexpected_uom_classification_count,
-      (select count(*) from (select "UomId" from expected_uom_classifications group by "UomId" having count(*)<>1 union all select min("UomId") from expected_uom_classifications group by upper("UomCode") having count(*)<>1) d) as duplicate_uom_classification_count,
+      ((select count(*) from (
+          select "UomId"
+          from expected_uom_classifications
+          group by "UomId"
+          having count(*)<>1
+        ) duplicate_uom_ids)
+       +
+       (select count(*) from (
+          select upper(trim("UomCode")) as normalized_uom_code
+          from expected_uom_classifications
+          group by upper(trim("UomCode"))
+          having count(*)<>1
+        ) duplicate_uom_codes)
+      ) as duplicate_uom_classification_count,
       (select count(*) from expected_uom_classifications where "ApprovalStatus"<>'APPROVED' or nullif(trim("ManagementApprovalReference"),'') is null or nullif(trim("MeasurementDimension"),'') is null or "QuantityPrecision"<0 or "QuantityPrecision">6 or nullif(trim("ConversionPolicy"),'') is null) as unapproved_uom_classification_count
 ), base_mapping_state as (
     select
