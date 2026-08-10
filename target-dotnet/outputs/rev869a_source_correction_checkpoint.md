@@ -146,3 +146,14 @@ REV869A preserves every modeled role field by performing no role update and comp
 Exact derived ownership is 4 created roles + 8 pages + 74 permissions + 2 policies = 88 rows. The 74 permissions comprise 64 rows for eight non-Department-Manager logical roles across eight pages, 8 rows for the reused Department Manager, and 2 Accounts rows. Down removes the same 88 owned rows: 80 deterministic EF `DeleteData` rows plus the 8 ownership-qualified reused-role permissions.
 
 UOM approval remains `PENDING`; both approved expected sets remain empty. Preflight reads all UOM masters with Id, Code, Name, active state, and item-reference count; emits referenced/unreferenced/null/invalid counts; emits a zero-master management-decision label; and reports safe item identity/classification fields while keeping proposed BaseUom `NOT_APPROVED`. No UOM or BaseUom value is guessed, inferred, defaulted, or approved.
+## 2026-08-10 management-approved EA creation and exact item-backfill correction
+
+Starting source commit: `ff27fe632e22bd0eef2742e08e6bfb251062f5dc`.
+
+The former pending UOM contract is now replaced by the exact approved decision `MGMT-REV869A-UOM-20260810-001`. EA uses deterministic ID `f71a4725-bb15-e7bf-e97b-991985e96328`; the existing Item `8c428e59-db05-471d-a7e7-4f7dc1c13b54` / `REV868C1-ITEM` is the only allowed update. Up rejects any EA ID, normalized code, or normalized name collision, proves the source and backup row, inserts EA, sets that Item's `UomId` and `BaseUomId`, and records canonical-base, identity-only conversion, approval, and mapping evidence in immutable controlled history.
+
+No broad item backfill or UOM inference remains. Preflight permits the approved raw null only when the exact plan covers it and rejects another null item, missing/extra/duplicate mapping, contract mismatch, or collision. Post-verification requires the exact EA attributes, item mapping, approval history, zero backup mismatches, 88 exact security/configuration rows, one EA insert, one history insert, and one Item update.
+
+Down restores the approved Item from `rev869a_items_prechange_backup`, including `UomId=NULL`, refuses EA deletion if any other Item references it, deletes one exact migration-owned approval-history row and one exact migration-owned EA row, removes the 88 existing owned security/configuration rows, and drops backup tables last. Inserted ownership is therefore 90 rows total (88 + EA + history); the Item is an update, not an insert.
+
+All validation in this checkpoint is source-only. PowerShell parse, build, 59 focused tests, 344 complete non-PostgreSQL tests, EF discovery, pending-model comparison, offline Up/Down SQL review, acceptance/safety scans, and `git diff --check` passed. No database/helper/migration/backup/production/REV861/REV869B action occurred.

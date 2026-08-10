@@ -99,20 +99,24 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
-    public void UomReadinessUsesExactApprovedSetAndNeverFabricatesData()
+    public void UomReadinessUsesTheExactManagementApprovedEaPlan()
     {
         foreach (var evidence in new[]
         {
-            "ApprovalStatus = \"PENDING\"", "uom_management_decision_state=$uomManagementDecisionState",
-            "missing_uom_classification_count",
-            "unexpected_uom_classification_count", "duplicate_uom_classification_count",
-            "unapproved_uom_classification_count", "missing_base_uom_mapping_count",
-            "invalid_base_uom_mapping_count", "inferred_or_default_mapping_count",
-            "uom_master_candidate=", "item_reference_count", "proposed_base_uom_id", "uom_ambiguity=CODE", "uom_ambiguity=NAME", "PENDING_MANAGEMENT_APPROVAL"
+            "ApprovalStatus = \"APPROVED\"", "uom_management_decision_state=$uomManagementDecisionState",
+            "approved_uom_plan_count", "approved_new_uom_count", "approved_existing_uom_count",
+            "uom_id_collision_count", "uom_code_collision_count", "uom_name_collision_count",
+            "uom_creation_plan_state", "approved_item_mapping_count", "approved_mapping_actual_matched_count",
+            "approved_mapping_missing_item_count", "approved_mapping_unexpected_item_count",
+            "approved_mapping_duplicate_count", "approved_mapping_invalid_uom_count",
+            "unresolved_unmapped_item_count", "item_mapping_plan_state"
         }) Assert.Contains(evidence, Source);
-        foreach (var field in new[] { "UomId", "UomCode", "MeasurementDimension", "QuantityPrecision", "IsCanonicalBase", "ConversionPolicy", "ManagementApprovalReference" })
-            Assert.Contains(field, Source);
-        Assert.Contains("m, kg, and ambiguous no are candidate-only", Source);
+        foreach (var value in new[]
+        {
+            "f71a4725-bb15-e7bf-e97b-991985e96328", "EA", "Each", "COUNT", "IDENTITY_ONLY",
+            "CREATE", "APPROVED", "MGMT-REV869A-UOM-20260810-001",
+            "8c428e59-db05-471d-a7e7-4f7dc1c13b54", "REV868C1-ITEM", "MANAGEMENT_APPROVED"
+        }) Assert.Contains(value, Source);
         Assert.DoesNotContain("unclassified_measurement_dimension_count", Source);
     }
 
@@ -140,10 +144,11 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     [Fact]
     public void DuplicateUomIdAndNormalizedCodeGroupsAreCountedSeparatelyAndAdded()
     {
-        Assert.Contains("select \"UomId\"\n          from expected_uom_classifications\n          group by \"UomId\"", Source.Replace("\r\n", "\n"), StringComparison.Ordinal);
-        Assert.Contains("select upper(trim(\"UomCode\")) as normalized_uom_code", Source, StringComparison.Ordinal);
+        Assert.Matches(new Regex(@"select\s+""UomId""\s+from expected_uom_classifications\s+group by ""UomId""", RegexOptions.IgnoreCase), Source);
+        Assert.Contains("select upper(trim(\"UomCode\")) from expected_uom_classifications", Source, StringComparison.Ordinal);
         Assert.Contains("group by upper(trim(\"UomCode\"))", Source, StringComparison.Ordinal);
-        Assert.Matches(new Regex(@"(?s)\) duplicate_uom_ids\)\s*\+\s*\(select count\(\*\) from \(.*?\) duplicate_uom_codes\)\s*\) as duplicate_uom_classification_count"), Source);
+        Assert.Single(Regex.Matches(Source, @"select ""UomId"" from expected_uom_classifications group by ""UomId""").Cast<Match>());
+        Assert.Single(Regex.Matches(Source, @"select upper\(trim\(""UomCode""\)\) from expected_uom_classifications group by upper\(trim\(""UomCode""\)\)").Cast<Match>());
     }
 
     [Fact]
@@ -256,18 +261,22 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
-    public void AllUomMastersAndSafeUnmappedItemFieldsAreReportedWithoutApproval()
+    public void RawNullItemEvidenceIsAllowedOnlyWhenTheApprovedPlanCoversItExactly()
     {
         var preflight = FunctionBlock("function Get-PreflightSql", "function Get-PostMigrationSql");
-        foreach (var evidence in new[] { "uom_master_count", "uom_master_candidate=", "referenced_uom_count", "unreferenced_uom_count", "null_item_uom_count", "invalid_item_uom_count", "uom_creation_management_decision_required=" })
+        foreach (var evidence in new[] { "unmapped_item_count", "null_item_uom_count", "item_uom_problem=", "approved_item_mapping=", "approved_mapping_actual_matched_count", "unresolved_unmapped_item_count" })
             Assert.Contains(evidence, preflight, StringComparison.Ordinal);
-        foreach (var field in new[] { "item_code=", "item_name=", "material_type=", "current_uom_id=", "current_uom_code=", "current_uom_name=", "item_status=", "proposed_base_uom=NOT_APPROVED" })
-            Assert.Contains(field, preflight, StringComparison.Ordinal);
-        Assert.Contains("from nexa.uoms u left join nexa.items", preflight, StringComparison.Ordinal);
-        Assert.Contains("uom_master_count>0", preflight, StringComparison.Ordinal);
-        Assert.Contains("ApprovalStatus = \"PENDING\"", Source, StringComparison.Ordinal);
-        Assert.Contains("UomClassifications = @()", Source, StringComparison.Ordinal);
-        Assert.Contains("ItemBaseUomMappings = @()", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("unmapped_item_count=0 and", preflight, StringComparison.Ordinal);
+        Assert.Contains("approved_mapping_actual_matched_count=1", preflight, StringComparison.Ordinal);
+        Assert.Contains("approved_mapping_unexpected_item_count=0", preflight, StringComparison.Ordinal);
+        Assert.Contains("unresolved_unmapped_item_count=0", preflight, StringComparison.Ordinal);
+        Assert.True(ApprovedPlanReady(1, 1, 0, 0, 0, 0, 1));
+        Assert.False(ApprovedPlanReady(2, 1, 0, 1, 0, 0, 1));
+        Assert.False(ApprovedPlanReady(1, 0, 1, 0, 0, 0, 1));
+        Assert.False(ApprovedPlanReady(1, 1, 0, 0, 0, 0, 0));
+        Assert.False(ApprovedPlanReady(1, 1, 0, 0, 0, 0, 2));
+        Assert.False(ApprovedPlanReady(1, 1, 0, 0, 1, 0, 1));
+        Assert.False(ApprovedPlanReady(1, 1, 0, 0, 0, 1, 1));
     }
 
     [Fact]
@@ -404,26 +413,57 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
-    public void UomDecisionAndExpectedSetsRemainPendingAndEmpty()
+    public void UomDecisionAndExpectedSetsContainExactlyOneApprovedEntryEach()
     {
-        Assert.Contains("ApprovalStatus = \"PENDING\"", Source, StringComparison.Ordinal);
-        Assert.Contains("UomClassifications = @()", Source, StringComparison.Ordinal);
-        Assert.Contains("ItemBaseUomMappings = @()", Source, StringComparison.Ordinal);
-        Assert.Contains("select null::uuid,null::text,null::text,null::integer,null::boolean,null::text,null::text,null::text where false", Source, StringComparison.Ordinal);
-        Assert.Contains("select null::uuid,null::uuid,null::text,null::text,null::text where false", Source, StringComparison.Ordinal);
-        Assert.Contains("'$uomManagementDecisionState'='APPROVED'", Source, StringComparison.Ordinal);
-        Assert.False(UomAcceptanceCanPass("PENDING", classifications: 0, mappings: 0));
+        Assert.Contains("ApprovalStatus = \"APPROVED\"", Source, StringComparison.Ordinal);
+        Assert.Contains("UomClassifications = @([pscustomobject]@{", Source, StringComparison.Ordinal);
+        Assert.Contains("ItemBaseUomMappings = @([pscustomobject]@{", Source, StringComparison.Ordinal);
+        Assert.Single(Regex.Matches(Source, "LifecycleAction = \"CREATE\"").Cast<Match>());
+        var contract = Source[Source.IndexOf("$approvedUomMappingContract", StringComparison.Ordinal)..Source.IndexOf("$uomManagementDecisionState", StringComparison.Ordinal)];
+        Assert.Single(Regex.Matches(contract, "ItemId = \"8c428e59-db05-471d-a7e7-4f7dc1c13b54\"").Cast<Match>());
+        Assert.True(UomAcceptanceCanPass("APPROVED", classifications: 1, mappings: 1));
+        Assert.False(UomAcceptanceCanPass("APPROVED", classifications: 2, mappings: 1));
+        Assert.False(UomAcceptanceCanPass("APPROVED", classifications: 1, mappings: 2));
     }
 
     [Fact]
-    public void NoGuessedDefaultOrInferredUomMappingWasIntroduced()
+    public void NoKgMDefaultOrInferredUomMappingWasIntroduced()
     {
-        Assert.Contains("no guessed, default, inferred, or automatic UOM/BaseUom mapping is permitted", Source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("PENDING_MANAGEMENT_APPROVAL", Source, StringComparison.Ordinal);
-        Assert.Contains("proposed_base_uom_id='||coalesce(e.\"BaseUomId\"::text,'NOT_APPROVED')", Source, StringComparison.Ordinal);
+        var contract = Source[Source.IndexOf("$approvedUomMappingContract", StringComparison.Ordinal)..Source.IndexOf("$relievedEmployeeCodes", StringComparison.Ordinal)];
+        Assert.DoesNotContain("KG", contract, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UomCode = \"M\"", contract, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("INFERRED", contract, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DEFAULT", contract, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MappingBasis = \"MANAGEMENT_APPROVED\"", contract, StringComparison.Ordinal);
         Assert.DoesNotMatch(new Regex(@"(?i)(legacy|candidate).*(insert|update).*BaseUom"), Source);
     }
 
+    [Fact]
+    public void AnyEaIdentityCodeOrNameCollisionFailsTheCreationPlan()
+    {
+        Assert.True(UomCreationPlanReady(1, 1, 0, 0, 0, 0, 0));
+        Assert.False(UomCreationPlanReady(1, 1, 1, 0, 0, 0, 0));
+        Assert.False(UomCreationPlanReady(1, 1, 0, 1, 0, 0, 0));
+        Assert.False(UomCreationPlanReady(1, 1, 0, 0, 1, 0, 0));
+    }
+
+    [Fact]
+    public void EvidenceMismatchReportsLabelExpectedAndActual()
+    {
+        Assert.Contains("Required evidence mismatch:`nlabel=$label`nexpected=$expected`nactual=$actual", Source, StringComparison.Ordinal);
+        Assert.Contains("Assert-Evidence $preflightEvidence \"data_readiness_state=PASS\"", Source, StringComparison.Ordinal);
+    }
+    [Fact]
+    public void PostVerificationRequiresExactEaAuditAndTotalOwnedRows()
+    {
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        Assert.Contains("from nexa.uoms where \"CreatedBy\"='migration-rev869a') as migration_created_uom_count", post, StringComparison.Ordinal);
+        Assert.Contains("from nexa.controlled_configuration_histories where \"CreatedBy\"='migration-rev869a') as migration_created_uom_history_count", post, StringComparison.Ordinal);
+        foreach (var field in new[] { "UomId", "UomCode", "Name", "MeasurementDimension", "QuantityPrecision", "IsCanonicalBase", "ConversionPolicy", "LifecycleAction", "ApprovalStatus", "ManagementApprovalReference", "ItemId", "ItemCode", "MappingStatus", "MappingBasis" })
+            Assert.Contains("\"AfterJson\"->>'" + field + "'", post, StringComparison.Ordinal);
+        foreach (var line in new[] { "security_configuration_owned_seed_count=88", "migration_created_uom_count=1", "migration_updated_item_count=1", "migration_created_uom_history_count=1", "total_inserted_migration_owned_row_count=90" })
+            Assert.Contains("Assert-Evidence $postEvidence \"" + line + "\"", Source, StringComparison.Ordinal);
+    }
     [Fact]
     public void ArtifactPredicateAndExistingSafetyBoundariesRemainFailClosed()
     {
@@ -457,12 +497,14 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     [Fact]
-    public void RollbackEvidenceIsExplicitAndMigrationSourceIsUnchangedByToolingCheckpoint()
+    public void RollbackEvidenceIsExplicitAndOwnedRowCountsAreSeparated()
     {
-        Assert.Contains("Down removes exactly 88 migration-owned seeds", Source);
+        Assert.Contains("Down deletes exactly 88 security/configuration rows", Source);
+        Assert.Contains("90 inserted migration-owned rows", Source);
+        Assert.Contains("exactly 1 Item row is updated", Source);
         Assert.Contains("preserves REV868/REV868C3 business/history rows", Source);
         Assert.Contains("drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last", Source);
-        Assert.Contains("backup/current legacy-column comparisons must be zero", Source);
+        Assert.Contains("Backup comparisons exclude only that approved mapping", Source);
     }
 
     private sealed record EmployeeStatusRow(string Code, string Status);
@@ -483,7 +525,13 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     }
 
     private static bool UomAcceptanceCanPass(string decision, int classifications, int mappings) =>
-        decision == "APPROVED" && classifications > 0 && mappings > 0;
+        decision == "APPROVED" && classifications == 1 && mappings == 1;
+
+    private static bool ApprovedPlanReady(int rawNullItems, int matched, int missing, int unexpected, int duplicates, int invalid, int mappingCount) =>
+        rawNullItems == matched && mappingCount == 1 && matched == 1 && missing == 0 && unexpected == 0 && duplicates == 0 && invalid == 0;
+
+    private static bool UomCreationPlanReady(int planCount, int newCount, int idCollisions, int codeCollisions, int nameCollisions, int duplicates, int unapproved) =>
+        planCount == 1 && newCount == 1 && idCollisions == 0 && codeCollisions == 0 && nameCollisions == 0 && duplicates == 0 && unapproved == 0;
 
     private static string FunctionBlock(string startMarker, string endMarker)
     {
@@ -523,8 +571,11 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static bool IsPermittedDatabase(string database) =>
         database == "sess_nexaerp_rev869a_verify" && !Regex.IsMatch(database, "rev861|production|prod|live|main", RegexOptions.IgnoreCase);
 
-    private static bool IsSelectOnly(string sql) =>
-        !Regex.IsMatch(sql, "\\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|refresh)\\b", RegexOptions.IgnoreCase);
+    private static bool IsSelectOnly(string sql)
+    {
+        var withoutLiterals = Regex.Replace(sql, @"'(?:[^']|'')*'", "''");
+        return !Regex.IsMatch(withoutLiterals, "\\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|refresh)\\b", RegexOptions.IgnoreCase);
+    }
     private static IReadOnlyList<string> ArraySection(string marker)
     {
         var start = Source.IndexOf(marker, StringComparison.Ordinal);

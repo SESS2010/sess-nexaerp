@@ -8,6 +8,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 
 public static class Rev869ASeedData
 {
+    public static readonly Guid ApprovedEaUomId = Guid.Parse("f71a4725-bb15-e7bf-e97b-991985e96328");
+    public static readonly Guid ApprovedEaHistoryId = Guid.Parse("0007efa3-4888-a87d-45ef-72cc55f4dd45");
+    public static readonly Guid ApprovedEaItemId = Guid.Parse("8c428e59-db05-471d-a7e7-4f7dc1c13b54");
+    public const string ApprovedEaUomCode = "EA";
+    public const string ApprovedEaUomName = "Each";
+    public const string ApprovedEaMeasurementDimension = "COUNT";
+    public const string ApprovedEaConversionPolicy = "IDENTITY_ONLY";
+    public const string ApprovedEaManagementReference = "MGMT-REV869A-UOM-20260810-001";
     private static readonly DateTimeOffset SeedTime = DateTimeOffset.UnixEpoch;
     private static readonly DateOnly EffectiveFrom = new(2026, 8, 10);
 

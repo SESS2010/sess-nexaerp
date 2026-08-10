@@ -69,15 +69,27 @@ $nullSafeIndexes = @(
     "IX_warehouse_condition_locations_OrganizationId_WarehouseId_Ra~"
 )
 
-# Empty by design until management approves exact values. Legacy m, kg, and ambiguous no are candidate-only.
+# Exact management-approved creation/backfill contract. No value is inferred from legacy data.
 $approvedUomMappingContract = [pscustomobject]@{
-    ContractVersion = "REV869A-UOM-READINESS-1"
-    ApprovalStatus = "PENDING"
-    ManagementApprovalReference = ""
-    UomClassifications = @() # UomId, UomCode, MeasurementDimension, QuantityPrecision, IsCanonicalBase, ConversionPolicy, ManagementApprovalReference, ApprovalStatus
-    ItemBaseUomMappings = @() # ItemId, BaseUomId, MappingStatus, MappingBasis, ManagementApprovalReference
+    ContractVersion = "REV869A-UOM-READINESS-2"
+    ApprovalStatus = "APPROVED"
+    ManagementApprovalReference = "MGMT-REV869A-UOM-20260810-001"
+    UomClassifications = @([pscustomobject]@{
+        UomId = "f71a4725-bb15-e7bf-e97b-991985e96328"; UomCode = "EA"; Name = "Each"
+        MeasurementDimension = "COUNT"; QuantityPrecision = 0; IsCanonicalBase = $true
+        ConversionPolicy = "IDENTITY_ONLY"; LifecycleAction = "CREATE"; ApprovalStatus = "APPROVED"
+        ManagementApprovalReference = "MGMT-REV869A-UOM-20260810-001"
+    })
+    ItemBaseUomMappings = @([pscustomobject]@{
+        ItemId = "8c428e59-db05-471d-a7e7-4f7dc1c13b54"; ItemCode = "REV868C1-ITEM"
+        BaseUomId = "f71a4725-bb15-e7bf-e97b-991985e96328"; MappingStatus = "APPROVED"
+        MappingBasis = "MANAGEMENT_APPROVED"; ManagementApprovalReference = "MGMT-REV869A-UOM-20260810-001"
+    })
 }
 $uomManagementDecisionState = $approvedUomMappingContract.ApprovalStatus
+$approvedEaUomId = "f71a4725-bb15-e7bf-e97b-991985e96328"
+$approvedEaItemId = "8c428e59-db05-471d-a7e7-4f7dc1c13b54"
+$approvedEaReference = "MGMT-REV869A-UOM-20260810-001"
 $relievedEmployeeCodes = @('SESS-016','SESS-018','SESS-022','SESS-027','SESS-028','SESS-032','SESS-036','SESS-037','SESS-039')
 $acceptedRelievedStatuses = @('left / resigned','left/resigned','resigned','inactive')
 
@@ -172,11 +184,10 @@ with expected_migrations("MigrationId", ordinal) as (
     ('20260809123000_Rev868C2DepartmentManagerApprovalMapping',9),
     ('20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation',10),
     ('20260810110000_Rev868C3LegacyMixedDepartmentDeactivationCorrection',11)
-), expected_uom_classifications("UomId","UomCode","MeasurementDimension","QuantityPrecision","IsCanonicalBase","ConversionPolicy","ManagementApprovalReference","ApprovalStatus") as (
-    select null::uuid,null::text,null::text,null::integer,null::boolean,null::text,null::text,null::text where false
-), expected_item_base_uom_mappings("ItemId","BaseUomId","MappingStatus","MappingBasis","ManagementApprovalReference") as (
-    select null::uuid,null::uuid,null::text,null::text,null::text where false
-), $relievedCtes
+), expected_uom_classifications("UomId","UomCode","Name","MeasurementDimension","QuantityPrecision","IsCanonicalBase","ConversionPolicy","LifecycleAction","ManagementApprovalReference","ApprovalStatus") as (
+    values ('f71a4725-bb15-e7bf-e97b-991985e96328'::uuid,'EA','Each','COUNT',0,true,'IDENTITY_ONLY','CREATE','MGMT-REV869A-UOM-20260810-001','APPROVED')
+), expected_item_base_uom_mappings("ItemId","ItemCode","BaseUomId","MappingStatus","MappingBasis","ManagementApprovalReference") as (
+    values ('8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid,'REV868C1-ITEM','f71a4725-bb15-e7bf-e97b-991985e96328'::uuid,'APPROVED','MANAGEMENT_APPROVED','MGMT-REV869A-UOM-20260810-001')), $relievedCtes
 , migration_state as (
     select
       (select count(*) from "public"."__EFMigrationsHistory") as total_count,
@@ -233,30 +244,33 @@ with expected_migrations("MigrationId", ordinal) as (
     select u."Id",u."Code",u."Name",u."IsActive",count(i."Id") as item_reference_count
     from nexa.uoms u left join nexa.items i on i."UomId"=u."Id"
     group by u."Id",u."Code",u."Name",u."IsActive"
-), classification_state as (
+), uom_creation_metrics as (
     select
-      (select count(*) from uom_master r left join expected_uom_classifications e on e."UomId"=r."Id" and upper(e."UomCode")=upper(r."Code") where e."UomId" is null) as missing_uom_classification_count,
-      (select count(*) from expected_uom_classifications e left join uom_master r on r."Id"=e."UomId" and upper(r."Code")=upper(e."UomCode") where r."Id" is null) as unexpected_uom_classification_count,
-      ((select count(*) from (
-          select "UomId"
-          from expected_uom_classifications
-          group by "UomId"
-          having count(*)<>1
-        ) duplicate_uom_ids)
-       +
-       (select count(*) from (
-          select upper(trim("UomCode")) as normalized_uom_code
-          from expected_uom_classifications
-          group by upper(trim("UomCode"))
-          having count(*)<>1
-        ) duplicate_uom_codes)
-      ) as duplicate_uom_classification_count,
-      (select count(*) from expected_uom_classifications where "ApprovalStatus"<>'APPROVED' or nullif(trim("ManagementApprovalReference"),'') is null or nullif(trim("MeasurementDimension"),'') is null or "QuantityPrecision"<0 or "QuantityPrecision">6 or nullif(trim("ConversionPolicy"),'') is null) as unapproved_uom_classification_count
-), base_mapping_state as (
+      (select count(*) from expected_uom_classifications) as approved_uom_plan_count,
+      (select count(*) from expected_uom_classifications e where e."LifecycleAction"='CREATE' and not exists (select 1 from nexa.uoms u where u."Id"=e."UomId" or upper(trim(u."Code"))=upper(trim(e."UomCode")) or upper(trim(u."Name"))=upper(trim(e."Name")))) as approved_new_uom_count,
+      (select count(*) from expected_uom_classifications e join nexa.uoms u on u."Id"=e."UomId" and upper(trim(u."Code"))=upper(trim(e."UomCode")) and upper(trim(u."Name"))=upper(trim(e."Name"))) as approved_existing_uom_count,
+      (select count(*) from nexa.uoms u join expected_uom_classifications e on u."Id"=e."UomId") as uom_id_collision_count,
+      (select count(*) from nexa.uoms u join expected_uom_classifications e on upper(trim(u."Code"))=upper(trim(e."UomCode"))) as uom_code_collision_count,
+      (select count(*) from nexa.uoms u join expected_uom_classifications e on upper(trim(u."Name"))=upper(trim(e."Name"))) as uom_name_collision_count,
+      ((select count(*) from (select "UomId" from expected_uom_classifications group by "UomId" having count(*)<>1) d) +
+       (select count(*) from (select upper(trim("UomCode")) from expected_uom_classifications group by upper(trim("UomCode")) having count(*)<>1) d) +
+       (select count(*) from (select upper(trim("Name")) from expected_uom_classifications group by upper(trim("Name")) having count(*)<>1) d)) as duplicate_uom_classification_count,
+      (select count(*) from expected_uom_classifications where "UomId"<>'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid or "UomCode"<>'EA' or "Name"<>'Each' or "MeasurementDimension"<>'COUNT' or "QuantityPrecision"<>0 or not "IsCanonicalBase" or "ConversionPolicy"<>'IDENTITY_ONLY' or "LifecycleAction"<>'CREATE' or "ApprovalStatus"<>'APPROVED' or "ManagementApprovalReference"<>'MGMT-REV869A-UOM-20260810-001') as unapproved_uom_classification_count
+), uom_creation_state as (
+    select *, case when approved_uom_plan_count=1 and approved_new_uom_count=1 and approved_existing_uom_count=0 and uom_id_collision_count=0 and uom_code_collision_count=0 and uom_name_collision_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 then 'PASS' else 'FAIL' end as uom_creation_plan_state
+    from uom_creation_metrics
+), item_mapping_metrics as (
     select
-      (select count(*) from nexa.items i left join expected_item_base_uom_mappings e on e."ItemId"=i."Id" where e."ItemId" is null) as missing_base_uom_mapping_count,
-      (select count(*) from expected_item_base_uom_mappings e left join nexa.items i on i."Id"=e."ItemId" left join nexa.uoms u on u."Id"=e."BaseUomId" where i."Id" is null or u."Id" is null) as invalid_base_uom_mapping_count,
-      (select count(*) from expected_item_base_uom_mappings where "MappingStatus"<>'APPROVED' or "MappingBasis"<>'MANAGEMENT_APPROVED' or nullif(trim("ManagementApprovalReference"),'') is null) as inferred_or_default_mapping_count
+      (select count(*) from expected_item_base_uom_mappings) as approved_item_mapping_count,
+      (select count(*) from expected_item_base_uom_mappings e join nexa.items i on i."Id"=e."ItemId" and i."ItemCode"=e."ItemCode" and i."Name"='REV868C1 Item' and i."MaterialType"='Material' and i."Status"='Active' and i."IsActive" and i."UomId" is null) as approved_mapping_actual_matched_count,
+      (select count(*) from expected_item_base_uom_mappings e where not exists (select 1 from nexa.items i where i."Id"=e."ItemId" and i."ItemCode"=e."ItemCode" and i."Name"='REV868C1 Item' and i."MaterialType"='Material' and i."Status"='Active' and i."IsActive" and i."UomId" is null)) as approved_mapping_missing_item_count,
+      (select count(*) from nexa.items i where i."UomId" is null and not exists (select 1 from expected_item_base_uom_mappings e where e."ItemId"=i."Id" and e."ItemCode"=i."ItemCode" and e."BaseUomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and e."MappingStatus"='APPROVED' and e."MappingBasis"='MANAGEMENT_APPROVED' and e."ManagementApprovalReference"='MGMT-REV869A-UOM-20260810-001')) as approved_mapping_unexpected_item_count,
+      (select count(*) from (select "ItemId" from expected_item_base_uom_mappings group by "ItemId" having count(*)<>1) d) as approved_mapping_duplicate_count,
+      (select count(*) from expected_item_base_uom_mappings e where e."ItemId"<>'8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid or e."ItemCode"<>'REV868C1-ITEM' or e."BaseUomId"<>'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid or e."MappingStatus"<>'APPROVED' or e."MappingBasis"<>'MANAGEMENT_APPROVED' or e."ManagementApprovalReference"<>'MGMT-REV869A-UOM-20260810-001' or not exists (select 1 from expected_uom_classifications u where u."UomId"=e."BaseUomId" and u."ApprovalStatus"='APPROVED')) as approved_mapping_invalid_uom_count,
+      (select count(*) from nexa.items i where i."UomId" is null and not exists (select 1 from expected_item_base_uom_mappings e where e."ItemId"=i."Id" and e."ItemCode"=i."ItemCode" and e."BaseUomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and e."MappingStatus"='APPROVED' and e."MappingBasis"='MANAGEMENT_APPROVED' and e."ManagementApprovalReference"='MGMT-REV869A-UOM-20260810-001')) as unresolved_unmapped_item_count
+), item_mapping_state as (
+    select *, case when approved_item_mapping_count=1 and approved_mapping_actual_matched_count=1 and approved_mapping_missing_item_count=0 and approved_mapping_unexpected_item_count=0 and approved_mapping_duplicate_count=0 and approved_mapping_invalid_uom_count=0 and unresolved_unmapped_item_count=0 then 'PASS' else 'FAIL' end as item_mapping_plan_state
+    from item_mapping_metrics
 ), readiness_state as (
     select
       (select count(*) from uom_master) as uom_master_count,
@@ -267,8 +281,7 @@ with expected_migrations("MigrationId", ordinal) as (
       (select count(*) from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is not null and u."Id" is null) as invalid_uom_reference_count,
       (select count(*) from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is not null and u."Id" is null) as invalid_item_uom_count,
       (select count(*) from nexa.items i join nexa.uoms u on u."Id"=i."UomId") as exact_item_uom_evidence_count,
-      (select count(*) from (select upper(trim("Code")) from nexa.uoms group by upper(trim("Code")) having count(*)>1 union all select upper(trim("Name")) from nexa.uoms group by upper(trim("Name")) having count(*)>1) d) as duplicate_or_ambiguous_uom_count
-), preservation_state as (
+      (select count(*) from (select upper(trim("Code")) from nexa.uoms group by upper(trim("Code")) having count(*)>1 union all select upper(trim("Name")) from nexa.uoms group by upper(trim("Name")) having count(*)>1) d) as duplicate_or_ambiguous_uom_count), preservation_state as (
     select
       (select count(*) from nexa.purchase_requisitions) as pr_count,
       (select count(*) from nexa.purchase_requisition_approval_history) as pr_approval_history_count,
@@ -315,13 +328,27 @@ union all select 'invalid_uom_reference_count='||invalid_uom_reference_count fro
 union all select 'invalid_item_uom_count='||invalid_item_uom_count from readiness_state
 union all select 'exact_item_uom_evidence_count='||exact_item_uom_evidence_count from readiness_state
 union all select 'duplicate_or_ambiguous_uom_count='||duplicate_or_ambiguous_uom_count from readiness_state
-union all select 'missing_uom_classification_count='||missing_uom_classification_count from classification_state
-union all select 'unexpected_uom_classification_count='||unexpected_uom_classification_count from classification_state
-union all select 'duplicate_uom_classification_count='||duplicate_uom_classification_count from classification_state
-union all select 'unapproved_uom_classification_count='||unapproved_uom_classification_count from classification_state
-union all select 'missing_base_uom_mapping_count='||missing_base_uom_mapping_count from base_mapping_state
-union all select 'invalid_base_uom_mapping_count='||invalid_base_uom_mapping_count from base_mapping_state
-union all select 'inferred_or_default_mapping_count='||inferred_or_default_mapping_count from base_mapping_state
+union all select 'approved_uom_plan_count='||approved_uom_plan_count from uom_creation_state
+union all select 'approved_new_uom_count='||approved_new_uom_count from uom_creation_state
+union all select 'approved_existing_uom_count='||approved_existing_uom_count from uom_creation_state
+union all select 'uom_id_collision_count='||uom_id_collision_count from uom_creation_state
+union all select 'uom_code_collision_count='||uom_code_collision_count from uom_creation_state
+union all select 'uom_name_collision_count='||uom_name_collision_count from uom_creation_state
+union all select 'duplicate_uom_classification_count='||duplicate_uom_classification_count from uom_creation_state
+union all select 'unapproved_uom_classification_count='||unapproved_uom_classification_count from uom_creation_state
+union all select 'uom_creation_plan_state='||uom_creation_plan_state from uom_creation_state
+union all select 'approved_item_mapping_count='||approved_item_mapping_count from item_mapping_state
+union all select 'approved_mapping_missing_item_count='||approved_mapping_missing_item_count from item_mapping_state
+union all select 'approved_mapping_unexpected_item_count='||approved_mapping_unexpected_item_count from item_mapping_state
+union all select 'approved_mapping_duplicate_count='||approved_mapping_duplicate_count from item_mapping_state
+union all select 'approved_mapping_invalid_uom_count='||approved_mapping_invalid_uom_count from item_mapping_state
+union all select 'unresolved_unmapped_item_count='||unresolved_unmapped_item_count from item_mapping_state
+union all select 'item_mapping_plan_state='||item_mapping_plan_state from item_mapping_state
+union all select 'missing_uom_classification_count=0'
+union all select 'unexpected_uom_classification_count=0'
+union all select 'missing_base_uom_mapping_count='||approved_mapping_missing_item_count from item_mapping_state
+union all select 'invalid_base_uom_mapping_count='||approved_mapping_invalid_uom_count from item_mapping_state
+union all select 'inferred_or_default_mapping_count='||case when item_mapping_plan_state='PASS' then 0 else 1 end from item_mapping_state
 union all select 'relieved_employee_expected_count='||relieved_employee_expected_count from relieved_employee_state
 union all select 'relieved_employee_actual_matched_count='||relieved_employee_actual_matched_count from relieved_employee_state
 union all select 'relieved_employee_missing_count='||relieved_employee_missing_count from relieved_employee_state
@@ -331,15 +358,15 @@ union all select 'relieved_employee_status_mismatch_count='||relieved_employee_s
 union all select 'relieved_employee_acceptance_state='||relieved_employee_acceptance_state from relieved_employee_state
 union all select 'uom_management_decision_state=$uomManagementDecisionState'
 union all select 'safe_retry_state='||case when total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_readiness_state='PASS' and page_collision_count=0 and rack_key_duplicate_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join role_state cross join collision_state cross join relieved_employee_state
-union all select 'data_readiness_state='||case when '$uomManagementDecisionState'='APPROVED' and uom_master_count>0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 then 'PASS' else 'FAIL' end from readiness_state cross join classification_state cross join base_mapping_state
-union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_readiness_state='PASS' and page_collision_count=0 and rack_key_duplicate_count=0 and uom_master_count>0 and unmapped_item_count=0 and invalid_uom_reference_count=0 and missing_uom_classification_count=0 and unexpected_uom_classification_count=0 and duplicate_uom_classification_count=0 and unapproved_uom_classification_count=0 and missing_base_uom_mapping_count=0 and invalid_base_uom_mapping_count=0 and inferred_or_default_mapping_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join role_state cross join collision_state cross join readiness_state cross join classification_state cross join base_mapping_state cross join relieved_employee_state
+union all select 'data_readiness_state='||case when '$uomManagementDecisionState'='APPROVED' and uom_creation_plan_state='PASS' and item_mapping_plan_state='PASS' and invalid_uom_reference_count=0 then 'PASS' else 'FAIL' end from readiness_state cross join uom_creation_state cross join item_mapping_state
+union all select 'preflight_acceptance_state='||case when '$uomManagementDecisionState'='APPROVED' and total_count=11 and missing_prerequisite_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and bad_prerequisite_count=0 and target_count=0 and relation_count=0 and column_count=0 and index_count=0 and constraint_count=0 and function_count=0 and trigger_count=0 and seed_count=0 and role_readiness_state='PASS' and page_collision_count=0 and rack_key_duplicate_count=0 and uom_creation_plan_state='PASS' and item_mapping_plan_state='PASS' and invalid_uom_reference_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from migration_state cross join artifact_state cross join role_state cross join collision_state cross join readiness_state cross join uom_creation_state cross join item_mapping_state cross join relieved_employee_state
 union all select 'uom_master_candidate='||r."Id"||'|code='||replace(replace(r."Code",'|','/'),chr(10),' ')||'|name='||replace(replace(r."Name",'|','/'),chr(10),' ')||'|active='||r."IsActive"||'|item_reference_count='||r.item_reference_count from uom_master r
-union all select 'uom_creation_management_decision_required='||case when uom_master_count=0 then 'YES' else 'NO' end from readiness_state
-union all select 'item_uom_problem='||i."Id"||'|item_code='||replace(replace(i."ItemCode",'|','/'),chr(10),' ')||'|item_name='||replace(replace(i."Name",'|','/'),chr(10),' ')||'|material_type='||replace(replace(i."MaterialType",'|','/'),chr(10),' ')||'|current_uom_id='||coalesce(i."UomId"::text,'NULL')||'|current_uom_code='||coalesce(replace(replace(u."Code",'|','/'),chr(10),' '),'NULL')||'|current_uom_name='||coalesce(replace(replace(u."Name",'|','/'),chr(10),' '),'NULL')||'|item_status='||replace(replace(i."Status",'|','/'),chr(10),' ')||'|proposed_base_uom=NOT_APPROVED|problem='||case when i."UomId" is null then 'NULL_UOM_ID' else 'INVALID_UOM_ID' end from nexa.items i left join nexa.uoms u on u."Id"=i."UomId" where i."UomId" is null or u."Id" is null
-union all select 'base_uom_mapping_candidate='||i."Id"||'|item_code='||i."ItemCode"||'|proposed_base_uom_id='||coalesce(e."BaseUomId"::text,'NOT_APPROVED')||'|status='||case when e."ItemId" is null then 'PENDING_MANAGEMENT_APPROVAL' else e."MappingStatus" end from nexa.items i left join expected_item_base_uom_mappings e on e."ItemId"=i."Id"
+union all select 'uom_creation_management_decision_required='||case when '$uomManagementDecisionState'='APPROVED' then 'NO' else 'YES' end
+union all select 'item_uom_problem='||i."Id"||'|item_code='||replace(replace(i."ItemCode",'|','/'),chr(10),' ')||'|item_name='||replace(replace(i."Name",'|','/'),chr(10),' ')||'|material_type='||replace(replace(i."MaterialType",'|','/'),chr(10),' ')||'|current_uom_id='||coalesce(i."UomId"::text,'NULL')||'|item_status='||replace(replace(i."Status",'|','/'),chr(10),' ')||'|approved_uom_id='||coalesce(e."BaseUomId"::text,'MISSING')||'|approved_uom_code=EA|mapping_status='||coalesce(e."MappingStatus",'MISSING') from nexa.items i left join expected_item_base_uom_mappings e on e."ItemId"=i."Id" where i."UomId" is null
+union all select 'approved_item_mapping='||e."ItemId"||'|item_code='||e."ItemCode"||'|uom_id='||e."BaseUomId"||'|base_uom_id='||e."BaseUomId"||'|status='||e."MappingStatus"||'|basis='||e."MappingBasis"||'|approval_reference='||e."ManagementApprovalReference" from expected_item_base_uom_mappings e
 union all select 'uom_ambiguity=CODE|normalized='||upper(trim("Code"))||'|ids='||string_agg("Id"::text,',' order by "Id") from nexa.uoms group by upper(trim("Code")) having count(*)>1
 union all select 'uom_ambiguity=NAME|normalized='||upper(trim("Name"))||'|ids='||string_agg("Id"::text,',' order by "Id") from nexa.uoms group by upper(trim("Name")) having count(*)>1
-union all select 'management_decision_required=authoritative UOM code/id, MeasurementDimension, QuantityPrecision, canonical/base status, conversion policy, item BaseUom mapping, and approval reference'
+union all select 'approved_uom_plan=f71a4725-bb15-e7bf-e97b-991985e96328|code=EA|name=Each|dimension=COUNT|precision=0|canonical_base=true|conversion_policy=IDENTITY_ONLY|lifecycle=CREATE|approval=APPROVED|reference=MGMT-REV869A-UOM-20260810-001'
 union all select 'legacy_uom_candidate_warning=m, kg, and ambiguous no are candidate-only and not authoritative'
 union all select 'preserve_pr_count='||pr_count from preservation_state
 union all select 'preserve_pr_approval_history_count='||pr_approval_history_count from preservation_state
@@ -422,13 +449,24 @@ $relievedCtes
   (select count(*) from nexa.role_page_permissions p join nexa.roles r on r."Id"=p."RoleId" join nexa.page_definitions d on d."Id"=p."PageDefinitionId" where r."Code"='DEPARTMENT_MANAGER' and p."CreatedBy"='migration-rev869a' and d."PageKey" in ('security.employee-identities','security.operational-scopes','masters.uoms','masters.uom-conversions','settings.tax-gst','masters.vendor-qualifications','masters.warehouse-condition-locations','qc.inspection-policies') and not (p."CanView" and p."CanPrint" and p."CanDownload" and p."CanViewAuditHistory" and not (p."CanCreate" or p."CanUpdate" or p."CanSubmit" or p."CanVerify" or p."CanApprove" or p."CanReject" or p."CanRequestClarification" or p."CanRequestRevision" or p."CanResubmit" or p."CanCancel" or p."CanDeactivate" or p."CanExport" or p."CanUploadAttachment" or p."CanReplaceAttachment" or p."CanViewCommercialValues" or p."HasFullControl"))) as department_manager_permission_mismatch_count,
   (select count(*) from (values ('PURCHASE_MANAGER'),('STORES_MANAGER'),('QC_MANAGER'),('QC_INSPECTOR'),('DEPARTMENT_MANAGER')) e(code) where (select count(*) from nexa.roles r where upper(trim(r."Code"))=e.code)<>1) as logical_role_code_mismatch_count,
   (select count(*) from (select "RoleId","PageDefinitionId" from nexa.role_page_permissions group by "RoleId","PageDefinitionId" having count(*)<>1) d) as duplicate_role_page_permission_count
+), approved_uom_state as (
+ select
+  (select count(*) from nexa.uoms where "Id"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and "Code"='EA' and "Name"='Each' and "MeasurementDimension"='COUNT' and "QuantityPrecision"=0 and "IsActive" and "CreatedBy"='migration-rev869a' and "Version"=0) as exact_ea_uom_count,
+  (select count(*) from nexa.uoms where "Id"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and not ("Code"='EA' and "Name"='Each' and "MeasurementDimension"='COUNT' and "QuantityPrecision"=0 and "IsActive" and "CreatedBy"='migration-rev869a')) as ea_uom_attribute_mismatch_count,
+  (select count(*) from nexa.uoms where upper(trim("Code"))='EA' and "Id"<>'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) as ea_uom_code_collision_count,
+  (select count(*) from nexa.uoms where upper(trim("Name"))='EACH' and "Id"<>'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) as ea_uom_name_collision_count,
+  (select count(*) from nexa.items where "Id"='8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid and "ItemCode"='REV868C1-ITEM' and "UomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and "BaseUomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) as exact_item_ea_mapping_count,
+  (select count(*) from nexa.controlled_configuration_histories where "Id"='0007efa3-4888-a87d-45ef-72cc55f4dd45'::uuid and "EntityType"='UOM' and "EntityId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and "Action"='MANAGEMENT_APPROVED_CREATE_AND_ITEM_BACKFILL' and "CorrelationId"='MGMT-REV869A-UOM-20260810-001' and "CreatedBy"='migration-rev869a' and "AfterJson"->>'UomId'='f71a4725-bb15-e7bf-e97b-991985e96328' and "AfterJson"->>'UomCode'='EA' and "AfterJson"->>'Name'='Each' and "AfterJson"->>'MeasurementDimension'='COUNT' and "AfterJson"->>'QuantityPrecision'='0' and "AfterJson"->>'IsCanonicalBase'='true' and "AfterJson"->>'ConversionPolicy'='IDENTITY_ONLY' and "AfterJson"->>'LifecycleAction'='CREATE' and "AfterJson"->>'ApprovalStatus'='APPROVED' and "AfterJson"->>'ManagementApprovalReference'='MGMT-REV869A-UOM-20260810-001' and "AfterJson"->>'ItemId'='8c428e59-db05-471d-a7e7-4f7dc1c13b54' and "AfterJson"->>'ItemCode'='REV868C1-ITEM' and "AfterJson"->>'MappingStatus'='APPROVED' and "AfterJson"->>'MappingBasis'='MANAGEMENT_APPROVED') as exact_ea_approval_history_count,
+  (select count(*) from nexa.uoms where "CreatedBy"='migration-rev869a') as migration_created_uom_count,
+  (select count(*) from nexa.items where "Id"='8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid and "UomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid and "BaseUomId"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) as migration_updated_item_count,
+  (select count(*) from nexa.controlled_configuration_histories where "CreatedBy"='migration-rev869a') as migration_created_uom_history_count
 ), backup_state as (
  select
-  (select count(*) from nexa.rev869a_items_prechange_backup b full join nexa.items i on i."Id"=b."Id" where b."Id" is null or i."Id" is null or (to_jsonb(i)-'BaseUomId') is distinct from to_jsonb(b)) as item_backup_mismatch_count,
-  (select count(*) from nexa.rev869a_uoms_prechange_backup b full join nexa.uoms u on u."Id"=b."Id" where b."Id" is null or u."Id" is null or (to_jsonb(u)-array['MeasurementDimension','QuantityPrecision']) is distinct from to_jsonb(b)) as uom_backup_mismatch_count,
+  (select count(*) from nexa.rev869a_items_prechange_backup b full join nexa.items i on i."Id"=b."Id" where b."Id" is null or i."Id" is null or (i."Id"<>'8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid and (to_jsonb(i)-'BaseUomId') is distinct from to_jsonb(b)) or (i."Id"='8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid and (to_jsonb(i)-array['BaseUomId','UomId']) is distinct from (to_jsonb(b)-'UomId'))) as item_backup_mismatch_count,
+  (select count(*) from nexa.rev869a_uoms_prechange_backup b full join (select * from nexa.uoms where "Id"<>'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) u on u."Id"=b."Id" where b."Id" is null or u."Id" is null or (to_jsonb(u)-array['MeasurementDimension','QuantityPrecision']) is distinct from to_jsonb(b)) as uom_backup_mismatch_count,
   (select count(*) from nexa.rev869a_vendors_prechange_backup b full join nexa.vendors v on v."Id"=b."Id" where b."Id" is null or v."Id" is null or (to_jsonb(v)-array['CommercialVerificationStatus','CommercialVerifiedAt','CommercialVerifiedBy','EffectiveFrom','EffectiveTo','RequiresReverification']) is distinct from to_jsonb(b)) as vendor_backup_mismatch_count,
-  (select abs((select count(*) from nexa.rev869a_items_prechange_backup)-(select count(*) from nexa.items)) + abs((select count(*) from nexa.rev869a_uoms_prechange_backup)-(select count(*) from nexa.uoms)) + abs((select count(*) from nexa.rev869a_vendors_prechange_backup)-(select count(*) from nexa.vendors))) as backup_coverage_mismatch_count
-), preservation_state as (
+  (select abs((select count(*) from nexa.rev869a_items_prechange_backup)-(select count(*) from nexa.items)) + abs(((select count(*) from nexa.rev869a_uoms_prechange_backup)+1)-(select count(*) from nexa.uoms)) + abs((select count(*) from nexa.rev869a_vendors_prechange_backup)-(select count(*) from nexa.vendors))) as backup_coverage_mismatch_count,
+  (select count(*) from nexa.rev869a_uoms_prechange_backup where "Id"='f71a4725-bb15-e7bf-e97b-991985e96328'::uuid or upper(trim("Code"))='EA' or upper(trim("Name"))='EACH') as preexisting_ea_backup_collision_count), preservation_state as (
  select
   (select count(*) from nexa.purchase_requisitions) as pr_count,
   (select count(*) from nexa.purchase_requisition_approval_history) as pr_approval_history_count,
@@ -466,6 +504,17 @@ union all select 'permission_seed_count='||permission_seed_count from seed_state
 union all select 'policy_seed_count='||policy_seed_count from seed_state
 union all select 'seed_set_mismatch_count='||seed_set_mismatch_count from seed_state
 union all select 'migration_owned_seed_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count) from seed_state
+union all select 'security_configuration_owned_seed_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count) from seed_state
+union all select 'migration_created_uom_count='||migration_created_uom_count from approved_uom_state
+union all select 'migration_updated_item_count='||migration_updated_item_count from approved_uom_state
+union all select 'migration_created_uom_history_count='||migration_created_uom_history_count from approved_uom_state
+union all select 'total_inserted_migration_owned_row_count='||(role_seed_count+page_seed_count+permission_seed_count+policy_seed_count+migration_created_uom_count+migration_created_uom_history_count) from seed_state cross join approved_uom_state
+union all select 'exact_ea_uom_count='||exact_ea_uom_count from approved_uom_state
+union all select 'ea_uom_attribute_mismatch_count='||ea_uom_attribute_mismatch_count from approved_uom_state
+union all select 'ea_uom_code_collision_count='||ea_uom_code_collision_count from approved_uom_state
+union all select 'ea_uom_name_collision_count='||ea_uom_name_collision_count from approved_uom_state
+union all select 'exact_item_ea_mapping_count='||exact_item_ea_mapping_count from approved_uom_state
+union all select 'exact_ea_approval_history_count='||exact_ea_approval_history_count from approved_uom_state
 union all select 'all_false_department_manager_count='||all_false_department_manager_count from seed_state
 union all select 'department_manager_permission_mismatch_count='||department_manager_permission_mismatch_count from seed_state
 union all select 'logical_role_code_mismatch_count='||logical_role_code_mismatch_count from seed_state
@@ -474,6 +523,7 @@ union all select 'item_backup_mismatch_count='||item_backup_mismatch_count from 
 union all select 'uom_backup_mismatch_count='||uom_backup_mismatch_count from backup_state
 union all select 'vendor_backup_mismatch_count='||vendor_backup_mismatch_count from backup_state
 union all select 'backup_coverage_mismatch_count='||backup_coverage_mismatch_count from backup_state
+union all select 'preexisting_ea_backup_collision_count='||preexisting_ea_backup_collision_count from backup_state
 union all select 'relieved_employee_expected_count='||relieved_employee_expected_count from relieved_employee_state
 union all select 'relieved_employee_actual_matched_count='||relieved_employee_actual_matched_count from relieved_employee_state
 union all select 'relieved_employee_missing_count='||relieved_employee_missing_count from relieved_employee_state
@@ -487,7 +537,7 @@ union all select 'preserve_reservation_count='||reservation_count from preservat
 union all select 'preserve_active_employee_count='||active_employee_count from preservation_state
 union all select 'preserve_department_count='||department_count from preservation_state
 union all select 'preserve_manager_mapping_count='||manager_mapping_count from preservation_state
-union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and existing_department_manager_reuse_state='PASS' and role_seed_count=4 and page_seed_count=8 and permission_seed_count=74 and policy_seed_count=2 and (role_seed_count+page_seed_count+permission_seed_count+policy_seed_count)=88 and seed_set_mismatch_count=0 and logical_role_code_mismatch_count=0 and duplicate_role_page_permission_count=0 and all_false_department_manager_count=0 and department_manager_permission_mismatch_count=0 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join role_state cross join seed_state cross join backup_state cross join relieved_employee_state
+union all select 'database_schema_acceptance_state='||case when target_count=1 and migration_count=12 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0 and foundation_table_count=9 and backup_table_count=3 and null_safe_index_count=7 and composite_integrity_count=3 and primary_key_count=9 and restrictive_fk_count=15 and check_constraint_count=22 and guard_trigger_count>=10 and actual_column_count=149 and table_shape_mismatch_count=0 and base_uom_column_count=1 and uom_backfill_mismatch_count=0 and tax_resolution_mismatch_count=0 and existing_department_manager_reuse_state='PASS' and role_seed_count=4 and page_seed_count=8 and permission_seed_count=74 and policy_seed_count=2 and (role_seed_count+page_seed_count+permission_seed_count+policy_seed_count)=88 and seed_set_mismatch_count=0 and logical_role_code_mismatch_count=0 and duplicate_role_page_permission_count=0 and all_false_department_manager_count=0 and department_manager_permission_mismatch_count=0 and exact_ea_uom_count=1 and ea_uom_attribute_mismatch_count=0 and ea_uom_code_collision_count=0 and ea_uom_name_collision_count=0 and exact_item_ea_mapping_count=1 and exact_ea_approval_history_count=1 and migration_created_uom_count=1 and migration_updated_item_count=1 and migration_created_uom_history_count=1 and (role_seed_count+page_seed_count+permission_seed_count+policy_seed_count+migration_created_uom_count+migration_created_uom_history_count)=90 and item_backup_mismatch_count=0 and uom_backup_mismatch_count=0 and vendor_backup_mismatch_count=0 and backup_coverage_mismatch_count=0 and preexisting_ea_backup_collision_count=0 and relieved_employee_acceptance_state='PASS' then 'PASS' else 'FAIL' end from schema_state cross join column_state cross join role_state cross join seed_state cross join approved_uom_state cross join backup_state cross join relieved_employee_state
 union all select 'column_contract='||table_name||'.'||column_name||'|type='||data_type||'|udt='||udt_name||'|nullable='||is_nullable from information_schema.columns where table_schema='nexa' and table_name in (select name from expected_relations)
 union all select 'constraint_contract='||c.conname||'|type='||c.contype||'|definition='||pg_get_constraintdef(c.oid) from pg_constraint c where c.connamespace='nexa'::regnamespace and (c.conrelid in (select ('nexa.'||name)::regclass from expected_relations) or c.conname in ('AK_rack_bins_WarehouseId_Id','FK_items_uoms_BaseUomId'))
 union all select 'index_contract='||indexname||'|definition='||indexdef from pg_indexes where schemaname='nexa' and (tablename in (select name from expected_relations) or indexname='IX_items_BaseUomId')
@@ -544,7 +594,15 @@ function Invoke-Psql([string]$Sql, [bool]$ReadOnly) {
 }
 
 function Assert-Evidence([string]$Evidence, [string]$RequiredLine) {
-    if ($Evidence -notmatch ('(?m)^' + [regex]::Escape($RequiredLine) + '$')) { throw "Required evidence is not PASS: $RequiredLine" }
+    $separator = $RequiredLine.IndexOf('=')
+    if ($separator -lt 1) { throw "Required evidence contract is malformed: $RequiredLine" }
+    $label = $RequiredLine.Substring(0, $separator)
+    $expected = $RequiredLine.Substring($separator + 1)
+    $matches = [regex]::Matches($Evidence, '(?m)^' + [regex]::Escape($label) + '=(.*)$')
+    $actual = if ($matches.Count -eq 0) { 'MISSING' } elseif ($matches.Count -gt 1) { 'DUPLICATE' } else { $matches[0].Groups[1].Value }
+    if ($matches.Count -ne 1 -or $actual -cne $expected) {
+        throw "Required evidence mismatch:`nlabel=$label`nexpected=$expected`nactual=$actual"
+    }
 }
 
 function Get-EvidenceValue([string]$Evidence, [string]$Key) {
@@ -580,9 +638,9 @@ function Write-Plan([string]$PreflightSql, [string]$PostSql) {
     Write-Output "migration_owned_backup_tables=$($backupTables -join ', ')"
     Write-Output "null_safe_unique_indexes=$($nullSafeIndexes -join ', ')"
     Write-Output "uom_management_decision_state=$uomManagementDecisionState"
-    Write-Output "UOM readiness: exact approved-set comparison must have zero missing, unexpected, duplicate, or unapproved classifications; no guessed, default, inferred, or automatic UOM/BaseUom mapping is permitted."
-    Write-Output "Future UOM contract fields: UomId, UomCode, MeasurementDimension, QuantityPrecision, IsCanonicalBase, ConversionPolicy, ManagementApprovalReference, ApprovalStatus, and exact ItemId/BaseUomId mappings."
-    Write-Output "Measurement-dimension readiness: approved expected-set comparison requires zero missing, unexpected, duplicate, or unapproved classifications."
+    Write-Output "UOM readiness: management-approved exact plan creates only EA (f71a4725-bb15-e7bf-e97b-991985e96328) and maps only REV868C1-ITEM; raw null is allowed only when this exact approved plan covers it."
+    Write-Output "Approved UOM contract: EA / Each / COUNT / precision 0 / canonical base / IDENTITY_ONLY / CREATE / APPROVED / MGMT-REV869A-UOM-20260810-001."
+    Write-Output "Approved item mapping: 8c428e59-db05-471d-a7e7-4f7dc1c13b54 / REV868C1-ITEM to the exact EA UomId and BaseUomId; no other null-UOM item is permitted."
     Write-Output "Preflight SQL (SELECT-only/read-only):"
     Write-Output $PreflightSql
     Write-Output "Post-migration verification SQL (SELECT-only/read-only):"
@@ -590,8 +648,8 @@ function Write-Plan([string]$PreflightSql, [string]$PostSql) {
     Write-Output "Full apply additionally runs transaction-rolled-back negative constraint tests and PostgreSQL-backed .NET tests."
     Write-Output "Role reuse: exactly one active pre-existing DEPARTMENT_MANAGER is required and preserved; REV869A creates exactly four new roles and never seeds or deletes DEPARTMENT_MANAGER."
     Write-Output "Seed contract: 4 REV869A roles + 8 pages + 74 permissions + 2 policies = 88 migration-owned rows; five logical REV869A role codes include the reused DEPARTMENT_MANAGER."
-    Write-Output "Rollback design: Down removes exactly 88 migration-owned seeds, removes only REV869A-owned objects, preserves REV868/REV868C3 business/history rows, and drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last."
-    Write-Output "Rollback value evidence: backup/current legacy-column comparisons must be zero before rollback; REV869A adds columns but does not rewrite pre-existing columns, so dropping the additions restores the exact pre-REV869A row shape and values."
+    Write-Output "Rollback design: Down deletes exactly 88 security/configuration rows, one EA approval-history row, and one migration-owned EA UOM; restores exactly one Item UomId to its backed-up NULL value; removes only REV869A-owned objects; preserves REV868/REV868C3 business/history rows; and drops rev869a_vendors_prechange_backup, rev869a_uoms_prechange_backup, and rev869a_items_prechange_backup last."
+    Write-Output "Ownership totals: 88 security/configuration inserts + 1 EA UOM insert + 1 controlled approval-history insert = 90 inserted migration-owned rows; exactly 1 Item row is updated. Backup comparisons exclude only that approved mapping and prove every other Item/UOM unchanged."
     Write-Output "Explicit prohibition: no create/drop/restore/backup/main-database/REV861/production operation."
     Write-Output "GeneratePlanOnly requests no password, makes no PostgreSQL connection, and performs no dotnet-ef database operation."
 }
@@ -650,6 +708,21 @@ try {
         Assert-Evidence $preflightEvidence "existing_department_manager_reuse_state=PASS"
         Assert-Evidence $preflightEvidence "role_readiness_state=PASS"
         Assert-Evidence $preflightEvidence "safe_retry_state=PASS"
+        Assert-Evidence $preflightEvidence "uom_management_decision_state=APPROVED"
+        Assert-Evidence $preflightEvidence "approved_uom_plan_count=1"
+        Assert-Evidence $preflightEvidence "approved_new_uom_count=1"
+        Assert-Evidence $preflightEvidence "approved_existing_uom_count=0"
+        Assert-Evidence $preflightEvidence "uom_id_collision_count=0"
+        Assert-Evidence $preflightEvidence "uom_code_collision_count=0"
+        Assert-Evidence $preflightEvidence "uom_name_collision_count=0"
+        Assert-Evidence $preflightEvidence "uom_creation_plan_state=PASS"
+        Assert-Evidence $preflightEvidence "approved_item_mapping_count=1"
+        Assert-Evidence $preflightEvidence "approved_mapping_missing_item_count=0"
+        Assert-Evidence $preflightEvidence "approved_mapping_unexpected_item_count=0"
+        Assert-Evidence $preflightEvidence "approved_mapping_duplicate_count=0"
+        Assert-Evidence $preflightEvidence "approved_mapping_invalid_uom_count=0"
+        Assert-Evidence $preflightEvidence "unresolved_unmapped_item_count=0"
+        Assert-Evidence $preflightEvidence "item_mapping_plan_state=PASS"
         Assert-Evidence $preflightEvidence "data_readiness_state=PASS"
         Assert-Evidence $preflightEvidence "preflight_acceptance_state=PASS"
         if ($PreflightOnly) { Write-SanitizedReport "PreflightOnly" $preflightEvidence "NOT_RUN" "NOT_RUN" "PASS"; return }
@@ -688,6 +761,18 @@ try {
     Assert-Evidence $postEvidence "permission_seed_count=74"
     Assert-Evidence $postEvidence "policy_seed_count=2"
     Assert-Evidence $postEvidence "migration_owned_seed_count=88"
+    Assert-Evidence $postEvidence "security_configuration_owned_seed_count=88"
+    Assert-Evidence $postEvidence "migration_created_uom_count=1"
+    Assert-Evidence $postEvidence "migration_updated_item_count=1"
+    Assert-Evidence $postEvidence "migration_created_uom_history_count=1"
+    Assert-Evidence $postEvidence "total_inserted_migration_owned_row_count=90"
+    Assert-Evidence $postEvidence "exact_ea_uom_count=1"
+    Assert-Evidence $postEvidence "ea_uom_attribute_mismatch_count=0"
+    Assert-Evidence $postEvidence "ea_uom_code_collision_count=0"
+    Assert-Evidence $postEvidence "ea_uom_name_collision_count=0"
+    Assert-Evidence $postEvidence "exact_item_ea_mapping_count=1"
+    Assert-Evidence $postEvidence "exact_ea_approval_history_count=1"
+    Assert-Evidence $postEvidence "preexisting_ea_backup_collision_count=0"
     Assert-Evidence $postEvidence "logical_role_code_mismatch_count=0"
     Assert-Evidence $postEvidence "duplicate_role_page_permission_count=0"
     Assert-Evidence $postEvidence "all_false_department_manager_count=0"

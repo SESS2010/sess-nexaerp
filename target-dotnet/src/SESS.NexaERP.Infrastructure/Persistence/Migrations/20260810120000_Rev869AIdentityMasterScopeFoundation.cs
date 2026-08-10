@@ -125,16 +125,27 @@ migrationBuilder.AddColumn<string>(
                 nullable: true);
 
             migrationBuilder.Sql("""
-                DO $
+                DO $rev869a_uom_plan$
+                DECLARE affected_item_count integer;
                 BEGIN
-                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "UomId" IS NULL) THEN
-                        RAISE EXCEPTION 'REV869A readiness failed: every existing item must have an exact existing UomId; no default UOM is permitted.';
+                    IF EXISTS (SELECT 1 FROM nexa.uoms WHERE "Id" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) THEN RAISE EXCEPTION 'REV869A approved EA UOM Id collision'; END IF;
+                    IF EXISTS (SELECT 1 FROM nexa.uoms WHERE upper(trim("Code")) = 'EA') THEN RAISE EXCEPTION 'REV869A approved EA UOM Code collision'; END IF;
+                    IF EXISTS (SELECT 1 FROM nexa.uoms WHERE upper(trim("Name")) = 'EACH') THEN RAISE EXCEPTION 'REV869A approved EA UOM Name collision'; END IF;
+                    IF (SELECT count(*) FROM nexa.items) <> 1 OR
+                       (SELECT count(*) FROM nexa.items WHERE "Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND "ItemCode" = 'REV868C1-ITEM' AND "Name" = 'REV868C1 Item' AND "MaterialType" = 'Material' AND "Status" = 'Active' AND "IsActive" AND "UomId" IS NULL) <> 1 THEN
+                        RAISE EXCEPTION 'REV869A approved Item-to-EA plan does not exactly match current Item source evidence';
                     END IF;
-                    UPDATE nexa.items SET "BaseUomId" = "UomId";
-                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "BaseUomId" IS NULL) THEN
-                        RAISE EXCEPTION 'REV869A readiness failed: deterministic BaseUomId backfill is incomplete.';
+                    IF (SELECT count(*) FROM nexa.rev869a_items_prechange_backup WHERE "Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND "ItemCode" = 'REV868C1-ITEM' AND "Name" = 'REV868C1 Item' AND "MaterialType" = 'Material' AND "Status" = 'Active' AND "UomId" IS NULL) <> 1 THEN
+                        RAISE EXCEPTION 'REV869A approved Item original values are not preserved in the prechange backup';
                     END IF;
-                END $;
+                    INSERT INTO nexa.uoms ("Id", "Code", "Name", "MeasurementDimension", "QuantityPrecision", "IsActive", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+                    VALUES ('f71a4725-bb15-e7bf-e97b-991985e96328'::uuid, 'EA', 'Each', 'COUNT', 0, true, TIMESTAMPTZ '2026-08-10T00:00:00+00:00', 'migration-rev869a', null, null, 0::bigint);
+                    UPDATE nexa.items SET "UomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid, "BaseUomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid
+                    WHERE "Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND "ItemCode" = 'REV868C1-ITEM' AND "UomId" IS NULL;
+                    GET DIAGNOSTICS affected_item_count = ROW_COUNT;
+                    IF affected_item_count <> 1 THEN RAISE EXCEPTION 'REV869A approved Item-to-EA update affected % rows instead of 1', affected_item_count; END IF;
+                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "UomId" IS NULL OR "BaseUomId" IS NULL) THEN RAISE EXCEPTION 'REV869A approved Item-to-EA backfill is incomplete'; END IF;
+                END $rev869a_uom_plan$;
                 ALTER TABLE nexa.items ALTER COLUMN "BaseUomId" SET NOT NULL;
                 ALTER TABLE nexa.uoms ALTER COLUMN "MeasurementDimension" DROP DEFAULT;
                 """);
@@ -184,6 +195,16 @@ migrationBuilder.AddColumn<string>(
                 schema: "nexa",
                 table: "rack_bins",
                 columns: new[] { "WarehouseId", "Id" });
+            migrationBuilder.Sql("""
+                INSERT INTO nexa.controlled_configuration_histories
+                    ("Id", "OrganizationId", "EntityType", "EntityId", "Action", "BeforeJson", "AfterJson", "ActorLoginId", "ActorRoleCode", "Remarks", "CorrelationId", "CreatedAt", "CreatedBy", "UpdatedAt", "UpdatedBy", "Version")
+                VALUES ('0007efa3-4888-a87d-45ef-72cc55f4dd45'::uuid, 'SESS', 'UOM', 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid,
+                    'MANAGEMENT_APPROVED_CREATE_AND_ITEM_BACKFILL', null,
+                    '{"UomId":"f71a4725-bb15-e7bf-e97b-991985e96328","UomCode":"EA","Name":"Each","MeasurementDimension":"COUNT","QuantityPrecision":0,"IsCanonicalBase":true,"ConversionPolicy":"IDENTITY_ONLY","LifecycleAction":"CREATE","ApprovalStatus":"APPROVED","ManagementApprovalReference":"MGMT-REV869A-UOM-20260810-001","ItemId":"8c428e59-db05-471d-a7e7-4f7dc1c13b54","ItemCode":"REV868C1-ITEM","MappingStatus":"APPROVED","MappingBasis":"MANAGEMENT_APPROVED"}'::jsonb,
+                    'management-approved-source-plan', 'MANAGEMENT_APPROVAL', 'Approved EA UOM creation and exact REV868C1-ITEM mapping; MGMT-REV869A-UOM-20260810-001',
+                    'MGMT-REV869A-UOM-20260810-001', TIMESTAMPTZ '2026-08-10T00:00:00+00:00', 'migration-rev869a', null, null, 0::bigint);
+                """);
+
             migrationBuilder.CreateTable(
                 name: "employee_identity_mappings",
                 schema: "nexa",
@@ -924,6 +945,25 @@ migrationBuilder.AddColumn<string>(
                 DROP FUNCTION IF EXISTS nexa.rev869a_guard_used_uom_conversion() CASCADE;
                 DROP FUNCTION IF EXISTS nexa.rev869a_guard_controlled_version() CASCADE;
                 DROP FUNCTION IF EXISTS nexa.rev869a_block_history_mutation() CASCADE;
+                """);
+            migrationBuilder.Sql("""
+                DO $rev869a_uom_rollback$
+                DECLARE restored_item_count integer; deleted_history_count integer; deleted_uom_count integer;
+                BEGIN
+                    IF (SELECT count(*) FROM nexa.rev869a_items_prechange_backup WHERE "Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND "UomId" IS NULL) <> 1 THEN RAISE EXCEPTION 'REV869A rollback cannot prove the exact original null Item UomId'; END IF;
+                    IF (SELECT count(*) FROM nexa.items WHERE "Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND "UomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid AND "BaseUomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid) <> 1 THEN RAISE EXCEPTION 'REV869A rollback target Item is not in the exact approved EA-mapped state'; END IF;
+                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "Id" <> '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND ("UomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid OR "BaseUomId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid)) THEN RAISE EXCEPTION 'REV869A rollback refuses to delete EA because an unapproved Item references it'; END IF;
+                    UPDATE nexa.items i SET "UomId" = b."UomId", "BaseUomId" = null FROM nexa.rev869a_items_prechange_backup b
+                    WHERE i."Id" = b."Id" AND i."Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid;
+                    GET DIAGNOSTICS restored_item_count = ROW_COUNT;
+                    IF restored_item_count <> 1 OR EXISTS (SELECT 1 FROM nexa.items i JOIN nexa.rev869a_items_prechange_backup b ON b."Id" = i."Id" WHERE i."Id" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND (to_jsonb(i) - 'BaseUomId') IS DISTINCT FROM to_jsonb(b)) THEN RAISE EXCEPTION 'REV869A rollback did not restore the exact backed-up Item values'; END IF;
+                    DELETE FROM nexa.controlled_configuration_histories WHERE "Id" = '0007efa3-4888-a87d-45ef-72cc55f4dd45'::uuid AND "EntityId" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid AND "CreatedBy" = 'migration-rev869a' AND "CorrelationId" = 'MGMT-REV869A-UOM-20260810-001';
+                    GET DIAGNOSTICS deleted_history_count = ROW_COUNT;
+                    IF deleted_history_count <> 1 THEN RAISE EXCEPTION 'REV869A rollback did not delete exactly one owned EA approval-history row'; END IF;
+                    DELETE FROM nexa.uoms WHERE "Id" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid AND "Code" = 'EA' AND "Name" = 'Each' AND "MeasurementDimension" = 'COUNT' AND "QuantityPrecision" = 0 AND "CreatedBy" = 'migration-rev869a';
+                    GET DIAGNOSTICS deleted_uom_count = ROW_COUNT;
+                    IF deleted_uom_count <> 1 THEN RAISE EXCEPTION 'REV869A rollback did not delete exactly one migration-owned EA UOM'; END IF;
+                END $rev869a_uom_rollback$;
                 """);
 
             migrationBuilder.DeleteData(schema: "nexa", table: "organization_policies", keyColumn: "Id", keyColumnType: "uuid", keyValue: new Guid("50000000-0000-0000-0000-000000000001"));

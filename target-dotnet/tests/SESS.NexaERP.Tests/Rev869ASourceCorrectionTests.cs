@@ -58,13 +58,30 @@ public sealed class Rev869ASourceCorrectionTests
     }
 
     [Fact]
-    public void UomBackfillIsExactAndNeverInventsDefault()
+    public void UomCreationAndItemBackfillAreExactAndManagementApproved()
     {
         var migration = Migration();
-        Assert.Contains("every existing item must have an exact existing UomId", migration);
-        Assert.Contains("UPDATE nexa.items SET \"BaseUomId\" = \"UomId\"", migration);
+        Assert.Equal(Guid.Parse("f71a4725-bb15-e7bf-e97b-991985e96328"), Rev869ASeedData.ApprovedEaUomId);
+        foreach (var value in new[] { "EA", "Each", "COUNT", "IDENTITY_ONLY", "MGMT-REV869A-UOM-20260810-001", "8c428e59-db05-471d-a7e7-4f7dc1c13b54", "REV868C1-ITEM" })
+            Assert.Contains(value, migration);
+        Assert.Contains("INSERT INTO nexa.uoms", migration);
+        Assert.Contains("UPDATE nexa.items SET \"UomId\" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid, \"BaseUomId\" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid", migration);
+        Assert.Contains("WHERE \"Id\" = '8c428e59-db05-471d-a7e7-4f7dc1c13b54'::uuid AND \"ItemCode\" = 'REV868C1-ITEM' AND \"UomId\" IS NULL", migration);
         Assert.Contains("ALTER COLUMN \"BaseUomId\" SET NOT NULL", migration);
+        Assert.DoesNotContain("UPDATE nexa.items SET \"BaseUomId\" = \"UomId\"", migration);
         Assert.DoesNotContain("00000000-0000-0000-0000-000000000000", migration);
+    }
+
+    [Fact]
+    public void UomRollbackRestoresNullAndDeletesOnlyOwnedEaRows()
+    {
+        var migration = Migration();
+        Assert.Contains("UPDATE nexa.items i SET \"UomId\" = b.\"UomId\", \"BaseUomId\" = null", migration);
+        Assert.Contains("rollback cannot prove the exact original null Item UomId", migration);
+        Assert.Contains("DELETE FROM nexa.controlled_configuration_histories WHERE \"Id\" = '0007efa3-4888-a87d-45ef-72cc55f4dd45'::uuid", migration);
+        Assert.Contains("DELETE FROM nexa.uoms WHERE \"Id\" = 'f71a4725-bb15-e7bf-e97b-991985e96328'::uuid", migration);
+        Assert.Contains("\"CreatedBy\" = 'migration-rev869a'", migration);
+        Assert.Contains("rollback refuses to delete EA because an unapproved Item references it", migration);
     }
 
     [Fact]

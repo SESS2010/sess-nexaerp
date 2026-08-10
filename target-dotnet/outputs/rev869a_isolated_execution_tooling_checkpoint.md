@@ -342,3 +342,18 @@ Final offline validation:
 - `git diff --check`: PASS.
 
 No helper mode or PostgreSQL/database/migration-apply/backup/production/REV861/REV869B action occurred. `../legacy-reference/` remained read-only, unchanged, and untracked.
+## 2026-08-10 management-approved EA UOM implementation addendum
+
+Starting source commit: `ff27fe632e22bd0eef2742e08e6bfb251062f5dc`.
+
+Management approval `MGMT-REV869A-UOM-20260810-001` replaces the former pending/empty UOM decision. The deterministic migration-owned EA identifier is `f71a4725-bb15-e7bf-e97b-991985e96328` (derived with the repository's SHA-256-to-Guid convention from `rev869a-uom|EA`). The exact approved contract is EA / Each / COUNT / precision 0 / canonical base / identity-only conversion / CREATE / APPROVED. `IsCanonicalBase` and `ConversionPolicy` are not physical columns in the current `uoms` model, so they are preserved—together with the approval reference and item mapping—in the immutable controlled-configuration history row `0007efa3-4888-a87d-45ef-72cc55f4dd45`.
+
+Preflight now evaluates a creation/backfill plan, not post-migration state. It requires one exact UOM contract, one exact item mapping, no ID/code/name collision, the exact approved current item (`8c428e59-db05-471d-a7e7-4f7dc1c13b54`, `REV868C1-ITEM`) with null `UomId`, and no additional uncovered null-UOM item. Thus raw `unmapped_item_count=1` is permitted only when the exact plan covers that same row; missing, extra, duplicate, invalid, defaulted, inferred, or guessed mappings fail closed.
+
+Up creates backups first, adds the REV869A columns, inserts exactly one migration-owned EA UOM, updates exactly the approved Item's `UomId` and `BaseUomId`, creates the remaining objects in FK-safe order, and writes one immutable approval-history row. Post-verification separately requires the 88 security/configuration rows, one EA row, one updated Item, one UOM history row, zero collisions/mismatches, and exact backup equality for every row/field outside the approved delta.
+
+Ownership reconciliation: 4 roles + 8 pages + 74 permissions + 2 policies = 88 security/configuration inserts; plus 1 EA UOM and 1 controlled history = 90 inserted migration-owned rows; exactly 1 existing Item is updated. Down restores that Item's exact backed-up `UomId=NULL`, deletes exactly the owned history and EA rows after proving no other Item references EA, removes the existing 88 owned security/configuration rows, removes the added `BaseUomId` column through the existing Down path, and drops the three backup tables last.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused REV869A tests 59/59 PASS; complete non-PostgreSQL tests 344/344 PASS; EF discovery PASS with 12 migrations and REV869A exactly once; pending-model check PASS; offline Up/Down generation PASS (Up 85,381 bytes, one EA insert and one Item update; Down 12,077 bytes, one EA delete and one Item restore; all three backup tables drop last); acceptance/relation/safety scans and `git diff --check` PASS.
+
+No helper mode, PostgreSQL/database access, migration application/removal, backup/restore, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. `../legacy-reference/` remained read-only, unchanged, and untracked.
