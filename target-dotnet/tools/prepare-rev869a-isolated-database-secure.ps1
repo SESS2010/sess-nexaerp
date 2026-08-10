@@ -44,6 +44,11 @@ $approvedBackupRoot = Join-Path $repoRoot "backups\postgresql\pre-rev869a-isolat
 $evidenceRoot = Join-Path $repoRoot "local-evidence\rev869a-isolated-provisioning"
 $password = $null
 $plainPassword = $null
+$failedQueryLabel = "NOT_APPLICABLE"
+$failureSqlState = "NOT_AVAILABLE"
+$failureSchema = "NOT_AVAILABLE"
+$failureTable = "NOT_AVAILABLE"
+$failureColumn = "NOT_AVAILABLE"
 
 function Assert-Mode {
     $count = @($GeneratePlanOnly, $SourcePreflightOnly, $Provision, $PostProvisionVerification | Where-Object { $_ }).Count
@@ -101,9 +106,40 @@ function Initialize-DatabaseAccess {
     $env:PGPASSWORD = $script:plainPassword
 }
 
+function Find-DiagnosticIdentifier([string]$Text, [string[]]$Patterns) {
+    foreach ($pattern in $Patterns) {
+        $match = [regex]::Match($Text, $pattern)
+        if ($match.Success) { return $match.Groups[1].Value }
+    }
+    return "NOT_AVAILABLE"
+}
+
+function Set-SanitizedFailureMetadata([object[]]$Output) {
+    $diagnostic = $Output -join "`n"
+    $script:failureSqlState = Find-DiagnosticIdentifier $diagnostic @(
+        '(?im)(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5}):',
+        '(?im)\bSQLSTATE\s*[=:]\s*([0-9A-Z]{5})'
+    )
+    $script:failureSchema = Find-DiagnosticIdentifier $diagnostic @(
+        '(?im)SCHEMA NAME:\s*([A-Za-z_][A-Za-z0-9_]*)',
+        '(?im)relation\s+"([A-Za-z_][A-Za-z0-9_]*)\.[A-Za-z_][A-Za-z0-9_]*"'
+    )
+    $script:failureTable = Find-DiagnosticIdentifier $diagnostic @(
+        '(?im)TABLE NAME:\s*([A-Za-z_][A-Za-z0-9_]*)',
+        '(?im)relation\s+"(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)"'
+    )
+    $script:failureColumn = Find-DiagnosticIdentifier $diagnostic @(
+        '(?im)COLUMN NAME:\s*([A-Za-z_][A-Za-z0-9_]*)',
+        '(?im)column\s+"([A-Za-z_][A-Za-z0-9_]*)"\s+does not exist'
+    )
+}
+
 function Invoke-Native([string]$Executable, [string[]]$Arguments, [string]$Purpose) {
     $output = & $Executable @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) { throw (Protect-Text "$Purpose failed: $($output -join ' ')") }
+    if ($LASTEXITCODE -ne 0) {
+        Set-SanitizedFailureMetadata @($output)
+        throw (Protect-Text "$Purpose failed; sanitized diagnostic metadata captured.")
+    }
     return @($output)
 }
 
@@ -113,8 +149,10 @@ function Invoke-ReadOnlySql([string]$Database, [string]$Name, [string]$Sql) {
     $tempFile = Join-Path ([IO.Path]::GetTempPath()) ("rev869a-" + [guid]::NewGuid().ToString("N") + ".sql")
     try {
         [IO.File]::WriteAllText($tempFile, $Sql, [Text.UTF8Encoding]::new($false))
-        $args = @("-X", "-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $Database, "-v", "ON_ERROR_STOP=1", "-At", "-f", $tempFile)
-        return Invoke-Native $PsqlPath $args $Name
+        $script:failedQueryLabel = $Name
+        $args = @("-X", "-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $Database, "-v", "ON_ERROR_STOP=1", "-v", "VERBOSITY=verbose", "-At", "-f", $tempFile)
+        $result = Invoke-Native $PsqlPath $args $Name
+        return $result
     }
     finally { if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force } }
 }
@@ -146,6 +184,47 @@ $preservationRelations = [ordered]@{
     employee_import_history = "nexa.employee_import_history"
 }
 $preservationTables = @($preservationRelations.Keys)
+$sqlColumnContracts = [ordered]@{
+    'public.__EFMigrationsHistory' = @('MigrationId')
+    'nexa.employees' = @('EmployeeCode', 'Status')
+    'nexa.departments' = @('Code', 'IsActive')
+    'nexa.department_approval_mappings' = @('ApprovalRouteCode', 'IsActive')
+    'nexa.purchase_approval_workflow_steps' = @('RouteCode')
+}
+
+function New-SchemaContractSql {
+    $relationRows = @($preservationRelations.Values | ForEach-Object {
+        $parts = $_.Split('.')
+        "('" + $parts[0] + "','" + $parts[1] + "')"
+    })
+    $relationRows += "('public','__EFMigrationsHistory')"
+    $relationValues = $relationRows -join ",`n"
+    $columnRows = New-Object System.Collections.Generic.List[string]
+    foreach ($entry in $sqlColumnContracts.GetEnumerator()) {
+        $parts = $entry.Key.Split('.')
+        foreach ($column in $entry.Value) { $columnRows.Add("('" + $parts[0] + "','" + $parts[1] + "','" + $column + "')") }
+    }
+    $columnValues = $columnRows -join ",`n"
+    return @"
+begin transaction read only;
+with expected_relations(schema_name, table_name) as (values
+$relationValues
+), expected_columns(schema_name, table_name, column_name) as (values
+$columnValues
+), contract_evidence as (
+  select
+    (select count(*) from expected_relations e left join information_schema.tables t
+      on t.table_schema=e.schema_name and t.table_name=e.table_name where t.table_name is null) missing_relation_count,
+    (select count(*) from expected_columns e left join information_schema.columns c
+      on c.table_schema=e.schema_name and c.table_name=e.table_name and c.column_name=e.column_name where c.column_name is null) missing_column_count
+)
+select 'missing_relation_count=' || missing_relation_count from contract_evidence
+union all select 'missing_column_count=' || missing_column_count from contract_evidence
+union all select 'schema_contract_state=' || case when missing_relation_count=0 and missing_column_count=0 then 'PASS' else 'FAIL' end from contract_evidence
+order by 1;
+commit;
+"@
+}
 
 function New-EvidenceSql([bool]$RequireTargetAbsent) {
     $expected = Get-ExpectedMigrationValues
@@ -176,7 +255,7 @@ $expected
     (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'active') active_employee_count,
     (select count(*) from nexa.employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved') relieved_employee_count,
     (select count(*) from nexa.departments d join clean_departments c on c.code=d."Code" where d."IsActive") active_clean_department_count,
-    (select count(*) from nexa.department_approval_mappings where "RouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
+    (select count(*) from nexa.department_approval_mappings where "ApprovalRouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
 ), table_counts as (
 $tableCountSql
 
@@ -216,6 +295,17 @@ function Convert-Evidence([object[]]$Lines) {
     return $map
 }
 
+function Assert-SchemaContractEvidence([hashtable]$Evidence) {
+    foreach ($pair in @{ missing_relation_count='0'; missing_column_count='0'; schema_contract_state='PASS' }.GetEnumerator()) {
+        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Schema contract evidence is incomplete: $($pair.Key)." }
+    }
+}
+
+function Get-DatabaseSchemaContract([string]$Database, [string]$QueryLabel) {
+    $sql = New-SchemaContractSql
+    return Convert-Evidence (Invoke-ReadOnlySql $Database $QueryLabel $sql)
+}
+
 function Assert-SourceEvidence([hashtable]$Evidence) {
     foreach ($pair in @{
         database_identity=$acceptedSource; expected_migration_count='11'; missing_migration_count='0';
@@ -237,8 +327,10 @@ function Assert-AcceptedCoreEvidence([hashtable]$Evidence, [string]$ExpectedData
     }
 }
 function Get-SourceEvidence {
+    $schemaEvidence = Get-DatabaseSchemaContract $acceptedSource "SOURCE_PREFLIGHT_SCHEMA_CONTRACT"
+    Assert-SchemaContractEvidence $schemaEvidence
     $sql = New-EvidenceSql $true
-    return Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "Source preflight" $sql)
+    return Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "SOURCE_PREFLIGHT_ACCEPTANCE_AND_PRESERVATION" $sql)
 }
 
 function Assert-PreservationEqual([hashtable]$Source, [hashtable]$Target) {
@@ -271,7 +363,7 @@ function Write-Plan {
     $expectedMigrations | ForEach-Object { Write-Output "accepted_migration=$_" }
     Write-Output "backup_root=$approvedBackupRoot"
     Write-Output "backup_policy=fresh current custom-format source backup; older pre-C3 backup forbidden"
-    Write-Output "source_preflight=read-only identity, target absence, exact migrations, REV868C3 counts and preservation evidence"
+    Write-Output "source_preflight=read-only schema/column contract, identity, target absence, exact migrations, REV868C3 counts and preservation evidence"
     Write-Output "provision=pg_dump custom; create exact absent target; pg_restore --no-owner --no-privileges"
     Write-Output "post_verification=read-only identity, exact migration-set equality, preservation equality, PASS gates"
     Write-Output "failure_policy=QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR; no automatic drop or repair"
@@ -299,9 +391,13 @@ try {
 
     if ($PostProvisionVerification) {
         $failedPhase = "POST_PROVISION_VERIFICATION"
+        $sourceSchemaEvidence = Get-DatabaseSchemaContract $acceptedSource "POST_PROVISION_SOURCE_SCHEMA_CONTRACT"
+        Assert-SchemaContractEvidence $sourceSchemaEvidence
+        $targetSchemaEvidence = Get-DatabaseSchemaContract $acceptedTarget "POST_PROVISION_TARGET_SCHEMA_CONTRACT"
+        Assert-SchemaContractEvidence $targetSchemaEvidence
         $sourceSql = New-EvidenceSql $false
-        $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "Source preservation verification" $sourceSql)
-        $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Target preservation verification" $sourceSql)
+        $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "POST_PROVISION_SOURCE_ACCEPTANCE_AND_PRESERVATION" $sourceSql)
+        $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $sourceSql)
         Assert-AcceptedCoreEvidence $sourceEvidence $acceptedSource
         Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
         Assert-PreservationEqual $sourceEvidence $targetEvidence
@@ -313,6 +409,7 @@ try {
     $sourceEvidence = Get-SourceEvidence
     Assert-SourceEvidence $sourceEvidence
     $failedPhase = "SOURCE_BACKUP"
+    $failedQueryLabel = "NOT_APPLICABLE"
     if (-not (Test-Path -LiteralPath $approvedBackupRoot)) { New-Item -ItemType Directory -Path $approvedBackupRoot | Out-Null }
     $resolvedBackupRoot = (Resolve-Path -LiteralPath $approvedBackupRoot).Path
     $expectedRoot = [IO.Path]::GetFullPath($approvedBackupRoot)
@@ -330,17 +427,21 @@ try {
     $sourceEvidence = Get-SourceEvidence
     Assert-SourceEvidence $sourceEvidence
     $failedPhase = "TARGET_CREATE"
+    $failedQueryLabel = "NOT_APPLICABLE"
     $createArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "--maintenance-db=postgres", "--encoding=UTF8", "--template=template0", $acceptedTarget)
     Invoke-Native $CreateDbPath $createArgs "Create isolated target" | Out-Null
     $targetCreated = $true
     $failedPhase = "TARGET_RESTORE"
+    $failedQueryLabel = "NOT_APPLICABLE"
     $restoreArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $acceptedTarget, "--no-owner", "--no-privileges", $backupPath)
     Assert-SafeRestoreArguments $restoreArgs
     Invoke-Native $PgRestorePath $restoreArgs "Restore isolated target" | Out-Null
 
     $failedPhase = "POST_PROVISION_VERIFICATION"
+    $targetSchemaEvidence = Get-DatabaseSchemaContract $acceptedTarget "POST_PROVISION_TARGET_SCHEMA_CONTRACT"
+    Assert-SchemaContractEvidence $targetSchemaEvidence
     $verificationSql = New-EvidenceSql $false
-    $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Post-provision verification" $verificationSql)
+    $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $verificationSql)
     Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
     Assert-PreservationEqual $sourceEvidence $targetEvidence
     $evidencePath = Write-SanitizedEvidence @(
@@ -353,12 +454,17 @@ try {
 }
 catch {
     $state = if ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
-    $details = @("provision_acceptance_state=FAIL", "failed_phase=$failedPhase", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
+    $details = @("provision_acceptance_state=FAIL", "failed_phase=$failedPhase", "failed_query_label=$failedQueryLabel", "sqlstate=$failureSqlState", "failure_schema=$failureSchema", "failure_table=$failureTable", "failure_column=$failureColumn", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
     if ($backupPath) { $details += "backup_path=$backupPath" }
     if ($backupSha256) { $details += "backup_sha256=$backupSha256" }
     $failureEvidencePath = New-SanitizedEvidencePath
     Write-Output "provision_acceptance_state=FAIL"
     Write-Output "failed_phase=$failedPhase"
+    Write-Output "failed_query_label=$failedQueryLabel"
+    Write-Output "sqlstate=$failureSqlState"
+    Write-Output "failure_schema=$failureSchema"
+    Write-Output "failure_table=$failureTable"
+    Write-Output "failure_column=$failureColumn"
     Write-Output "target_state=$state"
     Write-Output "sanitized_evidence_path=$failureEvidencePath"
     Write-SanitizedEvidence $details $failureEvidencePath | Out-Null
@@ -367,6 +473,11 @@ catch {
 finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
     $plainPassword = $null
+    $failedQueryLabel = "NOT_APPLICABLE"
+    $failureSqlState = "NOT_AVAILABLE"
+    $failureSchema = "NOT_AVAILABLE"
+    $failureTable = "NOT_AVAILABLE"
+    $failureColumn = "NOT_AVAILABLE"
     if ($password -is [IDisposable]) { $password.Dispose() }
     $password = $null
 }

@@ -7,6 +7,10 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     private static readonly string Root = FindRoot();
     private static readonly string HelperPath = Path.Combine(Root, "tools", "prepare-rev869a-isolated-database-secure.ps1");
     private static readonly string Source = File.ReadAllText(HelperPath);
+    private static readonly string DbContextSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs"));
+    private static readonly string SnapshotSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
+    private static readonly string Rev868C2Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs"));
+    private static readonly string Rev868C3Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs"));
 
     private static readonly string[] ExpectedMigrations =
     {
@@ -192,15 +196,92 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     }
 
     [Fact]
-    public void UndefinedRelationFailureRemainsFailClosedWithSanitizedEvidence()
+    public void RouteColumnsRemainTableSpecificAcrossHelperAndAuthoritativeSources()
     {
-        Assert.Contains("if ($LASTEXITCODE -ne 0) { throw", Source, StringComparison.Ordinal);
+        Assert.Contains("from nexa.department_approval_mappings where \"ApprovalRouteCode\"='MANAGER'", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("department_approval_mappings where \"RouteCode\"", Source, StringComparison.Ordinal);
+        Assert.Contains("'nexa.department_approval_mappings' = @('ApprovalRouteCode', 'IsActive')", Source, StringComparison.Ordinal);
+        Assert.Contains("'nexa.purchase_approval_workflow_steps' = @('RouteCode')", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("'nexa.department_approval_mappings' = @('RouteCode'", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("'nexa.purchase_approval_workflow_steps' = @('ApprovalRouteCode'", Source, StringComparison.Ordinal);
+
+        Assert.Contains("entity.Property(x => x.ApprovalRouteCode)", DbContextSource, StringComparison.Ordinal);
+        Assert.Contains("entity.Property(x => x.RouteCode)", DbContextBlock("purchase_approval_workflow_steps"), StringComparison.Ordinal);
+        Assert.Contains("b.Property<string>(\"ApprovalRouteCode\")", SnapshotBlock("department_approval_mappings"), StringComparison.Ordinal);
+        Assert.DoesNotContain("b.Property<string>(\"RouteCode\")", SnapshotBlock("department_approval_mappings"), StringComparison.Ordinal);
+        Assert.Contains("b.Property<string>(\"RouteCode\")", SnapshotBlock("purchase_approval_workflow_steps"), StringComparison.Ordinal);
+        Assert.DoesNotContain("b.Property<string>(\"ApprovalRouteCode\")", SnapshotBlock("purchase_approval_workflow_steps"), StringComparison.Ordinal);
+        Assert.Contains("ApprovalRouteCode = table.Column<string>", Rev868C2Migration, StringComparison.Ordinal);
+        Assert.Contains("RouteCode = table.Column<string>", Rev868C3Migration, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryHelperRelationAndDirectColumnMatchesCurrentSnapshot()
+    {
+        foreach (var relation in RequiredPreservation())
+            Assert.Contains($"b.ToTable(\"{relation}\", \"nexa\"", SnapshotSource, StringComparison.Ordinal);
+
+        var expectedColumns = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["employees"] = ["EmployeeCode", "Status"],
+            ["departments"] = ["Code", "IsActive"],
+            ["department_approval_mappings"] = ["ApprovalRouteCode", "IsActive"],
+            ["purchase_approval_workflow_steps"] = ["RouteCode"]
+        };
+        foreach (var contract in expectedColumns)
+            foreach (var column in contract.Value)
+                Assert.Contains($"(\"{column}\")", SnapshotBlock(contract.Key), StringComparison.Ordinal);
+
+        Assert.Contains("'public.__EFMigrationsHistory' = @('MigrationId')", Source, StringComparison.Ordinal);
+        Assert.Contains("information_schema.tables", Source, StringComparison.Ordinal);
+        Assert.Contains("information_schema.columns", Source, StringComparison.Ordinal);
+        Assert.Contains("schema_contract_state='PASS'", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SchemaAndEvidenceBuildersContainNoDatabaseModificationSql()
+    {
+        var schemaBuilder = FunctionBlock("function New-SchemaContractSql", "function New-EvidenceSql");
+        var evidenceBuilder = FunctionBlock("function New-EvidenceSql", "function Convert-Evidence");
+        foreach (var builder in new[] { schemaBuilder, evidenceBuilder })
+            Assert.DoesNotMatch(new Regex(@"(?im)^\s*(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|reindex)\b"), builder);
+        Assert.Contains("begin transaction read only;", schemaBuilder, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("begin transaction read only;", evidenceBuilder, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UndefinedRelationOrColumnFailureRemainsFailClosedWithSanitizedEvidence()
+    {
+        Assert.Contains("if ($LASTEXITCODE -ne 0)", Source, StringComparison.Ordinal);
+        Assert.Contains("Set-SanitizedFailureMetadata @($output)", Source, StringComparison.Ordinal);
+        Assert.Contains("sanitized diagnostic metadata captured", Source, StringComparison.Ordinal);
         Assert.Contains("provision_acceptance_state=FAIL", Source, StringComparison.Ordinal);
         Assert.Contains("failed_phase=$failedPhase", Source, StringComparison.Ordinal);
+        Assert.Contains("failed_query_label=$failedQueryLabel", Source, StringComparison.Ordinal);
+        Assert.Contains("sqlstate=$failureSqlState", Source, StringComparison.Ordinal);
+        Assert.Contains("failure_schema=$failureSchema", Source, StringComparison.Ordinal);
+        Assert.Contains("failure_table=$failureTable", Source, StringComparison.Ordinal);
+        Assert.Contains("failure_column=$failureColumn", Source, StringComparison.Ordinal);
         Assert.Contains("target_state=$state", Source, StringComparison.Ordinal);
         Assert.Contains("sanitized_evidence_path=$failureEvidencePath", Source, StringComparison.Ordinal);
+        Assert.Contains("SOURCE_PREFLIGHT_SCHEMA_CONTRACT", Source, StringComparison.Ordinal);
+        Assert.Contains("SOURCE_PREFLIGHT_ACCEPTANCE_AND_PRESERVATION", Source, StringComparison.Ordinal);
         Assert.Contains("(DETAIL|CONTEXT|STATEMENT)", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("$Purpose failed: $($output", Source, StringComparison.Ordinal);
         Assert.Equal("NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT", FailureTargetState(targetCreated: false));
+    }
+
+    [Fact]
+    public void VerboseSqlDiagnosticMetadataIsIdentifierOnly()
+    {
+        const string diagnostic = "ERROR:  42703: column \"RouteCode\" does not exist\nSCHEMA NAME: nexa\nTABLE NAME: department_approval_mappings\nCOLUMN NAME: RouteCode";
+        var parsed = ParseDiagnostic(diagnostic);
+        Assert.Equal("42703", parsed.SqlState);
+        Assert.Equal("nexa", parsed.Schema);
+        Assert.Equal("department_approval_mappings", parsed.Table);
+        Assert.Equal("RouteCode", parsed.Column);
+        Assert.Contains("VERBOSITY=verbose", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("temporary_sql=", Source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -239,6 +320,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
 
         Assert.Contains("Assert-PreservationEqual $sourceEvidence $targetEvidence", Source, StringComparison.Ordinal);
     }
+
     [Fact]
     public void HelperRemainsPowerShell51Compatible()
     {
@@ -247,6 +329,50 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.DoesNotContain("$PSStyle", Source, StringComparison.Ordinal);
         Assert.Contains("Set-StrictMode -Version Latest", Source, StringComparison.Ordinal);
     }
+
+    private static string FunctionBlock(string startMarker, string endMarker)
+    {
+        var start = Source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = Source.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return Source[start..end];
+    }
+
+    private static string SnapshotBlock(string table)
+    {
+        var tableAt = SnapshotSource.IndexOf($"b.ToTable(\"{table}\", \"nexa\"", StringComparison.Ordinal);
+        var start = SnapshotSource.LastIndexOf("modelBuilder.Entity(", tableAt, StringComparison.Ordinal);
+        var end = SnapshotSource.IndexOf("modelBuilder.Entity(", tableAt + 1, StringComparison.Ordinal);
+        Assert.True(tableAt >= 0 && start >= 0);
+        if (end < 0) end = SnapshotSource.Length;
+        return SnapshotSource[start..end];
+    }
+
+    private static string DbContextBlock(string table)
+    {
+        var tableAt = DbContextSource.IndexOf($"entity.ToTable(\"{table}\")", StringComparison.Ordinal);
+        var start = DbContextSource.LastIndexOf("modelBuilder.Entity<", tableAt, StringComparison.Ordinal);
+        var end = DbContextSource.IndexOf("modelBuilder.Entity<", tableAt + 1, StringComparison.Ordinal);
+        Assert.True(tableAt >= 0 && start >= 0);
+        if (end < 0) end = DbContextSource.Length;
+        return DbContextSource[start..end];
+    }
+
+    private static DiagnosticMetadata ParseDiagnostic(string diagnostic)
+    {
+        static string Match(string text, string pattern)
+        {
+            var result = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            return result.Success ? result.Groups[1].Value : "NOT_AVAILABLE";
+        }
+        return new DiagnosticMetadata(
+            Match(diagnostic, @"(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5}):"),
+            Match(diagnostic, @"SCHEMA NAME:\s*([A-Za-z_][A-Za-z0-9_]*)"),
+            Match(diagnostic, @"TABLE NAME:\s*([A-Za-z_][A-Za-z0-9_]*)"),
+            Match(diagnostic, @"COLUMN NAME:\s*([A-Za-z_][A-Za-z0-9_]*)"));
+    }
+
+    private sealed record DiagnosticMetadata(string SqlState, string Schema, string Table, string Column);
 
     private static bool IsAcceptedEndpoint(string source, string target, string host, int port) =>
         source == "sess_nexaerp_rev868_verify" && target == "sess_nexaerp_rev869a_verify" &&
@@ -285,6 +411,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         targetCreated ? "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" : "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT";
 
     private static bool TargetCreationAllowed(bool sourcePreflightPassed) => sourcePreflightPassed;
+
     private static string[] RequiredPreservation() =>
     [
         "employees", "departments", "department_approval_mappings", "purchase_requisitions",

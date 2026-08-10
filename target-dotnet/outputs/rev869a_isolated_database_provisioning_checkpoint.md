@@ -106,6 +106,31 @@ The observed `SourcePreflightOnly` undefined-relation failure was caused by unqu
 The exact eleven-migration set, zero missing/unexpected/duplicate requirements, 42 active employees, 9 relieved employees, 12 active clean departments, 14 active manager mappings, target absence, source/target preservation equality, and all fail-closed gates are unchanged.
 
 Failure evidence now records and prints `provision_acceptance_state`, the failed phase, safe target state, and sanitized evidence-report path. Before-target failures preserve `target_state=NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT`. The report path is printed before evidence persistence and the sanitized report redacts credential fields, employee/email fields, and PostgreSQL `DETAIL`, `CONTEXT`, or `STATEMENT` diagnostics. Target creation remains ordered strictly after successful source evidence validation; there is still no automatic cleanup, drop, or repair path.
+
+## Source-only column-contract correction
+
+The observed failure was in the `SOURCE_PREFLIGHT_ACCEPTANCE_AND_PRESERVATION` query, in the `counts` CTE expression that produces `active_manager_mapping_count`. It queried `nexa.department_approval_mappings` with `"RouteCode" = 'MANAGER'`. That column does not exist on this table.
+
+The authoritative source contract is unambiguous and table-specific:
+
+- `DepartmentApprovalMapping.ApprovalRouteCode`, its DbContext property/index/check-constraint mappings, the model snapshot, REV868C2 table creation, and REV868C3 indexes/seeds all map `nexa.department_approval_mappings."ApprovalRouteCode"`.
+- `PurchaseApprovalWorkflowStep.RouteCode`, its DbContext mapping, the model snapshot, and the REV868C3 table/index/seed definitions map `nexa.purchase_approval_workflow_steps."RouteCode"`.
+- The correction changes only the manager-mapping count predicate to `"ApprovalRouteCode" = 'MANAGER'`. It does not globally replace `RouteCode` and does not alter the workflow-step contract.
+
+A new read-only schema-contract query now runs before acceptance/preservation SQL. It verifies all twenty `nexa` preservation relations, `public."__EFMigrationsHistory"`, and these direct column contracts:
+
+- migration history: `MigrationId`;
+- employees: `EmployeeCode`, `Status`;
+- departments: `Code`, `IsActive`;
+- department approval mappings: `ApprovalRouteCode`, `IsActive`;
+- purchase approval workflow steps: `RouteCode`.
+
+The target-absence lookup remains `pg_catalog.pg_database.datname`. Preservation queries use relation counts only. Metadata checks use `information_schema.tables` and `information_schema.columns`. Both schema-contract and acceptance builders remain enclosed in read-only transactions and contain no database-modification statement.
+
+Failure evidence now identifies `failed_phase`, `failed_query_label`, SQLSTATE when PostgreSQL supplies it, identifier-safe schema/table/column metadata when supplied or derivable, safe target state, and sanitized evidence path. Raw native output is not thrown or persisted, so raw SQL, temporary SQL contents, credentials, connection strings, and employee PII are excluded. Undefined relation or column failures remain before target creation with `target_state=NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT`.
+
+The exact eleven accepted migrations, zero missing/unexpected/duplicate migrations, 42 active employees, 9 relieved employees, 12 active clean departments, 14 active manager mappings, target absence, preservation equality, and all existing fail-closed acceptance requirements are unchanged.
+
 ## Scope confirmation
 
 Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. During this source-only correction turn, no helper mode was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
@@ -114,8 +139,8 @@ Only the secure provisioning helper, its focused offline tests, and this report 
 
 - Windows PowerShell 5.1 parser: PASS, zero parse errors.
 - Solution build: PASS, zero warnings and zero errors.
-- Focused provisioning-helper tests: PASS, 28 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 281 passed, 0 failed, 0 skipped.
+- Focused provisioning-helper tests: PASS, 32 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 285 passed, 0 failed, 0 skipped.
 - Changed-file secret scan: PASS.
 - Changed-file privacy scan: PASS.
 - Changed-file safety scan: PASS.
