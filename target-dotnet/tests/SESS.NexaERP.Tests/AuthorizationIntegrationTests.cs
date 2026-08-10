@@ -12,6 +12,7 @@ using Microsoft.Extensions.Options;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 
 namespace SESS.NexaERP.Tests;
 
@@ -138,6 +139,9 @@ public sealed class AuthorizationIntegrationTests
             builder.Services.AddAuthorization();
             builder.Services.AddSingleton<IPagePermissionService>(new DelegatePagePermissionService(permissionDecision));
             builder.Services.AddSingleton<IAuditWriter>(audit ?? new CapturingAuditWriter());
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<ICurrentUser, TestCurrentUser>();
+            builder.Services.AddSingleton<IRecordScopeAuthorizer, AllowingRecordScopeAuthorizer>();
 
             var app = builder.Build();
             app.UseAuthentication();
@@ -186,6 +190,21 @@ public sealed class AuthorizationIntegrationTests
         }
     }
 
+    private sealed class TestCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
+    {
+        private ClaimsPrincipal Principal => accessor.HttpContext?.User ?? new ClaimsPrincipal();
+        public string LoginId => Principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
+        public string RoleCode => Principal.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+        public string? OrganizationId => Principal.FindFirstValue("organization_id") ?? "SESS";
+        public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
+        public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("90000000-0000-0000-0000-000000000001") : null;
+    }
+
+    private sealed class AllowingRecordScopeAuthorizer : IRecordScopeAuthorizer
+    {
+        public Task<RecordScopeDecision> AuthorizeAnyAsync(Guid employeeId, string roleCode, string organizationId, DateOnly onDate, CancellationToken cancellationToken) => Task.FromResult(new RecordScopeDecision(true, "Test operational scope."));
+        public Task<RecordScopeDecision> AuthorizeAsync(Guid employeeId, string roleCode, RecordScopeTarget target, DateOnly onDate, CancellationToken cancellationToken) => Task.FromResult(new RecordScopeDecision(true, "Test record scope."));
+    }
     private sealed class DelegatePagePermissionService(Func<string, string, bool> permissionDecision) : IPagePermissionService
     {
         public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken cancellationToken)

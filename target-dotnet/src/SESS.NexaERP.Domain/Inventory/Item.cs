@@ -17,7 +17,7 @@ public sealed class Item : AuditableEntity
     public string Uom { get; set; } = string.Empty;
     public Guid? UomId { get; set; }
     public Uom? UomMaster { get; set; }
-    public Guid? BaseUomId { get; set; }
+    public Guid BaseUomId { get; set; }
     public Uom? BaseUom { get; set; }
     public string? ManufacturerMake { get; set; }
     public Guid? ManufacturerId { get; set; }

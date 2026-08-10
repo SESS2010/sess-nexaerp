@@ -1,32 +1,34 @@
 using System.Security.Claims;
+using SESS.NexaERP.Api.Middleware;
 using SESS.NexaERP.Application.Common;
+using SESS.NexaERP.Application.Identity;
 
 namespace SESS.NexaERP.Api.Security;
 
 public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) : ICurrentUser
 {
-    public string LoginId => IdentitySubject
-        ?? ClaimValue(ClaimTypes.Email)
-        ?? ClaimValue(ClaimTypes.NameIdentifier)
-        ?? ClaimValue("preferred_username")
-        ?? "unauthenticated";
+    private HttpContext? Context => httpContextAccessor.HttpContext;
+    private ResolvedEmployeeIdentity? Resolution => Context?.Items[EmployeeIdentityResolutionMiddleware.ResolutionItemKey] as ResolvedEmployeeIdentity;
 
-    public string RoleCode => ClaimValue(ClaimTypes.Role) ?? ClaimValue("role") ?? "none";
-
-    public string? OrganizationId => ClaimValue("organization_id") ?? ClaimValue("org_id") ?? ClaimValue("portal_organization_id");
-
-    public bool IsAuthenticated => httpContextAccessor.HttpContext?.User.Identity?.IsAuthenticated == true;
-
+    public string LoginId => Resolution?.Success == true && !string.IsNullOrWhiteSpace(IdentitySubject) ? IdentitySubject! : "unauthenticated";
+    public string RoleCode
+    {
+        get
+        {
+            if (Resolution?.Success != true) return "none";
+            var claimed = Context?.User.Claims
+                .Where(x => x.Type is ClaimTypes.Role or "role" or "roles")
+                .SelectMany(x => x.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                .FirstOrDefault(x => Resolution.RoleCodes.Contains(x, StringComparer.OrdinalIgnoreCase));
+            return claimed ?? (Resolution.RoleCodes.Count == 1 ? Resolution.RoleCodes[0] : "none");
+        }
+    }
+    public string? OrganizationId => Resolution?.Success == true ? Resolution.OrganizationId : null;
+    public bool IsAuthenticated => Context?.User.Identity?.IsAuthenticated == true && Resolution?.Success == true;
     public string? IdentityIssuer => ClaimValue("iss");
     public string? IdentitySubject => ClaimValue("sub");
-    public Guid? EmployeeId => ParseGuid(ClaimValue("sess_employee_id"));
-    public Guid? DepartmentId => ParseGuid(ClaimValue("sess_department_id"));
+    public Guid? EmployeeId => Resolution?.Success == true ? Resolution.EmployeeId : null;
+    public Guid? DepartmentId => Resolution?.Success == true ? Resolution.DepartmentId : null;
 
-    private static Guid? ParseGuid(string? value) => Guid.TryParse(value, out var parsed) ? parsed : null;
-
-    private string? ClaimValue(string claimType)
-    {
-        return httpContextAccessor.HttpContext?.User.FindFirstValue(claimType);
-    }
+    private string? ClaimValue(string claimType) => Context?.User.FindFirstValue(claimType);
 }
-

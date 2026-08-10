@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Domain.Employees;
@@ -165,7 +165,8 @@ public sealed class Rev868C1PostgresWorkflowVerificationTests
         Assert.Contains("x.ItemCode == itemCode && x.IsActive", endpoint);
         Assert.Contains("x.WarehouseCode == MasterEndpointHelpers.NormalizeCode", endpoint);
         Assert.Contains("&& x.IsActive", endpoint);
-        Assert.Contains("x.WarehouseId == warehouse.Id && x.BinCode == rackBinCode && x.IsActive", endpoint);
+        Assert.Contains("x.RackBin!.BinCode == rackBinCode && x.RackBin.IsActive", endpoint);
+        Assert.Contains("x.ConditionCode == InventoryConditionCodes.Available", endpoint);
         Assert.DoesNotContain("MapDelete", support + endpoint, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("QuantityIn =", support, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("QuantityOut =", support, StringComparison.OrdinalIgnoreCase);

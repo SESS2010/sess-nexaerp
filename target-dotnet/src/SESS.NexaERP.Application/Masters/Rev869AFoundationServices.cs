@@ -7,9 +7,19 @@ public interface IUomConversionService
     Task<UomConversion> GetApprovedAsync(Guid conversionId, DateOnly onDate, CancellationToken cancellationToken);
 }
 
+public sealed record TaxResolutionRequest(
+    string OrganizationId,
+    string JurisdictionCode,
+    string HsnSacCode,
+    string SupplierStateCode,
+    string PlaceOfSupplyStateCode,
+    string VendorRegistrationType,
+    DateOnly TransactionDate,
+    decimal TaxableValue);
+
 public interface ITaxGstResolver
 {
-    Task<TaxGstSetting> ResolveAsync(string organizationId, string jurisdictionCode, string hsnSacCode, string supplyType, string vendorRegistrationType, DateOnly onDate, CancellationToken cancellationToken);
+    Task<TaxGstSetting> ResolveAsync(TaxResolutionRequest request, CancellationToken cancellationToken);
 }
 
 public interface IVendorQualificationService

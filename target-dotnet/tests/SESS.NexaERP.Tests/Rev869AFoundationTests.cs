@@ -20,7 +20,9 @@ public sealed class Rev869AFoundationTests
         Assert.Contains(Rev869ARoleCodes.QcInspector, Rev869ARoleCodes.All);
         Assert.True(Rev869ARoleCodes.IsExplicitCrossScopeRole("technical_director"));
         Assert.False(Rev869ARoleCodes.IsExplicitCrossScopeRole("purchase_manager"));
-        Assert.Equal((9 * 8) + 2, Rev869ASeedData.RolePagePermissions.Count);
+        Assert.Equal((8 * 8) + 2, Rev869ASeedData.RolePagePermissions.Count);
+        var departmentManager = Rev869ASeedData.Roles.Single(x => x.Code == Rev869ARoleCodes.DepartmentManager);
+        Assert.DoesNotContain(Rev869ASeedData.RolePagePermissions, x => x.RoleId == departmentManager.Id);
     }
 
     [Fact]

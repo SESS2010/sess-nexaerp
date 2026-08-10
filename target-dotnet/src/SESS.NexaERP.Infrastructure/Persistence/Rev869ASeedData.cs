@@ -47,6 +47,7 @@ public static class Rev869ASeedData
             var rows = new List<RolePagePermission>();
             foreach (var roleCode in Rev869ARoleCodes.All)
             {
+                if (roleCode == Rev869ARoleCodes.DepartmentManager) continue;
                 if (!existingRoles.TryGetValue(roleCode, out var role)) throw new InvalidOperationException($"REV869A role {roleCode} is not seeded.");
                 foreach (var page in Pages) rows.Add(Permission(role, page));
             }

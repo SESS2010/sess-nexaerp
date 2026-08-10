@@ -84,8 +84,8 @@ public static partial class PurchaseRequisitionEndpoints
         group.MapPost("/{prNumber}/hold", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Hold", null, PurchaseRequisitionStatuses.Held, PageApprovals, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.Update);
 
         group.MapPost("/{prNumber}/stock-check", StockCheck).RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
-        group.MapGet("/{prNumber}/status-history", (string prNumber, NexaErpDbContext db, CancellationToken ct) => History(db, prNumber, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/{prNumber}/approval-history", (string prNumber, NexaErpDbContext db, CancellationToken ct) => ApprovalHistory(db, prNumber, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/{prNumber}/status-history", (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) => History(db, prNumber, user, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/{prNumber}/approval-history", (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) => ApprovalHistory(db, prNumber, user, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.ViewAuditHistory);
         group.MapGet("/reservations", Reservations).RequirePagePermission(PageReservations, PagePermissionActions.View);
         group.MapGet("/handoffs", Handoffs).RequirePagePermission(PageHandoff, PagePermissionActions.View);
         return endpoints;

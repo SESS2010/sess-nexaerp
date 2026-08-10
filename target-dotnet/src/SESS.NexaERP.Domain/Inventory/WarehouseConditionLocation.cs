@@ -23,7 +23,11 @@ public sealed class WarehouseConditionLocation : AuditableEntity
     public Guid RackBinId { get; set; }
     public RackBin? RackBin { get; set; }
     public string ConditionCode { get; set; } = InventoryConditionCodes.Available;
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
     public bool IsActive { get; set; } = true;
+
+    public bool IsEffective(DateOnly onDate) => IsActive && EffectiveFrom <= onDate && (!EffectiveTo.HasValue || EffectiveTo.Value >= onDate);
 
     public static bool IsValid(WarehouseConditionLocation mapping, RackBin rackBin) =>
         mapping.WarehouseId == rackBin.WarehouseId &&

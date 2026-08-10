@@ -11,7 +11,7 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
     public async Task<ResolvedEmployeeIdentity> ResolveAsync(string issuer, string subject, string? organizationId, DateOnly onDate, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject))
-            return new(false, null, null, null, [], "OIDC issuer and subject are required; email/name linking is prohibited.");
+            return ResolvedEmployeeIdentity.Failed("OIDC issuer and subject are required; alternate identity linking is prohibited.");
 
         var normalizedIssuer = EmployeeIdentityMapping.NormalizeIssuer(issuer);
         var normalizedSubject = EmployeeIdentityMapping.NormalizeSubject(subject);
@@ -23,11 +23,11 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Take(2)
             .ToListAsync(cancellationToken);
 
-        if (mappings.Count != 1) return new(false, null, null, null, [], mappings.Count == 0 ? "No active employee identity mapping exists." : "Identity mapping is ambiguous.");
+        if (mappings.Count != 1) return ResolvedEmployeeIdentity.Failed(mappings.Count == 0 ? "No active employee identity mapping exists." : "Identity mapping is ambiguous.");
         var mapping = mappings[0];
         var employee = mapping.Employee;
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase))
-            return new(false, mapping.EmployeeId, employee?.DepartmentId, employee?.EmployeeCode, [], "Mapped employee is inactive or login disabled.");
+            return new(false, mapping.EmployeeId, employee?.DepartmentId, mapping.OrganizationId, null, [], "Mapped employee is inactive or login disabled.");
 
         var roles = await db.EmployeeRoleAssignments.AsNoTracking()
             .Include(x => x.Role)
@@ -35,6 +35,6 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Where(x => x.Role != null && x.Role.IsActive)
             .Select(x => x.Role!.Code)
             .ToListAsync(cancellationToken);
-        return new(true, employee.Id, employee.DepartmentId, employee.EmployeeCode, roles, "Employee identity resolved.");
+        return new(true, employee.Id, employee.DepartmentId, mapping.OrganizationId, null, roles, "Employee identity resolved.");
     }
 }

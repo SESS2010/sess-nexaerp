@@ -20,16 +20,21 @@ public sealed class EfUomConversionService(NexaErpDbContext db) : IUomConversion
 
 public sealed class EfTaxGstResolver(NexaErpDbContext db) : ITaxGstResolver
 {
-    public async Task<TaxGstSetting> ResolveAsync(string organizationId, string jurisdictionCode, string hsnSacCode, string supplyType, string vendorRegistrationType, DateOnly onDate, CancellationToken cancellationToken)
+    public async Task<TaxGstSetting> ResolveAsync(TaxResolutionRequest request, CancellationToken cancellationToken)
     {
+        if (request.TaxableValue < 0) throw new InvalidOperationException("Taxable value cannot be negative.");
+        var supplyType = TaxGstSetting.ResolveSupplyType(request.SupplierStateCode, request.PlaceOfSupplyStateCode);
+        var supplierState = request.SupplierStateCode.Trim().ToUpperInvariant();
+        var placeOfSupply = request.PlaceOfSupplyStateCode.Trim().ToUpperInvariant();
         var matches = await db.TaxGstSettings.AsNoTracking()
-            .Where(x => x.OrganizationId == organizationId && x.JurisdictionCode == jurisdictionCode && x.HsnSacCode == hsnSacCode && x.SupplyType == supplyType && x.VendorRegistrationType == vendorRegistrationType)
-            .Where(x => x.IsActive && x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
+            .Where(x => x.OrganizationId == request.OrganizationId && x.JurisdictionCode == request.JurisdictionCode && x.HsnSacCode == request.HsnSacCode && x.SupplierStateCode == supplierState && x.PlaceOfSupplyStateCode == placeOfSupply && x.SupplyType == supplyType && x.VendorRegistrationType == request.VendorRegistrationType)
+            .Where(x => x.IsActive && x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= request.TransactionDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.TransactionDate))
             .Take(2).ToListAsync(cancellationToken);
-        return matches.Count == 1 ? matches[0] : throw new InvalidOperationException(matches.Count == 0 ? "No effective tax rule is configured." : "Effective tax configuration is ambiguous.");
+        if (matches.Count != 1) throw new InvalidOperationException(matches.Count == 0 ? "No effective tax rule is configured." : "Effective tax configuration overlaps or is ambiguous.");
+        if (!matches[0].HasValidIndiaComponentSplit()) throw new InvalidOperationException("GST component split is invalid for intrastate/interstate supply.");
+        return matches[0];
     }
 }
-
 public sealed class EfVendorQualificationService(NexaErpDbContext db) : IVendorQualificationService
 {
     public async Task<bool> IsEligibleAsync(Guid vendorId, string organizationId, Guid? itemCategoryId, DateOnly onDate, CancellationToken cancellationToken)

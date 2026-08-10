@@ -15,7 +15,12 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         {
 
 
-            migrationBuilder.AddColumn<string>(
+                        migrationBuilder.Sql("""
+                CREATE TABLE nexa.rev869a_items_prechange_backup AS TABLE nexa.items;
+                CREATE TABLE nexa.rev869a_uoms_prechange_backup AS TABLE nexa.uoms;
+                CREATE TABLE nexa.rev869a_vendors_prechange_backup AS TABLE nexa.vendors;
+                """);
+migrationBuilder.AddColumn<string>(
                 name: "CommercialVerificationStatus",
                 schema: "nexa",
                 table: "vendors",
@@ -85,6 +90,21 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 type: "uuid",
                 nullable: true);
 
+            migrationBuilder.Sql("""
+                DO $
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "UomId" IS NULL) THEN
+                        RAISE EXCEPTION 'REV869A readiness failed: every existing item must have an exact existing UomId; no default UOM is permitted.';
+                    END IF;
+                    UPDATE nexa.items SET "BaseUomId" = "UomId";
+                    IF EXISTS (SELECT 1 FROM nexa.items WHERE "BaseUomId" IS NULL) THEN
+                        RAISE EXCEPTION 'REV869A readiness failed: deterministic BaseUomId backfill is incomplete.';
+                    END IF;
+                END $;
+                ALTER TABLE nexa.items ALTER COLUMN "BaseUomId" SET NOT NULL;
+                ALTER TABLE nexa.uoms ALTER COLUMN "MeasurementDimension" DROP DEFAULT;
+                """);
+
 
 
 
@@ -125,6 +145,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 });
 
 
+            migrationBuilder.AddUniqueConstraint(
+                name: "AK_rack_bins_WarehouseId_Id",
+                schema: "nexa",
+                table: "rack_bins",
+                columns: new[] { "WarehouseId", "Id" });
             migrationBuilder.CreateTable(
                 name: "employee_identity_mappings",
                 schema: "nexa",
@@ -170,6 +195,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     DepartmentId = table.Column<Guid>(type: "uuid", nullable: true),
                     WarehouseId = table.Column<Guid>(type: "uuid", nullable: true),
                     RackBinId = table.Column<Guid>(type: "uuid", nullable: true),
+                    OwnRecordsOnly = table.Column<bool>(type: "boolean", nullable: false),
                     AllowsPrivilegedCrossScope = table.Column<bool>(type: "boolean", nullable: false),
                     EffectiveFrom = table.Column<DateOnly>(type: "date", nullable: false),
                     EffectiveTo = table.Column<DateOnly>(type: "date", nullable: true),
@@ -185,6 +211,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_employee_operational_scopes", x => x.Id);
                     table.CheckConstraint("CK_employee_operational_scope_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+                    table.CheckConstraint("CK_employee_operational_scope_rack_warehouse", "\"RackBinId\" IS NULL OR \"WarehouseId\" IS NOT NULL");
                     table.ForeignKey(
                         name: "FK_employee_operational_scopes_departments_DepartmentId",
                         column: x => x.DepartmentId,
@@ -200,11 +227,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_employee_operational_scopes_rack_bins_RackBinId",
-                        column: x => x.RackBinId,
+                        name: "FK_employee_operational_scopes_rack_bins_WarehouseId_RackBinId",
+                        columns: x => new { x.WarehouseId, x.RackBinId },
                         principalSchema: "nexa",
                         principalTable: "rack_bins",
-                        principalColumn: "Id",
+                        principalColumns: new[] { "WarehouseId", "Id" },
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_employee_operational_scopes_warehouses_WarehouseId",
@@ -303,6 +330,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     OrganizationId = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     JurisdictionCode = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     HsnSacCode = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
+                    SupplierStateCode = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    PlaceOfSupplyStateCode = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
                     SupplyType = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     VendorRegistrationType = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
                     GstRate = table.Column<decimal>(type: "numeric(9,6)", precision: 9, scale: 6, nullable: false),
@@ -330,6 +359,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("CK_tax_gst_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                     table.CheckConstraint("CK_tax_gst_rates", "\"GstRate\" BETWEEN 0 AND 100 AND \"CgstRate\" BETWEEN 0 AND 100 AND \"SgstRate\" BETWEEN 0 AND 100 AND \"IgstRate\" BETWEEN 0 AND 100 AND \"CessRate\" BETWEEN 0 AND 100");
                     table.CheckConstraint("CK_tax_gst_rounding", "\"RoundingScale\" BETWEEN 0 AND 6");
+                    table.CheckConstraint("CK_tax_gst_supply_type", "\"SupplyType\" IN ('INTRASTATE','INTERSTATE')");
+                    table.CheckConstraint("CK_tax_gst_state_supply", "(\"SupplierStateCode\" = \"PlaceOfSupplyStateCode\" AND \"SupplyType\" = 'INTRASTATE') OR (\"SupplierStateCode\" <> \"PlaceOfSupplyStateCode\" AND \"SupplyType\" = 'INTERSTATE')");
+                    table.CheckConstraint("CK_tax_gst_component_split", "(\"SupplyType\" = 'INTRASTATE' AND \"IgstRate\" = 0 AND \"CgstRate\" + \"SgstRate\" = \"GstRate\") OR (\"SupplyType\" = 'INTERSTATE' AND \"CgstRate\" = 0 AND \"SgstRate\" = 0 AND \"IgstRate\" = \"GstRate\")");
                 });
 
             migrationBuilder.CreateTable(
@@ -429,6 +461,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     WarehouseId = table.Column<Guid>(type: "uuid", nullable: false),
                     RackBinId = table.Column<Guid>(type: "uuid", nullable: false),
                     ConditionCode = table.Column<string>(type: "character varying(30)", maxLength: 30, nullable: false),
+                    EffectiveFrom = table.Column<DateOnly>(type: "date", nullable: false),
+                    EffectiveTo = table.Column<DateOnly>(type: "date", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<string>(type: "text", nullable: false),
@@ -440,12 +474,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_warehouse_condition_locations", x => x.Id);
                     table.CheckConstraint("CK_warehouse_condition_code", "\"ConditionCode\" IN ('AVAILABLE','QC_HOLD','REJECTED','QUARANTINE','RETURN_TO_VENDOR','SCRAP')");
+                    table.CheckConstraint("CK_warehouse_condition_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                     table.ForeignKey(
-                        name: "FK_warehouse_condition_locations_rack_bins_RackBinId",
-                        column: x => x.RackBinId,
+                        name: "FK_warehouse_condition_locations_rack_bins_WarehouseId_RackBinId",
+                        columns: x => new { x.WarehouseId, x.RackBinId },
                         principalSchema: "nexa",
                         principalTable: "rack_bins",
-                        principalColumn: "Id",
+                        principalColumns: new[] { "WarehouseId", "Id" },
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_warehouse_condition_locations_warehouses_WarehouseId",
@@ -546,7 +581,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     { new Guid("0f9deb7e-4745-0527-9d8e-bb60c8cececa"), false, true, true, false, true, false, true, true, false, true, true, true, true, true, true, true, true, true, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000007"), new Guid("30000000-0000-0000-0000-000000000002"), null, null, 0L },
                     { new Guid("11038140-87fb-6522-7425-da633f209502"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000007"), new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"), null, null, 0L },
                     { new Guid("125a37ad-46bf-b2c4-c02f-d588f0969a84"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000005"), new Guid("30000000-0000-0000-0000-000000000002"), null, null, 0L },
-                    { new Guid("15ee5b19-d532-c28c-b755-de4152769a7a"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("1913267c-7d4c-e241-5011-8cf30bd84137"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"), null, null, 0L },
                     { new Guid("1c7a6074-478b-76b5-920b-da17f5147d7c"), false, true, true, false, true, false, true, false, false, false, false, true, true, true, true, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("2139e45b-4437-632d-a851-c87145ba4071"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000005"), new Guid("30000000-0000-0000-0000-000000000003"), null, null, 0L },
@@ -555,18 +589,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     { new Guid("2d3b700e-1aeb-d373-de93-2c2fa8a3370e"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("30000000-0000-0000-0000-000000000002"), null, null, 0L },
                     { new Guid("338f3857-ff34-b27c-d671-ad42eb33fe3d"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"), null, null, 0L },
                     { new Guid("35376d76-a0b1-7ee1-b32d-1499b7e24f06"), false, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000007"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
-                    { new Guid("38371df3-5a46-5137-8204-4c5391633180"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000007"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
-                    { new Guid("42e2a253-d767-6191-caf9-e1f79652c44f"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("451ff88f-816b-39fb-0097-18ecd1e752d2"), true, true, true, true, true, false, true, true, false, true, true, true, true, true, true, true, true, true, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("30000000-0000-0000-0000-000000000003"), null, null, 0L },
                     { new Guid("4a045df1-dc0e-e920-6a8e-02afdc1f9f37"), false, true, true, false, true, false, true, false, false, false, false, true, true, true, true, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000003"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("4be63323-a734-943b-8d03-b7d80fd58683"), false, true, true, false, true, false, true, false, false, false, false, true, true, true, true, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000005"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
-                    { new Guid("5794f740-90b1-5a70-413a-d59bbc97ce78"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000005"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("5ceb4c02-d702-580c-00ca-75404dada0f7"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"), null, null, 0L },
                     { new Guid("5d19be17-57d3-0652-d98b-5a11f62faf19"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("30000000-0000-0000-0000-000000000004"), null, null, 0L },
                     { new Guid("61063a45-9de0-6ada-716f-b308ab881c76"), true, true, true, true, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", true, new Guid("40000000-0000-0000-0000-000000000002"), new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"), null, null, 0L },
                     { new Guid("625a6c21-32f6-45b9-911c-fef812d43657"), false, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
                     { new Guid("65ac8a90-8d09-c31b-1285-cf09b38f6c6f"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"), null, null, 0L },
-                    { new Guid("680f7358-4b7c-0733-be42-f9d52e746d1b"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("68b94637-ea35-95bb-731a-68ab0d83b6f5"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000002"), new Guid("30000000-0000-0000-0000-000000000003"), null, null, 0L },
                     { new Guid("6ecea443-25c0-ccd6-067d-c53b9cb5369b"), false, false, false, false, true, true, true, true, false, true, true, false, false, false, false, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000002"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
                     { new Guid("6f876ecb-f37c-9c97-c30e-fe992cf56d10"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000002"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
@@ -589,9 +619,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     { new Guid("a1153b99-f614-049c-8f62-2e6672c1163d"), false, false, false, false, true, true, true, true, false, true, true, false, false, false, false, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
                     { new Guid("a3c118c5-33e2-98c4-a904-8a7cf3a5a7ad"), false, true, true, false, true, false, true, false, false, false, false, true, true, true, true, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000004"), new Guid("30000000-0000-0000-0000-000000000002"), null, null, 0L },
                     { new Guid("a41ce315-d082-63f6-b0cb-5cde4bd4fe03"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"), null, null, 0L },
-                    { new Guid("a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000003"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("a9d6e145-ea26-2b7f-1844-90682dffd78f"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("30000000-0000-0000-0000-000000000003"), null, null, 0L },
-                    { new Guid("aea2e8a1-18a6-72d2-a954-6f5513b80eeb"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("b1302fd0-129b-62d1-3006-293ac6bf6a87"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000003"), new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"), null, null, 0L },
                     { new Guid("b2cfa60a-5fc8-d083-5d04-5a01d70cbc02"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000008"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("baff3f8c-6e8c-e814-86d6-9431df1251d1"), false, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000005"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
@@ -611,7 +639,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     { new Guid("eaa52044-6e94-fcd9-82d8-9a3323450753"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"), null, null, 0L },
                     { new Guid("ec586367-c47c-fa2c-a3a6-7b652a8bcf03"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("f5240291-ec17-bea1-5a31-eead7c8a0ec9"), false, false, false, false, true, false, true, false, false, false, false, false, false, false, false, false, true, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000001"), new Guid("30000000-0000-0000-0000-000000000004"), null, null, 0L },
-                    { new Guid("f8e7d0a6-f056-175a-e604-14c1f9f6ad83"), false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000002"), new Guid("30000000-0000-0000-0000-000000000005"), null, null, 0L },
                     { new Guid("f9c9f6cc-48b9-8727-4c81-4196e4444b59"), false, false, false, false, true, true, true, true, false, true, true, false, false, false, false, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("10000000-0000-0000-0000-000000000003"), null, null, 0L },
                     { new Guid("fcf487a0-7345-b5f0-8f88-784ce8f0016a"), false, true, true, false, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869a", false, new Guid("40000000-0000-0000-0000-000000000006"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L }
                 });
@@ -656,10 +683,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 filter: "\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN'");
 
             migrationBuilder.CreateIndex(
-                name: "IX_employee_identity_mappings_OrganizationId_Issuer_Subject_Is~",
+                name: "IX_employee_identity_mappings_Issuer_Subject_IsActive",
                 schema: "nexa",
                 table: "employee_identity_mappings",
-                columns: new[] { "OrganizationId", "Issuer", "Subject", "IsActive" },
+                columns: new[] { "Issuer", "Subject", "IsActive" },
                 unique: true,
                 filter: "\"IsActive\" = TRUE");
 
@@ -679,14 +706,15 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "IX_employee_operational_scopes_OrganizationId_EmployeeId_Depar~",
                 schema: "nexa",
                 table: "employee_operational_scopes",
-                columns: new[] { "OrganizationId", "EmployeeId", "DepartmentId", "WarehouseId", "RackBinId", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "EmployeeId", "DepartmentId", "WarehouseId", "RackBinId", "OwnRecordsOnly", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
-                name: "IX_employee_operational_scopes_RackBinId",
+                name: "IX_employee_operational_scopes_WarehouseId_RackBinId",
                 schema: "nexa",
                 table: "employee_operational_scopes",
-                column: "RackBinId");
+                columns: new[] { "WarehouseId", "RackBinId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_employee_operational_scopes_WarehouseId",
@@ -698,8 +726,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "IX_organization_policies_OrganizationId_PolicyCode_EffectiveFr~",
                 schema: "nexa",
                 table: "organization_policies",
-                columns: new[] { "OrganizationId", "PolicyCode", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "PolicyCode", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
                 name: "IX_qc_inspection_policies_ItemCategoryId",
@@ -723,15 +752,17 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "IX_qc_inspection_policies_OrganizationId_ItemId_ItemCategoryId~",
                 schema: "nexa",
                 table: "qc_inspection_policies",
-                columns: new[] { "OrganizationId", "ItemId", "ItemCategoryId", "ParameterCode", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "ItemId", "ItemCategoryId", "ParameterCode", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
                 name: "IX_tax_gst_settings_OrganizationId_JurisdictionCode_HsnSacCode~",
                 schema: "nexa",
                 table: "tax_gst_settings",
-                columns: new[] { "OrganizationId", "JurisdictionCode", "HsnSacCode", "SupplyType", "VendorRegistrationType", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "JurisdictionCode", "HsnSacCode", "SupplierStateCode", "PlaceOfSupplyStateCode", "VendorRegistrationType", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
                 name: "IX_uom_conversions_FromUomId",
@@ -743,8 +774,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "IX_uom_conversions_OrganizationId_FromUomId_ToUomId_EffectiveF~",
                 schema: "nexa",
                 table: "uom_conversions",
-                columns: new[] { "OrganizationId", "FromUomId", "ToUomId", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "FromUomId", "ToUomId", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
                 name: "IX_uom_conversions_ToUomId",
@@ -762,8 +794,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "IX_vendor_qualifications_OrganizationId_VendorId_ItemCategoryI~",
                 schema: "nexa",
                 table: "vendor_qualifications",
-                columns: new[] { "OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom" },
-                unique: true);
+                columns: new[] { "OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
                 name: "IX_vendor_qualifications_VendorId",
@@ -772,18 +805,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 column: "VendorId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_warehouse_condition_locations_OrganizationId_WarehouseId_Co~",
+                name: "IX_warehouse_condition_locations_OrganizationId_WarehouseId_Ra~",
                 schema: "nexa",
                 table: "warehouse_condition_locations",
-                columns: new[] { "OrganizationId", "WarehouseId", "ConditionCode", "IsActive" },
-                unique: true,
-                filter: "\"IsActive\" = TRUE");
+                columns: new[] { "OrganizationId", "WarehouseId", "RackBinId", "ConditionCode", "EffectiveFrom", "EffectiveTo" },
+                unique: true)
+                .Annotation("Npgsql:NullsDistinct", false);
 
             migrationBuilder.CreateIndex(
-                name: "IX_warehouse_condition_locations_RackBinId",
+                name: "IX_warehouse_condition_locations_WarehouseId_RackBinId",
                 schema: "nexa",
                 table: "warehouse_condition_locations",
-                column: "RackBinId");
+                columns: new[] { "WarehouseId", "RackBinId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_warehouse_condition_locations_WarehouseId",
@@ -794,6 +827,33 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
 
 
+            migrationBuilder.Sql("""
+                CREATE FUNCTION nexa.rev869a_block_history_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'Controlled configuration history is append-only'; END $$;
+                CREATE TRIGGER trg_rev869a_history_append_only BEFORE UPDATE OR DELETE ON nexa.controlled_configuration_histories FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_block_history_mutation();
+
+                CREATE FUNCTION nexa.rev869a_guard_controlled_version() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'Controlled configuration versions cannot be deleted'; END IF;
+                    IF (to_jsonb(NEW) - ARRAY['EffectiveTo','IsActive','UpdatedAt','UpdatedBy','Version']) <> (to_jsonb(OLD) - ARRAY['EffectiveTo','IsActive','UpdatedAt','UpdatedBy','Version']) THEN
+                        RAISE EXCEPTION 'Historical effective records are immutable; close the old version and insert a corrected version';
+                    END IF;
+                    IF OLD."EffectiveTo" IS NOT NULL OR NEW."EffectiveTo" IS NULL OR NEW."EffectiveTo" < OLD."EffectiveFrom" THEN RAISE EXCEPTION 'Only a valid first close of an open effective version is allowed'; END IF;
+                    RETURN NEW;
+                END $$;
+                CREATE TRIGGER trg_rev869a_identity_version_guard BEFORE UPDATE OR DELETE ON nexa.employee_identity_mappings FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_scope_version_guard BEFORE UPDATE OR DELETE ON nexa.employee_operational_scopes FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_policy_version_guard BEFORE UPDATE OR DELETE ON nexa.organization_policies FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_qc_version_guard BEFORE UPDATE OR DELETE ON nexa.qc_inspection_policies FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_tax_version_guard BEFORE UPDATE OR DELETE ON nexa.tax_gst_settings FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_vendor_qualification_version_guard BEFORE UPDATE OR DELETE ON nexa.vendor_qualifications FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_warehouse_condition_version_guard BEFORE UPDATE OR DELETE ON nexa.warehouse_condition_locations FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+                CREATE TRIGGER trg_rev869a_uom_conversion_version_guard BEFORE UPDATE OR DELETE ON nexa.uom_conversions FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_controlled_version();
+
+                CREATE FUNCTION nexa.rev869a_guard_used_uom_conversion() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN IF OLD."FirstUsedAt" IS NOT NULL THEN RAISE EXCEPTION 'A used UOM conversion is immutable'; END IF; RETURN NEW; END $$;
+                CREATE TRIGGER trg_rev869a_used_uom_conversion BEFORE UPDATE OR DELETE ON nexa.uom_conversions FOR EACH ROW EXECUTE FUNCTION nexa.rev869a_guard_used_uom_conversion();
+                """);
             migrationBuilder.AddForeignKey(
                 name: "FK_items_uoms_BaseUomId",
                 schema: "nexa",
@@ -808,6 +868,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                DROP FUNCTION IF EXISTS nexa.rev869a_guard_used_uom_conversion() CASCADE;
+                DROP FUNCTION IF EXISTS nexa.rev869a_guard_controlled_version() CASCADE;
+                DROP FUNCTION IF EXISTS nexa.rev869a_block_history_mutation() CASCADE;
+                """);
+
+            migrationBuilder.DeleteData(schema: "nexa", table: "organization_policies", keyColumn: "Id", keyColumnType: "uuid", keyValue: new Guid("50000000-0000-0000-0000-000000000001"));
+            migrationBuilder.DeleteData(schema: "nexa", table: "organization_policies", keyColumn: "Id", keyColumnType: "uuid", keyValue: new Guid("50000000-0000-0000-0000-000000000002"));
 
 
 
@@ -909,13 +977,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 table: "role_page_permissions",
                 keyColumn: "Id",
                 keyColumnType: "uuid",
-                keyValue: new Guid("15ee5b19-d532-c28c-b755-de4152769a7a"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
                 keyValue: new Guid("1913267c-7d4c-e241-5011-8cf30bd84137"));
 
             migrationBuilder.DeleteData(
@@ -972,20 +1033,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 table: "role_page_permissions",
                 keyColumn: "Id",
                 keyColumnType: "uuid",
-                keyValue: new Guid("38371df3-5a46-5137-8204-4c5391633180"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("42e2a253-d767-6191-caf9-e1f79652c44f"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
                 keyValue: new Guid("451ff88f-816b-39fb-0097-18ecd1e752d2"));
 
             migrationBuilder.DeleteData(
@@ -1001,13 +1048,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 keyColumn: "Id",
                 keyColumnType: "uuid",
                 keyValue: new Guid("4be63323-a734-943b-8d03-b7d80fd58683"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("5794f740-90b1-5a70-413a-d59bbc97ce78"));
 
             migrationBuilder.DeleteData(
                 schema: "nexa",
@@ -1043,13 +1083,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 keyColumn: "Id",
                 keyColumnType: "uuid",
                 keyValue: new Guid("65ac8a90-8d09-c31b-1285-cf09b38f6c6f"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("680f7358-4b7c-0733-be42-f9d52e746d1b"));
 
             migrationBuilder.DeleteData(
                 schema: "nexa",
@@ -1210,21 +1243,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 table: "role_page_permissions",
                 keyColumn: "Id",
                 keyColumnType: "uuid",
-                keyValue: new Guid("a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
                 keyValue: new Guid("a9d6e145-ea26-2b7f-1844-90682dffd78f"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("aea2e8a1-18a6-72d2-a954-6f5513b80eeb"));
 
             migrationBuilder.DeleteData(
                 schema: "nexa",
@@ -1358,13 +1377,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 keyColumn: "Id",
                 keyColumnType: "uuid",
                 keyValue: new Guid("f5240291-ec17-bea1-5a31-eead7c8a0ec9"));
-
-            migrationBuilder.DeleteData(
-                schema: "nexa",
-                table: "role_page_permissions",
-                keyColumn: "Id",
-                keyColumnType: "uuid",
-                keyValue: new Guid("f8e7d0a6-f056-175a-e604-14c1f9f6ad83"));
 
             migrationBuilder.DeleteData(
                 schema: "nexa",
@@ -1515,6 +1527,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "BaseUomId",
                 schema: "nexa",
                 table: "items");
+
+            migrationBuilder.DropUniqueConstraint(name: "AK_rack_bins_WarehouseId_Id", schema: "nexa", table: "rack_bins");
+
+            migrationBuilder.Sql("""
+                DROP TABLE nexa.rev869a_vendors_prechange_backup;
+                DROP TABLE nexa.rev869a_uoms_prechange_backup;
+                DROP TABLE nexa.rev869a_items_prechange_backup;
+                """);
 
 
 

@@ -4,9 +4,13 @@ public sealed record ResolvedEmployeeIdentity(
     bool Success,
     Guid? EmployeeId,
     Guid? DepartmentId,
+    string? OrganizationId,
     string? EmployeeCode,
     IReadOnlyList<string> RoleCodes,
-    string Message);
+    string Message)
+{
+    public static ResolvedEmployeeIdentity Failed(string message) => new(false, null, null, null, null, [], message);
+}
 
 public interface IEmployeeIdentityResolver
 {

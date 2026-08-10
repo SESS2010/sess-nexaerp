@@ -15,7 +15,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<IResult> StockCheck(string prNumber, StockCheckRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var pr = await IncludeDetail(db.PurchaseRequisitions).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
         if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
         if (pr.Status != PurchaseRequisitionStatuses.StockCheckPending) return Results.Conflict(new { message = "Stock check is allowed only after PR approval." });
         if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
@@ -89,47 +89,49 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<List<StockLocation>> ResolveLocations(PurchaseRequisitionLine line, PurchaseRequisition pr, StockCheckRequest request, NexaErpDbContext db, CancellationToken ct)
     {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var requested = request.Locations?.Where(x => x.LineNumber == line.LineNumber).ToList() ?? [];
         if (requested.Count == 0)
         {
             var warehouseId = line.PreferredWarehouseId ?? pr.DeliveryWarehouseId;
             if (!warehouseId.HasValue) return [];
-            var warehouse = await db.Warehouses.AsNoTracking().SingleOrDefaultAsync(x => x.Id == warehouseId.Value && x.IsActive, ct);
-            return warehouse is null ? [] : [new StockLocation(warehouse.Id, warehouse.WarehouseCode, null, null, LocationKey(warehouse.Id, null))];
+            return await db.WarehouseConditionLocations.AsNoTracking()
+                .Where(x => x.OrganizationId == pr.OrganizationId && x.WarehouseId == warehouseId.Value && x.IsActive && x.ConditionCode == InventoryConditionCodes.Available && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today) && x.RackBin!.IsActive && x.Warehouse!.IsActive)
+                .Select(x => new StockLocation(x.WarehouseId, x.Warehouse!.WarehouseCode, x.RackBinId, x.RackBin!.BinCode, StoreLocationKey.Derive(x.WarehouseId, x.RackBinId)))
+                .ToListAsync(ct);
         }
         var result = new List<StockLocation>();
         foreach (var input in requested)
         {
+            if (string.IsNullOrWhiteSpace(input.RackBinCode)) throw new InvalidOperationException($"Line {line.LineNumber}: a physical Rack/Bin is required for reservation.");
             var warehouseCode = MasterEndpointHelpers.NormalizeCode(input.WarehouseCode);
-            var warehouse = await db.Warehouses.AsNoTracking().SingleOrDefaultAsync(x => x.WarehouseCode == warehouseCode && x.IsActive, ct) ?? throw new InvalidOperationException($"Line {line.LineNumber}: active warehouse {warehouseCode} was not found.");
-            Guid? rackBinId = null;
-            string? rackBinCode = null;
-            if (!string.IsNullOrWhiteSpace(input.RackBinCode))
-            {
-                rackBinCode = MasterEndpointHelpers.NormalizeCode(input.RackBinCode);
-                var bin = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.WarehouseId == warehouse.Id && x.BinCode == rackBinCode && x.IsActive && x.MaterialCondition == InventoryConditionCodes.Available, ct) ?? throw new InvalidOperationException($"Line {line.LineNumber}: active rack/bin {rackBinCode} does not belong to warehouse {warehouseCode}.");
-                rackBinId = bin.Id;
-            }
-            var key = LocationKey(warehouse.Id, rackBinId);
+            var rackBinCode = MasterEndpointHelpers.NormalizeCode(input.RackBinCode);
+            var mapping = await db.WarehouseConditionLocations.AsNoTracking()
+                .Include(x => x.Warehouse).Include(x => x.RackBin)
+                .SingleOrDefaultAsync(x => x.OrganizationId == pr.OrganizationId && x.Warehouse!.WarehouseCode == warehouseCode && x.Warehouse.IsActive && x.RackBin!.BinCode == rackBinCode && x.RackBin.IsActive && x.IsActive && x.ConditionCode == InventoryConditionCodes.Available && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today), ct)
+                ?? throw new InvalidOperationException($"Line {line.LineNumber}: active AVAILABLE warehouse/RackBin condition mapping was not found.");
+            var key = LocationKey(mapping.WarehouseId, mapping.RackBinId);
             if (result.Any(x => x.LocationKey == key)) throw new InvalidOperationException($"Line {line.LineNumber}: duplicate warehouse/bin allocation is not allowed.");
-            result.Add(new StockLocation(warehouse.Id, warehouse.WarehouseCode, rackBinId, rackBinCode, key));
+            result.Add(new StockLocation(mapping.WarehouseId, mapping.Warehouse!.WarehouseCode, mapping.RackBinId, mapping.RackBin!.BinCode, key));
         }
         return result;
     }
 
-    private static async Task<IResult> Reservations(NexaErpDbContext db, int? page, int? pageSize, CancellationToken ct)
+    private static async Task<IResult> Reservations(NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, CancellationToken ct)
     {
         var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-        var q = db.StockReservations.AsNoTracking().Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.ReservationNumber);
+        var allowedPrIds = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Select(x => x.Id);
+        var q = db.StockReservations.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId)).Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.ReservationNumber);
         var total = await q.CountAsync(ct);
         var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new StockReservationSummary(x.Id, x.ReservationNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.ReservedQuantity, x.Status)).ToListAsync(ct);
         return Results.Ok(new PagedResponse<StockReservationSummary>(total, p.PageNumber, p.PageSize, rows));
     }
 
-    private static async Task<IResult> Handoffs(NexaErpDbContext db, int? page, int? pageSize, CancellationToken ct)
+    private static async Task<IResult> Handoffs(NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, CancellationToken ct)
     {
         var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-        var q = db.PurchaseRequirementHandoffs.AsNoTracking().Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.HandoffNumber);
+        var allowedPrIds = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Select(x => x.Id);
+        var q = db.PurchaseRequirementHandoffs.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId)).Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.HandoffNumber);
         var total = await q.CountAsync(ct);
         var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new PurchaseRequirementHandoffSummary(x.Id, x.HandoffNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.HandoffQuantity, x.Status)).ToListAsync(ct);
         return Results.Ok(new PagedResponse<PurchaseRequirementHandoffSummary>(total, p.PageNumber, p.PageSize, rows));

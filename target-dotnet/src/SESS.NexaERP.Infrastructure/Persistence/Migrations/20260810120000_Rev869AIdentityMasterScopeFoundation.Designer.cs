@@ -233,6 +233,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<bool>("OwnRecordsOnly")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid?>("RackBinId")
                         .HasColumnType("uuid");
 
@@ -260,16 +263,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("EmployeeId");
 
-                    b.HasIndex("RackBinId");
+                    b.HasIndex("WarehouseId", "RackBinId");
 
-                    b.HasIndex("WarehouseId");
-
-                    b.HasIndex("OrganizationId", "EmployeeId", "DepartmentId", "WarehouseId", "RackBinId", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "EmployeeId", "DepartmentId", "WarehouseId", "RackBinId", "OwnRecordsOnly", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "EmployeeId", "DepartmentId", "WarehouseId", "RackBinId", "OwnRecordsOnly", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("employee_operational_scopes", "nexa", t =>
                         {
                             t.HasCheckConstraint("CK_employee_operational_scope_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_employee_operational_scope_rack_warehouse", "\"RackBinId\" IS NULL OR \"WarehouseId\" IS NOT NULL");
                         });
                 });
 
@@ -2226,238 +2231,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             HasFullControl = false,
                             PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000008"),
                             RoleId = new Guid("30000000-0000-0000-0000-000000000004"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("aea2e8a1-18a6-72d2-a954-6f5513b80eeb"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("f8e7d0a6-f056-175a-e604-14c1f9f6ad83"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000002"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("a98dbcec-f959-9f7c-c5f7-3c3a2c8bec12"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000003"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("15ee5b19-d532-c28c-b755-de4152769a7a"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000004"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("5794f740-90b1-5a70-413a-d59bbc97ce78"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000005"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("42e2a253-d767-6191-caf9-e1f79652c44f"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000006"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("38371df3-5a46-5137-8204-4c5391633180"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000007"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("680f7358-4b7c-0733-be42-f9d52e746d1b"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
-                            CanPrint = false,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
-                            CanViewAuditHistory = false,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000008"),
-                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
                             Version = 0L
                         },
                         new
@@ -35231,7 +35004,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN'");
 
-                    b.HasIndex("OrganizationId", "Issuer", "Subject", "IsActive")
+                    b.HasIndex("Issuer", "Subject", "IsActive")
                         .IsUnique()
                         .HasFilter("\"IsActive\" = TRUE");
 
@@ -35860,7 +35633,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
-                    b.Property<Guid?>("BaseUomId")
+                    b.Property<Guid>("BaseUomId")
                         .HasColumnType("uuid");
 
                     b.Property<bool>("BatchTracking")
@@ -36120,8 +35893,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("MeasurementUomId");
 
-                    b.HasIndex("OrganizationId", "ItemId", "ItemCategoryId", "ParameterCode", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "ItemId", "ItemCategoryId", "ParameterCode", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "ItemId", "ItemCategoryId", "ParameterCode", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("qc_inspection_policies", "nexa", t =>
                         {
@@ -36227,6 +36002,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(120)");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("WarehouseId", "Id")
+                        .HasName("AK_rack_bins_WarehouseId_Id");
 
                     b.HasIndex("IsActive");
 
@@ -36432,6 +36210,12 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -36458,17 +36242,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RackBinId");
+                    b.HasIndex("WarehouseId", "RackBinId");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("OrganizationId", "WarehouseId", "RackBinId", "ConditionCode", "EffectiveFrom", "EffectiveTo")
+                        .IsUnique();
 
-                    b.HasIndex("OrganizationId", "WarehouseId", "ConditionCode", "IsActive")
-                        .IsUnique()
-                        .HasFilter("\"IsActive\" = TRUE");
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "WarehouseId", "RackBinId", "ConditionCode", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("warehouse_condition_locations", "nexa", t =>
                         {
                             t.HasCheckConstraint("CK_warehouse_condition_code", "\"ConditionCode\" IN ('AVAILABLE','QC_HOLD','REJECTED','QUARANTINE','RETURN_TO_VENDOR','SCRAP')");
+
+                            t.HasCheckConstraint("CK_warehouse_condition_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                         });
                 });
 
@@ -37200,8 +36985,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrganizationId", "PolicyCode", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "PolicyCode", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "PolicyCode", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("organization_policies", "nexa", t =>
                         {
@@ -37304,12 +37091,22 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("PlaceOfSupplyStateCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<int>("RoundingScale")
                         .HasColumnType("integer");
 
                     b.Property<decimal>("SgstRate")
                         .HasPrecision(9, 6)
                         .HasColumnType("numeric(9,6)");
+
+                    b.Property<string>("SupplierStateCode")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.Property<string>("SupplyType")
                         .IsRequired()
@@ -37333,16 +37130,24 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrganizationId", "JurisdictionCode", "HsnSacCode", "SupplyType", "VendorRegistrationType", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "JurisdictionCode", "HsnSacCode", "SupplierStateCode", "PlaceOfSupplyStateCode", "VendorRegistrationType", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "JurisdictionCode", "HsnSacCode", "SupplierStateCode", "PlaceOfSupplyStateCode", "VendorRegistrationType", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("tax_gst_settings", "nexa", t =>
                         {
+                            t.HasCheckConstraint("CK_tax_gst_component_split", "(\"SupplyType\" = 'INTRASTATE' AND \"IgstRate\" = 0 AND \"CgstRate\" + \"SgstRate\" = \"GstRate\") OR (\"SupplyType\" = 'INTERSTATE' AND \"CgstRate\" = 0 AND \"SgstRate\" = 0 AND \"IgstRate\" = \"GstRate\")");
+
                             t.HasCheckConstraint("CK_tax_gst_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
 
                             t.HasCheckConstraint("CK_tax_gst_rates", "\"GstRate\" BETWEEN 0 AND 100 AND \"CgstRate\" BETWEEN 0 AND 100 AND \"SgstRate\" BETWEEN 0 AND 100 AND \"IgstRate\" BETWEEN 0 AND 100 AND \"CessRate\" BETWEEN 0 AND 100");
 
                             t.HasCheckConstraint("CK_tax_gst_rounding", "\"RoundingScale\" BETWEEN 0 AND 6");
+
+                            t.HasCheckConstraint("CK_tax_gst_state_supply", "(\"SupplierStateCode\" = \"PlaceOfSupplyStateCode\" AND \"SupplyType\" = 'INTRASTATE') OR (\"SupplierStateCode\" <> \"PlaceOfSupplyStateCode\" AND \"SupplyType\" = 'INTERSTATE')");
+
+                            t.HasCheckConstraint("CK_tax_gst_supply_type", "\"SupplyType\" IN ('INTRASTATE','INTERSTATE')");
                         });
                 });
 
@@ -37369,10 +37174,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("MeasurementDimension")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasDefaultValue("");
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -37471,8 +37274,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ToUomId");
 
-                    b.HasIndex("OrganizationId", "FromUomId", "ToUomId", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "FromUomId", "ToUomId", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "FromUomId", "ToUomId", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("uom_conversions", "nexa", t =>
                         {
@@ -37893,8 +37698,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VendorId");
 
-                    b.HasIndex("OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom")
+                    b.HasIndex("OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom", "EffectiveTo"), false);
 
                     b.ToTable("vendor_qualifications", "nexa", t =>
                         {
@@ -39075,14 +38882,15 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
-                        .WithMany()
-                        .HasForeignKey("RackBinId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Inventory.Warehouse", "Warehouse")
                         .WithMany()
                         .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId", "RackBinId")
+                        .HasPrincipalKey("WarehouseId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Department");
@@ -39281,7 +39089,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "BaseUom")
                         .WithMany()
                         .HasForeignKey("BaseUomId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("SESS.NexaERP.Domain.Masters.ItemCategory", "Category")
                         .WithMany()
@@ -39401,15 +39210,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.WarehouseConditionLocation", b =>
                 {
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
-                        .WithMany()
-                        .HasForeignKey("RackBinId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("SESS.NexaERP.Domain.Inventory.Warehouse", "Warehouse")
                         .WithMany()
                         .HasForeignKey("WarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId", "RackBinId")
+                        .HasPrincipalKey("WarehouseId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

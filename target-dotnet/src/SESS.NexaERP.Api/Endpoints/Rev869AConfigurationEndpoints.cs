@@ -42,7 +42,7 @@ public static class Rev869AConfigurationEndpoints
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase)) return Results.Conflict(new { message = "Identity must map to one active login-enabled employee." });
         var issuer = EmployeeIdentityMapping.NormalizeIssuer(request.Issuer);
         var subject = EmployeeIdentityMapping.NormalizeSubject(request.Subject);
-        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.OrganizationId == request.OrganizationId.Trim() && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists." });
+        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == request.OrganizationId.Trim() && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists." });
         var entity = new EmployeeIdentityMapping { OrganizationId = request.OrganizationId.Trim(), Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.EmployeeIdentityMappings.Add(entity);
         AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user);
@@ -65,7 +65,10 @@ public static class Rev869AConfigurationEndpoints
             var rack = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);
             if (rack is null || warehouseId != rack.WarehouseId) return Results.Conflict(new { message = "Rack/Bin must be active and belong to the scoped warehouse." });
         }
-        var entity = new EmployeeOperationalScope { OrganizationId = request.OrganizationId.Trim(), EmployeeId = employee.Id, DepartmentId = departmentId, WarehouseId = warehouseId, RackBinId = request.RackBinId, AllowsPrivilegedCrossScope = request.AllowsPrivilegedCrossScope, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks.Trim(), CreatedBy = user.LoginId };
+        var organization = request.OrganizationId.Trim();
+        var overlap = await db.EmployeeOperationalScopes.AnyAsync(x => x.OrganizationId == organization && x.EmployeeId == employee.Id && x.DepartmentId == departmentId && x.WarehouseId == warehouseId && x.RackBinId == request.RackBinId && x.OwnRecordsOnly == request.OwnRecordsOnly && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (overlap) return Results.Conflict(new { message = "An overlapping operational scope exists." });
+        var entity = new EmployeeOperationalScope { OrganizationId = organization, EmployeeId = employee.Id, DepartmentId = departmentId, WarehouseId = warehouseId, RackBinId = request.RackBinId, OwnRecordsOnly = request.OwnRecordsOnly, AllowsPrivilegedCrossScope = request.AllowsPrivilegedCrossScope, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks.Trim(), CreatedBy = user.LoginId };
         db.EmployeeOperationalScopes.Add(entity);
         AddHistory(db, entity.OrganizationId, nameof(EmployeeOperationalScope), entity.Id, "Create", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct);
@@ -106,14 +109,20 @@ public static class Rev869AConfigurationEndpoints
     private static async Task<IResult> CreateTax(CreateTaxGstSettingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
         var rates = new[] { request.GstRate, request.CgstRate, request.SgstRate, request.IgstRate, request.CessRate };
-        if (!rates.All(TaxGstSetting.IsValidRate) || !TaxGstSetting.IsValidRange(request.EffectiveFrom, request.EffectiveTo) || request.RoundingScale is < 0 or > 6 || request.CurrencyCode.Trim().Length != 3) return Results.BadRequest(new { message = "Invalid tax rate, effective range, ISO currency code or rounding scale." });
-        var organization = request.OrganizationId.Trim(); var jurisdiction = MasterEndpointHelpers.NormalizeCode(request.JurisdictionCode); var hsn = MasterEndpointHelpers.NormalizeCode(request.HsnSacCode); var supply = MasterEndpointHelpers.NormalizeCode(request.SupplyType); var registration = MasterEndpointHelpers.NormalizeCode(request.VendorRegistrationType);
-        var overlap = await db.TaxGstSettings.AnyAsync(x => x.OrganizationId == organization && x.JurisdictionCode == jurisdiction && x.HsnSacCode == hsn && x.SupplyType == supply && x.VendorRegistrationType == registration && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        var organization = request.OrganizationId.Trim();
+        var jurisdiction = MasterEndpointHelpers.NormalizeCode(request.JurisdictionCode);
+        var hsn = MasterEndpointHelpers.NormalizeCode(request.HsnSacCode);
+        var supplierState = MasterEndpointHelpers.NormalizeCode(request.SupplierStateCode);
+        var placeOfSupplyState = MasterEndpointHelpers.NormalizeCode(request.PlaceOfSupplyStateCode);
+        var registration = MasterEndpointHelpers.NormalizeCode(request.VendorRegistrationType);
+        var supply = TaxGstSetting.ResolveSupplyType(supplierState, placeOfSupplyState);
+        var candidate = new TaxGstSetting { OrganizationId = organization, JurisdictionCode = jurisdiction, HsnSacCode = hsn, SupplierStateCode = supplierState, PlaceOfSupplyStateCode = placeOfSupplyState, SupplyType = supply, VendorRegistrationType = registration, GstRate = request.GstRate, CgstRate = request.CgstRate, SgstRate = request.SgstRate, IgstRate = request.IgstRate, CessRate = request.CessRate, IsExempt = request.IsExempt, IsReverseCharge = request.IsReverseCharge, CurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant(), RoundingScale = request.RoundingScale, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
+        if (!rates.All(TaxGstSetting.IsValidRate) || !TaxGstSetting.IsValidRange(request.EffectiveFrom, request.EffectiveTo) || request.RoundingScale is < 0 or > 6 || candidate.CurrencyCode.Length != 3 || string.IsNullOrWhiteSpace(supplierState) || string.IsNullOrWhiteSpace(placeOfSupplyState) || !candidate.HasValidIndiaComponentSplit()) return Results.BadRequest(new { message = "Invalid tax rate, state-based GST component split, effective range, ISO currency code or rounding scale." });
+        var overlap = await db.TaxGstSettings.AnyAsync(x => x.OrganizationId == organization && x.JurisdictionCode == jurisdiction && x.HsnSacCode == hsn && x.SupplierStateCode == supplierState && x.PlaceOfSupplyStateCode == placeOfSupplyState && x.VendorRegistrationType == registration && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping effective tax rule exists." });
-        var entity = new TaxGstSetting { OrganizationId = organization, JurisdictionCode = jurisdiction, HsnSacCode = hsn, SupplyType = supply, VendorRegistrationType = registration, GstRate = request.GstRate, CgstRate = request.CgstRate, SgstRate = request.SgstRate, IgstRate = request.IgstRate, CessRate = request.CessRate, IsExempt = request.IsExempt, IsReverseCharge = request.IsReverseCharge, CurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant(), RoundingScale = request.RoundingScale, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
-        db.TaxGstSettings.Add(entity); AddHistory(db, entity.OrganizationId, nameof(TaxGstSetting), entity.Id, "CreateVersion", null, entity, request.Remarks, user);
-        await db.SaveChangesAsync(ct); await audit.WriteAsync("Settings", "CreateTaxGstSetting", nameof(TaxGstSetting), entity.Id.ToString(), null, entity, ct);
-        return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{entity.Id}", new { entity.Id });
+        db.TaxGstSettings.Add(candidate); AddHistory(db, candidate.OrganizationId, nameof(TaxGstSetting), candidate.Id, "CreateVersion", null, candidate, request.Remarks, user);
+        await db.SaveChangesAsync(ct); await audit.WriteAsync("Settings", "CreateTaxGstSetting", nameof(TaxGstSetting), candidate.Id.ToString(), null, candidate, ct);
+        return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{candidate.Id}", new { candidate.Id });
     }
 
     private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
@@ -123,7 +132,11 @@ public static class Rev869AConfigurationEndpoints
         Guid? categoryId = null;
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode)) categoryId = await db.ItemCategories.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.ItemCategoryCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode) && !categoryId.HasValue) return Results.Conflict(new { message = "Active item category was not found." });
-        var entity = new VendorQualification { OrganizationId = request.OrganizationId.Trim(), VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = MasterEndpointHelpers.NormalizeCode(request.QualificationCode), EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
+        var organization = request.OrganizationId.Trim(); var qualificationCode = MasterEndpointHelpers.NormalizeCode(request.QualificationCode);
+        if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid vendor qualification effective range." });
+        var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (overlap) return Results.Conflict(new { message = "An overlapping vendor qualification exists." });
+        var entity = new VendorQualification { OrganizationId = organization, VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = qualificationCode, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         db.VendorQualifications.Add(entity); AddHistory(db, entity.OrganizationId, nameof(VendorQualification), entity.Id, "Create", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
@@ -135,7 +148,11 @@ public static class Rev869AConfigurationEndpoints
         var rack = await db.RackBins.SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);
         var condition = MasterEndpointHelpers.NormalizeCode(request.ConditionCode);
         if (warehouse is null || rack is null || rack.WarehouseId != warehouse.Id || !InventoryConditionCodes.All.Contains(condition, StringComparer.OrdinalIgnoreCase) || !string.Equals(MasterEndpointHelpers.NormalizeCode(rack.MaterialCondition), condition, StringComparison.Ordinal)) return Results.Conflict(new { message = "Warehouse/RackBin/condition mapping is invalid." });
-        var entity = new WarehouseConditionLocation { OrganizationId = request.OrganizationId.Trim(), WarehouseId = warehouse.Id, RackBinId = rack.Id, ConditionCode = condition, CreatedBy = user.LoginId };
+        if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid warehouse-condition effective range." });
+        var organization = request.OrganizationId.Trim();
+        var overlap = await db.WarehouseConditionLocations.AnyAsync(x => x.OrganizationId == organization && x.WarehouseId == warehouse.Id && x.RackBinId == rack.Id && x.ConditionCode == condition && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (overlap) return Results.Conflict(new { message = "An overlapping warehouse/RackBin condition mapping exists." });
+        var entity = new WarehouseConditionLocation { OrganizationId = organization, WarehouseId = warehouse.Id, RackBinId = rack.Id, ConditionCode = condition, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.WarehouseConditionLocations.Add(entity); AddHistory(db, entity.OrganizationId, nameof(WarehouseConditionLocation), entity.Id, "Create", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Stores", "CreateWarehouseConditionLocation", nameof(WarehouseConditionLocation), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/warehouse-condition-locations/{entity.Id}", new { entity.Id, locationKey = StoreLocationKey.Derive(warehouse.Id, rack.Id) });
@@ -149,7 +166,11 @@ public static class Rev869AConfigurationEndpoints
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode)) categoryId = await db.ItemCategories.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.ItemCategoryCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         var uomId = await db.Uoms.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.MeasurementUomCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if ((!itemId.HasValue && !categoryId.HasValue) || !uomId.HasValue) return Results.Conflict(new { message = "Active QC item/category and measurement UOM are required." });
-        var entity = new QcInspectionPolicy { OrganizationId = request.OrganizationId.Trim(), ItemId = itemId, ItemCategoryId = categoryId, ParameterCode = MasterEndpointHelpers.NormalizeCode(request.ParameterCode), MeasurementUomId = uomId.Value, LowerLimit = request.LowerLimit, UpperLimit = request.UpperLimit, InspectionMethod = request.InspectionMethod.Trim(), SampleSize = request.SampleSize, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
+        if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid QC policy effective range." });
+        var organization = request.OrganizationId.Trim(); var parameter = MasterEndpointHelpers.NormalizeCode(request.ParameterCode);
+        var overlap = await db.QcInspectionPolicies.AnyAsync(x => x.OrganizationId == organization && x.ItemId == itemId && x.ItemCategoryId == categoryId && x.ParameterCode == parameter && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (overlap) return Results.Conflict(new { message = "An overlapping QC policy exists." });
+        var entity = new QcInspectionPolicy { OrganizationId = organization, ItemId = itemId, ItemCategoryId = categoryId, ParameterCode = parameter, MeasurementUomId = uomId.Value, LowerLimit = request.LowerLimit, UpperLimit = request.UpperLimit, InspectionMethod = request.InspectionMethod.Trim(), SampleSize = request.SampleSize, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         db.QcInspectionPolicies.Add(entity); AddHistory(db, entity.OrganizationId, nameof(QcInspectionPolicy), entity.Id, "CreateVersion", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("QC", "CreateInspectionPolicy", nameof(QcInspectionPolicy), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/qc-inspection-policies/{entity.Id}", new { entity.Id });

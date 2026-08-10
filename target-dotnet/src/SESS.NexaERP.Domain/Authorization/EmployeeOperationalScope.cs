@@ -15,18 +15,23 @@ public sealed class EmployeeOperationalScope : AuditableEntity
     public Warehouse? Warehouse { get; set; }
     public Guid? RackBinId { get; set; }
     public RackBin? RackBin { get; set; }
+    public bool OwnRecordsOnly { get; set; }
     public bool AllowsPrivilegedCrossScope { get; set; }
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public bool IsActive { get; set; } = true;
     public string Remarks { get; set; } = string.Empty;
 
-    public bool Matches(Guid? departmentId, Guid? warehouseId, Guid? rackBinId, DateOnly onDate)
+    public bool Matches(Guid? departmentId, Guid? warehouseId, Guid? rackBinId, DateOnly onDate) =>
+        Matches(departmentId, warehouseId, rackBinId, null, onDate);
+
+    public bool Matches(Guid? departmentId, Guid? warehouseId, Guid? rackBinId, Guid? ownerEmployeeId, DateOnly onDate)
     {
         if (!IsActive || EffectiveFrom > onDate || (EffectiveTo.HasValue && EffectiveTo.Value < onDate)) return false;
         if (DepartmentId.HasValue && DepartmentId != departmentId) return false;
         if (WarehouseId.HasValue && WarehouseId != warehouseId) return false;
         if (RackBinId.HasValue && RackBinId != rackBinId) return false;
+        if (OwnRecordsOnly && EmployeeId != ownerEmployeeId) return false;
         return true;
     }
 }

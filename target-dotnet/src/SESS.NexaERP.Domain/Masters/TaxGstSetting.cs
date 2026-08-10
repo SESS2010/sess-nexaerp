@@ -13,6 +13,8 @@ public sealed class TaxGstSetting : AuditableEntity
     public string JurisdictionCode { get; set; } = TaxJurisdictions.IndiaGst;
     public string HsnSacCode { get; set; } = string.Empty;
     public string SupplyType { get; set; } = string.Empty;
+    public string SupplierStateCode { get; set; } = string.Empty;
+    public string PlaceOfSupplyStateCode { get; set; } = string.Empty;
     public string VendorRegistrationType { get; set; } = string.Empty;
     public decimal GstRate { get; set; }
     public decimal CgstRate { get; set; }
@@ -30,6 +32,19 @@ public sealed class TaxGstSetting : AuditableEntity
 
     public static bool IsValidRange(DateOnly from, DateOnly? to) => !to.HasValue || to.Value >= from;
     public static bool IsValidRate(decimal rate) => rate is >= 0 and <= 100;
+    public static string ResolveSupplyType(string supplierStateCode, string placeOfSupplyStateCode)
+    {
+        if (string.IsNullOrWhiteSpace(supplierStateCode) || string.IsNullOrWhiteSpace(placeOfSupplyStateCode)) throw new InvalidOperationException("Supplier and place-of-supply state codes are required.");
+        return string.Equals(supplierStateCode.Trim(), placeOfSupplyStateCode.Trim(), StringComparison.OrdinalIgnoreCase) ? "INTRASTATE" : "INTERSTATE";
+    }
+
+    public bool HasValidIndiaComponentSplit()
+    {
+        if (!string.Equals(JurisdictionCode, TaxJurisdictions.IndiaGst, StringComparison.OrdinalIgnoreCase)) return true;
+        return SupplyType == "INTRASTATE"
+            ? IgstRate == 0 && CgstRate + SgstRate == GstRate
+            : SupplyType == "INTERSTATE" && CgstRate == 0 && SgstRate == 0 && IgstRate == GstRate;
+    }
 }
 
 public sealed record CommercialValueSnapshot(
