@@ -38,7 +38,8 @@ public static class PurchaseRequisitionLineStatuses
 public static class PurchaseApproverResolutionTypes
 {
     public const string DepartmentMapping = "DEPARTMENT_MAPPING";
-    public const string FixedRole = "FIXED_ROLE";
+    public const string ConfiguredRole = "CONFIGURED_ROLE";
+    public const string FixedRole = ConfiguredRole;
 }
 
 public static class PurchaseRequisitionApprovalRoutes

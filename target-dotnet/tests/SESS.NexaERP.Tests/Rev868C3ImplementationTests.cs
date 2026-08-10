@@ -137,10 +137,10 @@ public sealed class Rev868C3ImplementationTests
     [Theory]
     [InlineData(0, "MANAGER_ONLY", 1, null, null)]
     [InlineData(50000, "MANAGER_ONLY", 1, null, null)]
-    [InlineData(50000.01, "MANAGER_MD", 2, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector)]
-    [InlineData(500000, "MANAGER_MD", 2, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector)]
-    [InlineData(500000.01, "MANAGER_MD_TD", 3, "SESS-001", PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
-    [InlineData(500001, "MANAGER_MD_TD", 3, "SESS-001", PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
+    [InlineData(50000.01, "MANAGER_MD", 2, null, PurchaseRequisitionApprovalRoutes.ManagingDirector)]
+    [InlineData(500000, "MANAGER_MD", 2, null, PurchaseRequisitionApprovalRoutes.ManagingDirector)]
+    [InlineData(500000.01, "MANAGER_MD_TD", 3, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
+    [InlineData(500001, "MANAGER_MD_TD", 3, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
     public void Rev868c3_approval_workflow_boundaries_follow_manager_md_td_chain(decimal amount, string routeCode, int stepCount, string? finalApproverEmployee, string? finalRole)
     {
         var steps = PurchaseRequisitionEndpoints.ApprovalWorkflowFor(amount);

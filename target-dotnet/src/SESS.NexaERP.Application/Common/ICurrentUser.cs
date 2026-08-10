@@ -6,4 +6,8 @@ public interface ICurrentUser
     string RoleCode { get; }
     string? OrganizationId { get; }
     bool IsAuthenticated { get; }
+    string? IdentityIssuer => null;
+    string? IdentitySubject => null;
+    Guid? EmployeeId => null;
+    Guid? DepartmentId => null;
 }

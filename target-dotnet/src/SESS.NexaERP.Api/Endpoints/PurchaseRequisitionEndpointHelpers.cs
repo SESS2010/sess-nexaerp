@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -115,10 +117,10 @@ public static partial class PurchaseRequisitionEndpoints
     [
         new("MANAGER_ONLY", 0m, 50000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
         new("MANAGER_MD", 50000.01m, 500000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
-        new("MANAGER_MD", 50000.01m, 500000m, 2, PurchaseApproverResolutionTypes.FixedRole, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector),
+        new("MANAGER_MD", 50000.01m, 500000m, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
         new("MANAGER_MD_TD", 500000.01m, null, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
-        new("MANAGER_MD_TD", 500000.01m, null, 2, PurchaseApproverResolutionTypes.FixedRole, "SESS-002", PurchaseRequisitionApprovalRoutes.ManagingDirector),
-        new("MANAGER_MD_TD", 500000.01m, null, 3, PurchaseApproverResolutionTypes.FixedRole, "SESS-001", PurchaseRequisitionApprovalRoutes.TechnicalDirector)
+        new("MANAGER_MD_TD", 500000.01m, null, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
+        new("MANAGER_MD_TD", 500000.01m, null, 3, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)
     ];
 
     public static IReadOnlyList<ApprovalWorkflowStepDefinition> ApprovalWorkflowFor(decimal total) => ApprovalWorkflowFor(total, DefaultApprovalWorkflowSteps);
@@ -179,7 +181,9 @@ public static partial class PurchaseRequisitionEndpoints
             .Where(x => candidateIds.Contains(x.Id))
             .Select(x => new { x.Id, x.EmployeeCode, x.EmployeeName, x.Status, x.LoginEnabled })
             .ToListAsync(ct);
-        var actorEmployee = candidates.SingleOrDefault(x => string.Equals(x.EmployeeCode, actorLogin, StringComparison.OrdinalIgnoreCase));
+        var actorEmployee = actor.EmployeeId.HasValue
+            ? candidates.SingleOrDefault(x => x.Id == actor.EmployeeId.Value)
+            : candidates.SingleOrDefault(x => string.Equals(x.EmployeeCode, actorLogin, StringComparison.OrdinalIgnoreCase));
         if (actorEmployee is null) return new(false, mapping.PrimaryApproverEmployeeId, null, null, "Actor is not the configured department manager or active delegate.");
         if (!string.Equals(actorEmployee.Status, "Active", StringComparison.OrdinalIgnoreCase) || !actorEmployee.LoginEnabled) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department manager is inactive or login disabled.");
         if (actorEmployee.Id == pr.RequesterEmployeeId || string.Equals(actorEmployee.EmployeeCode, pr.CreatedBy, StringComparison.OrdinalIgnoreCase) || string.Equals(actorEmployee.EmployeeCode, pr.SubmittedBy, StringComparison.OrdinalIgnoreCase)) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Requester/submitter cannot approve their own MANAGER route PR.");
@@ -192,7 +196,7 @@ public static partial class PurchaseRequisitionEndpoints
     public static decimal AvailableQuantity(decimal onHand, decimal activeReserved) => Math.Max(onHand - activeReserved, 0);
     public static decimal ReserveQuantity(decimal requested, decimal available) => Math.Min(Math.Max(requested, 0), Math.Max(available, 0));
     public static decimal ShortageQuantity(decimal requested, decimal reserved) => Math.Max(requested - reserved, 0);
-    public static string LocationKey(Guid warehouseId, Guid? rackBinId) => rackBinId.HasValue ? $"W:{warehouseId:N}:B:{rackBinId.Value:N}" : $"W:{warehouseId:N}:B:NONE";
+    public static string LocationKey(Guid warehouseId, Guid? rackBinId) => StoreLocationKey.Derive(warehouseId, rackBinId);
     public static decimal ReconciledShortage(decimal requested, decimal totalActiveReserved) => Math.Max(requested - totalActiveReserved, 0);
     public static bool IsRouteLimitValid(decimal min, decimal? max) => min >= 0 && (!max.HasValue || max.Value >= min);
     public static bool HasOverlappingRoute(decimal min, decimal? max, IEnumerable<(decimal Min, decimal? Max)> activeRanges)
@@ -202,7 +206,20 @@ public static partial class PurchaseRequisitionEndpoints
     }
     private static string FinancialYear(DateOnly date) => date.Month >= 4 ? $"{date.Year}-{(date.Year + 1) % 100:00}" : $"{date.Year - 1}-{date.Year % 100:00}";
     private static bool CanApproveRoute(string role, string route) { var normalizedRole = role.Trim().ToUpperInvariant(); return PurchaseRequisitionApprovalRoutes.Normalize(route) switch { PurchaseRequisitionApprovalRoutes.Manager => normalizedRole.Contains("MANAGER", StringComparison.OrdinalIgnoreCase) || normalizedRole is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.TechnicalDirector => normalizedRole is "TECHNICAL_DIRECTOR" or "ADMIN", PurchaseRequisitionApprovalRoutes.ManagingDirector => normalizedRole is "MANAGING_DIRECTOR" or "MD" or "ADMIN", _ => false }; }
-    private static IQueryable<PurchaseRequisition> Scope(IQueryable<PurchaseRequisition> query, ICurrentUser user) => string.IsNullOrWhiteSpace(user.OrganizationId) ? query : query.Where(x => x.OrganizationId == user.OrganizationId);
+    private static IQueryable<PurchaseRequisition> Scope(IQueryable<PurchaseRequisition> query, ICurrentUser user, NexaErpDbContext db)
+    {
+        if (!string.IsNullOrWhiteSpace(user.OrganizationId)) query = query.Where(x => x.OrganizationId == user.OrganizationId);
+        if (!user.EmployeeId.HasValue) return query;
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var employeeId = user.EmployeeId.Value;
+        var role = Rev869ARoleCodes.Normalize(user.RoleCode);
+        var scopes = db.EmployeeOperationalScopes.Where(x => x.EmployeeId == employeeId && x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today));
+        if (Rev869ARoleCodes.IsExplicitCrossScopeRole(role) && scopes.Any(x => x.AllowsPrivilegedCrossScope)) return query;
+        return query.Where(pr => scopes.Any(scope =>
+            (!scope.DepartmentId.HasValue || scope.DepartmentId == pr.RequestingDepartmentId) &&
+            (!scope.WarehouseId.HasValue || scope.WarehouseId == pr.DeliveryWarehouseId) &&
+            !scope.RackBinId.HasValue));
+    }
     private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) => query.Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee).Include(x => x.DeliveryWarehouse).Include(x => x.Lines).ThenInclude(x => x.Item);
     private static IQueryable<PurchaseRequisition> Sort(IQueryable<PurchaseRequisition> q, string? sortBy, string? dir) => (sortBy?.Trim().ToLowerInvariant(), dir?.Trim().ToLowerInvariant()) switch { ("requiredby", "desc") => q.OrderByDescending(x => x.RequiredByDate), ("requiredby", _) => q.OrderBy(x => x.RequiredByDate), ("status", "desc") => q.OrderByDescending(x => x.Status), ("status", _) => q.OrderBy(x => x.Status), ("total", "desc") => q.OrderByDescending(x => x.EstimatedTotal), ("total", _) => q.OrderBy(x => x.EstimatedTotal), ("prnumber", "desc") => q.OrderByDescending(x => x.PrNumber), _ => q.OrderBy(x => x.PrNumber) };
     private static string NormalizePr(string value) => value.Trim().ToUpperInvariant();

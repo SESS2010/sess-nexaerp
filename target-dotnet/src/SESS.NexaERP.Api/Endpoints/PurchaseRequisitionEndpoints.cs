@@ -25,7 +25,7 @@ public static partial class PurchaseRequisitionEndpoints
         group.MapGet("", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
         {
             var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-            var q = Scope(db.PurchaseRequisitions.AsNoTracking().Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee), user);
+            var q = Scope(db.PurchaseRequisitions.AsNoTracking().Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee), user, db);
             if (!string.IsNullOrWhiteSpace(search))
             {
                 var s = search.Trim().ToUpperInvariant();
@@ -40,7 +40,7 @@ public static partial class PurchaseRequisitionEndpoints
 
         group.MapGet("/{prNumber}", async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
-            var pr = await Scope(IncludeDetail(db.PurchaseRequisitions.AsNoTracking()), user).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+            var pr = await Scope(IncludeDetail(db.PurchaseRequisitions.AsNoTracking()), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
             return pr is null ? Results.NotFound(new { message = "Purchase requisition not found." }) : Results.Ok(ToDetail(pr));
         }).RequirePagePermission(PageRequisitions, PagePermissionActions.View);
 
@@ -61,7 +61,7 @@ public static partial class PurchaseRequisitionEndpoints
 
         group.MapPut("/{prNumber}", async (string prNumber, UpdatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
         {
-            var pr = await IncludeDetail(db.PurchaseRequisitions).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+            var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
             if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
             if (pr.Status != PurchaseRequisitionStatuses.Draft && pr.Status != PurchaseRequisitionStatuses.RevisionRequested) return Results.Conflict(new { message = "Only draft or revision-requested PR can be updated." });
             if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
@@ -98,7 +98,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<IResult> Approve(string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var pr = await IncludeDetail(db.PurchaseRequisitions).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
         if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
         if (pr.Status != PurchaseRequisitionStatuses.PendingApproval) return Results.Conflict(new { message = "PR must be pending approval." });
         if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
@@ -138,7 +138,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<IResult> ChangeStatus(string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, string action, string? requiredStatus, string nextStatus, string page, CancellationToken ct)
     {
-        var pr = await IncludeDetail(db.PurchaseRequisitions).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
         if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
         if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Remarks are required." });
         if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });

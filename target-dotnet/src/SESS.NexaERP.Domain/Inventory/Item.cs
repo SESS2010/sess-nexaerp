@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Masters;
 
 namespace SESS.NexaERP.Domain.Inventory;
@@ -17,6 +17,8 @@ public sealed class Item : AuditableEntity
     public string Uom { get; set; } = string.Empty;
     public Guid? UomId { get; set; }
     public Uom? UomMaster { get; set; }
+    public Guid? BaseUomId { get; set; }
+    public Uom? BaseUom { get; set; }
     public string? ManufacturerMake { get; set; }
     public Guid? ManufacturerId { get; set; }
     public Manufacturer? Manufacturer { get; set; }

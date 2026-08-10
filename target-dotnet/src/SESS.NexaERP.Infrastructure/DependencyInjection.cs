@@ -1,11 +1,15 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Identity;
+using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Audit;
+using SESS.NexaERP.Infrastructure.Identity;
+using SESS.NexaERP.Infrastructure.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure;
@@ -22,6 +26,11 @@ public static class DependencyInjection
         services.AddSingleton<IDateTimeProvider, SystemClock>();
         services.AddScoped<IAuditWriter, EfAuditWriter>();
         services.AddScoped<IPagePermissionService, EfPagePermissionService>();
+        services.AddScoped<IEmployeeIdentityResolver, EfEmployeeIdentityResolver>();
+        services.AddScoped<IRecordScopeAuthorizer, EfRecordScopeAuthorizer>();
+        services.AddScoped<IUomConversionService, EfUomConversionService>();
+        services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
+        services.AddScoped<IVendorQualificationService, EfVendorQualificationService>();
 
         return services;
     }

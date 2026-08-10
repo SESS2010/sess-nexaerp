@@ -9,7 +9,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class MasterEndpoints
+public static partial class MasterEndpoints
 {
     public static IEndpointRouteBuilder MapMasterEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -167,14 +167,19 @@ public static class MasterEndpoints
             var validation = await ValidateVendorAsync(request, db, vendor.Id, cancellationToken);
             if (validation is not null) return validation;
             var before = ToDetail(vendor, true);
+            var beforeControlled = VendorControlledSnapshot(vendor);
+            var controlledChange = VendorControlledFieldsChanged(vendor, request);
             ApplyVendor(vendor, request, currentUser.LoginId, false);
+            if (controlledChange) AddVendorReverificationEvidence(db, vendor, before.ApprovalStatus, beforeControlled, currentUser);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Masters", "UpdateDraft", nameof(Vendor), vendor.Id.ToString(), before, vendor, cancellationToken);
             return Results.Ok(ToDetail(vendor, true));
         }).RequirePagePermission("masters.vendors", PagePermissionActions.Update);
 
         MapVendorAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
-        MapVendorAction(group, "approve", "Approve", MasterStatuses.Approved, MasterApprovalStatuses.Approved, PagePermissionActions.Approve);
+        group.MapPost("/vendors/{vendorCode}/verify-commercial", VerifyVendorCommercial)
+            .RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
+        MapVendorAction(group, "approve", "Approve", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Approve);
         MapVendorAction(group, "reject", "Reject", MasterStatuses.Rejected, MasterApprovalStatuses.Rejected, PagePermissionActions.Reject);
         MapVendorAction(group, "request-clarification", "RequestClarification", MasterStatuses.PendingApproval, MasterApprovalStatuses.ClarificationRequested, PagePermissionActions.RequestClarification);
         MapVendorAction(group, "request-revision", "RequestRevision", MasterStatuses.Draft, MasterApprovalStatuses.RevisionRequested, PagePermissionActions.RequestRevision);
@@ -209,7 +214,12 @@ public static class MasterEndpoints
         {
             var vendor = await db.Vendors.SingleOrDefaultAsync(existing => existing.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
             if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
-            return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, currentUser, vendor, nameof(Vendor), vendor.VendorCode, action, status, approvalStatus, request.Remarks, request.Version, (entity, next, actor) => { entity.VendorStatus = next; entity.IsActive = next is not MasterStatuses.Inactive and not MasterStatuses.Blacklisted; if (next == MasterStatuses.Approved) { entity.IsVendorCodeLocked = true; entity.ApprovedBy = actor; entity.ApprovedAt = DateTimeOffset.UtcNow; } }, entity => entity.VendorStatus, entity => entity.ApprovalStatus, (entity, next) => entity.ApprovalStatus = next, cancellationToken);
+            if (action == "Approve")
+            {
+                var gate = await ValidateVendorFinalApproval(vendor, db, currentUser, audit, cancellationToken);
+                if (gate is not null) return gate;
+            }
+            return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, currentUser, vendor, nameof(Vendor), vendor.VendorCode, action, status, approvalStatus, request.Remarks, request.Version, (entity, next, actor) => { entity.VendorStatus = next; entity.IsActive = next is not MasterStatuses.Inactive and not MasterStatuses.Blacklisted; if (next == MasterStatuses.Active) { entity.IsVendorCodeLocked = true; entity.ApprovedBy = actor; entity.ApprovedAt = DateTimeOffset.UtcNow; entity.RequiresReverification = false; } }, entity => entity.VendorStatus, entity => entity.ApprovalStatus, (entity, next) => entity.ApprovalStatus = next, cancellationToken);
         }).RequirePagePermission("masters.vendors", permission);
     }
 

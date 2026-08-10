@@ -32,6 +32,12 @@ public sealed class Vendor : AuditableEntity
     public string PortalOrganizationId { get; set; } = string.Empty;
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
     public string VendorStatus { get; set; } = MasterStatuses.Draft;
+    public string CommercialVerificationStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public string? CommercialVerifiedBy { get; set; }
+    public DateTimeOffset? CommercialVerifiedAt { get; set; }
+    public DateOnly EffectiveFrom { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateOnly? EffectiveTo { get; set; }
+    public bool RequiresReverification { get; set; }
     public string? ApprovedBy { get; set; }
     public DateTimeOffset? ApprovedAt { get; set; }
     public bool IsActive { get; set; } = true;

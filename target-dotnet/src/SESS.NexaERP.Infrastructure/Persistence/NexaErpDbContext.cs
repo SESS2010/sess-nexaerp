@@ -9,7 +9,7 @@ using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
-public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options) : DbContext(options)
+public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options) : DbContext(options)
 {
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
@@ -70,6 +70,7 @@ public sealed class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options)
         ConfigureAudit(modelBuilder);
         ConfigureAuthorization(modelBuilder);
         ConfigureEmployees(modelBuilder);
+        ConfigureRev869A(modelBuilder);
         SeedFoundation(modelBuilder);
     }
 

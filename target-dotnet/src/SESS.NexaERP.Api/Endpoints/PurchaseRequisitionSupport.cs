@@ -1,8 +1,9 @@
-﻿using System.Data;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -106,7 +107,7 @@ public static partial class PurchaseRequisitionEndpoints
             if (!string.IsNullOrWhiteSpace(input.RackBinCode))
             {
                 rackBinCode = MasterEndpointHelpers.NormalizeCode(input.RackBinCode);
-                var bin = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.WarehouseId == warehouse.Id && x.BinCode == rackBinCode && x.IsActive, ct) ?? throw new InvalidOperationException($"Line {line.LineNumber}: active rack/bin {rackBinCode} does not belong to warehouse {warehouseCode}.");
+                var bin = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.WarehouseId == warehouse.Id && x.BinCode == rackBinCode && x.IsActive && x.MaterialCondition == InventoryConditionCodes.Available, ct) ?? throw new InvalidOperationException($"Line {line.LineNumber}: active rack/bin {rackBinCode} does not belong to warehouse {warehouseCode}.");
                 rackBinId = bin.Id;
             }
             var key = LocationKey(warehouse.Id, rackBinId);

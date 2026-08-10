@@ -1,4 +1,4 @@
-﻿using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Common;
 
 namespace SESS.NexaERP.Domain.Masters;
 
@@ -44,6 +44,8 @@ public sealed class Uom : AuditableEntity
 {
     public string Code { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string MeasurementDimension { get; set; } = string.Empty;
+    public int QuantityPrecision { get; set; } = 6;
     public bool IsActive { get; set; } = true;
 }
 

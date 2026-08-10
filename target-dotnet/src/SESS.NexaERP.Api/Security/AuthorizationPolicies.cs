@@ -10,8 +10,8 @@ public static class AuthorizationPolicies
     public const string InventoryWrite = "InventoryWrite";
 
     private static readonly string[] AdminRoles = ["admin", "it_admin", "md"];
-    private static readonly string[] MasterRoles = ["admin", "it_admin", "md", "purchase_head", "store_head", "sales_head"];
-    private static readonly string[] InventoryRoles = ["admin", "it_admin", "md", "store_head", "purchase_head"];
+    private static readonly string[] MasterRoles = ["admin", "it_admin", "md", "purchase_head", "store_head", "sales_head", "PURCHASE_MANAGER", "STORES_MANAGER"];
+    private static readonly string[] InventoryRoles = ["admin", "it_admin", "md", "store_head", "purchase_head", "STORES_MANAGER", "PURCHASE_MANAGER"];
 
     public static bool HasAnyRole(ClaimsPrincipal user, params string[] allowedRoles)
     {
