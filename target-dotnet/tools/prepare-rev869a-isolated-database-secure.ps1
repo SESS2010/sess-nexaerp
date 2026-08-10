@@ -1,0 +1,336 @@
+[CmdletBinding()]
+param(
+    [string]$SourceDatabase = "sess_nexaerp_rev868_verify",
+    [string]$TargetDatabase = "sess_nexaerp_rev869a_verify",
+    [string]$HostName = "localhost",
+    [int]$Port = 5432,
+    [string]$UserName = "postgres",
+    [string]$PsqlPath = "C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe",
+    [string]$PgDumpPath = "C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe",
+    [string]$PgRestorePath = "C:\\Program Files\\PostgreSQL\\17\\bin\\pg_restore.exe",
+    [string]$CreateDbPath = "C:\\Program Files\\PostgreSQL\\17\\bin\\createdb.exe",
+    [switch]$GeneratePlanOnly,
+    [switch]$SourcePreflightOnly,
+    [switch]$Provision,
+    [switch]$PostProvisionVerification
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$acceptedSource = "sess_nexaerp_rev868_verify"
+$acceptedTarget = "sess_nexaerp_rev869a_verify"
+$acceptedHost = "localhost"
+$acceptedPort = 5432
+$expectedMigrations = @(
+    "20260808110924_Phase1Foundation",
+    "20260808114550_Phase1AuthorizationSeed",
+    "20260808123411_Rev866EmployeePermissionMatrix",
+    "20260808142353_Rev866CorrectiveStatusPermissionAudit",
+    "20260808151207_Rev867MasterFoundation",
+    "20260808160435_Rev867C1Corrections",
+    "20260808182945_Rev868PurchaseRequisitionFoundation",
+    "20260808190920_Rev868PurchaseLocationAllocationCorrection",
+    "20260809123000_Rev868C2DepartmentManagerApprovalMapping",
+    "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation",
+    "20260810110000_Rev868C3LegacyMixedDepartmentDeactivationCorrection"
+)
+$protectedDatabases = @(
+    "sess_nexaerp", "postgres", "template0", "template1",
+    "REV861-like names", "production-like names", "every unexpected database"
+)
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$approvedBackupRoot = Join-Path $repoRoot "backups\postgresql\pre-rev869a-isolated"
+$evidenceRoot = Join-Path $repoRoot "local-evidence\rev869a-isolated-provisioning"
+$password = $null
+$plainPassword = $null
+
+function Assert-Mode {
+    $count = @($GeneratePlanOnly, $SourcePreflightOnly, $Provision, $PostProvisionVerification | Where-Object { $_ }).Count
+    if ($count -ne 1) { throw "Select exactly one mode." }
+}
+
+function Assert-EndpointSafety {
+    if ($SourceDatabase -cne $acceptedSource) { throw "Rejected source database." }
+    if ($TargetDatabase -cne $acceptedTarget) { throw "Rejected target database." }
+    if ($SourceDatabase -ceq $TargetDatabase) { throw "Source and target must differ." }
+    if ($HostName -cne $acceptedHost -or $Port -ne $acceptedPort) { throw "Only localhost:5432 is accepted." }
+    foreach ($name in @($SourceDatabase, $TargetDatabase)) {
+        if ($name -match "(?i)(rev861|production|prod|live|main)") { throw "Protected database pattern rejected." }
+    }
+}
+
+function Protect-Text([string]$Text) {
+    if ($null -eq $Text) { return "" }
+    $safe = $Text -replace "(?i)(password|pwd|secret|token)\s*[=:]\s*[^;\s]+", '$1=[REDACTED]'
+    $safe = $safe -replace "(?i)(employee(code|name)?|email)\s*[=:]\s*[^;\r\n]+", '$1=[REDACTED]'
+    return $safe
+}
+
+function Assert-ReadOnlySql([string]$Name, [string]$Sql) {
+    $normalized = $Sql -replace "(?s)/\*.*?\*/", " " -replace "(?m)--.*$", " "
+    $normalized = $normalized -replace "'(?:''|[^'])*'", "''" -replace '"(?:""|[^"])*"', '""'
+    if ($Sql -notmatch "(?is)^\s*begin\s+transaction\s+read\s+only\s*;" -or $Sql -notmatch "(?is)(commit|rollback)\s*;\s*$") {
+        throw "$Name SQL is not enclosed in a read-only transaction."
+    }
+    if ($normalized -match "(?i)\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|copy|call|do|vacuum|analyze|reindex)\b") {
+        throw "$Name SQL contains a modifying statement."
+    }
+}
+
+function Assert-SafeRestoreArguments([string[]]$Arguments) {
+    if ($Arguments -contains "--clean" -or $Arguments -contains "--create") { throw "Unsafe restore option rejected." }
+    if ($Arguments -notcontains "--no-owner" -or $Arguments -notcontains "--no-privileges") { throw "Required restore isolation options are missing." }
+}
+
+function Resolve-Tool([string]$Path, [string]$Leaf) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Leaf was not found." }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Initialize-DatabaseAccess {
+    $script:PsqlPath = Resolve-Tool $PsqlPath "psql.exe"
+    $script:PgDumpPath = Resolve-Tool $PgDumpPath "pg_dump.exe"
+    $script:PgRestorePath = Resolve-Tool $PgRestorePath "pg_restore.exe"
+    $script:CreateDbPath = Resolve-Tool $CreateDbPath "createdb.exe"
+    $script:password = Read-Host "PostgreSQL password (not logged)" -AsSecureString
+    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($script:password)
+    try { $script:plainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    $env:PGPASSWORD = $script:plainPassword
+}
+
+function Invoke-Native([string]$Executable, [string[]]$Arguments, [string]$Purpose) {
+    $output = & $Executable @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) { throw (Protect-Text "$Purpose failed: $($output -join ' ')") }
+    return @($output)
+}
+
+function Invoke-ReadOnlySql([string]$Database, [string]$Name, [string]$Sql) {
+    if ($Database -cne $acceptedSource -and $Database -cne $acceptedTarget) { throw "Unexpected database rejected." }
+    Assert-ReadOnlySql $Name $Sql
+    $tempFile = Join-Path ([IO.Path]::GetTempPath()) ("rev869a-" + [guid]::NewGuid().ToString("N") + ".sql")
+    try {
+        [IO.File]::WriteAllText($tempFile, $Sql, [Text.UTF8Encoding]::new($false))
+        $args = @("-X", "-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $Database, "-v", "ON_ERROR_STOP=1", "-At", "-f", $tempFile)
+        return Invoke-Native $PsqlPath $args $Name
+    }
+    finally { if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force } }
+}
+
+function Get-ExpectedMigrationValues {
+    return (($expectedMigrations | ForEach-Object { "('" + $_ + "')" }) -join ",`n")
+}
+
+$preservationTables = @(
+    "employees", "departments", "department_approval_mappings", "purchase_requisitions",
+    "purchase_requisition_approval_history", "purchase_requisition_status_history",
+    "stock_availability_checks", "stock_availability_check_lines", "stock_reservations",
+    "stock_reservation_history", "purchase_requirement_handoffs", "purchase_approval_route_settings",
+    "purchase_approval_workflow_steps", "page_definitions", "role_page_permissions", "audit_logs",
+    "employee_status_history", "employee_department_history", "employee_approval_history", "employee_import_history"
+)
+
+function New-EvidenceSql([bool]$RequireTargetAbsent) {
+    $expected = Get-ExpectedMigrationValues
+    $absenceClause = if ($RequireTargetAbsent) { "AND target_database_count = 0" } else { "" }
+    $tableValues = (($preservationTables | ForEach-Object { "('" + $_ + "')" }) -join ",")
+    return @"
+begin transaction read only;
+with expected_migrations(id) as (values
+$expected
+), actual_migrations as (
+  select "MigrationId" as id, count(*)::int as copies from "__EFMigrationsHistory" group by "MigrationId"
+), migration_evidence as (
+  select
+    (select count(*) from expected_migrations) expected_migration_count,
+    (select count(*) from expected_migrations e left join actual_migrations a using(id) where a.id is null) missing_migration_count,
+    (select count(*) from actual_migrations a left join expected_migrations e using(id) where e.id is null) unexpected_migration_count,
+    (select count(*) from actual_migrations where copies <> 1) duplicate_migration_count,
+    (select string_agg(id, ',' order by id) from actual_migrations where copies = 1) migration_fingerprint
+), clean_departments(code) as (values
+ ('MANAGEMENT'),('PURCHASE'),('STORES'),('ACCOUNTS_FINANCE'),('HR_ADMIN'),('PRODUCTION_FABRICATION'),
+ ('DESIGN'),('ELECTRICAL_PLC_INSTRUMENTATION'),('REFRIGERATION_MECHANICAL'),
+ ('SERVICE_TECHNICAL_SUPPORT'),('SOFTWARE_IT'),('QUALITY_QC')
+), counts as (
+  select
+    (select count(*) from pg_database where datname = '$acceptedTarget') target_database_count,
+    (select count(*) from employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'active') active_employee_count,
+    (select count(*) from employees where "EmployeeCode" like 'SESS-%' and lower("Status") = 'relieved') relieved_employee_count,
+    (select count(*) from departments d join clean_departments c on c.code=d."Code" where d."IsActive") active_clean_department_count,
+    (select count(*) from department_approval_mappings where "RouteCode"='MANAGER' and "IsActive") active_manager_mapping_count
+), table_counts as (
+  select v.name, (xpath('/row/count/text()', query_to_xml(format('select count(*) as count from %I', v.name), false, true, '')))[1]::text::bigint as row_count
+  from (values $tableValues) v(name)
+), gates as (
+  select *,
+    case when expected_migration_count=11 and missing_migration_count=0 and unexpected_migration_count=0 and duplicate_migration_count=0
+      and active_employee_count=42 and relieved_employee_count=9 and active_clean_department_count=12 and active_manager_mapping_count=14
+      $absenceClause then 'PASS' else 'FAIL' end safe_source_state
+  from migration_evidence cross join counts
+)
+select 'database_identity=' || current_database()
+union all select 'expected_migration_count=' || expected_migration_count from gates
+union all select 'missing_migration_count=' || missing_migration_count from gates
+union all select 'unexpected_migration_count=' || unexpected_migration_count from gates
+union all select 'duplicate_migration_count=' || duplicate_migration_count from gates
+union all select 'migration_fingerprint=' || migration_fingerprint from gates
+union all select 'target_database_count=' || target_database_count from gates
+union all select 'active_employee_count=' || active_employee_count from gates
+union all select 'relieved_employee_count=' || relieved_employee_count from gates
+union all select 'active_clean_department_count=' || active_clean_department_count from gates
+union all select 'active_manager_mapping_count=' || active_manager_mapping_count from gates
+union all select 'safe_source_state=' || safe_source_state from gates
+union all select 'provisioning_readiness_state=' || case when safe_source_state='PASS' then 'PASS' else 'FAIL' end from gates
+union all select 'preservation.' || name || '=' || row_count from table_counts
+order by 1;
+commit;
+"@
+}
+
+function Convert-Evidence([object[]]$Lines) {
+    $map = @{}
+    foreach ($line in $Lines) {
+        $text = [string]$line
+        $at = $text.IndexOf('=')
+        if ($at -gt 0) { $map[$text.Substring(0, $at)] = $text.Substring($at + 1) }
+    }
+    return $map
+}
+
+function Assert-SourceEvidence([hashtable]$Evidence) {
+    foreach ($pair in @{
+        database_identity=$acceptedSource; expected_migration_count='11'; missing_migration_count='0';
+        unexpected_migration_count='0'; duplicate_migration_count='0'; target_database_count='0';
+        active_employee_count='42'; relieved_employee_count='9'; active_clean_department_count='12';
+        active_manager_mapping_count='14'; safe_source_state='PASS'; provisioning_readiness_state='PASS'
+    }.GetEnumerator()) {
+        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Source preflight evidence is incomplete: $($pair.Key)." }
+    }
+}
+
+function Assert-AcceptedCoreEvidence([hashtable]$Evidence, [string]$ExpectedDatabase) {
+    foreach ($pair in @{
+        database_identity=$ExpectedDatabase; expected_migration_count='11'; missing_migration_count='0';
+        unexpected_migration_count='0'; duplicate_migration_count='0'; active_employee_count='42';
+        relieved_employee_count='9'; active_clean_department_count='12'; active_manager_mapping_count='14'
+    }.GetEnumerator()) {
+        if (-not $Evidence.ContainsKey($pair.Key) -or $Evidence[$pair.Key] -cne $pair.Value) { throw "Accepted core evidence is incomplete: $($pair.Key)." }
+    }
+}
+function Get-SourceEvidence {
+    $sql = New-EvidenceSql $true
+    return Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "Source preflight" $sql)
+}
+
+function Assert-PreservationEqual([hashtable]$Source, [hashtable]$Target) {
+    foreach ($table in $preservationTables) {
+        $key = "preservation.$table"
+        if (-not $Source.ContainsKey($key) -or -not $Target.ContainsKey($key) -or $Source[$key] -cne $Target[$key]) { throw "Preservation mismatch for $table." }
+    }
+    if ($Source['migration_fingerprint'] -cne $Target['migration_fingerprint']) { throw "Migration sets do not match." }
+}
+
+function Write-SanitizedEvidence([string[]]$Lines) {
+    if (-not (Test-Path -LiteralPath $evidenceRoot)) { New-Item -ItemType Directory -Path $evidenceRoot | Out-Null }
+    $path = Join-Path $evidenceRoot ("rev869a-isolated-provisioning-" + (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss") + ".txt")
+    [IO.File]::WriteAllLines($path, @($Lines | ForEach-Object { Protect-Text $_ }), [Text.UTF8Encoding]::new($false))
+    return $path
+}
+
+function Write-Plan {
+    Write-Output "mode=GeneratePlanOnly"
+    Write-Output "host=$HostName"
+    Write-Output "port=$Port"
+    Write-Output "source_database=$SourceDatabase"
+    Write-Output "target_database=$TargetDatabase"
+    Write-Output "rejected_databases=$($protectedDatabases -join ', ')"
+    Write-Output "accepted_migration_count=11"
+    $expectedMigrations | ForEach-Object { Write-Output "accepted_migration=$_" }
+    Write-Output "backup_root=$approvedBackupRoot"
+    Write-Output "backup_policy=fresh current custom-format source backup; older pre-C3 backup forbidden"
+    Write-Output "source_preflight=read-only identity, target absence, exact migrations, REV868C3 counts and preservation evidence"
+    Write-Output "provision=pg_dump custom; create exact absent target; pg_restore --no-owner --no-privileges"
+    Write-Output "post_verification=read-only identity, exact migration-set equality, preservation equality, PASS gates"
+    Write-Output "failure_policy=QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR; no automatic drop or repair"
+    Write-Output "This plan requests no password and performs no PostgreSQL, backup, create, restore, drop, migration, main-database, REV861, or production operation."
+}
+
+Assert-Mode
+Assert-EndpointSafety
+if ($GeneratePlanOnly) { Write-Plan; return }
+
+$targetCreated = $false
+$backupPath = $null
+$backupSha256 = $null
+try {
+    Initialize-DatabaseAccess
+    if ($SourcePreflightOnly) {
+        $sourceEvidence = Get-SourceEvidence
+        Assert-SourceEvidence $sourceEvidence
+        Write-Output "safe_source_state=PASS"
+        Write-Output "provisioning_readiness_state=PASS"
+        return
+    }
+
+    if ($PostProvisionVerification) {
+        $sourceSql = New-EvidenceSql $false
+        $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "Source preservation verification" $sourceSql)
+        $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Target preservation verification" $sourceSql)
+        Assert-AcceptedCoreEvidence $sourceEvidence $acceptedSource
+        Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
+        Assert-PreservationEqual $sourceEvidence $targetEvidence
+        Write-Output "provision_acceptance_state=PASS"
+        return
+    }
+
+    $sourceEvidence = Get-SourceEvidence
+    Assert-SourceEvidence $sourceEvidence
+    if (-not (Test-Path -LiteralPath $approvedBackupRoot)) { New-Item -ItemType Directory -Path $approvedBackupRoot | Out-Null }
+    $resolvedBackupRoot = (Resolve-Path -LiteralPath $approvedBackupRoot).Path
+    $expectedRoot = [IO.Path]::GetFullPath($approvedBackupRoot)
+    if ($resolvedBackupRoot -cne $expectedRoot) { throw "Backup root escaped the approved path." }
+    $backupPath = Join-Path $resolvedBackupRoot ("rev868c3-source-" + (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss") + "-" + [guid]::NewGuid().ToString("N") + ".dump")
+    $dumpArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $acceptedSource, "--format=custom", "--file", $backupPath, "--no-owner", "--no-privileges")
+    Invoke-Native $PgDumpPath $dumpArgs "Fresh source backup" | Out-Null
+    $backupItem = Get-Item -LiteralPath $backupPath
+    if ($backupItem.Length -le 0) { throw "Backup is empty." }
+    $backupSha256 = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
+    if ($backupSha256 -notmatch '^[A-Fa-f0-9]{64}$') { throw "Backup SHA-256 is missing." }
+    $backupCreatedUtc = $backupItem.CreationTimeUtc.ToString("o")
+
+    $sourceEvidence = Get-SourceEvidence
+    Assert-SourceEvidence $sourceEvidence
+    $createArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "--maintenance-db=postgres", "--encoding=UTF8", "--template=template0", $acceptedTarget)
+    Invoke-Native $CreateDbPath $createArgs "Create isolated target" | Out-Null
+    $targetCreated = $true
+    $restoreArgs = @("-h", $HostName, "-p", "$Port", "-U", $UserName, "-d", $acceptedTarget, "--no-owner", "--no-privileges", $backupPath)
+    Assert-SafeRestoreArguments $restoreArgs
+    Invoke-Native $PgRestorePath $restoreArgs "Restore isolated target" | Out-Null
+
+    $verificationSql = New-EvidenceSql $false
+    $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "Post-provision verification" $verificationSql)
+    Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
+    Assert-PreservationEqual $sourceEvidence $targetEvidence
+    $evidencePath = Write-SanitizedEvidence @(
+        "source_database=$acceptedSource", "target_database=$acceptedTarget", "backup_path=$backupPath",
+        "backup_byte_size=$($backupItem.Length)", "backup_creation_utc=$backupCreatedUtc", "backup_sha256=$backupSha256",
+        "provision_acceptance_state=PASS"
+    )
+    Write-Output "provision_acceptance_state=PASS"
+    Write-Output "sanitized_evidence_path=$evidencePath"
+}
+catch {
+    $state = if ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
+    $details = @("provision_acceptance_state=FAIL", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
+    if ($backupPath) { $details += "backup_path=$backupPath" }
+    if ($backupSha256) { $details += "backup_sha256=$backupSha256" }
+    Write-SanitizedEvidence $details | Out-Null
+    throw (Protect-Text "Provisioning failed closed. target_state=$state")
+}
+finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+    $plainPassword = $null
+    if ($password -is [IDisposable]) { $password.Dispose() }
+    $password = $null
+}
