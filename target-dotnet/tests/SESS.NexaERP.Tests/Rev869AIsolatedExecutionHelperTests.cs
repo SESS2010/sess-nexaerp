@@ -465,6 +465,24 @@ public sealed class Rev869AIsolatedExecutionHelperTests
             Assert.Contains("Assert-Evidence $postEvidence \"" + line + "\"", Source, StringComparison.Ordinal);
     }
     [Fact]
+    public void PostConstraintContractCastsPostgreSqlInternalCharToText()
+    {
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        Assert.Contains("'|type='||c.contype::text||'|definition='", post, StringComparison.Ordinal);
+        Assert.DoesNotMatch(new Regex(@"\|\|\s*c\.contype\s*\|\|", RegexOptions.IgnoreCase), post);
+        foreach (var internalCharField in new[] { "contype", "confdeltype", "confupdtype", "confmatchtype", "relkind", "attidentity", "attgenerated", "prokind", "typtype", "typcategory", "tgenabled", "ev_type" })
+            Assert.DoesNotMatch(new Regex(@"\|\|\s*(?:[a-z_][a-z0-9_]*\.)?" + internalCharField + @"\s*(?!::text)\|\|", RegexOptions.IgnoreCase), Source);
+    }
+
+    [Fact]
+    public void PostMigrationVerificationSqlRemainsStrictlyReadOnly()
+    {
+        var post = FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql");
+        Assert.True(IsSelectOnly(post));
+        Assert.DoesNotMatch(new Regex(@"(?i)\b(pg_dump|createdb|pg_restore|drop\s+database|create\s+database|migrations?\s+(?:remove|update)|database\s+update|repair)\b"), post);
+        Assert.Contains("Assert-SelectOnlySql \"Post-migration verification\"", Source, StringComparison.Ordinal);
+    }
+    [Fact]
     public void ArtifactPredicateAndExistingSafetyBoundariesRemainFailClosed()
     {
         Assert.Contains("pg_indexes where schemaname='nexa' and (indexname like '%rev869a%' or indexname in (", Source, StringComparison.Ordinal);

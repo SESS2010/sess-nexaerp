@@ -357,3 +357,14 @@ Ownership reconciliation: 4 roles + 8 pages + 74 permissions + 2 policies = 88 s
 Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused REV869A tests 59/59 PASS; complete non-PostgreSQL tests 344/344 PASS; EF discovery PASS with 12 migrations and REV869A exactly once; pending-model check PASS; offline Up/Down generation PASS (Up 85,381 bytes, one EA insert and one Item update; Down 12,077 bytes, one EA delete and one Item restore; all three backup tables drop last); acceptance/relation/safety scans and `git diff --check` PASS.
 
 No helper mode, PostgreSQL/database access, migration application/removal, backup/restore, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. `../legacy-reference/` remained read-only, unchanged, and untracked.
+## 2026-08-10 post-migration catalogue-character cast correction
+
+Starting commit: `ca4d2509a2ae7e3abfde74942d335f787750586d`.
+
+The source-only audit confirmed the failure was confined to the `constraint_contract` evidence projection. PostgreSQL exposes `pg_constraint.contype` as internal type `"char"`; direct concatenation with text is not supported. The verifier now emits the constraint type through the explicit expression `c.contype::text`. The full helper catalogue audit found no other internal `"char"` field used in output concatenation. `confdeltype` remains only in an equality predicate, where no cast is required.
+
+All preflight, schema, ownership, preservation, relieved-employee, Department Manager, UOM, Item mapping, backup, and acceptance formulas remain unchanged. The post-migration SQL remains SELECT-only/read-only. No apply, migration, rollback, restore, backup, create/drop database, cleanup, or repair action was added.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused isolated-execution-helper tests 51/51 PASS; complete non-PostgreSQL tests 346/346 PASS; catalogue-character scan PASS; read-only/prohibited-operation scan PASS; secret/privacy/safety scans PASS; `git diff --check` PASS.
+
+No helper mode, PostgreSQL/database access, migration application/removal/rollback, backup/restore, production, REV861, frontend, AWS, or REV869B action occurred. The existing REV869A migration and model snapshot were unchanged. `../legacy-reference/` remained read-only, unchanged, and untracked.
