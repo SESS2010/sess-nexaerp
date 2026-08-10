@@ -193,6 +193,24 @@ PASS requires the fixed expected set to contain nine codes, nine correctly statu
 
 All exact migration, database identity/absence, active employee, department, manager-mapping, schema-contract, preservation relation, source/target equality, and fail-closed target-ordering gates remain unchanged. The accepted REV868/REV868C3 source, migration, application model, and employee data are unchanged.
 
+## Source-only post-provision evidence-reporting correction
+
+Correction starting commit: `4148ea0c2ba4ba087e12e0c8e3fd6d1b500d9d80`
+
+The standalone `PostProvisionVerification` branch previously validated source and target evidence, printed `provision_acceptance_state=PASS`, and returned. Unlike the `Provision` branch, it never called `Write-SanitizedEvidence`, so it could display PASS without creating or printing a new report path.
+
+The corrected branch now builds a canonical sanitized report, validates its complete label set, creates a new timestamp-and-GUID evidence path, writes the report, re-reads and revalidates the persisted file, and only then prints:
+
+- `post_provision_acceptance_state=PASS`;
+- `provision_acceptance_state=PASS`;
+- `sanitized_evidence_path=<exact path>`.
+
+The report records execution mode and UTC timestamp; exact source and target identities; expected migration count; source and target matched/missing/unexpected/duplicate counts; exact accepted migration IDs; exact migration-set equality; source and target active employee, exact relieved-set, clean department, and manager-mapping evidence; source and target schema-contract states; source and target preservation-relation counts; and, for every one of the 20 preserved relations, source count, target count, and mismatch state. It finishes with preservation equality plus both acceptance states.
+
+PASS requires every mandatory canonical label exactly once, the exact eleven-migration fingerprint on both databases, all established counts and states, all relieved-set gates, and exact equality for every preserved relation. The report validator rejects missing, duplicate, malformed, conflicting, incomplete, or unexpected labels. A report-write or persisted-file validation failure occurs before PASS output.
+
+Standalone post-verification failure uses `failed_phase=POST_PROVISION_VERIFICATION`, retains the safe query label and sanitized SQLSTATE/schema/table/column metadata, emits both FAIL states, uses `target_state=EXISTING_TARGET_DO_NOT_AUTO_REPAIR_OR_DROP`, and attempts a separate sanitized failure report. No automatic drop, cleanup, repair, backup, restore, database creation, migration, or modifying SQL was added to this read-only mode. Existing `Provision` sequencing and evidence behavior remain unchanged.
+
 ## Scope confirmation
 
 Only the secure provisioning helper, its focused offline tests, and this report are included. The existing REV869A migration and application implementation are unchanged. No frontend or REV869B work is included. During this source-only correction turn, no helper mode was executed; no PostgreSQL, database, password, backup, restore, migration, production, AWS, `sess_nexaerp`, or REV861 operation occurred.
@@ -201,14 +219,21 @@ Only the secure provisioning helper, its focused offline tests, and this report 
 
 - Windows PowerShell 5.1 parser: PASS, zero parse errors.
 - Solution build: PASS, zero warnings and zero errors.
-- Focused provisioning-helper tests: PASS, 47 passed, 0 failed, 0 skipped.
-- Complete offline suite with PostgreSQL-named tests excluded: PASS, 313 passed, 0 failed, 0 skipped.
+- Focused provisioning-helper tests: PASS, 57 passed, 0 failed, 0 skipped.
+- Complete offline suite with PostgreSQL-named tests excluded: PASS, 323 passed, 0 failed, 0 skipped.
 - Changed-line secret scan: PASS.
 - Changed-line privacy scan: PASS.
 - Source-preflight SQL safety scan: PASS.
 - Exact relieved-set/formula scan: PASS.
+- Post-verification evidence-label/formula scan: PASS.
+- Post-verification read-only/prohibited-operation scan: PASS.
 - `git diff --check`: PASS.
 
+## Future post-verification command
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\prepare-rev869a-isolated-database-secure.ps1 -PostProvisionVerification
+```
 ## Future plan-only command
 
 ```powershell

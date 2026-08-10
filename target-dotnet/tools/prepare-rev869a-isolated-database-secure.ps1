@@ -456,6 +456,119 @@ function Write-SanitizedEvidence([string[]]$Lines, [string]$Path = "") {
     return $Path
 }
 
+function New-PostProvisionEvidenceLines([hashtable]$Source, [hashtable]$Target, [hashtable]$SourceSchema, [hashtable]$TargetSchema) {
+    Assert-AcceptedCoreEvidence $Source $acceptedSource
+    Assert-AcceptedCoreEvidence $Target $acceptedTarget
+    Assert-SchemaContractEvidence $SourceSchema
+    Assert-SchemaContractEvidence $TargetSchema
+    Assert-PreservationEqual $Source $Target
+
+    $sourceFingerprint = Get-EvidenceValueExactlyOnce $Source 'migration_fingerprint' "Post-verification source"
+    $targetFingerprint = Get-EvidenceValueExactlyOnce $Target 'migration_fingerprint' "Post-verification target"
+    $acceptedFingerprint = $expectedMigrations -join ','
+    if ($sourceFingerprint -cne $acceptedFingerprint -or $targetFingerprint -cne $acceptedFingerprint) { throw "Post-verification migration fingerprint is not the exact accepted set." }
+
+    $lines = @(
+        'execution_mode=PostProvisionVerification',
+        ('evidence_timestamp_utc=' + (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssfffffffZ')),
+        "source_database_identity=$acceptedSource",
+        "target_database_identity=$acceptedTarget",
+        'expected_migration_count=11',
+        ('source_actual_matched_migration_count=' + (Get-EvidenceValueExactlyOnce $Source 'actual_matched_migration_count' 'Post-verification source')),
+        ('source_missing_migration_count=' + (Get-EvidenceValueExactlyOnce $Source 'missing_migration_count' 'Post-verification source')),
+        ('source_unexpected_migration_count=' + (Get-EvidenceValueExactlyOnce $Source 'unexpected_migration_count' 'Post-verification source')),
+        ('source_duplicate_migration_count=' + (Get-EvidenceValueExactlyOnce $Source 'duplicate_migration_count' 'Post-verification source')),
+        ('target_actual_matched_migration_count=' + (Get-EvidenceValueExactlyOnce $Target 'actual_matched_migration_count' 'Post-verification target')),
+        ('target_missing_migration_count=' + (Get-EvidenceValueExactlyOnce $Target 'missing_migration_count' 'Post-verification target')),
+        ('target_unexpected_migration_count=' + (Get-EvidenceValueExactlyOnce $Target 'unexpected_migration_count' 'Post-verification target')),
+        ('target_duplicate_migration_count=' + (Get-EvidenceValueExactlyOnce $Target 'duplicate_migration_count' 'Post-verification target')),
+        'migration_set_equality_state=PASS',
+        "accepted_migration_ids=$acceptedFingerprint",
+        ('source_active_employee_count=' + (Get-EvidenceValueExactlyOnce $Source 'active_employee_count' 'Post-verification source')),
+        ('target_active_employee_count=' + (Get-EvidenceValueExactlyOnce $Target 'active_employee_count' 'Post-verification target')),
+        ('source_relieved_employee_expected_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_expected_count' 'Post-verification source')),
+        ('target_relieved_employee_expected_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_expected_count' 'Post-verification target')),
+        ('source_relieved_employee_actual_matched_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_actual_matched_count' 'Post-verification source')),
+        ('target_relieved_employee_actual_matched_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_actual_matched_count' 'Post-verification target')),
+        ('source_relieved_employee_missing_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_missing_count' 'Post-verification source')),
+        ('target_relieved_employee_missing_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_missing_count' 'Post-verification target')),
+        ('source_relieved_employee_unexpected_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_unexpected_count' 'Post-verification source')),
+        ('target_relieved_employee_unexpected_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_unexpected_count' 'Post-verification target')),
+        ('source_relieved_employee_duplicate_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_duplicate_count' 'Post-verification source')),
+        ('target_relieved_employee_duplicate_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_duplicate_count' 'Post-verification target')),
+        ('source_relieved_employee_status_mismatch_count=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_status_mismatch_count' 'Post-verification source')),
+        ('target_relieved_employee_status_mismatch_count=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_status_mismatch_count' 'Post-verification target')),
+        ('source_relieved_employee_acceptance_state=' + (Get-EvidenceValueExactlyOnce $Source 'relieved_employee_acceptance_state' 'Post-verification source')),
+        ('target_relieved_employee_acceptance_state=' + (Get-EvidenceValueExactlyOnce $Target 'relieved_employee_acceptance_state' 'Post-verification target')),
+        ('source_active_clean_department_count=' + (Get-EvidenceValueExactlyOnce $Source 'active_clean_department_count' 'Post-verification source')),
+        ('target_active_clean_department_count=' + (Get-EvidenceValueExactlyOnce $Target 'active_clean_department_count' 'Post-verification target')),
+        ('source_active_manager_mapping_count=' + (Get-EvidenceValueExactlyOnce $Source 'active_manager_mapping_count' 'Post-verification source')),
+        ('target_active_manager_mapping_count=' + (Get-EvidenceValueExactlyOnce $Target 'active_manager_mapping_count' 'Post-verification target')),
+        ('source_schema_contract_state=' + (Get-EvidenceValueExactlyOnce $SourceSchema 'schema_contract_state' 'Post-verification source schema')),
+        ('target_schema_contract_state=' + (Get-EvidenceValueExactlyOnce $TargetSchema 'schema_contract_state' 'Post-verification target schema')),
+        ('source_preservation_relation_count=' + (Get-EvidenceValueExactlyOnce $Source 'preservation_relation_count' 'Post-verification source')),
+        ('target_preservation_relation_count=' + (Get-EvidenceValueExactlyOnce $Target 'preservation_relation_count' 'Post-verification target'))
+    )
+    foreach ($table in $preservationTables) {
+        $sourceCount = Get-EvidenceValueExactlyOnce $Source "preservation.$table" "Post-verification source preservation"
+        $targetCount = Get-EvidenceValueExactlyOnce $Target "preservation.$table" "Post-verification target preservation"
+        if ($sourceCount -notmatch '^\d+$' -or $targetCount -notmatch '^\d+$' -or $sourceCount -cne $targetCount) { throw "Post-verification preservation mismatch for $table." }
+        $lines += "preservation.$table.source_count=$sourceCount"
+        $lines += "preservation.$table.target_count=$targetCount"
+        $lines += "preservation.$table.mismatch_state=PASS"
+    }
+    $lines += 'preservation_equality_state=PASS'
+    $lines += 'post_provision_acceptance_state=PASS'
+    $lines += 'provision_acceptance_state=PASS'
+    return $lines
+}
+
+function Assert-PostProvisionReportContract([string[]]$Lines) {
+    $evidence = Convert-Evidence $Lines
+    Assert-EvidenceIsWellFormed $evidence "Post-verification report"
+    $expected = @{
+        execution_mode='PostProvisionVerification'; source_database_identity=$acceptedSource; target_database_identity=$acceptedTarget;
+        expected_migration_count='11'; source_actual_matched_migration_count='11'; source_missing_migration_count='0';
+        source_unexpected_migration_count='0'; source_duplicate_migration_count='0'; target_actual_matched_migration_count='11';
+        target_missing_migration_count='0'; target_unexpected_migration_count='0'; target_duplicate_migration_count='0';
+        migration_set_equality_state='PASS'; accepted_migration_ids=($expectedMigrations -join ',');
+        source_active_employee_count='42'; target_active_employee_count='42';
+        source_relieved_employee_expected_count='9'; target_relieved_employee_expected_count='9';
+        source_relieved_employee_actual_matched_count='9'; target_relieved_employee_actual_matched_count='9';
+        source_relieved_employee_missing_count='0'; target_relieved_employee_missing_count='0';
+        source_relieved_employee_unexpected_count='0'; target_relieved_employee_unexpected_count='0';
+        source_relieved_employee_duplicate_count='0'; target_relieved_employee_duplicate_count='0';
+        source_relieved_employee_status_mismatch_count='0'; target_relieved_employee_status_mismatch_count='0';
+        source_relieved_employee_acceptance_state='PASS'; target_relieved_employee_acceptance_state='PASS';
+        source_active_clean_department_count='12'; target_active_clean_department_count='12';
+        source_active_manager_mapping_count='14'; target_active_manager_mapping_count='14';
+        source_schema_contract_state='PASS'; target_schema_contract_state='PASS';
+        source_preservation_relation_count='20'; target_preservation_relation_count='20';
+        preservation_equality_state='PASS'; post_provision_acceptance_state='PASS'; provision_acceptance_state='PASS'
+    }
+    foreach ($pair in $expected.GetEnumerator()) { Assert-EvidenceValue $evidence $pair.Key $pair.Value "Post-verification report" }
+    $timestamp = Get-EvidenceValueExactlyOnce $evidence 'evidence_timestamp_utc' "Post-verification report"
+    if ($timestamp -notmatch '^\d{8}T\d{13}Z$') { throw "Post-verification report timestamp is malformed." }
+    foreach ($table in $preservationTables) {
+        $sourceCount = Get-EvidenceValueExactlyOnce $evidence "preservation.$table.source_count" "Post-verification report"
+        $targetCount = Get-EvidenceValueExactlyOnce $evidence "preservation.$table.target_count" "Post-verification report"
+        Assert-EvidenceValue $evidence "preservation.$table.mismatch_state" 'PASS' "Post-verification report"
+        if ($sourceCount -notmatch '^\d+$' -or $targetCount -notmatch '^\d+$' -or $sourceCount -cne $targetCount) { throw "Post-verification report preservation mismatch for $table." }
+    }
+    $requiredLabelCount = $expected.Count + 1 + (3 * $preservationTables.Count)
+    if ($evidence['__label_counts'].Count -ne $requiredLabelCount -or $Lines.Count -ne $requiredLabelCount) { throw "Post-verification report contains missing, duplicate, conflicting, or unexpected evidence labels." }
+}
+
+function Write-PostProvisionEvidenceReport([hashtable]$Source, [hashtable]$Target, [hashtable]$SourceSchema, [hashtable]$TargetSchema) {
+    $lines = New-PostProvisionEvidenceLines $Source $Target $SourceSchema $TargetSchema
+    Assert-PostProvisionReportContract $lines
+    $path = New-SanitizedEvidencePath
+    if (Test-Path -LiteralPath $path) { throw "Post-verification evidence path already exists." }
+    $writtenPath = Write-SanitizedEvidence $lines $path
+    if ($writtenPath -cne $path -or -not (Test-Path -LiteralPath $path)) { throw "Post-verification evidence report was not created." }
+    Assert-PostProvisionReportContract ([IO.File]::ReadAllLines($path))
+    return $path
+}
 function Write-Plan {
     Write-Output "mode=GeneratePlanOnly"
     Write-Output "host=$HostName"
@@ -503,13 +616,13 @@ try {
         $targetSql = New-EvidenceSql $false $acceptedTarget $targetSchemaEvidence['schema_contract_state']
         $sourceEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedSource "POST_PROVISION_SOURCE_ACCEPTANCE_AND_PRESERVATION" $sourceSql)
         $targetEvidence = Convert-Evidence (Invoke-ReadOnlySql $acceptedTarget "POST_PROVISION_TARGET_ACCEPTANCE_AND_PRESERVATION" $targetSql)
-        Assert-AcceptedCoreEvidence $sourceEvidence $acceptedSource
-        Assert-AcceptedCoreEvidence $targetEvidence $acceptedTarget
-        Assert-PreservationEqual $sourceEvidence $targetEvidence
+        $failedQueryLabel = "POST_PROVISION_EVIDENCE_REPORT"
+        $evidencePath = Write-PostProvisionEvidenceReport $sourceEvidence $targetEvidence $sourceSchemaEvidence $targetSchemaEvidence
+        Write-Output "post_provision_acceptance_state=PASS"
         Write-Output "provision_acceptance_state=PASS"
+        Write-Output "sanitized_evidence_path=$evidencePath"
         return
     }
-
     $failedPhase = "SOURCE_PREFLIGHT"
     $sourceEvidence = Get-SourceEvidence
     Assert-SourceEvidence $sourceEvidence
@@ -558,8 +671,9 @@ try {
     Write-Output "sanitized_evidence_path=$evidencePath"
 }
 catch {
-    $state = if ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
+    $state = if ($PostProvisionVerification) { "EXISTING_TARGET_DO_NOT_AUTO_REPAIR_OR_DROP" } elseif ($targetCreated) { "QUARANTINED_DO_NOT_USE_OR_AUTO_REPAIR" } else { "NOT_CREATED_SAFE_RETRY_REQUIRES_NEW_PREFLIGHT" }
     $details = @("provision_acceptance_state=FAIL", "failed_phase=$failedPhase", "failed_query_label=$failedQueryLabel", "sqlstate=$failureSqlState", "failure_schema=$failureSchema", "failure_table=$failureTable", "failure_column=$failureColumn", "target_state=$state", "error=$(Protect-Text $_.Exception.Message)")
+    if ($PostProvisionVerification) { $details = @("post_provision_acceptance_state=FAIL") + $details }
     $details += "returned_evidence_malformed_count=$lastEvidenceMalformedCount"
     foreach ($line in $lastSafeEvidenceLines) {
         $separator = $line.IndexOf('=')
@@ -572,6 +686,7 @@ catch {
     if ($backupPath) { $details += "backup_path=$backupPath" }
     if ($backupSha256) { $details += "backup_sha256=$backupSha256" }
     $failureEvidencePath = New-SanitizedEvidencePath
+    if ($PostProvisionVerification) { Write-Output "post_provision_acceptance_state=FAIL" }
     Write-Output "provision_acceptance_state=FAIL"
     Write-Output "failed_phase=$failedPhase"
     Write-Output "failed_query_label=$failedQueryLabel"

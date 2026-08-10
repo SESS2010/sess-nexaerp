@@ -496,6 +496,127 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.Contains("Assert-PreservationEqual $sourceEvidence $targetEvidence", Source, StringComparison.Ordinal);
     }
     [Fact]
+    public void PostVerificationAlwaysWritesANewUniqueReportBeforePass()
+    {
+        var pathFactory = FunctionBlock("function New-SanitizedEvidencePath", "function Write-SanitizedEvidence");
+        Assert.Contains("yyyyMMdd-HHmmss", pathFactory, StringComparison.Ordinal);
+        Assert.Contains("[guid]::NewGuid().ToString(\"N\")", pathFactory, StringComparison.Ordinal);
+        var first = SimulatedEvidencePath(Guid.NewGuid());
+        var second = SimulatedEvidencePath(Guid.NewGuid());
+        Assert.NotEqual(first, second);
+
+        var branch = PostVerificationBranch();
+        var write = branch.IndexOf("Write-PostProvisionEvidenceReport", StringComparison.Ordinal);
+        var pass = branch.IndexOf("Write-Output \"post_provision_acceptance_state=PASS\"", StringComparison.Ordinal);
+        Assert.True(write >= 0 && pass > write);
+    }
+
+    [Fact]
+    public void PostVerificationPrintsBothAcceptanceStatesAndExactReportPathAfterWrite()
+    {
+        var branch = PostVerificationBranch();
+        var write = branch.IndexOf("$evidencePath = Write-PostProvisionEvidenceReport", StringComparison.Ordinal);
+        var postPass = branch.IndexOf("post_provision_acceptance_state=PASS", StringComparison.Ordinal);
+        var provisionPass = branch.IndexOf("provision_acceptance_state=PASS", StringComparison.Ordinal);
+        var path = branch.IndexOf("sanitized_evidence_path=$evidencePath", StringComparison.Ordinal);
+        Assert.True(write >= 0 && postPass > write && provisionPass > postPass && path > provisionPass);
+    }
+
+    [Fact]
+    public void PostVerificationReportBuilderContainsEveryCanonicalLabelExactlyOnce()
+    {
+        var builder = FunctionBlock("function New-PostProvisionEvidenceLines", "function Assert-PostProvisionReportContract");
+        foreach (var label in CanonicalPostProvisionReportLines()
+                     .Select(x => x[..x.IndexOf('=')])
+                     .Where(x => !x.StartsWith("preservation.", StringComparison.Ordinal)))
+            Assert.Single(Regex.Matches(builder, $@"(?<![a-z0-9_.]){Regex.Escape(label)}="));
+        foreach (var suffix in new[] { ".source_count=", ".target_count=", ".mismatch_state=" })
+            Assert.Single(Regex.Matches(builder, Regex.Escape("preservation.$table" + suffix)));
+        Assert.Contains("foreach ($table in $preservationTables)", builder, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PostVerificationPassRequiresExactElevenMigrationEquality()
+    {
+        Assert.True(PostProvisionReportPass(CanonicalPostProvisionReportLines()));
+        Assert.False(PostProvisionReportPass(ReplaceReportLabel("source_actual_matched_migration_count", "10")));
+        Assert.False(PostProvisionReportPass(ReplaceReportLabel("target_missing_migration_count", "1")));
+        Assert.False(PostProvisionReportPass(ReplaceReportLabel("migration_set_equality_state", "FAIL")));
+        Assert.False(PostProvisionReportPass(ReplaceReportLabel("accepted_migration_ids", string.Join(',', ExpectedMigrations.Take(10)))));
+        var contract = FunctionBlock("function New-PostProvisionEvidenceLines", "function Write-Plan");
+        Assert.Contains("$sourceFingerprint -cne $acceptedFingerprint -or $targetFingerprint -cne $acceptedFingerprint", contract, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PostVerificationPassRequiresEveryPreservationRelationToMatch()
+    {
+        foreach (var relation in RequiredPreservation())
+        {
+            Assert.False(PostProvisionReportPass(ReplaceReportLabel($"preservation.{relation}.target_count", "2")));
+            Assert.False(PostProvisionReportPass(ReplaceReportLabel($"preservation.{relation}.mismatch_state", "FAIL")));
+        }
+        Assert.Contains("Assert-PreservationEqual $Source $Target", Source, StringComparison.Ordinal);
+        Assert.Contains("$sourceCount -cne $targetCount", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PostVerificationMissingDuplicateMalformedOrConflictingEvidenceFailsClosed()
+    {
+        var canonical = CanonicalPostProvisionReportLines();
+        Assert.False(PostProvisionReportPass(canonical.Where(x => !x.StartsWith("target_schema_contract_state=", StringComparison.Ordinal))));
+        Assert.False(PostProvisionReportPass(canonical.Append("post_provision_acceptance_state=PASS")));
+        Assert.False(PostProvisionReportPass(canonical.Select(x => x.StartsWith("provision_acceptance_state=", StringComparison.Ordinal) ? "provision_acceptance_state:PASS" : x)));
+        Assert.False(PostProvisionReportPass(canonical.Append("post_provision_acceptance_state=FAIL")));
+    }
+
+    [Fact]
+    public void PostVerificationReportWriteFailureCannotProducePass()
+    {
+        var branch = PostVerificationBranch();
+        var write = branch.IndexOf("$evidencePath = Write-PostProvisionEvidenceReport", StringComparison.Ordinal);
+        var pass = branch.IndexOf("post_provision_acceptance_state=PASS", StringComparison.Ordinal);
+        Assert.True(write >= 0 && pass > write);
+        Assert.Contains("if ($writtenPath -cne $path -or -not (Test-Path -LiteralPath $path))", Source, StringComparison.Ordinal);
+        Assert.Contains("Assert-PostProvisionReportContract ([IO.File]::ReadAllLines($path))", Source, StringComparison.Ordinal);
+        Assert.False(PostAcceptanceOutputAllowed(reportWriteSucceeded: false, persistedReportValidated: false));
+    }
+
+    [Fact]
+    public void StandalonePostVerificationContainsNoDatabaseModificationOperation()
+    {
+        var branch = PostVerificationBranch();
+        foreach (var prohibited in new[] { "$PgDumpPath", "$CreateDbPath", "$PgRestorePath", "Invoke-Native", "CREATE DATABASE", "DROP DATABASE", "--clean", "--create" })
+            Assert.DoesNotContain(prohibited, branch, StringComparison.OrdinalIgnoreCase);
+        var evidenceSql = FunctionBlock("function New-EvidenceSql", "function Convert-Evidence");
+        Assert.True(IsReadOnlySql(ExtractHereString(evidenceSql)));
+    }
+
+    [Fact]
+    public void PostVerificationFailureNeverDropsOrRepairsExistingTarget()
+    {
+        var catchStart = Source.LastIndexOf("catch {", StringComparison.Ordinal);
+        var catchSection = Source[catchStart..Source.IndexOf("finally {", catchStart, StringComparison.Ordinal)];
+        Assert.Contains("EXISTING_TARGET_DO_NOT_AUTO_REPAIR_OR_DROP", catchSection, StringComparison.Ordinal);
+        Assert.Contains("post_provision_acceptance_state=FAIL", catchSection, StringComparison.Ordinal);
+        Assert.DoesNotContain("DROP DATABASE", catchSection, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("$CreateDbPath", catchSection, StringComparison.Ordinal);
+        Assert.DoesNotContain("$PgRestorePath", catchSection, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExistingProvisionPathAndEvidenceBehaviorRemainPresent()
+    {
+        var provisionStart = Source.IndexOf("$failedPhase = \"SOURCE_BACKUP\"", StringComparison.Ordinal);
+        var provisionEnd = Source.LastIndexOf("catch {", StringComparison.Ordinal);
+        var provision = Source[provisionStart..provisionEnd];
+        Assert.Contains("Invoke-Native $PgDumpPath", provision, StringComparison.Ordinal);
+        Assert.Contains("Invoke-Native $CreateDbPath", provision, StringComparison.Ordinal);
+        Assert.Contains("Invoke-Native $PgRestorePath", provision, StringComparison.Ordinal);
+        Assert.Contains("$evidencePath = Write-SanitizedEvidence", provision, StringComparison.Ordinal);
+        Assert.Contains("Write-Output \"provision_acceptance_state=PASS\"", provision, StringComparison.Ordinal);
+        Assert.Contains("Write-Output \"sanitized_evidence_path=$evidencePath\"", provision, StringComparison.Ordinal);
+    }
+    [Fact]
     public void HelperRemainsPowerShell51Compatible()
     {
         Assert.DoesNotContain("ForEach-Object -Parallel", Source, StringComparison.OrdinalIgnoreCase);
@@ -504,6 +625,79 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
         Assert.Contains("Set-StrictMode -Version Latest", Source, StringComparison.Ordinal);
     }
 
+    private static string PostVerificationBranch()
+    {
+        var start = Source.IndexOf("    if ($PostProvisionVerification) {", StringComparison.Ordinal);
+        var end = Source.IndexOf("    $failedPhase = \"SOURCE_PREFLIGHT\"", start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return Source[start..end];
+    }
+
+    private static string ExtractHereString(string function)
+    {
+        var start = function.IndexOf("begin transaction read only;", StringComparison.Ordinal);
+        var end = function.LastIndexOf("commit;", StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return function[start..(end + "commit;".Length)];
+    }
+
+    private static string SimulatedEvidencePath(Guid id) =>
+        $"rev869a-isolated-provisioning-20260810-140000-{id:N}.txt";
+
+    private static bool PostAcceptanceOutputAllowed(bool reportWriteSucceeded, bool persistedReportValidated) =>
+        reportWriteSucceeded && persistedReportValidated;
+
+    private static string[] CanonicalPostProvisionReportLines()
+    {
+        var lines = new List<string>
+        {
+            "execution_mode=PostProvisionVerification", "evidence_timestamp_utc=20260810T1400001234567Z",
+            "source_database_identity=sess_nexaerp_rev868_verify", "target_database_identity=sess_nexaerp_rev869a_verify",
+            "expected_migration_count=11", "source_actual_matched_migration_count=11", "source_missing_migration_count=0",
+            "source_unexpected_migration_count=0", "source_duplicate_migration_count=0", "target_actual_matched_migration_count=11",
+            "target_missing_migration_count=0", "target_unexpected_migration_count=0", "target_duplicate_migration_count=0",
+            "migration_set_equality_state=PASS", $"accepted_migration_ids={string.Join(',', ExpectedMigrations)}",
+            "source_active_employee_count=42", "target_active_employee_count=42",
+            "source_relieved_employee_expected_count=9", "target_relieved_employee_expected_count=9",
+            "source_relieved_employee_actual_matched_count=9", "target_relieved_employee_actual_matched_count=9",
+            "source_relieved_employee_missing_count=0", "target_relieved_employee_missing_count=0",
+            "source_relieved_employee_unexpected_count=0", "target_relieved_employee_unexpected_count=0",
+            "source_relieved_employee_duplicate_count=0", "target_relieved_employee_duplicate_count=0",
+            "source_relieved_employee_status_mismatch_count=0", "target_relieved_employee_status_mismatch_count=0",
+            "source_relieved_employee_acceptance_state=PASS", "target_relieved_employee_acceptance_state=PASS",
+            "source_active_clean_department_count=12", "target_active_clean_department_count=12",
+            "source_active_manager_mapping_count=14", "target_active_manager_mapping_count=14",
+            "source_schema_contract_state=PASS", "target_schema_contract_state=PASS",
+            "source_preservation_relation_count=20", "target_preservation_relation_count=20"
+        };
+        foreach (var relation in RequiredPreservation())
+        {
+            lines.Add($"preservation.{relation}.source_count=1");
+            lines.Add($"preservation.{relation}.target_count=1");
+            lines.Add($"preservation.{relation}.mismatch_state=PASS");
+        }
+        lines.Add("preservation_equality_state=PASS");
+        lines.Add("post_provision_acceptance_state=PASS");
+        lines.Add("provision_acceptance_state=PASS");
+        return lines.ToArray();
+    }
+
+    private static string[] ReplaceReportLabel(string key, string value) =>
+        CanonicalPostProvisionReportLines().Select(x => x.StartsWith(key + "=", StringComparison.Ordinal) ? $"{key}={value}" : x).ToArray();
+
+    private static bool PostProvisionReportPass(IEnumerable<string> lines)
+    {
+        var actualLines = lines.ToArray();
+        var parsed = ParsePsqlEvidence(actualLines);
+        if (parsed.MalformedCount != 0) return false;
+        var expected = ParsePsqlEvidence(CanonicalPostProvisionReportLines());
+        if (actualLines.Length != expected.Counts.Count || parsed.Counts.Count != expected.Counts.Count) return false;
+        foreach (var pair in expected.Values)
+            if (!parsed.Counts.TryGetValue(pair.Key, out var count) || count != 1 ||
+                !parsed.Values.TryGetValue(pair.Key, out var value) || value != pair.Value)
+                return false;
+        return true;
+    }
     private static EmployeeStatusRow[] AcceptedRelievedRows() =>
         ExpectedRelievedEmployeeCodes.Select(code => new EmployeeStatusRow(code, "Left / Resigned")).ToArray();
 
