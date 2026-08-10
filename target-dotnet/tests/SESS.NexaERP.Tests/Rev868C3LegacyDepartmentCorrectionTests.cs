@@ -1,0 +1,187 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using SESS.NexaERP.Infrastructure.Persistence;
+
+namespace SESS.NexaERP.Tests;
+
+public sealed class Rev868C3LegacyDepartmentCorrectionTests
+{
+    private const string MigrationId = "20260810110000_Rev868C3LegacyMixedDepartmentDeactivationCorrection";
+    private static readonly string[] CleanDepartments =
+    [
+        "MANAGEMENT", "PURCHASE", "STORES", "ACCOUNTS_FINANCE", "HR_ADMIN", "PRODUCTION_FABRICATION",
+        "DESIGN", "ELECTRICAL_PLC_INSTRUMENTATION", "REFRIGERATION_MECHANICAL",
+        "SERVICE_TECHNICAL_SUPPORT", "SOFTWARE_IT", "QUALITY_QC"
+    ];
+    private static readonly string[] LegacyDepartments =
+    ["ENGINEER_TECHNICAL", "MANAGER", "JUNIOR_ASSISTANT", "ADMIN_ACCOUNTS_STORES"];
+
+    [Fact]
+    public void Corrective_migration_is_discoverable_once_after_rev868c3()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=sess_nexaerp_rev868_design_only;Username=design_only")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
+
+        Assert.Equal(1, migrations.Count(x => x == MigrationId));
+        Assert.True(migrations.IndexOf("20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation") < migrations.IndexOf(MigrationId));
+        Assert.Contains(MigrationId, Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
+    }
+
+    [Fact]
+    public void Corrective_migration_deactivates_only_four_legacy_departments_and_preserves_exact_rollback_values()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", MigrationId + ".cs");
+        var up = Section(migration, "protected override void Up", "protected override void Down");
+        var down = migration[migration.IndexOf("protected override void Down", StringComparison.Ordinal)..];
+
+        foreach (var code in LegacyDepartments)
+        {
+            Assert.Contains(code, up);
+        }
+        Assert.Contains("rev868c3_legacy_department_deactivation_backup", up);
+        Assert.Contains("\"IsActive\"", up);
+        Assert.Contains("\"CreatedAt\"", up);
+        Assert.Contains("\"CreatedBy\"", up);
+        Assert.Contains("\"UpdatedAt\"", up);
+        Assert.Contains("\"UpdatedBy\"", up);
+        Assert.Contains("\"Version\"", up);
+        Assert.Contains("get diagnostics affected_count = row_count", up);
+        Assert.Contains("affected_count <> 4", up);
+
+        Assert.Contains("set \"IsActive\" = b.\"IsActive\"", down);
+        Assert.Contains("\"CreatedAt\" = b.\"CreatedAt\"", down);
+        Assert.Contains("\"CreatedBy\" = b.\"CreatedBy\"", down);
+        Assert.Contains("\"UpdatedAt\" = b.\"UpdatedAt\"", down);
+        Assert.Contains("\"UpdatedBy\" = b.\"UpdatedBy\"", down);
+        Assert.Contains("\"Version\" = b.\"Version\"", down);
+        Assert.Contains("exact four-row restore was not proven", down);
+    }
+
+    [Fact]
+    public void Corrective_migration_contains_no_destructive_delete_or_unrelated_record_rewrite()
+    {
+        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", MigrationId + ".cs");
+
+        Assert.DoesNotContain("delete from", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("update nexa.employees", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("employee_status_history", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("employee_department_history", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("purchase_requisitions", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("department_approval_mappings", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("audit_logs", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, CountOccurrences(migration, "update nexa.departments"));
+    }
+
+    [Fact]
+    public void Corrective_helper_is_isolated_recovery_aware_and_fail_closed()
+    {
+        var helper = Read("tools", "apply-rev868c3-legacy-department-correction-secure.ps1");
+
+        Assert.Contains("GeneratePlanOnly", helper);
+        Assert.Contains("PreflightOnly", helper);
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("Protected database rejected", helper);
+        Assert.Contains("sess_nexaerp", helper);
+        Assert.Contains("REV861", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("backup_relation_count", helper);
+        Assert.Contains("migration_owned_department_count", helper);
+        Assert.Contains("safe_retry_state", helper);
+        Assert.Contains("legacy_department_missing_count", helper);
+        Assert.Contains("legacy_department_count=4", helper);
+        Assert.Contains("active_employee_reference_count=42", helper);
+        Assert.Contains("\"EmployeeCode\" like 'SESS-%'", helper);
+        Assert.Contains("active_manager_mapping_reference_count=14", helper);
+        Assert.Contains("active_clean_department_count=12", helper);
+        Assert.Contains("missing_clean_department_count=0", helper);
+        Assert.Contains("unexpected_active_department_count=0", helper);
+        Assert.Contains("active_legacy_department_count=0", helper);
+        Assert.Contains("database_acceptance_state=PASS", helper);
+        Assert.Contains("-v ON_ERROR_STOP=1", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("drop database", helper, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("legacy_active")]
+    [InlineData("unexpected_active")]
+    [InlineData("missing_clean")]
+    public void Department_post_verification_negative_states_fail_closed(string defect)
+    {
+        var actual = CleanDepartments.ToList();
+        switch (defect)
+        {
+            case "legacy_active": actual.Add(LegacyDepartments[0]); break;
+            case "unexpected_active": actual.Add("UNEXPECTED_DEPARTMENT"); break;
+            case "missing_clean": actual.Remove(CleanDepartments[0]); break;
+            default: throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+
+        Assert.False(DepartmentAcceptance(actual));
+    }
+
+    [Fact]
+    public void Workflow_actual_matched_count_uses_null_safe_comparison_without_weakening_acceptance()
+    {
+        var verifier = Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1");
+        var workflow = Section(verifier, "function Get-WorkflowEvidenceSql", "function Get-PermissionEvidenceSql");
+
+        foreach (var column in new[] { "RouteCode", "MinimumAmount", "MaximumAmount", "StepNumber", "ApproverResolutionType", "ApproverEmployeeCode", "ApproverRoleCode" })
+        {
+            Assert.Contains($"a.\"{column}\" is not distinct from e.\"{column}\"", workflow);
+        }
+        Assert.DoesNotContain("actual join expected using", workflow, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("workflow_missing_count", workflow);
+        Assert.Contains("workflow_unexpected_count", workflow);
+        Assert.Contains("workflow_duplicate_count", workflow);
+        Assert.Contains("workflow_sequence_violation_count", workflow);
+        Assert.Contains("workflow_overlap_count", workflow);
+
+        var expected = new WorkflowRow("MANAGER_MD_TD", 500000.01m, null, 1, "DEPARTMENT_MAPPING", null, "MANAGER");
+        var actual = new WorkflowRow("MANAGER_MD_TD", 500000.01m, null, 1, "DEPARTMENT_MAPPING", null, "MANAGER");
+        Assert.Equal(1, new[] { actual }.Count(row => row == expected));
+    }
+
+    private static bool DepartmentAcceptance(IReadOnlyCollection<string> actualActive)
+    {
+        var expected = CleanDepartments.ToHashSet(StringComparer.Ordinal);
+        var actual = actualActive.ToHashSet(StringComparer.Ordinal);
+        return actual.Count == 12
+            && expected.All(actual.Contains)
+            && actual.All(expected.Contains)
+            && LegacyDepartments.All(code => !actual.Contains(code));
+    }
+
+    private static string Section(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start, $"Unable to isolate section {startMarker}.");
+        return source[start..end];
+    }
+
+    private static int CountOccurrences(string source, string value)
+    {
+        var count = 0;
+        for (var index = 0; (index = source.IndexOf(value, index, StringComparison.OrdinalIgnoreCase)) >= 0; index += value.Length) count++;
+        return count;
+    }
+
+    private static string Read(params string[] parts)
+    {
+        var root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "SESS.NexaERP.slnx")))
+        {
+            root = Directory.GetParent(root)?.FullName ?? throw new DirectoryNotFoundException("Repository root not found.");
+        }
+        return File.ReadAllText(Path.Combine(new[] { root }.Concat(parts).ToArray()));
+    }
+
+    private sealed record WorkflowRow(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, int StepNumber, string ResolutionType, string? EmployeeCode, string? RoleCode);
+}

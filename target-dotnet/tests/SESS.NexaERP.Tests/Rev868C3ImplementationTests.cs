@@ -969,7 +969,7 @@ if ($hash -ne 'BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD'
         Assert.Contains("-f $script:tempSqlFile", helper);
         Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("migration_unexpected_count", helper);
-        Assert.Contains("migration_acceptance_state='||case when expected_count=10 and actual_matched_count=10 and missing_count=0 and unexpected_count=0 and duplicate_count=0", helper);
+        Assert.Contains("migration_acceptance_state='||case when expected_count=11 and actual_matched_count=11 and missing_count=0 and unexpected_count=0 and duplicate_count=0", helper);
         Assert.Contains("except all select * from sa", helper);
         Assert.Contains("status_history_duplicate_count", helper);
         Assert.Contains("department_history_duplicate_count", helper);
