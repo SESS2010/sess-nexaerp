@@ -1,5 +1,6 @@
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Identity;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SESS.NexaERP.Domain.Authorization;
 
@@ -13,6 +14,8 @@ public sealed class RolePagePermission : AuditableEntity
     public bool CanCreate { get; set; }
     public bool CanUpdate { get; set; }
     public bool CanSubmit { get; set; }
+    [NotMapped]
+    public bool CanIssue => CanSubmit && CanUpdate;
     public bool CanVerify { get; set; }
     public bool CanApprove { get; set; }
     public bool CanReject { get; set; }

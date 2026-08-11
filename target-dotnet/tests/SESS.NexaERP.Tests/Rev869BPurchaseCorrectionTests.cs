@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -85,13 +86,17 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.Equal(29, rows.Count);
         Assert.All(rows, row => Assert.True(row.CanView || row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanVerify || row.CanApprove || row.CanReject || row.CanRequestClarification || row.CanRequestRevision || row.CanResubmit || row.CanCancel || row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment || row.CanViewCommercialValues || row.CanViewAuditHistory || row.HasFullControl));
         Assert.All(rows.Where(row => row.CanViewCommercialValues || row.CanExport || row.CanViewAuditHistory), row => Assert.True(row.CanView));
-        Assert.Equal(3, rows.Count(row => row.PageDefinitionId == Guid.Parse("20000000-0000-0000-0000-000000000012") && row.CanApprove && row.CanReject));
+        var poPage = Guid.Parse("20000000-0000-0000-0000-000000000012");
+        Assert.Equal(2, rows.Count(row => row.PageDefinitionId == poPage && row.CanApprove && row.CanReject));
+        var managerPo = rows.Single(row => row.Id == Rev869BSeedData.PermissionId(Rev869ARoleCodes.PurchaseManager, "purchase.po"));
+        Assert.True(managerPo.CanView && managerPo.CanCreate && managerPo.CanUpdate && managerPo.CanSubmit && managerPo.CanResubmit && managerPo.CanIssue);
+        Assert.False(managerPo.CanApprove || managerPo.CanReject || managerPo.CanRequestRevision || managerPo.HasFullControl);
     }
 
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(20, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(23, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);
         Assert.Contains("Purchase order pre-issue snapshot is incomplete or does not reconcile", Migration);

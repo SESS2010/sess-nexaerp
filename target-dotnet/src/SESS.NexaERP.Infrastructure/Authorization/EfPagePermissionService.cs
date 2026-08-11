@@ -35,6 +35,7 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
             PagePermissionActions.Create => grant.CanCreate,
             PagePermissionActions.Update => grant.CanUpdate,
             PagePermissionActions.Submit => grant.CanSubmit,
+            PagePermissionActions.Issue => grant.CanIssue,
             PagePermissionActions.Verify => grant.CanVerify,
             PagePermissionActions.Approve => grant.CanApprove,
             PagePermissionActions.Reject => grant.CanReject,

@@ -69,7 +69,7 @@ public sealed class Rev869BPurchaseFoundationTests
         Assert.Contains("IX_purchase_orders_OrganizationId_PoNumber_RevisionNumber", MigrationSource);
         Assert.Contains("\\\"IsCurrentVersion\\\" = TRUE", MigrationSource); Assert.Contains("\\\"IsCurrentRevision\\\" = TRUE", MigrationSource);
         Assert.Contains("IsConcurrencyToken", MappingSource); Assert.Contains("rev869b_reject_immutable_mutation", MigrationSource);
-        Assert.Equal(20, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(23, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation", MigrationSource);
     }
 

@@ -96,15 +96,26 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         return checked(expected + 1);
     }
     private async Task<string> ResolveApprovalRouteAsync(decimal total, string organization, CancellationToken ct) { var policies = await db.PurchaseTransactionApprovalPolicies.AsNoTracking().Where(x => x.OrganizationId == organization).ToListAsync(ct); return Rev869BApprovalRoutes.Resolve(total, policies, DateOnly.FromDateTime(DateTime.UtcNow), organization); }
-    private async Task<(Rev869BCommercialBreakdown Breakdown, Domain.Masters.TaxGstSetting Tax)> RecalculateAsync(VendorQuotationLine line, string organization, DateOnly onDate, CancellationToken ct)
+    private static Rev869BTaxRuleSnapshot TaxSnapshot(Domain.Masters.TaxGstSetting tax) => new(
+        tax.Id, tax.OrganizationId, tax.JurisdictionCode, tax.HsnSacCode, tax.SupplyType, tax.SupplierStateCode,
+        tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
+        tax.IgstRate, tax.CessRate, tax.IsExempt, tax.IsReverseCharge, tax.CurrencyCode, tax.RoundingScale,
+        tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive);
+
+    private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateOnly quotationReceivedDate)
     {
-        var untaxedInput = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, 0m, 0m, 0m, 0m, line.RoundOff, 6);
-        var taxableBase = Rev869BCommercialCalculator.TaxableValue(untaxedInput);
-        var tax = await taxes.ResolveAsync(new(organization, Domain.Masters.TaxJurisdictions.IndiaGst, Required(line.HsnSacCode, "HSN/SAC"), Required(line.SupplierStateCode, "Supplier state"), Required(line.PlaceOfSupplyStateCode, "Place of supply"), Required(line.VendorRegistrationType, "Vendor registration type"), onDate, taxableBase), ct);
-        var calculation = Rev869BCommercialCalculator.Calculate(new(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, line.RoundOff, tax.RoundingScale));
-        if (line.TaxableValue != calculation.TaxableValue || line.CgstValue != calculation.CgstValue || line.SgstValue != calculation.SgstValue ||
-            line.IgstValue != calculation.IgstValue || line.CessValue != calculation.CessValue || line.TotalPayableValue != calculation.TotalPayableValue)
-            throw new Rev869BConflictException("Stored quotation commercial values do not reconcile with the effective tax rule.");
+        Rev869BTaxRuleSnapshot tax;
+        try { tax = JsonSerializer.Deserialize<Rev869BTaxRuleSnapshot>(line.TaxRuleSnapshotJson, JsonOptions) ?? throw new JsonException(); }
+        catch (JsonException) { throw new Rev869BConflictException("The immutable quotation GST rule snapshot is malformed."); }
+        if (tax.OrganizationId != organization || tax.Id != line.TaxGstSettingId || tax.HsnSacCode != line.HsnSacCode ||
+            tax.SupplierStateCode != line.SupplierStateCode || tax.PlaceOfSupplyStateCode != line.PlaceOfSupplyStateCode ||
+            tax.VendorRegistrationType != line.VendorRegistrationType)
+            throw new Rev869BConflictException("The immutable quotation GST rule provenance is mismatched.");
+        var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, line.RoundOff, tax.RoundingScale);
+        var stored = new Rev869BCommercialBreakdown(line.TaxableValue, line.DiscountValue, line.CgstValue, line.SgstValue, line.IgstValue, line.CessValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, line.RoundOff, line.TotalPayableValue);
+        Rev869BCommercialBreakdown calculation;
+        try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, quotationReceivedDate); }
+        catch (InvalidOperationException ex) { throw new Rev869BConflictException(ex.Message); }
         return (calculation, tax);
     }
     private async Task<decimal> OrderedQuantityAsync(Guid prLineId, CancellationToken ct) => await db.PurchaseOrderLines.Where(x => x.PurchaseRequisitionLineId == prLineId && x.PurchaseOrder!.IsCurrentVersion && x.PurchaseOrder.Status != Rev869BStatuses.Cancelled && x.PurchaseOrder.Status != Rev869BStatuses.Superseded).SumAsync(x => (decimal?)x.OrderedQuantity, ct) ?? 0m;

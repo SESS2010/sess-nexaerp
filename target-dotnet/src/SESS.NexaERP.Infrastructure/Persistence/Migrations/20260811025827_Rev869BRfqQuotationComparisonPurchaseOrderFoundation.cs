@@ -853,7 +853,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 columns: new[] { "Id", "CanApprove", "CanCancel", "CanCreate", "CanDeactivate", "CanDownload", "CanExport", "CanPrint", "CanReject", "CanReplaceAttachment", "CanRequestClarification", "CanRequestRevision", "CanResubmit", "CanSubmit", "CanUpdate", "CanUploadAttachment", "CanVerify", "CanView", "CanViewAuditHistory", "CanViewCommercialValues", "CreatedAt", "CreatedBy", "HasFullControl", "PageDefinitionId", "RoleId", "UpdatedAt", "UpdatedBy", "Version" },
                 values: new object[,]
                 {
-                    { new Guid("01a0c648-2bdc-3643-465f-d013309c37be"), true, true, true, false, true, true, true, true, false, false, true, false, false, true, true, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("20000000-0000-0000-0000-000000000012"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
+                    { new Guid("01a0c648-2bdc-3643-465f-d013309c37be"), false, true, true, false, true, true, true, false, false, false, false, true, true, true, true, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("20000000-0000-0000-0000-000000000012"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("20a822a5-146b-b1ab-b849-5b19b42d053b"), false, true, false, false, true, true, true, false, false, true, false, false, false, false, false, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("20000000-0000-0000-0000-000000000011"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
                     { new Guid("4235c07c-e564-bbf7-e475-eda92f8f8a15"), true, true, false, false, true, true, true, true, false, false, true, false, false, false, false, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", true, new Guid("20000000-0000-0000-0000-000000000012"), new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"), null, null, 0L },
                     { new Guid("4e10adcf-6248-dceb-cb7c-5ce74abcec69"), true, true, false, false, true, true, true, true, false, false, true, false, false, false, false, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("20000000-0000-0000-0000-000000000012"), new Guid("45eb9032-3689-8526-caee-41db0e7e2644"), null, null, 0L },
@@ -1323,7 +1323,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     IF (SELECT count(*) FROM nexa.page_definitions WHERE "PageKey" IN ('purchase.rfq','purchase.commercial-comparisons','purchase.po') AND "IsActive" = TRUE) <> 3 THEN RAISE EXCEPTION 'REV869B Department Manager pages are missing or ambiguous.'; END IF;
                     INSERT INTO nexa.role_page_permissions
                     ("Id","RoleId","PageDefinitionId","CanView","CanCreate","CanUpdate","CanSubmit","CanVerify","CanApprove","CanReject","CanRequestClarification","CanRequestRevision","CanResubmit","CanCancel","CanDeactivate","CanPrint","CanDownload","CanExport","CanUploadAttachment","CanReplaceAttachment","CanViewCommercialValues","CanViewAuditHistory","HasFullControl","CreatedAt","CreatedBy","Version")
-                    SELECT permission_id,department_manager_role_id,p."Id",TRUE,FALSE,FALSE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE,FALSE,FALSE,FALSE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE,TIMESTAMPTZ '1970-01-01 00:00:00+00','migration-rev869b',0
+                    SELECT permission_id,department_manager_role_id,p."Id",TRUE,FALSE,FALSE,FALSE,FALSE,
+                           p."PageKey" = 'purchase.po',p."PageKey" = 'purchase.po',TRUE,p."PageKey" = 'purchase.po',FALSE,FALSE,FALSE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE,
+                           TIMESTAMPTZ '1970-01-01 00:00:00+00','migration-rev869b',0
                     FROM (VALUES
                         ('918d0634-ff61-c756-98f4-a17290d04110'::uuid,'purchase.rfq'),
                         ('062fd69d-1356-6930-ecdb-1c13ae5a01d5'::uuid,'purchase.commercial-comparisons'),
@@ -1355,8 +1357,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE OR REPLACE FUNCTION nexa.rev869b_enforce_transition() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
                 DECLARE allowed boolean := false;
                 BEGIN
-                    IF TG_TABLE_NAME = 'purchase_orders' AND TG_OP = 'INSERT' THEN
-                        IF NEW."Status" = 'RevisionDraft' AND NOT EXISTS (
+                    IF TG_OP = 'INSERT' THEN
+                        IF TG_TABLE_NAME = 'request_for_quotations' AND NEW."Status" <> 'Draft' THEN
+                            RAISE EXCEPTION 'RFQ must be inserted in Draft status.';
+                        ELSIF TG_TABLE_NAME = 'vendor_quotations' AND NEW."Status" <> 'Submitted' THEN
+                            RAISE EXCEPTION 'Quotation must be inserted in Submitted status.';
+                        ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND NEW."Status" <> 'Draft' THEN
+                            RAISE EXCEPTION 'Comparison must be inserted in Draft status.';
+                        ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW."Status" NOT IN ('Draft','RevisionDraft') THEN
+                            RAISE EXCEPTION 'Purchase order must be inserted in a controlled draft status.';
+                        ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW."Status" = 'RevisionDraft' AND NOT EXISTS (
                             SELECT 1 FROM nexa.purchase_orders p
                             WHERE p."Id" = NEW."PreviousVersionId" AND p."OrganizationId" = NEW."OrganizationId"
                               AND p."RootPurchaseOrderId" = NEW."RootPurchaseOrderId" AND p."PoNumber" = NEW."PoNumber"
@@ -1364,6 +1374,21 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             RAISE EXCEPTION 'RevisionDraft requires an immutable rejected predecessor.';
                         END IF;
                         RETURN NEW;
+                    END IF;
+                    IF NEW."Version" < OLD."Version" THEN RAISE EXCEPTION 'REV869B aggregate version cannot move backwards.'; END IF;
+                    IF TG_TABLE_NAME = 'request_for_quotations' AND
+                       (NEW."OrganizationId",NEW."PurchaseRequisitionId") IS DISTINCT FROM (OLD."OrganizationId",OLD."PurchaseRequisitionId") THEN
+                        RAISE EXCEPTION 'RFQ organization and parent are immutable.';
+                    ELSIF TG_TABLE_NAME = 'vendor_quotations' AND
+                       (NEW."OrganizationId",NEW."RfqVendorInvitationId",NEW."VendorId") IS DISTINCT FROM (OLD."OrganizationId",OLD."RfqVendorInvitationId",OLD."VendorId") THEN
+                        RAISE EXCEPTION 'Quotation organization and parents are immutable.';
+                    ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND
+                       (NEW."OrganizationId",NEW."RequestForQuotationId") IS DISTINCT FROM (OLD."OrganizationId",OLD."RequestForQuotationId") THEN
+                        RAISE EXCEPTION 'Comparison organization and parent are immutable.';
+                    ELSIF TG_TABLE_NAME = 'purchase_orders' AND
+                       (NEW."OrganizationId",NEW."CommercialComparisonId",NEW."VendorId",NEW."RootPurchaseOrderId",NEW."PreviousVersionId") IS DISTINCT FROM
+                       (OLD."OrganizationId",OLD."CommercialComparisonId",OLD."VendorId",OLD."RootPurchaseOrderId",OLD."PreviousVersionId") THEN
+                        RAISE EXCEPTION 'Purchase order organization, provenance and version ancestry are immutable.';
                     END IF;
                     IF NEW."Status" = OLD."Status" THEN RETURN NEW; END IF;
                     IF TG_TABLE_NAME = 'request_for_quotations' THEN
@@ -1392,11 +1417,41 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             EXISTS (SELECT 1 FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id" AND
                                 (l."OrderedQuantity" <= 0 OR l."ApprovedOutstandingQuantitySnapshot" <= 0 OR
                                  l."CommercialSnapshotJson" IS NULL OR l."CommercialSnapshotJson" = '{}'::jsonb OR
-                                 l."TaxRuleSnapshotJson" IS NULL OR l."TaxRuleSnapshotJson" = '{}'::jsonb)) OR
-                            NEW."TotalPayableValue" <> (SELECT coalesce(sum(l."TotalPayableValue"), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id")
+                                 l."TaxRuleSnapshotJson" IS NULL OR l."TaxRuleSnapshotJson" = '{}'::jsonb OR
+                                 coalesce(l."CommercialSnapshotJson"->>'organizationId','') <> NEW."OrganizationId" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'commercialComparisonId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."CommercialComparisonId" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'vendorId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."VendorId" OR
+                                 length(coalesce(l."CommercialSnapshotJson"->>'attachmentSha256','')) <> 64 OR
+                                 coalesce(l."CommercialSnapshotJson"->>'comparisonApprovalRoute','') <> NEW."ApprovalRoute" OR
+                                 coalesce((l."CommercialSnapshotJson"->'result'->>'totalPayableValue')::numeric,-1) <> l."TotalPayableValue")) OR
+                            NEW."TaxableValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'taxableValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."DiscountValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'discountValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."TaxValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'cgstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'sgstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'igstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'cessValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."PackingForwarding" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'packingForwarding')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."Freight" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'freight')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."Insurance" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'insurance')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."OtherCharges" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'otherCharges')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."RoundOff" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'roundOff')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."TotalPayableValue" <> (SELECT coalesce(sum(l."TotalPayableValue"), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NOT EXISTS (SELECT 1 FROM nexa.purchase_order_history h WHERE h."PurchaseOrderId" = NEW."Id" AND h."ToStatus" = 'Approved' AND length(trim(h."Reason")) > 0) OR
+                            NOT EXISTS (SELECT 1 FROM nexa.purchase_transaction_approval_policies p WHERE p."OrganizationId" = NEW."OrganizationId" AND p."RouteCode" = NEW."ApprovalRoute" AND p."IsActive" AND NEW."TotalPayableValue" >= p."MinimumAmount" AND (p."MaximumAmount" IS NULL OR NEW."TotalPayableValue" <= p."MaximumAmount"))
                         ) THEN RAISE EXCEPTION 'Purchase order pre-issue snapshot is incomplete or does not reconcile.'; END IF;
                     END IF;
                     IF NOT allowed THEN RAISE EXCEPTION 'Illegal REV869B % status transition: % to %.', TG_TABLE_NAME, OLD."Status", NEW."Status"; END IF;
+                    RETURN NEW;
+                END $rev869b$;
+
+                CREATE OR REPLACE FUNCTION nexa.rev869b_reject_overlapping_approval_policy() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                BEGIN
+                    IF NEW."IsActive" AND EXISTS (
+                        SELECT 1 FROM nexa.purchase_transaction_approval_policies p
+                        WHERE p."Id" <> NEW."Id" AND p."OrganizationId" = NEW."OrganizationId" AND p."IsActive"
+                          AND daterange(p."EffectiveFrom", coalesce(p."EffectiveTo", 'infinity'::date), '[]') &&
+                              daterange(NEW."EffectiveFrom", coalesce(NEW."EffectiveTo", 'infinity'::date), '[]')
+                          AND numrange(p."MinimumAmount", p."MaximumAmount", '[]') &&
+                              numrange(NEW."MinimumAmount", NEW."MaximumAmount", '[]')) THEN
+                        RAISE EXCEPTION 'Overlapping active purchase approval policies are prohibited.';
+                    END IF;
                     RETURN NEW;
                 END $rev869b$;
 
@@ -1444,9 +1499,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE TRIGGER trg_rev869b_comparison_snapshot_guard BEFORE UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
                 CREATE TRIGGER trg_rev869b_comparison_line_snapshot_guard BEFORE UPDATE ON nexa.commercial_comparison_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
                 CREATE TRIGGER trg_rev869b_purchase_order_snapshot_guard BEFORE UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
-                CREATE TRIGGER trg_rev869b_rfq_transition_guard BEFORE UPDATE ON nexa.request_for_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
-                CREATE TRIGGER trg_rev869b_quotation_transition_guard BEFORE UPDATE ON nexa.vendor_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
-                CREATE TRIGGER trg_rev869b_comparison_transition_guard BEFORE UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
+                CREATE TRIGGER trg_rev869b_rfq_transition_guard BEFORE INSERT OR UPDATE ON nexa.request_for_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
+                CREATE TRIGGER trg_rev869b_quotation_transition_guard BEFORE INSERT OR UPDATE ON nexa.vendor_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
+                CREATE TRIGGER trg_rev869b_comparison_transition_guard BEFORE INSERT OR UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_purchase_order_transition_guard BEFORE INSERT OR UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_quotation_line_parent_guard BEFORE INSERT OR UPDATE ON nexa.vendor_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_validate_parent_contract();
                 CREATE TRIGGER trg_rev869b_technical_parent_guard BEFORE INSERT OR UPDATE ON nexa.quotation_technical_verifications FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_validate_parent_contract();
@@ -1460,11 +1515,25 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE TRIGGER trg_rev869b_purchase_order_lines_immutable BEFORE UPDATE OR DELETE ON nexa.purchase_order_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_immutable_mutation();
                 CREATE TRIGGER trg_rev869b_purchase_order_history_immutable BEFORE UPDATE OR DELETE ON nexa.purchase_order_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_immutable_mutation();
                 CREATE TRIGGER trg_rev869b_purchase_status_history_immutable BEFORE UPDATE OR DELETE ON nexa.purchase_transaction_status_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_immutable_mutation();
+                CREATE TRIGGER trg_rev869b_approval_policy_overlap_guard BEFORE INSERT OR UPDATE ON nexa.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_overlapping_approval_policy();
+
                 """);        }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_overlapping_approval_policy() CASCADE;");
+            migrationBuilder.Sql("""
+                CREATE OR REPLACE FUNCTION nexa.rev869b_down_owned_seed_guard() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                BEGIN
+                    IF OLD."CreatedBy" <> 'migration-rev869b' THEN
+                        RAISE EXCEPTION 'REV869B rollback refused to delete a seed row not owned by this migration.';
+                    END IF;
+                    RETURN OLD;
+                END $rev869b$;
+                CREATE TRIGGER trg_rev869b_down_permission_owner BEFORE DELETE ON nexa.role_page_permissions FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_down_owned_seed_guard();
+                CREATE TRIGGER trg_rev869b_down_page_owner BEFORE DELETE ON nexa.page_definitions FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_down_owned_seed_guard();
+                """);
             migrationBuilder.Sql("""
                 DELETE FROM nexa.role_page_permissions
                 WHERE "Id" IN ('918d0634-ff61-c756-98f4-a17290d04110'::uuid,'062fd69d-1356-6930-ecdb-1c13ae5a01d5'::uuid,'c9ec48cd-024d-128e-697f-389458e12c97'::uuid)
@@ -1530,7 +1599,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 name: "request_for_quotations",
                 schema: "nexa");
 
-            migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract(); DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition(); DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot(); DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation();");
+            migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract(); DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition(); DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot(); DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation(); DROP FUNCTION IF EXISTS nexa.rev869b_reject_overlapping_approval_policy();");
 
             migrationBuilder.DeleteData(
                 schema: "nexa",
@@ -1748,6 +1817,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 table: "page_definitions",
                 keyColumn: "Id",
                 keyValue: new Guid("e6c278a8-9f01-4a07-845a-1aba37ca0e46"));
+
+            migrationBuilder.Sql("DROP TRIGGER IF EXISTS trg_rev869b_down_permission_owner ON nexa.role_page_permissions; DROP TRIGGER IF EXISTS trg_rev869b_down_page_owner ON nexa.page_definitions; DROP FUNCTION IF EXISTS nexa.rev869b_down_owned_seed_guard();");
         }
     }
 }

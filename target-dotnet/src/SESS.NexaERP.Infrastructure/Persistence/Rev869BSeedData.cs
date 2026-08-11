@@ -72,9 +72,9 @@ public static class Rev869BSeedData
             technicalVerifier && (rfq || quote || technical) || stores && (po || followUp) || accounts && (comparison || po);
         var canCreate = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison || po) || technicalVerifier && technical;
         var canUpdate = canCreate;
-        var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison) || technicalVerifier && technical;
+        var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison || po) || technicalVerifier && technical;
         var canVerify = purchaseManager && (rfq || quote || comparison) || technicalVerifier && technical || director && (technical || comparison);
-        var canApprove = (purchaseManager || director) && (comparison || po);
+        var canApprove = purchaseManager && comparison || director && (comparison || po);
         var canCancel = purchaseManager && (rfq || quote || po) || director && (rfq || quote || po);
         return new RolePagePermission
         {
@@ -82,7 +82,7 @@ public static class Rev869BSeedData
             CanView = canView, CanCreate = canCreate, CanUpdate = canUpdate, CanSubmit = canSubmit,
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canApprove,
             CanRequestClarification = canView && (rfq || technical || comparison), CanRequestRevision = canApprove,
-            CanResubmit = purchaseManager && comparison, CanCancel = canCancel, CanDeactivate = false,
+            CanResubmit = purchaseManager && (comparison || po), CanCancel = canCancel, CanDeactivate = false,
             CanPrint = canView, CanDownload = canView, CanExport = canView && (accounts || director || purchaseManager),
             CanUploadAttachment = canCreate, CanReplaceAttachment = false,
             CanViewCommercialValues = canView && (purchaseExecutive || purchaseManager || director || accounts),
@@ -91,7 +91,7 @@ public static class Rev869BSeedData
         };
     }
 
-    private static bool HasAnyGrant(RolePagePermission x) => x.CanView || x.CanCreate || x.CanUpdate || x.CanSubmit || x.CanVerify || x.CanApprove || x.CanReject || x.CanRequestClarification || x.CanRequestRevision || x.CanResubmit || x.CanCancel || x.CanDeactivate || x.CanPrint || x.CanDownload || x.CanExport || x.CanUploadAttachment || x.CanReplaceAttachment || x.CanViewCommercialValues || x.CanViewAuditHistory || x.HasFullControl;
+    private static bool HasAnyGrant(RolePagePermission x) => x.CanView || x.CanCreate || x.CanUpdate || x.CanSubmit || x.CanIssue || x.CanVerify || x.CanApprove || x.CanReject || x.CanRequestClarification || x.CanRequestRevision || x.CanResubmit || x.CanCancel || x.CanDeactivate || x.CanPrint || x.CanDownload || x.CanExport || x.CanUploadAttachment || x.CanReplaceAttachment || x.CanViewCommercialValues || x.CanViewAuditHistory || x.HasFullControl;
 
     private static PurchaseTransactionApprovalPolicy Policy(string route, decimal min, decimal? max, string role) => new()
     {

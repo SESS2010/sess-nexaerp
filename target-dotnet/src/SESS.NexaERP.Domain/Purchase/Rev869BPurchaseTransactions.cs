@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Inventory;
@@ -101,6 +104,24 @@ public sealed record Rev869BCommercialBreakdown(
     decimal IgstValue, decimal CessValue, decimal PackingForwarding, decimal Freight,
     decimal Insurance, decimal OtherCharges, decimal RoundOff, decimal TotalPayableValue);
 
+public sealed record Rev869BCommercialAggregate(
+    decimal TaxableValue, decimal DiscountValue, decimal TaxValue, decimal PackingForwarding,
+    decimal Freight, decimal Insurance, decimal OtherCharges, decimal RoundOff, decimal TotalPayableValue);
+
+public sealed record Rev869BTaxRuleSnapshot(
+    Guid Id, string OrganizationId, string JurisdictionCode, string HsnSacCode, string SupplyType,
+    string SupplierStateCode, string PlaceOfSupplyStateCode, string VendorRegistrationType,
+    decimal GstRate, decimal CgstRate, decimal SgstRate, decimal IgstRate, decimal CessRate,
+    bool IsExempt, bool IsReverseCharge, string CurrencyCode, int RoundingScale,
+    DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, bool IsActive);
+
+public sealed record Rev869BPoCommercialSnapshot(
+    Guid VendorQuotationId, Guid VendorQuotationLineId, Guid RequestForQuotationId,
+    Guid CommercialComparisonId, Guid VendorId, string OrganizationId,
+    string VendorQualificationSnapshotJson, string AttachmentObjectKey, string AttachmentSha256,
+    string ComparisonApprovalRoute, DateTimeOffset ComparisonApprovedAt, DateTimeOffset QuotationReceivedAt,
+    Rev869BCommercialInput Input, Rev869BCommercialBreakdown Result);
+
 public static class Rev869BCommercialCalculator
 {
     public const decimal MaximumSupportedValue = 999999999999999999.999999m;
@@ -127,6 +148,42 @@ public static class Rev869BCommercialCalculator
         var total = Round(Add(taxable, cgst, sgst, igst, cess, input.RoundOff), input.RoundingScale, "total payable value");
         if (total < 0) throw new InvalidOperationException("Total payable value cannot be negative.");
         return new(taxable, input.DiscountValue, cgst, sgst, igst, cess, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, total);
+    }
+
+    public static Rev869BCommercialAggregate Aggregate(IEnumerable<Rev869BCommercialBreakdown> lines)
+    {
+        var values = lines.ToArray();
+        if (values.Length == 0) throw new InvalidOperationException("At least one commercial line is required.");
+        return new(
+            Add(values.Select(x => x.TaxableValue).ToArray()),
+            Add(values.Select(x => x.DiscountValue).ToArray()),
+            Add(values.SelectMany(x => new[] { x.CgstValue, x.SgstValue, x.IgstValue, x.CessValue }).ToArray()),
+            Add(values.Select(x => x.PackingForwarding).ToArray()),
+            Add(values.Select(x => x.Freight).ToArray()),
+            Add(values.Select(x => x.Insurance).ToArray()),
+            Add(values.Select(x => x.OtherCharges).ToArray()),
+            Add(values.Select(x => x.RoundOff).ToArray()),
+            Add(values.Select(x => x.TotalPayableValue).ToArray()));
+    }
+
+    public static Rev869BCommercialBreakdown Reconcile(
+        Rev869BCommercialInput input, Rev869BCommercialBreakdown stored, Rev869BTaxRuleSnapshot taxRule, DateOnly effectiveDate)
+    {
+        if (taxRule.Id == Guid.Empty || string.IsNullOrWhiteSpace(taxRule.OrganizationId) || !taxRule.IsActive ||
+            taxRule.ApprovalStatus != MasterApprovalStatuses.Approved || taxRule.EffectiveFrom > effectiveDate ||
+            taxRule.EffectiveTo.HasValue && taxRule.EffectiveTo.Value < effectiveDate)
+            throw new InvalidOperationException("The immutable GST rule snapshot is invalid or was not effective on the quotation receipt date.");
+        if (taxRule.SupplyType != TaxGstSetting.ResolveSupplyType(taxRule.SupplierStateCode, taxRule.PlaceOfSupplyStateCode) ||
+            taxRule.SupplyType == "INTRASTATE" && (taxRule.IgstRate != 0m || taxRule.CgstRate + taxRule.SgstRate != taxRule.GstRate) ||
+            taxRule.SupplyType == "INTERSTATE" && (taxRule.CgstRate != 0m || taxRule.SgstRate != 0m || taxRule.IgstRate != taxRule.GstRate))
+            throw new InvalidOperationException("The immutable GST component split is invalid.");
+        var calculated = Calculate(input with
+        {
+            CgstRate = taxRule.CgstRate, SgstRate = taxRule.SgstRate, IgstRate = taxRule.IgstRate,
+            CessRate = taxRule.CessRate, RoundingScale = taxRule.RoundingScale
+        });
+        if (calculated != stored) throw new InvalidOperationException("Client or stored commercial totals do not reconcile with the authoritative calculation.");
+        return calculated;
     }
 
     public static decimal Add(params decimal[] values)
@@ -160,6 +217,51 @@ public static class Rev869BCommercialCalculator
         foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff })
             Ensure(value, "commercial input");
     }
+}
+
+public static class Rev869BIdempotencyFingerprint
+{
+    public static string CommandScope(string organizationId, string operation, string idempotencyKey) =>
+        Hash(Required(organizationId, "Organization") + "\\n" + Required(operation, "Operation") + "\\n" + Required(idempotencyKey, "Idempotency key"));
+
+    public static string Create(string organizationId, string operation, string idempotencyKey, object canonicalPayload)
+    {
+        ArgumentNullException.ThrowIfNull(canonicalPayload);
+        return CommandScope(organizationId, operation, idempotencyKey) + "." + Hash(CanonicalJson(canonicalPayload));
+    }
+
+    public static bool SameCommand(string storedFingerprint, string organizationId, string operation, string idempotencyKey) =>
+        !string.IsNullOrWhiteSpace(storedFingerprint) && storedFingerprint.StartsWith(CommandScope(organizationId, operation, idempotencyKey) + ".", StringComparison.Ordinal);
+
+    private static string CanonicalJson(object payload)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+        var output = new StringBuilder();
+        Write(document.RootElement, output);
+        return output.ToString();
+    }
+
+    private static void Write(JsonElement value, StringBuilder output)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                output.Append('{'); var first = true;
+                foreach (var property in value.EnumerateObject().OrderBy(x => x.Name, StringComparer.Ordinal))
+                { if (!first) output.Append(','); first = false; output.Append(JsonSerializer.Serialize(property.Name)).Append(':'); Write(property.Value, output); }
+                output.Append('}'); break;
+            case JsonValueKind.Array:
+                output.Append('['); var initial = true;
+                foreach (var item in value.EnumerateArray()) { if (!initial) output.Append(','); initial = false; Write(item, output); }
+                output.Append(']'); break;
+            case JsonValueKind.String:
+                output.Append(JsonSerializer.Serialize((value.GetString() ?? string.Empty).Trim())); break;
+            default: output.Append(value.GetRawText()); break;
+        }
+    }
+
+    private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static string Required(string value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new InvalidOperationException($"{name} is required for idempotency.");
 }
 
 public sealed class RequestForQuotation : AuditableEntity
@@ -434,6 +536,8 @@ public sealed class PurchaseOrderLine : AuditableEntity
 
 public static class Rev869BPurchaseOrderSnapshot
 {
+    private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+
     public static void RequireComplete(PurchaseOrder purchaseOrder)
     {
         if (purchaseOrder.Status != Rev869BStatuses.Approved) throw new InvalidOperationException("Only an approved purchase order can be issued.");
@@ -445,8 +549,38 @@ public static class Rev869BPurchaseOrderSnapshot
             string.IsNullOrWhiteSpace(x.CommercialSnapshotJson) || x.CommercialSnapshotJson == "{}" ||
             string.IsNullOrWhiteSpace(x.TaxRuleSnapshotJson) || x.TaxRuleSnapshotJson == "{}"))
             throw new InvalidOperationException("A pre-issue purchase-order line snapshot is incomplete.");
-        var lineTotal = Rev869BCommercialCalculator.Add(purchaseOrder.Lines.Select(x => x.TotalPayableValue).ToArray());
-        if (lineTotal != purchaseOrder.TotalPayableValue) throw new InvalidOperationException("The pre-issue header and immutable line totals do not match.");
+        var reconciled = new List<Rev869BCommercialBreakdown>();
+        foreach (var line in purchaseOrder.Lines)
+        {
+            Rev869BPoCommercialSnapshot commercial;
+            Rev869BTaxRuleSnapshot tax;
+            try
+            {
+                commercial = JsonSerializer.Deserialize<Rev869BPoCommercialSnapshot>(line.CommercialSnapshotJson, SnapshotJson)
+                    ?? throw new JsonException();
+                tax = JsonSerializer.Deserialize<Rev869BTaxRuleSnapshot>(line.TaxRuleSnapshotJson, SnapshotJson)
+                    ?? throw new JsonException();
+            }
+            catch (JsonException) { throw new InvalidOperationException("A pre-issue commercial or GST snapshot is malformed."); }
+            if (commercial.VendorQuotationId == Guid.Empty || commercial.VendorQuotationLineId == Guid.Empty ||
+                commercial.RequestForQuotationId == Guid.Empty || commercial.CommercialComparisonId != purchaseOrder.CommercialComparisonId ||
+                commercial.VendorId != purchaseOrder.VendorId || commercial.OrganizationId != purchaseOrder.OrganizationId ||
+                string.IsNullOrWhiteSpace(commercial.VendorQualificationSnapshotJson) || commercial.VendorQualificationSnapshotJson == "{}" ||
+                string.IsNullOrWhiteSpace(commercial.AttachmentObjectKey) || commercial.AttachmentSha256.Length != 64 ||
+                commercial.ComparisonApprovalRoute != purchaseOrder.ApprovalRoute || commercial.ComparisonApprovedAt == default ||
+                tax.OrganizationId != purchaseOrder.OrganizationId)
+                throw new InvalidOperationException("The pre-issue provenance, qualification, attachment or approval snapshot is incomplete or mismatched.");
+            var result = Rev869BCommercialCalculator.Reconcile(commercial.Input, commercial.Result, tax, DateOnly.FromDateTime(commercial.QuotationReceivedAt.UtcDateTime));
+            if (result.TotalPayableValue != line.TotalPayableValue) throw new InvalidOperationException("The pre-issue line payable value is stale or mismatched.");
+            reconciled.Add(result);
+        }
+        var aggregate = Rev869BCommercialCalculator.Aggregate(reconciled);
+        if (aggregate.TaxableValue != purchaseOrder.TaxableValue || aggregate.DiscountValue != purchaseOrder.DiscountValue ||
+            aggregate.TaxValue != purchaseOrder.TaxValue || aggregate.PackingForwarding != purchaseOrder.PackingForwarding ||
+            aggregate.Freight != purchaseOrder.Freight || aggregate.Insurance != purchaseOrder.Insurance ||
+            aggregate.OtherCharges != purchaseOrder.OtherCharges || aggregate.RoundOff != purchaseOrder.RoundOff ||
+            aggregate.TotalPayableValue != purchaseOrder.TotalPayableValue)
+            throw new InvalidOperationException("The pre-issue header and immutable commercial line snapshots do not reconcile.");
         foreach (var value in new[] { purchaseOrder.TaxableValue, purchaseOrder.DiscountValue, purchaseOrder.TaxValue, purchaseOrder.PackingForwarding,
                      purchaseOrder.Freight, purchaseOrder.Insurance, purchaseOrder.OtherCharges, purchaseOrder.RoundOff, purchaseOrder.TotalPayableValue })
             Rev869BCommercialCalculator.Ensure(value, "pre-issue commercial snapshot");

@@ -27,7 +27,7 @@ public static class Rev869BPurchaseEndpoints
         group.MapPost("/comparisons/{number}/resubmit", (string number, Rev869BApprovalActionRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.ResubmitAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.Resubmit);
         group.MapPost("/purchase-orders", (Rev869BCreatePurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.CreatePurchaseOrderAsync(r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Create);
         group.MapPost("/purchase-orders/{number}/submit", (string number, Rev869BSubmitPurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.SubmitPurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Submit);
-        group.MapPost("/purchase-orders/{number}/issue", (string number, Rev869BIssuePurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.IssuePurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Submit);
+        group.MapPost("/purchase-orders/{number}/issue", (string number, Rev869BIssuePurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.IssuePurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Issue);
         group.MapPost("/purchase-orders/{number}/amend", (string number, Rev869BAmendPurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.AmendPurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Update);
         group.MapPost("/purchase-orders/{number}/revise-rejected", (string number, Rev869BReviseRejectedPurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.ReviseRejectedPurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Update);
         group.MapPost("/purchase-orders/{number}/approve", (string number, Rev869BPoApprovalActionRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.ApprovePurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Approve);
@@ -36,6 +36,9 @@ public static class Rev869BPurchaseEndpoints
         group.MapGet("/rfqs/{number}", GetRfq).RequirePagePermission("purchase.rfq", PagePermissionActions.View);
         group.MapGet("/comparisons/{number}", GetComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.View);
         group.MapGet("/purchase-orders/{number}", GetPo).RequirePagePermission("purchase.po", PagePermissionActions.View);
+        group.MapGet("/quotations/{number}/attachment", GetQuotationAttachment).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Download);
+        group.MapGet("/comparisons/{number}/export", ExportComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.Export);
+        group.MapGet("/purchase-orders/{number}/export", ExportPo).RequirePagePermission("purchase.po", PagePermissionActions.Export);
         group.MapGet("/material-followup", GetFollowUp).RequirePagePermission("purchase.material-followup", PagePermissionActions.View);
         return endpoints;
     }
@@ -57,6 +60,35 @@ public static class Rev869BPurchaseEndpoints
         if (await permissions.HasPermissionAsync(user.RoleCode, "purchase.po", PagePermissionActions.ViewCommercialValues, ct)) return Results.Ok(row);
         await audit.WriteAsync("Security", "Denied", "CommercialValues", row.Id.ToString(), null, new { reason = "Commercial values masked", user.RoleCode }, ct);
         return Results.Ok(new { row.Id, row.PoNumber, row.RevisionNumber, row.IsCurrentVersion, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, row.Status, row.CurrencyCode, row.IssuedAt, row.CancelledAt, row.CancellationReason, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.ItemId, x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity }) });
+    }
+    private static async Task<IResult> GetQuotationAttachment(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    {
+        var row = await db.VendorQuotations.AsNoTracking().Include(x => x.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation)
+            .SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.QuotationNumber == number.Trim().ToUpperInvariant(), ct);
+        if (row is null) return await Missing(audit, "purchase.vendor-quotations", number, user, ct);
+        var rfq = row.RfqVendorInvitation!.RequestForQuotation!;
+        if (!await Allowed(user, scopes, row.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, rfq.OwnerEmployeeId, ct))
+            return await Denied(audit, "purchase.vendor-quotations", number, user, ct);
+        await audit.WriteAsync("Purchase", "AttachmentAccess", nameof(VendorQuotation), row.Id.ToString(), null,
+            new { row.QuotationNumber, organizationId = row.OrganizationId, evidencePresent = true }, ct);
+        return Results.Ok(new { row.QuotationNumber, row.AttachmentObjectKey, row.AttachmentSha256, row.SubmissionSource, row.ReceivedAt });
+    }
+    private static async Task<IResult> ExportComparison(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    {
+        var row = await db.CommercialComparisons.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.ComparisonNumber == number.Trim().ToUpperInvariant(), ct);
+        if (row is null) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct);
+        var rfq = await db.RequestForQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == row.RequestForQuotationId && x.OrganizationId == row.OrganizationId, ct);
+        if (rfq is null || !await Allowed(user, scopes, row.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct);
+        await audit.WriteAsync("Purchase", "Export", nameof(CommercialComparison), row.Id.ToString(), null, new { row.ComparisonNumber, lineCount = row.Lines.Count }, ct);
+        return Results.Ok(new { row.ComparisonNumber, row.CurrencyCode, row.Status, row.TotalPayableValue, Lines = row.Lines.Select(x => new { x.VendorId, x.TotalPayableValue, x.IsRecommended }) });
+    }
+    private static async Task<IResult> ExportPo(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    {
+        var row = await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.PoNumber == number.Trim().ToUpperInvariant() && x.IsCurrentVersion, ct);
+        if (row is null) return await Missing(audit, "purchase.po", number, user, ct);
+        if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Missing(audit, "purchase.po", number, user, ct);
+        await audit.WriteAsync("Purchase", "Export", nameof(PurchaseOrder), row.Id.ToString(), null, new { row.PoNumber, row.RevisionNumber, lineCount = row.Lines.Count }, ct);
+        return Results.Ok(new { row.PoNumber, row.RevisionNumber, row.CurrencyCode, row.Status, row.TaxableValue, row.TaxValue, row.TotalPayableValue, Lines = row.Lines.Select(x => new { x.LineNumber, x.ItemCodeSnapshot, x.OrderedQuantity, x.UnitRate, x.TotalPayableValue }) });
     }
     private static async Task<IResult> GetFollowUp(int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {

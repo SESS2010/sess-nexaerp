@@ -11,6 +11,7 @@ public static class PagePermissionActions
     public const string Create = "create";
     public const string Update = "update";
     public const string Submit = "submit";
+    public const string Issue = "issue";
     public const string Verify = "verify";
     public const string Approve = "approve";
     public const string Reject = "reject";
