@@ -71,6 +71,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureAuthorization(modelBuilder);
         ConfigureEmployees(modelBuilder);
         ConfigureRev869A(modelBuilder);
+        ConfigureRev869B(modelBuilder);
         SeedFoundation(modelBuilder);
     }
 
