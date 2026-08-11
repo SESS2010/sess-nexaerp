@@ -403,3 +403,21 @@ The approved pre-apply report for future review is `rev869a_isolated_execution_2
 Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 67/67 PASS; complete non-PostgreSQL tests 362/362 PASS. Safety, privacy, secret, prohibited-operation and diff checks are recorded in the committed checkpoint result.
 
 No helper mode, PostgreSQL/database access, migration application/removal/rollback, backup/restore, database create/drop/repair, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. The applied migration and model snapshot were unchanged, and `../legacy-reference/` remained read-only, unchanged, and untracked.
+
+## 2026-08-11 remaining transactional-prerequisite correction
+
+Starting commit: `4399905e1101cf36e3bd5be9343d20b63786502b`.
+
+Failed evidence: `local-evidence/rev869a/rev869a_isolated_execution_20260811_064224_060.md`. It proves schema acceptance, preservation acceptance, and database acceptance PASS, followed by a failure at the old combined prerequisite guard before any transactional constraint result. The guard required five values: an active/login-enabled employee (`e`), any UOM (`u1`), an arbitrary first warehouse (`w1`), a Rack/Bin belonging to that arbitrary warehouse (`rb`), and any vendor (`v`).
+
+The exact missing prerequisite was `v`: an existing vendor row. The accepted evidence proves 42 active employees and the post-REV869A EA UOM. The committed REV868C1 accepted setup creates the single controlled warehouse and its Rack/Bin used by the seven preserved PRs, but creates no vendor; no accepted migration seeds vendor business data. The generic guard therefore failed on an optional Vendor Master dependency. The arbitrary warehouse/RackBin selection was also fragile and has been removed even though it was not the observed missing row.
+
+The transactional verifier now emits individual safe count/state labels. It requires the already-proven exact active employee count only for a non-mutating FK reference, reports the existing vendor count as informational and explicitly `NOT_REQUIRED_TEST_OWNED`, and reports independent identity, UOM, tax, QC, vendor, warehouse/RackBin, and history collision counts. Missing or colliding prerequisites raise `transactional_prerequisite_failed=<exact_name>|expected_count=<n>|actual_count=<n>` instead of the former generic error.
+
+Each of the seven negative tests has a distinct DO block and PASS label. Disposable UOMs, QC UOM, vendor, two warehouses, and Rack/Bin are created with reserved UUID/code collision checks inside the same explicit transaction, before their dependent negative test. Existing employee and business-master rows are never updated or deleted. The SQL contains exactly one outer `begin`, exactly one final `rollback`, and no `commit`; a failed psql session also rolls back its open transaction. Schema, seed, EA UOM, Item mapping, permissions, and all preservation formulas are unchanged.
+
+Resume enforcement now parses every transactional prerequisite and constraint label exactly once before invoking the exact REV869A PostgreSQL-backed test class. Missing, duplicate, malformed, conflicting, or FAIL evidence stops before .NET PostgreSQL tests. Sanitized transactional output is written on success or failure; sanitized .NET output and TRX evidence are recorded whenever the .NET stage is reached. Database/test/overall states remain fail closed, and overall PASS still requires schema, preservation, transactional, and PostgreSQL-backed test acceptance.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 83/83 PASS; complete non-PostgreSQL tests 378/378 PASS. SQL-contract, prohibited-operation, secret/privacy/safety, exact-file-boundary, and `git diff --check` results are recorded in the final committed checkpoint verification.
+
+No helper mode or PostgreSQL test was executed. No PostgreSQL/database access, migration application/removal/modification, backup/restore, database create/drop/repair, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. Final REV869A acceptance is not claimed.

@@ -668,30 +668,105 @@ union all select 'seed_contract=organization_policies|'||"Id"::text from nexa.or
 function Get-TransactionalVerificationSql {
     return @"
 begin;
-do `$test`$
-declare e uuid; u1 uuid; test_u uuid := '869a0000-0000-0000-0000-000000000098'; w1 uuid; invalid_w uuid := '869a0000-0000-0000-0000-000000000099'; rb uuid; v uuid; failed boolean;
+select 'transactional_prerequisite_active_employee_count='||count(*) from nexa.employees where "Status"='Active' and "LoginEnabled"=true;
+select 'transactional_prerequisite_active_employee_state='||case when count(*)=42 then 'PASS' else 'FAIL' end from nexa.employees where "Status"='Active' and "LoginEnabled"=true;
+select 'transactional_prerequisite_existing_vendor_count='||count(*) from nexa.vendors;
+select 'transactional_prerequisite_existing_vendor_state=NOT_REQUIRED_TEST_OWNED';
+
+select 'transactional_prerequisite_identity_collision_count='||count(*) from nexa.employee_identity_mappings where "Id" in ('869a0000-0000-0000-0000-000000000001','869a0000-0000-0000-0000-000000000002') or ("Issuer"='https://offline.invalid' and "Subject"='rev869a-test-subject');
+select 'transactional_prerequisite_identity_collision_state='||case when count(*)=0 then 'PASS' else 'FAIL' end from nexa.employee_identity_mappings where "Id" in ('869a0000-0000-0000-0000-000000000001','869a0000-0000-0000-0000-000000000002') or ("Issuer"='https://offline.invalid' and "Subject"='rev869a-test-subject');
+do `$identity`
+declare e uuid; collision_count bigint; failed boolean;
 begin
+ select count(*) into collision_count from nexa.employees where "Status"='Active' and "LoginEnabled"=true;
+ if collision_count<>42 then raise exception 'transactional_prerequisite_failed=active_employee|expected_count=42|actual_count=%',collision_count; end if;
+ select count(*) into collision_count from nexa.employee_identity_mappings where "Id" in ('869a0000-0000-0000-0000-000000000001','869a0000-0000-0000-0000-000000000002') or ("Issuer"='https://offline.invalid' and "Subject"='rev869a-test-subject');
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=identity_collision|expected_count=0|actual_count=%',collision_count; end if;
  select "Id" into e from nexa.employees where "Status"='Active' and "LoginEnabled"=true order by "Id" limit 1;
- select "Id" into u1 from nexa.uoms order by "Id" limit 1;
- select "Id" into w1 from nexa.warehouses order by "Id" limit 1;
- select "Id" into rb from nexa.rack_bins where "WarehouseId"=w1 order by "Id" limit 1;
- select "Id" into v from nexa.vendors order by "Id" limit 1;
- if e is null or u1 is null or w1 is null or rb is null or v is null then raise exception 'REV869A transactional prerequisites unavailable'; end if;
- if exists (select 1 from nexa.uoms where "Id"=test_u or upper(trim("Code"))='REV869A_TEST') then raise exception 'REV869A reserved test UOM identifier or code is already in use'; end if;
- if exists (select 1 from nexa.warehouses where "Id"=invalid_w) then raise exception 'REV869A reserved invalid warehouse test identifier is already in use'; end if;
-
- insert into nexa.uoms ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version","MeasurementDimension","QuantityPrecision") values (test_u,'REV869A_TEST','REV869A rolled-back test UOM',true,now(),'REV869A_TEST',0,'TEST',6);
-
  insert into nexa.employee_identity_mappings ("Id","OrganizationId","Issuer","Subject","EmployeeId","IdentityType","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000001','SESS','https://offline.invalid','rev869a-test-subject',e,'HUMAN',current_date,true,now(),'REV869A_TEST',0);
- failed:=false; begin insert into nexa.employee_identity_mappings ("Id","OrganizationId","Issuer","Subject","EmployeeId","IdentityType","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000002','OTHER','https://offline.invalid','rev869a-test-subject',e,'HUMAN',current_date,true,now(),'REV869A_TEST',0); exception when unique_violation then failed:=true; end; if not failed then raise exception 'duplicate identity did not fail closed'; end if;
- failed:=false; begin insert into nexa.uom_conversions ("Id","OrganizationId","FromUomId","ToUomId","MeasurementDimension","ConversionFactor","QuantityPrecision","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000003','SESS',u1,test_u,'TEST',0,6,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid UOM conversion was accepted'; end if;
- failed:=false; begin insert into nexa.tax_gst_settings ("Id","OrganizationId","JurisdictionCode","HsnSacCode","SupplierStateCode","PlaceOfSupplyStateCode","SupplyType","VendorRegistrationType","GstRate","CgstRate","SgstRate","IgstRate","CessRate","IsExempt","IsReverseCharge","CurrencyCode","RoundingScale","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000004','SESS','IN','TEST','27','29','INTRASTATE','REGISTERED',18,9,9,0,0,false,false,'INR',2,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid state GST rule was accepted'; end if;
- failed:=false; begin insert into nexa.qc_inspection_policies ("Id","OrganizationId","ParameterCode","MeasurementUomId","InspectionMethod","SampleSize","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000005','SESS','TEST',u1,'TEST',1,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'QC owner fail-closed constraint was bypassed'; end if;
- failed:=false; begin insert into nexa.vendor_qualifications ("Id","OrganizationId","VendorId","QualificationCode","EffectiveFrom","EffectiveTo","VerificationStatus","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000008','SESS',v,'TEST',current_date,current_date-1,'PendingApproval','PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end; if not failed then raise exception 'invalid vendor qualification dates were accepted'; end if;
- failed:=false; begin insert into nexa.warehouse_condition_locations ("Id","OrganizationId","WarehouseId","RackBinId","ConditionCode","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000006','SESS',invalid_w,rb,'AVAILABLE',current_date,true,now(),'REV869A_TEST',0); exception when foreign_key_violation then failed:=true; end; if not failed then raise exception 'cross-warehouse RackBin was accepted'; end if;
- insert into nexa.controlled_configuration_histories ("Id","OrganizationId","EntityType","EntityId","Action","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000007','SESS','TEST','869a0000-0000-0000-0000-000000000007','Create','REV869A_TEST','TEST','TEST','REV869A_TEST',now(),'REV869A_TEST',0);
- failed:=false; begin update nexa.controlled_configuration_histories set "Remarks"='REWRITE' where "Id"='869a0000-0000-0000-0000-000000000007'; exception when raise_exception then failed:=true; end; if not failed then raise exception 'configuration history update was accepted'; end if;
-end `$test`$;
+ failed:=false; begin insert into nexa.employee_identity_mappings ("Id","OrganizationId","Issuer","Subject","EmployeeId","IdentityType","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000002','OTHER','https://offline.invalid','rev869a-test-subject',e,'HUMAN',current_date,true,now(),'REV869A_TEST',0); exception when unique_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=duplicate_identity'; end if;
+end `$identity`$;
+select 'transactional_constraint_identity_state=PASS';
+
+select 'transactional_prerequisite_uom_collision_count='||((select count(*) from nexa.uoms where "Id" in ('869a0000-0000-0000-0000-000000000097','869a0000-0000-0000-0000-000000000098') or upper(trim("Code")) in ('REV869A_TEST_FROM','REV869A_TEST_TO'))+(select count(*) from nexa.uom_conversions where "Id"='869a0000-0000-0000-0000-000000000003'));
+select 'transactional_prerequisite_uom_collision_state='||case when ((select count(*) from nexa.uoms where "Id" in ('869a0000-0000-0000-0000-000000000097','869a0000-0000-0000-0000-000000000098') or upper(trim("Code")) in ('REV869A_TEST_FROM','REV869A_TEST_TO'))+(select count(*) from nexa.uom_conversions where "Id"='869a0000-0000-0000-0000-000000000003'))=0 then 'PASS' else 'FAIL' end;
+do `$uom`
+declare from_u uuid := '869a0000-0000-0000-0000-000000000097'; to_u uuid := '869a0000-0000-0000-0000-000000000098'; collision_count bigint; failed boolean;
+begin
+ select (select count(*) from nexa.uoms where "Id" in (from_u,to_u) or upper(trim("Code")) in ('REV869A_TEST_FROM','REV869A_TEST_TO'))+(select count(*) from nexa.uom_conversions where "Id"='869a0000-0000-0000-0000-000000000003') into collision_count;
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=uom_collision|expected_count=0|actual_count=%',collision_count; end if;
+ insert into nexa.uoms ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version","MeasurementDimension","QuantityPrecision") values (from_u,'REV869A_TEST_FROM','REV869A rolled-back from UOM',true,now(),'REV869A_TEST',0,'TEST',6),(to_u,'REV869A_TEST_TO','REV869A rolled-back to UOM',true,now(),'REV869A_TEST',0,'TEST',6);
+ failed:=false; begin insert into nexa.uom_conversions ("Id","OrganizationId","FromUomId","ToUomId","MeasurementDimension","ConversionFactor","QuantityPrecision","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000003','SESS',from_u,to_u,'TEST',0,6,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=invalid_uom_factor'; end if;
+end `$uom`$;
+select 'transactional_constraint_uom_state=PASS';
+
+select 'transactional_prerequisite_tax_collision_count='||count(*) from nexa.tax_gst_settings where "Id"='869a0000-0000-0000-0000-000000000004' or ("OrganizationId"='SESS' and "HsnSacCode"='REV869A_TEST');
+select 'transactional_prerequisite_tax_collision_state='||case when count(*)=0 then 'PASS' else 'FAIL' end from nexa.tax_gst_settings where "Id"='869a0000-0000-0000-0000-000000000004' or ("OrganizationId"='SESS' and "HsnSacCode"='REV869A_TEST');
+do `$tax`
+declare collision_count bigint; failed boolean;
+begin
+ select count(*) into collision_count from nexa.tax_gst_settings where "Id"='869a0000-0000-0000-0000-000000000004' or ("OrganizationId"='SESS' and "HsnSacCode"='REV869A_TEST');
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=tax_collision|expected_count=0|actual_count=%',collision_count; end if;
+ failed:=false; begin insert into nexa.tax_gst_settings ("Id","OrganizationId","JurisdictionCode","HsnSacCode","SupplierStateCode","PlaceOfSupplyStateCode","SupplyType","VendorRegistrationType","GstRate","CgstRate","SgstRate","IgstRate","CessRate","IsExempt","IsReverseCharge","CurrencyCode","RoundingScale","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000004','SESS','IN','REV869A_TEST','27','29','INTRASTATE','REGISTERED',18,9,9,0,0,false,false,'INR',2,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=invalid_state_gst'; end if;
+end `$tax`$;
+select 'transactional_constraint_tax_state=PASS';
+
+select 'transactional_prerequisite_qc_collision_count='||((select count(*) from nexa.uoms where "Id"='869a0000-0000-0000-0000-000000000096' or upper(trim("Code"))='REV869A_QC_TEST')+(select count(*) from nexa.qc_inspection_policies where "Id"='869a0000-0000-0000-0000-000000000005' or ("OrganizationId"='SESS' and "ParameterCode"='REV869A_TEST')));
+select 'transactional_prerequisite_qc_collision_state='||case when ((select count(*) from nexa.uoms where "Id"='869a0000-0000-0000-0000-000000000096' or upper(trim("Code"))='REV869A_QC_TEST')+(select count(*) from nexa.qc_inspection_policies where "Id"='869a0000-0000-0000-0000-000000000005' or ("OrganizationId"='SESS' and "ParameterCode"='REV869A_TEST')))=0 then 'PASS' else 'FAIL' end;
+do `$qc`
+declare qc_u uuid := '869a0000-0000-0000-0000-000000000096'; collision_count bigint; failed boolean;
+begin
+ select (select count(*) from nexa.uoms where "Id"=qc_u or upper(trim("Code"))='REV869A_QC_TEST')+(select count(*) from nexa.qc_inspection_policies where "Id"='869a0000-0000-0000-0000-000000000005' or ("OrganizationId"='SESS' and "ParameterCode"='REV869A_TEST')) into collision_count;
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=qc_collision|expected_count=0|actual_count=%',collision_count; end if;
+ insert into nexa.uoms ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version","MeasurementDimension","QuantityPrecision") values (qc_u,'REV869A_QC_TEST','REV869A rolled-back QC UOM',true,now(),'REV869A_TEST',0,'TEST',6);
+ failed:=false; begin insert into nexa.qc_inspection_policies ("Id","OrganizationId","ParameterCode","MeasurementUomId","InspectionMethod","SampleSize","EffectiveFrom","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000005','SESS','REV869A_TEST',qc_u,'TEST',1,current_date,'PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=qc_missing_owner'; end if;
+end `$qc`$;
+select 'transactional_constraint_qc_state=PASS';
+
+select 'transactional_prerequisite_vendor_collision_count='||((select count(*) from nexa.vendors where "Id"='869a0000-0000-0000-0000-000000000095' or upper(trim("VendorCode"))='REV869A_TEST_VENDOR')+(select count(*) from nexa.vendor_qualifications where "Id"='869a0000-0000-0000-0000-000000000008' or ("OrganizationId"='SESS' and "QualificationCode"='REV869A_TEST')));
+select 'transactional_prerequisite_vendor_collision_state='||case when ((select count(*) from nexa.vendors where "Id"='869a0000-0000-0000-0000-000000000095' or upper(trim("VendorCode"))='REV869A_TEST_VENDOR')+(select count(*) from nexa.vendor_qualifications where "Id"='869a0000-0000-0000-0000-000000000008' or ("OrganizationId"='SESS' and "QualificationCode"='REV869A_TEST')))=0 then 'PASS' else 'FAIL' end;
+do `$vendor`
+declare test_v uuid := '869a0000-0000-0000-0000-000000000095'; collision_count bigint; failed boolean;
+begin
+ select (select count(*) from nexa.vendors where "Id"=test_v or upper(trim("VendorCode"))='REV869A_TEST_VENDOR')+(select count(*) from nexa.vendor_qualifications where "Id"='869a0000-0000-0000-0000-000000000008' or ("OrganizationId"='SESS' and "QualificationCode"='REV869A_TEST')) into collision_count;
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=vendor_collision|expected_count=0|actual_count=%',collision_count; end if;
+ insert into nexa.vendors ("Id","VendorCode","Name","LegalVendorName","VendorType","Country","PortalOrganizationId","ApprovalStatus","VendorStatus","CommercialVerificationStatus","EffectiveFrom","RequiresReverification","IsVendorCodeLocked","MsmeStatus","IsActive","CreatedAt","CreatedBy","Version") values (test_v,'REV869A_TEST_VENDOR','REV869A rolled-back vendor','REV869A rolled-back vendor','TEST','India','REV869A_TEST','Draft','Draft','Draft',current_date,false,false,false,true,now(),'REV869A_TEST',0);
+ failed:=false; begin insert into nexa.vendor_qualifications ("Id","OrganizationId","VendorId","QualificationCode","EffectiveFrom","EffectiveTo","VerificationStatus","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000008','SESS',test_v,'REV869A_TEST',current_date,current_date-1,'PendingApproval','PendingApproval',true,now(),'REV869A_TEST',0); exception when check_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=invalid_vendor_qualification_dates'; end if;
+end `$vendor`$;
+select 'transactional_constraint_vendor_state=PASS';
+
+select 'transactional_prerequisite_warehouse_collision_count='||((select count(*) from nexa.warehouses where "Id" in ('869a0000-0000-0000-0000-000000000093','869a0000-0000-0000-0000-000000000094') or upper(trim("WarehouseCode")) in ('REV869A_TEST_WH_A','REV869A_TEST_WH_B'))+(select count(*) from nexa.rack_bins where "Id"='869a0000-0000-0000-0000-000000000092' or upper(trim("BinCode"))='REV869A_TEST_BIN')+(select count(*) from nexa.warehouse_condition_locations where "Id"='869a0000-0000-0000-0000-000000000006'));
+select 'transactional_prerequisite_warehouse_collision_state='||case when ((select count(*) from nexa.warehouses where "Id" in ('869a0000-0000-0000-0000-000000000093','869a0000-0000-0000-0000-000000000094') or upper(trim("WarehouseCode")) in ('REV869A_TEST_WH_A','REV869A_TEST_WH_B'))+(select count(*) from nexa.rack_bins where "Id"='869a0000-0000-0000-0000-000000000092' or upper(trim("BinCode"))='REV869A_TEST_BIN')+(select count(*) from nexa.warehouse_condition_locations where "Id"='869a0000-0000-0000-0000-000000000006'))=0 then 'PASS' else 'FAIL' end;
+do `$warehouse`
+declare wh_a uuid := '869a0000-0000-0000-0000-000000000093'; wh_b uuid := '869a0000-0000-0000-0000-000000000094'; test_rb uuid := '869a0000-0000-0000-0000-000000000092'; collision_count bigint; failed boolean;
+begin
+ select (select count(*) from nexa.warehouses where "Id" in (wh_a,wh_b) or upper(trim("WarehouseCode")) in ('REV869A_TEST_WH_A','REV869A_TEST_WH_B'))+(select count(*) from nexa.rack_bins where "Id"=test_rb or upper(trim("BinCode"))='REV869A_TEST_BIN')+(select count(*) from nexa.warehouse_condition_locations where "Id"='869a0000-0000-0000-0000-000000000006') into collision_count;
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=warehouse_collision|expected_count=0|actual_count=%',collision_count; end if;
+ insert into nexa.warehouses ("Id","WarehouseCode","Name","WarehouseType","Status","ApprovalStatus","IsWarehouseCodeLocked","IsActive","CreatedAt","CreatedBy","Version") values (wh_a,'REV869A_TEST_WH_A','REV869A rolled-back warehouse A','TEST','Draft','Draft',false,true,now(),'REV869A_TEST',0),(wh_b,'REV869A_TEST_WH_B','REV869A rolled-back warehouse B','TEST','Draft','Draft',false,true,now(),'REV869A_TEST',0);
+ insert into nexa.rack_bins ("Id","WarehouseId","BinCode","RackName","BinNameNumber","LocationType","MaterialCondition","Status","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") values (test_rb,wh_a,'REV869A_TEST_BIN','REV869A_TEST_RACK','REV869A_TEST_BIN','TEST','AVAILABLE','Draft','Draft',true,now(),'REV869A_TEST',0);
+ failed:=false; begin insert into nexa.warehouse_condition_locations ("Id","OrganizationId","WarehouseId","RackBinId","ConditionCode","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000006','SESS',wh_b,test_rb,'AVAILABLE',current_date,true,now(),'REV869A_TEST',0); exception when foreign_key_violation then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=cross_warehouse_rack_bin'; end if;
+end `$warehouse`$;
+select 'transactional_constraint_warehouse_state=PASS';
+
+select 'transactional_prerequisite_history_collision_count='||count(*) from nexa.controlled_configuration_histories where "Id"='869a0000-0000-0000-0000-000000000007' or "CorrelationId"='REV869A_TEST_HISTORY';
+select 'transactional_prerequisite_history_collision_state='||case when count(*)=0 then 'PASS' else 'FAIL' end from nexa.controlled_configuration_histories where "Id"='869a0000-0000-0000-0000-000000000007' or "CorrelationId"='REV869A_TEST_HISTORY';
+do `$history`
+declare collision_count bigint; failed boolean;
+begin
+ select count(*) into collision_count from nexa.controlled_configuration_histories where "Id"='869a0000-0000-0000-0000-000000000007' or "CorrelationId"='REV869A_TEST_HISTORY';
+ if collision_count<>0 then raise exception 'transactional_prerequisite_failed=history_collision|expected_count=0|actual_count=%',collision_count; end if;
+ insert into nexa.controlled_configuration_histories ("Id","OrganizationId","EntityType","EntityId","Action","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version") values ('869a0000-0000-0000-0000-000000000007','SESS','TEST','869a0000-0000-0000-0000-000000000007','Create','REV869A_TEST','TEST','TEST','REV869A_TEST_HISTORY',now(),'REV869A_TEST',0);
+ failed:=false; begin update nexa.controlled_configuration_histories set "Remarks"='REWRITE' where "Id"='869a0000-0000-0000-0000-000000000007'; exception when raise_exception then failed:=true; end;
+ if not failed then raise exception 'transactional_constraint_failed=configuration_history_mutation'; end if;
+end `$history`$;
+select 'transactional_constraint_history_state=PASS';
+select 'transactional_constraint_test_state=PASS';
 rollback;
 "@.Trim()
 }
@@ -845,21 +920,39 @@ function Invoke-ResumeAcceptanceTests {
     $trxDirectory = Join-Path $reportDirectory ("trx\" + $timestamp)
     New-Item -ItemType Directory -Force -Path $trxDirectory | Out-Null
     $trxPath = Join-Path $trxDirectory "rev869a_resume_acceptance.trx"
+    $transactionalOutputPath = Join-Path $trxDirectory "rev869a_transactional_constraint_output.txt"
+    $postgresTestOutputPath = Join-Path $trxDirectory "rev869a_postgresql_test_output.txt"
     try {
-        Invoke-Psql (Get-TransactionalVerificationSql) $false | Out-Null
-        $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=NOT_RUN"
+        $transactionalEvidence = Invoke-Psql (Get-TransactionalVerificationSql) $false
+        foreach ($required in @(
+            'transactional_prerequisite_active_employee_count=42','transactional_prerequisite_active_employee_state=PASS','transactional_prerequisite_existing_vendor_state=NOT_REQUIRED_TEST_OWNED',
+            'transactional_prerequisite_identity_collision_count=0','transactional_prerequisite_identity_collision_state=PASS',
+            'transactional_prerequisite_uom_collision_count=0','transactional_prerequisite_uom_collision_state=PASS',
+            'transactional_prerequisite_tax_collision_count=0','transactional_prerequisite_tax_collision_state=PASS',
+            'transactional_prerequisite_qc_collision_count=0','transactional_prerequisite_qc_collision_state=PASS',
+            'transactional_prerequisite_vendor_collision_count=0','transactional_prerequisite_vendor_collision_state=PASS',
+            'transactional_prerequisite_warehouse_collision_count=0','transactional_prerequisite_warehouse_collision_state=PASS',
+            'transactional_prerequisite_history_collision_count=0','transactional_prerequisite_history_collision_state=PASS',
+            'transactional_constraint_identity_state=PASS','transactional_constraint_uom_state=PASS','transactional_constraint_tax_state=PASS',
+            'transactional_constraint_qc_state=PASS','transactional_constraint_vendor_state=PASS','transactional_constraint_warehouse_state=PASS',
+            'transactional_constraint_history_state=PASS','transactional_constraint_test_state=PASS')) { Assert-Evidence $transactionalEvidence $required }
+        [IO.File]::WriteAllText($transactionalOutputPath, (Protect-Text $transactionalEvidence), [Text.UTF8Encoding]::new($false))
+        $script:testEvidence = $transactionalEvidence + "`ntransactional_output_evidence_path=$transactionalOutputPath`ntransactional_rollback_state=PASS`ntrx_evidence_path=NOT_RUN`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=NOT_RUN"
     }
     catch {
-        $script:testEvidence = "transactional_constraint_test_state=FAIL`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=FAIL`nerror=" + (Protect-Text $_.Exception.Message)
+        $safeFailure = Protect-Text $_.Exception.Message
+        [IO.File]::WriteAllText($transactionalOutputPath, $safeFailure, [Text.UTF8Encoding]::new($false))
+        $script:testEvidence = "transactional_constraint_test_state=FAIL`ntransactional_output_evidence_path=$transactionalOutputPath`ntransactional_rollback_state=FAIL_CLOSED_CONNECTION_ROLLBACK`ntrx_evidence_path=NOT_RUN_TRANSACTIONAL_FAILURE`nrev869a_postgresql_test_state=NOT_RUN`ntest_acceptance_state=FAIL`nerror=$safeFailure"
         throw
     }
     $testOutput = @(& $dotnet test .\tests\SESS.NexaERP.Tests\SESS.NexaERP.Tests.csproj --no-restore --filter "FullyQualifiedName~Rev869APostgresAcceptanceTests" --logger "trx;LogFileName=rev869a_resume_acceptance.trx" --results-directory $trxDirectory --logger "console;verbosity=minimal" 2>&1)
     $safeOutput = Protect-Text (($testOutput | Select-Object -Last 25 | ForEach-Object { $_.ToString() }) -join "`n")
+    [IO.File]::WriteAllText($postgresTestOutputPath, $safeOutput, [Text.UTF8Encoding]::new($false))
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $trxPath -PathType Leaf)) {
-        $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=FAIL`ntest_acceptance_state=FAIL`n$safeOutput"
+        $script:testEvidence = $transactionalEvidence + "`ntransactional_output_evidence_path=$transactionalOutputPath`ntransactional_rollback_state=PASS`ntrx_evidence_path=$(if (Test-Path -LiteralPath $trxPath -PathType Leaf) { $trxPath } else { 'NOT_CREATED' })`npostgresql_test_output_evidence_path=$postgresTestOutputPath`nrev869a_postgresql_test_state=FAIL`ntest_acceptance_state=FAIL`n$safeOutput"
         throw "REV869A PostgreSQL-backed tests failed or did not create TRX evidence."
     }
-    $script:testEvidence = "transactional_constraint_test_state=PASS`ntrx_evidence_path=$trxPath`nrev869a_postgresql_test_state=PASS`ntest_acceptance_state=PASS`n$safeOutput"
+    $script:testEvidence = $transactionalEvidence + "`ntransactional_output_evidence_path=$transactionalOutputPath`ntransactional_rollback_state=PASS`ntrx_evidence_path=$trxPath`npostgresql_test_output_evidence_path=$postgresTestOutputPath`nrev869a_postgresql_test_state=PASS`ntest_acceptance_state=PASS`n$safeOutput"
 }
 
 try {

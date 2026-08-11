@@ -351,10 +351,10 @@ public sealed class Rev869AIsolatedExecutionHelperTests
             "database_schema_acceptance_state=PASS", "database_preservation_acceptance_state=PASS", "database_acceptance_state=PASS", "test_acceptance_state=PASS", "overall_acceptance_state=PASS"
         }) Assert.Contains(evidence, Source);
         Assert.Contains("Rev869A|Rev868C1PostgresWorkflowVerificationTests", Source);
-        Assert.Contains("duplicate identity did not fail closed", Source);
-        Assert.Contains("cross-warehouse RackBin was accepted", Source);
-        Assert.Contains("configuration history update was accepted", Source);
-        Assert.Contains("invalid vendor qualification dates were accepted", Source);
+        Assert.Contains("transactional_constraint_failed=duplicate_identity", Source);
+        Assert.Contains("transactional_constraint_failed=cross_warehouse_rack_bin", Source);
+        Assert.Contains("transactional_constraint_failed=configuration_history_mutation", Source);
+        Assert.Contains("transactional_constraint_failed=invalid_vendor_qualification_dates", Source);
     }
 
     [Fact]
@@ -400,31 +400,108 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("--logger \"trx;LogFileName=rev869a_resume_acceptance.trx\"", resumeTests, StringComparison.Ordinal);
         Assert.Contains("begin;", transactional, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("rollback;", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("commit", transactional, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotMatch(new Regex(@"(?i)\b(ef\s+database|pg_dump|pg_restore|createdb|create\s+database|drop\s+database|database\s+(?:update|remove)|repair)\b"), resumeTests);
     }
 
     [Fact]
-    public void TransactionalVerifierNoLongerRequiresUnapprovedSecondUomOrWarehouse()
+    public void TransactionalVerifierUsesOnlyProvenEmployeeAndTestOwnedMasterPrerequisites()
     {
         var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
-        Assert.DoesNotContain("w2 uuid", transactional, StringComparison.Ordinal);
-        Assert.DoesNotContain("where \"Id\"<>u1", transactional, StringComparison.Ordinal);
-        Assert.DoesNotContain("where \"Id\"<>w1", transactional, StringComparison.Ordinal);
-        Assert.Contains("test_u uuid := '869a0000-0000-0000-0000-000000000098'", transactional, StringComparison.Ordinal);
-        Assert.Contains("insert into nexa.uoms", transactional, StringComparison.Ordinal);
-        Assert.Contains("'SESS',u1,test_u,'TEST',0,6", transactional, StringComparison.Ordinal);
-        Assert.Contains("invalid_w uuid := '869a0000-0000-0000-0000-000000000099'", transactional, StringComparison.Ordinal);
-        Assert.Contains("if exists (select 1 from nexa.warehouses where \"Id\"=invalid_w)", transactional, StringComparison.Ordinal);
+        Assert.DoesNotContain("transactional prerequisites unavailable", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("select \"Id\" into v from nexa.vendors", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("select \"Id\" into w1 from nexa.warehouses", transactional, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("transactional_prerequisite_existing_vendor_state=NOT_REQUIRED_TEST_OWNED", transactional, StringComparison.Ordinal);
+        Assert.Contains("insert into nexa.vendors", transactional, StringComparison.Ordinal);
+        Assert.Contains("insert into nexa.warehouses", transactional, StringComparison.Ordinal);
+        Assert.Contains("insert into nexa.rack_bins", transactional, StringComparison.Ordinal);
+        Assert.Single(Regex.Matches(transactional, "transactional_prerequisite_active_employee_count=").Cast<Match>());
     }
+
+    [Theory]
+    [InlineData("active_employee")]
+    [InlineData("identity_collision")]
+    [InlineData("uom_collision")]
+    [InlineData("tax_collision")]
+    [InlineData("qc_collision")]
+    [InlineData("vendor_collision")]
+    [InlineData("warehouse_collision")]
+    [InlineData("history_collision")]
+    public void EveryIndividualMissingOrCollidingPrerequisiteFailsClosed(string failedPrerequisite)
+    {
+        var counts = TransactionalPrerequisiteCounts();
+        if (failedPrerequisite == "active_employee") counts[failedPrerequisite] = 41;
+        else counts[failedPrerequisite] = 1;
+        Assert.False(TransactionalPrerequisitesPass(counts));
+        Assert.Contains($"transactional_prerequisite_failed={failedPrerequisite}", Source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TemporarySupportingRecordsAreCreatedBeforeDependentNegativeTests()
+    {
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        Assert.True(transactional.IndexOf("insert into nexa.uoms", StringComparison.Ordinal) < transactional.IndexOf("insert into nexa.uom_conversions", StringComparison.Ordinal));
+        Assert.True(transactional.IndexOf("insert into nexa.vendors", StringComparison.Ordinal) < transactional.IndexOf("insert into nexa.vendor_qualifications", StringComparison.Ordinal));
+        Assert.True(transactional.IndexOf("insert into nexa.warehouses", StringComparison.Ordinal) < transactional.IndexOf("insert into nexa.rack_bins", StringComparison.Ordinal));
+        Assert.True(transactional.IndexOf("insert into nexa.rack_bins", StringComparison.Ordinal) < transactional.IndexOf("insert into nexa.warehouse_condition_locations", StringComparison.Ordinal));
+        Assert.True(transactional.IndexOf("insert into nexa.controlled_configuration_histories", StringComparison.Ordinal) < transactional.IndexOf("update nexa.controlled_configuration_histories", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EveryTemporaryUuidAndCodeHasACollisionGuard()
+    {
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        foreach (var label in new[] { "identity", "uom", "tax", "qc", "vendor", "warehouse", "history" })
+        {
+            Assert.Contains($"transactional_prerequisite_{label}_collision_count=", transactional, StringComparison.Ordinal);
+            Assert.Contains($"transactional_prerequisite_{label}_collision_state=", transactional, StringComparison.Ordinal);
+            Assert.Contains($"transactional_prerequisite_failed={label}_collision", transactional, StringComparison.Ordinal);
+        }
+        foreach (var code in new[] { "REV869A_TEST_FROM", "REV869A_TEST_TO", "REV869A_QC_TEST", "REV869A_TEST_VENDOR", "REV869A_TEST_WH_A", "REV869A_TEST_WH_B", "REV869A_TEST_BIN", "REV869A_TEST_HISTORY" })
+            Assert.True(Regex.Matches(transactional, Regex.Escape(code)).Count >= 2, code);
+    }
+
+    [Fact]
+    public void TransactionalSqlHasOneRollbackNoCommitAndNoBusinessRowMutation()
+    {
+        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        Assert.Single(Regex.Matches(transactional, @"(?im)^begin;$").Cast<Match>());
+        Assert.Single(Regex.Matches(transactional, @"(?im)^rollback;$").Cast<Match>());
+        Assert.DoesNotMatch(new Regex(@"(?im)^\s*commit\s*;"), transactional);
+        Assert.DoesNotMatch(new Regex(@"(?i)\b(update|delete)\s+nexa\.(employees|uoms|vendors|warehouses|rack_bins|purchase_requisitions|stock_reservations)\b"), transactional);
+        Assert.DoesNotContain("truncate ", transactional, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TransactionalFailurePreventsAndPassPermitsPostgresTests()
+    {
+        var resumeTests = FunctionBlock("function Invoke-ResumeAcceptanceTests", "try {\n    Assert-Mode");
+        var invokeTransactional = resumeTests.IndexOf("Invoke-Psql (Get-TransactionalVerificationSql) $false", StringComparison.Ordinal);
+        var enforceTransactional = resumeTests.IndexOf("Assert-Evidence $transactionalEvidence $required", StringComparison.Ordinal);
+        var invokeDotnet = resumeTests.IndexOf("& $dotnet test", StringComparison.Ordinal);
+        Assert.True(invokeTransactional >= 0 && enforceTransactional > invokeTransactional && invokeDotnet > enforceTransactional);
+        Assert.False(CanRunPostgresTests(false));
+        Assert.True(CanRunPostgresTests(true));
+    }
+
+    [Theory]
+    [InlineData(false, true, true, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, true, true, true)]
+    public void FinalOverallAcceptanceRequiresSchemaPreservationAndTests(bool schema, bool preservation, bool tests, bool expected) =>
+        Assert.Equal(expected, OverallAcceptance(schema, preservation, tests));
 
     [Fact]
     public void ResumeTestEvidenceIsSanitizedAndCapturedOnFailure()
     {
         var resumeTests = FunctionBlock("function Invoke-ResumeAcceptanceTests", "try {\n    Assert-Mode");
-        foreach (var label in new[] { "transactional_constraint_test_state", "trx_evidence_path", "rev869a_postgresql_test_state", "test_acceptance_state" })
+        foreach (var label in new[] { "transactional_constraint_test_state", "transactional_output_evidence_path", "transactional_rollback_state", "trx_evidence_path", "postgresql_test_output_evidence_path", "rev869a_postgresql_test_state", "test_acceptance_state" })
             Assert.Contains(label, resumeTests, StringComparison.Ordinal);
         Assert.Contains("Protect-Text", resumeTests, StringComparison.Ordinal);
         Assert.Contains("Test-Path -LiteralPath $trxPath -PathType Leaf", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("WriteAllText($transactionalOutputPath", resumeTests, StringComparison.Ordinal);
+        Assert.Contains("WriteAllText($postgresTestOutputPath", resumeTests, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -828,6 +905,25 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static bool HasExactlyOneNumericEvidence(string evidence, string key) =>
         Regex.Matches(evidence, "^" + Regex.Escape(key) + "=(\\d+)$", RegexOptions.Multiline).Count == 1 &&
         Regex.Matches(evidence, "^" + Regex.Escape(key) + "=", RegexOptions.Multiline).Count == 1;
+
+    private static Dictionary<string, int> TransactionalPrerequisiteCounts() => new(StringComparer.Ordinal)
+    {
+        ["active_employee"] = 42,
+        ["identity_collision"] = 0,
+        ["uom_collision"] = 0,
+        ["tax_collision"] = 0,
+        ["qc_collision"] = 0,
+        ["vendor_collision"] = 0,
+        ["warehouse_collision"] = 0,
+        ["history_collision"] = 0
+    };
+
+    private static bool TransactionalPrerequisitesPass(IReadOnlyDictionary<string, int> counts) =>
+        counts.Count == 8 && counts["active_employee"] == 42 && counts.Where(x => x.Key != "active_employee").All(x => x.Value == 0);
+
+    private static bool CanRunPostgresTests(bool transactionalAcceptance) => transactionalAcceptance;
+
+    private static bool OverallAcceptance(bool schema, bool preservation, bool tests) => schema && preservation && tests;
 
     private static bool IsPermittedDatabase(string database) =>
         database == "sess_nexaerp_rev869a_verify" && !Regex.IsMatch(database, "rev861|production|prod|live|main", RegexOptions.IgnoreCase);
