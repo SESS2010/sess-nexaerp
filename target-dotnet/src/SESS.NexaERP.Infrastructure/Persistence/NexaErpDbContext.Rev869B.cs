@@ -110,7 +110,7 @@ public sealed partial class NexaErpDbContext
             {
                 table.HasCheckConstraint("CK_comparison_sequence_total", "\"SequenceNumber\" > 0 AND \"TotalPayableValue\" >= 0");
                 table.HasCheckConstraint("CK_comparison_single_source_reason", "NOT \"IsSingleSource\" OR length(trim(coalesce(\"SingleSourceJustification\", ''))) > 0");
-                table.HasCheckConstraint("CK_comparison_status", "\"Status\" IN ('Draft','Recommended','PendingApproval','Approved','Rejected','RevisionRequested','Cancelled')");
+                table.HasCheckConstraint("CK_comparison_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Rejected','RevisionRequested','Cancelled')");
             });
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.ComparisonNumber }).IsUnique(); entity.HasIndex(x => x.RequestForQuotationId).IsUnique(); entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();
             Text(entity.Property(x => x.OrganizationId), 100); Text(entity.Property(x => x.ComparisonNumber), 64); Text(entity.Property(x => x.FinancialYear), 12); Text(entity.Property(x => x.CurrencyCode), 3); Text(entity.Property(x => x.ApprovalRoute), 40); Text(entity.Property(x => x.Status), 40); Text(entity.Property(x => x.IdempotencyKey), 200); entity.Property(x => x.SingleSourceJustification).HasMaxLength(2000); entity.Property(x => x.RecommendationRemarks).HasMaxLength(2000); Money(entity.Property(x => x.TotalPayableValue)); entity.Property(x => x.Version).IsConcurrencyToken();
@@ -138,7 +138,7 @@ public sealed partial class NexaErpDbContext
                 table.HasCheckConstraint("CK_purchase_order_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
                 table.HasCheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0");
                 table.HasCheckConstraint("CK_purchase_order_cancel_reason", "\"Status\" <> 'Cancelled' OR (\"CancelledAt\" IS NOT NULL AND length(trim(coalesce(\"CancellationReason\", ''))) > 0)");
-                table.HasCheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','Superseded','Cancelled')");
+                table.HasCheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','RevisionDraft','Resubmitted','Superseded','Cancelled')");
                 table.HasCheckConstraint("CK_purchase_order_current_lifecycle", "\"Status\" <> 'Superseded' OR NOT \"IsCurrentVersion\"");
             });
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.PoNumber, x.RevisionNumber }).IsUnique(); entity.HasIndex(x => new { x.RootPurchaseOrderId, x.RevisionNumber }).IsUnique(); entity.HasIndex(x => new { x.RootPurchaseOrderId, x.IsCurrentVersion }).IsUnique().HasFilter("\"IsCurrentVersion\" = TRUE"); entity.HasIndex(x => new { x.CommercialComparisonId, x.RevisionNumber }).IsUnique(); entity.HasIndex(x => new { x.OrganizationId, x.IdempotencyKey }).IsUnique();

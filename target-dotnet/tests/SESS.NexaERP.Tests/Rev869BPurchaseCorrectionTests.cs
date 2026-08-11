@@ -35,14 +35,18 @@ public sealed class Rev869BPurchaseCorrectionTests
             ("PendingApproval", "RevisionRequested"), ("RevisionRequested", "PendingApproval"), ("RevisionRequested", "Cancelled"));
         AssertMatrix(Rev869BStatusContracts.PurchaseOrder, Rev869BStatusContracts.RequirePurchaseOrder,
             ("Draft", "PendingApproval"), ("Draft", "Cancelled"), ("PendingApproval", "Approved"), ("PendingApproval", "Rejected"),
-            ("PendingApproval", "Cancelled"), ("Approved", "Issued"), ("Approved", "Cancelled"), ("Issued", "Superseded"), ("Issued", "Cancelled"));
+            ("PendingApproval", "Cancelled"), ("Rejected", "RevisionDraft"), ("RevisionDraft", "Resubmitted"), ("RevisionDraft", "Cancelled"),
+            ("Resubmitted", "Approved"), ("Resubmitted", "Rejected"), ("Resubmitted", "Cancelled"),
+            ("Approved", "Issued"), ("Approved", "Cancelled"), ("Issued", "Superseded"), ("Issued", "Cancelled"));
     }
 
     [Fact]
-    public void DatabaseStatusSetsMatchCanonicalQuotationAndPurchaseOrderSets()
+    public void DatabaseStatusSetsMatchCanonicalAggregateSets()
     {
         Assert.Equal(Rev869BStatusContracts.Quotation.Order(), CanonicalConstraintValues("CK_vendor_quotation_status").Order());
+        Assert.Equal(Rev869BStatusContracts.Comparison.Order(), CanonicalConstraintValues("CK_comparison_status").Order());
         Assert.Equal(Rev869BStatusContracts.PurchaseOrder.Order(), CanonicalConstraintValues("CK_purchase_order_status").Order());
+        Assert.DoesNotContain("Recommended", CanonicalConstraintValues("CK_comparison_status"));
         Assert.DoesNotContain("PendingReapproval", Migration + Service);
         Assert.DoesNotContain("PendingTechnicalVerification", Migration + Service);
     }
@@ -50,7 +54,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void CommercialBoundariesAndMaximumAreDeterministic()
     {
-        foreach (var pair in new[] { (0m, "MANAGER"), (50000m, "MANAGER"), (50000.01m, "TECHNICAL_DIRECTOR"), (500000m, "TECHNICAL_DIRECTOR"), (500000.01m, "MANAGING_DIRECTOR") })
+        foreach (var pair in new[] { (0m, "MANAGER"), (49999.999999m, "MANAGER"), (50000m, "MANAGER"), (50000.000001m, "TECHNICAL_DIRECTOR"), (499999.999999m, "TECHNICAL_DIRECTOR"), (500000m, "TECHNICAL_DIRECTOR"), (500000.000001m, "MANAGING_DIRECTOR") })
             Assert.Equal(pair.Item2, Rev869BApprovalRoutes.Resolve(pair.Item1, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS"));
         var maximum = Rev869BCommercialCalculator.Calculate(new(1m, Rev869BCommercialCalculator.MaximumSupportedValue, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6));
         Assert.Equal(Rev869BCommercialCalculator.MaximumSupportedValue, maximum.TotalPayableValue);
@@ -87,8 +91,10 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(16, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(20, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
+        Assert.Contains("rev869b_enforce_transition", Migration);
+        Assert.Contains("Purchase order pre-issue snapshot is incomplete or does not reconcile", Migration);
         Assert.Contains("rev869b_validate_parent_contract", Migration);
         foreach (var message in new[] { "Quotation line parent contract mismatch", "Comparison line parent contract mismatch", "Purchase order parent contract mismatch", "Purchase order line parent contract mismatch", "Material follow-up parent contract mismatch" }) Assert.Contains(message, Migration);
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract", Migration);

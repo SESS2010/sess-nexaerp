@@ -18,6 +18,8 @@ public static class Rev869BStatuses
     public const string Approved = "Approved";
     public const string Rejected = "Rejected";
     public const string RevisionRequested = "RevisionRequested";
+    public const string RevisionDraft = "RevisionDraft";
+    public const string Resubmitted = "Resubmitted";
     public const string Cancelled = "Cancelled";
     public const string Closed = "Closed";
     public const string PendingFollowUp = "PendingFollowUp";
@@ -30,7 +32,7 @@ public static class Rev869BStatusContracts
     public static readonly IReadOnlySet<string> Quotation = Set(Rev869BStatuses.Submitted, Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected);
     public static readonly IReadOnlySet<string> TechnicalVerification = Set(Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected);
     public static readonly IReadOnlySet<string> Comparison = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested, Rev869BStatuses.Cancelled);
-    public static readonly IReadOnlySet<string> PurchaseOrder = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Issued, Rev869BStatuses.Rejected, Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> PurchaseOrder = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Issued, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionDraft, Rev869BStatuses.Resubmitted, Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled);
     public static readonly IReadOnlySet<string> MaterialFollowUp = Set(Rev869BStatuses.PendingFollowUp, Rev869BStatuses.Closed, Rev869BStatuses.Cancelled);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> RfqTransitions = Transitions(
@@ -49,6 +51,9 @@ public static class Rev869BStatusContracts
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> PurchaseOrderTransitions = Transitions(
         (Rev869BStatuses.Draft, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.PendingApproval, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Rejected, [Rev869BStatuses.RevisionDraft]),
+        (Rev869BStatuses.RevisionDraft, [Rev869BStatuses.Resubmitted, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Resubmitted, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Approved, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Issued, [Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled]));
 
@@ -98,29 +103,62 @@ public sealed record Rev869BCommercialBreakdown(
 
 public static class Rev869BCommercialCalculator
 {
-    public const decimal MaximumSupportedValue = 999999999999999999m;
+    public const decimal MaximumSupportedValue = 999999999999999999.999999m;
+
+    public static decimal TaxableValue(Rev869BCommercialInput input)
+    {
+        ValidateInput(input);
+        var assessable = Round(Multiply(input.Quantity, input.UnitRate), input.RoundingScale, "line assessable value");
+        var taxableCharges = Add(input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges);
+        var beforeDiscount = Add(assessable, taxableCharges);
+        if (input.DiscountValue > beforeDiscount) throw new InvalidOperationException("Discount cannot exceed assessable value plus taxable charges.");
+        return Ensure(Round(beforeDiscount - input.DiscountValue, input.RoundingScale, "taxable value"), "taxable value");
+    }
 
     public static Rev869BCommercialBreakdown Calculate(Rev869BCommercialInput input)
+    {
+        ValidateInput(input);
+        var taxable = TaxableValue(input);
+        decimal Tax(decimal rate) => Round(Multiply(taxable, rate) / 100m, input.RoundingScale, "tax component");
+        var cgst = Tax(input.CgstRate);
+        var sgst = Tax(input.SgstRate);
+        var igst = Tax(input.IgstRate);
+        var cess = Tax(input.CessRate);
+        var total = Round(Add(taxable, cgst, sgst, igst, cess, input.RoundOff), input.RoundingScale, "total payable value");
+        if (total < 0) throw new InvalidOperationException("Total payable value cannot be negative.");
+        return new(taxable, input.DiscountValue, cgst, sgst, igst, cess, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, total);
+    }
+
+    public static decimal Add(params decimal[] values)
+    {
+        decimal total = 0m;
+        try { foreach (var value in values) total = checked(total + Ensure(value, "commercial component")); }
+        catch (OverflowException) { throw new InvalidOperationException("Aggregate commercial value exceeds numeric(24,6) capacity."); }
+        return Ensure(total, "aggregate commercial value");
+    }
+
+    public static decimal Ensure(decimal value, string name)
+    {
+        if (value < -MaximumSupportedValue || value > MaximumSupportedValue) throw new InvalidOperationException($"{name} exceeds numeric(24,6) capacity.");
+        return value;
+    }
+
+    private static decimal Multiply(decimal left, decimal right)
+    {
+        try { return Ensure(checked(left * right), "commercial multiplication"); }
+        catch (OverflowException) { throw new InvalidOperationException("Commercial multiplication exceeds numeric(24,6) capacity."); }
+    }
+
+    private static decimal Round(decimal value, int scale, string name) => Ensure(decimal.Round(value, scale, MidpointRounding.AwayFromZero), name);
+
+    private static void ValidateInput(Rev869BCommercialInput input)
     {
         if (input.Quantity <= 0 || input.UnitRate < 0 || input.DiscountValue < 0 || input.PackingForwarding < 0 || input.Freight < 0 || input.Insurance < 0 || input.OtherCharges < 0 || input.RoundingScale is < 0 or > 6)
             throw new InvalidOperationException("Commercial quantities, values or rounding scale are invalid.");
         foreach (var rate in new[] { input.CgstRate, input.SgstRate, input.IgstRate, input.CessRate })
             if (!TaxGstSetting.IsValidRate(rate)) throw new InvalidOperationException("Tax rate is outside the approved range.");
-        foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges })
-            if (value > MaximumSupportedValue) throw new InvalidOperationException("Commercial value exceeds numeric(24,6) capacity.");
-        decimal taxable;
-        try { taxable = decimal.Round(checked(input.Quantity * input.UnitRate), input.RoundingScale, MidpointRounding.AwayFromZero); }
-        catch (OverflowException) { throw new InvalidOperationException("Commercial multiplication exceeds supported precision."); }
-        var taxBase = taxable - input.DiscountValue;
-        if (taxBase < 0) throw new InvalidOperationException("Discount cannot exceed taxable value.");
-        decimal Tax(decimal rate) => decimal.Round(taxBase * rate / 100m, input.RoundingScale, MidpointRounding.AwayFromZero);
-        var cgst = Tax(input.CgstRate);
-        var sgst = Tax(input.SgstRate);
-        var igst = Tax(input.IgstRate);
-        var cess = Tax(input.CessRate);
-        var total = decimal.Round(taxable - input.DiscountValue + cgst + sgst + igst + cess + input.PackingForwarding + input.Freight + input.Insurance + input.OtherCharges + input.RoundOff, input.RoundingScale, MidpointRounding.AwayFromZero);
-        if (total < 0) throw new InvalidOperationException("Total payable value cannot be negative.");
-        return new(taxable, input.DiscountValue, cgst, sgst, igst, cess, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, total);
+        foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff })
+            Ensure(value, "commercial input");
     }
 }
 
@@ -392,6 +430,27 @@ public sealed class PurchaseOrderLine : AuditableEntity
     public string CommercialSnapshotJson { get; set; } = "{}";
     public string TaxRuleSnapshotJson { get; set; } = "{}";
     public decimal TotalPayableValue { get; set; }
+}
+
+public static class Rev869BPurchaseOrderSnapshot
+{
+    public static void RequireComplete(PurchaseOrder purchaseOrder)
+    {
+        if (purchaseOrder.Status != Rev869BStatuses.Approved) throw new InvalidOperationException("Only an approved purchase order can be issued.");
+        if (purchaseOrder.Lines.Count == 0 || string.IsNullOrWhiteSpace(purchaseOrder.PaymentTermsSnapshot) ||
+            string.IsNullOrWhiteSpace(purchaseOrder.DeliveryTermsSnapshot) || string.IsNullOrWhiteSpace(purchaseOrder.WarrantyTermsSnapshot) ||
+            string.IsNullOrWhiteSpace(purchaseOrder.ApprovalRoute))
+            throw new InvalidOperationException("The pre-issue purchase-order snapshot is incomplete.");
+        if (purchaseOrder.Lines.Any(x => x.OrderedQuantity <= 0 || x.ApprovedOutstandingQuantitySnapshot <= 0 ||
+            string.IsNullOrWhiteSpace(x.CommercialSnapshotJson) || x.CommercialSnapshotJson == "{}" ||
+            string.IsNullOrWhiteSpace(x.TaxRuleSnapshotJson) || x.TaxRuleSnapshotJson == "{}"))
+            throw new InvalidOperationException("A pre-issue purchase-order line snapshot is incomplete.");
+        var lineTotal = Rev869BCommercialCalculator.Add(purchaseOrder.Lines.Select(x => x.TotalPayableValue).ToArray());
+        if (lineTotal != purchaseOrder.TotalPayableValue) throw new InvalidOperationException("The pre-issue header and immutable line totals do not match.");
+        foreach (var value in new[] { purchaseOrder.TaxableValue, purchaseOrder.DiscountValue, purchaseOrder.TaxValue, purchaseOrder.PackingForwarding,
+                     purchaseOrder.Freight, purchaseOrder.Insurance, purchaseOrder.OtherCharges, purchaseOrder.RoundOff, purchaseOrder.TotalPayableValue })
+            Rev869BCommercialCalculator.Ensure(value, "pre-issue commercial snapshot");
+    }
 }
 
 public sealed class PurchaseOrderHistory : AuditableEntity

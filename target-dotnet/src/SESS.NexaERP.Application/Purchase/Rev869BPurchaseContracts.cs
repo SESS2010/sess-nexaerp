@@ -26,6 +26,7 @@ public sealed record Rev869BCreatePurchaseOrderRequest(string ComparisonNumber, 
 public sealed record Rev869BSubmitPurchaseOrderRequest(string Remarks, uint Version, string IdempotencyKey);
 public sealed record Rev869BIssuePurchaseOrderRequest(string Remarks, uint Version, string IdempotencyKey);
 public sealed record Rev869BAmendPurchaseOrderRequest(string AmendmentReason, string PaymentTerms, string DeliveryTerms, string WarrantyTerms, uint Version, string IdempotencyKey);
+public sealed record Rev869BReviseRejectedPurchaseOrderRequest(string RevisionReason, string PaymentTerms, string DeliveryTerms, string WarrantyTerms, uint RejectedVersion, string IdempotencyKey);
 public sealed record Rev869BCancelPurchaseOrderRequest(string Reason, uint Version, string IdempotencyKey);
 
 public sealed record Rev869BDocumentResult(Guid Id, string Number, string Status, uint Version);
@@ -46,6 +47,7 @@ public interface IRev869BPurchaseService
     Task<Rev869BDocumentResult> SubmitPurchaseOrderAsync(string poNumber, Rev869BSubmitPurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> IssuePurchaseOrderAsync(string poNumber, Rev869BIssuePurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> AmendPurchaseOrderAsync(string poNumber, Rev869BAmendPurchaseOrderRequest request, CancellationToken cancellationToken);
+    Task<Rev869BDocumentResult> ReviseRejectedPurchaseOrderAsync(string poNumber, Rev869BReviseRejectedPurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> ApprovePurchaseOrderAsync(string poNumber, Rev869BPoApprovalActionRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> RejectPurchaseOrderAsync(string poNumber, Rev869BPoApprovalActionRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> CancelPurchaseOrderAsync(string poNumber, Rev869BCancelPurchaseOrderRequest request, CancellationToken cancellationToken);

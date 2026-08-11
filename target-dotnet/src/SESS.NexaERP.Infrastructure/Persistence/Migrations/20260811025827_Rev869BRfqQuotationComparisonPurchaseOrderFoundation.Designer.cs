@@ -38698,7 +38698,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_comparison_single_source_reason", "NOT \"IsSingleSource\" OR length(trim(coalesce(\"SingleSourceJustification\", ''))) > 0");
 
-                            t.HasCheckConstraint("CK_comparison_status", "\"Status\" IN ('Draft','Recommended','PendingApproval','Approved','Rejected','RevisionRequested','Cancelled')");
+                            t.HasCheckConstraint("CK_comparison_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Rejected','RevisionRequested','Cancelled')");
                         });
                 });
 
@@ -39309,7 +39309,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_purchase_order_current_lifecycle", "\"Status\" <> 'Superseded' OR NOT \"IsCurrentVersion\"");
 
-                            t.HasCheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','Superseded','Cancelled')");
+                            t.HasCheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','RevisionDraft','Resubmitted','Superseded','Cancelled')");
 
                             t.HasCheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0");
                         });
@@ -40253,7 +40253,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             EffectiveFrom = new DateOnly(2026, 8, 11),
                             IsActive = true,
                             MaximumAmount = 500000m,
-                            MinimumAmount = 50000.01m,
+                            MinimumAmount = 50000.000001m,
                             OrganizationId = "SESS",
                             RouteCode = "TECHNICAL_DIRECTOR",
                             Version = 0L
@@ -40266,7 +40266,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CreatedBy = "migration-rev869b",
                             EffectiveFrom = new DateOnly(2026, 8, 11),
                             IsActive = true,
-                            MinimumAmount = 500000.01m,
+                            MaximumAmount = 999999999999999999.999999m,
+                            MinimumAmount = 500000.000001m,
                             OrganizationId = "SESS",
                             RouteCode = "MANAGING_DIRECTOR",
                             Version = 0L

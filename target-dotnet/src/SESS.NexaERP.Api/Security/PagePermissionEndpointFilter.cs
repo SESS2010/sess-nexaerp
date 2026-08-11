@@ -12,14 +12,22 @@ public static class PagePermissionEndpointFilter
         {
             var httpContext = context.HttpContext;
             var currentUser = httpContext.RequestServices.GetRequiredService<ICurrentUser>();
-            if (!currentUser.IsAuthenticated || !currentUser.EmployeeId.HasValue) return Results.Unauthorized();
-            if (string.IsNullOrWhiteSpace(currentUser.RoleCode) || currentUser.RoleCode == "none") return Results.Forbid();
+            var audit = httpContext.RequestServices.GetRequiredService<IAuditWriter>();
+            if (!currentUser.IsAuthenticated || !currentUser.EmployeeId.HasValue)
+            {
+                await audit.WriteAsync("Security", "Denied", "Identity", pageKey, null, new { reason = "Authenticated employee identity is unresolved", permission }, httpContext.RequestAborted);
+                return Results.Unauthorized();
+            }
+            if (string.IsNullOrWhiteSpace(currentUser.RoleCode) || currentUser.RoleCode == "none")
+            {
+                await audit.WriteAsync("Security", "Denied", "Role", pageKey, null, new { reason = "Role is unresolved", currentUser.EmployeeId, permission }, httpContext.RequestAborted);
+                return Results.Forbid();
+            }
 
             var permissions = httpContext.RequestServices.GetRequiredService<IPagePermissionService>();
             var allowed = await permissions.HasPermissionAsync(currentUser.RoleCode, pageKey, permission, httpContext.RequestAborted);
             if (!allowed)
             {
-                var audit = httpContext.RequestServices.GetRequiredService<IAuditWriter>();
                 await audit.WriteAsync("Security", "Denied", pageKey, permission, null, new
                 {
                     roleCode = currentUser.RoleCode,

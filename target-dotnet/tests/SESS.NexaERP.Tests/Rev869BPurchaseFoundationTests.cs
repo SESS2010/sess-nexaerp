@@ -18,9 +18,9 @@ public sealed class Rev869BPurchaseFoundationTests
     [Theory]
     [InlineData(0, "MANAGER")]
     [InlineData(50000, "MANAGER")]
-    [InlineData(50000.01, "TECHNICAL_DIRECTOR")]
+    [InlineData(50000.000001, "TECHNICAL_DIRECTOR")]
     [InlineData(500000, "TECHNICAL_DIRECTOR")]
-    [InlineData(500000.01, "MANAGING_DIRECTOR")]
+    [InlineData(500000.000001, "MANAGING_DIRECTOR")]
     public void ApprovalBoundariesAreExact(decimal value, string route)
     {
         Assert.Equal(route, Rev869BApprovalRoutes.Resolve(value, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS"));
@@ -38,7 +38,7 @@ public sealed class Rev869BPurchaseFoundationTests
     public void CommercialCalculationPreservesComponentsAndApprovedRounding()
     {
         var result = Rev869BCommercialCalculator.Calculate(new(3m, 100m, 10m, 2m, 3m, 4m, 5m, 9m, 9m, 0m, 1m, 0.005m, 2));
-        Assert.Equal(300m, result.TaxableValue); Assert.Equal(26.10m, result.CgstValue); Assert.Equal(26.10m, result.SgstValue); Assert.Equal(2.90m, result.CessValue); Assert.Equal(359.11m, result.TotalPayableValue);
+        Assert.Equal(304m, result.TaxableValue); Assert.Equal(27.36m, result.CgstValue); Assert.Equal(27.36m, result.SgstValue); Assert.Equal(3.04m, result.CessValue); Assert.Equal(361.77m, result.TotalPayableValue);
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 1m, 2m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 2)));
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 1m, 0m, 0m, 0m, 0m, 0m, 101m, 0m, 0m, 0m, 0m, 2)));
     }
@@ -69,7 +69,7 @@ public sealed class Rev869BPurchaseFoundationTests
         Assert.Contains("IX_purchase_orders_OrganizationId_PoNumber_RevisionNumber", MigrationSource);
         Assert.Contains("\\\"IsCurrentVersion\\\" = TRUE", MigrationSource); Assert.Contains("\\\"IsCurrentRevision\\\" = TRUE", MigrationSource);
         Assert.Contains("IsConcurrencyToken", MappingSource); Assert.Contains("rev869b_reject_immutable_mutation", MigrationSource);
-        Assert.Equal(16, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(20, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation", MigrationSource);
     }
 

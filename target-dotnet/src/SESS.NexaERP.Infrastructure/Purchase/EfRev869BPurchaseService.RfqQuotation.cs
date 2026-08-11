@@ -25,7 +25,9 @@ public sealed partial class EfRev869BPurchaseService
             await RequireScopeAsync(actor, organization, existing.RequestingDepartmentId, existing.DeliveryWarehouseId, null, existing.OwnerEmployeeId, ct);
             var requested = request.Lines.OrderBy(x => x.PurchaseRequirementHandoffId).Select(x => (x.PurchaseRequirementHandoffId, x.Quantity)).ToArray();
             var persisted = existing.Lines.OrderBy(x => x.PurchaseRequirementHandoffId).Select(x => (x.PurchaseRequirementHandoffId, x.RfqQuantity)).ToArray();
-            if (existing.QuoteDueAt != request.QuoteDueAt || existing.CurrencyCode != currency || existing.IsSingleSource != request.IsSingleSource || !requested.SequenceEqual(persisted)) throw new Rev869BConflictException("RFQ idempotency key was reused with a different payload.");
+            if (existing.QuoteDueAt != request.QuoteDueAt || existing.CurrencyCode != currency || existing.IsSingleSource != request.IsSingleSource ||
+                Trim(existing.SingleSourceJustification) != Trim(request.SingleSourceJustification) || !requested.SequenceEqual(persisted))
+                throw new Rev869BConflictException("RFQ idempotency key was reused with a different payload.");
             await tx.RollbackAsync(ct); return Result(existing.Id, existing.RfqNumber, existing.Status, existing.Version);
         }
         var ids = request.Lines.Select(x => x.PurchaseRequirementHandoffId).Distinct().ToArray(); if (ids.Length != request.Lines.Count) throw new InvalidOperationException("Duplicate PendingRFQ handoff in request.");
@@ -64,7 +66,11 @@ public sealed partial class EfRev869BPurchaseService
         var duplicate = await db.RfqVendorInvitations.AsNoTracking().SingleOrDefaultAsync(x => x.RequestForQuotationId == rfq.Id && x.VendorId == request.VendorId, ct);
         if (duplicate is not null)
         {
-            if (duplicate.IdempotencyKey != request.IdempotencyKey.Trim()) throw new Rev869BConflictException("Vendor was already invited with a different idempotency key.");
+            var evidence = await db.PurchaseTransactionStatusHistories.AsNoTracking().SingleOrDefaultAsync(x =>
+                x.OrganizationId == organization && x.EntityType == "RFQInvitation" && x.EntityId == duplicate.Id &&
+                x.CorrelationId == request.IdempotencyKey.Trim(), ct);
+            if (duplicate.IdempotencyKey != request.IdempotencyKey.Trim() || evidence?.Remarks != request.Remarks.Trim())
+                throw new Rev869BConflictException("Vendor invitation idempotency key was reused with a different payload.");
             await tx.RollbackAsync(ct); return Result(duplicate.Id, rfq.RfqNumber, duplicate.Status, duplicate.Version);
         }
         if (rfq.Status is Rev869BStatuses.Cancelled or Rev869BStatuses.Closed) throw new Rev869BConflictException("RFQ is closed.");
@@ -91,10 +97,10 @@ public sealed partial class EfRev869BPurchaseService
             ?? throw new Rev869BNotFoundException("RFQ invitation was not found in the current organization.");
         var rfq = invitation.RequestForQuotation!;
         await RequireScopeAsync(actor, organization, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, null, rfq.OwnerEmployeeId, ct);
-        var replay = await db.VendorQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey == request.IdempotencyKey.Trim(), ct);
+        var replay = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey == request.IdempotencyKey.Trim(), ct);
         if (replay is not null)
         {
-            if (replay.RfqVendorInvitationId != invitationId || replay.VendorQuoteReference != request.VendorQuoteReference.Trim()) throw new Rev869BConflictException("Quotation idempotency key was reused with a different payload.");
+            if (!QuotationPayloadMatches(replay, invitationId, request)) throw new Rev869BConflictException("Quotation idempotency key was reused with a different payload.");
             await tx.RollbackAsync(ct); return Result(replay.Id, replay.QuotationNumber, replay.Status, replay.Version);
         }
         if (NormalizeCurrency(request.CurrencyCode) != rfq.CurrencyCode) throw new InvalidOperationException("Currency conversion is not configured; quote must match RFQ currency.");
@@ -121,12 +127,12 @@ public sealed partial class EfRev869BPurchaseService
         foreach (var input in request.Lines)
         {
             var rfqLine = rfq.Lines.SingleOrDefault(x => x.Id == input.RequestForQuotationLineId) ?? throw new InvalidOperationException("Quotation line is outside RFQ."); if (input.Quantity <= 0 || input.Quantity > rfqLine.RfqQuantity) throw new InvalidOperationException("Quotation quantity exceeds RFQ.");
-            var taxableBase = decimal.Round(input.Quantity * input.UnitRate, 2, MidpointRounding.AwayFromZero) - input.DiscountValue;
+            var taxableBase = Rev869BCommercialCalculator.TaxableValue(new(input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, 0m, 0m, 0m, 0m, input.RoundOff, 6));
             var tax = await taxes.ResolveAsync(new TaxResolutionRequest(rfq.OrganizationId, TaxJurisdictions.IndiaGst, Required(input.HsnSacCode, "HSN/SAC"), input.SupplierStateCode, input.PlaceOfSupplyStateCode, input.VendorRegistrationType, DateOnly.FromDateTime(now.UtcDateTime), taxableBase), ct);
             var calc = Rev869BCommercialCalculator.Calculate(new(input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, input.RoundOff, tax.RoundingScale));
             quote.Lines.Add(new VendorQuotationLine { RequestForQuotationLineId = rfqLine.Id, LineNumber = ++lineNo, Quantity = input.Quantity, UnitRate = input.UnitRate, DiscountValue = calc.DiscountValue, PackingForwarding = calc.PackingForwarding, Freight = calc.Freight, Insurance = calc.Insurance, OtherCharges = calc.OtherCharges, TaxableValue = calc.TaxableValue, TaxGstSettingId = tax.Id, TaxRuleSnapshotJson = JsonSerializer.Serialize(tax, JsonOptions), HsnSacCode = Required(input.HsnSacCode, "HSN/SAC"), SupplierStateCode = Required(input.SupplierStateCode, "Supplier state"), PlaceOfSupplyStateCode = Required(input.PlaceOfSupplyStateCode, "Place of supply"), VendorRegistrationType = Required(input.VendorRegistrationType, "Vendor registration type"), CgstValue = calc.CgstValue, SgstValue = calc.SgstValue, IgstValue = calc.IgstValue, CessValue = calc.CessValue, RoundOff = calc.RoundOff, TotalPayableValue = calc.TotalPayableValue, PromisedDeliveryDate = input.PromisedDeliveryDate, CreatedBy = user.LoginId });
         }
-        quote.TotalPayableValue = quote.Lines.Sum(x => x.TotalPayableValue);
+        quote.TotalPayableValue = Rev869BCommercialCalculator.Add(quote.Lines.Select(x => x.TotalPayableValue).ToArray());
         db.VendorQuotations.Add(quote);
         if (invitation.Status == Rev869BStatuses.Issued)
         {
@@ -136,6 +142,34 @@ public sealed partial class EfRev869BPurchaseService
         }
         AddStatus("VendorQuotation", quote.Id, quote.QuotationNumber, previous?.Status, quote.Status, previous is null ? "Submit" : "Revise", late ? RequiredRemarks(request.LateAuthorizationRemarks) : "Quotation submitted", request.IdempotencyKey);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", previous is null ? "SubmitQuotation" : "ReviseQuotation", nameof(VendorQuotation), quote.Id.ToString(), previous is null ? null : new { previous.Id, previous.RevisionNumber }, new { quote.QuotationNumber, quote.RevisionNumber, quote.TotalPayableValue, quote.SubmissionSource, quote.ReceivedAt, quote.AttachmentSha256 }, ct); await tx.CommitAsync(ct); return Result(quote.Id, quote.QuotationNumber, quote.Status, quote.Version);
+    }
+
+    private static bool QuotationPayloadMatches(VendorQuotation stored, Guid invitationId, Rev869BSubmitQuotationRequest request)
+    {
+        if (stored.RfqVendorInvitationId != invitationId ||
+            stored.VendorQuoteReference != request.VendorQuoteReference.Trim() ||
+            stored.CurrencyCode != request.CurrencyCode.Trim().ToUpperInvariant() ||
+            stored.PaymentTermsSnapshot != request.PaymentTerms.Trim() ||
+            stored.DeliveryTermsSnapshot != request.DeliveryTerms.Trim() ||
+            stored.WarrantyTermsSnapshot != request.WarrantyTerms.Trim() ||
+            stored.SubmissionSource != request.SubmissionSource.Trim().ToUpperInvariant() ||
+            stored.ReceivedAt != request.ReceivedAt ||
+            stored.AttachmentObjectKey != request.AttachmentObjectKey.Trim() ||
+            stored.AttachmentSha256 != request.AttachmentSha256.Trim().ToUpperInvariant() ||
+            stored.VendorAttestation != request.VendorAttestation.Trim() ||
+            stored.LateAuthorizationRemarks != Trim(request.LateAuthorizationRemarks) ||
+            stored.Lines.Count != request.Lines.Count) return false;
+        var requestedLines = request.Lines.OrderBy(x => x.RequestForQuotationLineId).ToArray();
+        var storedLines = stored.Lines.OrderBy(x => x.RequestForQuotationLineId).ToArray();
+        return requestedLines.Zip(storedLines).All(pair =>
+            pair.First.RequestForQuotationLineId == pair.Second.RequestForQuotationLineId &&
+            pair.First.Quantity == pair.Second.Quantity && pair.First.UnitRate == pair.Second.UnitRate &&
+            pair.First.DiscountValue == pair.Second.DiscountValue && pair.First.PackingForwarding == pair.Second.PackingForwarding &&
+            pair.First.Freight == pair.Second.Freight && pair.First.Insurance == pair.Second.Insurance &&
+            pair.First.OtherCharges == pair.Second.OtherCharges && pair.First.PromisedDeliveryDate == pair.Second.PromisedDeliveryDate &&
+            pair.First.HsnSacCode.Trim() == pair.Second.HsnSacCode && pair.First.SupplierStateCode.Trim() == pair.Second.SupplierStateCode &&
+            pair.First.PlaceOfSupplyStateCode.Trim() == pair.Second.PlaceOfSupplyStateCode &&
+            pair.First.VendorRegistrationType.Trim() == pair.Second.VendorRegistrationType && pair.First.RoundOff == pair.Second.RoundOff);
     }
 
     public async Task<Rev869BDocumentResult> VerifyTechnicalAsync(string quotationNumber, Rev869BTechnicalVerificationRequest request, CancellationToken ct)

@@ -22,8 +22,8 @@ public static class Rev869BSeedData
     public static readonly PurchaseTransactionApprovalPolicy[] ApprovalPolicies =
     [
         Policy(Rev869BApprovalRoutes.Manager, 0m, 50000m, Rev869ARoleCodes.PurchaseManager),
-        Policy(Rev869BApprovalRoutes.TechnicalDirector, 50000.01m, 500000m, Rev869ARoleCodes.TechnicalDirector),
-        Policy(Rev869BApprovalRoutes.ManagingDirector, 500000.01m, null, Rev869ARoleCodes.ManagingDirector)
+        Policy(Rev869BApprovalRoutes.TechnicalDirector, 50000.000001m, 500000m, Rev869ARoleCodes.TechnicalDirector),
+        Policy(Rev869BApprovalRoutes.ManagingDirector, 500000.000001m, Rev869BCommercialCalculator.MaximumSupportedValue, Rev869ARoleCodes.ManagingDirector)
     ];
 
     public static IReadOnlyList<RolePagePermission> RolePagePermissions
