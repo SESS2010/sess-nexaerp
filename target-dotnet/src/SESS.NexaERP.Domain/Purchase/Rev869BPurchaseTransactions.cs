@@ -97,15 +97,27 @@ public static class Rev869BApprovalRoutes
 public sealed record Rev869BCommercialInput(
     decimal Quantity, decimal UnitRate, decimal DiscountValue, decimal PackingForwarding,
     decimal Freight, decimal Insurance, decimal OtherCharges, decimal CgstRate,
-    decimal SgstRate, decimal IgstRate, decimal CessRate, decimal RoundOff, int RoundingScale);
+    decimal SgstRate, decimal IgstRate, decimal CessRate, decimal RoundOff, int RoundingScale)
+{
+    public decimal HeaderDiscountValue { get; init; }
+    public string CurrencyCode { get; init; } = string.Concat('I', 'N', 'R');
+    public decimal ExchangeRate { get; init; } = 1m;
+}
 
 public sealed record Rev869BCommercialBreakdown(
     decimal TaxableValue, decimal DiscountValue, decimal CgstValue, decimal SgstValue,
     decimal IgstValue, decimal CessValue, decimal PackingForwarding, decimal Freight,
-    decimal Insurance, decimal OtherCharges, decimal RoundOff, decimal TotalPayableValue);
+    decimal Insurance, decimal OtherCharges, decimal RoundOff, decimal TotalPayableValue)
+{
+    public decimal GrossAmount { get; init; }
+    public decimal HeaderDiscountValue { get; init; }
+    public decimal AssessableValue { get; init; }
+    public string CurrencyCode { get; init; } = string.Concat('I', 'N', 'R');
+    public decimal ExchangeRate { get; init; } = 1m;
+}
 
 public sealed record Rev869BCommercialAggregate(
-    decimal TaxableValue, decimal DiscountValue, decimal TaxValue, decimal PackingForwarding,
+    decimal TaxableValue, decimal DiscountValue, decimal HeaderDiscountValue, decimal TaxValue, decimal PackingForwarding,
     decimal Freight, decimal Insurance, decimal OtherCharges, decimal RoundOff, decimal TotalPayableValue);
 
 public sealed record Rev869BTaxRuleSnapshot(
@@ -120,7 +132,15 @@ public sealed record Rev869BPoCommercialSnapshot(
     Guid CommercialComparisonId, Guid VendorId, string OrganizationId,
     string VendorQualificationSnapshotJson, string AttachmentObjectKey, string AttachmentSha256,
     string ComparisonApprovalRoute, DateTimeOffset ComparisonApprovedAt, DateTimeOffset QuotationReceivedAt,
-    Rev869BCommercialInput Input, Rev869BCommercialBreakdown Result);
+    Rev869BCommercialInput Input, Rev869BCommercialBreakdown Result)
+{
+    public int QuotationRevision { get; init; }
+    public Guid ItemId { get; init; }
+    public decimal Quantity { get; init; }
+    public string Uom { get; init; } = string.Empty;
+    public string CurrencyCode { get; init; } = string.Empty;
+    public decimal ExchangeRate { get; init; }
+}
 
 public static class Rev869BCommercialCalculator
 {
@@ -129,11 +149,12 @@ public static class Rev869BCommercialCalculator
     public static decimal TaxableValue(Rev869BCommercialInput input)
     {
         ValidateInput(input);
-        var assessable = Round(Multiply(input.Quantity, input.UnitRate), input.RoundingScale, "line assessable value");
+        var assessable = Round(Multiply(input.Quantity, input.UnitRate), input.RoundingScale, "line gross amount");
         var taxableCharges = Add(input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges);
         var beforeDiscount = Add(assessable, taxableCharges);
-        if (input.DiscountValue > beforeDiscount) throw new InvalidOperationException("Discount cannot exceed assessable value plus taxable charges.");
-        return Ensure(Round(beforeDiscount - input.DiscountValue, input.RoundingScale, "taxable value"), "taxable value");
+        var totalDiscount = Add(input.DiscountValue, input.HeaderDiscountValue);
+        if (totalDiscount > beforeDiscount) throw new InvalidOperationException("Line and header discounts cannot exceed assessable value plus taxable charges.");
+        return Ensure(Round(beforeDiscount - totalDiscount, input.RoundingScale, "taxable value"), "taxable value");
     }
 
     public static Rev869BCommercialBreakdown Calculate(Rev869BCommercialInput input)
@@ -147,7 +168,9 @@ public static class Rev869BCommercialCalculator
         var cess = Tax(input.CessRate);
         var total = Round(Add(taxable, cgst, sgst, igst, cess, input.RoundOff), input.RoundingScale, "total payable value");
         if (total < 0) throw new InvalidOperationException("Total payable value cannot be negative.");
-        return new(taxable, input.DiscountValue, cgst, sgst, igst, cess, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, total);
+        var gross = Round(Multiply(input.Quantity, input.UnitRate), input.RoundingScale, "line gross amount");
+        return new(taxable, input.DiscountValue, cgst, sgst, igst, cess, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, total)
+        { GrossAmount = gross, AssessableValue = Add(gross, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges), HeaderDiscountValue = input.HeaderDiscountValue, CurrencyCode = input.CurrencyCode, ExchangeRate = input.ExchangeRate };
     }
 
     public static Rev869BCommercialAggregate Aggregate(IEnumerable<Rev869BCommercialBreakdown> lines)
@@ -157,6 +180,7 @@ public static class Rev869BCommercialCalculator
         return new(
             Add(values.Select(x => x.TaxableValue).ToArray()),
             Add(values.Select(x => x.DiscountValue).ToArray()),
+            Add(values.Select(x => x.HeaderDiscountValue).ToArray()),
             Add(values.SelectMany(x => new[] { x.CgstValue, x.SgstValue, x.IgstValue, x.CessValue }).ToArray()),
             Add(values.Select(x => x.PackingForwarding).ToArray()),
             Add(values.Select(x => x.Freight).ToArray()),
@@ -197,12 +221,13 @@ public static class Rev869BCommercialCalculator
     public static decimal Ensure(decimal value, string name)
     {
         if (value < -MaximumSupportedValue || value > MaximumSupportedValue) throw new InvalidOperationException($"{name} exceeds numeric(24,6) capacity.");
+        if (DecimalScale(value) > 6) throw new InvalidOperationException($"{name} must not exceed six decimal places.");
         return value;
     }
 
     private static decimal Multiply(decimal left, decimal right)
     {
-        try { return Ensure(checked(left * right), "commercial multiplication"); }
+        try { return Capacity(checked(left * right), "commercial multiplication"); }
         catch (OverflowException) { throw new InvalidOperationException("Commercial multiplication exceeds numeric(24,6) capacity."); }
     }
 
@@ -210,13 +235,19 @@ public static class Rev869BCommercialCalculator
 
     private static void ValidateInput(Rev869BCommercialInput input)
     {
-        if (input.Quantity <= 0 || input.UnitRate < 0 || input.DiscountValue < 0 || input.PackingForwarding < 0 || input.Freight < 0 || input.Insurance < 0 || input.OtherCharges < 0 || input.RoundingScale is < 0 or > 6)
+        if (input.Quantity <= 0 || input.UnitRate < 0 || input.DiscountValue < 0 || input.HeaderDiscountValue < 0 || input.PackingForwarding < 0 || input.Freight < 0 || input.Insurance < 0 || input.OtherCharges < 0 || input.ExchangeRate <= 0 || input.RoundingScale is < 0 or > 6 || string.IsNullOrWhiteSpace(input.CurrencyCode))
             throw new InvalidOperationException("Commercial quantities, values or rounding scale are invalid.");
         foreach (var rate in new[] { input.CgstRate, input.SgstRate, input.IgstRate, input.CessRate })
+        {
+            Ensure(rate, "tax rate");
             if (!TaxGstSetting.IsValidRate(rate)) throw new InvalidOperationException("Tax rate is outside the approved range.");
-        foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff })
+        }
+        foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.HeaderDiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges, input.RoundOff, input.ExchangeRate })
             Ensure(value, "commercial input");
     }
+    private static decimal Capacity(decimal value, string name) => value < -MaximumSupportedValue || value > MaximumSupportedValue
+        ? throw new InvalidOperationException($"{name} exceeds numeric(24,6) capacity.") : value;
+    private static int DecimalScale(decimal value) => (decimal.GetBits(value)[3] >> 16) & 0x7F;
 }
 
 public static class Rev869BIdempotencyFingerprint
@@ -252,7 +283,8 @@ public static class Rev869BIdempotencyFingerprint
                 output.Append('}'); break;
             case JsonValueKind.Array:
                 output.Append('['); var initial = true;
-                foreach (var item in value.EnumerateArray()) { if (!initial) output.Append(','); initial = false; Write(item, output); }
+                var canonicalItems = value.EnumerateArray().Select(item => { var itemOutput = new StringBuilder(); Write(item, itemOutput); return itemOutput.ToString(); }).OrderBy(item => item, StringComparer.Ordinal);
+                foreach (var item in canonicalItems) { if (!initial) output.Append(','); initial = false; output.Append(item); }
                 output.Append(']'); break;
             case JsonValueKind.String:
                 output.Append(JsonSerializer.Serialize((value.GetString() ?? string.Empty).Trim())); break;
@@ -359,6 +391,7 @@ public sealed class VendorQuotation : AuditableEntity
     public string DeliveryTermsSnapshot { get; set; } = string.Empty;
     public string WarrantyTermsSnapshot { get; set; } = string.Empty;
     public decimal TotalPayableValue { get; set; }
+    public decimal HeaderDiscountValue { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public List<VendorQuotationLine> Lines { get; set; } = [];
 }
@@ -373,6 +406,7 @@ public sealed class VendorQuotationLine : AuditableEntity
     public decimal Quantity { get; set; }
     public decimal UnitRate { get; set; }
     public decimal DiscountValue { get; set; }
+    public decimal HeaderDiscountValue { get; set; }
     public decimal PackingForwarding { get; set; }
     public decimal Freight { get; set; }
     public decimal Insurance { get; set; }
@@ -492,6 +526,7 @@ public sealed class PurchaseOrder : AuditableEntity
     public string ApprovalRoute { get; set; } = string.Empty;
     public decimal TaxableValue { get; set; }
     public decimal DiscountValue { get; set; }
+    public decimal HeaderDiscountValue { get; set; }
     public decimal TaxValue { get; set; }
     public decimal PackingForwarding { get; set; }
     public decimal Freight { get; set; }
@@ -499,6 +534,7 @@ public sealed class PurchaseOrder : AuditableEntity
     public decimal OtherCharges { get; set; }
     public decimal RoundOff { get; set; }
     public decimal TotalPayableValue { get; set; }
+    public string ApprovalPolicySnapshotJson { get; set; } = "{}";
     public string PaymentTermsSnapshot { get; set; } = string.Empty;
     public string DeliveryTermsSnapshot { get; set; } = string.Empty;
     public string WarrantyTermsSnapshot { get; set; } = string.Empty;
@@ -538,12 +574,12 @@ public static class Rev869BPurchaseOrderSnapshot
 {
     private static readonly JsonSerializerOptions SnapshotJson = new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
 
-    public static void RequireComplete(PurchaseOrder purchaseOrder)
+    public static void RequireComplete(PurchaseOrder purchaseOrder, bool requireApproved = true)
     {
-        if (purchaseOrder.Status != Rev869BStatuses.Approved) throw new InvalidOperationException("Only an approved purchase order can be issued.");
+        if (requireApproved && purchaseOrder.Status != Rev869BStatuses.Approved) throw new InvalidOperationException("Only an approved purchase order can be issued.");
         if (purchaseOrder.Lines.Count == 0 || string.IsNullOrWhiteSpace(purchaseOrder.PaymentTermsSnapshot) ||
             string.IsNullOrWhiteSpace(purchaseOrder.DeliveryTermsSnapshot) || string.IsNullOrWhiteSpace(purchaseOrder.WarrantyTermsSnapshot) ||
-            string.IsNullOrWhiteSpace(purchaseOrder.ApprovalRoute))
+            string.IsNullOrWhiteSpace(purchaseOrder.ApprovalRoute) || string.IsNullOrWhiteSpace(purchaseOrder.ApprovalPolicySnapshotJson) || purchaseOrder.ApprovalPolicySnapshotJson == "{}")
             throw new InvalidOperationException("The pre-issue purchase-order snapshot is incomplete.");
         if (purchaseOrder.Lines.Any(x => x.OrderedQuantity <= 0 || x.ApprovedOutstandingQuantitySnapshot <= 0 ||
             string.IsNullOrWhiteSpace(x.CommercialSnapshotJson) || x.CommercialSnapshotJson == "{}" ||
@@ -565,6 +601,8 @@ public static class Rev869BPurchaseOrderSnapshot
             if (commercial.VendorQuotationId == Guid.Empty || commercial.VendorQuotationLineId == Guid.Empty ||
                 commercial.RequestForQuotationId == Guid.Empty || commercial.CommercialComparisonId != purchaseOrder.CommercialComparisonId ||
                 commercial.VendorId != purchaseOrder.VendorId || commercial.OrganizationId != purchaseOrder.OrganizationId ||
+                commercial.QuotationRevision <= 0 || commercial.ItemId != line.ItemId || commercial.Quantity != line.OrderedQuantity ||
+                commercial.Uom != line.UomSnapshot || commercial.CurrencyCode != purchaseOrder.CurrencyCode || commercial.ExchangeRate != 1m ||
                 string.IsNullOrWhiteSpace(commercial.VendorQualificationSnapshotJson) || commercial.VendorQualificationSnapshotJson == "{}" ||
                 string.IsNullOrWhiteSpace(commercial.AttachmentObjectKey) || commercial.AttachmentSha256.Length != 64 ||
                 commercial.ComparisonApprovalRoute != purchaseOrder.ApprovalRoute || commercial.ComparisonApprovedAt == default ||
@@ -575,13 +613,23 @@ public static class Rev869BPurchaseOrderSnapshot
             reconciled.Add(result);
         }
         var aggregate = Rev869BCommercialCalculator.Aggregate(reconciled);
-        if (aggregate.TaxableValue != purchaseOrder.TaxableValue || aggregate.DiscountValue != purchaseOrder.DiscountValue ||
+        if (aggregate.TaxableValue != purchaseOrder.TaxableValue || aggregate.DiscountValue != purchaseOrder.DiscountValue || aggregate.HeaderDiscountValue != purchaseOrder.HeaderDiscountValue ||
             aggregate.TaxValue != purchaseOrder.TaxValue || aggregate.PackingForwarding != purchaseOrder.PackingForwarding ||
             aggregate.Freight != purchaseOrder.Freight || aggregate.Insurance != purchaseOrder.Insurance ||
             aggregate.OtherCharges != purchaseOrder.OtherCharges || aggregate.RoundOff != purchaseOrder.RoundOff ||
             aggregate.TotalPayableValue != purchaseOrder.TotalPayableValue)
             throw new InvalidOperationException("The pre-issue header and immutable commercial line snapshots do not reconcile.");
-        foreach (var value in new[] { purchaseOrder.TaxableValue, purchaseOrder.DiscountValue, purchaseOrder.TaxValue, purchaseOrder.PackingForwarding,
+        try
+        {
+            using var policy = JsonDocument.Parse(purchaseOrder.ApprovalPolicySnapshotJson);
+            var root = policy.RootElement;
+            if (root.GetProperty("organizationId").GetString() != purchaseOrder.OrganizationId || root.GetProperty("routeCode").GetString() != purchaseOrder.ApprovalRoute ||
+                root.GetProperty("approvalValue").GetDecimal() != purchaseOrder.TotalPayableValue || string.IsNullOrWhiteSpace(root.GetProperty("effectiveOn").GetString()))
+                throw new InvalidOperationException("The immutable approval-policy snapshot does not reconcile.");
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or FormatException)
+        { throw new InvalidOperationException("The immutable approval-policy snapshot is incomplete or malformed."); }
+        foreach (var value in new[] { purchaseOrder.TaxableValue, purchaseOrder.DiscountValue, purchaseOrder.HeaderDiscountValue, purchaseOrder.TaxValue, purchaseOrder.PackingForwarding,
                      purchaseOrder.Freight, purchaseOrder.Insurance, purchaseOrder.OtherCharges, purchaseOrder.RoundOff, purchaseOrder.TotalPayableValue })
             Rev869BCommercialCalculator.Ensure(value, "pre-issue commercial snapshot");
     }

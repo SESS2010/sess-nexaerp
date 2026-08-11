@@ -84,19 +84,22 @@ public sealed class Rev869BPurchaseCorrectionTests
     {
         var rows = Rev869BSeedData.RolePagePermissions;
         Assert.Equal(29, rows.Count);
-        Assert.All(rows, row => Assert.True(row.CanView || row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanVerify || row.CanApprove || row.CanReject || row.CanRequestClarification || row.CanRequestRevision || row.CanResubmit || row.CanCancel || row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment || row.CanViewCommercialValues || row.CanViewAuditHistory || row.HasFullControl));
+        Assert.All(rows, row => Assert.True(row.CanView || row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue || row.CanVerify || row.CanApprove || row.CanReject || row.CanRequestClarification || row.CanRequestRevision || row.CanResubmit || row.CanCancel || row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment || row.CanViewCommercialValues || row.CanViewAuditHistory || row.HasFullControl));
         Assert.All(rows.Where(row => row.CanViewCommercialValues || row.CanExport || row.CanViewAuditHistory), row => Assert.True(row.CanView));
         var poPage = Guid.Parse("20000000-0000-0000-0000-000000000012");
         Assert.Equal(2, rows.Count(row => row.PageDefinitionId == poPage && row.CanApprove && row.CanReject));
         var managerPo = rows.Single(row => row.Id == Rev869BSeedData.PermissionId(Rev869ARoleCodes.PurchaseManager, "purchase.po"));
         Assert.True(managerPo.CanView && managerPo.CanCreate && managerPo.CanUpdate && managerPo.CanSubmit && managerPo.CanResubmit && managerPo.CanIssue);
         Assert.False(managerPo.CanApprove || managerPo.CanReject || managerPo.CanRequestRevision || managerPo.HasFullControl);
+        var mdPo = rows.Single(row => row.Id == Rev869BSeedData.PermissionId(Rev869ARoleCodes.ManagingDirector, "purchase.po"));
+        Assert.True(mdPo.CanView && mdPo.CanApprove && mdPo.CanReject && mdPo.CanViewCommercialValues && mdPo.CanViewAuditHistory);
+        Assert.False(mdPo.CanCreate || mdPo.CanUpdate || mdPo.CanSubmit || mdPo.CanResubmit || mdPo.CanIssue);
     }
 
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(23, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(24, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);
         Assert.Contains("Purchase order pre-issue snapshot is incomplete or does not reconcile", Migration);
@@ -120,7 +123,11 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationRetainsExactSourceOwnedSeedCountsAndNoBusinessSeeds()
     {
-        var permissionBlock = Migration[(Migration.IndexOf("table: \"role_page_permissions\"", StringComparison.Ordinal))..Migration.IndexOf("migrationBuilder.CreateIndex(", Migration.IndexOf("table: \"role_page_permissions\"", StringComparison.Ordinal), StringComparison.Ordinal)];
+        var normalizedCorrect = Migration.Replace(string.Concat((char)13, (char)10), string.Concat((char)10));
+        var permissionInsertCorrect = string.Join((char)10, "migrationBuilder.InsertData(", "                schema: \"nexa\",", "                table: \"role_page_permissions\"");
+        var permissionStart = normalizedCorrect.IndexOf(permissionInsertCorrect, StringComparison.Ordinal);
+        Assert.True(permissionStart >= 0);
+        var permissionBlock = normalizedCorrect[permissionStart..normalizedCorrect.IndexOf("migrationBuilder.Sql(", permissionStart, StringComparison.Ordinal)];
         Assert.Equal(29, Regex.Matches(permissionBlock, @"(?m)^\s*\{ new Guid\(").Count);
         Assert.Contains("DEPARTMENT_MANAGER", Migration);
         foreach (var prohibited in new[] { "INSERT INTO nexa.vendors", "INSERT INTO nexa.employees", "INSERT INTO nexa.vendor_quotations", "INSERT INTO nexa.purchase_orders" }) Assert.DoesNotContain(prohibited, Migration, StringComparison.OrdinalIgnoreCase);

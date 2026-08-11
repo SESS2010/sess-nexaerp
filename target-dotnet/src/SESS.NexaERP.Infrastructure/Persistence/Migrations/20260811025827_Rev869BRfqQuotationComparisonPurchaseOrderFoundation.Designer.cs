@@ -814,6 +814,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<bool>("CanExport")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("CanIssue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<bool>("CanPrint")
                         .HasColumnType("boolean");
 
@@ -2928,6 +2933,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanDeactivate = false,
                             CanDownload = true,
                             CanExport = true,
+                            CanIssue = true,
                             CanPrint = true,
                             CanReject = false,
                             CanReplaceAttachment = false,
@@ -39139,6 +39145,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("ApprovalPolicySnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -39175,6 +39185,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(12)");
 
                     b.Property<decimal>("Freight")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<decimal>("HeaderDiscountValue")
                         .HasPrecision(24, 6)
                         .HasColumnType("numeric(24,6)");
 
@@ -39311,7 +39325,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','RevisionDraft','Resubmitted','Superseded','Cancelled')");
 
-                            t.HasCheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0");
+                            t.HasCheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"HeaderDiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0 AND \"ApprovalPolicySnapshotJson\" <> '{}'::jsonb");
                         });
                 });
 
@@ -41066,6 +41080,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)");
 
+                    b.Property<decimal>("HeaderDiscountValue")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -41193,7 +41211,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
 
-                            t.HasCheckConstraint("CK_vendor_quotation_total", "\"TotalPayableValue\" >= 0");
+                            t.HasCheckConstraint("CK_vendor_quotation_total", "\"HeaderDiscountValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                         });
                 });
 
@@ -41223,6 +41241,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(24,6)");
 
                     b.Property<decimal>("Freight")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<decimal>("HeaderDiscountValue")
                         .HasPrecision(24, 6)
                         .HasColumnType("numeric(24,6)");
 
@@ -41331,7 +41353,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_vendor_quotation_line_quantity", "\"Quantity\" > 0");
 
-                            t.HasCheckConstraint("CK_vendor_quotation_line_values", "\"UnitRate\" >= 0 AND \"DiscountValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TaxableValue\" >= 0 AND \"CgstValue\" >= 0 AND \"SgstValue\" >= 0 AND \"IgstValue\" >= 0 AND \"CessValue\" >= 0 AND \"TotalPayableValue\" >= 0");
+                            t.HasCheckConstraint("CK_vendor_quotation_line_values", "\"UnitRate\" >= 0 AND \"DiscountValue\" >= 0 AND \"HeaderDiscountValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TaxableValue\" >= 0 AND \"CgstValue\" >= 0 AND \"SgstValue\" >= 0 AND \"IgstValue\" >= 0 AND \"CessValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                         });
                 });
 

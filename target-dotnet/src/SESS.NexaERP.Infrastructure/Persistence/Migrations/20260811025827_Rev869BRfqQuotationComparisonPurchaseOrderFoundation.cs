@@ -13,6 +13,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AddColumn<bool>(name: "CanIssue", schema: "nexa", table: "role_page_permissions", type: "boolean", nullable: false, defaultValue: false);
             migrationBuilder.CreateTable(
                 name: "purchase_transaction_approval_policies",
                 schema: "nexa",
@@ -273,6 +274,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     PaymentTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     DeliveryTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     WarrantyTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
+                    HeaderDiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     TotalPayableValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -288,7 +290,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("CK_vendor_quotation_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
                     table.CheckConstraint("CK_vendor_quotation_provenance", "\"SubmissionSource\" IN ('EMAIL_RECEIVED','PHYSICAL_RECEIVED') AND length(trim(\"AttachmentObjectKey\")) > 0 AND \"AttachmentSha256\" ~ '^[0-9A-Fa-f]{64}$' AND length(trim(\"VendorAttestation\")) > 0 AND \"ReceivedAt\" <= \"SubmittedAt\"");
                     table.CheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
-                    table.CheckConstraint("CK_vendor_quotation_total", "\"TotalPayableValue\" >= 0");
+                    table.CheckConstraint("CK_vendor_quotation_total", "\"HeaderDiscountValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                     table.ForeignKey(
                         name: "FK_vendor_quotations_employees_LateAuthorizedByEmployeeId",
                         column: x => x.LateAuthorizedByEmployeeId,
@@ -399,6 +401,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     Quantity = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     UnitRate = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     DiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
+                    HeaderDiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     PackingForwarding = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     Freight = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     Insurance = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
@@ -423,7 +426,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_vendor_quotation_lines", x => x.Id);
                     table.CheckConstraint("CK_vendor_quotation_line_quantity", "\"Quantity\" > 0");
-                    table.CheckConstraint("CK_vendor_quotation_line_values", "\"UnitRate\" >= 0 AND \"DiscountValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TaxableValue\" >= 0 AND \"CgstValue\" >= 0 AND \"SgstValue\" >= 0 AND \"IgstValue\" >= 0 AND \"CessValue\" >= 0 AND \"TotalPayableValue\" >= 0");
+                    table.CheckConstraint("CK_vendor_quotation_line_values", "\"UnitRate\" >= 0 AND \"DiscountValue\" >= 0 AND \"HeaderDiscountValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TaxableValue\" >= 0 AND \"CgstValue\" >= 0 AND \"SgstValue\" >= 0 AND \"IgstValue\" >= 0 AND \"CessValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                     table.ForeignKey(
                         name: "FK_vendor_quotation_lines_request_for_quotation_lines_RequestF~",
                         column: x => x.RequestForQuotationLineId,
@@ -471,6 +474,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     CurrencyCode = table.Column<string>(type: "character varying(3)", maxLength: 3, nullable: false),
                     TaxableValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     DiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
+                    HeaderDiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     TaxValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     PackingForwarding = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     Freight = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
@@ -478,6 +482,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     OtherCharges = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     RoundOff = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     TotalPayableValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
+                    ApprovalPolicySnapshotJson = table.Column<string>(type: "jsonb", nullable: false),
                     PaymentTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     DeliveryTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
                     WarrantyTermsSnapshot = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: false),
@@ -499,7 +504,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("CK_purchase_order_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
                     table.CheckConstraint("CK_purchase_order_current_lifecycle", "\"Status\" <> 'Superseded' OR NOT \"IsCurrentVersion\"");
                     table.CheckConstraint("CK_purchase_order_status", "\"Status\" IN ('Draft','PendingApproval','Approved','Issued','Rejected','RevisionDraft','Resubmitted','Superseded','Cancelled')");
-                    table.CheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0");
+                    table.CheckConstraint("CK_purchase_order_values", "\"TaxableValue\" >= 0 AND \"DiscountValue\" >= 0 AND \"HeaderDiscountValue\" >= 0 AND \"TaxValue\" >= 0 AND \"PackingForwarding\" >= 0 AND \"Freight\" >= 0 AND \"Insurance\" >= 0 AND \"OtherCharges\" >= 0 AND \"TotalPayableValue\" >= 0 AND \"ApprovalPolicySnapshotJson\" <> '{}'::jsonb");
                     table.ForeignKey(
                         name: "FK_purchase_orders_commercial_comparisons_CommercialComparison~",
                         column: x => x.CommercialComparisonId,
@@ -883,6 +888,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     { new Guid("e68927ed-7502-fd94-30dc-08fcdc435577"), false, false, false, false, true, true, true, false, false, false, false, false, false, false, false, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("2be06aa9-fb95-c4b6-1f26-c27f71cd58e9"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L },
                     { new Guid("e818913d-251c-5c1c-8395-3ea116a3c0b2"), false, false, false, false, true, true, true, false, false, true, false, false, false, false, false, false, true, true, true, new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), "migration-rev869b", false, new Guid("e6c278a8-9f01-4a07-845a-1aba37ca0e46"), new Guid("30000000-0000-0000-0000-000000000001"), null, null, 0L }
                 });
+
+            migrationBuilder.Sql("""UPDATE nexa.role_page_permissions SET "CanIssue" = TRUE WHERE "Id" = '01a0c648-2bdc-3643-465f-d013309c37be'::uuid AND "CreatedBy" = 'migration-rev869b';""");
 
             migrationBuilder.CreateIndex(
                 name: "IX_commercial_comparison_lines_CommercialComparisonId_VendorQu~",
@@ -1360,6 +1367,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     IF TG_OP = 'INSERT' THEN
                         IF TG_TABLE_NAME = 'request_for_quotations' AND NEW."Status" <> 'Draft' THEN
                             RAISE EXCEPTION 'RFQ must be inserted in Draft status.';
+                        ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' AND NEW."Status" <> 'Issued' THEN
+                            RAISE EXCEPTION 'RFQ invitation must be inserted in Issued status.';
                         ELSIF TG_TABLE_NAME = 'vendor_quotations' AND NEW."Status" <> 'Submitted' THEN
                             RAISE EXCEPTION 'Quotation must be inserted in Submitted status.';
                         ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND NEW."Status" <> 'Draft' THEN
@@ -1375,10 +1384,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         END IF;
                         RETURN NEW;
                     END IF;
-                    IF NEW."Version" < OLD."Version" THEN RAISE EXCEPTION 'REV869B aggregate version cannot move backwards.'; END IF;
+                    IF NEW."Version" <> OLD."Version" + 1 THEN RAISE EXCEPTION 'REV869B aggregate version must increment by exactly one.'; END IF;
                     IF TG_TABLE_NAME = 'request_for_quotations' AND
                        (NEW."OrganizationId",NEW."PurchaseRequisitionId") IS DISTINCT FROM (OLD."OrganizationId",OLD."PurchaseRequisitionId") THEN
                         RAISE EXCEPTION 'RFQ organization and parent are immutable.';
+                    ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' AND
+                       (NEW."RequestForQuotationId",NEW."VendorId") IS DISTINCT FROM (OLD."RequestForQuotationId",OLD."VendorId") THEN
+                        RAISE EXCEPTION 'RFQ invitation parents are immutable.';
                     ELSIF TG_TABLE_NAME = 'vendor_quotations' AND
                        (NEW."OrganizationId",NEW."RfqVendorInvitationId",NEW."VendorId") IS DISTINCT FROM (OLD."OrganizationId",OLD."RfqVendorInvitationId",OLD."VendorId") THEN
                         RAISE EXCEPTION 'Quotation organization and parents are immutable.';
@@ -1390,9 +1402,57 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                        (OLD."OrganizationId",OLD."CommercialComparisonId",OLD."VendorId",OLD."RootPurchaseOrderId",OLD."PreviousVersionId") THEN
                         RAISE EXCEPTION 'Purchase order organization, provenance and version ancestry are immutable.';
                     END IF;
+                    IF TG_TABLE_NAME = 'commercial_comparisons' AND NEW."Status" IN ('PendingApproval','Approved') AND (
+                        NEW."RecommendedVendorQuotationId" IS NULL OR NEW."SelectedVendorId" IS NULL OR
+                        length(trim(coalesce(NEW."ApprovalRoute", ''))) = 0 OR
+                        NOT EXISTS (SELECT 1 FROM nexa.commercial_comparison_lines cl WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended") OR
+                        EXISTS (
+                            SELECT 1 FROM nexa.commercial_comparison_lines cl
+                            JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                            JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                            JOIN nexa.request_for_quotation_lines rl ON rl."Id"=ql."RequestForQuotationLineId"
+                            WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND (
+                                cl."VendorId" <> NEW."SelectedVendorId" OR q."Id" <> NEW."RecommendedVendorQuotationId" OR
+                                q."OrganizationId" <> NEW."OrganizationId" OR q."VendorId" <> NEW."SelectedVendorId" OR
+                                q."RevisionNumber" <= 0 OR NOT q."IsCurrentRevision" OR q."Status" <> 'TechnicallyCompliant' OR
+                                coalesce(cl."CommercialSnapshotJson"->>'organizationId','') <> NEW."OrganizationId" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'commercialComparisonId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."Id" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'requestForQuotationId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."RequestForQuotationId" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'vendorId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."SelectedVendorId" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'vendorQuotationId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> q."Id" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'quotationRevision')::integer,0) <> q."RevisionNumber" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'vendorQuotationLineId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> ql."Id" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'itemId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> rl."ItemId" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'quantity')::numeric,-1) <> ql."Quantity" OR
+                                coalesce(cl."CommercialSnapshotJson"->>'uom','') <> rl."UomSnapshot" OR
+                                coalesce(cl."CommercialSnapshotJson"->>'currencyCode','') <> q."CurrencyCode" OR
+                                coalesce((cl."CommercialSnapshotJson"->>'exchangeRate')::numeric,0) <> 1 OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'grossAmount')::numeric,-1) <> round(ql."Quantity"*ql."UnitRate",(ql."TaxRuleSnapshotJson"->>'roundingScale')::integer) OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'discountValue')::numeric,-1) <> ql."DiscountValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'headerDiscountValue')::numeric,-1) <> ql."HeaderDiscountValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'packingForwarding')::numeric,-1) <> ql."PackingForwarding" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'freight')::numeric,-1) <> ql."Freight" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'insurance')::numeric,-1) <> ql."Insurance" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'otherCharges')::numeric,-1) <> ql."OtherCharges" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'taxableValue')::numeric,-1) <> ql."TaxableValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'cgstValue')::numeric,-1) <> ql."CgstValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'sgstValue')::numeric,-1) <> ql."SgstValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'igstValue')::numeric,-1) <> ql."IgstValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'cessValue')::numeric,-1) <> ql."CessValue" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'roundOff')::numeric,-999999) <> ql."RoundOff" OR
+                                coalesce((cl."CommercialSnapshotJson"->'result'->>'totalPayableValue')::numeric,-1) <> ql."TotalPayableValue" OR
+                                cl."TotalPayableValue" <> ql."TotalPayableValue" OR
+                                cl."CommercialSnapshotJson"->'taxRule' <> ql."TaxRuleSnapshotJson"
+                            )) OR
+                        (SELECT count(*) FROM nexa.commercial_comparison_lines cl WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended") <>
+                        (SELECT count(*) FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."RecommendedVendorQuotationId") OR
+                        NEW."TotalPayableValue" <> (SELECT coalesce(sum(cl."TotalPayableValue"),0) FROM nexa.commercial_comparison_lines cl WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended")
+                    ) THEN RAISE EXCEPTION 'Comparison snapshot is incomplete or does not exactly reconcile.'; END IF;
                     IF NEW."Status" = OLD."Status" THEN RETURN NEW; END IF;
                     IF TG_TABLE_NAME = 'request_for_quotations' THEN
                         allowed := (OLD."Status", NEW."Status") IN (('Draft','Issued'),('Draft','Cancelled'),('Issued','Closed'),('Issued','Cancelled'));
+                    ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' THEN
+                        allowed := (OLD."Status", NEW."Status") IN (('Issued','Submitted'),('Issued','Withdrawn'),('Issued','Cancelled'));
                     ELSIF TG_TABLE_NAME = 'vendor_quotations' THEN
                         allowed := (OLD."Status", NEW."Status") IN (
                             ('Submitted','TechnicallyCompliant'),('Submitted','TechnicallyRejected'),('Submitted','Superseded'),('Submitted','Withdrawn'),
@@ -1419,13 +1479,29 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                                  l."CommercialSnapshotJson" IS NULL OR l."CommercialSnapshotJson" = '{}'::jsonb OR
                                  l."TaxRuleSnapshotJson" IS NULL OR l."TaxRuleSnapshotJson" = '{}'::jsonb OR
                                  coalesce(l."CommercialSnapshotJson"->>'organizationId','') <> NEW."OrganizationId" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'vendorQuotationId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) = '00000000-0000-0000-0000-000000000000'::uuid OR
+                                 coalesce((l."CommercialSnapshotJson"->>'vendorQuotationLineId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) = '00000000-0000-0000-0000-000000000000'::uuid OR
+                                 coalesce((l."CommercialSnapshotJson"->>'requestForQuotationId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) = '00000000-0000-0000-0000-000000000000'::uuid OR
+                                 coalesce((l."CommercialSnapshotJson"->>'quotationRevision')::integer,0) <= 0 OR
                                  coalesce((l."CommercialSnapshotJson"->>'commercialComparisonId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."CommercialComparisonId" OR
                                  coalesce((l."CommercialSnapshotJson"->>'vendorId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> NEW."VendorId" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'itemId')::uuid,'00000000-0000-0000-0000-000000000000'::uuid) <> l."ItemId" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'quantity')::numeric,-1) <> l."OrderedQuantity" OR
+                                 coalesce(l."CommercialSnapshotJson"->>'uom','') <> l."UomSnapshot" OR
+                                 coalesce(l."CommercialSnapshotJson"->>'currencyCode','') <> NEW."CurrencyCode" OR
+                                 coalesce((l."CommercialSnapshotJson"->>'exchangeRate')::numeric,0) <> 1 OR
+                                 coalesce(l."CommercialSnapshotJson"->>'vendorQualificationSnapshotJson','{}') = '{}' OR
+                                 length(trim(coalesce(l."CommercialSnapshotJson"->>'attachmentObjectKey',''))) = 0 OR
                                  length(coalesce(l."CommercialSnapshotJson"->>'attachmentSha256','')) <> 64 OR
+                                 coalesce(l."TaxRuleSnapshotJson"->>'organizationId','') <> NEW."OrganizationId" OR
+                                 coalesce(l."TaxRuleSnapshotJson"->>'approvalStatus','') <> 'Approved' OR
+                                 coalesce((l."TaxRuleSnapshotJson"->>'isActive')::boolean,FALSE) IS NOT TRUE OR
+                                 length(trim(coalesce(l."TaxRuleSnapshotJson"->>'hsnSacCode',''))) = 0 OR
                                  coalesce(l."CommercialSnapshotJson"->>'comparisonApprovalRoute','') <> NEW."ApprovalRoute" OR
                                  coalesce((l."CommercialSnapshotJson"->'result'->>'totalPayableValue')::numeric,-1) <> l."TotalPayableValue")) OR
                             NEW."TaxableValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'taxableValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."DiscountValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'discountValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."HeaderDiscountValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'headerDiscountValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."TaxValue" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'cgstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'sgstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'igstValue')::numeric + (l."CommercialSnapshotJson"->'result'->>'cessValue')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."PackingForwarding" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'packingForwarding')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."Freight" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'freight')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
@@ -1433,6 +1509,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             NEW."OtherCharges" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'otherCharges')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."RoundOff" <> (SELECT coalesce(sum((l."CommercialSnapshotJson"->'result'->>'roundOff')::numeric), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
                             NEW."TotalPayableValue" <> (SELECT coalesce(sum(l."TotalPayableValue"), 0) FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId" = NEW."Id") OR
+                            NEW."ApprovalPolicySnapshotJson" IS NULL OR NEW."ApprovalPolicySnapshotJson" = '{}'::jsonb OR
+                            coalesce(NEW."ApprovalPolicySnapshotJson"->>'organizationId','') <> NEW."OrganizationId" OR
+                            coalesce(NEW."ApprovalPolicySnapshotJson"->>'routeCode','') <> NEW."ApprovalRoute" OR
+                            coalesce((NEW."ApprovalPolicySnapshotJson"->>'approvalValue')::numeric,-1) <> NEW."TotalPayableValue" OR
+                            length(trim(coalesce(NEW."ApprovalPolicySnapshotJson"->>'effectiveOn',''))) = 0 OR
                             NOT EXISTS (SELECT 1 FROM nexa.purchase_order_history h WHERE h."PurchaseOrderId" = NEW."Id" AND h."ToStatus" = 'Approved' AND length(trim(h."Reason")) > 0) OR
                             NOT EXISTS (SELECT 1 FROM nexa.purchase_transaction_approval_policies p WHERE p."OrganizationId" = NEW."OrganizationId" AND p."RouteCode" = NEW."ApprovalRoute" AND p."IsActive" AND NEW."TotalPayableValue" >= p."MinimumAmount" AND (p."MaximumAmount" IS NULL OR NEW."TotalPayableValue" <= p."MaximumAmount"))
                         ) THEN RAISE EXCEPTION 'Purchase order pre-issue snapshot is incomplete or does not reconcile.'; END IF;
@@ -1500,6 +1581,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE TRIGGER trg_rev869b_comparison_line_snapshot_guard BEFORE UPDATE ON nexa.commercial_comparison_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
                 CREATE TRIGGER trg_rev869b_purchase_order_snapshot_guard BEFORE UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
                 CREATE TRIGGER trg_rev869b_rfq_transition_guard BEFORE INSERT OR UPDATE ON nexa.request_for_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
+                CREATE TRIGGER trg_rev869b_invitation_transition_guard BEFORE INSERT OR UPDATE ON nexa.rfq_vendor_invitations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_quotation_transition_guard BEFORE INSERT OR UPDATE ON nexa.vendor_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_comparison_transition_guard BEFORE INSERT OR UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_purchase_order_transition_guard BEFORE INSERT OR UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
@@ -1819,6 +1901,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 keyValue: new Guid("e6c278a8-9f01-4a07-845a-1aba37ca0e46"));
 
             migrationBuilder.Sql("DROP TRIGGER IF EXISTS trg_rev869b_down_permission_owner ON nexa.role_page_permissions; DROP TRIGGER IF EXISTS trg_rev869b_down_page_owner ON nexa.page_definitions; DROP FUNCTION IF EXISTS nexa.rev869b_down_owned_seed_guard();");
+            migrationBuilder.DropColumn(name: "CanIssue", schema: "nexa", table: "role_page_permissions");
         }
     }
 }

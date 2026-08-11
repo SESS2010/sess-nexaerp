@@ -28,7 +28,8 @@ public sealed class Rev869BPurchaseBehaviorTests
         Assert.Equal((9m, 9m, 0m), (intra.CgstValue, intra.SgstValue, intra.IgstValue));
         var inter = Rev869BCommercialCalculator.Calculate(new(1m, 100m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 18m, 0m, 0m, 6));
         Assert.Equal((0m, 0m, 18m), (inter.CgstValue, inter.SgstValue, inter.IgstValue));
-        Assert.Equal(0.333333m, Rev869BCommercialCalculator.Calculate(new(1m, 0.3333334m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)).TotalPayableValue);
+        Assert.Equal(0.333333m, Rev869BCommercialCalculator.Calculate(new(1m, 0.333333m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)).TotalPayableValue);
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 0.3333334m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
         Assert.Equal(Rev869BCommercialCalculator.MaximumSupportedValue, Rev869BCommercialCalculator.Calculate(new(1m, Rev869BCommercialCalculator.MaximumSupportedValue, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)).TotalPayableValue);
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(-1m, 1m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(Rev869BCommercialCalculator.MaximumSupportedValue, 2m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
@@ -44,16 +45,51 @@ public sealed class Rev869BPurchaseBehaviorTests
         Assert.NotEqual(first, changed);
         Assert.True(Rev869BIdempotencyFingerprint.SameCommand(first, "SESS", "SubmitPO", "key-1"));
         Assert.False(Rev869BIdempotencyFingerprint.SameCommand(first, "OTHER", "SubmitPO", "key-1"));
+        var ordered = Rev869BIdempotencyFingerprint.Create("SESS", "CreateRFQ", "key-lines", new { Lines = new[] { new { Id = 2, Quantity = 1m }, new { Id = 1, Quantity = 3m } } });
+        var reordered = Rev869BIdempotencyFingerprint.Create("SESS", "CreateRFQ", "key-lines", new { Lines = new[] { new { Quantity = 3m, Id = 1 }, new { Quantity = 1m, Id = 2 } } });
+        Assert.Equal(ordered, reordered);
     }
     [Fact]
     public void CommercialCalculationUsesTaxableChargesDiscountTaxAndOverflowGuards()
     {
         var result = Rev869BCommercialCalculator.Calculate(new(3m, 100m, 10m, 2m, 3m, 4m, 5m, 9m, 9m, 0m, 1m, 0.005m, 2));
-        Assert.Equal(new Rev869BCommercialBreakdown(304m, 10m, 27.36m, 27.36m, 0m, 3.04m, 2m, 3m, 4m, 5m, 0.005m, 361.77m), result);
+        Assert.Equal(new Rev869BCommercialBreakdown(304m, 10m, 27.36m, 27.36m, 0m, 3.04m, 2m, 3m, 4m, 5m, 0.005m, 361.77m)
+        { GrossAmount = 300m, AssessableValue = 314m }, result);
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(
             new(Rev869BCommercialCalculator.MaximumSupportedValue, 2m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Add(
             Rev869BCommercialCalculator.MaximumSupportedValue, 0.000001m));
+    }
+
+    [Fact]
+    public void DecimalBoundariesRejectInvalidScaleAndReconcileGstAndPayableExactly()
+    {
+        var accepted = Rev869BCommercialCalculator.Calculate(new(1.000000m, 100.000000m, 1.000000m, 2.000000m, 3.000000m, 4.000000m, 5.000000m, 9.000000m, 9.000000m, 0.000000m, 1.000000m, -0.000001m, 6)
+        { HeaderDiscountValue = 1.000000m, CurrencyCode = "INR", ExchangeRate = 1.000000m });
+        Assert.Equal(112m, accepted.TaxableValue);
+        Assert.Equal(10.08m, accepted.CgstValue);
+        Assert.Equal(10.08m, accepted.SgstValue);
+        Assert.Equal(1.12m, accepted.CessValue);
+        Assert.Equal(133.279999m, accepted.TotalPayableValue);
+
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 1.0000001m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 1m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, -0.0000001m, 6)));
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, 1m, 0m, 0m, 0m, 0m, 0m, 9.0000001m, 9m, 0m, 0m, 0m, 6)));
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Ensure(Rev869BCommercialCalculator.MaximumSupportedValue + 0.000001m, "boundary"));
+        Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(Rev869BCommercialCalculator.MaximumSupportedValue, 1.000001m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));
+    }
+
+    [Fact]
+    public async Task SevenDecimalInputMapsToHttp400()
+    {
+        var services = new ServiceCollection().AddSingleton<IAuditWriter>(new CapturingAudit()).AddSingleton<ICurrentUser>(new TestCurrentUser(true)).BuildServiceProvider();
+        var http = new DefaultHttpContext { RequestServices = services };
+        var result = await Rev869BPurchaseEndpoints.Run(() =>
+        {
+            Rev869BCommercialCalculator.Calculate(new(1m, 1.0000001m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6));
+            return Task.FromResult(new Rev869BDocumentResult(Guid.NewGuid(), "never", "never", 0));
+        }, http, CancellationToken.None);
+        Assert.Equal(StatusCodes.Status400BadRequest, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
     }
 
     [Fact]
@@ -66,6 +102,17 @@ public sealed class Rev869BPurchaseBehaviorTests
         po.TotalPayableValue = 100m;
         po.Lines[0].TaxRuleSnapshotJson = "{}";
         Assert.Throws<InvalidOperationException>(() => Rev869BPurchaseOrderSnapshot.RequireComplete(po));
+    }
+
+    [Fact]
+    public void PreApprovalSnapshotReconciliationDoesNotRequireApprovedStatusButStillFailsClosed()
+    {
+        var po = ValidPurchaseOrder();
+        po.Status = Rev869BStatuses.Draft;
+        Rev869BPurchaseOrderSnapshot.RequireComplete(po, requireApproved: false);
+        Assert.Throws<InvalidOperationException>(() => Rev869BPurchaseOrderSnapshot.RequireComplete(po));
+        po.ApprovalPolicySnapshotJson = "{";
+        Assert.Throws<InvalidOperationException>(() => Rev869BPurchaseOrderSnapshot.RequireComplete(po, requireApproved: false));
     }
 
     [Fact]
@@ -173,9 +220,11 @@ public sealed class Rev869BPurchaseBehaviorTests
         var result = Rev869BCommercialCalculator.Calculate(input);
         var tax = new Rev869BTaxRuleSnapshot(Guid.NewGuid(), organization, TaxJurisdictions.IndiaGst, "0000", "INTRASTATE", "TN", "TN", "REGULAR", 0m, 0m, 0m, 0m, 0m, false, false, "INR", 6, new DateOnly(2026, 1, 1), null, MasterApprovalStatuses.Approved, true);
         var commercial = new Rev869BPoCommercialSnapshot(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), comparisonId, vendorId, organization, "{\"eligible\":true}", "vendor/quote.pdf", new string('A', 64), Rev869BApprovalRoutes.Manager, received.AddDays(1), received, input, result);
+        commercial = commercial with { QuotationRevision = 1, ItemId = Guid.NewGuid(), Quantity = 1m, Uom = string.Concat('E','A'), CurrencyCode = string.Concat('I','N','R'), ExchangeRate = 1m };
+        var policyJson = System.Text.Json.JsonSerializer.Serialize(new { organizationId = organization, routeCode = Rev869BApprovalRoutes.Manager, approvalValue = 100m, effectiveOn = new DateOnly(2026, 8, 11) }, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         return new PurchaseOrder { OrganizationId = organization, CommercialComparisonId = comparisonId, VendorId = vendorId,
             Status = Rev869BStatuses.Approved, ApprovalRoute = Rev869BApprovalRoutes.Manager, PaymentTermsSnapshot = "30 days", DeliveryTermsSnapshot = "Delivered", WarrantyTermsSnapshot = "12 months",
-            TaxableValue = 100m, TotalPayableValue = 100m, Lines = [new PurchaseOrderLine { OrderedQuantity = 1m, ApprovedOutstandingQuantitySnapshot = 1m,
+            TaxableValue = 100m, TotalPayableValue = 100m, ApprovalPolicySnapshotJson = policyJson, Lines = [new PurchaseOrderLine { ItemId = commercial.ItemId, UomSnapshot = commercial.Uom, OrderedQuantity = 1m, ApprovedOutstandingQuantitySnapshot = 1m,
                 CommercialSnapshotJson = System.Text.Json.JsonSerializer.Serialize(commercial, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
                 TaxRuleSnapshotJson = System.Text.Json.JsonSerializer.Serialize(tax, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)), TotalPayableValue = 100m }] };
     }

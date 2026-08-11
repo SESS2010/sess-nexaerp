@@ -751,6 +751,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.ToTable("role_page_permissions");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.RoleId, x.PageDefinitionId }).IsUnique();
+            entity.Property(x => x.CanIssue).HasDefaultValue(false);
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.PageDefinition).WithMany().HasForeignKey(x => x.PageDefinitionId).OnDelete(DeleteBehavior.Cascade);

@@ -48,7 +48,7 @@ public sealed class Rev869BPurchaseFoundationTests
     {
         Assert.Equal(4, Rev869BSeedData.Pages.Length); Assert.Equal(3, Rev869BSeedData.ApprovalPolicies.Length); Assert.Equal(29, Rev869BSeedData.RolePagePermissions.Count);
         Assert.All(Rev869BSeedData.RolePagePermissions, x => Assert.Equal("migration-rev869b", x.CreatedBy));
-        Assert.DoesNotContain(Rev869BSeedData.RolePagePermissions, x => !x.CanView && !x.CanCreate && !x.CanUpdate && !x.CanSubmit && !x.CanVerify && !x.CanApprove && !x.CanReject && !x.CanRequestClarification && !x.CanRequestRevision && !x.CanResubmit && !x.CanCancel && !x.CanDeactivate && !x.CanPrint && !x.CanDownload && !x.CanExport && !x.CanUploadAttachment && !x.CanReplaceAttachment && !x.CanViewCommercialValues && !x.CanViewAuditHistory && !x.HasFullControl);
+        Assert.DoesNotContain(Rev869BSeedData.RolePagePermissions, x => !x.CanView && !x.CanCreate && !x.CanUpdate && !x.CanSubmit && !x.CanIssue && !x.CanVerify && !x.CanApprove && !x.CanReject && !x.CanRequestClarification && !x.CanRequestRevision && !x.CanResubmit && !x.CanCancel && !x.CanDeactivate && !x.CanPrint && !x.CanDownload && !x.CanExport && !x.CanUploadAttachment && !x.CanReplaceAttachment && !x.CanViewCommercialValues && !x.CanViewAuditHistory && !x.HasFullControl);
         var stores = Rev869BSeedData.RolePagePermissions.Where(x => x.CanView && !x.CanCreate && !x.CanUpdate).ToList(); Assert.NotEmpty(stores);
         Assert.Contains("DEPARTMENT_MANAGER", MigrationSource); Assert.Contains("CanRequestClarification", MigrationSource);
     }
@@ -60,7 +60,8 @@ public sealed class Rev869BPurchaseFoundationTests
         var normalized = MigrationSource.Replace("\r\n", "\n");
         Assert.Equal(15, tables.Length); foreach (var table in tables) { Assert.Contains($"name: \"{table}\"", normalized); Assert.Contains($"DropTable(\n                name: \"{table}\"", normalized); }
         Assert.DoesNotContain("DropTable(\n                name: \"purchase_requisitions\"", normalized);
-        Assert.DoesNotContain("AlterColumn", MigrationSource); Assert.DoesNotContain("DropColumn", MigrationSource);
+        Assert.DoesNotContain("AlterColumn", MigrationSource);
+        Assert.Equal(1, Count(MigrationSource, "AddColumn<bool>")); Assert.Equal(1, Count(MigrationSource, "DropColumn(name: \"CanIssue\""));
     }
 
     [Fact]
@@ -69,7 +70,7 @@ public sealed class Rev869BPurchaseFoundationTests
         Assert.Contains("IX_purchase_orders_OrganizationId_PoNumber_RevisionNumber", MigrationSource);
         Assert.Contains("\\\"IsCurrentVersion\\\" = TRUE", MigrationSource); Assert.Contains("\\\"IsCurrentRevision\\\" = TRUE", MigrationSource);
         Assert.Contains("IsConcurrencyToken", MappingSource); Assert.Contains("rev869b_reject_immutable_mutation", MigrationSource);
-        Assert.Equal(23, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(24, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation", MigrationSource);
     }
 

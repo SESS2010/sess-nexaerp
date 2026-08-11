@@ -15,7 +15,8 @@ public sealed record Rev869BSubmitQuotationRequest(
     string WarrantyTerms, bool RequestLateAuthorization, string? LateAuthorizationRemarks,
     string SubmissionSource, DateTimeOffset ReceivedAt, string AttachmentObjectKey,
     string AttachmentSha256, string VendorAttestation, uint InvitationVersion,
-    uint? PreviousQuotationVersion, string IdempotencyKey, IReadOnlyList<Rev869BQuotationLineRequest> Lines);
+    uint? PreviousQuotationVersion, string IdempotencyKey, IReadOnlyList<Rev869BQuotationLineRequest> Lines,
+    decimal HeaderDiscountValue = 0m);
 
 public sealed record Rev869BTechnicalVerificationRequest(Guid VendorQuotationLineId, bool IsCompliant, string ComplianceEvidenceJson, string Remarks, uint QuotationVersion, string IdempotencyKey);
 public sealed record Rev869BCreateComparisonRequest(string RfqNumber, uint RfqVersion, string IdempotencyKey);

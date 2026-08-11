@@ -25,14 +25,14 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(existing.Id, existing.ComparisonNumber, Rev869BStatuses.Draft, 0);
         }
         await ReserveRfqAsync(rfq.Id, organization, request.RfqVersion, ct);
-        var quotes = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).Where(x => x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == rfq.Id && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant).ToListAsync(ct);
+        var quotes = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine).Where(x => x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == rfq.Id && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant).ToListAsync(ct);
         if (quotes.Count == 0) throw new Rev869BConflictException("No current technically compliant quotation is available.");
         if (quotes.Any(x => x.CurrencyCode != rfq.CurrencyCode)) throw new Rev869BConflictException("Currency conversion unavailable; quotations must match RFQ currency.");
         var next = await NextNumberAsync(organization, "CMP", DateOnly.FromDateTime(DateTime.UtcNow), ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, CreatedBy = user.LoginId };
         foreach (var quote in quotes) foreach (var line in quote.Lines)
         {
             var recalculated = Recalculate(line, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
-            comparison.Lines.Add(new CommercialComparisonLine { VendorQuotationLineId = line.Id, VendorId = quote.VendorId, TechnicalComplianceSnapshot = Rev869BStatuses.TechnicallyCompliant, CommercialSnapshotJson = JsonSerializer.Serialize(new { Inputs = line, Result = recalculated.Breakdown, TaxRule = recalculated.Tax }, JsonOptions), DeliverySnapshot = line.PromisedDeliveryDate.ToString("yyyy-MM-dd"), WarrantySnapshot = quote.WarrantyTermsSnapshot, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, TotalPayableValue = recalculated.Breakdown.TotalPayableValue, CreatedBy = user.LoginId });
+            comparison.Lines.Add(new CommercialComparisonLine { VendorQuotationLineId = line.Id, VendorId = quote.VendorId, TechnicalComplianceSnapshot = Rev869BStatuses.TechnicallyCompliant, CommercialSnapshotJson = ComparisonSnapshotJson(comparison, quote, line, recalculated), DeliverySnapshot = line.PromisedDeliveryDate.ToString("yyyy-MM-dd"), WarrantySnapshot = quote.WarrantyTermsSnapshot, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, TotalPayableValue = recalculated.Breakdown.TotalPayableValue, CreatedBy = user.LoginId });
         }
         db.CommercialComparisons.Add(comparison); AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, null, comparison.Status, "Create", "Created from technically compliant quotations", comparisonFingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "CreateComparison", nameof(CommercialComparison), comparison.Id.ToString(), null, new { comparison.ComparisonNumber, lineCount = comparison.Lines.Count }, ct); await tx.CommitAsync(ct); return Result(comparison.Id, comparison.ComparisonNumber, comparison.Status, comparison.Version);
     }
@@ -55,24 +55,25 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(comparison.Id, comparison.ComparisonNumber, Rev869BStatuses.PendingApproval, checked(request.Version + 1));
         }
         if (comparison.Status is not (Rev869BStatuses.Draft or Rev869BStatuses.RevisionRequested)) throw new Rev869BConflictException("Comparison cannot be recommended now.");
-        var quote = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.Id == request.VendorQuotationId && x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == comparison.RequestForQuotationId && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant, ct)
+        var quote = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine).SingleOrDefaultAsync(x => x.Id == request.VendorQuotationId && x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == comparison.RequestForQuotationId && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant, ct)
             ?? throw new Rev869BConflictException("Recommended quotation is outside this organization/RFQ or is not technically compliant.");
         var comparisonLineIds = comparison.Lines.Select(x => x.VendorQuotationLineId).ToHashSet(); if (quote.Lines.Any(x => !comparisonLineIds.Contains(x.Id))) throw new Rev869BConflictException("Recommended quotation line is outside this comparison.");
         var justification = Trim(request.SingleSourceJustification) ?? comparison.SingleSourceJustification;
         if (comparison.IsSingleSource && string.IsNullOrWhiteSpace(justification)) throw new Rev869BValidationException("Single-source recommendation justification is required.");
-        var newVersion = await ReserveComparisonAsync(comparison.Id, organization, request.Version, ct);
+        var newVersion = checked(request.Version + 1);
         decimal total = 0m; var remarks = RequiredRemarks(request.RecommendationRemarks);
         foreach (var quoteLine in quote.Lines)
         {
             var recalculated = Recalculate(quoteLine, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)); total = Rev869BCommercialCalculator.Add(total, recalculated.Breakdown.TotalPayableValue);
             await db.CommercialComparisonLines.Where(x => x.CommercialComparisonId == comparison.Id && x.VendorQuotationLineId == quoteLine.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRecommended, true).SetProperty(x => x.RecommendationReason, remarks).SetProperty(x => x.TotalPayableValue, recalculated.Breakdown.TotalPayableValue).SetProperty(x => x.CommercialSnapshotJson, JsonSerializer.Serialize(new { Inputs = quoteLine, Result = recalculated.Breakdown, TaxRule = recalculated.Tax }, JsonOptions)), ct);
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRecommended, true).SetProperty(x => x.RecommendationReason, remarks).SetProperty(x => x.TotalPayableValue, recalculated.Breakdown.TotalPayableValue).SetProperty(x => x.CommercialSnapshotJson, ComparisonSnapshotJson(comparison, quote, quoteLine, recalculated)), ct);
         }
         await db.CommercialComparisonLines.Where(x => x.CommercialComparisonId == comparison.Id && !quote.Lines.Select(l => l.Id).Contains(x.VendorQuotationLineId))
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRecommended, false).SetProperty(x => x.RecommendationReason, (string?)null), ct);
         var route = await ResolveApprovalRouteAsync(total, organization, ct); Rev869BStatusContracts.RequireComparison(comparison.Status, Rev869BStatuses.PendingApproval);
-        await db.CommercialComparisons.Where(x => x.Id == comparison.Id && x.OrganizationId == organization && x.Version == newVersion)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RecommendedVendorQuotationId, quote.Id).SetProperty(x => x.SelectedVendorId, quote.VendorId).SetProperty(x => x.TotalPayableValue, total).SetProperty(x => x.SingleSourceJustification, justification).SetProperty(x => x.RecommendationRemarks, remarks).SetProperty(x => x.ApprovalRoute, route).SetProperty(x => x.Status, Rev869BStatuses.PendingApproval).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var affected = await db.CommercialComparisons.Where(x => x.Id == comparison.Id && x.OrganizationId == organization && x.Version == request.Version)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, newVersion).SetProperty(x => x.RecommendedVendorQuotationId, quote.Id).SetProperty(x => x.SelectedVendorId, quote.VendorId).SetProperty(x => x.TotalPayableValue, total).SetProperty(x => x.SingleSourceJustification, justification).SetProperty(x => x.RecommendationRemarks, remarks).SetProperty(x => x.ApprovalRoute, route).SetProperty(x => x.Status, Rev869BStatuses.PendingApproval).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "commercial comparison");
         AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, comparison.Status, Rev869BStatuses.PendingApproval, "Recommend", remarks, commandFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "RecommendVendor", nameof(CommercialComparison), comparison.Id.ToString(), null, new { SelectedVendorId = quote.VendorId, TotalPayableValue = total, ApprovalRoute = route }, ct); await tx.CommitAsync(ct); return Result(comparison.Id, comparison.ComparisonNumber, Rev869BStatuses.PendingApproval, newVersion);
     }
@@ -89,8 +90,9 @@ public sealed partial class EfRev869BPurchaseService
         var replay = await db.PurchaseTransactionApprovalHistories.AsNoTracking().SingleOrDefaultAsync(x => x.CommercialComparisonId == c.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != "Resubmit" || replay.Remarks != request.Remarks.Trim()) throw new Rev869BConflictException("Resubmit idempotency key was reused."); await tx.RollbackAsync(ct); return Result(c.Id, c.ComparisonNumber, replay.ToStatus, checked(request.Version + 1)); }
         if (c.Status != Rev869BStatuses.RevisionRequested) throw new Rev869BConflictException("Only revision-requested comparison may be resubmitted.");
-        var version = await ReserveComparisonAsync(c.Id, c.OrganizationId, request.Version, ct); var remarks = RequiredRemarks(request.Remarks); Rev869BStatusContracts.RequireComparison(c.Status, Rev869BStatuses.PendingApproval);
-        await db.CommercialComparisons.Where(x => x.Id == c.Id && x.OrganizationId == c.OrganizationId && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, Rev869BStatuses.PendingApproval).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var version = checked(request.Version + 1); var remarks = RequiredRemarks(request.Remarks); Rev869BStatusContracts.RequireComparison(c.Status, Rev869BStatuses.PendingApproval);
+        var affected = await db.CommercialComparisons.Where(x => x.Id == c.Id && x.OrganizationId == c.OrganizationId && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, Rev869BStatuses.PendingApproval).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "commercial comparison");
         AddStatus("CommercialComparison", c.Id, c.ComparisonNumber, c.Status, Rev869BStatuses.PendingApproval, "Resubmit", remarks, commandFingerprint); AddApproval(c, "Resubmit", c.Status, Rev869BStatuses.PendingApproval, remarks, commandFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "ResubmitComparison", nameof(CommercialComparison), c.Id.ToString(), null, new { Status = Rev869BStatuses.PendingApproval }, ct); await tx.CommitAsync(ct); return Result(c.Id, c.ComparisonNumber, Rev869BStatuses.PendingApproval, version);
     }
@@ -102,11 +104,13 @@ public sealed partial class EfRev869BPurchaseService
         var replay = await db.PurchaseTransactionApprovalHistories.AsNoTracking().SingleOrDefaultAsync(x => x.CommercialComparisonId == c.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != action || replay.Remarks != request.Remarks.Trim()) throw new Rev869BConflictException("Approval idempotency key was reused."); await tx.RollbackAsync(ct); return Result(c.Id, c.ComparisonNumber, replay.ToStatus, checked(request.Version + 1)); }
         if (c.Status != Rev869BStatuses.PendingApproval) throw new Rev869BConflictException("Comparison is not pending approval.");
+        if (next == Rev869BStatuses.Approved) await ReconcileComparisonAsync(c, ct);
         var department = await db.RequestForQuotations.AsNoTracking().Where(x => x.Id == c.RequestForQuotationId && x.OrganizationId == c.OrganizationId).Select(x => x.RequestingDepartmentId).SingleOrDefaultAsync(ct);
         await RequireApproverAsync(c.ApprovalRoute, department, actor, c.CreatedBy, ct);
         if (c.RecommendedVendorQuotationId.HasValue && await db.QuotationTechnicalVerifications.AnyAsync(x => x.VerifierEmployeeId == actor && x.VendorQuotationLine!.VendorQuotationId == c.RecommendedVendorQuotationId, ct)) throw new UnauthorizedAccessException("Technical verifier cannot commercially approve the same quotation.");
-        var remarks = RequiredRemarks(request.Remarks); var version = await ReserveComparisonAsync(c.Id, c.OrganizationId, request.Version, ct); Rev869BStatusContracts.RequireComparison(c.Status, next);
-        await db.CommercialComparisons.Where(x => x.Id == c.Id && x.OrganizationId == c.OrganizationId && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, next).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var remarks = RequiredRemarks(request.Remarks); var version = checked(request.Version + 1); Rev869BStatusContracts.RequireComparison(c.Status, next);
+        var affected = await db.CommercialComparisons.Where(x => x.Id == c.Id && x.OrganizationId == c.OrganizationId && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, next).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "commercial comparison");
         AddStatus("CommercialComparison", c.Id, c.ComparisonNumber, c.Status, next, action, remarks, commandFingerprint); AddApproval(c, action, c.Status, next, remarks, commandFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", action + "Comparison", nameof(CommercialComparison), c.Id.ToString(), new { status = c.Status }, new { status = next, c.ApprovalRoute }, ct); await tx.CommitAsync(ct); return Result(c.Id, c.ComparisonNumber, next, version);
     }
@@ -134,18 +138,21 @@ public sealed partial class EfRev869BPurchaseService
         {
             var source = ql.RequestForQuotationLine!; var ordered = await OrderedQuantityAsync(source.PurchaseRequisitionLineId, ct); var remaining = source.ApprovedQuantitySnapshot - ordered; if (ql.Quantity > remaining) throw new Rev869BConflictException("Cumulative PO quantity exceeds approved outstanding quantity."); var comparisonLine = c.Lines.SingleOrDefault(x => x.VendorQuotationLineId == ql.Id) ?? throw new Rev869BConflictException("Selected quotation line is outside comparison.");
             var recalculated = Recalculate(ql, c.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)); var calc = recalculated.Breakdown;
-            var input = new Rev869BCommercialInput(ql.Quantity, ql.UnitRate, ql.DiscountValue, ql.PackingForwarding, ql.Freight, ql.Insurance, ql.OtherCharges, recalculated.Tax.CgstRate, recalculated.Tax.SgstRate, recalculated.Tax.IgstRate, recalculated.Tax.CessRate, ql.RoundOff, recalculated.Tax.RoundingScale);
+            var input = new Rev869BCommercialInput(ql.Quantity, ql.UnitRate, ql.DiscountValue, ql.PackingForwarding, ql.Freight, ql.Insurance, ql.OtherCharges, recalculated.Tax.CgstRate, recalculated.Tax.SgstRate, recalculated.Tax.IgstRate, recalculated.Tax.CessRate, ql.RoundOff, recalculated.Tax.RoundingScale)
+            { HeaderDiscountValue = ql.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
             var immutable = new Rev869BPoCommercialSnapshot(quote.Id, ql.Id, rfq.Id, c.Id, quote.VendorId, c.OrganizationId,
                 quote.RfqVendorInvitation!.VendorQualificationSnapshotJson, quote.AttachmentObjectKey, quote.AttachmentSha256,
-                c.ApprovalRoute, comparisonApproval.CreatedAt, quote.ReceivedAt, input, calc);
+                c.ApprovalRoute, comparisonApproval.CreatedAt, quote.ReceivedAt, input, calc)
+            { QuotationRevision = quote.RevisionNumber, ItemId = source.ItemId, Quantity = ql.Quantity, Uom = source.UomSnapshot, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
             po.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = comparisonLine.Id, PurchaseRequisitionLineId = source.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = source.PurchaseRequirementHandoffId, ItemId = source.ItemId, LineNumber = ++lineNo, ItemCodeSnapshot = source.ItemCodeSnapshot, ItemNameSnapshot = source.ItemNameSnapshot, UomSnapshot = source.UomSnapshot, OrderedQuantity = ql.Quantity, ApprovedOutstandingQuantitySnapshot = remaining, UnitRate = ql.UnitRate, CommercialSnapshotJson = JsonSerializer.Serialize(immutable, JsonOptions), TaxRuleSnapshotJson = JsonSerializer.Serialize(recalculated.Tax, JsonOptions), TotalPayableValue = calc.TotalPayableValue, CreatedBy = user.LoginId });
             reconciledLines.Add(calc);
         }
         var aggregate = Rev869BCommercialCalculator.Aggregate(reconciledLines);
-        po.TaxableValue = aggregate.TaxableValue; po.DiscountValue = aggregate.DiscountValue; po.TaxValue = aggregate.TaxValue;
+        po.TaxableValue = aggregate.TaxableValue; po.DiscountValue = aggregate.DiscountValue; po.HeaderDiscountValue = aggregate.HeaderDiscountValue; po.TaxValue = aggregate.TaxValue;
         po.PackingForwarding = aggregate.PackingForwarding; po.Freight = aggregate.Freight; po.Insurance = aggregate.Insurance;
         po.OtherCharges = aggregate.OtherCharges; po.RoundOff = aggregate.RoundOff; po.TotalPayableValue = aggregate.TotalPayableValue;
         po.ApprovalRoute = await ResolveApprovalRouteAsync(po.TotalPayableValue, po.OrganizationId, ct);
+        po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = DateOnly.FromDateTime(DateTime.UtcNow) }, JsonOptions);
         db.PurchaseOrders.Add(po); AddPoHistory(po, "Create", "", po.Status, "Created from approved comparison", poFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, null, po.Status, "Create", "Created from approved comparison", poFingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "CreatePO", nameof(PurchaseOrder), po.Id.ToString(), null, new { po.PoNumber, po.TotalPayableValue }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, po.Status, po.Version);
     }
 
@@ -163,10 +170,12 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1));
         }
         if (po.Status is not (Rev869BStatuses.Draft or Rev869BStatuses.RevisionDraft)) throw new Rev869BConflictException("Only a draft or rejected-PO revision draft may be submitted.");
+        Rev869BPurchaseOrderSnapshot.RequireComplete(po, requireApproved: false);
         var nextStatus = po.Status == Rev869BStatuses.Draft ? Rev869BStatuses.PendingApproval : Rev869BStatuses.Resubmitted;
         var action = po.Status == Rev869BStatuses.Draft ? "Submit" : "ResubmitRejected";
-        var version = await ReservePoAsync(po.Id, organization, request.Version, ct); var remarks = RequiredRemarks(request.Remarks); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, nextStatus);
-        await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == organization && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, nextStatus).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var version = checked(request.Version + 1); var remarks = RequiredRemarks(request.Remarks); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, nextStatus);
+        var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == organization && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, nextStatus).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "purchase order");
         AddPoHistory(po, action, po.Status, nextStatus, remarks, commandFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, nextStatus, action, remarks, commandFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", action + "PO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status }, new { status = nextStatus, po.ApprovalRoute, po.TotalPayableValue }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, nextStatus, version);
     }
@@ -180,8 +189,9 @@ public sealed partial class EfRev869BPurchaseService
         if (po.Status != Rev869BStatuses.Approved || !po.IsCurrentVersion) throw new Rev869BConflictException("Only approved current PO may be issued.");
         Rev869BPurchaseOrderSnapshot.RequireComplete(po);
         if (await db.MaterialFollowUpHandoffs.AnyAsync(x => x.PurchaseOrderId == po.Id, ct)) throw new Rev869BConflictException("Material Follow-up handoff already exists for this PO version.");
-        var version = await ReservePoAsync(po.Id, po.OrganizationId, request.Version, ct); var issuedAt = DateTimeOffset.UtcNow; Rev869BStatusContracts.RequirePurchaseOrder(po.Status, Rev869BStatuses.Issued);
-        await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, Rev869BStatuses.Issued).SetProperty(x => x.IssuedAt, issuedAt).SetProperty(x => x.UpdatedAt, issuedAt).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var version = checked(request.Version + 1); var issuedAt = DateTimeOffset.UtcNow; Rev869BStatusContracts.RequirePurchaseOrder(po.Status, Rev869BStatuses.Issued);
+        var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, Rev869BStatuses.Issued).SetProperty(x => x.IssuedAt, issuedAt).SetProperty(x => x.UpdatedAt, issuedAt).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "purchase order");
         foreach (var line in po.Lines) db.MaterialFollowUpHandoffs.Add(new MaterialFollowUpHandoff { PurchaseOrderId = po.Id, PurchaseOrderLineId = line.Id, HandoffNumber = $"MFU-{po.Id:N}-{line.LineNumber:000}", OrderedQuantitySnapshot = line.OrderedQuantity, HandoffAt = issuedAt, CorrelationId = commandFingerprint, CreatedBy = user.LoginId });
         var remarks = RequiredRemarks(request.Remarks); AddPoHistory(po, "Issue", po.Status, Rev869BStatuses.Issued, remarks, commandFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, Rev869BStatuses.Issued, "Issue", remarks, commandFingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "IssuePO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status }, new { Status = Rev869BStatuses.Issued, IssuedAt = issuedAt }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, Rev869BStatuses.Issued, version);
     }
@@ -203,7 +213,7 @@ public sealed partial class EfRev869BPurchaseService
         if (prior.Status != Rev869BStatuses.Issued || !prior.IsCurrentVersion) throw new Rev869BConflictException("Only an issued current PO may be amended.");
         if (await db.PurchaseOrders.AnyAsync(x => x.PreviousVersionId == prior.Id && x.Status != Rev869BStatuses.Rejected && x.Status != Rev869BStatuses.Cancelled, ct)) throw new Rev869BConflictException("A pending amendment already exists for this issued version.");
         await ReservePoAsync(prior.Id, prior.OrganizationId, request.Version, ct);
-        var next = new PurchaseOrder { OrganizationId = prior.OrganizationId, PoNumber = prior.PoNumber, FinancialYear = prior.FinancialYear, SequenceNumber = prior.SequenceNumber, RootPurchaseOrderId = prior.RootPurchaseOrderId, PreviousVersionId = prior.Id, RevisionNumber = prior.RevisionNumber + 1, IsCurrentVersion = false, CommercialComparisonId = prior.CommercialComparisonId, VendorId = prior.VendorId, RequestingDepartmentId = prior.RequestingDepartmentId, DeliveryWarehouseId = prior.DeliveryWarehouseId, OwnerEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = prior.CurrencyCode, ApprovalRoute = await ResolveApprovalRouteAsync(prior.TotalPayableValue, prior.OrganizationId, ct), TaxableValue = prior.TaxableValue, DiscountValue = prior.DiscountValue, TaxValue = prior.TaxValue, PackingForwarding = prior.PackingForwarding, Freight = prior.Freight, Insurance = prior.Insurance, OtherCharges = prior.OtherCharges, RoundOff = prior.RoundOff, TotalPayableValue = prior.TotalPayableValue, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"), DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"), AmendmentReason = RequiredRemarks(request.AmendmentReason), IdempotencyKey = commandFingerprint, CreatedBy = user.LoginId };
+        var next = new PurchaseOrder { OrganizationId = prior.OrganizationId, PoNumber = prior.PoNumber, FinancialYear = prior.FinancialYear, SequenceNumber = prior.SequenceNumber, RootPurchaseOrderId = prior.RootPurchaseOrderId, PreviousVersionId = prior.Id, RevisionNumber = prior.RevisionNumber + 1, IsCurrentVersion = false, CommercialComparisonId = prior.CommercialComparisonId, VendorId = prior.VendorId, RequestingDepartmentId = prior.RequestingDepartmentId, DeliveryWarehouseId = prior.DeliveryWarehouseId, OwnerEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = prior.CurrencyCode, ApprovalRoute = prior.ApprovalRoute, TaxableValue = prior.TaxableValue, DiscountValue = prior.DiscountValue, HeaderDiscountValue = prior.HeaderDiscountValue, TaxValue = prior.TaxValue, PackingForwarding = prior.PackingForwarding, Freight = prior.Freight, Insurance = prior.Insurance, OtherCharges = prior.OtherCharges, RoundOff = prior.RoundOff, TotalPayableValue = prior.TotalPayableValue, ApprovalPolicySnapshotJson = prior.ApprovalPolicySnapshotJson, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"), DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"), AmendmentReason = RequiredRemarks(request.AmendmentReason), IdempotencyKey = commandFingerprint, CreatedBy = user.LoginId };
         foreach (var l in prior.Lines) next.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = l.CommercialComparisonLineId, PurchaseRequisitionLineId = l.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = l.PurchaseRequirementHandoffId, ItemId = l.ItemId, LineNumber = l.LineNumber, ItemCodeSnapshot = l.ItemCodeSnapshot, ItemNameSnapshot = l.ItemNameSnapshot, UomSnapshot = l.UomSnapshot, OrderedQuantity = l.OrderedQuantity, ApprovedOutstandingQuantitySnapshot = l.ApprovedOutstandingQuantitySnapshot, UnitRate = l.UnitRate, CommercialSnapshotJson = l.CommercialSnapshotJson, TaxRuleSnapshotJson = l.TaxRuleSnapshotJson, TotalPayableValue = l.TotalPayableValue, CreatedBy = user.LoginId });
         db.PurchaseOrders.Add(next); AddPoHistory(next, "Amend", prior.Status, next.Status, request.AmendmentReason, commandFingerprint); AddStatus("PurchaseOrder", next.Id, next.PoNumber, prior.Status, next.Status, "Amend", request.AmendmentReason, commandFingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "AmendPO", nameof(PurchaseOrder), next.Id.ToString(), new { prior.Id, prior.RevisionNumber, prior.Status }, new { next.RevisionNumber, next.Status, next.IsCurrentVersion }, ct); await tx.CommitAsync(ct); return Result(next.Id, next.PoNumber, next.Status, next.Version);
     }
@@ -237,10 +247,10 @@ public sealed partial class EfRev869BPurchaseService
             RevisionNumber = rejected.RevisionNumber + 1, IsCurrentVersion = true, CommercialComparisonId = rejected.CommercialComparisonId,
             VendorId = rejected.VendorId, RequestingDepartmentId = rejected.RequestingDepartmentId, DeliveryWarehouseId = rejected.DeliveryWarehouseId,
             OwnerEmployeeId = actor, Status = Rev869BStatuses.RevisionDraft, CurrencyCode = rejected.CurrencyCode,
-            ApprovalRoute = rejected.ApprovalRoute, TaxableValue = rejected.TaxableValue, DiscountValue = rejected.DiscountValue,
+            ApprovalRoute = rejected.ApprovalRoute, TaxableValue = rejected.TaxableValue, DiscountValue = rejected.DiscountValue, HeaderDiscountValue = rejected.HeaderDiscountValue,
             TaxValue = rejected.TaxValue, PackingForwarding = rejected.PackingForwarding, Freight = rejected.Freight,
             Insurance = rejected.Insurance, OtherCharges = rejected.OtherCharges, RoundOff = rejected.RoundOff,
-            TotalPayableValue = rejected.TotalPayableValue, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"),
+            TotalPayableValue = rejected.TotalPayableValue, ApprovalPolicySnapshotJson = rejected.ApprovalPolicySnapshotJson, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"),
             DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"),
             AmendmentReason = RequiredRemarks(request.RevisionReason), IdempotencyKey = commandFingerprint, CreatedBy = user.LoginId
         };
@@ -266,9 +276,10 @@ public sealed partial class EfRev869BPurchaseService
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != action || replay.Reason != request.Remarks.Trim()) throw new Rev869BConflictException("PO approval idempotency key was reused with a different payload."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }
         if (po.Status is not (Rev869BStatuses.PendingApproval or Rev869BStatuses.Resubmitted)) throw new Rev869BConflictException("Purchase order is not pending approval.");
+        Rev869BPurchaseOrderSnapshot.RequireComplete(po, requireApproved: false);
         var calculatedTotal = Rev869BCommercialCalculator.Add(po.Lines.Select(x => x.TotalPayableValue).ToArray()); if (calculatedTotal != po.TotalPayableValue) throw new Rev869BConflictException("PO header/line payable values are inconsistent.");
         var route = await ResolveApprovalRouteAsync(calculatedTotal, organization, ct); if (route != po.ApprovalRoute) throw new Rev869BConflictException("PO approval route is stale; recreate the controlled version.");
-        await RequireApproverAsync(route, po.RequestingDepartmentId, actor, po.CreatedBy, ct); var remarks = RequiredRemarks(request.Remarks); var version = await ReservePoAsync(po.Id, organization, request.Version, ct); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, next);
+        await RequireApproverAsync(route, po.RequestingDepartmentId, actor, po.CreatedBy, ct); var remarks = RequiredRemarks(request.Remarks); var version = checked(request.Version + 1); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, next);
         PurchaseOrder? prior = null;
         if (approve && po.PreviousVersionId.HasValue)
         {
@@ -277,15 +288,17 @@ public sealed partial class EfRev869BPurchaseService
             {
                 if (!prior.IsCurrentVersion) throw new Rev869BConflictException("Issued current predecessor is unavailable.");
                 if (!request.ExpectedCurrentVersion.HasValue) throw new Rev869BValidationException("Expected current PO version is required for amendment approval.");
-                var priorVersion = await ReservePoAsync(prior.Id, organization, request.ExpectedCurrentVersion.Value, ct); Rev869BStatusContracts.RequirePurchaseOrder(prior.Status, Rev869BStatuses.Superseded);
-                await db.PurchaseOrders.Where(x => x.Id == prior.Id && x.OrganizationId == organization && x.Version == priorVersion).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, Rev869BStatuses.Superseded).SetProperty(x => x.IsCurrentVersion, false).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+                var priorExpected = request.ExpectedCurrentVersion.Value; var priorVersion = checked(priorExpected + 1); Rev869BStatusContracts.RequirePurchaseOrder(prior.Status, Rev869BStatuses.Superseded);
+                var priorAffected = await db.PurchaseOrders.Where(x => x.Id == prior.Id && x.OrganizationId == organization && x.Version == priorExpected).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, priorVersion).SetProperty(x => x.Status, Rev869BStatuses.Superseded).SetProperty(x => x.IsCurrentVersion, false).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+                RequireCas(priorAffected, priorExpected, "purchase-order predecessor");
                 AddPoHistory(prior, "Supersede", prior.Status, Rev869BStatuses.Superseded, remarks, commandFingerprint + ":prior");
             }
             else if (prior.Status != Rev869BStatuses.Rejected || prior.IsCurrentVersion)
                 throw new Rev869BConflictException("Rejected-version recovery predecessor is invalid.");
         }
         var nextIsCurrent = approve;
-        await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == organization && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, next).SetProperty(x => x.IsCurrentVersion, nextIsCurrent).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == organization && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, next).SetProperty(x => x.IsCurrentVersion, nextIsCurrent).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "purchase order");
         AddPoHistory(po, action, po.Status, next, remarks, commandFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, next, action, remarks, commandFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", action + "PO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status, po.IsCurrentVersion }, new { status = next, IsCurrentVersion = nextIsCurrent, route, calculatedTotal }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, next, version);
     }
@@ -296,8 +309,9 @@ public sealed partial class EfRev869BPurchaseService
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(po.OrganizationId, "CancelPO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(po.OrganizationId, "CancelPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != "Cancel" || replay.Reason != request.Reason.Trim()) throw new Rev869BConflictException("PO cancellation idempotency key was reused."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }
-        var reason = RequiredRemarks(request.Reason); var version = await ReservePoAsync(po.Id, po.OrganizationId, request.Version, ct); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, Rev869BStatuses.Cancelled); var cancelledAt = DateTimeOffset.UtcNow;
-        await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, Rev869BStatuses.Cancelled).SetProperty(x => x.CancelledAt, cancelledAt).SetProperty(x => x.CancellationReason, reason).SetProperty(x => x.UpdatedAt, cancelledAt).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        var reason = RequiredRemarks(request.Reason); var version = checked(request.Version + 1); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, Rev869BStatuses.Cancelled); var cancelledAt = DateTimeOffset.UtcNow;
+        var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, Rev869BStatuses.Cancelled).SetProperty(x => x.CancelledAt, cancelledAt).SetProperty(x => x.CancellationReason, reason).SetProperty(x => x.UpdatedAt, cancelledAt).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
+        RequireCas(affected, request.Version, "purchase order");
         AddPoHistory(po, "Cancel", po.Status, Rev869BStatuses.Cancelled, reason, commandFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, Rev869BStatuses.Cancelled, "Cancel", reason, commandFingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "CancelPO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status }, new { Status = Rev869BStatuses.Cancelled, CancelledAt = cancelledAt }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, Rev869BStatuses.Cancelled, version);
     }
 }

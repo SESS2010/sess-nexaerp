@@ -111,12 +111,57 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             tax.SupplierStateCode != line.SupplierStateCode || tax.PlaceOfSupplyStateCode != line.PlaceOfSupplyStateCode ||
             tax.VendorRegistrationType != line.VendorRegistrationType)
             throw new Rev869BConflictException("The immutable quotation GST rule provenance is mismatched.");
-        var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, line.RoundOff, tax.RoundingScale);
-        var stored = new Rev869BCommercialBreakdown(line.TaxableValue, line.DiscountValue, line.CgstValue, line.SgstValue, line.IgstValue, line.CessValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, line.RoundOff, line.TotalPayableValue);
+        var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, line.RoundOff, tax.RoundingScale)
+        { HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = tax.CurrencyCode, ExchangeRate = 1m };
+        var stored = new Rev869BCommercialBreakdown(line.TaxableValue, line.DiscountValue, line.CgstValue, line.SgstValue, line.IgstValue, line.CessValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, line.RoundOff, line.TotalPayableValue)
+        { GrossAmount = decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), AssessableValue = Rev869BCommercialCalculator.Add(decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges), HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = tax.CurrencyCode, ExchangeRate = 1m };
         Rev869BCommercialBreakdown calculation;
         try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, quotationReceivedDate); }
         catch (InvalidOperationException ex) { throw new Rev869BConflictException(ex.Message); }
         return (calculation, tax);
+    }
+    private sealed record ComparisonCommercialSnapshot(
+        string OrganizationId, Guid CommercialComparisonId, Guid RequestForQuotationId, Guid VendorId,
+        Guid VendorQuotationId, int QuotationRevision, Guid VendorQuotationLineId, Guid ItemId,
+        decimal Quantity, string Uom, string CurrencyCode, decimal ExchangeRate,
+        Rev869BCommercialInput Input, Rev869BCommercialBreakdown Result, Rev869BTaxRuleSnapshot TaxRule);
+    private static string ComparisonSnapshotJson(CommercialComparison comparison, VendorQuotation quote, VendorQuotationLine line, (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) calculated)
+    {
+        var rfqLine = line.RequestForQuotationLine ?? throw new Rev869BConflictException("Quotation line RFQ provenance is missing.");
+        var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, calculated.Tax.CgstRate, calculated.Tax.SgstRate, calculated.Tax.IgstRate, calculated.Tax.CessRate, line.RoundOff, calculated.Tax.RoundingScale)
+        { HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
+        return JsonSerializer.Serialize(new ComparisonCommercialSnapshot(
+            comparison.OrganizationId, comparison.Id, comparison.RequestForQuotationId, quote.VendorId, quote.Id,
+            quote.RevisionNumber, line.Id, rfqLine.ItemId, line.Quantity, rfqLine.UomSnapshot, quote.CurrencyCode,
+            1m, input, calculated.Breakdown, calculated.Tax), JsonOptions);
+    }
+    private async Task ReconcileComparisonAsync(CommercialComparison comparison, CancellationToken ct)
+    {
+        if (!comparison.RecommendedVendorQuotationId.HasValue || !comparison.SelectedVendorId.HasValue)
+            throw new Rev869BConflictException("Comparison selection evidence is incomplete.");
+        var quote = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine)
+            .SingleOrDefaultAsync(x => x.Id == comparison.RecommendedVendorQuotationId && x.OrganizationId == comparison.OrganizationId &&
+                x.VendorId == comparison.SelectedVendorId && x.RfqVendorInvitation!.RequestForQuotationId == comparison.RequestForQuotationId &&
+                x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant, ct)
+            ?? throw new Rev869BConflictException("Recommended quotation provenance is stale or incomplete.");
+        var recommended = comparison.Lines.Where(x => x.IsRecommended).ToArray();
+        if (recommended.Length != quote.Lines.Count) throw new Rev869BConflictException("Comparison recommendation line coverage is incomplete.");
+        decimal total = 0m;
+        foreach (var line in quote.Lines)
+        {
+            var comparisonLine = recommended.SingleOrDefault(x => x.VendorQuotationLineId == line.Id && x.VendorId == quote.VendorId)
+                ?? throw new Rev869BConflictException("Comparison line vendor/quotation provenance is mismatched.");
+            ComparisonCommercialSnapshot snapshot;
+            try { snapshot = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(comparisonLine.CommercialSnapshotJson, JsonOptions) ?? throw new JsonException(); }
+            catch (JsonException) { throw new Rev869BConflictException("Comparison commercial snapshot is malformed."); }
+            var calculated = Recalculate(line, comparison.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
+            var expectedJson = ComparisonSnapshotJson(comparison, quote, line, calculated);
+            var expected = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(expectedJson, JsonOptions)!;
+            if (snapshot != expected || comparisonLine.TotalPayableValue != calculated.Breakdown.TotalPayableValue)
+                throw new Rev869BConflictException("Comparison commercial snapshot does not exactly reconcile.");
+            total = Rev869BCommercialCalculator.Add(total, calculated.Breakdown.TotalPayableValue);
+        }
+        if (total != comparison.TotalPayableValue) throw new Rev869BConflictException("Comparison header and recommended-line totals do not exactly reconcile.");
     }
     private async Task<decimal> OrderedQuantityAsync(Guid prLineId, CancellationToken ct) => await db.PurchaseOrderLines.Where(x => x.PurchaseRequisitionLineId == prLineId && x.PurchaseOrder!.IsCurrentVersion && x.PurchaseOrder.Status != Rev869BStatuses.Cancelled && x.PurchaseOrder.Status != Rev869BStatuses.Superseded).SumAsync(x => (decimal?)x.OrderedQuantity, ct) ?? 0m;
     private async Task<(string Number, string Year, long Sequence)> NextNumberAsync(string organization, string prefix, DateOnly date, CancellationToken ct)

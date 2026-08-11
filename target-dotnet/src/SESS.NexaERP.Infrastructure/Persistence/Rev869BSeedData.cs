@@ -80,6 +80,7 @@ public static class Rev869BSeedData
         {
             Id = PermissionId(roleCode, page.PageKey), RoleId = role.Id, PageDefinitionId = page.Id,
             CanView = canView, CanCreate = canCreate, CanUpdate = canUpdate, CanSubmit = canSubmit,
+            CanIssue = purchaseManager && po,
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canApprove,
             CanRequestClarification = canView && (rfq || technical || comparison), CanRequestRevision = canApprove,
             CanResubmit = purchaseManager && (comparison || po), CanCancel = canCancel, CanDeactivate = false,
