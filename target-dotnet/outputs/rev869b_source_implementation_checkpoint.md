@@ -36,7 +36,7 @@ Legacy reuse was limited to `outputs/rev869_legacy_reuse_final_mapping_report.md
 
 ## Migration schema contract
 
-The one logical migration contains 15 new tables, 298 columns, 15 primary keys, 66 indexes, 44 foreign keys, 27 check constraints, and six immutable UPDATE/DELETE rejection triggers.
+After the pre-application corrections, the one logical migration contains 15 new tables, 309 columns, 15 primary keys, 66 indexes, 44 foreign keys, 29 check constraints, and 16 triggers (six append-only history/line guards plus ten controlled-snapshot and parent-integrity guards).
 
 | Table | Columns | FKs | Checks | Purpose and principal columns |
 |---|---:|---:|---:|---|
@@ -65,14 +65,14 @@ Important unique contracts include organization/number and organization/idempote
 - Requires an authenticated unique employee ID and organization; no employee name/code or approver ID is hard-coded.
 - Applies `IRecordScopeAuthorizer` to department/warehouse/owner targets in services and read APIs; denied record-scope attempts are audited.
 - Reuses existing `PurchaseRequirementHandoff` rows in `PendingRFQ`; never recreates PR data.
-- Uses serializable transactions, organization-scoped `PurchaseNumberSequence` prefixes (`RFQ`, `VQ`, `CMP`, `PO`), unique indexes, idempotency keys, and concurrency tokens.
+- Uses serializable transactions, organization-scoped `PurchaseNumberSequence` prefixes (`RFQ`, `VQ`, `CMP`, `PO`), unique indexes, scoped idempotency keys, and atomic ID/organization/expected-Version compare-and-swap updates.
 - Controlled RFQ splits cannot exceed handoff/outstanding quantity. Cumulative current, non-cancelled/non-superseded PO quantity cannot exceed approved outstanding quantity.
 - Vendor invitation, quotation, and PO selection call the REV869A qualification service and fail closed for inactive/unapproved/expired/missing qualification.
 - Quotations must cover every RFQ line exactly once. Late submissions/revisions require Purchase Manager authorization and remarks; prior revisions are retained as `Superseded`.
 - Technical verification is separate and immutable. Only current technically compliant quotations enter comparison.
 - Selection is explicit and reasoned; no lowest-price auto-selection exists. Single-source RFQ/recommendation requires justification.
 - GST resolves only via effective-dated REV869A `IN_GST` configuration. All documents must share one ISO three-letter currency; missing exchange-rate support fails closed rather than converting.
-- PO creation requires an approved comparison. Issue creates one future Material Follow-up handoff per PO line. Commercial/controlled-term amendments create a new PO revision in `PendingReapproval`; cancellation requires authorized role, reason, timestamp, history, and audit.
+- PO creation requires an approved comparison and creates `Draft`; submission enters `PendingApproval`; approval precedes issue. Issue creates one future Material Follow-up handoff per PO line. Amendments retain the issued version, create a non-current `Draft`, require routed reapproval, and supersede/promote versions only on approval. Rejection leaves the issued version current. Cancellation requires authorized role, reason, timestamp, history, and audit.
 
 ## Approval and calculation
 
@@ -104,9 +104,11 @@ All routes require authentication, unique employee/scope resolution, page permis
 - `POST /api/v1/purchase/comparisons/{number}/resubmit`
 - `POST /api/v1/purchase/purchase-orders`
 - `GET /api/v1/purchase/purchase-orders/{number}`
+- `POST /api/v1/purchase/purchase-orders/{number}/submit`
+- `POST /api/v1/purchase/purchase-orders/{number}/approve`
+- `POST /api/v1/purchase/purchase-orders/{number}/reject`
 - `POST /api/v1/purchase/purchase-orders/{number}/issue`
 - `POST /api/v1/purchase/purchase-orders/{number}/amend`
-- `POST /api/v1/purchase/purchase-orders/{number}/approve-amendment`
 - `POST /api/v1/purchase/purchase-orders/{number}/cancel`
 - `GET /api/v1/purchase/material-followup`
 
@@ -124,18 +126,18 @@ All routes require authentication, unique employee/scope resolution, page permis
 | Accounts Head | Approved comparison/PO commercial view/export only |
 | Unauthorized | Menu/page permission denial, direct endpoint denial, API denial, record-scope denial and audit evidence |
 
-Generated seed model contains 4 new pages, 48 deterministic fixed-role/page rows, and 3 approval policies. The migration adds 3 deterministic Department Manager rows by fail-closed lookup of the pre-existing role.
+Generated seed model contains 4 new pages, 29 non-empty deterministic fixed-role/page rows, and 3 approval policies. The migration adds 3 deterministic Department Manager rows by fail-closed lookup of the pre-existing role.
 
 ## Validation evidence
 
 - PowerShell 5.1 parsing: **N/A** — no PowerShell file was added or modified.
 - Build: **PASS**, 0 warnings, 0 errors.
-- Focused REV869B tests: **PASS**, 17 passed, 0 failed, 0 skipped.
-- Complete non-PostgreSQL suite: **PASS**, 403 passed, 0 failed, 0 skipped; all three PostgreSQL-backed test classes were explicitly excluded.
+- Focused REV869B tests after pre-application corrections: **PASS**, 26 passed, 0 failed, 0 skipped.
+- Complete non-PostgreSQL suite after pre-application corrections: **PASS**, 411 passed, 0 failed, 0 skipped; all PostgreSQL-backed test classes were explicitly excluded.
 - EF discovery: **PASS** with `--no-connect`; 13 migrations listed and REV869B discovered exactly once after the 12 accepted migrations.
 - Pending-model-change check: **PASS** — “No changes have been made to the model since the last migration.”
-- Offline Up SQL: **PASS**; `START TRANSACTION`/`COMMIT`, 15 creates, required permissions/triggers; SHA-256 `68d6fa87cf1a16fb9fa712e80fc8d8dd7db14e69201dd9f727098f470a29be7c`.
-- Offline Down SQL: **PASS**; transaction/commit, 15 owned drops, ownership-scoped permission cleanup and trigger-function cleanup; SHA-256 `f00ebe354df25bd5205557bcd7412b368017aceecb7e3570e8cc9c0204972680`.
+- Offline Up SQL after pre-application corrections: **PASS**; `START TRANSACTION`/`COMMIT`, 15 creates and 16 triggers; SHA-256 `e48b74e3c057e5f648ed6d87405ee130e006230154ef30755a2646c535cf3481`.
+- Offline Down SQL after pre-application corrections: **PASS**; transaction/commit, 15 owned table drops, ownership-scoped permission cleanup and 3 trigger-function drops; SHA-256 `5af0c755302580dff3792b22784c8c7540a766e87fe115089ba0ec438e687618`.
 - Auth/permission/calculation/migration negative tests: **PASS** within the focused suite.
 - Secret scan: **PASS**, 0 authored-source matches.
 - Privacy scan: **PASS**, 0 employee-code/email matches in authored REV869B source/executable migration. EF Designer contains pre-existing accepted seed copies and was not treated as newly authored PII.

@@ -12,18 +12,63 @@ public static class Rev869BStatuses
     public const string Submitted = "Submitted";
     public const string Superseded = "Superseded";
     public const string Withdrawn = "Withdrawn";
-    public const string PendingTechnicalVerification = "PendingTechnicalVerification";
     public const string TechnicallyCompliant = "TechnicallyCompliant";
     public const string TechnicallyRejected = "TechnicallyRejected";
-    public const string Recommended = "Recommended";
     public const string PendingApproval = "PendingApproval";
     public const string Approved = "Approved";
     public const string Rejected = "Rejected";
     public const string RevisionRequested = "RevisionRequested";
-    public const string PendingReapproval = "PendingReapproval";
     public const string Cancelled = "Cancelled";
     public const string Closed = "Closed";
     public const string PendingFollowUp = "PendingFollowUp";
+}
+
+public static class Rev869BStatusContracts
+{
+    public static readonly IReadOnlySet<string> Rfq = Set(Rev869BStatuses.Draft, Rev869BStatuses.Issued, Rev869BStatuses.Closed, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> Invitation = Set(Rev869BStatuses.Issued, Rev869BStatuses.Submitted, Rev869BStatuses.Withdrawn, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> Quotation = Set(Rev869BStatuses.Submitted, Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected);
+    public static readonly IReadOnlySet<string> TechnicalVerification = Set(Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected);
+    public static readonly IReadOnlySet<string> Comparison = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> PurchaseOrder = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Issued, Rev869BStatuses.Rejected, Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> MaterialFollowUp = Set(Rev869BStatuses.PendingFollowUp, Rev869BStatuses.Closed, Rev869BStatuses.Cancelled);
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> RfqTransitions = Transitions(
+        (Rev869BStatuses.Draft, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Issued, [Rev869BStatuses.Closed, Rev869BStatuses.Cancelled]));
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> InvitationTransitions = Transitions(
+        (Rev869BStatuses.Issued, [Rev869BStatuses.Submitted, Rev869BStatuses.Withdrawn, Rev869BStatuses.Cancelled]));
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> QuotationTransitions = Transitions(
+        (Rev869BStatuses.Submitted, [Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn]),
+        (Rev869BStatuses.TechnicallyCompliant, [Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn]),
+        (Rev869BStatuses.TechnicallyRejected, [Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected]));
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ComparisonTransitions = Transitions(
+        (Rev869BStatuses.Draft, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested]),
+        (Rev869BStatuses.RevisionRequested, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]));
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> PurchaseOrderTransitions = Transitions(
+        (Rev869BStatuses.Draft, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Approved, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Issued, [Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled]));
+
+    public static void RequireRfq(string from, string to) => Require("RFQ", Rfq, RfqTransitions, from, to);
+    public static void RequireInvitation(string from, string to) => Require("invitation", Invitation, InvitationTransitions, from, to);
+    public static void RequireQuotation(string from, string to) => Require("quotation", Quotation, QuotationTransitions, from, to);
+    public static void RequireComparison(string from, string to) => Require("comparison", Comparison, ComparisonTransitions, from, to);
+    public static void RequirePurchaseOrder(string from, string to) => Require("purchase order", PurchaseOrder, PurchaseOrderTransitions, from, to);
+    public static bool IsTerminalQuotation(string status) => status is Rev869BStatuses.Superseded or Rev869BStatuses.Withdrawn or Rev869BStatuses.Rejected;
+    public static bool IsImmutablePurchaseOrder(string status) => status is Rev869BStatuses.Issued or Rev869BStatuses.Cancelled or Rev869BStatuses.Superseded;
+
+    private static void Require(string aggregate, IReadOnlySet<string> allowed, IReadOnlyDictionary<string, IReadOnlySet<string>> transitions, string from, string to)
+    {
+        if (!allowed.Contains(from) || !allowed.Contains(to) || !transitions.TryGetValue(from, out var destinations) || !destinations.Contains(to))
+            throw new InvalidOperationException($"Invalid {aggregate} status transition: {from} -> {to}.");
+    }
+
+    private static IReadOnlySet<string> Set(params string[] values) => new HashSet<string>(values, StringComparer.Ordinal);
+    private static IReadOnlyDictionary<string, IReadOnlySet<string>> Transitions(params (string From, string[] To)[] values) =>
+        values.ToDictionary(x => x.From, x => (IReadOnlySet<string>)new HashSet<string>(x.To, StringComparer.Ordinal), StringComparer.Ordinal);
 }
 
 public static class Rev869BApprovalRoutes
@@ -53,13 +98,19 @@ public sealed record Rev869BCommercialBreakdown(
 
 public static class Rev869BCommercialCalculator
 {
+    public const decimal MaximumSupportedValue = 999999999999999999m;
+
     public static Rev869BCommercialBreakdown Calculate(Rev869BCommercialInput input)
     {
         if (input.Quantity <= 0 || input.UnitRate < 0 || input.DiscountValue < 0 || input.PackingForwarding < 0 || input.Freight < 0 || input.Insurance < 0 || input.OtherCharges < 0 || input.RoundingScale is < 0 or > 6)
             throw new InvalidOperationException("Commercial quantities, values or rounding scale are invalid.");
         foreach (var rate in new[] { input.CgstRate, input.SgstRate, input.IgstRate, input.CessRate })
             if (!TaxGstSetting.IsValidRate(rate)) throw new InvalidOperationException("Tax rate is outside the approved range.");
-        var taxable = decimal.Round(input.Quantity * input.UnitRate, input.RoundingScale, MidpointRounding.AwayFromZero);
+        foreach (var value in new[] { input.Quantity, input.UnitRate, input.DiscountValue, input.PackingForwarding, input.Freight, input.Insurance, input.OtherCharges })
+            if (value > MaximumSupportedValue) throw new InvalidOperationException("Commercial value exceeds numeric(24,6) capacity.");
+        decimal taxable;
+        try { taxable = decimal.Round(checked(input.Quantity * input.UnitRate), input.RoundingScale, MidpointRounding.AwayFromZero); }
+        catch (OverflowException) { throw new InvalidOperationException("Commercial multiplication exceeds supported precision."); }
         var taxBase = taxable - input.DiscountValue;
         if (taxBase < 0) throw new InvalidOperationException("Discount cannot exceed taxable value.");
         decimal Tax(decimal rate) => decimal.Round(taxBase * rate / 100m, input.RoundingScale, MidpointRounding.AwayFromZero);
@@ -152,6 +203,11 @@ public sealed class VendorQuotation : AuditableEntity
     public int RevisionNumber { get; set; }
     public bool IsCurrentRevision { get; set; } = true;
     public string VendorQuoteReference { get; set; } = string.Empty;
+    public string SubmissionSource { get; set; } = string.Empty;
+    public DateTimeOffset ReceivedAt { get; set; }
+    public string AttachmentObjectKey { get; set; } = string.Empty;
+    public string AttachmentSha256 { get; set; } = string.Empty;
+    public string VendorAttestation { get; set; } = string.Empty;
     public string CurrencyCode { get; set; } = "INR";
     public string Status { get; set; } = Rev869BStatuses.Submitted;
     public DateTimeOffset SubmittedAt { get; set; }
@@ -185,6 +241,10 @@ public sealed class VendorQuotationLine : AuditableEntity
     public Guid TaxGstSettingId { get; set; }
     public TaxGstSetting? TaxGstSetting { get; set; }
     public string TaxRuleSnapshotJson { get; set; } = "{}";
+    public string HsnSacCode { get; set; } = string.Empty;
+    public string SupplierStateCode { get; set; } = string.Empty;
+    public string PlaceOfSupplyStateCode { get; set; } = string.Empty;
+    public string VendorRegistrationType { get; set; } = string.Empty;
     public decimal CgstValue { get; set; }
     public decimal SgstValue { get; set; }
     public decimal IgstValue { get; set; }
@@ -200,10 +260,11 @@ public sealed class QuotationTechnicalVerification : AuditableEntity
     public VendorQuotationLine? VendorQuotationLine { get; set; }
     public Guid VerifierEmployeeId { get; set; }
     public Employee? VerifierEmployee { get; set; }
-    public string ComplianceStatus { get; set; } = Rev869BStatuses.PendingTechnicalVerification;
+    public string ComplianceStatus { get; set; } = string.Empty;
     public string ComplianceSnapshotJson { get; set; } = "{}";
     public string Remarks { get; set; } = string.Empty;
     public DateTimeOffset VerifiedAt { get; set; }
+    public string CorrelationId { get; set; } = string.Empty;
 }
 
 public sealed class CommercialComparison : AuditableEntity
@@ -288,6 +349,7 @@ public sealed class PurchaseOrder : AuditableEntity
     public Employee? OwnerEmployee { get; set; }
     public string Status { get; set; } = Rev869BStatuses.Draft;
     public string CurrencyCode { get; set; } = "INR";
+    public string ApprovalRoute { get; set; } = string.Empty;
     public decimal TaxableValue { get; set; }
     public decimal DiscountValue { get; set; }
     public decimal TaxValue { get; set; }

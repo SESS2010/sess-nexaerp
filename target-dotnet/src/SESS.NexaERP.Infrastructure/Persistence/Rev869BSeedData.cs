@@ -47,7 +47,7 @@ public static class Rev869BSeedData
                 Rev869ARoleCodes.TechnicalDirector, Rev869ARoleCodes.ManagingDirector,
                 Rev869ARoleCodes.StoresManager, Rev869ARoleCodes.StoresExecutive, "ACCOUNTS_HEAD"
             };
-            return roleCodes.SelectMany(code => pages.Select(page => Permission(roles[code], page))).ToList();
+            return roleCodes.SelectMany(code => pages.Select(page => Permission(roles[code], page))).Where(HasAnyGrant).ToList();
         }
     }
 
@@ -68,13 +68,13 @@ public static class Rev869BSeedData
         var director = roleCode is Rev869ARoleCodes.TechnicalDirector or Rev869ARoleCodes.ManagingDirector;
         var stores = roleCode is Rev869ARoleCodes.StoresManager or Rev869ARoleCodes.StoresExecutive;
         var accounts = roleCode == "ACCOUNTS_HEAD";
-        var canView = director || purchaseManager || purchaseExecutive ||
+        var canView = director || purchaseManager || purchaseExecutive && (rfq || quote) ||
             technicalVerifier && (rfq || quote || technical) || stores && (po || followUp) || accounts && (comparison || po);
         var canCreate = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison || po) || technicalVerifier && technical;
         var canUpdate = canCreate;
         var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison) || technicalVerifier && technical;
         var canVerify = purchaseManager && (rfq || quote || comparison) || technicalVerifier && technical || director && (technical || comparison);
-        var canApprove = purchaseManager && comparison || director && comparison;
+        var canApprove = (purchaseManager || director) && (comparison || po);
         var canCancel = purchaseManager && (rfq || quote || po) || director && (rfq || quote || po);
         return new RolePagePermission
         {
@@ -83,13 +83,15 @@ public static class Rev869BSeedData
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canApprove,
             CanRequestClarification = canView && (rfq || technical || comparison), CanRequestRevision = canApprove,
             CanResubmit = purchaseManager && comparison, CanCancel = canCancel, CanDeactivate = false,
-            CanPrint = canView, CanDownload = canView, CanExport = accounts || director || purchaseManager,
+            CanPrint = canView, CanDownload = canView, CanExport = canView && (accounts || director || purchaseManager),
             CanUploadAttachment = canCreate, CanReplaceAttachment = false,
-            CanViewCommercialValues = purchaseExecutive || purchaseManager || director || accounts,
-            CanViewAuditHistory = purchaseManager || director || accounts, HasFullControl = roleCode == Rev869ARoleCodes.ManagingDirector,
+            CanViewCommercialValues = canView && (purchaseExecutive || purchaseManager || director || accounts),
+            CanViewAuditHistory = canView && (purchaseManager || director || accounts), HasFullControl = roleCode == Rev869ARoleCodes.ManagingDirector,
             CreatedAt = SeedTime, CreatedBy = "migration-rev869b"
         };
     }
+
+    private static bool HasAnyGrant(RolePagePermission x) => x.CanView || x.CanCreate || x.CanUpdate || x.CanSubmit || x.CanVerify || x.CanApprove || x.CanReject || x.CanRequestClarification || x.CanRequestRevision || x.CanResubmit || x.CanCancel || x.CanDeactivate || x.CanPrint || x.CanDownload || x.CanExport || x.CanUploadAttachment || x.CanReplaceAttachment || x.CanViewCommercialValues || x.CanViewAuditHistory || x.HasFullControl;
 
     private static PurchaseTransactionApprovalPolicy Policy(string route, decimal min, decimal? max, string role) => new()
     {

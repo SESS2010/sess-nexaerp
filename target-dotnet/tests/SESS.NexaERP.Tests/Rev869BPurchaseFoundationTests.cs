@@ -46,8 +46,9 @@ public sealed class Rev869BPurchaseFoundationTests
     [Fact]
     public void SeedMatrixIsDeterministicAndLeastPrivilege()
     {
-        Assert.Equal(4, Rev869BSeedData.Pages.Length); Assert.Equal(3, Rev869BSeedData.ApprovalPolicies.Length); Assert.Equal(48, Rev869BSeedData.RolePagePermissions.Count);
+        Assert.Equal(4, Rev869BSeedData.Pages.Length); Assert.Equal(3, Rev869BSeedData.ApprovalPolicies.Length); Assert.Equal(29, Rev869BSeedData.RolePagePermissions.Count);
         Assert.All(Rev869BSeedData.RolePagePermissions, x => Assert.Equal("migration-rev869b", x.CreatedBy));
+        Assert.DoesNotContain(Rev869BSeedData.RolePagePermissions, x => !x.CanView && !x.CanCreate && !x.CanUpdate && !x.CanSubmit && !x.CanVerify && !x.CanApprove && !x.CanReject && !x.CanRequestClarification && !x.CanRequestRevision && !x.CanResubmit && !x.CanCancel && !x.CanDeactivate && !x.CanPrint && !x.CanDownload && !x.CanExport && !x.CanUploadAttachment && !x.CanReplaceAttachment && !x.CanViewCommercialValues && !x.CanViewAuditHistory && !x.HasFullControl);
         var stores = Rev869BSeedData.RolePagePermissions.Where(x => x.CanView && !x.CanCreate && !x.CanUpdate).ToList(); Assert.NotEmpty(stores);
         Assert.Contains("DEPARTMENT_MANAGER", MigrationSource); Assert.Contains("CanRequestClarification", MigrationSource);
     }
@@ -68,7 +69,7 @@ public sealed class Rev869BPurchaseFoundationTests
         Assert.Contains("IX_purchase_orders_OrganizationId_PoNumber_RevisionNumber", MigrationSource);
         Assert.Contains("\\\"IsCurrentVersion\\\" = TRUE", MigrationSource); Assert.Contains("\\\"IsCurrentRevision\\\" = TRUE", MigrationSource);
         Assert.Contains("IsConcurrencyToken", MappingSource); Assert.Contains("rev869b_reject_immutable_mutation", MigrationSource);
-        Assert.Equal(6, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(16, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation", MigrationSource);
     }
 
@@ -93,7 +94,7 @@ public sealed class Rev869BPurchaseFoundationTests
     {
         Assert.Contains("QuotationTechnicalVerification", DomainSource); Assert.Contains("CommercialComparison", DomainSource); Assert.Contains("RecommendedVendorQuotationId", DomainSource);
         Assert.Contains("TechnicallyCompliant", ServiceSource); Assert.DoesNotContain("OrderBy(x => x.TotalPayableValue).First", ServiceSource);
-        Assert.Contains("PendingReapproval", ServiceSource); Assert.Contains("PreviousVersionId", ServiceSource); Assert.Contains("Superseded", ServiceSource); Assert.Contains("MaterialFollowUpHandoffs", ServiceSource);
+        Assert.Contains("PendingApproval", ServiceSource); Assert.Contains("PreviousVersionId", ServiceSource); Assert.Contains("Superseded", ServiceSource); Assert.Contains("MaterialFollowUpHandoffs", ServiceSource);
     }
 
     [Fact]

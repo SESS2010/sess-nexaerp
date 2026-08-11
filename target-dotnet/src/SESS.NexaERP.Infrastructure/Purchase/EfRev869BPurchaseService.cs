@@ -27,16 +27,82 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         this.db = db; this.user = user; this.scopes = scopes; this.vendors = vendors; this.taxes = taxes; this.audit = audit;
     }
 
-    private async Task<CommercialComparison> LoadComparisonAsync(string number, CancellationToken ct) => await db.CommercialComparisons.Include(x => x.Lines).SingleAsync(x => x.OrganizationId == RequireOrganization() && x.ComparisonNumber == number.Trim().ToUpper(), ct);
-    private async Task<PurchaseOrder> LoadPoAsync(string number, CancellationToken ct) => await db.PurchaseOrders.Include(x => x.Lines).SingleAsync(x => x.OrganizationId == RequireOrganization() && x.PoNumber == number.Trim().ToUpper() && x.IsCurrentVersion, ct);
-    private async Task AuthorizeComparisonAsync(Guid actor, CommercialComparison comparison, CancellationToken ct) { var rfq = await db.RequestForQuotations.AsNoTracking().SingleAsync(x => x.Id == comparison.RequestForQuotationId, ct); await RequireScopeAsync(actor, comparison.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, null, comparison.OwnerEmployeeId, ct); }
-    private Task AuthorizePoAsync(Guid actor, PurchaseOrder po, CancellationToken ct) => RequireScopeAsync(actor, po.OrganizationId, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId, ct);
+    private async Task<CommercialComparison> LoadComparisonAsync(string number, CancellationToken ct) =>
+        await db.CommercialComparisons.AsNoTracking().Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrganizationId == RequireOrganization() && x.ComparisonNumber == number.Trim().ToUpper(), ct)
+        ?? throw new Rev869BNotFoundException("Commercial comparison was not found in the current organization.");
+    private async Task<PurchaseOrder> LoadPoAsync(string number, CancellationToken ct) =>
+        await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrganizationId == RequireOrganization() && x.PoNumber == number.Trim().ToUpper() && x.IsCurrentVersion, ct)
+        ?? throw new Rev869BNotFoundException("Current purchase order was not found in the current organization.");
+    private async Task<PurchaseOrder> LoadPendingPoAsync(string number, CancellationToken ct) =>
+        await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines)
+            .SingleOrDefaultAsync(x => x.OrganizationId == RequireOrganization() && x.PoNumber == number.Trim().ToUpper() && !x.IsCurrentVersion && (x.Status == Rev869BStatuses.Draft || x.Status == Rev869BStatuses.PendingApproval), ct)
+        ?? throw new Rev869BNotFoundException("Pending purchase-order version was not found in the current organization.");
+    private async Task AuthorizeComparisonAsync(Guid actor, CommercialComparison comparison, CancellationToken ct)
+    {
+        if (comparison.OrganizationId != RequireOrganization()) throw new UnauthorizedAccessException("Cross-organization comparison access is prohibited.");
+        var rfq = await db.RequestForQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == comparison.RequestForQuotationId && x.OrganizationId == comparison.OrganizationId, ct)
+            ?? throw new Rev869BConflictException("Comparison RFQ organization/parent contract is invalid.");
+        await RequireScopeAsync(actor, comparison.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, null, comparison.OwnerEmployeeId, ct);
+    }
+    private Task AuthorizePoAsync(Guid actor, PurchaseOrder po, CancellationToken ct) => po.OrganizationId == RequireOrganization()
+        ? RequireScopeAsync(actor, po.OrganizationId, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId, ct)
+        : throw new UnauthorizedAccessException("Cross-organization purchase-order access is prohibited.");
     private async Task RequireScopeAsync(Guid actor, string organization, Guid? department, Guid? warehouse, Guid? rackBin, Guid? owner, CancellationToken ct)
     {
         var decision = await scopes.AuthorizeAsync(actor, user.RoleCode, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct);
         if (!decision.Allowed) { await audit.WriteAsync("Security", "Denied", "REV869BRecordScope", organization, null, new { decision.Reason, user.RoleCode, department, warehouse }, ct); throw new UnauthorizedAccessException(decision.Reason); }
     }
+
+    private async Task<uint> ReserveRfqAsync(Guid id, string organization, uint expected, CancellationToken ct)
+    {
+        var affected = await db.RequestForQuotations.Where(x => x.Id == id && x.OrganizationId == organization && x.Version == expected)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
+        return RequireCas(affected, expected, "RFQ");
+    }
+
+    private async Task<uint> ReserveInvitationAsync(Guid id, string organization, uint expected, CancellationToken ct)
+    {
+        var affected = await db.RfqVendorInvitations.Where(x => x.Id == id && x.RequestForQuotation!.OrganizationId == organization && x.Version == expected)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
+        return RequireCas(affected, expected, "RFQ invitation");
+    }
+
+    private async Task<uint> ReserveQuotationAsync(Guid id, string organization, uint expected, CancellationToken ct)
+    {
+        var affected = await db.VendorQuotations.Where(x => x.Id == id && x.OrganizationId == organization && x.Version == expected)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
+        return RequireCas(affected, expected, "vendor quotation");
+    }
+
+    private async Task<uint> ReserveComparisonAsync(Guid id, string organization, uint expected, CancellationToken ct)
+    {
+        var affected = await db.CommercialComparisons.Where(x => x.Id == id && x.OrganizationId == organization && x.Version == expected)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
+        return RequireCas(affected, expected, "commercial comparison");
+    }
+
+    private async Task<uint> ReservePoAsync(Guid id, string organization, uint expected, CancellationToken ct)
+    {
+        var affected = await db.PurchaseOrders.Where(x => x.Id == id && x.OrganizationId == organization && x.Version == expected)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
+        return RequireCas(affected, expected, "purchase order");
+    }
+
+    private static uint RequireCas(int affected, uint expected, string aggregate)
+    {
+        if (affected != 1) throw new DbUpdateConcurrencyException($"Stale {aggregate} version; reload before retrying.");
+        return checked(expected + 1);
+    }
     private async Task<string> ResolveApprovalRouteAsync(decimal total, string organization, CancellationToken ct) { var policies = await db.PurchaseTransactionApprovalPolicies.AsNoTracking().Where(x => x.OrganizationId == organization).ToListAsync(ct); return Rev869BApprovalRoutes.Resolve(total, policies, DateOnly.FromDateTime(DateTime.UtcNow), organization); }
+    private async Task<(Rev869BCommercialBreakdown Breakdown, Domain.Masters.TaxGstSetting Tax)> RecalculateAsync(VendorQuotationLine line, string organization, DateOnly onDate, CancellationToken ct)
+    {
+        var taxableBase = decimal.Round(checked(line.Quantity * line.UnitRate), 2, MidpointRounding.AwayFromZero) - line.DiscountValue;
+        var tax = await taxes.ResolveAsync(new(organization, Domain.Masters.TaxJurisdictions.IndiaGst, Required(line.HsnSacCode, "HSN/SAC"), Required(line.SupplierStateCode, "Supplier state"), Required(line.PlaceOfSupplyStateCode, "Place of supply"), Required(line.VendorRegistrationType, "Vendor registration type"), onDate, taxableBase), ct);
+        var calculation = Rev869BCommercialCalculator.Calculate(new(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, tax.CgstRate, tax.SgstRate, tax.IgstRate, tax.CessRate, line.RoundOff, tax.RoundingScale));
+        return (calculation, tax);
+    }
     private async Task<decimal> OrderedQuantityAsync(Guid prLineId, CancellationToken ct) => await db.PurchaseOrderLines.Where(x => x.PurchaseRequisitionLineId == prLineId && x.PurchaseOrder!.IsCurrentVersion && x.PurchaseOrder.Status != Rev869BStatuses.Cancelled && x.PurchaseOrder.Status != Rev869BStatuses.Superseded).SumAsync(x => (decimal?)x.OrderedQuantity, ct) ?? 0m;
     private async Task<(string Number, string Year, long Sequence)> NextNumberAsync(string organization, string prefix, DateOnly date, CancellationToken ct)
     {
@@ -70,9 +136,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private string RequireOrganization() => !string.IsNullOrWhiteSpace(user.OrganizationId) ? user.OrganizationId.Trim() : throw new UnauthorizedAccessException("Organization scope is required.");
     private bool IsRole(string code) => Rev869ARoleCodes.Normalize(user.RoleCode) == Rev869ARoleCodes.Normalize(code);
     private void RequireRole(params string[] allowed) { if (!allowed.Any(IsRole)) throw new UnauthorizedAccessException("Role is not authorized for this operation."); }
-    private static void CheckVersion(uint actual, uint expected) { if (actual != expected) throw new DbUpdateConcurrencyException("The controlled record changed; reload before retrying."); }
-    private static string NormalizeCurrency(string value) { var code = Required(value, "Currency").ToUpperInvariant(); if (code.Length != 3 || code.Any(x => !char.IsLetter(x))) throw new InvalidOperationException("ISO 4217 currency code must contain three letters."); return code; }
-    private static string Required(string? value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new InvalidOperationException($"{name} is required.");
+    private static string NormalizeCurrency(string value) { var code = Required(value, "Currency").ToUpperInvariant(); if (code.Length != 3 || code.Any(x => !char.IsLetter(x))) throw new Rev869BValidationException("ISO 4217 currency code must contain three letters."); return code; }
+    private static string Required(string? value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new Rev869BValidationException($"{name} is required.");
     private static string RequiredRemarks(string? value) => Required(value, "Remarks");
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static Rev869BDocumentResult Result(Guid id, string number, string status, uint version) => new(id, number, status, version);
