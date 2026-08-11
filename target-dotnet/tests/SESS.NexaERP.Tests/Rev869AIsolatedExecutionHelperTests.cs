@@ -23,6 +23,10 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     {
         "SESS-016", "SESS-018", "SESS-022", "SESS-027", "SESS-028", "SESS-032", "SESS-036", "SESS-037", "SESS-039"
     };
+    private static readonly string[] ExpectedActiveCodes =
+    {
+        "SESS-001", "SESS-002", "SESS-003", "SESS-004", "SESS-005", "SESS-006", "SESS-007", "SESS-008", "SESS-009", "SESS-010", "SESS-011", "SESS-012", "SESS-013", "SESS-014", "SESS-015", "SESS-017", "SESS-019", "SESS-020", "SESS-021", "SESS-023", "SESS-024", "SESS-025", "SESS-026", "SESS-029", "SESS-030", "SESS-031", "SESS-033", "SESS-034", "SESS-035", "SESS-038", "SESS-040", "SESS-041", "SESS-042", "SESS-043", "SESS-044", "SESS-045", "SESS-046", "SESS-047", "SESS-048", "SESS-049", "SESS-050", "SESS-051"
+    };
     private static readonly HashSet<string> AcceptedRelievedStatuses =
         new(new[] { "left / resigned", "left/resigned", "resigned", "inactive" }, StringComparer.Ordinal);
     private static readonly string[] CanonicalHelperRelations =
@@ -407,7 +411,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     [Fact]
     public void TransactionalVerifierUsesOnlyProvenEmployeeAndTestOwnedMasterPrerequisites()
     {
-        var transactional = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var transactional = RenderedTransactionalSql();
         Assert.DoesNotContain("transactional prerequisites unavailable", transactional, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("select \"Id\" into v from nexa.vendors", transactional, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("select \"Id\" into w1 from nexa.warehouses", transactional, StringComparison.OrdinalIgnoreCase);
@@ -415,7 +419,60 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("insert into nexa.vendors", transactional, StringComparison.Ordinal);
         Assert.Contains("insert into nexa.warehouses", transactional, StringComparison.Ordinal);
         Assert.Contains("insert into nexa.rack_bins", transactional, StringComparison.Ordinal);
-        Assert.Single(Regex.Matches(transactional, "transactional_prerequisite_active_employee_count=").Cast<Match>());
+        Assert.DoesNotContain("\"LoginEnabled\"=true", transactional, StringComparison.OrdinalIgnoreCase);
+        foreach (var label in new[] { "expected_count", "actual_matched_count", "missing_count", "unexpected_count", "duplicate_count", "status_mismatch_count", "state" })
+            Assert.Single(Regex.Matches(transactional, $"transactional_prerequisite_active_employee_{label}=").Cast<Match>());
+        foreach (var code in ExpectedActiveCodes)
+        {
+            Assert.Contains($"Employee(\"{code}\"", Rev868C3WorkbookSource, StringComparison.Ordinal);
+            Assert.True(Regex.Matches(transactional, Regex.Escape(code)).Count >= 2, code);
+        }
+    }
+
+    [Fact]
+    public void RenderedTransactionalSqlHasSevenPairedUniqueDollarQuoteTags()
+    {
+        var sql = RenderedTransactionalSql();
+        var openings = Regex.Matches(sql, @"(?im)^[ ]*do[ ]+([$]rev869a_[a-z]+[$])[ ]*$").Select(x => x.Groups[1].Value).ToArray();
+        Assert.Equal(7, openings.Length);
+        Assert.Equal(7, openings.Distinct(StringComparer.Ordinal).Count());
+        foreach (var tag in openings) Assert.Equal(2, Regex.Matches(sql, Regex.Escape(tag)).Count);
+        Assert.DoesNotMatch(new Regex(@"(?im)^[ ]*do[ ]+[$][a-z0-9_]+[ ]*$"), sql);
+        Assert.DoesNotContain("`$", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TransactionalActiveEmployeeSetExactlyMatchesRev868C3WorkbookSource()
+    {
+        var sql = RenderedTransactionalSql();
+        var cteEnd = sql.IndexOf("), metrics as", StringComparison.Ordinal);
+        Assert.True(cteEnd > 0);
+        var sqlCodes = Regex.Matches(sql[..cteEnd], "SESS-[0-9]{3}").Select(x => x.Value).ToArray();
+        Assert.Equal(ExpectedActiveCodes, sqlCodes);
+
+        var workbookStart = Rev868C3WorkbookSource.IndexOf("ActiveEmployees =>", StringComparison.Ordinal);
+        var workbookEnd = Rev868C3WorkbookSource.IndexOf("ManagerMappings =>", workbookStart, StringComparison.Ordinal);
+        Assert.True(workbookStart >= 0 && workbookEnd > workbookStart);
+        var workbookCodes = Regex.Matches(Rev868C3WorkbookSource[workbookStart..workbookEnd], @"Employee[(][""](?<code>SESS-[0-9]{3})[""]")
+            .Select(x => x.Groups["code"].Value).ToArray();
+        Assert.Equal(ExpectedActiveCodes, workbookCodes);
+    }
+
+    [Theory]
+    [InlineData(0, 42, 0, 0, 0)]
+    [InlineData(1, 41, 0, 0, 0)]
+    [InlineData(43, 0, 1, 0, 0)]
+    [InlineData(42, 0, 0, 1, 0)]
+    [InlineData(42, 0, 0, 0, 1)]
+    public void ZeroOneMultipleDuplicateOrStatusMismatchedActiveEmployeesFailClosed(int matched, int missing, int unexpected, int duplicate, int statusMismatch)
+    {
+        var counts = TransactionalPrerequisiteCounts();
+        counts["active_employee_actual_matched"] = matched;
+        counts["active_employee_missing"] = missing;
+        counts["active_employee_unexpected"] = unexpected;
+        counts["active_employee_duplicate"] = duplicate;
+        counts["active_employee_status_mismatch"] = statusMismatch;
+        Assert.False(TransactionalPrerequisitesPass(counts));
     }
 
     [Theory]
@@ -430,7 +487,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     public void EveryIndividualMissingOrCollidingPrerequisiteFailsClosed(string failedPrerequisite)
     {
         var counts = TransactionalPrerequisiteCounts();
-        if (failedPrerequisite == "active_employee") counts[failedPrerequisite] = 41;
+        if (failedPrerequisite == "active_employee") counts["active_employee_actual_matched"] = 41;
         else counts[failedPrerequisite] = 1;
         Assert.False(TransactionalPrerequisitesPass(counts));
         Assert.Contains($"transactional_prerequisite_failed={failedPrerequisite}", Source, StringComparison.Ordinal);
@@ -908,7 +965,12 @@ public sealed class Rev869AIsolatedExecutionHelperTests
 
     private static Dictionary<string, int> TransactionalPrerequisiteCounts() => new(StringComparer.Ordinal)
     {
-        ["active_employee"] = 42,
+        ["active_employee_expected"] = 42,
+        ["active_employee_actual_matched"] = 42,
+        ["active_employee_missing"] = 0,
+        ["active_employee_unexpected"] = 0,
+        ["active_employee_duplicate"] = 0,
+        ["active_employee_status_mismatch"] = 0,
         ["identity_collision"] = 0,
         ["uom_collision"] = 0,
         ["tax_collision"] = 0,
@@ -919,7 +981,40 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     };
 
     private static bool TransactionalPrerequisitesPass(IReadOnlyDictionary<string, int> counts) =>
-        counts.Count == 8 && counts["active_employee"] == 42 && counts.Where(x => x.Key != "active_employee").All(x => x.Value == 0);
+        counts.Count == 13 && counts["active_employee_expected"] == 42 && counts["active_employee_actual_matched"] == 42 &&
+        counts["active_employee_missing"] == 0 && counts["active_employee_unexpected"] == 0 &&
+        counts["active_employee_duplicate"] == 0 && counts["active_employee_status_mismatch"] == 0 &&
+        counts.Where(x => !x.Key.StartsWith("active_employee_", StringComparison.Ordinal)).All(x => x.Value == 0);
+
+    private static string LegacyRegexTransactionalSqlExtractor()
+    {
+        var block = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var match = Regex.Match(block, "return @'\\\\r?\\\\n(?<sql>[\\\\s\\\\S]*?)\\\\r?\\\\n'@\\\\.Trim\\\\(\\\\)");
+        Assert.True(match.Success);
+        return match.Groups["sql"].Value;
+    }
+
+    private static string PlatformNewlineTransactionalSqlExtractor()
+    {
+        var block = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var newline = Environment.NewLine;
+        var startMarker = "return @'" + newline;
+        var endMarker = newline + "'@.Trim()";
+        var start = block.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = start < 0 ? -1 : block.IndexOf(endMarker, start + startMarker.Length, StringComparison.Ordinal);
+        Assert.True(start >= 0 && end > start);
+        return block[(start + startMarker.Length)..end];
+    }
+
+    private static string RenderedTransactionalSql()
+    {
+        var block = FunctionBlock("function Get-TransactionalVerificationSql", "function Invoke-Psql");
+        var header = block.IndexOf("return @'", StringComparison.Ordinal);
+        var start = header < 0 ? -1 : block.IndexOf((char)10, header) + 1;
+        var end = start <= 0 ? -1 : block.IndexOf("'@.Trim()", start, StringComparison.Ordinal);
+        Assert.True(header >= 0 && start > header && end > start);
+        return block[start..end].TrimEnd((char)13, (char)10);
+    }
 
     private static bool CanRunPostgresTests(bool transactionalAcceptance) => transactionalAcceptance;
 
@@ -975,7 +1070,7 @@ public sealed class Rev869APostgresAcceptanceTests
         Assert.Equal(7, await ScalarAsync(connection, transaction, "select count(*) from nexa.purchase_requisitions"));
         Assert.Equal(3, await ScalarAsync(connection, transaction, "select count(*) from nexa.purchase_requisition_approval_history"));
         Assert.Equal(4, await ScalarAsync(connection, transaction, "select count(*) from nexa.stock_reservations"));
-        Assert.Equal(42, await ScalarAsync(connection, transaction, "select count(*) from nexa.employees where \"Status\"='Active' and \"LoginEnabled\"=true"));
+        Assert.Equal(42, await ScalarAsync(connection, transaction, "select count(*) from nexa.employees where \"EmployeeCode\" like 'SESS-%' and lower(trim(\"Status\"))='active'"));
         Assert.Equal(16, await ScalarAsync(connection, transaction, "select count(*) from nexa.departments"));
         Assert.Equal(14, await ScalarAsync(connection, transaction, "select count(*) from nexa.department_approval_mappings where \"IsActive\"=true"));
         await transaction.RollbackAsync();

@@ -421,3 +421,17 @@ Resume enforcement now parses every transactional prerequisite and constraint la
 Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 83/83 PASS; complete non-PostgreSQL tests 378/378 PASS. SQL-contract, prohibited-operation, secret/privacy/safety, exact-file-boundary, and `git diff --check` results are recorded in the final committed checkpoint verification.
 
 No helper mode or PostgreSQL test was executed. No PostgreSQL/database access, migration application/removal/modification, backup/restore, database create/drop/repair, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. Final REV869A acceptance is not claimed.
+
+## 2026-08-11 transactional rendered-SQL and active-employee correction
+
+Starting commit: `7efbc5c3986152fc72282f7f84c5b18828a88509`.
+
+Failed evidence: `local-evidence/rev869a/rev869a_isolated_execution_20260811_070247_413.md` and its sanitized transactional output. The source-only diagnosis identified two verifier defects. First, the transactional SQL was held in an expandable PowerShell here-string and its DO openings used incomplete dollar-delimiter escaping. The final text sent to psql therefore contained the invalid `do $identity` instead of a paired PostgreSQL `$tag$` delimiter. All seven independent DO blocks now use unique paired `$rev869a_<test>$` delimiters inside a literal here-string, preventing PowerShell interpolation. Offline tests extract and validate that final literal SQL text.
+
+Second, the identity constraint test selected employees with `Status='Active' AND LoginEnabled=true`. That is not the accepted REV868C3 active-employee contract: the REV868C3 migration inserts the approved active set with `LoginEnabled=false` and does not change existing login enablement on conflict. Login eligibility is not required to test the employee foreign key on an identity mapping. The verifier now uses the exact 42 employee codes defined by committed `Rev868C3EmployeeWorkbookData.ActiveEmployees`, requires normalized status `active`, and emits independent expected, matched, missing, unexpected, duplicate, and status-mismatch counts. PASS requires exactly `42/42/0/0/0/0`. The identity negative test selects only from this proven set and does not require a pre-existing identity mapping or enabled login.
+
+All seven negative constraint tests remain independent, collision guarded, test-owned where support rows are needed, and enclosed by one explicit transaction with one final rollback and no commit. Missing or malformed prerequisite/constraint evidence remains fail closed and prevents the PostgreSQL-backed .NET stage. Existing schema, seed, EA UOM, Item mapping, permission, preservation, database-acceptance, test-acceptance, and overall-acceptance formulas are unchanged.
+
+Source-only validation: Windows PowerShell 5.1 parse PASS; build PASS with 0 warnings and 0 errors; focused helper tests 90/90 PASS; complete non-PostgreSQL tests 402/402 PASS. Final SQL delimiter, prerequisite formula, prohibited-operation, secret/privacy/safety, exact-file-boundary, and `git diff --check` scans are required to remain PASS at commit.
+
+No helper mode or PostgreSQL test was executed. No PostgreSQL/database access, migration application/removal/modification, backup/restore, database create/drop/repair, production, `sess_nexaerp`, `sess_nexaerp_rev868_verify`, REV861, AWS, frontend, or REV869B action occurred. Final REV869A acceptance is not claimed.
