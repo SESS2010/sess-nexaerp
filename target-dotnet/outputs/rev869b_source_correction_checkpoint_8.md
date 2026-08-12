@@ -133,4 +133,3 @@ No material source correction identified by the authoritative seventh re-review 
 No database, helper, migration apply/remove, backup/restore, production, REV861, frontend, REV869C, AWS, or legacy-reference operation occurred. Application source outside the controlled files was not changed.
 
 This correction does **not** self-declare source-safety PASS, execution-helper readiness, PostgreSQL acceptance, migration acceptance, production readiness, or final REV869B acceptance. A new independent source-only safety re-review is mandatory.
-
