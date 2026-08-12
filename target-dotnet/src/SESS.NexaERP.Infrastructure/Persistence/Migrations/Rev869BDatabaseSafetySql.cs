@@ -146,6 +146,28 @@ internal static class Rev869BDatabaseSafetySql
             RETURN NEW;
         END $rev869b$;
 
+        CREATE OR REPLACE FUNCTION nexa.rev869b_qualification_provenance_valid(qualification_id uuid)
+        RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog,nexa AS $rev869b$
+        SELECT EXISTS (
+          SELECT 1 FROM nexa.vendor_qualifications q
+          WHERE q."Id"=qualification_id AND q."VerificationStatus"='Approved' AND q."ApprovalStatus"='Approved'
+            AND q."VerifiedByEmployeeId" IS NOT NULL AND q."ApprovedByEmployeeId" IS NOT NULL
+            AND q."VerifiedByEmployeeId"<>q."ApprovedByEmployeeId"
+            AND (SELECT count(*) FROM nexa.controlled_configuration_histories h
+                 JOIN nexa.employee_identity_mappings m ON m."OrganizationId"=q."OrganizationId" AND m."Subject"=h."ActorLoginId"
+                   AND m."EmployeeId"=q."VerifiedByEmployeeId" AND m."IsActive"
+                 WHERE h."EntityType"='VendorQualification' AND h."EntityId"=q."Id" AND h."OrganizationId"=q."OrganizationId"
+                   AND h."Action"='Verify' AND h."Version"=q."Version"-1
+                   AND (h."AfterJson"->>'VerifiedByEmployeeId')::uuid IS NOT DISTINCT FROM q."VerifiedByEmployeeId")=1
+            AND (SELECT count(*) FROM nexa.controlled_configuration_histories h
+                 JOIN nexa.employee_identity_mappings m ON m."OrganizationId"=q."OrganizationId" AND m."Subject"=h."ActorLoginId"
+                   AND m."EmployeeId"=q."ApprovedByEmployeeId" AND m."IsActive"
+                 WHERE h."EntityType"='VendorQualification' AND h."EntityId"=q."Id" AND h."OrganizationId"=q."OrganizationId"
+                   AND h."Action"='Approve' AND h."Version"=q."Version"
+                   AND (h."AfterJson"->>'ApprovedByEmployeeId')::uuid IS NOT DISTINCT FROM q."ApprovedByEmployeeId")=1
+        );
+        $rev869b$;
+
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_authoritative_transition()
         RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE expected_count bigint; actual_count bigint; matched_count bigint; approval_count bigint;
@@ -177,6 +199,7 @@ internal static class Rev869BDatabaseSafetySql
                        qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
                        qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
                        qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
+                       nexa.rev869b_qualification_provenance_valid(qualification."Id") IS TRUE AND
                        qualification."EffectiveFrom"<=i."InvitedAt"::date AND
                        (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=i."InvitedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
@@ -287,6 +310,7 @@ internal static class Rev869BDatabaseSafetySql
                        qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
                        qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
                        qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
+                       nexa.rev869b_qualification_provenance_valid(qualification."Id") IS TRUE AND
                        qualification."EffectiveFrom"<=i."InvitedAt"::date AND
                        (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=i."InvitedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
@@ -450,6 +474,7 @@ internal static class Rev869BDatabaseSafetySql
         """;
 
     public const string Remove = """
+        DROP FUNCTION IF EXISTS nexa.rev869b_qualification_provenance_valid(uuid) CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_history_insert() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_extended_immutability() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_authoritative_transition() CASCADE;

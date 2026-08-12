@@ -107,7 +107,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(75, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
+        Assert.Equal(77, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
         Assert.Equal(2, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);

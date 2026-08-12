@@ -5,7 +5,7 @@ internal static class Rev869BControlledMutationSql
     public const string Install = """
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_history_insert()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
-        DECLARE matches bigint; parent_version bigint; parent_login text; parent_org text; parent_number text; parent_status text; parent_correlation text; parent_creator text;
+        DECLARE matches bigint; creator_matches bigint; parent_version bigint; parent_login text; parent_org text; parent_number text; parent_status text; parent_correlation text; parent_creator text; parent_creator_employee uuid;
         BEGIN
           IF TG_TABLE_NAME='purchase_transaction_status_history' THEN
             SELECT count(*),min(p.version),min(p.login),min(p.org),min(p.number),min(p.status),min(p.correlation),min(p.creator)
@@ -35,12 +35,24 @@ internal static class Rev869BControlledMutationSql
             END IF;
           END IF;
           IF NEW."ActorLoginId" IS DISTINCT FROM parent_login OR NEW."CreatedBy" IS DISTINCT FROM parent_login OR NEW."CorrelationId" IS DISTINCT FROM parent_correlation OR
+             current_setting('nexa.rev869b_actor_employee_id',true) IS DISTINCT FROM NEW."ActorEmployeeId"::text OR
+             current_setting('nexa.rev869b_actor_login',true) IS DISTINCT FROM NEW."ActorLoginId" OR
+             current_setting('nexa.rev869b_actor_role',true) IS DISTINCT FROM NEW."ActorRoleCode" OR
+             current_setting('nexa.rev869b_organization',true) IS DISTINCT FROM parent_org OR
              length(trim(coalesce(CASE WHEN TG_TABLE_NAME='purchase_order_history' THEN NEW."Reason" ELSE NEW."Remarks" END,'')))=0 OR
              NOT EXISTS (SELECT 1 FROM nexa.employee_identity_mappings m JOIN nexa.employees e ON e."Id"=m."EmployeeId" WHERE m."Subject"=NEW."ActorLoginId" AND m."EmployeeId"=NEW."ActorEmployeeId" AND m."OrganizationId"=parent_org AND m."IsActive" AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date) AND e."Status"='Active' AND e."LoginEnabled") OR
              NOT EXISTS (SELECT 1 FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId" WHERE a."EmployeeId"=NEW."ActorEmployeeId" AND r."Code"=NEW."ActorRoleCode" AND r."IsActive" AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date)) THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_history_actor_binding',MESSAGE='History actor, role, correlation and remarks must match the current controlled transition.';
           END IF;
-          IF NEW."Action"='Approve' AND lower(NEW."ActorLoginId")=lower(parent_creator) THEN
+          SELECT count(*),min(m."EmployeeId") INTO creator_matches,parent_creator_employee
+            FROM nexa.employee_identity_mappings m JOIN nexa.employees e ON e."Id"=m."EmployeeId"
+            WHERE m."Subject"=parent_creator AND m."OrganizationId"=parent_org AND m."IsActive"
+              AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date)
+              AND e."Status"='Active' AND e."LoginEnabled";
+          IF creator_matches<>1 THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_parent_creator_identity_binding',MESSAGE='Parent creator must resolve to exactly one active employee identity.';
+          END IF;
+          IF NEW."Action"='Approve' AND NEW."ActorEmployeeId"=parent_creator_employee THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_creator_self_approval',MESSAGE='Creator self-approval is prohibited.';
           END IF;
           IF NEW."Action"='Approve' AND TG_TABLE_NAME='purchase_transaction_approval_history' AND EXISTS (
@@ -96,11 +108,91 @@ internal static class Rev869BControlledMutationSql
             MESSAGE=format('REV869B controlled relation % rejects destructive DELETE.',TG_TABLE_NAME);
         END $rev869b$;
 
+        CREATE OR REPLACE FUNCTION nexa.rev869b_guard_qualification_lifecycle()
+        RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE actor_employee uuid; creator_employee uuid; actor_matches bigint; creator_matches bigint; authorized_roles bigint;
+        BEGIN
+          IF TG_OP='DELETE' THEN
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_delete_guard',MESSAGE='Vendor qualification lifecycle is retained and cannot be deleted.';
+          END IF;
+          IF TG_OP='INSERT' THEN
+            IF NEW."Version"<>0 OR NEW."VerificationStatus"<>'Pending Approval' OR NEW."ApprovalStatus"<>'Pending Approval' OR
+               NEW."VerifiedByEmployeeId" IS NOT NULL OR NEW."ApprovedByEmployeeId" IS NOT NULL OR length(trim(coalesce(NEW."CreatedBy",'')))=0 THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_initial_state',MESSAGE='Qualification INSERT must start pending with no verifier or approver identity.';
+            END IF;
+            RETURN NEW;
+          END IF;
+          IF NEW."Version"<>OLD."Version"+1 OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 OR
+             to_jsonb(NEW)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy']
+             IS DISTINCT FROM to_jsonb(OLD)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy'] THEN
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_lifecycle_allowlist',MESSAGE='Qualification lifecycle permits only exact versioned verifier/approver changes.';
+          END IF;
+          SELECT count(*),min(m."EmployeeId") INTO actor_matches,actor_employee FROM nexa.employee_identity_mappings m JOIN nexa.employees e ON e."Id"=m."EmployeeId"
+           WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=NEW."UpdatedBy" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
+          SELECT count(*),min(m."EmployeeId") INTO creator_matches,creator_employee FROM nexa.employee_identity_mappings m
+           WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=OLD."CreatedBy" AND m."IsActive";
+          IF actor_matches<>1 OR creator_matches<>1 OR actor_employee=creator_employee THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_actor_binding',MESSAGE='Qualification actor must resolve uniquely and differ from creator.';
+          END IF;
+          IF OLD."VerificationStatus"='PendingApproval' AND OLD."ApprovalStatus"='PendingApproval' AND
+             NEW."VerificationStatus"='Approved' AND NEW."ApprovalStatus"='PendingApproval' THEN
+            SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
+             WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('accounts_head','technical_director')
+               AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
+               AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
+            IF OLD."VerifiedByEmployeeId" IS NOT NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM actor_employee OR
+               NEW."ApprovedByEmployeeId" IS DISTINCT FROM OLD."ApprovedByEmployeeId" OR authorized_roles=0 THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_verifier_binding',MESSAGE='Qualification verification requires the exact independent employee.';
+            END IF;
+          ELSIF OLD."VerificationStatus"='Approved' AND OLD."ApprovalStatus"='PendingApproval' AND
+                NEW."VerificationStatus"='Approved' AND NEW."ApprovalStatus"='Approved' THEN
+            SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
+             WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('managing_director','technical_director')
+               AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
+               AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
+            IF OLD."VerifiedByEmployeeId" IS NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM OLD."VerifiedByEmployeeId" OR
+               NEW."ApprovedByEmployeeId" IS DISTINCT FROM actor_employee OR actor_employee=OLD."VerifiedByEmployeeId" OR authorized_roles=0 THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_approver_binding',MESSAGE='Qualification approval requires an employee distinct from creator and verifier.';
+            END IF;
+          ELSE
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_transition',MESSAGE='Qualification permits only Pending verification then independent approval.';
+          END IF;
+          NEW."UpdatedAt":=statement_timestamp();
+          RETURN NEW;
+        END $rev869b$;
+
+        CREATE OR REPLACE FUNCTION nexa.rev869b_require_qualification_history()
+        RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE expected_action text; expected_employee uuid;
+        BEGIN
+          expected_action:=CASE WHEN NEW."ApprovalStatus"='Approved' THEN 'Approve' ELSE 'Verify' END;
+          expected_employee:=CASE WHEN expected_action='Approve' THEN NEW."ApprovedByEmployeeId" ELSE NEW."VerifiedByEmployeeId" END;
+          IF NOT EXISTS (
+            SELECT 1 FROM nexa.controlled_configuration_histories h
+            JOIN nexa.employee_identity_mappings m ON m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=h."ActorLoginId" AND m."EmployeeId"=expected_employee AND m."IsActive"
+            WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND h."OrganizationId"=NEW."OrganizationId"
+              AND h."Action"=expected_action AND h."Version"=NEW."Version" AND h."CreatedBy"=NEW."UpdatedBy"
+              AND h."CorrelationId"=format('REV869B|QUALIFICATION|%s|%s|%s',replace(NEW."Id"::text,'-',''),NEW."Version",upper(expected_action))
+              AND h.xmin::text::bigint=txid_current()) THEN
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_requires_history',MESSAGE='Qualification lifecycle requires exact same-transaction immutable history.';
+          END IF;
+          RETURN NULL;
+        END $rev869b$;
+
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_explicit_mutation()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
         DECLARE parent_status text;
         BEGIN
+          IF current_setting('nexa.rev869b_actor_employee_id',true) IS NULL OR
+             current_setting('nexa.rev869b_actor_login',true) IS NULL OR
+             current_setting('nexa.rev869b_actor_role',true) IS NULL OR
+             current_setting('nexa.rev869b_organization',true) IS NULL THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_context_required',MESSAGE='REV869B mutation requires an authenticated transaction-local command context.';
+          END IF;
           IF TG_OP='INSERT' THEN
+            IF NEW."CreatedBy" IS DISTINCT FROM current_setting('nexa.rev869b_actor_login',true) THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_actor_binding',MESSAGE='Controlled INSERT actor must match command context.';
+            END IF;
             IF NEW."Version"<>0 THEN RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_version_zero',MESSAGE=format('%s INSERT requires version zero.',TG_TABLE_NAME); END IF;
             IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') AND
                (length(trim(coalesce(NEW."TransitionCorrelationId",'')))=0 OR NEW."TransitionCorrelationId" IS DISTINCT FROM NEW."IdempotencyKey") THEN
@@ -117,6 +209,9 @@ internal static class Rev869BControlledMutationSql
             RETURN NEW;
           END IF;
           IF NEW."Version"<>OLD."Version"+1 THEN RAISE EXCEPTION USING ERRCODE='40001',CONSTRAINT='rev869b_exact_version_increment',MESSAGE=format('%s UPDATE requires exact version +1.',TG_TABLE_NAME); END IF;
+          IF NEW."UpdatedBy" IS DISTINCT FROM current_setting('nexa.rev869b_actor_login',true) THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_actor_binding',MESSAGE='Controlled UPDATE actor must match command context.';
+          END IF;
           IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') AND
              (length(trim(coalesce(NEW."TransitionCorrelationId",'')))=0 OR NEW."TransitionCorrelationId" IS NOT DISTINCT FROM OLD."TransitionCorrelationId") THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_transition_command_correlation',MESSAGE='Every aggregate UPDATE requires a new exact command correlation.';
@@ -188,7 +283,7 @@ internal static class Rev869BControlledMutationSql
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_require_bound_history()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
-        DECLARE entity_type text; old_status text; expected_action text; actor text; specialized bigint;
+        DECLARE entity_type text; old_status text; expected_action text; actor text; parent_correlation text; specialized bigint;
         BEGIN
           IF TG_TABLE_NAME='quotation_technical_verifications' THEN
             actor:=coalesce(NEW."UpdatedBy",NEW."CreatedBy");
@@ -212,6 +307,7 @@ internal static class Rev869BControlledMutationSql
           END IF;
           actor:=coalesce(NEW."UpdatedBy",NEW."CreatedBy"); old_status:=CASE WHEN TG_OP='UPDATE' THEN OLD."Status" ELSE NULL END;
           IF TG_OP='UPDATE' AND NEW."Status" IS NOT DISTINCT FROM OLD."Status" THEN
+            parent_correlation:=NEW."TransitionCorrelationId";
             IF TG_TABLE_NAME='request_for_quotations' THEN entity_type:='RFQ';
               SELECT h."Action" INTO expected_action FROM nexa.purchase_transaction_status_history h WHERE h."EntityType"=entity_type AND h."EntityId"=NEW."Id" AND h."Action" IN ('ReserveInvitation','ReserveComparison') AND h."CorrelationId"=NEW."TransitionCorrelationId" AND h.xmin::text::bigint=txid_current();
             ELSIF TG_TABLE_NAME='rfq_vendor_invitations' THEN entity_type:='RFQInvitation'; expected_action:='ReserveQuotation';
@@ -221,17 +317,18 @@ internal static class Rev869BControlledMutationSql
             ELSE RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_update_forbidden',MESSAGE='This aggregate has no controlled same-status mutation.';
             END IF;
             IF expected_action IS NULL THEN RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_history_action',MESSAGE='Same-status mutation requires its exact reservation action.'; END IF;
-          ELSIF TG_TABLE_NAME='request_for_quotations' THEN entity_type:='RFQ'; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."Status"='Issued' THEN 'Issue' WHEN NEW."Status"='Closed' THEN 'Close' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
-          ELSIF TG_TABLE_NAME='rfq_vendor_invitations' THEN entity_type:='RFQInvitation'; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'InviteVendor' WHEN NEW."Status"='Submitted' THEN 'Submit' WHEN NEW."Status"='Withdrawn' THEN 'Withdraw' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
-          ELSIF TG_TABLE_NAME='vendor_quotations' THEN entity_type:='VendorQuotation'; expected_action:=CASE WHEN NEW."Status"='Submitted' THEN CASE WHEN NEW."PreviousRevisionId" IS NULL THEN 'Submit' ELSE 'Revise' END WHEN NEW."Status"='TechnicallyCompliant' THEN 'Verify' WHEN NEW."Status"='TechnicallyRejected' THEN 'RejectTechnical' WHEN NEW."Status"='Superseded' THEN 'Supersede' WHEN NEW."Status"='Withdrawn' THEN 'Withdraw' WHEN NEW."Status"='Rejected' THEN 'Reject' ELSE 'Transition' END;
-          ELSIF TG_TABLE_NAME='commercial_comparisons' THEN entity_type:='CommercialComparison'; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."Status"='PendingApproval' AND OLD."Status"='Draft' THEN 'Recommend' WHEN NEW."Status"='PendingApproval' THEN 'Resubmit' WHEN NEW."Status"='Approved' THEN 'Approve' WHEN NEW."Status"='Rejected' THEN 'Reject' WHEN NEW."Status"='RevisionRequested' THEN 'RequestRevision' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
+          ELSIF TG_TABLE_NAME='request_for_quotations' THEN entity_type:='RFQ'; parent_correlation:=NEW."TransitionCorrelationId"; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."Status"='Issued' THEN 'Issue' WHEN NEW."Status"='Closed' THEN 'Close' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
+          ELSIF TG_TABLE_NAME='rfq_vendor_invitations' THEN entity_type:='RFQInvitation'; parent_correlation:=NEW."TransitionCorrelationId"; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'InviteVendor' WHEN NEW."Status"='Submitted' THEN 'Submit' WHEN NEW."Status"='Withdrawn' THEN 'Withdraw' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
+          ELSIF TG_TABLE_NAME='vendor_quotations' THEN entity_type:='VendorQuotation'; parent_correlation:=NEW."TransitionCorrelationId"; expected_action:=CASE WHEN NEW."Status"='Submitted' THEN CASE WHEN NEW."PreviousRevisionId" IS NULL THEN 'Submit' ELSE 'Revise' END WHEN NEW."Status"='TechnicallyCompliant' THEN 'Verify' WHEN NEW."Status"='TechnicallyRejected' THEN 'RejectTechnical' WHEN NEW."Status"='Superseded' THEN 'Supersede' WHEN NEW."Status"='Withdrawn' THEN 'Withdraw' WHEN NEW."Status"='Rejected' THEN 'Reject' ELSE 'Transition' END;
+          ELSIF TG_TABLE_NAME='commercial_comparisons' THEN entity_type:='CommercialComparison'; parent_correlation:=NEW."TransitionCorrelationId"; expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."Status"='PendingApproval' AND OLD."Status"='Draft' THEN 'Recommend' WHEN NEW."Status"='PendingApproval' THEN 'Resubmit' WHEN NEW."Status"='Approved' THEN 'Approve' WHEN NEW."Status"='Rejected' THEN 'Reject' WHEN NEW."Status"='RevisionRequested' THEN 'RequestRevision' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
           ELSIF TG_TABLE_NAME='purchase_orders' THEN
             entity_type:='PurchaseOrder';
+            parent_correlation:=NEW."TransitionCorrelationId";
             IF TG_OP='INSERT' AND NEW."PreviousVersionId" IS NOT NULL THEN SELECT p."Status" INTO STRICT old_status FROM nexa.purchase_orders p WHERE p."Id"=NEW."PreviousVersionId"; END IF;
             expected_action:=CASE WHEN TG_OP='INSERT' AND NEW."Status"='RevisionDraft' THEN 'ReviseRejected' WHEN TG_OP='INSERT' AND NEW."PreviousVersionId" IS NOT NULL THEN 'Amend' WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."Status"='PendingApproval' THEN 'Submit' WHEN NEW."Status"='Resubmitted' THEN 'ResubmitRejected' WHEN NEW."Status"='Approved' THEN 'Approve' WHEN NEW."Status"='Rejected' THEN 'Reject' WHEN NEW."Status"='Issued' THEN 'Issue' WHEN NEW."Status"='Superseded' THEN 'Supersede' WHEN NEW."Status"='Cancelled' THEN 'Cancel' ELSE 'Transition' END;
-          ELSE entity_type:='MaterialFollowUp'; expected_action:=CASE WHEN NEW."Status"='InProgress' THEN 'StartFollowUp' WHEN NEW."Status"='Completed' THEN 'CompleteFollowUp' ELSE 'Handoff' END;
+          ELSE entity_type:='MaterialFollowUp'; parent_correlation:=NEW."CorrelationId"; expected_action:=CASE WHEN NEW."Status"='InProgress' THEN 'StartFollowUp' WHEN NEW."Status"='Completed' THEN 'CompleteFollowUp' ELSE 'Handoff' END;
           END IF;
-          IF NOT EXISTS (SELECT 1 FROM nexa.purchase_transaction_status_history h WHERE h."EntityType"=entity_type AND h."EntityId"=NEW."Id" AND h."FromStatus" IS NOT DISTINCT FROM old_status AND h."ToStatus"=NEW."Status" AND h."Action"=expected_action AND h."ActorLoginId"=actor AND h."CorrelationId"=NEW."TransitionCorrelationId" AND h."Version"=NEW."Version" AND h.xmin::text::bigint=txid_current()) THEN
+          IF NOT EXISTS (SELECT 1 FROM nexa.purchase_transaction_status_history h WHERE h."EntityType"=entity_type AND h."EntityId"=NEW."Id" AND h."FromStatus" IS NOT DISTINCT FROM old_status AND h."ToStatus"=NEW."Status" AND h."Action"=expected_action AND h."ActorLoginId"=actor AND h."CorrelationId"=parent_correlation AND h."Version"=NEW."Version" AND h.xmin::text::bigint=txid_current()) THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_transition_history_exactness',MESSAGE='Transition history from/to/action/actor/version does not match its parent mutation.';
           END IF;
           IF TG_TABLE_NAME='commercial_comparisons' AND expected_action IN ('Approve','Reject','RequestRevision','Resubmit') THEN
@@ -252,6 +349,8 @@ internal static class Rev869BControlledMutationSql
         CREATE TRIGGER trg_rev869b_explicit_po_mutation BEFORE INSERT OR UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_followup_mutation BEFORE INSERT OR UPDATE ON nexa.material_followup_handoffs FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_policy_mutation BEFORE INSERT OR UPDATE ON nexa.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
+        CREATE TRIGGER trg_rev869b_qualification_lifecycle BEFORE INSERT OR UPDATE OR DELETE ON nexa.vendor_qualifications FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_qualification_lifecycle();
+        CREATE CONSTRAINT TRIGGER trg_rev869b_bound_qualification_history AFTER UPDATE ON nexa.vendor_qualifications DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_require_qualification_history();
         CREATE TRIGGER trg_rev869b_explicit_rfq_line_insert BEFORE INSERT ON nexa.request_for_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_quotation_line_insert BEFORE INSERT ON nexa.vendor_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_technical_insert BEFORE INSERT ON nexa.quotation_technical_verifications FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_explicit_mutation();
@@ -283,6 +382,8 @@ internal static class Rev869BControlledMutationSql
         """;
 
     public const string Remove = """
+        DROP FUNCTION IF EXISTS nexa.rev869b_require_qualification_history() CASCADE;
+        DROP FUNCTION IF EXISTS nexa.rev869b_guard_qualification_lifecycle() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_write_policy_history() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_require_bound_history() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_explicit_mutation() CASCADE;

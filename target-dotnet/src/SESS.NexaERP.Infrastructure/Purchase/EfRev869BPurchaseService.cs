@@ -30,8 +30,14 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
     private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(CancellationToken ct)
     {
-        if (db.Database.CurrentTransaction is not null) return new Rev869BTransactionScope(null);
-        return new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
+        var scope = db.Database.CurrentTransaction is not null
+            ? new Rev869BTransactionScope(null)
+            : new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
+        var actor = RequireActor().ToString();
+        var organization = RequireOrganization();
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT set_config('nexa.rev869b_actor_employee_id',{actor},true),set_config('nexa.rev869b_actor_login',{user.LoginId},true),set_config('nexa.rev869b_actor_role',{user.RoleCode},true),set_config('nexa.rev869b_organization',{organization},true)", ct);
+        return scope;
     }
 
     private sealed class Rev869BTransactionScope(IDbContextTransaction? owned) : IAsyncDisposable

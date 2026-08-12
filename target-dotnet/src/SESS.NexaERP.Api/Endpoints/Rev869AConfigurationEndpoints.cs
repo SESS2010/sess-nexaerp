@@ -28,6 +28,8 @@ public static class Rev869AConfigurationEndpoints
         group.MapPost("/commercial-values/preview", (ResolveCommercialValueRequest request) => Results.Ok(CommercialValueSnapshot.Calculate(request.CurrencyCode, request.TaxableValue, request.TaxValue, request.FreightAndOtherCharges, request.DiscountValue, request.RoundingScale)))
             .RequirePagePermission("settings.tax-gst", PagePermissionActions.ViewCommercialValues);
         group.MapPost("/vendor-qualifications", CreateVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Create);
+        group.MapPost("/vendor-qualifications/{qualificationId:guid}/verify", VerifyVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
+        group.MapPost("/vendor-qualifications/{qualificationId:guid}/approve", ApproveVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         return endpoints;
@@ -134,12 +136,100 @@ public static class Rev869AConfigurationEndpoints
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode) && !categoryId.HasValue) return Results.Conflict(new { message = "Active item category was not found." });
         var organization = request.OrganizationId.Trim(); var qualificationCode = MasterEndpointHelpers.NormalizeCode(request.QualificationCode);
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid vendor qualification effective range." });
-        var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        // Retained approved rows without REV869B actor provenance remain immutable and fail closed for invitations.
+        // They do not block creation of a new, independently verified replacement over a distinct effective range.
+        var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom) &&
+            (x.VerificationStatus != MasterApprovalStatuses.Approved || x.ApprovalStatus != MasterApprovalStatuses.Approved || (x.VerifiedByEmployeeId.HasValue && x.ApprovedByEmployeeId.HasValue)), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping vendor qualification exists." });
         var entity = new VendorQualification { OrganizationId = organization, VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = qualificationCode, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         db.VendorQualifications.Add(entity); AddHistory(db, entity.OrganizationId, nameof(VendorQualification), entity.Id, "Create", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
+    }
+
+    private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, true, db, user, audit, ct);
+
+    private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, false, db, user, audit, ct);
+
+    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, bool verify, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    {
+        if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
+            return Results.Unauthorized();
+        if (string.IsNullOrWhiteSpace(request.Remarks))
+            return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
+
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
+        if (qualification is null) return Results.NotFound();
+        if (qualification.Version != request.ExpectedVersion)
+            return Results.Conflict(new { message = "Vendor qualification version is stale." });
+
+        var creatorEmployeeId = await db.EmployeeIdentityMappings.AsNoTracking()
+            .Where(x => x.OrganizationId == qualification.OrganizationId && x.Subject == qualification.CreatedBy && x.IsActive)
+            .Select(x => (Guid?)x.EmployeeId).SingleOrDefaultAsync(ct);
+        if (!creatorEmployeeId.HasValue || creatorEmployeeId == user.EmployeeId)
+            return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
+
+        var before = new
+        {
+            qualification.VerificationStatus,
+            qualification.VerifiedByEmployeeId,
+            qualification.ApprovalStatus,
+            qualification.ApprovedByEmployeeId,
+            qualification.Version
+        };
+        var action = verify ? "Verify" : "Approve";
+        if (verify)
+        {
+            if (qualification.VerificationStatus != MasterApprovalStatuses.PendingApproval ||
+                qualification.ApprovalStatus != MasterApprovalStatuses.PendingApproval || qualification.VerifiedByEmployeeId.HasValue)
+                return Results.Conflict(new { message = "Qualification is not awaiting independent verification." });
+            qualification.VerificationStatus = MasterApprovalStatuses.Approved;
+            qualification.VerifiedByEmployeeId = user.EmployeeId.Value;
+        }
+        else
+        {
+            if (qualification.VerificationStatus != MasterApprovalStatuses.Approved || !qualification.VerifiedByEmployeeId.HasValue ||
+                qualification.ApprovalStatus != MasterApprovalStatuses.PendingApproval || qualification.ApprovedByEmployeeId.HasValue)
+                return Results.Conflict(new { message = "Qualification requires completed independent verification before approval." });
+            if (qualification.VerifiedByEmployeeId == user.EmployeeId)
+                return Results.Conflict(new { message = "Qualification verifier cannot approve the same qualification." });
+            qualification.ApprovalStatus = MasterApprovalStatuses.Approved;
+            qualification.ApprovedByEmployeeId = user.EmployeeId.Value;
+        }
+
+        qualification.Version = checked(qualification.Version + 1);
+        qualification.UpdatedAt = DateTimeOffset.UtcNow;
+        qualification.UpdatedBy = user.LoginId;
+        var correlation = $"REV869B|QUALIFICATION|{qualification.Id:N}|{qualification.Version}|{action.ToUpperInvariant()}";
+        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
+        {
+            OrganizationId = qualification.OrganizationId,
+            EntityType = nameof(VendorQualification),
+            EntityId = qualification.Id,
+            Action = action,
+            BeforeJson = JsonSerializer.Serialize(before),
+            AfterJson = JsonSerializer.Serialize(new
+            {
+                qualification.VerificationStatus,
+                qualification.VerifiedByEmployeeId,
+                qualification.ApprovalStatus,
+                qualification.ApprovedByEmployeeId,
+                qualification.Version
+            }),
+            ActorLoginId = user.LoginId,
+            ActorRoleCode = user.RoleCode,
+            Remarks = request.Remarks.Trim(),
+            CorrelationId = correlation,
+            CreatedBy = user.LoginId,
+            Version = qualification.Version
+        });
+        await db.SaveChangesAsync(ct);
+        await audit.WriteAsync("Masters", action + "VendorQualification", nameof(VendorQualification), qualification.Id.ToString(), before, qualification, ct);
+        await transaction.CommitAsync(ct);
+        return Results.Ok(new { qualification.Id, qualification.VerificationStatus, qualification.ApprovalStatus, qualification.Version });
     }
 
     private static async Task<IResult> CreateWarehouseConditionLocation(CreateWarehouseConditionLocationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
