@@ -24,10 +24,24 @@ internal static partial class Rev869BCompleteGraphSeeder
             PurchaseRequisitionLineId=s.PrLine.Id,ItemId=s.Item.Id,LineNumber=1,PrNumberSnapshot=s.Pr.PrNumber,PrLineNumberSnapshot=1,
             ItemCodeSnapshot=s.Item.ItemCode,ItemNameSnapshot=s.Item.Name,UomSnapshot=s.Uom.Code,ApprovedQuantitySnapshot=1,
             OutstandingQuantitySnapshot=1,RfqQuantity=1,RequiredDateSnapshot=On.AddMonths(1),CreatedAt=At,CreatedBy=Login };
+        var terminalRfqKey="rev869b-pg-owned:terminal-rfq";
+        var terminalRfq = new RequestForQuotation { Id=ids.Id("terminal-rfq"),OrganizationId=Organization,RfqNumber=ids.Code("RFQT"),FinancialYear="2026-27",
+            SequenceNumber=2,PurchaseRequisitionId=s.Pr.Id,DeliveryWarehouseId=s.Warehouse.Id,OwnerEmployeeId=s.Actor,QuoteDueAt=At.AddDays(7),
+            CurrencyCode="INR",Status=Rev869BStatuses.Closed,IdempotencyKey=terminalRfqKey,TransitionCorrelationId=terminalRfqKey,
+            Version=2,CreatedAt=At,CreatedBy=Login };
+        var terminalRfqLine = new RequestForQuotationLine { Id=ids.Id("terminal-rfq-line"),RequestForQuotationId=terminalRfq.Id,
+            PurchaseRequirementHandoffId=s.Requirement.Id,PurchaseRequisitionLineId=s.PrLine.Id,ItemId=s.Item.Id,LineNumber=1,
+            PrNumberSnapshot=s.Pr.PrNumber,PrLineNumberSnapshot=1,ItemCodeSnapshot=s.Item.ItemCode,ItemNameSnapshot=s.Item.Name,
+            UomSnapshot=s.Uom.Code,ApprovedQuantitySnapshot=1,OutstandingQuantitySnapshot=1,RfqQuantity=1,
+            RequiredDateSnapshot=On.AddMonths(1),CreatedAt=At,CreatedBy=Login };
         var invitationKey="rev869b-pg-owned:invitation";
         var invitation = new RfqVendorInvitation { Id=ids.Id("invitation"),RequestForQuotationId=rfq.Id,VendorId=s.Vendor.Id,
             Status=Rev869BStatuses.Issued,InvitedAt=At,QuoteDueAtSnapshot=rfq.QuoteDueAt,VendorQualificationSnapshotJson=qJson,
             IdempotencyKey=invitationKey,TransitionCorrelationId=invitationKey,CreatedAt=At,CreatedBy=Login };
+        var terminalInvitationKey="rev869b-pg-owned:terminal-invitation";
+        var terminalInvitation = new RfqVendorInvitation { Id=ids.Id("terminal-invitation"),RequestForQuotationId=terminalRfq.Id,VendorId=s.Vendor.Id,
+            Status=Rev869BStatuses.Cancelled,InvitedAt=At,QuoteDueAtSnapshot=terminalRfq.QuoteDueAt,VendorQualificationSnapshotJson=qJson,
+            IdempotencyKey=terminalInvitationKey,TransitionCorrelationId=terminalInvitationKey,Version=1,CreatedAt=At,CreatedBy=Login };
         var quoteKey="rev869b-pg-owned:quotation";
         var quote = new VendorQuotation { Id=ids.Id("quotation"),OrganizationId=Organization,QuotationNumber=ids.Code("QUOTE"),FinancialYear="2026-27",
             SequenceNumber=1,RfqVendorInvitationId=invitation.Id,VendorId=s.Vendor.Id,RootQuotationId=ids.Id("quotation"),RevisionNumber=1,
@@ -41,7 +55,7 @@ internal static partial class Rev869BCompleteGraphSeeder
             PromisedDeliveryDate=On.AddMonths(1),CreatedAt=At,CreatedBy=Login };
         var technical = new QuotationTechnicalVerification { Id=ids.Id("technical"),VendorQuotationLineId=quoteLine.Id,VerifierEmployeeId=s.Verifier,
             ComplianceStatus=Rev869BStatuses.TechnicallyCompliant,ComplianceSnapshotJson="{}",Remarks=s.Marker,VerifiedAt=At,
-            CorrelationId="rev869b-pg-owned:technical",CreatedAt=At,CreatedBy="REV869B-VERIFIER" };
+            CorrelationId="rev869b-pg-owned:technical",CreatedAt=At,CreatedBy=Login };
         var comparisonKey="rev869b-pg-owned:comparison";
         var comparison = new CommercialComparison { Id=ids.Id("comparison"),OrganizationId=Organization,ComparisonNumber=ids.Code("CMP"),
             FinancialYear="2026-27",SequenceNumber=1,RequestForQuotationId=rfq.Id,RecommendedVendorQuotationId=quote.Id,SelectedVendorId=s.Vendor.Id,
@@ -61,6 +75,9 @@ internal static partial class Rev869BCompleteGraphSeeder
         var followup = new MaterialFollowUpHandoff { Id=ids.Id("followup"),PurchaseOrderId=approved.Id,PurchaseOrderLineId=approvedLine.Id,
             HandoffNumber=ids.Code("MFU"),OrderedQuantitySnapshot=1,Status=Rev869BStatuses.PendingFollowUp,HandoffAt=At,
             CorrelationId="rev869b-pg-owned:followup",CreatedAt=At,CreatedBy=Login };
+        var terminalFollowup = new MaterialFollowUpHandoff { Id=ids.Id("terminal-followup"),PurchaseOrderId=rejected.Id,PurchaseOrderLineId=rejectedLine.Id,
+            HandoffNumber=ids.Code("MFUT"),OrderedQuantitySnapshot=1,Status=Rev869BStatuses.PendingFollowUp,HandoffAt=At,
+            CorrelationId="rev869b-pg-owned:terminal-followup",CreatedAt=At,CreatedBy=Login };
         var status = new PurchaseTransactionStatusHistory { Id=ids.Id("status-history"),OrganizationId=Organization,EntityType="RFQ",EntityId=rfq.Id,
             DocumentNumber=rfq.RfqNumber,Action="Create",ToStatus=rfq.Status,ActorEmployeeId=s.Actor,ActorLoginId=Login,
             ActorRoleCode=Rev869ARoleCodes.PurchaseExecutive,Remarks=s.Marker,CorrelationId=rfqKey,CreatedAt=At,CreatedBy=Login };
@@ -75,8 +92,9 @@ internal static partial class Rev869BCompleteGraphSeeder
         var verifyHistory = QualificationHistory(ids,"qualification-verify",q,s.Verifier,"REV869B-VERIFIER","Verify",1,"VerifiedByEmployeeId");
         var approveHistory = QualificationHistory(ids,"qualification-approve",q,s.Approver,"REV869B-APPROVER","Approve",2,"ApprovedByEmployeeId");
         var sequence = new PurchaseNumberSequence { Id=ids.Id("sequence"),OrganizationId=Organization,FinancialYear="2026-27",Prefix="RFQ",LastNumber=2,CreatedAt=At,CreatedBy=s.Marker };
-        return new object[] { verifyHistory,approveHistory,rfq,rfqLine,invitation,quote,quoteLine,technical,comparison,comparisonLine,
-            policy,approved,rejected,approvedLine,rejectedLine,followup,status,approval,poHistory,sequence };
+        return new object[] { verifyHistory,approveHistory,rfq,rfqLine,terminalRfq,terminalRfqLine,invitation,terminalInvitation,
+            quote,quoteLine,technical,comparison,comparisonLine,policy,approved,rejected,approvedLine,rejectedLine,followup,
+            terminalFollowup,status,approval,poHistory,sequence };
     }
 
     private static PurchaseOrder Po(FixtureIds ids,string id,string prefix,string status,bool current,CommercialComparison comparison,SupportGraph s)

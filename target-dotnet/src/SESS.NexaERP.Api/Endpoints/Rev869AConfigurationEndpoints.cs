@@ -127,33 +127,63 @@ public static class Rev869AConfigurationEndpoints
         return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{candidate.Id}", new { candidate.Id });
     }
 
-    private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
+        if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
+            return Results.Unauthorized();
+        var organization = request.OrganizationId.Trim();
+        if (!string.Equals(user.OrganizationId, organization, StringComparison.Ordinal))
+            return Results.NotFound();
+        if (string.IsNullOrWhiteSpace(request.Remarks))
+            return Results.BadRequest(new { message = "Qualification creation remarks are required." });
+        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, organization, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        if (!scope.Allowed)
+        {
+            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), organization, null, new { scope.Reason, user.RoleCode }, ct);
+            return Results.Forbid();
+        }
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT nexa.rev869b_open_command_context({user.EmployeeId.Value},{user.LoginId},{user.RoleCode},{organization})", ct);
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(request.VendorCode), ct);
         if (vendor is null) return Results.Conflict(new { message = "Vendor was not found." });
         Guid? categoryId = null;
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode)) categoryId = await db.ItemCategories.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.ItemCategoryCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode) && !categoryId.HasValue) return Results.Conflict(new { message = "Active item category was not found." });
-        var organization = request.OrganizationId.Trim(); var qualificationCode = MasterEndpointHelpers.NormalizeCode(request.QualificationCode);
+        var qualificationCode = MasterEndpointHelpers.NormalizeCode(request.QualificationCode);
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid vendor qualification effective range." });
-        // Retained approved rows without REV869B actor provenance remain immutable and fail closed for invitations.
-        // They do not block creation of a new, independently verified replacement over a distinct effective range.
-        var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom) &&
-            (x.VerificationStatus != MasterApprovalStatuses.Approved || x.ApprovalStatus != MasterApprovalStatuses.Approved || (x.VerifiedByEmployeeId.HasValue && x.ApprovedByEmployeeId.HasValue)), ct);
+        // Retained actorless REV869A rows stay readable and immutable, but every overlapping
+        // effective range is blocked. Only a non-overlapping controlled replacement is allowed.
+        var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping vendor qualification exists." });
         var entity = new VendorQualification { OrganizationId = organization, VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = qualificationCode, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
-        db.VendorQualifications.Add(entity); AddHistory(db, entity.OrganizationId, nameof(VendorQualification), entity.Id, "Create", null, entity, request.Remarks, user);
+        db.VendorQualifications.Add(entity);
+        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
+        {
+            OrganizationId = entity.OrganizationId,
+            EntityType = nameof(VendorQualification),
+            EntityId = entity.Id,
+            Action = "Create",
+            AfterJson = JsonSerializer.Serialize(entity),
+            ActorLoginId = user.LoginId,
+            ActorRoleCode = user.RoleCode,
+            Remarks = request.Remarks.Trim(),
+            CorrelationId = $"REV869B|QUALIFICATION|{entity.Id:N}|0|CREATE",
+            CreatedBy = user.LoginId,
+            Version = 0
+        });
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
+        await transaction.CommitAsync(ct);
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
     }
 
-    private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, true, db, user, audit, ct);
+    private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, true, db, user, scopes, audit, ct);
 
-    private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, false, db, user, audit, ct);
+    private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, false, db, user, scopes, audit, ct);
 
-    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, bool verify, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, bool verify, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
@@ -161,6 +191,8 @@ public static class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT nexa.rev869b_open_command_context({user.EmployeeId.Value},{user.LoginId},{user.RoleCode},{user.OrganizationId})", ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
         if (qualification.Version != request.ExpectedVersion)
@@ -171,6 +203,15 @@ public static class Rev869AConfigurationEndpoints
             .Select(x => (Guid?)x.EmployeeId).SingleOrDefaultAsync(ct);
         if (!creatorEmployeeId.HasValue || creatorEmployeeId == user.EmployeeId)
             return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
+        var scope = await scopes.AuthorizeAsync(user.EmployeeId.Value, user.RoleCode,
+            new RecordScopeTarget(qualification.OrganizationId, null, null, null, creatorEmployeeId),
+            DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        if (!scope.Allowed)
+        {
+            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), qualification.Id.ToString(), null,
+                new { scope.Reason, user.RoleCode }, ct);
+            return Results.Forbid();
+        }
 
         var before = new
         {
@@ -226,7 +267,12 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
-        await db.SaveChangesAsync(ct);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(ct);
+            return Results.Conflict(new { message = "Vendor qualification version is stale." });
+        }
         await audit.WriteAsync("Masters", action + "VendorQualification", nameof(VendorQualification), qualification.Id.ToString(), before, qualification, ct);
         await transaction.CommitAsync(ct);
         return Results.Ok(new { qualification.Id, qualification.VerificationStatus, qualification.ApprovalStatus, qualification.Version });

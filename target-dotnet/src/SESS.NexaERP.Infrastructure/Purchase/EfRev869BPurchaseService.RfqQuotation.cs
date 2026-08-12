@@ -21,6 +21,9 @@ public sealed partial class EfRev869BPurchaseService
         var organization = RequireOrganization();
         var scope = Rev869BIdempotencyFingerprint.CommandScope(organization, "CreateRFQ", request.IdempotencyKey);
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "CreateRFQ", request.IdempotencyKey, request);
+        // Serialize at the contested transaction boundary, before replay lookup or number consumption.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({scope},0))", ct);
         var existing = await db.RequestForQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey.StartsWith(scope + "."), ct);
         if (existing is not null)
         {

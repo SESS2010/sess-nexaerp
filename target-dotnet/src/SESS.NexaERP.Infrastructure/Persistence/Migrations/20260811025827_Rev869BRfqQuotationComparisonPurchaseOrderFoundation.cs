@@ -1613,6 +1613,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 """);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Install);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Install);
+            migrationBuilder.Sql(Rev869BCommandContextSql.Install);
             migrationBuilder.Sql(Rev869BControlledMutationSql.Install);
         }
 
@@ -1620,6 +1621,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql(Rev869BControlledMutationSql.Remove);
+            migrationBuilder.Sql(Rev869BCommandContextSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Remove);
             migrationBuilder.DropForeignKey(name: "FK_vendor_qualifications_employees_VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications");

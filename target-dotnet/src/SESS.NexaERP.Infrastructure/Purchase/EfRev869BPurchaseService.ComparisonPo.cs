@@ -189,6 +189,13 @@ public sealed partial class EfRev869BPurchaseService
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != "Issue" || replay.Reason != request.Remarks.Trim()) throw new Rev869BConflictException("PO issue idempotency key was reused."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }
         if (po.Status != Rev869BStatuses.Approved || !po.IsCurrentVersion) throw new Rev869BConflictException("Only approved current PO may be issued.");
+        var approvingEmployee = await db.PurchaseOrderHistories.AsNoTracking()
+            .Where(x => x.PurchaseOrderId == po.Id && x.Action == "Approve" && x.ToStatus == Rev869BStatuses.Approved &&
+                x.RevisionNumber == po.RevisionNumber)
+            .Select(x => (Guid?)x.ActorEmployeeId).SingleOrDefaultAsync(ct)
+            ?? throw new Rev869BConflictException("PO issue requires one exact approval identity for this revision.");
+        if (approvingEmployee == actor)
+            throw new Rev869BConflictException("The PO approver cannot issue the same controlled revision.");
         Rev869BPurchaseOrderSnapshot.RequireComplete(po);
         if (await db.MaterialFollowUpHandoffs.AnyAsync(x => x.PurchaseOrderId == po.Id, ct)) throw new Rev869BConflictException("Material Follow-up handoff already exists for this PO version.");
         var version = checked(request.Version + 1); var issuedAt = DateTimeOffset.UtcNow; Rev869BStatusContracts.RequirePurchaseOrder(po.Status, Rev869BStatuses.Issued);

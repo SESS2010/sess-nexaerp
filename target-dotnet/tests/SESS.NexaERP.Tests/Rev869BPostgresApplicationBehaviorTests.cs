@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -18,6 +19,7 @@ using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Identity;
@@ -59,10 +61,10 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     public async Task RealServiceFailureAfterWritesRollsBackEveryAffectedRelation()
     {
         await using var fixture = await OwnedRfqFixture.CreateAsync("audit-rollback", useAmbientTransaction: false);
-        var before = await fixture.CountBusinessResultAsync();
+        var before = await fixture.CaptureOwnedStateFromIndependentContextAsync();
         await Assert.ThrowsAsync<InjectedAuditFailure>(() =>
             fixture.Service(new FailingAuditWriter()).CreateRfqAsync(fixture.Request("failing-command"), default));
-        Assert.Equal(before, await fixture.CountBusinessResultFromIndependentContextAsync());
+        Assert.Equal(before, await fixture.CaptureOwnedStateFromIndependentContextAsync());
     }
 
     [Fact]
@@ -113,6 +115,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     public async Task TwoIndependentDbContextsConnectionsAndServicesProduceOneAuthoritativeWinner()
     {
         await using var fixture = await OwnedRfqFixture.CreateAsync("concurrent-services", useAmbientTransaction: false);
+        var before = await fixture.CaptureOwnedStateFromIndependentContextAsync();
         await using var firstDb = await fixture.OpenIndependentContextAsync();
         await using var secondDb = await fixture.OpenIndependentContextAsync();
         Assert.NotSame(firstDb, secondDb);
@@ -140,12 +143,43 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         await Assert.ThrowsAsync<Rev869BConflictException>(() => fixture.Service(secondDb)
             .CreateRfqAsync(fixture.Request("collision-key") with { CurrencyCode = "USD" }, default));
         Assert.Equal(1, await firstDb.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
+        var after = await fixture.CaptureOwnedStateFromIndependentContextAsync();
+        Assert.Equal(before.Rfqs + 1, after.Rfqs);
+        Assert.Equal(before.RfqLines + 1, after.RfqLines);
+        Assert.Equal(before.StatusHistories + 1, after.StatusHistories);
+        Assert.Equal(before.Audits + 1, after.Audits);
+        Assert.Equal(before.NumberSequences + 1, after.NumberSequences);
+        Assert.Equal(before.Invitations, after.Invitations);
+        Assert.Equal(before.Quotations, after.Quotations);
+        Assert.Equal(before.QuotationLines, after.QuotationLines);
+        Assert.Equal(before.TechnicalVerifications, after.TechnicalVerifications);
+        Assert.Equal(before.Comparisons, after.Comparisons);
+        Assert.Equal(before.ComparisonLines, after.ComparisonLines);
+        Assert.Equal(before.PurchaseOrders, after.PurchaseOrders);
+        Assert.Equal(before.PurchaseOrderLines, after.PurchaseOrderLines);
+        Assert.Equal(before.PoHistories, after.PoHistories);
+        Assert.Equal(before.FollowUps, after.FollowUps);
     }
 
     [Fact]
     public async Task AuthenticatedMappedAspNetEndpointTraversesPermissionScopeServiceAndEf()
     {
         await using var fixture = await OwnedRfqFixture.CreateAsync("mapped-endpoint");
+        await Rev869BCompleteGraphSeeder.SeedAsync(fixture.DatabaseConnectionString, "mapped-endpoint-security");
+        var directOrganization = Rev869BOwnedPostgresDatabase.Organization;
+        var directCreator = await fixture.Db.EmployeeIdentityMappings.AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == directOrganization && x.Subject == Rev869BOwnedPostgresDatabase.Login);
+        var directVerifier = await fixture.Db.EmployeeIdentityMappings.AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == directOrganization && x.Subject == "REV869B-VERIFIER");
+        var directApprover = await fixture.Db.EmployeeIdentityMappings.AsNoTracking()
+            .SingleAsync(x => x.OrganizationId == directOrganization && x.Subject == "REV869B-APPROVER");
+        var directQualification = await fixture.Db.VendorQualifications.AsNoTracking()
+            .Include(x => x.Vendor).Include(x => x.ItemCategory)
+            .SingleAsync(x => x.OrganizationId == directOrganization);
+        var directQuotationNumber = await fixture.Db.VendorQuotations.AsNoTracking()
+            .Where(x => x.OrganizationId == directOrganization).Select(x => x.QuotationNumber).SingleAsync();
+        var directComparisonNumber = await fixture.Db.CommercialComparisons.AsNoTracking()
+            .Where(x => x.OrganizationId == directOrganization).Select(x => x.ComparisonNumber).SingleAsync();
         var user = new FixtureUser(fixture.Marker, Rev869ARoleCodes.PurchaseExecutive, fixture.Organization, fixture.ActorId);
         var port = FreePort();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Test" });
@@ -161,12 +195,14 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         builder.Services.AddSingleton<IPagePermissionService>(permissions);
         var pipelineAudit = new ToggleAuditWriter(new EfAuditWriter(fixture.Db, user));
         builder.Services.AddSingleton<IAuditWriter>(pipelineAudit);
-        builder.Services.AddSingleton<IRev869BPurchaseService>(fixture.Service(scopes: scopes));
+        builder.Services.AddSingleton(fixture.Db);
+        builder.Services.AddSingleton<IRev869BPurchaseService>(fixture.Service(scopes: scopes, currentUser: user));
 
         await using var app = builder.Build();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapRev869BPurchaseEndpoints();
+        app.MapRev869AConfigurationEndpoints();
         await app.StartAsync();
         try
         {
@@ -209,6 +245,91 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             permissions.Allow = true;
             var conflict = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("mapped-command") with { CurrencyCode = "USD" });
             Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+
+            user.OrganizationId = directOrganization;
+            user.LoginId = Rev869BOwnedPostgresDatabase.Login;
+            user.RoleCode = Rev869ARoleCodes.PurchaseExecutive;
+            user.ActorId = directCreator.EmployeeId;
+            var qualificationRequest = new CreateVendorQualificationRequest(
+                directOrganization, directQualification.Vendor!.VendorCode, directQualification.ItemCategory!.Code,
+                "MAPPED-Q", new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31), "mapped create");
+            var badQualification = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications",
+                qualificationRequest with { Remarks = "" });
+            Assert.Equal(HttpStatusCode.BadRequest, badQualification.StatusCode);
+            var createdQualification = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications", qualificationRequest);
+            Assert.Equal(HttpStatusCode.Created, createdQualification.StatusCode);
+            using var qualificationJson = JsonDocument.Parse(await createdQualification.Content.ReadAsStringAsync());
+            var qualificationId = qualificationJson.RootElement.GetProperty("id").GetGuid();
+
+            var creatorVerify = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/verify",
+                new ChangeVendorQualificationLifecycleRequest(0, "creator cannot verify"));
+            Assert.Equal(HttpStatusCode.Conflict, creatorVerify.StatusCode);
+            user.LoginId = "REV869B-VERIFIER";
+            user.RoleCode = Rev869ARoleCodes.TechnicalDirector;
+            user.ActorId = directVerifier.EmployeeId;
+            var staleVerify = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/verify",
+                new ChangeVendorQualificationLifecycleRequest(99, "stale"));
+            Assert.Equal(HttpStatusCode.Conflict, staleVerify.StatusCode);
+            scopes.Allow = false;
+            var scopedVerify = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/verify",
+                new ChangeVendorQualificationLifecycleRequest(0, "scope denied"));
+            Assert.Equal(HttpStatusCode.Forbidden, scopedVerify.StatusCode);
+            scopes.Allow = true;
+            var verified = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/verify",
+                new ChangeVendorQualificationLifecycleRequest(0, "independent verification"));
+            Assert.Equal(HttpStatusCode.OK, verified.StatusCode);
+            var verifierApprove = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/approve",
+                new ChangeVendorQualificationLifecycleRequest(1, "verifier cannot approve"));
+            Assert.Equal(HttpStatusCode.Conflict, verifierApprove.StatusCode);
+            user.LoginId = "REV869B-APPROVER";
+            user.RoleCode = Rev869ARoleCodes.ManagingDirector;
+            user.ActorId = directApprover.EmployeeId;
+            var approved = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/approve",
+                new ChangeVendorQualificationLifecycleRequest(1, "independent approval"));
+            Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
+
+            user.LoginId = Rev869BOwnedPostgresDatabase.Login;
+            user.RoleCode = Rev869ARoleCodes.PurchaseExecutive;
+            user.ActorId = directCreator.EmployeeId;
+            permissions.AllowCommercialValues = false;
+            var auditBeforeMask = await fixture.Db.AuditLogs.CountAsync();
+            var maskedComparison = await client.GetAsync($"/api/v1/purchase/comparisons/{directComparisonNumber}");
+            Assert.Equal(HttpStatusCode.OK, maskedComparison.StatusCode);
+            var maskedJson = await maskedComparison.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("totalPayableValue", maskedJson, StringComparison.OrdinalIgnoreCase);
+            Assert.True(await fixture.Db.AuditLogs.CountAsync() > auditBeforeMask);
+            permissions.AllowCommercialValues = true;
+
+            var auditBeforeExistingRecordDenial = await fixture.Db.AuditLogs.CountAsync();
+            scopes.Allow = false;
+            var attachmentDenied = await client.GetAsync($"/api/v1/purchase/quotations/{directQuotationNumber}/attachment");
+            Assert.Equal(HttpStatusCode.Forbidden, attachmentDenied.StatusCode);
+            var exportDenied = await client.GetAsync($"/api/v1/purchase/comparisons/{directComparisonNumber}/export");
+            Assert.Equal(HttpStatusCode.Forbidden, exportDenied.StatusCode);
+            Assert.True(await fixture.Db.AuditLogs.CountAsync() >= auditBeforeExistingRecordDenial + 2);
+            scopes.Allow = true;
+
+            pipelineAudit.Fail = true;
+            var auditRollbackRequest = qualificationRequest with { QualificationCode = "MAPPED-Q-AUDIT", Remarks = "must roll back" };
+            var auditRollback = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications", auditRollbackRequest);
+            Assert.Equal(HttpStatusCode.InternalServerError, auditRollback.StatusCode);
+            pipelineAudit.Fail = false;
+            fixture.Db.ChangeTracker.Clear();
+            Assert.Equal(0, await fixture.Db.VendorQualifications.CountAsync(x =>
+                x.OrganizationId == directOrganization && x.QualificationCode == "MAPPED-Q-AUDIT"));
+
+            user.OrganizationId = directOrganization + "-FOREIGN";
+            var crossOrganizationQualification = await client.PostAsJsonAsync(
+                "/api/v1/rev869a/configuration/vendor-qualifications",
+                qualificationRequest with { QualificationCode = "MAPPED-Q-FOREIGN" });
+            Assert.Equal(HttpStatusCode.NotFound, crossOrganizationQualification.StatusCode);
+            user.OrganizationId = directOrganization;
         }
         finally
         {
@@ -243,6 +364,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         }
 
         public NexaErpDbContext Db { get; }
+        public string DatabaseConnectionString => databaseLease.ConnectionString;
         public string Scenario { get; }
         public string Organization => "REV869B-PG-OWNED-" + Scenario.ToUpperInvariant();
         public string Marker => "REV869B-PG-OWNED:" + Scenario;
@@ -325,14 +447,14 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public Rev869BCreateRfqRequest Request(string key) => new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero), "INR", false,
             null, key, [new Rev869BRfqSourceLineRequest(HandoffId, 1m)]);
 
-        public EfRev869BPurchaseService Service(IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null)
-            => Service(Db, audit, scopes);
+        public EfRev869BPurchaseService Service(IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null, ICurrentUser? currentUser = null)
+            => Service(Db, audit, scopes, currentUser);
 
-        public EfRev869BPurchaseService Service(NexaErpDbContext context, IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null)
+        public EfRev869BPurchaseService Service(NexaErpDbContext context, IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null, ICurrentUser? currentUser = null)
         {
-            var user = new FixtureUser(Marker, Rev869ARoleCodes.PurchaseExecutive, Organization, ActorId);
-            return new EfRev869BPurchaseService(context, user, scopes ?? new AllowingScope(),
-                new EfVendorQualificationService(context), new EfTaxGstResolver(context), audit ?? new EfAuditWriter(context, user));
+            var activeUser = currentUser ?? new FixtureUser(Marker, Rev869ARoleCodes.PurchaseExecutive, Organization, ActorId);
+            return new EfRev869BPurchaseService(context, activeUser, scopes ?? new AllowingScope(),
+                new EfVendorQualificationService(context), new EfTaxGstResolver(context), audit ?? new EfAuditWriter(context, activeUser));
         }
 
         public async Task<NexaErpDbContext> OpenIndependentContextAsync()
@@ -358,9 +480,12 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 await verifier.RequestForQuotationLines.LongCountAsync(x => x.RequestForQuotation!.OrganizationId == Organization),
                 await verifier.RfqVendorInvitations.LongCountAsync(x => x.RequestForQuotation!.OrganizationId == Organization),
                 await verifier.VendorQuotations.LongCountAsync(x => x.OrganizationId == Organization),
+                await verifier.VendorQuotationLines.LongCountAsync(x => x.VendorQuotation!.OrganizationId == Organization),
                 await verifier.QuotationTechnicalVerifications.LongCountAsync(x => x.VendorQuotationLine!.VendorQuotation!.OrganizationId == Organization),
                 await verifier.CommercialComparisons.LongCountAsync(x => x.OrganizationId == Organization),
+                await verifier.CommercialComparisonLines.LongCountAsync(x => x.CommercialComparison!.OrganizationId == Organization),
                 await verifier.PurchaseOrders.LongCountAsync(x => x.OrganizationId == Organization),
+                await verifier.PurchaseOrderLines.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == Organization),
                 await verifier.PurchaseTransactionStatusHistories.LongCountAsync(x => x.OrganizationId == Organization),
                 await verifier.PurchaseTransactionApprovalHistories.LongCountAsync(x => x.CommercialComparison!.OrganizationId == Organization),
                 await verifier.PurchaseOrderHistories.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == Organization),
@@ -437,8 +562,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             if (verificationFailure is not null) throw verificationFailure;
         }
 
-        public sealed record OwnedState(long Rfqs, long RfqLines, long Invitations, long Quotations, long TechnicalVerifications,
-            long Comparisons, long PurchaseOrders, long StatusHistories, long ApprovalHistories, long PoHistories,
+        public sealed record OwnedState(long Rfqs, long RfqLines, long Invitations, long Quotations, long QuotationLines, long TechnicalVerifications,
+            long Comparisons, long ComparisonLines, long PurchaseOrders, long PurchaseOrderLines, long StatusHistories, long ApprovalHistories, long PoHistories,
             long Audits, long NumberSequences, long FollowUps, long IdentityMappings, long Warehouses,
             long PurchaseRequisitions, long PurchaseRequisitionLines, long RequirementHandoffs, string ExactDatabaseFingerprint);
 
@@ -476,48 +601,18 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
         private sealed class OwnedDatabaseLease : IAsyncDisposable
         {
-            private readonly string adminConnectionString;
-            private bool disposed;
-            private OwnedDatabaseLease(string connectionString, string adminConnectionString, string databaseName)
-            { ConnectionString = connectionString; this.adminConnectionString = adminConnectionString; DatabaseName = databaseName; }
-            public string ConnectionString { get; }
-            public string DatabaseName { get; }
+            private readonly Rev869BTestDatabaseLease lease;
+            private OwnedDatabaseLease(Rev869BTestDatabaseLease lease) => this.lease = lease;
+            public string ConnectionString => lease.ConnectionString;
+            public string DatabaseName => lease.DatabaseName;
 
             public static async Task<OwnedDatabaseLease> CreateAsync(string scenario)
             {
-                if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_POSTGRES_OPT_IN"), ExactOptIn, StringComparison.Ordinal))
-                    throw new InvalidOperationException($"Set REV869B_POSTGRES_OPT_IN={ExactOptIn} explicitly.");
-                var raw = Environment.GetEnvironmentVariable("REV869B_POSTGRES") ?? throw new InvalidOperationException("REV869B_POSTGRES is required; no fallback is permitted.");
-                var source = new NpgsqlConnectionStringBuilder(raw);
-                if (!string.Equals(source.Database, ExactDatabase, StringComparison.Ordinal)) throw new InvalidOperationException($"Only the exact isolated database {ExactDatabase} is permitted.");
-                var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("REV869B-DATABASE|" + scenario)))[..16].ToLowerInvariant();
-                var databaseName = "sess_nexaerp_rev869b_owned_" + suffix;
-                var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
-                await using var connection = new NpgsqlConnection(admin.ConnectionString);
-                await connection.OpenAsync();
-                var exists = new NpgsqlCommand("SELECT count(*) FROM pg_database WHERE datname=@name", connection); exists.Parameters.AddWithValue("name", databaseName);
-                if (Convert.ToInt64(await exists.ExecuteScalarAsync()) != 0) throw new InvalidOperationException("Deterministic test database already exists; ownership is not proven.");
-                var quotedOwned = new NpgsqlCommandBuilder().QuoteIdentifier(databaseName);
-                var quotedTemplate = new NpgsqlCommandBuilder().QuoteIdentifier(ExactDatabase);
-                await new NpgsqlCommand($"CREATE DATABASE {quotedOwned} WITH TEMPLATE {quotedTemplate}", connection).ExecuteNonQueryAsync();
-                var owned = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = databaseName, Pooling = false };
-                return new OwnedDatabaseLease(owned.ConnectionString, admin.ConnectionString, databaseName);
+                var shared = await Rev869BTestDatabaseLease.CreateAsync(scenario, "application");
+                return new OwnedDatabaseLease(shared);
             }
 
-            public async ValueTask DisposeAsync()
-            {
-                if (disposed) return; disposed = true;
-                NpgsqlConnection.ClearAllPools();
-                await using var connection = new NpgsqlConnection(adminConnectionString);
-                await connection.OpenAsync();
-                var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseName);
-                try { await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", connection).ExecuteNonQueryAsync(); }
-                finally
-                {
-                    var check = new NpgsqlCommand("SELECT count(*) FROM pg_database WHERE datname=@name", connection); check.Parameters.AddWithValue("name", DatabaseName);
-                    if (Convert.ToInt64(await check.ExecuteScalarAsync()) != 0) throw new InvalidOperationException("Test-owned database cleanup was not exact.");
-                }
-            }
+            public ValueTask DisposeAsync() => lease.DisposeAsync();
         }
 
         private static async Task<string> VerifiedConnectionStringAsync()
@@ -543,10 +638,10 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
     private sealed class FixtureUser(string loginId, string roleCode, string? organizationId, Guid actorId) : ICurrentUser
     {
-        public string LoginId { get; } = loginId;
-        public string RoleCode { get; } = roleCode;
+        public string LoginId { get; set; } = loginId;
+        public string RoleCode { get; set; } = roleCode;
         public string? OrganizationId { get; set; } = organizationId;
-        public Guid ActorId { get; } = actorId;
+        public Guid ActorId { get; set; } = actorId;
         public bool IsAuthenticated => true;
         public Guid? EmployeeId => ActorId;
     }
@@ -593,7 +688,9 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     private sealed class TogglePagePermissions : IPagePermissionService
     {
         public bool Allow { get; set; } = true;
-        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) => Task.FromResult(Allow);
+        public bool AllowCommercialValues { get; set; } = true;
+        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) =>
+            Task.FromResult(permission == PagePermissionActions.ViewCommercialValues ? AllowCommercialValues : Allow);
     }
 
     private sealed class OwnedAuthenticationHandler(

@@ -6,9 +6,11 @@ public sealed class Rev869BDatabaseSafetyContractTests
     private static readonly string Safety = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseSafetySql.cs");
     private static readonly string Lifecycle = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs");
     private static readonly string Controlled = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BControlledMutationSql.cs");
+    private static readonly string CommandContext = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BCommandContextSql.cs");
     private static readonly string Migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
     private static readonly string Postgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs") +
-        Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs");
+        Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs") +
+        Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
 
     [Fact]
     public void ChildInsertGuardsRequireExactEditableParentVersion()
@@ -88,7 +90,9 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("Rev869BDatabaseSafetySql.Install", Migration);
         Assert.Contains("Rev869BDatabaseLifecycleSql.Install", Migration);
         Assert.Contains("Rev869BControlledMutationSql.Install", Migration);
+        Assert.Contains("Rev869BCommandContextSql.Install", Migration);
         Assert.Contains("Rev869BControlledMutationSql.Remove", Migration);
+        Assert.Contains("Rev869BCommandContextSql.Remove", Migration);
         Assert.Contains("Rev869BDatabaseLifecycleSql.Remove", Migration);
         Assert.Contains("Rev869BDatabaseSafetySql.Remove", Migration);
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_", Safety);
@@ -99,6 +103,7 @@ public sealed class Rev869BDatabaseSafetyContractTests
     public void FuturePostgresSourceRetainsExactDatabaseSafetyAndNoFallback()
     {
         Assert.Contains("sess_nexaerp_rev869b_verify", Postgres);
+        Assert.Contains("sess_nexaerp_rev869b_owned_", Postgres);
         Assert.Contains("ISOLATED_REV869B_BEHAVIOR_TESTS", Postgres);
         Assert.Contains("current_database()", Postgres);
         Assert.Contains("no fallback is permitted", Postgres);
@@ -106,7 +111,9 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.DoesNotContain("FROM nexa.request_for_quotations r LIMIT 1", Postgres);
         Assert.Contains("BeginTransactionAsync(IsolationLevel.Serializable)", Postgres);
         Assert.Contains("transaction.RollbackAsync()", Postgres);
-        Assert.Contains("deterministic fixture collision", Postgres, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Unique test database collision", Postgres, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("OwnershipToken", Postgres);
+        Assert.Contains("owned database marker mismatch", Postgres, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("new EfRev869BPurchaseService", Postgres);
         Assert.Contains("CreateRfqAsync", Postgres);
         Assert.Contains("PurchaseTransactionStatusHistories", Postgres);
@@ -127,6 +134,33 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     [Fact]
+    public void NinthCorrectionUsesServerBoundTransactionLocalCommandClaims()
+    {
+        foreach (var value in new[] { "SECURITY DEFINER", "REVOKE ALL", "pg_backend_pid()", "txid_current()",
+            "transaction_timestamp()", "rev869b_command_token", "set_config('nexa.rev869b_command_token',command_token::text,true)",
+            "'entityType'", "'entityId'", "'operation'", "'parentVersion'", "'fromStatus'", "'toStatus'",
+            "'correlation'", "'remarks'", "'serverTransactionId'", "'serverTimestamp'" })
+            Assert.Contains(value, CommandContext);
+        Assert.Contains("rev869b_command_context_valid", Controlled);
+        Assert.Contains("rev869b_claim_command_context", Controlled);
+        Assert.DoesNotContain("set_config('nexa.rev869b_command_token',command_token::text,false)", CommandContext);
+        Assert.DoesNotContain("set_config('nexa.rev869b_actor_", ServiceSource(), StringComparison.Ordinal);
+        Assert.Contains("rev869b_open_command_context", ServiceSource());
+    }
+
+    [Fact]
+    public void QualificationLifecycleUsesTheExactCanonicalSpacedLiteral()
+    {
+        Assert.Contains("'Pending Approval'", Controlled);
+        Assert.DoesNotContain("""NEW."VerificationStatus"<>'PendingApproval'""", Controlled);
+        Assert.DoesNotContain("""NEW."ApprovalStatus"<>'PendingApproval'""", Controlled);
+        Assert.DoesNotContain("""OLD."VerificationStatus"='PendingApproval'""", Controlled);
+        Assert.DoesNotContain("""OLD."ApprovalStatus"='PendingApproval'""", Controlled);
+        Assert.Contains("rev869b_qualification_lifecycle", Controlled);
+        Assert.Contains("rev869b_qualification_provenance_valid", Safety + Controlled);
+    }
+
+    [Fact]
     public void SeventhCorrectionInstallsBoundHistoryCorrelationSodAndQualificationEvidence()
     {
         Assert.DoesNotContain("rev869b_write_bound_history", Controlled);
@@ -144,6 +178,7 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     private static string Read(params string[] parts) => File.ReadAllText(Path.Combine([Root, .. parts]));
+    private static string ServiceSource() => Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs");
     private static string FindRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

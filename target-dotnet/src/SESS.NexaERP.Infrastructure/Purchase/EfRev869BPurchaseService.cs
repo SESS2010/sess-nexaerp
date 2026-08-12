@@ -33,10 +33,10 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var scope = db.Database.CurrentTransaction is not null
             ? new Rev869BTransactionScope(null)
             : new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
-        var actor = RequireActor().ToString();
+        var actor = RequireActor();
         var organization = RequireOrganization();
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT set_config('nexa.rev869b_actor_employee_id',{actor},true),set_config('nexa.rev869b_actor_login',{user.LoginId},true),set_config('nexa.rev869b_actor_role',{user.RoleCode},true),set_config('nexa.rev869b_organization',{organization},true)", ct);
+            $"SELECT nexa.rev869b_open_command_context({actor},{user.LoginId},{user.RoleCode},{organization})", ct);
         return scope;
     }
 
