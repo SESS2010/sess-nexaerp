@@ -139,6 +139,8 @@ public sealed partial class NexaErpDbContext
             entity.HasIndex(x => new { x.OrganizationId, x.VendorId, x.ItemCategoryId, x.QualificationCode, x.EffectiveFrom, x.EffectiveTo }).IsUnique().AreNullsDistinct(false);
             entity.HasOne(x => x.Vendor).WithMany().HasForeignKey(x => x.VendorId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.ItemCategory).WithMany().HasForeignKey(x => x.ItemCategoryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.VerifiedByEmployee).WithMany().HasForeignKey(x => x.VerifiedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.ApprovedByEmployee).WithMany().HasForeignKey(x => x.ApprovedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<WarehouseConditionLocation>(entity =>

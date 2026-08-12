@@ -38526,6 +38526,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -38569,6 +38572,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("VerifiedByEmployeeId")
+                        .HasColumnType("uuid");
+
                     b.Property<long>("Version")
                         .IsConcurrencyToken()
                         .HasColumnType("bigint");
@@ -38577,7 +38583,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ItemCategoryId");
 
+                    b.HasIndex("ApprovedByEmployeeId");
+
                     b.HasIndex("VendorId");
+
+                    b.HasIndex("VerifiedByEmployeeId");
 
                     b.HasIndex("OrganizationId", "VendorId", "ItemCategoryId", "QualificationCode", "EffectiveFrom", "EffectiveTo")
                         .IsUnique();
@@ -38624,6 +38634,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(12)");
 
                     b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransitionCorrelationId")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -39190,6 +39205,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(24,6)");
 
                     b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransitionCorrelationId")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -40473,6 +40493,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("TransitionCorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -40673,6 +40698,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransitionCorrelationId")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -41082,6 +41112,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("numeric(24,6)");
 
                     b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TransitionCorrelationId")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -41789,6 +41824,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Masters.VendorQualification", b =>
                 {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ApprovedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("ApprovedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SESS.NexaERP.Domain.Masters.ItemCategory", "ItemCategory")
                         .WithMany()
                         .HasForeignKey("ItemCategoryId")
@@ -41800,9 +41840,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "VerifiedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("VerifiedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ApprovedByEmployee");
+
                     b.Navigation("ItemCategory");
 
                     b.Navigation("Vendor");
+
+                    b.Navigation("VerifiedByEmployee");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Purchase.CommercialComparison", b =>

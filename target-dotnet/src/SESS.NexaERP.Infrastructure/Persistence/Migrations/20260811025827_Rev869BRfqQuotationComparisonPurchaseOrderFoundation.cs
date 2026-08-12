@@ -14,6 +14,12 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AddColumn<bool>(name: "CanIssue", schema: "nexa", table: "role_page_permissions", type: "boolean", nullable: false, defaultValue: false);
+            migrationBuilder.AddColumn<Guid?>(name: "VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications", type: "uuid", nullable: true);
+            migrationBuilder.AddColumn<Guid?>(name: "ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications", type: "uuid", nullable: true);
+            migrationBuilder.CreateIndex(name: "IX_vendor_qualifications_VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications", column: "VerifiedByEmployeeId");
+            migrationBuilder.CreateIndex(name: "IX_vendor_qualifications_ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications", column: "ApprovedByEmployeeId");
+            migrationBuilder.AddForeignKey(name: "FK_vendor_qualifications_employees_VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications", column: "VerifiedByEmployeeId", principalSchema: "nexa", principalTable: "employees", principalColumn: "Id", onDelete: ReferentialAction.Restrict);
+            migrationBuilder.AddForeignKey(name: "FK_vendor_qualifications_employees_ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications", column: "ApprovedByEmployeeId", principalSchema: "nexa", principalTable: "employees", principalColumn: "Id", onDelete: ReferentialAction.Restrict);
             migrationBuilder.CreateTable(
                 name: "purchase_transaction_approval_policies",
                 schema: "nexa",
@@ -98,6 +104,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     IsSingleSource = table.Column<bool>(type: "boolean", nullable: false),
                     SingleSourceJustification = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    TransitionCorrelationId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     IssuedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     IsActive = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
@@ -217,6 +224,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     QuoteDueAtSnapshot = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     VendorQualificationSnapshotJson = table.Column<string>(type: "jsonb", nullable: false),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    TransitionCorrelationId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<string>(type: "text", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -277,6 +285,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     HeaderDiscountValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     TotalPayableValue = table.Column<decimal>(type: "numeric(24,6)", precision: 24, scale: 6, nullable: false),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    TransitionCorrelationId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<string>(type: "text", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -343,6 +352,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     SingleSourceJustification = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     RecommendationRemarks = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    TransitionCorrelationId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<string>(type: "text", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -491,6 +501,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     CancelledAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
                     CancellationReason = table.Column<string>(type: "character varying(2000)", maxLength: 2000, nullable: true),
                     IdempotencyKey = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+                    TransitionCorrelationId = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     CreatedBy = table.Column<string>(type: "text", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
@@ -1611,6 +1622,12 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql(Rev869BControlledMutationSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Remove);
+            migrationBuilder.DropForeignKey(name: "FK_vendor_qualifications_employees_VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
+            migrationBuilder.DropForeignKey(name: "FK_vendor_qualifications_employees_ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
+            migrationBuilder.DropIndex(name: "IX_vendor_qualifications_VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
+            migrationBuilder.DropIndex(name: "IX_vendor_qualifications_ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
+            migrationBuilder.DropColumn(name: "VerifiedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
+            migrationBuilder.DropColumn(name: "ApprovedByEmployeeId", schema: "nexa", table: "vendor_qualifications");
             migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_overlapping_approval_policy() CASCADE;");
             migrationBuilder.Sql("""
                 CREATE OR REPLACE FUNCTION nexa.rev869b_down_owned_seed_guard() RETURNS trigger LANGUAGE plpgsql AS $rev869b$

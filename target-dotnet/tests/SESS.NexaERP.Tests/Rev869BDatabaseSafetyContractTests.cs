@@ -114,6 +114,33 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.DoesNotContain("REV869B-PG-OWNED-DATABASE-GUARDS", Postgres);
         Assert.DoesNotContain("GetHashCode", Postgres);
         Assert.DoesNotContain("Task.Delay(100)", Postgres);
+        Assert.DoesNotContain("Assert.ThrowsAsync<PostgresException>(() =>", Postgres);
+        Assert.Contains("AssertPostgresGuardAsync", Postgres);
+        Assert.Contains("error.SqlState", Postgres);
+        Assert.Contains("error.ConstraintName", Postgres);
+        Assert.Contains("Mutation matched zero rows", Postgres);
+        Assert.Contains("CREATE DATABASE", Postgres);
+        Assert.Contains("DROP DATABASE", Postgres);
+        Assert.Contains("pg_database WHERE datname=@name", Postgres);
+        Assert.Contains("finally", Postgres);
+        Assert.Contains("Pooling = false", Postgres);
+    }
+
+    [Fact]
+    public void SeventhCorrectionInstallsBoundHistoryCorrelationSodAndQualificationEvidence()
+    {
+        Assert.DoesNotContain("rev869b_write_bound_history", Controlled);
+        Assert.Contains("trg_rev869b_bound_technical_history", Controlled);
+        Assert.Contains("rev869b_technical_verification_requires_history", Controlled);
+        Assert.Contains("TransitionCorrelationId", Controlled);
+        Assert.Contains("parent_correlation", Controlled);
+        Assert.Contains("rev869b_creator_self_approval", Controlled);
+        Assert.Contains("rev869b_verifier_approver_separation", Controlled);
+        Assert.Contains("rev869b_issuer_approver_separation", Controlled);
+        foreach (var evidence in new[] { "VerifiedByEmployeeId", "ApprovedByEmployeeId", "verifiedByEmployeeId", "approvedByEmployeeId" })
+            Assert.Contains(evidence, Safety + Migration);
+        Assert.Contains("InvitedAt", Safety);
+        Assert.DoesNotContain("ReceivedAt BETWEEN qualification", Safety);
     }
 
     private static string Read(params string[] parts) => File.ReadAllText(Path.Combine([Root, .. parts]));

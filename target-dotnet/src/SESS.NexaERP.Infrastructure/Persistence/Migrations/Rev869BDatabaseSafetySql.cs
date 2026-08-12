@@ -175,8 +175,10 @@ internal static class Rev869BDatabaseSafetySql
                        vendor."CommercialVerificationStatus"='Approved' AND vendor."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (vendor."EffectiveTo" IS NULL OR vendor."EffectiveTo">=q."ReceivedAt"::date) AND
                        qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
-                       qualification."EffectiveFrom"<=q."ReceivedAt"::date AND
-                       (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=q."ReceivedAt"::date) AND
+                       qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
+                       qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
+                       qualification."EffectiveFrom"<=i."InvitedAt"::date AND
+                       (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=i."InvitedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson"->'qualifications')='array' AND
                        jsonb_array_length(i."VendorQualificationSnapshotJson"->'qualifications')>0 AND
@@ -191,8 +193,10 @@ internal static class Rev869BDatabaseSafetySql
                          (evidence->>'effectiveFrom')::date IS NOT DISTINCT FROM qualification."EffectiveFrom" AND
                          (evidence->>'effectiveTo')::date IS NOT DISTINCT FROM qualification."EffectiveTo" AND
                          evidence->>'verificationStatus' IS NOT DISTINCT FROM qualification."VerificationStatus" AND
+                         (evidence->>'verifiedByEmployeeId')::uuid IS NOT DISTINCT FROM qualification."VerifiedByEmployeeId" AND
                          evidence->>'approvalStatus' IS NOT DISTINCT FROM qualification."ApprovalStatus" AND
-                         (evidence->>'isActive')::boolean IS TRUE AND length(trim(evidence->>'approvedBy'))>0) AND
+                         (evidence->>'approvedByEmployeeId')::uuid IS NOT DISTINCT FROM qualification."ApprovedByEmployeeId" AND
+                         (evidence->>'isActive')::boolean IS TRUE) AND
                        length(trim(q."AttachmentObjectKey"))>0 AND q."AttachmentSha256"~'^[0-9A-F]{64}$' AND
                        cl."VendorId"=NEW."SelectedVendorId" AND q."IsCurrentRevision" AND q."Status"='TechnicallyCompliant' AND
                        cl."CommercialSnapshotJson"->'taxRule' IS NOT NULL AND
@@ -281,8 +285,10 @@ internal static class Rev869BDatabaseSafetySql
                        vendor."CommercialVerificationStatus"='Approved' AND vendor."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (vendor."EffectiveTo" IS NULL OR vendor."EffectiveTo">=q."ReceivedAt"::date) AND
                        qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
-                       qualification."EffectiveFrom"<=q."ReceivedAt"::date AND
-                       (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=q."ReceivedAt"::date) AND
+                       qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
+                       qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
+                       qualification."EffectiveFrom"<=i."InvitedAt"::date AND
+                       (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=i."InvitedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson"->'qualifications')='array' AND
                        (i."VendorQualificationSnapshotJson"->>'snapshotAt')::timestamptz IS NOT DISTINCT FROM i."InvitedAt" AND
@@ -291,8 +297,15 @@ internal static class Rev869BDatabaseSafetySql
                          (evidence->>'vendorId')::uuid IS NOT DISTINCT FROM qualification."VendorId" AND
                          evidence->>'organizationId' IS NOT DISTINCT FROM qualification."OrganizationId" AND
                          (evidence->>'itemCategoryId')::uuid IS NOT DISTINCT FROM qualification."ItemCategoryId" AND
+                         evidence->>'qualificationType' IS NOT DISTINCT FROM qualification."QualificationCode" AND
                          (evidence->>'qualificationVersion')::bigint IS NOT DISTINCT FROM qualification."Version" AND
-                         evidence->>'approvalStatus'='Approved' AND (evidence->>'isActive')::boolean IS TRUE) AND
+                         (evidence->>'effectiveFrom')::date IS NOT DISTINCT FROM qualification."EffectiveFrom" AND
+                         (evidence->>'effectiveTo')::date IS NOT DISTINCT FROM qualification."EffectiveTo" AND
+                         evidence->>'verificationStatus' IS NOT DISTINCT FROM qualification."VerificationStatus" AND
+                         (evidence->>'verifiedByEmployeeId')::uuid IS NOT DISTINCT FROM qualification."VerifiedByEmployeeId" AND
+                         evidence->>'approvalStatus' IS NOT DISTINCT FROM qualification."ApprovalStatus" AND
+                         (evidence->>'approvedByEmployeeId')::uuid IS NOT DISTINCT FROM qualification."ApprovedByEmployeeId" AND
+                         (evidence->>'isActive')::boolean IS TRUE) AND
                        NEW."VendorId"=q."VendorId" AND pl."ItemId"=rl."ItemId" AND pl."OrderedQuantity"=ql."Quantity" AND
                        pl."UnitRate"=ql."UnitRate" AND pl."UomSnapshot"=rl."UomSnapshot" AND
                        pl."TaxRuleSnapshotJson" IS NOT DISTINCT FROM ql."TaxRuleSnapshotJson" AND

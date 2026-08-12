@@ -16,7 +16,7 @@ public sealed class Rev869BPostgresBehaviorTests
     public async Task SuccessfulTransactionPersistsAndCanBeVerified()
     {
         await using var connection = await OpenVerifiedAsync();
-        var id = Guid.NewGuid(); var correlation = $"REV869B-PG-SUCCESS-{id:N}";
+        var id = DeterministicId(nameof(SuccessfulTransactionPersistsAndCanBeVerified), "audit"); var correlation = $"REV869B-PG-SUCCESS-{id:N}";
         await InsertAuditAsync(connection, id, correlation, "Success");
         Assert.Equal(1L, await ScalarAsync(connection, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"CorrelationId\"=@correlation", ("id", id), ("correlation", correlation)));
         await ExecuteAsync(connection, "DELETE FROM nexa.audit_logs WHERE \"Id\"=@id", ("id", id));
@@ -57,7 +57,7 @@ public sealed class Rev869BPostgresBehaviorTests
     public async Task IdempotentReplayReturnsOriginalRowWithoutDuplicate()
     {
         await using var connection = await OpenVerifiedAsync();
-        var id = Guid.NewGuid(); var key = $"rev869b-pg-idempotency-{id:N}";
+        var id = DeterministicId(nameof(IdempotentReplayReturnsOriginalRowWithoutDuplicate), "rfq"); var key = $"rev869b-pg-idempotency-{id:N}";
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         var inserted = await ExecuteAsync(connection, """
             INSERT INTO nexa.request_for_quotations
@@ -80,7 +80,8 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         await using var first = await OpenVerifiedAsync();
         await using var second = await OpenVerifiedAsync();
-        var winnerId = Guid.NewGuid(); var loserId = Guid.NewGuid(); var key = $"rev869b-pg-race-{winnerId:N}";
+        var winnerId = DeterministicId(nameof(ConcurrentIdempotencyCollisionHasOneWinnerAndReturnsOriginal), "winner");
+        var loserId = DeterministicId(nameof(ConcurrentIdempotencyCollisionHasOneWinnerAndReturnsOriginal), "loser"); var key = $"rev869b-pg-race-{winnerId:N}";
         const string sql = """
             INSERT INTO nexa.request_for_quotations
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
@@ -94,7 +95,8 @@ public sealed class Rev869BPostgresBehaviorTests
         Assert.Equal(1, await ExecuteAsync(first, sql, firstTx, ("id", winnerId), ("number", $"REV869B-PG-RACE-{winnerId:N}"), ("key", key)));
         var loserAttempt = ExecuteAsync(second, sql, secondTx, ("id", loserId), ("number", $"REV869B-PG-RACE-{loserId:N}"), ("key", key));
         await firstTx.CommitAsync();
-        await Assert.ThrowsAsync<PostgresException>(() => loserAttempt);
+        await AssertPostgresGuardAsync(() => loserAttempt, PostgresErrorCodes.UniqueViolation,
+            "IX_request_for_quotations_OrganizationId_IdempotencyKey");
         await secondTx.RollbackAsync();
         Assert.Equal(1L, await ScalarAsync(first, "SELECT count(*) FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", ("key", key)));
         Assert.Equal(winnerId, await ScalarGuidAsync(first, "SELECT \"Id\" FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", null, ("key", key)));
@@ -137,9 +139,10 @@ public sealed class Rev869BPostgresBehaviorTests
         foreach (var attempt in attempts)
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            var id = Guid.NewGuid();
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, attempt, transaction,
-                ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("key", $"terminal-{id:N}")));
+            var id = DeterministicId(nameof(DirectTerminalStateInsertIsRejected), attempt);
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, attempt, transaction,
+                ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("key", $"terminal-{id:N}")),
+                PostgresErrorCodes.RaiseException, "rev869b_enforce_transition");
             await transaction.RollbackAsync();
         }
     }
@@ -150,9 +153,9 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         var row = await ApprovedPoAsync(connection);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-        await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection,
+        await AssertPostgresGuardAsync(() => ExecuteAsync(connection,
             "UPDATE nexa.purchase_orders SET \"Version\"=\"Version\"+1,\"Status\"='Issued',\"TotalPayableValue\"=\"TotalPayableValue\"+0.000001 WHERE \"Id\"=@id AND \"Version\"=@version",
-            transaction, ("id", row.Id), ("version", row.Version)));
+            transaction, ("id", row.Id), ("version", row.Version)), PostgresErrorCodes.CheckViolation, "rev869b_po_issue_allowlist");
         await transaction.RollbackAsync();
     }
 
@@ -161,22 +164,22 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         await using var connection = await OpenVerifiedAsync();
         var row = await ApprovedPoAsync(connection);
-        var attempts = new[]
+        var attempts = new (string Sql, string SqlState, string Evidence)[]
         {
-            """UPDATE nexa.purchase_orders SET "Version"="Version"+2 WHERE "Id"=@id AND "Version"=@version""",
-            """UPDATE nexa.purchase_orders SET "Version"="Version"+1,"OrganizationId"='WRONG-ORGANIZATION' WHERE "Id"=@id AND "Version"=@version""",
-            """UPDATE nexa.purchase_orders SET "Version"="Version"+1,"TotalPayableValue"="TotalPayableValue"+0.000001 WHERE "Id"=@id AND "Version"=@version""",
-            """UPDATE nexa.purchase_orders SET "Version"="Version"+1,"ApprovalPolicySnapshotJson"=jsonb_set("ApprovalPolicySnapshotJson",'{approvalValue}','-1') WHERE "Id"=@id AND "Version"=@version""",
-            """UPDATE nexa.purchase_order_lines SET "CommercialSnapshotJson"=jsonb_set("CommercialSnapshotJson",'{result,totalPayableValue}','-1') WHERE "PurchaseOrderId"=@id""",
-            """UPDATE nexa.purchase_order_lines SET "CommercialSnapshotJson"=jsonb_set("CommercialSnapshotJson",'{vendorQuotationLineId}','"00000000-0000-0000-0000-000000000000"') WHERE "PurchaseOrderId"=@id""",
-            """UPDATE nexa.purchase_order_lines SET "TaxRuleSnapshotJson"=jsonb_set("TaxRuleSnapshotJson",'{isActive}','false') WHERE "PurchaseOrderId"=@id""",
-            """DELETE FROM nexa.purchase_order_lines WHERE "PurchaseOrderId"=@id"""
+            ("""UPDATE nexa.purchase_orders SET "Version"="Version"+2 WHERE "Id"=@id AND "Version"=@version""", PostgresErrorCodes.SerializationFailure, "rev869b_exact_version_increment"),
+            ("""UPDATE nexa.purchase_orders SET "Version"="Version"+1,"OrganizationId"='WRONG-ORGANIZATION' WHERE "Id"=@id AND "Version"=@version""", PostgresErrorCodes.CheckViolation, "rev869b_po_approval_allowlist"),
+            ("""UPDATE nexa.purchase_orders SET "Version"="Version"+1,"TotalPayableValue"="TotalPayableValue"+0.000001 WHERE "Id"=@id AND "Version"=@version""", PostgresErrorCodes.CheckViolation, "rev869b_po_approval_allowlist"),
+            ("""UPDATE nexa.purchase_orders SET "Version"="Version"+1,"ApprovalPolicySnapshotJson"=jsonb_set("ApprovalPolicySnapshotJson",'{approvalValue}','-1') WHERE "Id"=@id AND "Version"=@version""", PostgresErrorCodes.CheckViolation, "rev869b_po_approval_allowlist"),
+            ("""UPDATE nexa.purchase_order_lines SET "CommercialSnapshotJson"=jsonb_set("CommercialSnapshotJson",'{result,totalPayableValue}','-1') WHERE "PurchaseOrderId"=@id""", PostgresErrorCodes.RaiseException, "rev869b_reject_immutable_mutation"),
+            ("""UPDATE nexa.purchase_order_lines SET "CommercialSnapshotJson"=jsonb_set("CommercialSnapshotJson",'{vendorQuotationLineId}','"00000000-0000-0000-0000-000000000000"') WHERE "PurchaseOrderId"=@id""", PostgresErrorCodes.RaiseException, "rev869b_reject_immutable_mutation"),
+            ("""UPDATE nexa.purchase_order_lines SET "TaxRuleSnapshotJson"=jsonb_set("TaxRuleSnapshotJson",'{isActive}','false') WHERE "PurchaseOrderId"=@id""", PostgresErrorCodes.RaiseException, "rev869b_reject_immutable_mutation"),
+            ("""DELETE FROM nexa.purchase_order_lines WHERE "PurchaseOrderId"=@id""", PostgresErrorCodes.CheckViolation, "rev869b_controlled_delete_guard")
         };
-        foreach (var sql in attempts)
+        foreach (var attempt in attempts)
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, sql, transaction,
-                ("id", row.Id), ("version", row.Version)));
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, attempt.Sql, transaction,
+                ("id", row.Id), ("version", row.Version)), attempt.SqlState, attempt.Evidence);
             await transaction.RollbackAsync();
             Assert.Equal(1L, await ScalarAsync(connection,
                 """SELECT count(*) FROM nexa.purchase_orders WHERE "Id"=@id AND "Version"=@version AND "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
@@ -196,7 +199,7 @@ public sealed class Rev869BPostgresBehaviorTests
               AND permission."CanIssue"=FALSE
             """);
         Assert.Equal(1L, denied);
-        var id = Guid.NewGuid(); var correlation = $"REV869B-PG-DENIED-{id:N}";
+        var id = DeterministicId(nameof(PermissionDenialPersistsAuditEvidence), "audit"); var correlation = $"REV869B-PG-DENIED-{id:N}";
         await InsertAuditAsync(connection, id, correlation, "Failure");
         Assert.Equal(1L, await ScalarAsync(connection, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"Action\"='Denied' AND \"Result\"='Failure'", ("id", id)));
         await ExecuteAsync(connection, "DELETE FROM nexa.audit_logs WHERE \"Id\"=@id", ("id", id));
@@ -209,9 +212,9 @@ public sealed class Rev869BPostgresBehaviorTests
         var (id, before) = await DraftRfqAsync(connection);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         Assert.Equal(1, await ExecuteAsync(connection, "UPDATE nexa.request_for_quotations SET \"Version\"=\"Version\"+1 WHERE \"Id\"=@id AND \"Version\"=@version", transaction, ("id", id), ("version", before)));
-        await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection,
+        await AssertPostgresGuardAsync(() => ExecuteAsync(connection,
             "INSERT INTO nexa.audit_logs (\"Id\",\"Module\",\"Action\",\"EntityName\",\"EntityId\",\"UserLoginId\",\"CreatedAt\",\"CreatedBy\",\"Version\",\"CorrelationId\",\"Result\") VALUES (NULL,'Purchase','ProtectedOperation','RFQ',@entity,'rev869b-pg-test',now(),'rev869b-pg-test',0,'REV869B-PG-AUDIT-FAIL','Success')",
-            transaction, ("entity", id.ToString())));
+            transaction, ("entity", id.ToString())), PostgresErrorCodes.NotNullViolation, "audit_logs_Id");
         await transaction.RollbackAsync();
         Assert.Equal(before, await ScalarAsync(connection, "SELECT \"Version\" FROM nexa.request_for_quotations WHERE \"Id\"=@id", ("id", id)));
     }
@@ -224,9 +227,9 @@ public sealed class Rev869BPostgresBehaviorTests
         foreach (var proposed in new[] { version - 1, version + 2 })
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection,
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection,
                 "UPDATE nexa.request_for_quotations SET \"Version\"=@proposed WHERE \"Id\"=@id AND \"Version\"=@version",
-                transaction, ("proposed", proposed), ("id", id), ("version", version)));
+                transaction, ("proposed", proposed), ("id", id), ("version", version)), PostgresErrorCodes.SerializationFailure, "rev869b_exact_version_increment");
             await transaction.RollbackAsync();
         }
     }
@@ -249,7 +252,8 @@ public sealed class Rev869BPostgresBehaviorTests
         foreach (var statement in statements)
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, statement, transaction, ("id", Guid.NewGuid())));
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, statement, transaction,
+                ("id", DeterministicId("late-child", statement))), PostgresErrorCodes.RaiseException, "rev869b_validate_child_insert");
             await transaction.RollbackAsync();
         }
     }
@@ -268,7 +272,8 @@ public sealed class Rev869BPostgresBehaviorTests
         foreach (var verb in new[] { $"UPDATE {target} SET \"UpdatedBy\"='unauthorized'", $"DELETE FROM {target}" })
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, verb, transaction));
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, verb, transaction),
+                PostgresErrorCodes.RaiseException, "rev869b_reject_immutable_mutation");
             await transaction.RollbackAsync();
         }
     }
@@ -279,7 +284,7 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         var rejected = await RejectedPoAsync(connection, transaction);
-        var firstRevision = Guid.NewGuid();
+        var firstRevision = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-1");
         Assert.Equal(1, await ExecuteAsync(connection, """
             INSERT INTO nexa.purchase_orders
             SELECT (jsonb_populate_record(NULL::nexa.purchase_orders,to_jsonb(p)||jsonb_build_object(
@@ -300,7 +305,7 @@ public sealed class Rev869BPostgresBehaviorTests
             """UPDATE nexa.purchase_orders SET "Status"='Rejected',"Version"=2,"IsCurrentVersion"=false WHERE "Id"=@id AND "Status"='Resubmitted' AND "Version"=1""",
             transaction, ("id", firstRevision)));
 
-        var secondRevision = Guid.NewGuid();
+        var secondRevision = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-2");
         Assert.Equal(1, await ExecuteAsync(connection, """
             INSERT INTO nexa.purchase_orders
             SELECT (jsonb_populate_record(NULL::nexa.purchase_orders,to_jsonb(p)||jsonb_build_object(
@@ -477,6 +482,24 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Name, parameter.Value);
         return await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task AssertPostgresGuardAsync(Func<Task<int>> mutation, string? sqlState, string evidence)
+    {
+        var error = await Assert.ThrowsAsync<PostgresException>(async () =>
+        {
+            var affected = await mutation();
+            Assert.True(affected > 0, "Mutation matched zero rows, so it did not exercise a database guard.");
+        });
+        if (sqlState is not null) Assert.Equal(sqlState, error.SqlState);
+        var exactEvidence = string.Join('|', error.ConstraintName, error.TableName, error.Where, error.MessageText);
+        Assert.Contains(evidence, exactEvidence, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Guid DeterministicId(string scenario, string entity)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("REV869B-DIRECT|" + scenario + "|" + entity));
+        return new Guid(bytes[..16]);
     }
 
     private static Task<long> ScalarAsync(NpgsqlConnection connection, string sql, params (string Name, object Value)[] parameters) =>

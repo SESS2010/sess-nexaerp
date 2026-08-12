@@ -148,7 +148,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<ICurrentUser>(user);
         builder.Services.AddSingleton<IRecordScopeAuthorizer, AllowingScope>();
-        builder.Services.AddSingleton<IPagePermissionService, AllowAllPagePermissions>();
+        var permissions = new TogglePagePermissions();
+        builder.Services.AddSingleton<IPagePermissionService>(permissions);
         builder.Services.AddSingleton<IAuditWriter>(new EfAuditWriter(fixture.Db, user));
         builder.Services.AddSingleton<IRev869BPurchaseService>(fixture.Service());
 
@@ -160,13 +161,28 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         try
         {
             using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            var unauthenticated = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("unauthenticated"));
+            Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
             client.DefaultRequestHeaders.Authorization = new("Owned");
+            permissions.Allow = false;
+            var forbidden = await client.GetAsync("/api/v1/purchase/quotations/NO-SUCH/attachment");
+            Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+            var forbiddenExport = await client.GetAsync("/api/v1/purchase/comparisons/NO-SUCH/export");
+            Assert.Equal(HttpStatusCode.Forbidden, forbiddenExport.StatusCode);
+            permissions.Allow = true;
+            var bad = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("bad-request") with { CurrencyCode = "" });
+            Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+            var missing = await client.PostAsJsonAsync("/api/v1/purchase/rfqs/NO-SUCH/vendors",
+                new Rev869BInviteVendorRequest(Guid.Empty, "missing", 0, "missing"));
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
             var response = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("mapped-command"));
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             var result = await response.Content.ReadFromJsonAsync<Rev869BDocumentResult>();
             Assert.NotNull(result);
             Assert.Equal(1, await fixture.Db.RequestForQuotations.CountAsync(x => x.Id == result.Id));
             Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.EntityId == result.Id.ToString()));
+            var conflict = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("mapped-command") with { CurrencyCode = "USD" });
+            Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         }
         finally
         {
@@ -189,13 +205,14 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         private const string ExactOptIn = "ISOLATED_REV869B_BEHAVIOR_TESTS";
         private const string MigrationId = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
         private readonly Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction;
+        private readonly OwnedDatabaseLease databaseLease;
         private readonly long ownedBefore;
         private bool disposed;
 
-        private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction,
+        private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction, OwnedDatabaseLease databaseLease,
             string scenario, Guid warehouseId, Guid prId, Guid lineId, Guid handoffId, Guid actorId, Guid identityMappingId, long ownedBefore)
         {
-            Db = db; this.transaction = transaction; Scenario = scenario; WarehouseId = warehouseId;
+            Db = db; this.transaction = transaction; this.databaseLease = databaseLease; Scenario = scenario; WarehouseId = warehouseId;
             PrId = prId; LineId = lineId; HandoffId = handoffId; ActorId = actorId; IdentityMappingId = identityMappingId; this.ownedBefore = ownedBefore;
         }
 
@@ -212,7 +229,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
         public static async Task<OwnedRfqFixture> CreateAsync(string scenario, bool useAmbientTransaction = true)
         {
-            var connectionString = await VerifiedConnectionStringAsync();
+            var databaseLease = await OwnedDatabaseLease.CreateAsync(scenario);
+            var connectionString = databaseLease.ConnectionString;
             var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(connectionString).Options;
             var db = new NexaErpDbContext(options);
             var tx = useAmbientTransaction
@@ -264,12 +282,12 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                     IsActive = true, CreatedBy = marker };
                 db.AddRange(warehouse, pr, line, handoff, identityMapping);
                 await db.SaveChangesAsync();
-                return new OwnedRfqFixture(db, tx, scenario, warehouseId, prId, lineId, handoffId, actorId, identityMappingId, ownedBefore);
+                return new OwnedRfqFixture(db, tx, databaseLease, scenario, warehouseId, prId, lineId, handoffId, actorId, identityMappingId, ownedBefore);
             }
             catch
             {
                 if (tx is not null) { await tx.RollbackAsync(); await tx.DisposeAsync(); }
-                await db.DisposeAsync(); throw;
+                await db.DisposeAsync(); await databaseLease.DisposeAsync(); throw;
             }
         }
 
@@ -289,7 +307,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public async Task<NexaErpDbContext> OpenIndependentContextAsync()
         {
             var options = new DbContextOptionsBuilder<NexaErpDbContext>()
-                .UseNpgsql(await VerifiedConnectionStringAsync()).Options;
+                .UseNpgsql(databaseLease.ConnectionString).Options;
             return new NexaErpDbContext(options);
         }
 
@@ -310,23 +328,17 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 await transaction.RollbackAsync();
                 await transaction.DisposeAsync();
                 await Db.DisposeAsync();
-                var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(await VerifiedConnectionStringAsync()).Options;
+                var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(databaseLease.ConnectionString).Options;
                 await using var verifier = new NexaErpDbContext(options);
                 var after = await CountOwnedAsync(verifier, Marker, Organization);
                 if (after != ownedBefore) throw new InvalidOperationException("REV869B outer rollback did not restore the exact test-owned baseline.");
+                await databaseLease.DisposeAsync();
                 return;
             }
 
             Db.ChangeTracker.Clear();
-            var leaked = await CountBusinessResultAsync();
-            if (leaked != ownedBefore)
-                throw new InvalidOperationException("Service-owned rollback left test-owned REV869B rows.");
-            await Db.PurchaseRequirementHandoffs.Where(x => x.Id == HandoffId).ExecuteDeleteAsync();
-            await Db.PurchaseRequisitionLines.Where(x => x.Id == LineId).ExecuteDeleteAsync();
-            await Db.PurchaseRequisitions.Where(x => x.Id == PrId).ExecuteDeleteAsync();
-            await Db.Warehouses.Where(x => x.Id == WarehouseId).ExecuteDeleteAsync();
-            await Db.EmployeeIdentityMappings.Where(x => x.Id == IdentityMappingId).ExecuteDeleteAsync();
             await Db.DisposeAsync();
+            await databaseLease.DisposeAsync();
         }
 
         private static async Task<long> CountOwnedAsync(NexaErpDbContext db, string marker, string organization) =>
@@ -345,7 +357,12 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             await db.PurchaseOrderLines.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
             await db.PurchaseOrderHistories.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
             await db.MaterialFollowUpHandoffs.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
-            await db.PurchaseNumberSequences.LongCountAsync(x => x.OrganizationId == organization);
+            await db.PurchaseNumberSequences.LongCountAsync(x => x.OrganizationId == organization) +
+            await db.EmployeeIdentityMappings.LongCountAsync(x => x.OrganizationId == organization && x.CreatedBy == marker) +
+            await db.Warehouses.LongCountAsync(x => x.CreatedBy == marker) +
+            await db.PurchaseRequisitions.LongCountAsync(x => x.OrganizationId == organization && x.CreatedBy == marker) +
+            await db.PurchaseRequisitionLines.LongCountAsync(x => x.CreatedBy == marker) +
+            await db.PurchaseRequirementHandoffs.LongCountAsync(x => x.CreatedBy == marker);
 
         private static Guid DeterministicId(string scenario, string entity)
         {
@@ -355,6 +372,52 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
         private static int DeterministicSequence(string scenario) =>
             BitConverter.ToInt32(SHA256.HashData(Encoding.UTF8.GetBytes("REV869B-PG-SEQUENCE|" + scenario)), 0) & int.MaxValue;
+
+        private sealed class OwnedDatabaseLease : IAsyncDisposable
+        {
+            private readonly string adminConnectionString;
+            private bool disposed;
+            private OwnedDatabaseLease(string connectionString, string adminConnectionString, string databaseName)
+            { ConnectionString = connectionString; this.adminConnectionString = adminConnectionString; DatabaseName = databaseName; }
+            public string ConnectionString { get; }
+            public string DatabaseName { get; }
+
+            public static async Task<OwnedDatabaseLease> CreateAsync(string scenario)
+            {
+                if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_POSTGRES_OPT_IN"), ExactOptIn, StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Set REV869B_POSTGRES_OPT_IN={ExactOptIn} explicitly.");
+                var raw = Environment.GetEnvironmentVariable("REV869B_POSTGRES") ?? throw new InvalidOperationException("REV869B_POSTGRES is required; no fallback is permitted.");
+                var source = new NpgsqlConnectionStringBuilder(raw);
+                if (!string.Equals(source.Database, ExactDatabase, StringComparison.Ordinal)) throw new InvalidOperationException($"Only the exact isolated database {ExactDatabase} is permitted.");
+                var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("REV869B-DATABASE|" + scenario)))[..16].ToLowerInvariant();
+                var databaseName = "sess_nexaerp_rev869b_owned_" + suffix;
+                var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
+                await using var connection = new NpgsqlConnection(admin.ConnectionString);
+                await connection.OpenAsync();
+                var exists = new NpgsqlCommand("SELECT count(*) FROM pg_database WHERE datname=@name", connection); exists.Parameters.AddWithValue("name", databaseName);
+                if (Convert.ToInt64(await exists.ExecuteScalarAsync()) != 0) throw new InvalidOperationException("Deterministic test database already exists; ownership is not proven.");
+                var quotedOwned = new NpgsqlCommandBuilder().QuoteIdentifier(databaseName);
+                var quotedTemplate = new NpgsqlCommandBuilder().QuoteIdentifier(ExactDatabase);
+                await new NpgsqlCommand($"CREATE DATABASE {quotedOwned} WITH TEMPLATE {quotedTemplate}", connection).ExecuteNonQueryAsync();
+                var owned = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = databaseName, Pooling = false };
+                return new OwnedDatabaseLease(owned.ConnectionString, admin.ConnectionString, databaseName);
+            }
+
+            public async ValueTask DisposeAsync()
+            {
+                if (disposed) return; disposed = true;
+                NpgsqlConnection.ClearAllPools();
+                await using var connection = new NpgsqlConnection(adminConnectionString);
+                await connection.OpenAsync();
+                var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseName);
+                try { await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", connection).ExecuteNonQueryAsync(); }
+                finally
+                {
+                    var check = new NpgsqlCommand("SELECT count(*) FROM pg_database WHERE datname=@name", connection); check.Parameters.AddWithValue("name", DatabaseName);
+                    if (Convert.ToInt64(await check.ExecuteScalarAsync()) != 0) throw new InvalidOperationException("Test-owned database cleanup was not exact.");
+                }
+            }
+        }
 
         private static async Task<string> VerifiedConnectionStringAsync()
         {
@@ -408,6 +471,12 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             Task.FromResult(true);
     }
 
+    private sealed class TogglePagePermissions : IPagePermissionService
+    {
+        public bool Allow { get; set; } = true;
+        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) => Task.FromResult(Allow);
+    }
+
     private sealed class OwnedAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
@@ -416,6 +485,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public const string SchemeName = "REV869B-Owned";
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
+            if (!Request.Headers.ContainsKey("Authorization")) return Task.FromResult(AuthenticateResult.NoResult());
             var identity = new System.Security.Claims.ClaimsIdentity(
                 [new(System.Security.Claims.ClaimTypes.NameIdentifier, "REV869B-PG-OWNED")], SchemeName);
             return Task.FromResult(AuthenticateResult.Success(

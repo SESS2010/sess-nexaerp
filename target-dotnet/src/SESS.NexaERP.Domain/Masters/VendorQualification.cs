@@ -1,4 +1,5 @@
 using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Employees;
 
 namespace SESS.NexaERP.Domain.Masters;
 
@@ -35,7 +36,11 @@ public sealed class VendorQualification : AuditableEntity
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public string VerificationStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public Guid? VerifiedByEmployeeId { get; set; }
+    public Employee? VerifiedByEmployee { get; set; }
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public Guid? ApprovedByEmployeeId { get; set; }
+    public Employee? ApprovedByEmployee { get; set; }
     public bool IsActive { get; set; } = true;
 
     public static bool IsVendorEligible(Vendor vendor, DateOnly onDate) =>

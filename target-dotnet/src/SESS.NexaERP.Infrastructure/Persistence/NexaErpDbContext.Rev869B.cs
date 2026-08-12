@@ -26,6 +26,7 @@ public sealed partial class NexaErpDbContext
     {
         modelBuilder.Entity<RequestForQuotation>(entity =>
         {
+            Text(entity.Property(x => x.TransitionCorrelationId), 200);
             entity.ToTable("request_for_quotations", table =>
             {
                 table.HasCheckConstraint("CK_rfqs_sequence_positive", "\"SequenceNumber\" > 0");
@@ -60,6 +61,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<RfqVendorInvitation>(entity =>
         {
+            Text(entity.Property(x => x.TransitionCorrelationId), 200);
             entity.ToTable("rfq_vendor_invitations", table => table.HasCheckConstraint("CK_rfq_invitation_status", "\"Status\" IN ('Issued','Submitted','Withdrawn','Cancelled')"));
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.RequestForQuotationId, x.VendorId }).IsUnique(); entity.HasIndex(x => new { x.RequestForQuotationId, x.IdempotencyKey }).IsUnique();
             Text(entity.Property(x => x.Status), 40); Text(entity.Property(x => x.IdempotencyKey), 200); entity.Property(x => x.VendorQualificationSnapshotJson).HasColumnType("jsonb").IsRequired(); entity.Property(x => x.Version).IsConcurrencyToken();
@@ -69,6 +71,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<VendorQuotation>(entity =>
         {
+            Text(entity.Property(x => x.TransitionCorrelationId), 200);
             entity.ToTable("vendor_quotations", table =>
             {
                 table.HasCheckConstraint("CK_vendor_quotation_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
@@ -106,6 +109,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<CommercialComparison>(entity =>
         {
+            Text(entity.Property(x => x.TransitionCorrelationId), 200);
             entity.ToTable("commercial_comparisons", table =>
             {
                 table.HasCheckConstraint("CK_comparison_sequence_total", "\"SequenceNumber\" > 0 AND \"TotalPayableValue\" >= 0");
@@ -133,6 +137,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<PurchaseOrder>(entity =>
         {
+            Text(entity.Property(x => x.TransitionCorrelationId), 200);
             entity.ToTable("purchase_orders", table =>
             {
                 table.HasCheckConstraint("CK_purchase_order_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");

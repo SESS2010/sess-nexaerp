@@ -323,6 +323,7 @@ public sealed class RequestForQuotation : AuditableEntity
     public bool IsSingleSource { get; set; }
     public string? SingleSourceJustification { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string TransitionCorrelationId { get; set; } = string.Empty;
     public DateTimeOffset? IssuedAt { get; set; }
     public bool IsActive { get; set; } = true;
     public List<RequestForQuotationLine> Lines { get; set; } = [];
@@ -364,6 +365,7 @@ public sealed class RfqVendorInvitation : AuditableEntity
     public DateTimeOffset QuoteDueAtSnapshot { get; set; }
     public string VendorQualificationSnapshotJson { get; set; } = "{}";
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string TransitionCorrelationId { get; set; } = string.Empty;
 }
 
 public sealed class VendorQuotation : AuditableEntity
@@ -400,6 +402,7 @@ public sealed class VendorQuotation : AuditableEntity
     public decimal TotalPayableValue { get; set; }
     public decimal HeaderDiscountValue { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string TransitionCorrelationId { get; set; } = string.Empty;
     public List<VendorQuotationLine> Lines { get; set; } = [];
 }
 
@@ -470,6 +473,7 @@ public sealed class CommercialComparison : AuditableEntity
     public string? SingleSourceJustification { get; set; }
     public string? RecommendationRemarks { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string TransitionCorrelationId { get; set; } = string.Empty;
     public List<CommercialComparisonLine> Lines { get; set; } = [];
 }
 
@@ -550,6 +554,7 @@ public sealed class PurchaseOrder : AuditableEntity
     public DateTimeOffset? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
+    public string TransitionCorrelationId { get; set; } = string.Empty;
     public List<PurchaseOrderLine> Lines { get; set; } = [];
 }
 
