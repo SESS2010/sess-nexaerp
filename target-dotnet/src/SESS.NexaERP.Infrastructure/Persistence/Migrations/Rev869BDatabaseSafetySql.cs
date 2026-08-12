@@ -178,11 +178,21 @@ internal static class Rev869BDatabaseSafetySql
                        qualification."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=q."ReceivedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
-                       jsonb_object_length(i."VendorQualificationSnapshotJson")=2 AND
-                       jsonb_typeof(i."VendorQualificationSnapshotJson"->'eligible')='boolean' AND
-                       (i."VendorQualificationSnapshotJson"->>'eligible')::boolean IS TRUE AND
-                       jsonb_typeof(i."VendorQualificationSnapshotJson"->'checkedAt')='string' AND
-                       (i."VendorQualificationSnapshotJson"->>'checkedAt')::timestamptz<=q."ReceivedAt" AND
+                       jsonb_typeof(i."VendorQualificationSnapshotJson"->'qualifications')='array' AND
+                       jsonb_array_length(i."VendorQualificationSnapshotJson"->'qualifications')>0 AND
+                       (i."VendorQualificationSnapshotJson"->>'snapshotAt')::timestamptz IS NOT DISTINCT FROM i."InvitedAt" AND
+                       EXISTS (SELECT 1 FROM jsonb_array_elements(i."VendorQualificationSnapshotJson"->'qualifications') evidence WHERE
+                         (evidence->>'vendorQualificationId')::uuid IS NOT DISTINCT FROM qualification."Id" AND
+                         (evidence->>'vendorId')::uuid IS NOT DISTINCT FROM qualification."VendorId" AND
+                         evidence->>'organizationId' IS NOT DISTINCT FROM qualification."OrganizationId" AND
+                         (evidence->>'itemCategoryId')::uuid IS NOT DISTINCT FROM qualification."ItemCategoryId" AND
+                         evidence->>'qualificationType' IS NOT DISTINCT FROM qualification."QualificationCode" AND
+                         (evidence->>'qualificationVersion')::bigint IS NOT DISTINCT FROM qualification."Version" AND
+                         (evidence->>'effectiveFrom')::date IS NOT DISTINCT FROM qualification."EffectiveFrom" AND
+                         (evidence->>'effectiveTo')::date IS NOT DISTINCT FROM qualification."EffectiveTo" AND
+                         evidence->>'verificationStatus' IS NOT DISTINCT FROM qualification."VerificationStatus" AND
+                         evidence->>'approvalStatus' IS NOT DISTINCT FROM qualification."ApprovalStatus" AND
+                         (evidence->>'isActive')::boolean IS TRUE AND length(trim(evidence->>'approvedBy'))>0) AND
                        length(trim(q."AttachmentObjectKey"))>0 AND q."AttachmentSha256"~'^[0-9A-F]{64}$' AND
                        cl."VendorId"=NEW."SelectedVendorId" AND q."IsCurrentRevision" AND q."Status"='TechnicallyCompliant' AND
                        cl."CommercialSnapshotJson"->'taxRule' IS NOT NULL AND
@@ -274,8 +284,15 @@ internal static class Rev869BDatabaseSafetySql
                        qualification."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (qualification."EffectiveTo" IS NULL OR qualification."EffectiveTo">=q."ReceivedAt"::date) AND
                        jsonb_typeof(i."VendorQualificationSnapshotJson")='object' AND
-                       jsonb_object_length(i."VendorQualificationSnapshotJson")=2 AND
-                       (i."VendorQualificationSnapshotJson"->>'eligible')::boolean IS TRUE AND
+                       jsonb_typeof(i."VendorQualificationSnapshotJson"->'qualifications')='array' AND
+                       (i."VendorQualificationSnapshotJson"->>'snapshotAt')::timestamptz IS NOT DISTINCT FROM i."InvitedAt" AND
+                       EXISTS (SELECT 1 FROM jsonb_array_elements(i."VendorQualificationSnapshotJson"->'qualifications') evidence WHERE
+                         (evidence->>'vendorQualificationId')::uuid IS NOT DISTINCT FROM qualification."Id" AND
+                         (evidence->>'vendorId')::uuid IS NOT DISTINCT FROM qualification."VendorId" AND
+                         evidence->>'organizationId' IS NOT DISTINCT FROM qualification."OrganizationId" AND
+                         (evidence->>'itemCategoryId')::uuid IS NOT DISTINCT FROM qualification."ItemCategoryId" AND
+                         (evidence->>'qualificationVersion')::bigint IS NOT DISTINCT FROM qualification."Version" AND
+                         evidence->>'approvalStatus'='Approved' AND (evidence->>'isActive')::boolean IS TRUE) AND
                        NEW."VendorId"=q."VendorId" AND pl."ItemId"=rl."ItemId" AND pl."OrderedQuantity"=ql."Quantity" AND
                        pl."UnitRate"=ql."UnitRate" AND pl."UomSnapshot"=rl."UomSnapshot" AND
                        pl."TaxRuleSnapshotJson" IS NOT DISTINCT FROM ql."TaxRuleSnapshotJson" AND
@@ -383,54 +400,9 @@ internal static class Rev869BDatabaseSafetySql
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_history_insert()
         RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
-        DECLARE matched bigint;
         BEGIN
-            IF TG_TABLE_NAME='purchase_transaction_approval_history' THEN
-                SELECT count(*) INTO matched FROM nexa.commercial_comparisons c
-                 WHERE c."Id"=NEW."CommercialComparisonId" AND c."Status"=NEW."ToStatus" AND
-                       c."ApprovalRoute"=NEW."ApprovalRoute" AND NEW."Action" IN ('Approve','Reject','RequestRevision','Resubmit') AND
-                       NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(c."UpdatedBy",c."CreatedBy") AND
-                       NEW."CreatedAt" BETWEEN coalesce(c."UpdatedAt",c."CreatedAt") AND coalesce(c."UpdatedAt",c."CreatedAt")+interval '5 seconds';
-            ELSIF TG_TABLE_NAME='purchase_order_history' THEN
-                SELECT count(*) INTO matched FROM nexa.purchase_orders p
-                 WHERE p."Id"=NEW."PurchaseOrderId" AND p."Status"=NEW."ToStatus" AND
-                       p."RevisionNumber"=NEW."RevisionNumber" AND
-                       NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(p."UpdatedBy",p."CreatedBy") AND
-                       NEW."CreatedAt" BETWEEN coalesce(p."UpdatedAt",p."CreatedAt") AND coalesce(p."UpdatedAt",p."CreatedAt")+interval '5 seconds' AND
-                       NOT (NEW."Action"='Approve' AND lower(NEW."ActorLoginId")=lower(p."CreatedBy"));
-            ELSIF TG_TABLE_NAME='purchase_transaction_status_history' THEN
-                IF NEW."EntityType"='RFQ' THEN
-                    SELECT count(*) INTO matched FROM nexa.request_for_quotations r
-                     WHERE r."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND r."Status"=NEW."ToStatus" AND
-                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(r."UpdatedBy",r."CreatedBy") AND
-                           NEW."CreatedAt" BETWEEN coalesce(r."UpdatedAt",r."CreatedAt") AND coalesce(r."UpdatedAt",r."CreatedAt")+interval '5 seconds';
-                ELSIF NEW."EntityType"='RFQInvitation' THEN
-                    SELECT count(*) INTO matched FROM nexa.rfq_vendor_invitations i
-                    JOIN nexa.request_for_quotations r ON r."Id"=i."RequestForQuotationId"
-                     WHERE i."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND i."Status"=NEW."ToStatus" AND
-                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(i."UpdatedBy",i."CreatedBy") AND
-                           NEW."CreatedAt" BETWEEN coalesce(i."UpdatedAt",i."CreatedAt") AND coalesce(i."UpdatedAt",i."CreatedAt")+interval '5 seconds';
-                ELSIF NEW."EntityType"='VendorQuotation' THEN
-                    SELECT count(*) INTO matched FROM nexa.vendor_quotations q
-                     WHERE q."Id"=NEW."EntityId" AND q."OrganizationId"=NEW."OrganizationId" AND q."Status"=NEW."ToStatus" AND
-                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(q."UpdatedBy",q."CreatedBy") AND
-                           NEW."CreatedAt" BETWEEN coalesce(q."UpdatedAt",q."CreatedAt") AND coalesce(q."UpdatedAt",q."CreatedAt")+interval '5 seconds';
-                ELSIF NEW."EntityType"='CommercialComparison' THEN
-                    SELECT count(*) INTO matched FROM nexa.commercial_comparisons c
-                     WHERE c."Id"=NEW."EntityId" AND c."OrganizationId"=NEW."OrganizationId" AND c."Status"=NEW."ToStatus" AND
-                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(c."UpdatedBy",c."CreatedBy") AND
-                           NEW."CreatedAt" BETWEEN coalesce(c."UpdatedAt",c."CreatedAt") AND coalesce(c."UpdatedAt",c."CreatedAt")+interval '5 seconds';
-                ELSIF NEW."EntityType"='PurchaseOrder' THEN
-                    SELECT count(*) INTO matched FROM nexa.purchase_orders p
-                     WHERE p."Id"=NEW."EntityId" AND p."OrganizationId"=NEW."OrganizationId" AND p."Status"=NEW."ToStatus" AND
-                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(p."UpdatedBy",p."CreatedBy") AND
-                           NEW."CreatedAt" BETWEEN coalesce(p."UpdatedAt",p."CreatedAt") AND coalesce(p."UpdatedAt",p."CreatedAt")+interval '5 seconds';
-                ELSE matched:=0;
-                END IF;
-            ELSE RAISE EXCEPTION 'Unsupported REV869B history relation %.',TG_TABLE_NAME;
-            END IF;
-            IF matched<>1 THEN RAISE EXCEPTION 'REV869B history INSERT does not match one authorized parent transition.'; END IF;
-            RETURN NEW;
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_history_binding_not_installed',
+              MESSAGE='REV869B history binding must be installed before history INSERT is permitted.';
         END $rev869b$;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_extended_immutability()

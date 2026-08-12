@@ -64,7 +64,7 @@ public sealed class Rev869BPostgresBehaviorTests
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Version',0))).*
             FROM nexa.request_for_quotations r
-            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            WHERE r."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
               AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """, transaction, ("id", id), ("number", $"REV869B-PG-IDEMP-{id:N}"), ("key", key));
         Assert.Equal(1, inserted);
@@ -86,7 +86,7 @@ public sealed class Rev869BPostgresBehaviorTests
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Version',0))).*
             FROM nexa.request_for_quotations r
-            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            WHERE r."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
               AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """;
         await using var firstTx = await first.BeginTransactionAsync(IsolationLevel.ReadCommitted);
@@ -112,26 +112,26 @@ public sealed class Rev869BPostgresBehaviorTests
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Status','Closed','Version',0))).*
             FROM nexa.request_for_quotations r
-            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            WHERE r."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
               AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """,
             """
             INSERT INTO nexa.vendor_quotations
             SELECT (jsonb_populate_record(NULL::nexa.vendor_quotations,
                 to_jsonb(q) || jsonb_build_object('Id',@id,'QuotationNumber',@number,'IdempotencyKey',@key,'Status','Rejected','Version',0))).*
-            FROM nexa.vendor_quotations q WHERE q."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            FROM nexa.vendor_quotations q WHERE q."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
             """,
             """
             INSERT INTO nexa.commercial_comparisons
             SELECT (jsonb_populate_record(NULL::nexa.commercial_comparisons,
                 to_jsonb(c) || jsonb_build_object('Id',@id,'ComparisonNumber',@number,'IdempotencyKey',@key,'Status','Approved','Version',0))).*
-            FROM nexa.commercial_comparisons c WHERE c."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            FROM nexa.commercial_comparisons c WHERE c."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
             """,
             """
             INSERT INTO nexa.purchase_orders
             SELECT (jsonb_populate_record(NULL::nexa.purchase_orders,
                 to_jsonb(p) || jsonb_build_object('Id',@id,'PoNumber',@number,'IdempotencyKey',@key,'Status','Issued','Version',0))).*
-            FROM nexa.purchase_orders p WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+            FROM nexa.purchase_orders p WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'
             """
         };
         foreach (var attempt in attempts)
@@ -179,7 +179,7 @@ public sealed class Rev869BPostgresBehaviorTests
                 ("id", row.Id), ("version", row.Version)));
             await transaction.RollbackAsync();
             Assert.Equal(1L, await ScalarAsync(connection,
-                """SELECT count(*) FROM nexa.purchase_orders WHERE "Id"=@id AND "Version"=@version AND "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
+                """SELECT count(*) FROM nexa.purchase_orders WHERE "Id"=@id AND "Version"=@version AND "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
                 ("id", row.Id), ("version", row.Version)));
         }
     }
@@ -237,14 +237,14 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         var statements = new[]
         {
-            """INSERT INTO nexa.request_for_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.request_for_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.request_for_quotation_lines child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status" IN ('Issued','Closed','Cancelled')""",
-            """INSERT INTO nexa.vendor_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.vendor_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.vendor_quotation_lines child JOIN nexa.vendor_quotations parent ON parent."Id"=child."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status"<>'Draft'""",
-            """INSERT INTO nexa.commercial_comparison_lines SELECT (jsonb_populate_record(NULL::nexa.commercial_comparison_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.commercial_comparison_lines child JOIN nexa.commercial_comparisons parent ON parent."Id"=child."CommercialComparisonId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status"<>'Draft'""",
-            """INSERT INTO nexa.purchase_order_lines SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.purchase_order_lines child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status" IN ('Approved','Issued','Rejected','Cancelled','Superseded')"""
+            """INSERT INTO nexa.request_for_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.request_for_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.request_for_quotation_lines child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status" IN ('Issued','Closed','Cancelled')""",
+            """INSERT INTO nexa.vendor_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.vendor_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.vendor_quotation_lines child JOIN nexa.vendor_quotations parent ON parent."Id"=child."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status"<>'Draft'""",
+            """INSERT INTO nexa.commercial_comparison_lines SELECT (jsonb_populate_record(NULL::nexa.commercial_comparison_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.commercial_comparison_lines child JOIN nexa.commercial_comparisons parent ON parent."Id"=child."CommercialComparisonId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status"<>'Draft'""",
+            """INSERT INTO nexa.purchase_order_lines SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.purchase_order_lines child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status" IN ('Approved','Issued','Rejected','Cancelled','Superseded')"""
             ,
-            """INSERT INTO nexa.rfq_vendor_invitations SELECT (jsonb_populate_record(NULL::nexa.rfq_vendor_invitations,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.rfq_vendor_invitations child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status" IN ('Closed','Cancelled')""",
-            """INSERT INTO nexa.quotation_technical_verifications SELECT (jsonb_populate_record(NULL::nexa.quotation_technical_verifications,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.quotation_technical_verifications child JOIN nexa.vendor_quotation_lines line ON line."Id"=child."VendorQuotationLineId" JOIN nexa.vendor_quotations parent ON parent."Id"=line."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status"<>'Submitted'""",
-            """INSERT INTO nexa.material_followup_handoffs SELECT (jsonb_populate_record(NULL::nexa.material_followup_handoffs,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.material_followup_handoffs child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND (parent."Status"<>'Issued' OR NOT parent."IsCurrentVersion")"""
+            """INSERT INTO nexa.rfq_vendor_invitations SELECT (jsonb_populate_record(NULL::nexa.rfq_vendor_invitations,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.rfq_vendor_invitations child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status" IN ('Closed','Cancelled')""",
+            """INSERT INTO nexa.quotation_technical_verifications SELECT (jsonb_populate_record(NULL::nexa.quotation_technical_verifications,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.quotation_technical_verifications child JOIN nexa.vendor_quotation_lines line ON line."Id"=child."VendorQuotationLineId" JOIN nexa.vendor_quotations parent ON parent."Id"=line."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND parent."Status"<>'Submitted'""",
+            """INSERT INTO nexa.material_followup_handoffs SELECT (jsonb_populate_record(NULL::nexa.material_followup_handoffs,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.material_followup_handoffs child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND (parent."Status"<>'Issued' OR NOT parent."IsCurrentVersion")"""
         };
         foreach (var statement in statements)
         {
@@ -260,9 +260,9 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         var targets = new[]
         {
-            "nexa.purchase_transaction_status_history WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS'",
-            "nexa.purchase_transaction_approval_history WHERE \"CommercialComparisonId\" IN (SELECT \"Id\" FROM nexa.commercial_comparisons WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS')",
-            "nexa.purchase_order_history WHERE \"PurchaseOrderId\" IN (SELECT \"Id\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS')"
+            "nexa.purchase_transaction_status_history WHERE \"OrganizationId\"='REV869B-PG-DIRECT-TEST-OWNED'",
+            "nexa.purchase_transaction_approval_history WHERE \"CommercialComparisonId\" IN (SELECT \"Id\" FROM nexa.commercial_comparisons WHERE \"OrganizationId\"='REV869B-PG-DIRECT-TEST-OWNED')",
+            "nexa.purchase_order_history WHERE \"PurchaseOrderId\" IN (SELECT \"Id\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-DIRECT-TEST-OWNED')"
         };
         foreach (var target in targets)
         foreach (var verb in new[] { $"UPDATE {target} SET \"UpdatedBy\"='unauthorized'", $"DELETE FROM {target}" })
@@ -348,13 +348,26 @@ public sealed class Rev869BPostgresBehaviorTests
             "trg_rev869b_vendor_quotation_lines_immutable", "trg_rev869b_vendor_quotation_snapshot_guard",
             "trg_rev869b_rfq_lines_immutable", "trg_rev869b_invitation_snapshot_immutable",
             "trg_rev869b_comparison_lines_delete_guard", "trg_rev869b_followup_immutable"
-        }.Order().ToArray();
+        }.Concat(new[]
+        {
+            "trg_rev869b_bound_comparison_history", "trg_rev869b_bound_followup_history", "trg_rev869b_bound_invitation_history",
+            "trg_rev869b_bound_po_history", "trg_rev869b_bound_policy_history", "trg_rev869b_bound_quotation_history", "trg_rev869b_bound_rfq_history",
+            "trg_rev869b_delete_approval_history", "trg_rev869b_delete_comparison", "trg_rev869b_delete_comparison_line", "trg_rev869b_delete_followup",
+            "trg_rev869b_delete_invitation", "trg_rev869b_delete_po", "trg_rev869b_delete_po_history", "trg_rev869b_delete_po_line",
+            "trg_rev869b_delete_policy", "trg_rev869b_delete_quotation", "trg_rev869b_delete_quotation_line", "trg_rev869b_delete_rfq",
+            "trg_rev869b_delete_rfq_line", "trg_rev869b_delete_status_history", "trg_rev869b_delete_technical",
+            "trg_rev869b_explicit_comparison_line_mutation", "trg_rev869b_explicit_comparison_mutation", "trg_rev869b_explicit_followup_mutation",
+            "trg_rev869b_explicit_invitation_mutation", "trg_rev869b_explicit_po_line_insert", "trg_rev869b_explicit_po_mutation",
+            "trg_rev869b_explicit_policy_mutation", "trg_rev869b_explicit_quotation_line_insert", "trg_rev869b_explicit_quotation_mutation",
+            "trg_rev869b_explicit_rfq_line_insert", "trg_rev869b_explicit_rfq_mutation", "trg_rev869b_explicit_technical_insert"
+        }).Where(x => x != "trg_rev869b_followup_immutable").Order().ToArray();
         var expectedFunctions = new[]
         {
             "rev869b_commercial_snapshot_reconciles", "rev869b_enforce_quotation_transition", "rev869b_enforce_transition",
             "rev869b_guard_authoritative_transition", "rev869b_guard_child_insert", "rev869b_guard_controlled_snapshot",
             "rev869b_guard_history_insert", "rev869b_guard_extended_immutability", "rev869b_reject_immutable_mutation",
-            "rev869b_reject_overlapping_approval_policy", "rev869b_validate_parent_contract"
+            "rev869b_reject_overlapping_approval_policy", "rev869b_validate_parent_contract",
+            "rev869b_guard_explicit_mutation", "rev869b_reject_controlled_delete", "rev869b_require_bound_history", "rev869b_write_policy_history"
         }.Order().ToArray();
         var triggers = await StringsAsync(connection, "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal ORDER BY t.tgname");
         var functions = await StringsAsync(connection, "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%' ORDER BY p.proname");
@@ -395,30 +408,30 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         var exactChecks = new[]
         {
-            """SELECT count(*) FROM nexa.request_for_quotations WHERE "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND "IdempotencyKey" LIKE 'rev869b-pg-owned:%'""",
-            """SELECT count(*) FROM nexa.request_for_quotation_lines l JOIN nexa.request_for_quotations p ON p."Id"=l."RequestForQuotationId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.rfq_vendor_invitations i JOIN nexa.request_for_quotations p ON p."Id"=i."RequestForQuotationId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.vendor_quotations WHERE "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.vendor_quotation_lines l JOIN nexa.vendor_quotations p ON p."Id"=l."VendorQuotationId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.quotation_technical_verifications v JOIN nexa.vendor_quotation_lines l ON l."Id"=v."VendorQuotationLineId" JOIN nexa.vendor_quotations p ON p."Id"=l."VendorQuotationId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.commercial_comparisons WHERE "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.commercial_comparison_lines l JOIN nexa.commercial_comparisons p ON p."Id"=l."CommercialComparisonId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.purchase_orders WHERE "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.purchase_order_lines l JOIN nexa.purchase_orders p ON p."Id"=l."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.material_followup_handoffs h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'"""
+            """SELECT count(*) FROM nexa.request_for_quotations WHERE "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND "IdempotencyKey" LIKE 'rev869b-pg-owned:%'""",
+            """SELECT count(*) FROM nexa.request_for_quotation_lines l JOIN nexa.request_for_quotations p ON p."Id"=l."RequestForQuotationId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.rfq_vendor_invitations i JOIN nexa.request_for_quotations p ON p."Id"=i."RequestForQuotationId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.vendor_quotations WHERE "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.vendor_quotation_lines l JOIN nexa.vendor_quotations p ON p."Id"=l."VendorQuotationId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.quotation_technical_verifications v JOIN nexa.vendor_quotation_lines l ON l."Id"=v."VendorQuotationLineId" JOIN nexa.vendor_quotations p ON p."Id"=l."VendorQuotationId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.commercial_comparisons WHERE "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.commercial_comparison_lines l JOIN nexa.commercial_comparisons p ON p."Id"=l."CommercialComparisonId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.purchase_orders WHERE "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.purchase_order_lines l JOIN nexa.purchase_orders p ON p."Id"=l."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.material_followup_handoffs h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'"""
             ,
-            """SELECT count(*) FROM nexa.purchase_transaction_status_history WHERE "OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.purchase_transaction_approval_history h JOIN nexa.commercial_comparisons p ON p."Id"=h."CommercialComparisonId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'""",
-            """SELECT count(*) FROM nexa.purchase_order_history h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'"""
+            """SELECT count(*) FROM nexa.purchase_transaction_status_history WHERE "OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.purchase_transaction_approval_history h JOIN nexa.commercial_comparisons p ON p."Id"=h."CommercialComparisonId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'""",
+            """SELECT count(*) FROM nexa.purchase_order_history h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED'"""
         };
         foreach (var sql in exactChecks)
             if (await ScalarAsync(connection, sql) != 1)
-                throw new InvalidOperationException("The deterministic REV869B-PG-OWNED-DATABASE-GUARDS fixture is missing or ambiguous.");
+                throw new InvalidOperationException("The deterministic REV869B-PG-DIRECT-TEST-OWNED fixture is missing or ambiguous.");
     }
 
     private static async Task<(Guid Id, long Version)> DraftRfqAsync(NpgsqlConnection connection)
     {
-        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.request_for_quotations WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS' AND \"Status\"='Draft' AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
+        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.request_for_quotations WHERE \"OrganizationId\"='REV869B-PG-DIRECT-TEST-OWNED' AND \"Status\"='Draft' AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
         await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires its exact test-owned Draft RFQ.");
         var result = (reader.GetGuid(0), reader.GetInt64(1));
@@ -428,7 +441,7 @@ public sealed class Rev869BPostgresBehaviorTests
 
     private static async Task<(Guid Id, long Version)> ApprovedPoAsync(NpgsqlConnection connection)
     {
-        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS' AND \"Status\"='Approved' AND \"IsCurrentVersion\" AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
+        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-DIRECT-TEST-OWNED' AND \"Status\"='Approved' AND \"IsCurrentVersion\" AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
         await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires its exact test-owned approved current PO.");
         var result = (reader.GetGuid(0), reader.GetInt64(1));
@@ -441,7 +454,7 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var command = new NpgsqlCommand("""
             SELECT p."Id",p."RootPurchaseOrderId",(SELECT count(*)::integer FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId"=p."Id")
             FROM nexa.purchase_orders p
-            WHERE p."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND p."Status"='Rejected' AND NOT p."IsCurrentVersion"
+            WHERE p."OrganizationId"='REV869B-PG-DIRECT-TEST-OWNED' AND p."Status"='Rejected' AND NOT p."IsCurrentVersion"
             """, connection, transaction);
         await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync()) throw new InvalidOperationException("The exact test-owned rejected PO fixture is missing.");

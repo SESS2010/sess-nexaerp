@@ -26,6 +26,8 @@ public static class Rev869BStatuses
     public const string Cancelled = "Cancelled";
     public const string Closed = "Closed";
     public const string PendingFollowUp = "PendingFollowUp";
+    public const string InProgress = "InProgress";
+    public const string Completed = "Completed";
 }
 
 public static class Rev869BStatusContracts
@@ -36,7 +38,7 @@ public static class Rev869BStatusContracts
     public static readonly IReadOnlySet<string> TechnicalVerification = Set(Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected);
     public static readonly IReadOnlySet<string> Comparison = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested, Rev869BStatuses.Cancelled);
     public static readonly IReadOnlySet<string> PurchaseOrder = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Issued, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionDraft, Rev869BStatuses.Resubmitted, Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled);
-    public static readonly IReadOnlySet<string> MaterialFollowUp = Set(Rev869BStatuses.PendingFollowUp, Rev869BStatuses.Closed, Rev869BStatuses.Cancelled);
+    public static readonly IReadOnlySet<string> MaterialFollowUp = Set(Rev869BStatuses.PendingFollowUp, Rev869BStatuses.InProgress, Rev869BStatuses.Completed);
 
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> RfqTransitions = Transitions(
         (Rev869BStatuses.Draft, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
@@ -60,12 +62,16 @@ public static class Rev869BStatusContracts
         (Rev869BStatuses.Resubmitted, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Approved, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Issued, [Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled]));
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> MaterialFollowUpTransitions = Transitions(
+        (Rev869BStatuses.PendingFollowUp, [Rev869BStatuses.InProgress]),
+        (Rev869BStatuses.InProgress, [Rev869BStatuses.Completed]));
 
     public static void RequireRfq(string from, string to) => Require("RFQ", Rfq, RfqTransitions, from, to);
     public static void RequireInvitation(string from, string to) => Require("invitation", Invitation, InvitationTransitions, from, to);
     public static void RequireQuotation(string from, string to) => Require("quotation", Quotation, QuotationTransitions, from, to);
     public static void RequireComparison(string from, string to) => Require("comparison", Comparison, ComparisonTransitions, from, to);
     public static void RequirePurchaseOrder(string from, string to) => Require("purchase order", PurchaseOrder, PurchaseOrderTransitions, from, to);
+    public static void RequireMaterialFollowUp(string from, string to) => Require("material follow-up", MaterialFollowUp, MaterialFollowUpTransitions, from, to);
     public static bool IsTerminalQuotation(string status) => status is Rev869BStatuses.Superseded or Rev869BStatuses.Withdrawn or Rev869BStatuses.Rejected;
     public static bool IsImmutablePurchaseOrder(string status) => status is Rev869BStatuses.Issued or Rev869BStatuses.Cancelled or Rev869BStatuses.Superseded;
 

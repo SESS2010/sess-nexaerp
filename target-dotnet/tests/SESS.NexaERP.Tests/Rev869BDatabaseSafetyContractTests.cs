@@ -5,6 +5,7 @@ public sealed class Rev869BDatabaseSafetyContractTests
     private static readonly string Root = FindRoot();
     private static readonly string Safety = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseSafetySql.cs");
     private static readonly string Lifecycle = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs");
+    private static readonly string Controlled = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BControlledMutationSql.cs");
     private static readonly string Migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
     private static readonly string Postgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs") +
         Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs");
@@ -38,12 +39,17 @@ public sealed class Rev869BDatabaseSafetyContractTests
             "trg_rev869b_purchase_order_lines_immutable", "trg_rev869b_purchase_approval_history_immutable",
             "trg_rev869b_purchase_order_history_immutable", "trg_rev869b_purchase_status_history_immutable"
         })
-            Assert.Contains(trigger, Safety + Migration);
+            Assert.Contains(trigger, Safety + Controlled + Migration);
         Assert.Contains("qualification and provenance snapshot is immutable", Safety);
         Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.request_for_quotation_lines", Safety);
         Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.rfq_vendor_invitations", Safety);
         Assert.Contains("BEFORE DELETE ON nexa.commercial_comparison_lines", Safety);
-        Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.material_followup_handoffs", Safety);
+        Assert.Contains("trg_rev869b_explicit_followup_mutation BEFORE INSERT OR UPDATE ON nexa.material_followup_handoffs", Controlled);
+        foreach (var table in new[] { "request_for_quotations", "request_for_quotation_lines", "rfq_vendor_invitations", "vendor_quotations", "vendor_quotation_lines", "quotation_technical_verifications", "commercial_comparisons", "commercial_comparison_lines", "purchase_transaction_approval_history", "purchase_orders", "purchase_order_lines", "purchase_order_history", "material_followup_handoffs", "purchase_transaction_status_history", "purchase_transaction_approval_policies" })
+            Assert.Contains($"BEFORE DELETE ON nexa.{table}", Controlled);
+        Assert.Contains("rev869b_initial_version_zero", Controlled);
+        Assert.Contains("rev869b_exact_version_increment", Controlled);
+        Assert.Contains("rev869b_same_status_protected_fields", Controlled);
     }
 
     [Fact]
@@ -56,7 +62,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("IS NOT DISTINCT FROM", Safety);
         Assert.Contains("EXCEPTION WHEN OTHERS THEN RETURN FALSE", Safety);
         Assert.DoesNotContain("->'taxRule' <>", Safety);
-        Assert.Contains("->'taxRule' IS NOT NULL", Safety);
+        Assert.Contains("->'taxRule' IS NULL", Safety);
+        Assert.Contains("IS DISTINCT FROM", Safety);
         Assert.DoesNotContain(") IS NOT NULL;", Safety);
         Assert.Contains(") IS TRUE;", Lifecycle);
     }
@@ -80,6 +87,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
     {
         Assert.Contains("Rev869BDatabaseSafetySql.Install", Migration);
         Assert.Contains("Rev869BDatabaseLifecycleSql.Install", Migration);
+        Assert.Contains("Rev869BControlledMutationSql.Install", Migration);
+        Assert.Contains("Rev869BControlledMutationSql.Remove", Migration);
         Assert.Contains("Rev869BDatabaseLifecycleSql.Remove", Migration);
         Assert.Contains("Rev869BDatabaseSafetySql.Remove", Migration);
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_", Safety);
@@ -102,6 +111,9 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("CreateRfqAsync", Postgres);
         Assert.Contains("PurchaseTransactionStatusHistories", Postgres);
         Assert.Contains("AuditLogs", Postgres);
+        Assert.DoesNotContain("REV869B-PG-OWNED-DATABASE-GUARDS", Postgres);
+        Assert.DoesNotContain("GetHashCode", Postgres);
+        Assert.DoesNotContain("Task.Delay(100)", Postgres);
     }
 
     private static string Read(params string[] parts) => File.ReadAllText(Path.Combine([Root, .. parts]));

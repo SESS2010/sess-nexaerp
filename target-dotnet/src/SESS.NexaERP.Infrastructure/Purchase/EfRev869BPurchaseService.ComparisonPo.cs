@@ -67,10 +67,10 @@ public sealed partial class EfRev869BPurchaseService
         {
             var recalculated = Recalculate(quoteLine, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)); total = Rev869BCommercialCalculator.Add(total, recalculated.Breakdown.TotalPayableValue);
             await db.CommercialComparisonLines.Where(x => x.CommercialComparisonId == comparison.Id && x.VendorQuotationLineId == quoteLine.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRecommended, true).SetProperty(x => x.RecommendationReason, remarks).SetProperty(x => x.TotalPayableValue, recalculated.Breakdown.TotalPayableValue).SetProperty(x => x.CommercialSnapshotJson, ComparisonSnapshotJson(comparison, quote, quoteLine, recalculated)), ct);
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1).SetProperty(x => x.IsRecommended, true).SetProperty(x => x.RecommendationReason, remarks).SetProperty(x => x.TotalPayableValue, recalculated.Breakdown.TotalPayableValue).SetProperty(x => x.CommercialSnapshotJson, ComparisonSnapshotJson(comparison, quote, quoteLine, recalculated)).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         }
         await db.CommercialComparisonLines.Where(x => x.CommercialComparisonId == comparison.Id && !quote.Lines.Select(l => l.Id).Contains(x.VendorQuotationLineId))
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsRecommended, false).SetProperty(x => x.RecommendationReason, (string?)null), ct);
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1).SetProperty(x => x.IsRecommended, false).SetProperty(x => x.RecommendationReason, (string?)null).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         var route = await ResolveApprovalRouteAsync(total, organization, ct); Rev869BStatusContracts.RequireComparison(comparison.Status, Rev869BStatuses.PendingApproval);
         var affected = await db.CommercialComparisons.Where(x => x.Id == comparison.Id && x.OrganizationId == organization && x.Version == request.Version)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, newVersion).SetProperty(x => x.RecommendedVendorQuotationId, quote.Id).SetProperty(x => x.SelectedVendorId, quote.VendorId).SetProperty(x => x.TotalPayableValue, total).SetProperty(x => x.SingleSourceJustification, justification).SetProperty(x => x.RecommendationRemarks, remarks).SetProperty(x => x.ApprovalRoute, route).SetProperty(x => x.Status, Rev869BStatuses.PendingApproval).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
@@ -296,6 +296,8 @@ public sealed partial class EfRev869BPurchaseService
                 var priorAffected = await db.PurchaseOrders.Where(x => x.Id == prior.Id && x.OrganizationId == organization && x.Version == priorExpected).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, priorVersion).SetProperty(x => x.Status, Rev869BStatuses.Superseded).SetProperty(x => x.IsCurrentVersion, false).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
                 RequireCas(priorAffected, priorExpected, "purchase-order predecessor");
                 AddPoHistory(prior, "Supersede", prior.Status, Rev869BStatuses.Superseded, remarks, commandFingerprint + ":prior");
+                AddStatus("PurchaseOrder", prior.Id, prior.PoNumber, prior.Status, Rev869BStatuses.Superseded,
+                    "Supersede", remarks, commandFingerprint + ":prior");
             }
             else if (prior.Status != Rev869BStatuses.Rejected || prior.IsCurrentVersion)
                 throw new Rev869BConflictException("Rejected-version recovery predecessor is invalid.");

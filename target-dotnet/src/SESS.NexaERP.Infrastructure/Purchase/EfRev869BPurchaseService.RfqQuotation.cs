@@ -78,7 +78,28 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(duplicate.Id, rfq.RfqNumber, Rev869BStatuses.Issued, 0);
         }
         if (rfq.Status is Rev869BStatuses.Cancelled or Rev869BStatuses.Closed) throw new Rev869BConflictException("RFQ is closed.");
-        foreach (var category in rfq.Lines.Select(x => x.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(request.VendorId, rfq.OrganizationId, category, DateOnly.FromDateTime(DateTime.UtcNow), ct)) throw new InvalidOperationException("Vendor is not active, approved, effective and qualified.");
+        var qualificationDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var categories = rfq.Lines.Select(x => x.Item!.CategoryId).Distinct().Order().ToArray();
+        foreach (var category in categories) if (!await vendors.IsEligibleAsync(request.VendorId, rfq.OrganizationId, category, qualificationDate, ct)) throw new InvalidOperationException("Vendor is not active, approved, effective and qualified.");
+        var qualifications = await db.VendorQualifications.AsNoTracking()
+            .Where(x => x.VendorId == request.VendorId && x.OrganizationId == rfq.OrganizationId && x.IsActive &&
+                x.VerificationStatus == MasterApprovalStatuses.Approved && x.ApprovalStatus == MasterApprovalStatuses.Approved &&
+                x.EffectiveFrom <= qualificationDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= qualificationDate) &&
+                x.ItemCategoryId.HasValue && categories.Contains(x.ItemCategoryId.Value))
+            .OrderBy(x => x.ItemCategoryId).ToListAsync(ct);
+        if (qualifications.Count != categories.Length || qualifications.Select(x => x.ItemCategoryId).Distinct().Count() != categories.Length)
+            throw new InvalidOperationException("Each RFQ category requires exactly one authoritative effective vendor qualification.");
+        var qualificationSnapshotAt = DateTimeOffset.UtcNow;
+        var qualificationSnapshot = JsonSerializer.Serialize(new
+        {
+            snapshotAt = qualificationSnapshotAt,
+            qualifications = qualifications.Select(x => new
+            {
+                vendorQualificationId = x.Id, x.VendorId, x.OrganizationId, itemCategoryId = x.ItemCategoryId,
+                qualificationType = x.QualificationCode, qualificationVersion = x.Version, x.EffectiveFrom, x.EffectiveTo,
+                x.VerificationStatus, x.ApprovalStatus, x.IsActive, approvedBy = x.UpdatedBy ?? x.CreatedBy
+            }).ToArray()
+        }, JsonOptions);
         var newVersion = checked(request.RfqVersion + 1);
         if (rfq.Status == Rev869BStatuses.Draft)
         {
@@ -88,7 +109,7 @@ public sealed partial class EfRev869BPurchaseService
             RequireCas(affected, request.RfqVersion, "RFQ");
         }
         else await ReserveRfqAsync(rfq.Id, organization, request.RfqVersion, ct);
-        var invitation = new RfqVendorInvitation { RequestForQuotationId = rfq.Id, VendorId = request.VendorId, InvitedAt = DateTimeOffset.UtcNow, QuoteDueAtSnapshot = rfq.QuoteDueAt, VendorQualificationSnapshotJson = JsonSerializer.Serialize(new { eligible = true, checkedAt = DateTimeOffset.UtcNow }, JsonOptions), IdempotencyKey = fingerprint, CreatedBy = user.LoginId };
+        var invitation = new RfqVendorInvitation { RequestForQuotationId = rfq.Id, VendorId = request.VendorId, InvitedAt = qualificationSnapshotAt, QuoteDueAtSnapshot = rfq.QuoteDueAt, VendorQualificationSnapshotJson = qualificationSnapshot, IdempotencyKey = fingerprint, CreatedBy = user.LoginId };
         db.RfqVendorInvitations.Add(invitation); await db.SaveChangesAsync(ct);
         AddStatus("RFQInvitation", invitation.Id, rfq.RfqNumber, null, invitation.Status, "InviteVendor", RequiredRemarks(request.Remarks), fingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "InviteVendor", nameof(RfqVendorInvitation), invitation.Id.ToString(), null, new { rfq.RfqNumber, request.VendorId }, ct); await tx.CommitAsync(ct); return Result(invitation.Id, rfq.RfqNumber, invitation.Status, invitation.Version);
     }

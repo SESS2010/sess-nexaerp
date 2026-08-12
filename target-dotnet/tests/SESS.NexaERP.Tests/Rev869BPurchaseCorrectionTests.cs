@@ -16,12 +16,14 @@ public sealed class Rev869BPurchaseCorrectionTests
     private static readonly string Root = FindRoot();
     private static readonly string Service = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs") +
         Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.RfqQuotation.cs") +
-        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs");
+        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.MaterialFollowUp.cs");
     private static readonly string Api = Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869BPurchaseEndpoints.cs");
     private static readonly string Migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
     private static readonly string MigrationInstall = Migration +
         Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseSafetySql.cs") +
-        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs");
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BControlledMutationSql.cs");
 
     [Fact]
     public void EveryCanonicalTransitionAcceptsOnlyItsMatrixEdges()
@@ -42,6 +44,8 @@ public sealed class Rev869BPurchaseCorrectionTests
             ("PendingApproval", "Cancelled"), ("Rejected", "RevisionDraft"), ("RevisionDraft", "Resubmitted"), ("RevisionDraft", "Cancelled"),
             ("Resubmitted", "Approved"), ("Resubmitted", "Rejected"), ("Resubmitted", "Cancelled"),
             ("Approved", "Issued"), ("Approved", "Cancelled"), ("Issued", "Superseded"), ("Issued", "Cancelled"));
+        AssertMatrix(Rev869BStatusContracts.MaterialFollowUp, Rev869BStatusContracts.RequireMaterialFollowUp,
+            ("PendingFollowUp", "InProgress"), ("InProgress", "Completed"));
     }
 
     [Fact]
@@ -50,6 +54,7 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.Equal(Rev869BStatusContracts.Quotation.Order(), CanonicalConstraintValues("CK_vendor_quotation_status").Order());
         Assert.Equal(Rev869BStatusContracts.Comparison.Order(), CanonicalConstraintValues("CK_comparison_status").Order());
         Assert.Equal(Rev869BStatusContracts.PurchaseOrder.Order(), CanonicalConstraintValues("CK_purchase_order_status").Order());
+        Assert.Equal(Rev869BStatusContracts.MaterialFollowUp.Order(), CanonicalConstraintValues("CK_material_followup_quantity").Where(x => x != "OrderedQuantitySnapshot").Order());
         Assert.DoesNotContain("Recommended", CanonicalConstraintValues("CK_comparison_status"));
         Assert.DoesNotContain("PendingReapproval", Migration + Service);
         Assert.DoesNotContain("PendingTechnicalVerification", Migration + Service);
@@ -102,7 +107,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(40, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(74, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
         Assert.Equal(2, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);

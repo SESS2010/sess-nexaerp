@@ -20,6 +20,7 @@ using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Inventory;
+using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Audit;
@@ -61,8 +62,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         var before = await fixture.CountBusinessResultAsync();
         await Assert.ThrowsAsync<InjectedAuditFailure>(() =>
             fixture.Service(new FailingAuditWriter()).CreateRfqAsync(fixture.Request("failing-command"), default));
-        fixture.Db.ChangeTracker.Clear();
-        Assert.Equal(before, await fixture.CountBusinessResultAsync());
+        Assert.Equal(before, await fixture.CountBusinessResultFromIndependentContextAsync());
     }
 
     [Fact]
@@ -105,8 +105,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         await using var fixture = await OwnedRfqFixture.CreateAsync("audit-propagation", useAmbientTransaction: false);
         await Assert.ThrowsAsync<InjectedAuditFailure>(() => fixture.Service(new FailingAuditWriter())
             .CreateRfqAsync(fixture.Request("audit-failure-command"), default));
-        fixture.Db.ChangeTracker.Clear();
-        Assert.Equal(0, await fixture.CountBusinessResultAsync());
+        Assert.Equal(0, await fixture.CountBusinessResultFromIndependentContextAsync());
     }
 
     [Fact]
@@ -117,20 +116,22 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         await using var secondDb = await fixture.OpenIndependentContextAsync();
         Assert.NotSame(firstDb, secondDb);
         Assert.NotSame(firstDb.Database.GetDbConnection(), secondDb.Database.GetDbConnection());
-        await using var firstTx = await firstDb.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        await using var secondTx = await secondDb.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-
-        var provisional = await fixture.Service(firstDb).CreateRfqAsync(fixture.Request("collision-key"), default);
-        var competing = fixture.Service(secondDb).CreateRfqAsync(fixture.Request("collision-key"), default);
-        await Task.Delay(100);
-        Assert.False(competing.IsCompleted, "The independent writer must contend on the authoritative idempotency key.");
-        await firstTx.RollbackAsync();
-
-        var winner = await competing;
-        Assert.NotEqual(provisional.Id, winner.Id);
-        Assert.Equal(1, await secondDb.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
-        Assert.Equal(1, await secondDb.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
-        await secondTx.RollbackAsync();
+        var coordinatedStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<Rev869BDocumentResult> RunAsync(NexaErpDbContext context)
+        {
+            await coordinatedStart.Task;
+            return await fixture.Service(context).CreateRfqAsync(fixture.Request("collision-key"), default);
+        }
+        var first = RunAsync(firstDb);
+        var second = RunAsync(secondDb);
+        coordinatedStart.SetResult();
+        var results = await Task.WhenAll(first, second);
+        Assert.Equal(results[0].Id, results[1].Id);
+        Assert.Equal(1, await firstDb.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
+        Assert.Equal(1, await firstDb.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
+        await Assert.ThrowsAsync<Rev869BConflictException>(() => fixture.Service(secondDb)
+            .CreateRfqAsync(fixture.Request("collision-key") with { CurrencyCode = "USD" }, default));
+        Assert.Equal(1, await firstDb.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
     }
 
     [Fact]
@@ -192,10 +193,10 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         private bool disposed;
 
         private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction,
-            string scenario, Guid warehouseId, Guid prId, Guid lineId, Guid handoffId, Guid actorId, long ownedBefore)
+            string scenario, Guid warehouseId, Guid prId, Guid lineId, Guid handoffId, Guid actorId, Guid identityMappingId, long ownedBefore)
         {
             Db = db; this.transaction = transaction; Scenario = scenario; WarehouseId = warehouseId;
-            PrId = prId; LineId = lineId; HandoffId = handoffId; ActorId = actorId; this.ownedBefore = ownedBefore;
+            PrId = prId; LineId = lineId; HandoffId = handoffId; ActorId = actorId; IdentityMappingId = identityMappingId; this.ownedBefore = ownedBefore;
         }
 
         public NexaErpDbContext Db { get; }
@@ -207,6 +208,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public Guid LineId { get; }
         public Guid HandoffId { get; }
         public Guid ActorId { get; }
+        public Guid IdentityMappingId { get; }
 
         public static async Task<OwnedRfqFixture> CreateAsync(string scenario, bool useAmbientTransaction = true)
         {
@@ -223,6 +225,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 var lineId = DeterministicId(scenario, "line");
                 var handoffId = DeterministicId(scenario, "handoff");
                 var actorId = Rev866SeedData.Employees.Single(x => x.EmployeeCode == "SESS-008").Id;
+                var identityMappingId = DeterministicId(scenario, "identity-mapping");
                 var marker = "REV869B-PG-OWNED:" + scenario;
                 var organization = "REV869B-PG-OWNED-" + scenario.ToUpperInvariant();
                 var ownedBefore = await CountOwnedAsync(db, marker, organization);
@@ -239,7 +242,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                     Name = marker, WarehouseType = "ControlledTest", Status = MasterStatuses.Active,
                     ApprovalStatus = MasterApprovalStatuses.Approved, IsActive = true, CreatedBy = marker };
                 var pr = new PurchaseRequisition { Id = prId, PrNumber = "REV869B-PG-PR-" + scenario.ToUpperInvariant(),
-                    FinancialYear = "2026-27", PrSequence = Math.Abs(scenario.GetHashCode(StringComparison.Ordinal)),
+                    FinancialYear = "2026-27", PrSequence = DeterministicSequence(scenario),
                     OrganizationId = organization, RequestDate = new DateOnly(2026, 8, 12), RequiredByDate = new DateOnly(2026, 9, 30),
                     Priority = "Normal", PurposeJustification = marker, DeliveryWarehouseId = warehouseId,
                     Status = PurchaseRequisitionStatuses.NotAvailable, EstimatedTotal = 100m, IsActive = true, CreatedBy = marker };
@@ -255,9 +258,13 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                     WarehouseId = warehouseId, LocationKey = warehouseId.ToString("N"), HandoffQuantity = 1m,
                     Status = "PendingRFQ", HandoffNumber = "REV869B-PG-HO-" + scenario.ToUpperInvariant(),
                     HandoffBy = marker, CorrelationId = marker, CreatedBy = marker };
-                db.AddRange(warehouse, pr, line, handoff);
+                var identityMapping = new EmployeeIdentityMapping { Id = identityMappingId, OrganizationId = organization,
+                    Issuer = "REV869B-TEST-ISSUER", Subject = marker, EmployeeId = actorId,
+                    EffectiveFrom = new DateOnly(2026, 1, 1), EffectiveTo = new DateOnly(2027, 12, 31),
+                    IsActive = true, CreatedBy = marker };
+                db.AddRange(warehouse, pr, line, handoff, identityMapping);
                 await db.SaveChangesAsync();
-                return new OwnedRfqFixture(db, tx, scenario, warehouseId, prId, lineId, handoffId, actorId, ownedBefore);
+                return new OwnedRfqFixture(db, tx, scenario, warehouseId, prId, lineId, handoffId, actorId, identityMappingId, ownedBefore);
             }
             catch
             {
@@ -266,7 +273,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             }
         }
 
-        public Rev869BCreateRfqRequest Request(string key) => new(DateTimeOffset.UtcNow.AddDays(7), "INR", false,
+        public Rev869BCreateRfqRequest Request(string key) => new(new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero), "INR", false,
             null, key, [new Rev869BRfqSourceLineRequest(HandoffId, 1m)]);
 
         public EfRev869BPurchaseService Service(IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null)
@@ -287,6 +294,12 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         }
 
         public Task<long> CountBusinessResultAsync() => CountOwnedAsync(Db, Marker, Organization);
+
+        public async Task<long> CountBusinessResultFromIndependentContextAsync()
+        {
+            await using var verifier = await OpenIndependentContextAsync();
+            return await CountOwnedAsync(verifier, Marker, Organization);
+        }
 
         public async ValueTask DisposeAsync()
         {
@@ -312,6 +325,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             await Db.PurchaseRequisitionLines.Where(x => x.Id == LineId).ExecuteDeleteAsync();
             await Db.PurchaseRequisitions.Where(x => x.Id == PrId).ExecuteDeleteAsync();
             await Db.Warehouses.Where(x => x.Id == WarehouseId).ExecuteDeleteAsync();
+            await Db.EmployeeIdentityMappings.Where(x => x.Id == IdentityMappingId).ExecuteDeleteAsync();
             await Db.DisposeAsync();
         }
 
@@ -319,13 +333,28 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             await db.RequestForQuotations.LongCountAsync(x => x.OrganizationId == organization) +
             await db.RequestForQuotationLines.LongCountAsync(x => x.RequestForQuotation!.OrganizationId == organization) +
             await db.PurchaseTransactionStatusHistories.LongCountAsync(x => x.OrganizationId == organization) +
-            await db.AuditLogs.LongCountAsync(x => x.CreatedBy == marker);
+            await db.AuditLogs.LongCountAsync(x => x.CreatedBy == marker) +
+            await db.RfqVendorInvitations.LongCountAsync(x => x.RequestForQuotation!.OrganizationId == organization) +
+            await db.VendorQuotations.LongCountAsync(x => x.OrganizationId == organization) +
+            await db.VendorQuotationLines.LongCountAsync(x => x.VendorQuotation!.OrganizationId == organization) +
+            await db.QuotationTechnicalVerifications.LongCountAsync(x => x.VendorQuotationLine!.VendorQuotation!.OrganizationId == organization) +
+            await db.CommercialComparisons.LongCountAsync(x => x.OrganizationId == organization) +
+            await db.CommercialComparisonLines.LongCountAsync(x => x.CommercialComparison!.OrganizationId == organization) +
+            await db.PurchaseTransactionApprovalHistories.LongCountAsync(x => x.CommercialComparison!.OrganizationId == organization) +
+            await db.PurchaseOrders.LongCountAsync(x => x.OrganizationId == organization) +
+            await db.PurchaseOrderLines.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
+            await db.PurchaseOrderHistories.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
+            await db.MaterialFollowUpHandoffs.LongCountAsync(x => x.PurchaseOrder!.OrganizationId == organization) +
+            await db.PurchaseNumberSequences.LongCountAsync(x => x.OrganizationId == organization);
 
         private static Guid DeterministicId(string scenario, string entity)
         {
             var bytes = SHA256.HashData(Encoding.UTF8.GetBytes("REV869B-PG-OWNED|" + scenario + "|" + entity));
             return new Guid(bytes[..16]);
         }
+
+        private static int DeterministicSequence(string scenario) =>
+            BitConverter.ToInt32(SHA256.HashData(Encoding.UTF8.GetBytes("REV869B-PG-SEQUENCE|" + scenario)), 0) & int.MaxValue;
 
         private static async Task<string> VerifiedConnectionStringAsync()
         {

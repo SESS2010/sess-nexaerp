@@ -38929,7 +38929,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.ToTable("material_followup_handoffs", "nexa", t =>
                         {
-                            t.HasCheckConstraint("CK_material_followup_quantity", "\"OrderedQuantitySnapshot\" > 0 AND \"Status\" IN ('PendingFollowUp','Closed','Cancelled')");
+                            t.HasCheckConstraint("CK_material_followup_quantity", "\"OrderedQuantitySnapshot\" > 0 AND \"Status\" IN ('PendingFollowUp','InProgress','Completed')");
                         });
                 });
 

@@ -812,7 +812,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_material_followup_handoffs", x => x.Id);
-                    table.CheckConstraint("CK_material_followup_quantity", "\"OrderedQuantitySnapshot\" > 0 AND \"Status\" IN ('PendingFollowUp','Closed','Cancelled')");
+                    table.CheckConstraint("CK_material_followup_quantity", "\"OrderedQuantitySnapshot\" > 0 AND \"Status\" IN ('PendingFollowUp','InProgress','Completed')");
                     table.ForeignKey(
                         name: "FK_material_followup_handoffs_purchase_order_lines_PurchaseOrd~",
                         column: x => x.PurchaseOrderLineId,
@@ -1442,7 +1442,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                                 coalesce((cl."CommercialSnapshotJson"->'result'->>'roundOff')::numeric,-999999) <> ql."RoundOff" OR
                                 coalesce((cl."CommercialSnapshotJson"->'result'->>'totalPayableValue')::numeric,-1) <> ql."TotalPayableValue" OR
                                 cl."TotalPayableValue" <> ql."TotalPayableValue" OR
-                                cl."CommercialSnapshotJson"->'taxRule' <> ql."TaxRuleSnapshotJson"
+                                cl."CommercialSnapshotJson"->'taxRule' IS NULL OR
+                                cl."CommercialSnapshotJson"->'taxRule' IS DISTINCT FROM ql."TaxRuleSnapshotJson"
                             )) OR
                         (SELECT count(*) FROM nexa.commercial_comparison_lines cl WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended") <>
                         (SELECT count(*) FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."RecommendedVendorQuotationId") OR
@@ -1601,11 +1602,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 """);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Install);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Install);
+            migrationBuilder.Sql(Rev869BControlledMutationSql.Install);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(Rev869BControlledMutationSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Remove);
             migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_overlapping_approval_policy() CASCADE;");

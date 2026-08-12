@@ -29,6 +29,7 @@ public sealed record Rev869BIssuePurchaseOrderRequest(string Remarks, uint Versi
 public sealed record Rev869BAmendPurchaseOrderRequest(string AmendmentReason, string PaymentTerms, string DeliveryTerms, string WarrantyTerms, uint Version, string IdempotencyKey);
 public sealed record Rev869BReviseRejectedPurchaseOrderRequest(string RevisionReason, string PaymentTerms, string DeliveryTerms, string WarrantyTerms, uint RejectedVersion, string IdempotencyKey);
 public sealed record Rev869BCancelPurchaseOrderRequest(string Reason, uint Version, string IdempotencyKey);
+public sealed record Rev869BMaterialFollowUpTransitionRequest(string ToStatus, string Reason, uint Version, string IdempotencyKey);
 
 public sealed record Rev869BDocumentResult(Guid Id, string Number, string Status, uint Version);
 
@@ -52,6 +53,7 @@ public interface IRev869BPurchaseService
     Task<Rev869BDocumentResult> ApprovePurchaseOrderAsync(string poNumber, Rev869BPoApprovalActionRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> RejectPurchaseOrderAsync(string poNumber, Rev869BPoApprovalActionRequest request, CancellationToken cancellationToken);
     Task<Rev869BDocumentResult> CancelPurchaseOrderAsync(string poNumber, Rev869BCancelPurchaseOrderRequest request, CancellationToken cancellationToken);
+    Task<Rev869BDocumentResult> TransitionMaterialFollowUpAsync(Guid handoffId, Rev869BMaterialFollowUpTransitionRequest request, CancellationToken cancellationToken);
 }
 
 public sealed class Rev869BValidationException(string message) : Exception(message);
