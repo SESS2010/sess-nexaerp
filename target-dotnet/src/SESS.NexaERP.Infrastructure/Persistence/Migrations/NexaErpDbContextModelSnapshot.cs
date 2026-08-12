@@ -41206,7 +41206,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_vendor_quotation_provenance", "\"SubmissionSource\" IN ('EMAIL_RECEIVED','PHYSICAL_RECEIVED') AND length(trim(\"AttachmentObjectKey\")) > 0 AND \"AttachmentSha256\" ~ '^[0-9A-Fa-f]{64}$' AND length(trim(\"VendorAttestation\")) > 0 AND \"ReceivedAt\" <= \"SubmittedAt\"");
 
-                            t.HasCheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
+                            t.HasCheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Draft','Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
 
                             t.HasCheckConstraint("CK_vendor_quotation_total", "\"HeaderDiscountValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                         });

@@ -289,7 +289,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("CK_vendor_quotation_late_authorization", "NOT \"IsLateSubmission\" OR (\"LateAuthorizedByEmployeeId\" IS NOT NULL AND length(trim(coalesce(\"LateAuthorizationRemarks\", ''))) > 0)");
                     table.CheckConstraint("CK_vendor_quotation_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
                     table.CheckConstraint("CK_vendor_quotation_provenance", "\"SubmissionSource\" IN ('EMAIL_RECEIVED','PHYSICAL_RECEIVED') AND length(trim(\"AttachmentObjectKey\")) > 0 AND \"AttachmentSha256\" ~ '^[0-9A-Fa-f]{64}$' AND length(trim(\"VendorAttestation\")) > 0 AND \"ReceivedAt\" <= \"SubmittedAt\"");
-                    table.CheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
+                    table.CheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Draft','Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
                     table.CheckConstraint("CK_vendor_quotation_total", "\"HeaderDiscountValue\" >= 0 AND \"TotalPayableValue\" >= 0");
                     table.ForeignKey(
                         name: "FK_vendor_quotations_employees_LateAuthorizedByEmployeeId",
@@ -1582,7 +1582,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE TRIGGER trg_rev869b_purchase_order_snapshot_guard BEFORE UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_controlled_snapshot();
                 CREATE TRIGGER trg_rev869b_rfq_transition_guard BEFORE INSERT OR UPDATE ON nexa.request_for_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_invitation_transition_guard BEFORE INSERT OR UPDATE ON nexa.rfq_vendor_invitations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
-                CREATE TRIGGER trg_rev869b_quotation_transition_guard BEFORE INSERT OR UPDATE ON nexa.vendor_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_comparison_transition_guard BEFORE INSERT OR UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_purchase_order_transition_guard BEFORE INSERT OR UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_transition();
                 CREATE TRIGGER trg_rev869b_quotation_line_parent_guard BEFORE INSERT OR UPDATE ON nexa.vendor_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_validate_parent_contract();
@@ -1599,11 +1598,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 CREATE TRIGGER trg_rev869b_purchase_status_history_immutable BEFORE UPDATE OR DELETE ON nexa.purchase_transaction_status_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_immutable_mutation();
                 CREATE TRIGGER trg_rev869b_approval_policy_overlap_guard BEFORE INSERT OR UPDATE ON nexa.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_overlapping_approval_policy();
 
-                """);        }
+                """);
+            migrationBuilder.Sql(Rev869BDatabaseSafetySql.Install);
+            migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Install);
+        }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Remove);
+            migrationBuilder.Sql(Rev869BDatabaseSafetySql.Remove);
             migrationBuilder.Sql("DROP FUNCTION IF EXISTS nexa.rev869b_validate_parent_contract() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_enforce_transition() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_guard_controlled_snapshot() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation() CASCADE; DROP FUNCTION IF EXISTS nexa.rev869b_reject_overlapping_approval_policy() CASCADE;");
             migrationBuilder.Sql("""
                 CREATE OR REPLACE FUNCTION nexa.rev869b_down_owned_seed_guard() RETURNS trigger LANGUAGE plpgsql AS $rev869b$

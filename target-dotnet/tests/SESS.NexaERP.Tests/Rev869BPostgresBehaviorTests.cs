@@ -5,6 +5,7 @@ namespace SESS.NexaERP.Tests;
 
 // Compiled by source gates, but intentionally executed only during the separately authorized
 // isolated REV869B database verification. Every entry point calls OpenVerifiedAsync first.
+[Collection(Rev869BPostgresSerialCollection.Name)]
 public sealed class Rev869BPostgresBehaviorTests
 {
     private const string ExactDatabase = "sess_nexaerp_rev869b_verify";
@@ -62,7 +63,9 @@ public sealed class Rev869BPostgresBehaviorTests
             INSERT INTO nexa.request_for_quotations
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Version',0))).*
-            FROM nexa.request_for_quotations r WHERE r."Status"='Draft' LIMIT 1
+            FROM nexa.request_for_quotations r
+            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+              AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """, transaction, ("id", id), ("number", $"REV869B-PG-IDEMP-{id:N}"), ("key", key));
         Assert.Equal(1, inserted);
         var original = await ScalarGuidAsync(connection, "SELECT \"Id\" FROM nexa.request_for_quotations WHERE \"OrganizationId\"=(SELECT \"OrganizationId\" FROM nexa.request_for_quotations WHERE \"Id\"=@id) AND \"IdempotencyKey\"=@key", transaction, ("id", id), ("key", key));
@@ -82,7 +85,9 @@ public sealed class Rev869BPostgresBehaviorTests
             INSERT INTO nexa.request_for_quotations
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Version',0))).*
-            FROM nexa.request_for_quotations r WHERE r."Status"='Draft' LIMIT 1
+            FROM nexa.request_for_quotations r
+            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+              AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """;
         await using var firstTx = await first.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         await using var secondTx = await second.BeginTransactionAsync(IsolationLevel.ReadCommitted);
@@ -106,7 +111,9 @@ public sealed class Rev869BPostgresBehaviorTests
             INSERT INTO nexa.request_for_quotations
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'IdempotencyKey',@key,'Status','Closed','Version',0))).*
-            FROM nexa.request_for_quotations r LIMIT 1
+            FROM nexa.request_for_quotations r
+            WHERE r."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS'
+              AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
             """, transaction, ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("key", $"terminal-{id:N}")));
         await transaction.RollbackAsync();
     }
@@ -170,6 +177,83 @@ public sealed class Rev869BPostgresBehaviorTests
         }
     }
 
+    [Fact]
+    public async Task DirectDatabaseRejectsLateChildInsertForEveryTerminalAggregate()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        var statements = new[]
+        {
+            """INSERT INTO nexa.request_for_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.request_for_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.request_for_quotation_lines child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status" IN ('Issued','Closed','Cancelled')""",
+            """INSERT INTO nexa.vendor_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.vendor_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.vendor_quotation_lines child JOIN nexa.vendor_quotations parent ON parent."Id"=child."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status"<>'Draft'""",
+            """INSERT INTO nexa.commercial_comparison_lines SELECT (jsonb_populate_record(NULL::nexa.commercial_comparison_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.commercial_comparison_lines child JOIN nexa.commercial_comparisons parent ON parent."Id"=child."CommercialComparisonId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status"<>'Draft'""",
+            """INSERT INTO nexa.purchase_order_lines SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.purchase_order_lines child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-OWNED-DATABASE-GUARDS' AND parent."Status" IN ('Approved','Issued','Rejected','Cancelled','Superseded')"""
+        };
+        foreach (var statement in statements)
+        {
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, statement, transaction, ("id", Guid.NewGuid())));
+            await transaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ImmutableHistoryRelationsRejectUnauthorizedUpdateAndDelete()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        var targets = new[]
+        {
+            "nexa.purchase_transaction_status_history WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS'",
+            "nexa.purchase_transaction_approval_history WHERE \"CommercialComparisonId\" IN (SELECT \"Id\" FROM nexa.commercial_comparisons WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS')",
+            "nexa.purchase_order_history WHERE \"PurchaseOrderId\" IN (SELECT \"Id\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS')"
+        };
+        foreach (var target in targets)
+        foreach (var verb in new[] { $"UPDATE {target} SET \"UpdatedBy\"='unauthorized'", $"DELETE FROM {target}" })
+        {
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, verb, transaction));
+            await transaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task ExactRev869BTriggerAndFunctionInventoryOccursOnce()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        var expectedTriggers = new[]
+        {
+            "trg_rev869b_approval_policy_overlap_guard", "trg_rev869b_comparison_authoritative_guard",
+            "trg_rev869b_comparison_history_insert_guard", "trg_rev869b_comparison_line_insert_guard",
+            "trg_rev869b_comparison_line_parent_guard", "trg_rev869b_comparison_line_snapshot_guard",
+            "trg_rev869b_comparison_snapshot_guard", "trg_rev869b_comparison_transition_guard",
+            "trg_rev869b_followup_insert_guard", "trg_rev869b_followup_parent_guard",
+            "trg_rev869b_invitation_insert_guard", "trg_rev869b_invitation_transition_guard",
+            "trg_rev869b_po_authoritative_guard", "trg_rev869b_po_history_insert_guard", "trg_rev869b_po_line_insert_guard",
+            "trg_rev869b_purchase_approval_history_immutable", "trg_rev869b_purchase_order_history_immutable",
+            "trg_rev869b_purchase_order_line_parent_guard", "trg_rev869b_purchase_order_lines_immutable",
+            "trg_rev869b_purchase_order_parent_guard", "trg_rev869b_purchase_order_snapshot_guard",
+            "trg_rev869b_purchase_order_transition_guard", "trg_rev869b_purchase_status_history_immutable",
+            "trg_rev869b_quotation_authoritative_guard", "trg_rev869b_quotation_line_insert_guard",
+            "trg_rev869b_quotation_line_parent_guard", "trg_rev869b_quotation_transition_guard",
+            "trg_rev869b_rfq_line_insert_guard", "trg_rev869b_rfq_transition_guard",
+            "trg_rev869b_status_history_insert_guard", "trg_rev869b_technical_insert_guard",
+            "trg_rev869b_technical_parent_guard", "trg_rev869b_technical_verifications_immutable",
+            "trg_rev869b_vendor_quotation_lines_immutable", "trg_rev869b_vendor_quotation_snapshot_guard"
+        }.Order().ToArray();
+        var expectedFunctions = new[]
+        {
+            "rev869b_commercial_snapshot_reconciles", "rev869b_enforce_quotation_transition", "rev869b_enforce_transition",
+            "rev869b_guard_authoritative_transition", "rev869b_guard_child_insert", "rev869b_guard_controlled_snapshot",
+            "rev869b_guard_history_insert", "rev869b_reject_immutable_mutation",
+            "rev869b_reject_overlapping_approval_policy", "rev869b_validate_parent_contract"
+        }.Order().ToArray();
+        var triggers = await StringsAsync(connection, "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal ORDER BY t.tgname");
+        var functions = await StringsAsync(connection, "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%' ORDER BY p.proname");
+        Assert.Equal(expectedTriggers, triggers);
+        Assert.Equal(expectedFunctions, functions);
+        Assert.All(triggers.GroupBy(x => x), group => Assert.Single(group));
+        Assert.All(functions.GroupBy(x => x), group => Assert.Single(group));
+    }
+
     private static async Task<NpgsqlConnection> OpenVerifiedAsync()
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_POSTGRES_OPT_IN"), ExactOptIn, StringComparison.Ordinal))
@@ -198,18 +282,22 @@ public sealed class Rev869BPostgresBehaviorTests
 
     private static async Task<(Guid Id, long Version)> DraftRfqAsync(NpgsqlConnection connection)
     {
-        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.request_for_quotations WHERE \"Status\"='Draft' ORDER BY \"Id\" LIMIT 1", connection);
+        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.request_for_quotations WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS' AND \"Status\"='Draft' AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
         await using var reader = await command.ExecuteReaderAsync();
-        if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires a Draft RFQ.");
-        return (reader.GetGuid(0), reader.GetInt64(1));
+        if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires its exact test-owned Draft RFQ.");
+        var result = (reader.GetGuid(0), reader.GetInt64(1));
+        if (await reader.ReadAsync()) throw new InvalidOperationException("The exact test-owned Draft RFQ fixture is ambiguous.");
+        return result;
     }
 
     private static async Task<(Guid Id, long Version)> ApprovedPoAsync(NpgsqlConnection connection)
     {
-        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.purchase_orders WHERE \"Status\"='Approved' AND \"IsCurrentVersion\" ORDER BY \"Id\" LIMIT 1", connection);
+        await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-OWNED-DATABASE-GUARDS' AND \"Status\"='Approved' AND \"IsCurrentVersion\" AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
         await using var reader = await command.ExecuteReaderAsync();
-        if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires an approved current PO.");
-        return (reader.GetGuid(0), reader.GetInt64(1));
+        if (!await reader.ReadAsync()) throw new InvalidOperationException("The isolated REV869B fixture requires its exact test-owned approved current PO.");
+        var result = (reader.GetGuid(0), reader.GetInt64(1));
+        if (await reader.ReadAsync()) throw new InvalidOperationException("The exact test-owned approved PO fixture is ambiguous.");
+        return result;
     }
 
     private static Task InsertAuditAsync(NpgsqlConnection connection, Guid id, string correlation, string result) =>
@@ -242,5 +330,14 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var command = new NpgsqlCommand(sql, connection, transaction);
         foreach (var parameter in parameters) command.Parameters.AddWithValue(parameter.Name, parameter.Value);
         return (Guid)(await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("Expected one isolated fixture row."));
+    }
+
+    private static async Task<string[]> StringsAsync(NpgsqlConnection connection, string sql)
+    {
+        await using var command = new NpgsqlCommand(sql, connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        var values = new List<string>();
+        while (await reader.ReadAsync()) values.Add(reader.GetString(0));
+        return values.ToArray();
     }
 }

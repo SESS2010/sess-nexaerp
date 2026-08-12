@@ -14,6 +14,9 @@ public sealed class Rev869BPurchaseFoundationTests
     private static readonly string ApiSource = Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869BPurchaseEndpoints.cs");
     private static readonly string MigrationPath = Directory.GetFiles(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations"), "*Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs").Single(x => !x.EndsWith(".Designer.cs", StringComparison.Ordinal));
     private static readonly string MigrationSource = File.ReadAllText(MigrationPath);
+    private static readonly string MigrationInstallSource = MigrationSource +
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseSafetySql.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs");
 
     [Theory]
     [InlineData(0, "MANAGER")]
@@ -70,7 +73,8 @@ public sealed class Rev869BPurchaseFoundationTests
         Assert.Contains("IX_purchase_orders_OrganizationId_PoNumber_RevisionNumber", MigrationSource);
         Assert.Contains("\\\"IsCurrentVersion\\\" = TRUE", MigrationSource); Assert.Contains("\\\"IsCurrentRevision\\\" = TRUE", MigrationSource);
         Assert.Contains("IsConcurrencyToken", MappingSource); Assert.Contains("rev869b_reject_immutable_mutation", MigrationSource);
-        Assert.Equal(24, Count(MigrationSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(37, Count(MigrationInstallSource, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(2, Count(MigrationInstallSource, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_reject_immutable_mutation", MigrationSource);
     }
 

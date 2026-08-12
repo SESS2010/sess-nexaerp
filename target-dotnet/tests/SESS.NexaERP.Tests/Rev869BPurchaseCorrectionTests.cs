@@ -19,6 +19,9 @@ public sealed class Rev869BPurchaseCorrectionTests
         Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs");
     private static readonly string Api = Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869BPurchaseEndpoints.cs");
     private static readonly string Migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
+    private static readonly string MigrationInstall = Migration +
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseSafetySql.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BDatabaseLifecycleSql.cs");
 
     [Fact]
     public void EveryCanonicalTransitionAcceptsOnlyItsMatrixEdges()
@@ -28,7 +31,7 @@ public sealed class Rev869BPurchaseCorrectionTests
         AssertMatrix(Rev869BStatusContracts.Invitation, Rev869BStatusContracts.RequireInvitation,
             ("Issued", "Submitted"), ("Issued", "Withdrawn"), ("Issued", "Cancelled"));
         AssertMatrix(Rev869BStatusContracts.Quotation, Rev869BStatusContracts.RequireQuotation,
-            ("Submitted", "TechnicallyCompliant"), ("Submitted", "TechnicallyRejected"), ("Submitted", "Superseded"), ("Submitted", "Withdrawn"),
+            ("Draft", "Submitted"), ("Submitted", "TechnicallyCompliant"), ("Submitted", "TechnicallyRejected"), ("Submitted", "Superseded"), ("Submitted", "Withdrawn"),
             ("TechnicallyCompliant", "Superseded"), ("TechnicallyCompliant", "Withdrawn"),
             ("TechnicallyRejected", "Superseded"), ("TechnicallyRejected", "Withdrawn"), ("TechnicallyRejected", "Rejected"));
         AssertMatrix(Rev869BStatusContracts.Comparison, Rev869BStatusContracts.RequireComparison,
@@ -99,7 +102,8 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(24, Count(Migration, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(37, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_"));
+        Assert.Equal(2, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);
         Assert.Contains("Purchase order pre-issue snapshot is incomplete or does not reconcile", Migration);

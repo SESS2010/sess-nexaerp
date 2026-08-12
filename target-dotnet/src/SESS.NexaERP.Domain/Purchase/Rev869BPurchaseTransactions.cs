@@ -32,7 +32,7 @@ public static class Rev869BStatusContracts
 {
     public static readonly IReadOnlySet<string> Rfq = Set(Rev869BStatuses.Draft, Rev869BStatuses.Issued, Rev869BStatuses.Closed, Rev869BStatuses.Cancelled);
     public static readonly IReadOnlySet<string> Invitation = Set(Rev869BStatuses.Issued, Rev869BStatuses.Submitted, Rev869BStatuses.Withdrawn, Rev869BStatuses.Cancelled);
-    public static readonly IReadOnlySet<string> Quotation = Set(Rev869BStatuses.Submitted, Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected);
+    public static readonly IReadOnlySet<string> Quotation = Set(Rev869BStatuses.Draft, Rev869BStatuses.Submitted, Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected);
     public static readonly IReadOnlySet<string> TechnicalVerification = Set(Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected);
     public static readonly IReadOnlySet<string> Comparison = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested, Rev869BStatuses.Cancelled);
     public static readonly IReadOnlySet<string> PurchaseOrder = Set(Rev869BStatuses.Draft, Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Issued, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionDraft, Rev869BStatuses.Resubmitted, Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled);
@@ -44,6 +44,7 @@ public static class Rev869BStatusContracts
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> InvitationTransitions = Transitions(
         (Rev869BStatuses.Issued, [Rev869BStatuses.Submitted, Rev869BStatuses.Withdrawn, Rev869BStatuses.Cancelled]));
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> QuotationTransitions = Transitions(
+        (Rev869BStatuses.Draft, [Rev869BStatuses.Submitted]),
         (Rev869BStatuses.Submitted, [Rev869BStatuses.TechnicallyCompliant, Rev869BStatuses.TechnicallyRejected, Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn]),
         (Rev869BStatuses.TechnicallyCompliant, [Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn]),
         (Rev869BStatuses.TechnicallyRejected, [Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected]));
@@ -381,7 +382,7 @@ public sealed class VendorQuotation : AuditableEntity
     public string AttachmentSha256 { get; set; } = string.Empty;
     public string VendorAttestation { get; set; } = string.Empty;
     public string CurrencyCode { get; set; } = "INR";
-    public string Status { get; set; } = Rev869BStatuses.Submitted;
+    public string Status { get; set; } = Rev869BStatuses.Draft;
     public DateTimeOffset SubmittedAt { get; set; }
     public bool IsLateSubmission { get; set; }
     public Guid? LateAuthorizedByEmployeeId { get; set; }

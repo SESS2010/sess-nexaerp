@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
@@ -25,6 +26,19 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
     {
         this.db = db; this.user = user; this.scopes = scopes; this.vendors = vendors; this.taxes = taxes; this.audit = audit;
+    }
+
+    private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(CancellationToken ct)
+    {
+        if (db.Database.CurrentTransaction is not null) return new Rev869BTransactionScope(null);
+        return new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
+    }
+
+    private sealed class Rev869BTransactionScope(IDbContextTransaction? owned) : IAsyncDisposable
+    {
+        public Task CommitAsync(CancellationToken ct) => owned?.CommitAsync(ct) ?? Task.CompletedTask;
+        public Task RollbackAsync(CancellationToken ct) => owned?.RollbackAsync(ct) ?? Task.CompletedTask;
+        public ValueTask DisposeAsync() => owned?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
     private async Task<CommercialComparison> LoadComparisonAsync(string number, CancellationToken ct) =>
@@ -74,6 +88,15 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var affected = await db.VendorQuotations.Where(x => x.Id == id && x.OrganizationId == organization && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, x => x.Version + 1), ct);
         return RequireCas(affected, expected, "vendor quotation");
+    }
+
+    private async Task<uint> ReserveQuotationStatusAsync(Guid id, string organization, uint expected, string from, string to, DateTimeOffset at, CancellationToken ct)
+    {
+        var next = checked(expected + 1);
+        var query = db.VendorQuotations.Where(x => x.Id == id && x.OrganizationId == organization);
+        query = query.Where(x => x.Version == expected && x.Status == from);
+        var rows = await query.ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.Status, to), ct);
+        return RequireCas(rows, expected, "vendor quotation status");
     }
 
     private async Task<uint> ReserveComparisonAsync(Guid id, string organization, uint expected, CancellationToken ct)

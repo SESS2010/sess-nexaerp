@@ -17,7 +17,7 @@ public sealed partial class EfRev869BPurchaseService
         if (request.Lines.Count == 0 || request.QuoteDueAt <= DateTimeOffset.UtcNow || string.IsNullOrWhiteSpace(request.IdempotencyKey)) throw new Rev869BValidationException("RFQ lines, future due date and idempotency key are required.");
         var currency = NormalizeCurrency(request.CurrencyCode);
         if (request.IsSingleSource && string.IsNullOrWhiteSpace(request.SingleSourceJustification)) throw new InvalidOperationException("Single-source RFQ justification is required.");
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        await using var tx = await BeginTransactionScopeAsync(ct);
         var organization = RequireOrganization();
         var scope = Rev869BIdempotencyFingerprint.CommandScope(organization, "CreateRFQ", request.IdempotencyKey);
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "CreateRFQ", request.IdempotencyKey, request);
@@ -53,13 +53,14 @@ public sealed partial class EfRev869BPurchaseService
             var line = h.PurchaseRequisitionLine!; var ordered = await OrderedQuantityAsync(line.Id, ct); var outstanding = h.HandoffQuantity - ordered; if (outstanding <= 0 || quantities[h.Id] > outstanding) throw new InvalidOperationException("Approved outstanding quantity is exhausted.");
             rfq.Lines.Add(new RequestForQuotationLine { PurchaseRequirementHandoffId = h.Id, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId!.Value, LineNumber = ++lineNo, PrNumberSnapshot = pr.PrNumber, PrLineNumberSnapshot = line.LineNumber, ItemCodeSnapshot = line.ItemCodeSnapshot, ItemNameSnapshot = line.ItemNameSnapshot, UomSnapshot = line.UomSnapshot, SpecificationSnapshot = line.SpecificationSnapshot, ApprovedQuantitySnapshot = h.HandoffQuantity, AlreadyOrderedQuantitySnapshot = ordered, OutstandingQuantitySnapshot = outstanding, RfqQuantity = quantities[h.Id], RequiredDateSnapshot = line.RequiredDate, CreatedBy = user.LoginId });
         }
-        db.RequestForQuotations.Add(rfq); AddStatus("RFQ", rfq.Id, rfq.RfqNumber, null, rfq.Status, "Create", "Created from existing PendingRFQ handoff", request.IdempotencyKey); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "CreateRFQ", nameof(RequestForQuotation), rfq.Id.ToString(), null, new { rfq.RfqNumber, rfq.PurchaseRequisitionId, lineCount = rfq.Lines.Count }, ct); await tx.CommitAsync(ct); return Result(rfq.Id, rfq.RfqNumber, rfq.Status, rfq.Version);
+        db.RequestForQuotations.Add(rfq); await db.SaveChangesAsync(ct);
+        AddStatus("RFQ", rfq.Id, rfq.RfqNumber, null, rfq.Status, "Create", "Created from existing PendingRFQ handoff", request.IdempotencyKey); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "CreateRFQ", nameof(RequestForQuotation), rfq.Id.ToString(), null, new { rfq.RfqNumber, rfq.PurchaseRequisitionId, lineCount = rfq.Lines.Count }, ct); await tx.CommitAsync(ct); return Result(rfq.Id, rfq.RfqNumber, rfq.Status, rfq.Version);
     }
 
     public async Task<Rev869BDocumentResult> InviteVendorAsync(string rfqNumber, Rev869BInviteVendorRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        await using var tx = await BeginTransactionScopeAsync(ct);
         var organization = RequireOrganization();
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "InviteVendor", request.IdempotencyKey, new { rfqNumber = rfqNumber.Trim().ToUpperInvariant(), request.VendorId, request.Remarks, request.RfqVersion });
         var rfq = await db.RequestForQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.Item)
@@ -88,14 +89,14 @@ public sealed partial class EfRev869BPurchaseService
         }
         else await ReserveRfqAsync(rfq.Id, organization, request.RfqVersion, ct);
         var invitation = new RfqVendorInvitation { RequestForQuotationId = rfq.Id, VendorId = request.VendorId, InvitedAt = DateTimeOffset.UtcNow, QuoteDueAtSnapshot = rfq.QuoteDueAt, VendorQualificationSnapshotJson = JsonSerializer.Serialize(new { eligible = true, checkedAt = DateTimeOffset.UtcNow }, JsonOptions), IdempotencyKey = fingerprint, CreatedBy = user.LoginId };
-        db.RfqVendorInvitations.Add(invitation);
+        db.RfqVendorInvitations.Add(invitation); await db.SaveChangesAsync(ct);
         AddStatus("RFQInvitation", invitation.Id, rfq.RfqNumber, null, invitation.Status, "InviteVendor", RequiredRemarks(request.Remarks), fingerprint); await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", "InviteVendor", nameof(RfqVendorInvitation), invitation.Id.ToString(), null, new { rfq.RfqNumber, request.VendorId }, ct); await tx.CommitAsync(ct); return Result(invitation.Id, rfq.RfqNumber, invitation.Status, invitation.Version);
     }
 
     public async Task<Rev869BDocumentResult> SubmitQuotationRevisionAsync(Guid invitationId, Rev869BSubmitQuotationRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        await using var tx = await BeginTransactionScopeAsync(ct);
         var organization = RequireOrganization();
         var quoteScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "SubmitQuotation", request.IdempotencyKey);
         var quoteFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "SubmitQuotation", request.IdempotencyKey, new { invitationId, request });
@@ -108,7 +109,7 @@ public sealed partial class EfRev869BPurchaseService
         if (replay is not null)
         {
             if (replay.IdempotencyKey != quoteFingerprint || !QuotationPayloadMatches(replay, invitationId, request)) throw new Rev869BConflictException("Quotation idempotency key was reused with a different payload.");
-            await tx.RollbackAsync(ct); return Result(replay.Id, replay.QuotationNumber, Rev869BStatuses.Submitted, 0);
+            await tx.RollbackAsync(ct); return Result(replay.Id, replay.QuotationNumber, Rev869BStatuses.Submitted, replay.Version);
         }
         if (NormalizeCurrency(request.CurrencyCode) != rfq.CurrencyCode) throw new InvalidOperationException("Currency conversion is not configured; quote must match RFQ currency.");
         if (request.Lines.Count != rfq.Lines.Count || request.Lines.Select(x => x.RequestForQuotationLineId).Distinct().Count() != rfq.Lines.Count) throw new InvalidOperationException("Quotation must contain every RFQ line exactly once.");
@@ -132,6 +133,7 @@ public sealed partial class EfRev869BPurchaseService
         var headerDiscount = Rev869BCommercialCalculator.Ensure(request.HeaderDiscountValue, "quotation header discount");
         if (headerDiscount < 0) throw new Rev869BValidationException("Quotation header discount cannot be negative.");
         var quote = new VendorQuotation { OrganizationId = organization, QuotationNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RfqVendorInvitationId = invitation.Id, VendorId = invitation.VendorId, RootQuotationId = previous?.RootQuotationId ?? Guid.NewGuid(), PreviousRevisionId = previous?.Id, RevisionNumber = (previous?.RevisionNumber ?? 0) + 1, VendorQuoteReference = Required(request.VendorQuoteReference, "Vendor quote reference"), SubmissionSource = source, ReceivedAt = request.ReceivedAt, AttachmentObjectKey = Required(request.AttachmentObjectKey, "Attachment object key"), AttachmentSha256 = request.AttachmentSha256.Trim().ToUpperInvariant(), VendorAttestation = Required(request.VendorAttestation, "Vendor attestation"), CurrencyCode = rfq.CurrencyCode, Status = Rev869BStatuses.Submitted, SubmittedAt = now, IsLateSubmission = late, LateAuthorizedByEmployeeId = late ? actor : null, LateAuthorizationRemarks = late ? request.LateAuthorizationRemarks!.Trim() : null, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"), DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"), HeaderDiscountValue = headerDiscount, IdempotencyKey = quoteFingerprint, CreatedBy = user.LoginId };
+        quote.Status = Rev869BStatuses.Draft;
         if (previous is not null)
         {
             Rev869BStatusContracts.RequireQuotation(previous.Status, Rev869BStatuses.Superseded);
@@ -157,7 +159,14 @@ public sealed partial class EfRev869BPurchaseService
         if (remainingHeaderDiscount != 0m) throw new Rev869BValidationException("Header discount exceeds the quotation assessable value.");
         quote.TotalPayableValue = Rev869BCommercialCalculator.Add(quote.Lines.Select(x => x.TotalPayableValue).ToArray());
         db.VendorQuotations.Add(quote);
-        AddStatus("VendorQuotation", quote.Id, quote.QuotationNumber, previous?.Status, quote.Status, previous is null ? "Submit" : "Revise", late ? RequiredRemarks(request.LateAuthorizationRemarks) : "Quotation submitted", quoteFingerprint);
+        await db.SaveChangesAsync(ct);
+        var submittedVersion = await ReserveQuotationStatusAsync(quote.Id, organization, quote.Version, Rev869BStatuses.Draft, Rev869BStatuses.Submitted, now, ct);
+        db.Entry(quote).State = EntityState.Detached;
+        quote.Version = submittedVersion;
+        quote.Status = Rev869BStatuses.Submitted;
+        AddStatus("VendorQuotation", quote.Id, quote.QuotationNumber, Rev869BStatuses.Draft, quote.Status,
+            previous is null ? "Submit" : "Revise",
+            late ? RequiredRemarks(request.LateAuthorizationRemarks) : "Quotation submitted", quoteFingerprint);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Purchase", previous is null ? "SubmitQuotation" : "ReviseQuotation", nameof(VendorQuotation), quote.Id.ToString(), previous is null ? null : new { previous.Id, previous.RevisionNumber }, new { quote.QuotationNumber, quote.RevisionNumber, quote.TotalPayableValue, quote.SubmissionSource, quote.ReceivedAt, quote.AttachmentSha256 }, ct); await tx.CommitAsync(ct); return Result(quote.Id, quote.QuotationNumber, quote.Status, quote.Version);
     }
 
@@ -192,7 +201,7 @@ public sealed partial class EfRev869BPurchaseService
     public async Task<Rev869BDocumentResult> VerifyTechnicalAsync(string quotationNumber, Rev869BTechnicalVerificationRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole("TECHNICAL_ENGINEER", Rev869ARoleCodes.TechnicalDirector);
-        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        await using var tx = await BeginTransactionScopeAsync(ct);
         var organization = RequireOrganization();
         var line = await db.VendorQuotationLines.AsNoTracking().Include(x => x.VendorQuotation)!.ThenInclude(x => x!.Lines).Include(x => x.VendorQuotation)!.ThenInclude(x => x!.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation)
             .SingleOrDefaultAsync(x => x.Id == request.VendorQuotationLineId && x.VendorQuotation!.OrganizationId == organization && x.VendorQuotation.QuotationNumber == quotationNumber.Trim().ToUpper(), ct)

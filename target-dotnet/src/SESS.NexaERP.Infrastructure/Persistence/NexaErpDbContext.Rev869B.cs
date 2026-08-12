@@ -74,7 +74,7 @@ public sealed partial class NexaErpDbContext
                 table.HasCheckConstraint("CK_vendor_quotation_revision", "\"RevisionNumber\" > 0 AND \"SequenceNumber\" > 0");
                 table.HasCheckConstraint("CK_vendor_quotation_late_authorization", "NOT \"IsLateSubmission\" OR (\"LateAuthorizedByEmployeeId\" IS NOT NULL AND length(trim(coalesce(\"LateAuthorizationRemarks\", ''))) > 0)");
                 table.HasCheckConstraint("CK_vendor_quotation_total", "\"HeaderDiscountValue\" >= 0 AND \"TotalPayableValue\" >= 0");
-                table.HasCheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
+                table.HasCheckConstraint("CK_vendor_quotation_status", "\"Status\" IN ('Draft','Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected')");
                 table.HasCheckConstraint("CK_vendor_quotation_provenance", "\"SubmissionSource\" IN ('EMAIL_RECEIVED','PHYSICAL_RECEIVED') AND length(trim(\"AttachmentObjectKey\")) > 0 AND \"AttachmentSha256\" ~ '^[0-9A-Fa-f]{64}$' AND length(trim(\"VendorAttestation\")) > 0 AND \"ReceivedAt\" <= \"SubmittedAt\"");
             });
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.QuotationNumber }).IsUnique(); entity.HasIndex(x => new { x.RfqVendorInvitationId, x.RevisionNumber }).IsUnique();
