@@ -28,6 +28,25 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     [Fact]
+    public void EveryRev869BRelationHasControlledInsertUpdateAndDeleteCoverage()
+    {
+        foreach (var trigger in new[]
+        {
+            "trg_rev869b_rfq_lines_immutable", "trg_rev869b_invitation_snapshot_immutable",
+            "trg_rev869b_comparison_lines_delete_guard", "trg_rev869b_followup_immutable",
+            "trg_rev869b_vendor_quotation_lines_immutable", "trg_rev869b_technical_verifications_immutable",
+            "trg_rev869b_purchase_order_lines_immutable", "trg_rev869b_purchase_approval_history_immutable",
+            "trg_rev869b_purchase_order_history_immutable", "trg_rev869b_purchase_status_history_immutable"
+        })
+            Assert.Contains(trigger, Safety + Migration);
+        Assert.Contains("qualification and provenance snapshot is immutable", Safety);
+        Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.request_for_quotation_lines", Safety);
+        Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.rfq_vendor_invitations", Safety);
+        Assert.Contains("BEFORE DELETE ON nexa.commercial_comparison_lines", Safety);
+        Assert.Contains("BEFORE UPDATE OR DELETE ON nexa.material_followup_handoffs", Safety);
+    }
+
+    [Fact]
     public void CanonicalCommercialFunctionUsesRelationalInputsAndFailClosedJson()
     {
         Assert.Contains("rev869b_commercial_snapshot_reconciles", Safety);
@@ -38,6 +57,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("EXCEPTION WHEN OTHERS THEN RETURN FALSE", Safety);
         Assert.DoesNotContain("->'taxRule' <>", Safety);
         Assert.Contains("->'taxRule' IS NOT NULL", Safety);
+        Assert.DoesNotContain(") IS NOT NULL;", Safety);
+        Assert.Contains(") IS TRUE;", Lifecycle);
     }
 
     [Fact]
@@ -50,6 +71,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("approval_count<>1", Safety);
         Assert.Contains("exact source/version/cardinality/commercial provenance", Safety);
         Assert.Contains("issue requires exactly one approval history", Safety);
+        Assert.DoesNotContain("trg_rev869b_quotation_authoritative_guard", Safety);
+        Assert.All(new[] { Safety, Lifecycle }, source => Assert.Contains("SET search_path = pg_catalog, nexa", source));
     }
 
     [Fact]

@@ -1340,10 +1340,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     ) expected(permission_id,page_key) JOIN nexa.page_definitions p ON p."PageKey" = expected.page_key;
                 END $rev869b$;
 
-                CREATE OR REPLACE FUNCTION nexa.rev869b_reject_immutable_mutation() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                CREATE OR REPLACE FUNCTION nexa.rev869b_reject_immutable_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 BEGIN RAISE EXCEPTION 'REV869B controlled history/snapshot relation % is immutable.', TG_TABLE_NAME; END $rev869b$;
 
-                CREATE OR REPLACE FUNCTION nexa.rev869b_guard_controlled_snapshot() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                CREATE OR REPLACE FUNCTION nexa.rev869b_guard_controlled_snapshot() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 BEGIN
                     IF TG_TABLE_NAME = 'vendor_quotations' AND
                        to_jsonb(NEW) - ARRAY['Status','Version','IsCurrentRevision','UpdatedAt','UpdatedBy'] <> to_jsonb(OLD) - ARRAY['Status','Version','IsCurrentRevision','UpdatedAt','UpdatedBy'] THEN
@@ -1361,7 +1361,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     RETURN NEW;
                 END $rev869b$;
 
-                CREATE OR REPLACE FUNCTION nexa.rev869b_enforce_transition() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                CREATE OR REPLACE FUNCTION nexa.rev869b_enforce_transition() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 DECLARE allowed boolean := false;
                 BEGIN
                     IF TG_OP = 'INSERT' THEN
@@ -1522,7 +1522,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     RETURN NEW;
                 END $rev869b$;
 
-                CREATE OR REPLACE FUNCTION nexa.rev869b_reject_overlapping_approval_policy() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                CREATE OR REPLACE FUNCTION nexa.rev869b_reject_overlapping_approval_policy() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 BEGIN
                     IF NEW."IsActive" AND EXISTS (
                         SELECT 1 FROM nexa.purchase_transaction_approval_policies p
@@ -1536,7 +1536,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     RETURN NEW;
                 END $rev869b$;
 
-                CREATE OR REPLACE FUNCTION nexa.rev869b_validate_parent_contract() RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+                CREATE OR REPLACE FUNCTION nexa.rev869b_validate_parent_contract() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 BEGIN
                     IF TG_TABLE_NAME = 'vendor_quotation_lines' AND NOT EXISTS (
                         SELECT 1 FROM nexa.vendor_quotations q

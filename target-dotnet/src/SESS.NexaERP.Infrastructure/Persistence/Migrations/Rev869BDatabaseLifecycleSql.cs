@@ -9,7 +9,7 @@ internal static class Rev869BDatabaseLifecycleSql
 
         DROP TRIGGER IF EXISTS trg_rev869b_quotation_transition_guard ON nexa.vendor_quotations;
         CREATE OR REPLACE FUNCTION nexa.rev869b_enforce_quotation_transition()
-        RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE allowed boolean := false; expected_count bigint; matched_count bigint;
         BEGIN
             IF TG_OP='INSERT' THEN
@@ -59,7 +59,7 @@ internal static class Rev869BDatabaseLifecycleSql
                                    'headerDiscountValue',ql."HeaderDiscountValue",
                                    'assessableValue',round(ql."Quantity"*ql."UnitRate",(ql."TaxRuleSnapshotJson"->>'roundingScale')::integer)+ql."PackingForwarding"+ql."Freight"+ql."Insurance"+ql."OtherCharges",
                                    'currencyCode',NEW."CurrencyCode",'exchangeRate',1)),
-                           ql."TaxRuleSnapshotJson");
+                           ql."TaxRuleSnapshotJson") IS TRUE;
                 IF expected_count=0 OR matched_count<>expected_count OR
                    NEW."TotalPayableValue" IS DISTINCT FROM (SELECT sum(ql."TotalPayableValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id") OR
                    NEW."HeaderDiscountValue" IS DISTINCT FROM (SELECT sum(ql."HeaderDiscountValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id")

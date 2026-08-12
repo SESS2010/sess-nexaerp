@@ -1,8 +1,19 @@
 using System.Data;
+using System.Net;
+using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Npgsql;
+using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
@@ -46,7 +57,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     [Fact]
     public async Task RealServiceFailureAfterWritesRollsBackEveryAffectedRelation()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("audit-rollback");
+        await using var fixture = await OwnedRfqFixture.CreateAsync("audit-rollback", useAmbientTransaction: false);
         var before = await fixture.CountBusinessResultAsync();
         await Assert.ThrowsAsync<InjectedAuditFailure>(() =>
             fixture.Service(new FailingAuditWriter()).CreateRfqAsync(fixture.Request("failing-command"), default));
@@ -82,13 +93,16 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
         Assert.DoesNotContain(fixture.HandoffId.ToString(), error.Message, StringComparison.OrdinalIgnoreCase);
         fixture.Db.ChangeTracker.Clear();
-        Assert.Equal(before, await fixture.CountBusinessResultAsync());
+        Assert.Equal(0, await fixture.Db.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
+        Assert.Equal(0, await fixture.Db.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
+        Assert.Equal(before + 1, await fixture.CountBusinessResultAsync());
+        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.CreatedBy == fixture.Marker && x.Action == "Denied" && x.Result == "Failure"));
     }
 
     [Fact]
     public async Task RealProtectedServicePropagatesAuditWriterFailureWithoutFalseSuccess()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("audit-propagation");
+        await using var fixture = await OwnedRfqFixture.CreateAsync("audit-propagation", useAmbientTransaction: false);
         await Assert.ThrowsAsync<InjectedAuditFailure>(() => fixture.Service(new FailingAuditWriter())
             .CreateRfqAsync(fixture.Request("audit-failure-command"), default));
         fixture.Db.ChangeTracker.Clear();
@@ -96,15 +110,76 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     }
 
     [Fact]
-    public async Task TwoRealServiceInstancesRejectConflictingOrganizationScopedIdempotencyPayload()
+    public async Task TwoIndependentDbContextsConnectionsAndServicesProduceOneAuthoritativeWinner()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("conflicting-writer");
-        var winner = await fixture.Service().CreateRfqAsync(fixture.Request("collision-key"), default);
-        fixture.Db.ChangeTracker.Clear();
-        var conflicting = fixture.Request("collision-key") with { QuoteDueAt = DateTimeOffset.UtcNow.AddDays(9) };
-        await Assert.ThrowsAsync<Rev869BConflictException>(() => fixture.Service().CreateRfqAsync(conflicting, default));
-        Assert.Equal(1, await fixture.Db.RequestForQuotations.CountAsync(x => x.Id == winner.Id));
-        Assert.Equal(1, await fixture.Db.RequestForQuotationLines.CountAsync(x => x.RequestForQuotationId == winner.Id));
+        await using var fixture = await OwnedRfqFixture.CreateAsync("concurrent-services", useAmbientTransaction: false);
+        await using var firstDb = await fixture.OpenIndependentContextAsync();
+        await using var secondDb = await fixture.OpenIndependentContextAsync();
+        Assert.NotSame(firstDb, secondDb);
+        Assert.NotSame(firstDb.Database.GetDbConnection(), secondDb.Database.GetDbConnection());
+        await using var firstTx = await firstDb.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await using var secondTx = await secondDb.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        var provisional = await fixture.Service(firstDb).CreateRfqAsync(fixture.Request("collision-key"), default);
+        var competing = fixture.Service(secondDb).CreateRfqAsync(fixture.Request("collision-key"), default);
+        await Task.Delay(100);
+        Assert.False(competing.IsCompleted, "The independent writer must contend on the authoritative idempotency key.");
+        await firstTx.RollbackAsync();
+
+        var winner = await competing;
+        Assert.NotEqual(provisional.Id, winner.Id);
+        Assert.Equal(1, await secondDb.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
+        Assert.Equal(1, await secondDb.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
+        await secondTx.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task AuthenticatedMappedAspNetEndpointTraversesPermissionScopeServiceAndEf()
+    {
+        await using var fixture = await OwnedRfqFixture.CreateAsync("mapped-endpoint");
+        var user = new FixtureUser(fixture.Marker, Rev869ARoleCodes.PurchaseExecutive, fixture.Organization, fixture.ActorId);
+        var port = FreePort();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Test" });
+        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        builder.Services.AddRouting();
+        builder.Services.AddAuthentication(OwnedAuthenticationHandler.SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, OwnedAuthenticationHandler>(OwnedAuthenticationHandler.SchemeName, _ => { });
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton<ICurrentUser>(user);
+        builder.Services.AddSingleton<IRecordScopeAuthorizer, AllowingScope>();
+        builder.Services.AddSingleton<IPagePermissionService, AllowAllPagePermissions>();
+        builder.Services.AddSingleton<IAuditWriter>(new EfAuditWriter(fixture.Db, user));
+        builder.Services.AddSingleton<IRev869BPurchaseService>(fixture.Service());
+
+        await using var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapRev869BPurchaseEndpoints();
+        await app.StartAsync();
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            client.DefaultRequestHeaders.Authorization = new("Owned");
+            var response = await client.PostAsJsonAsync("/api/v1/purchase/rfqs", fixture.Request("mapped-command"));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await response.Content.ReadFromJsonAsync<Rev869BDocumentResult>();
+            Assert.NotNull(result);
+            Assert.Equal(1, await fixture.Db.RequestForQuotations.CountAsync(x => x.Id == result.Id));
+            Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.EntityId == result.Id.ToString()));
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
+    }
+
+    private static int FreePort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
     }
 
     private sealed class OwnedRfqFixture : IAsyncDisposable
@@ -112,11 +187,11 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         private const string ExactDatabase = "sess_nexaerp_rev869b_verify";
         private const string ExactOptIn = "ISOLATED_REV869B_BEHAVIOR_TESTS";
         private const string MigrationId = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
-        private readonly Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction;
+        private readonly Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction;
         private readonly long ownedBefore;
         private bool disposed;
 
-        private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction,
             string scenario, Guid warehouseId, Guid prId, Guid lineId, Guid handoffId, Guid actorId, long ownedBefore)
         {
             Db = db; this.transaction = transaction; Scenario = scenario; WarehouseId = warehouseId;
@@ -133,12 +208,14 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public Guid HandoffId { get; }
         public Guid ActorId { get; }
 
-        public static async Task<OwnedRfqFixture> CreateAsync(string scenario)
+        public static async Task<OwnedRfqFixture> CreateAsync(string scenario, bool useAmbientTransaction = true)
         {
             var connectionString = await VerifiedConnectionStringAsync();
             var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(connectionString).Options;
             var db = new NexaErpDbContext(options);
-            var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+            var tx = useAmbientTransaction
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+                : null;
             try
             {
                 var warehouseId = DeterministicId(scenario, "warehouse");
@@ -184,7 +261,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             }
             catch
             {
-                await tx.RollbackAsync(); await tx.DisposeAsync(); await db.DisposeAsync(); throw;
+                if (tx is not null) { await tx.RollbackAsync(); await tx.DisposeAsync(); }
+                await db.DisposeAsync(); throw;
             }
         }
 
@@ -192,10 +270,20 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             null, key, [new Rev869BRfqSourceLineRequest(HandoffId, 1m)]);
 
         public EfRev869BPurchaseService Service(IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null)
+            => Service(Db, audit, scopes);
+
+        public EfRev869BPurchaseService Service(NexaErpDbContext context, IAuditWriter? audit = null, IRecordScopeAuthorizer? scopes = null)
         {
             var user = new FixtureUser(Marker, Rev869ARoleCodes.PurchaseExecutive, Organization, ActorId);
-            return new EfRev869BPurchaseService(Db, user, scopes ?? new AllowingScope(),
-                new EfVendorQualificationService(Db), new EfTaxGstResolver(Db), audit ?? new EfAuditWriter(Db, user));
+            return new EfRev869BPurchaseService(context, user, scopes ?? new AllowingScope(),
+                new EfVendorQualificationService(context), new EfTaxGstResolver(context), audit ?? new EfAuditWriter(context, user));
+        }
+
+        public async Task<NexaErpDbContext> OpenIndependentContextAsync()
+        {
+            var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+                .UseNpgsql(await VerifiedConnectionStringAsync()).Options;
+            return new NexaErpDbContext(options);
         }
 
         public Task<long> CountBusinessResultAsync() => CountOwnedAsync(Db, Marker, Organization);
@@ -204,13 +292,27 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         {
             if (disposed) return;
             disposed = true;
-            await transaction.RollbackAsync();
-            await transaction.DisposeAsync();
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync();
+                await transaction.DisposeAsync();
+                await Db.DisposeAsync();
+                var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(await VerifiedConnectionStringAsync()).Options;
+                await using var verifier = new NexaErpDbContext(options);
+                var after = await CountOwnedAsync(verifier, Marker, Organization);
+                if (after != ownedBefore) throw new InvalidOperationException("REV869B outer rollback did not restore the exact test-owned baseline.");
+                return;
+            }
+
+            Db.ChangeTracker.Clear();
+            var leaked = await CountBusinessResultAsync();
+            if (leaked != ownedBefore)
+                throw new InvalidOperationException("Service-owned rollback left test-owned REV869B rows.");
+            await Db.PurchaseRequirementHandoffs.Where(x => x.Id == HandoffId).ExecuteDeleteAsync();
+            await Db.PurchaseRequisitionLines.Where(x => x.Id == LineId).ExecuteDeleteAsync();
+            await Db.PurchaseRequisitions.Where(x => x.Id == PrId).ExecuteDeleteAsync();
+            await Db.Warehouses.Where(x => x.Id == WarehouseId).ExecuteDeleteAsync();
             await Db.DisposeAsync();
-            var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(await VerifiedConnectionStringAsync()).Options;
-            await using var verifier = new NexaErpDbContext(options);
-            var after = await CountOwnedAsync(verifier, Marker, Organization);
-            if (after != ownedBefore) throw new InvalidOperationException("REV869B outer rollback did not restore the exact test-owned baseline.");
         }
 
         private static async Task<long> CountOwnedAsync(NexaErpDbContext db, string marker, string organization) =>
@@ -270,4 +372,25 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     }
 
     private sealed class InjectedAuditFailure : Exception;
+
+    private sealed class AllowAllPagePermissions : IPagePermissionService
+    {
+        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) =>
+            Task.FromResult(true);
+    }
+
+    private sealed class OwnedAuthenticationHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        public const string SchemeName = "REV869B-Owned";
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var identity = new System.Security.Claims.ClaimsIdentity(
+                [new(System.Security.Claims.ClaimTypes.NameIdentifier, "REV869B-PG-OWNED")], SchemeName);
+            return Task.FromResult(AuthenticateResult.Success(
+                new AuthenticationTicket(new System.Security.Claims.ClaimsPrincipal(identity), SchemeName)));
+        }
+    }
 }

@@ -5,7 +5,7 @@ internal static class Rev869BDatabaseSafetySql
     public const string Install = """
         CREATE OR REPLACE FUNCTION nexa.rev869b_commercial_snapshot_reconciles(
             p_quotation_line_id uuid, p_commercial jsonb, p_tax jsonb)
-        RETURNS boolean LANGUAGE plpgsql AS $rev869b$
+        RETURNS boolean LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE
             v record; gross numeric; assessable numeric; taxable numeric;
             cgst numeric; sgst numeric; igst numeric; cess numeric; payable numeric;
@@ -109,7 +109,7 @@ internal static class Rev869BDatabaseSafetySql
         END $rev869b$;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_child_insert()
-        RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE matched bigint;
         BEGIN
             IF TG_TABLE_NAME='request_for_quotation_lines' THEN
@@ -147,26 +147,14 @@ internal static class Rev869BDatabaseSafetySql
         END $rev869b$;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_authoritative_transition()
-        RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE expected_count bigint; actual_count bigint; matched_count bigint; approval_count bigint;
                 missing_count bigint; unexpected_count bigint; duplicate_count bigint; stale_version_count bigint;
                 organization_mismatch_count bigint; parent_provenance_mismatch_count bigint;
                 commercial_value_mismatch_count bigint; tax_mismatch_count bigint;
                 attachment_qualification_mismatch_count bigint; approval_mismatch_count bigint;
         BEGIN
-            IF TG_TABLE_NAME='vendor_quotations' AND OLD."Status"='Draft' AND NEW."Status"='Submitted' THEN
-                SELECT count(*) INTO expected_count FROM nexa.request_for_quotation_lines rl
-                JOIN nexa.rfq_vendor_invitations i ON i."RequestForQuotationId"=rl."RequestForQuotationId"
-                 WHERE i."Id"=NEW."RfqVendorInvitationId";
-                SELECT count(*) INTO matched_count FROM nexa.vendor_quotation_lines ql
-                 WHERE ql."VendorQuotationId"=NEW."Id" AND
-                       nexa.rev869b_commercial_snapshot_reconciles(ql."Id",jsonb_build_object(
-                           'input',jsonb_build_object('quantity',ql."Quantity"),'result',jsonb_build_object()),ql."TaxRuleSnapshotJson") IS NOT NULL;
-                IF expected_count=0 OR matched_count<>expected_count OR
-                   NEW."TotalPayableValue" IS DISTINCT FROM (SELECT sum(ql."TotalPayableValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id") OR
-                   NEW."HeaderDiscountValue" IS DISTINCT FROM (SELECT sum(ql."HeaderDiscountValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id")
-                THEN RAISE EXCEPTION 'Quotation exact line set does not reconcile at submit.'; END IF;
-            ELSIF TG_TABLE_NAME='commercial_comparisons' AND NEW."Status" IN ('PendingApproval','Approved') THEN
+            IF TG_TABLE_NAME='commercial_comparisons' AND NEW."Status" IN ('PendingApproval','Approved') THEN
                 SELECT count(*) INTO expected_count FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."RecommendedVendorQuotationId";
                 SELECT count(*) INTO matched_count FROM nexa.commercial_comparison_lines cl
                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
@@ -213,11 +201,43 @@ internal static class Rev869BDatabaseSafetySql
                 SELECT count(*) INTO duplicate_count FROM (SELECT cl."VendorQuotationLineId" FROM nexa.commercial_comparison_lines cl
                  WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended"
                  GROUP BY cl."VendorQuotationLineId" HAVING count(*)<>1) duplicate_rows;
-                missing_count:=greatest(expected_count-matched_count,0); unexpected_count:=greatest(actual_count-matched_count,0);
-                stale_version_count:=unexpected_count; organization_mismatch_count:=unexpected_count;
-                parent_provenance_mismatch_count:=unexpected_count; commercial_value_mismatch_count:=unexpected_count;
-                tax_mismatch_count:=unexpected_count; attachment_qualification_mismatch_count:=unexpected_count;
-                approval_mismatch_count:=unexpected_count;
+                missing_count:=greatest(expected_count-matched_count,0);
+                SELECT count(*) INTO unexpected_count FROM nexa.commercial_comparison_lines cl
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND NOT EXISTS
+                       (SELECT 1 FROM nexa.vendor_quotation_lines ql WHERE ql."Id"=cl."VendorQuotationLineId" AND ql."VendorQuotationId"=NEW."RecommendedVendorQuotationId");
+                SELECT count(*) INTO stale_version_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND NOT q."IsCurrentRevision";
+                SELECT count(*) INTO organization_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND q."OrganizationId" IS DISTINCT FROM NEW."OrganizationId";
+                SELECT count(*) INTO parent_provenance_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                 JOIN nexa.rfq_vendor_invitations i ON i."Id"=q."RfqVendorInvitationId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND
+                       (q."Id" IS DISTINCT FROM NEW."RecommendedVendorQuotationId" OR i."RequestForQuotationId" IS DISTINCT FROM NEW."RequestForQuotationId");
+                SELECT count(*) INTO commercial_value_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND
+                       nexa.rev869b_commercial_snapshot_reconciles(ql."Id",cl."CommercialSnapshotJson",ql."TaxRuleSnapshotJson") IS NOT TRUE;
+                SELECT count(*) INTO tax_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND
+                       (cl."CommercialSnapshotJson"->'taxRule' IS NULL OR cl."CommercialSnapshotJson"->'taxRule' IS DISTINCT FROM ql."TaxRuleSnapshotJson");
+                SELECT count(*) INTO attachment_qualification_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                 JOIN nexa.rfq_vendor_invitations i ON i."Id"=q."RfqVendorInvitationId"
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND
+                       (length(trim(q."AttachmentObjectKey"))=0 OR q."AttachmentSha256"!~'^[0-9A-F]{64}$' OR
+                        jsonb_typeof(i."VendorQualificationSnapshotJson") IS DISTINCT FROM 'object');
+                SELECT count(*) INTO approval_mismatch_count FROM nexa.commercial_comparison_lines cl
+                 WHERE cl."CommercialComparisonId"=NEW."Id" AND cl."IsRecommended" AND
+                       (SELECT count(*) FROM nexa.quotation_technical_verifications tv
+                         WHERE tv."VendorQuotationLineId"=cl."VendorQuotationLineId" AND tv."ComplianceStatus"='TechnicallyCompliant') IS DISTINCT FROM 1;
                 IF expected_count=0 OR matched_count<>expected_count OR actual_count<>expected_count OR
                    missing_count<>0 OR unexpected_count<>0 OR duplicate_count<>0 OR stale_version_count<>0 OR
                    organization_mismatch_count<>0 OR parent_provenance_mismatch_count<>0 OR
@@ -290,11 +310,43 @@ internal static class Rev869BDatabaseSafetySql
                 SELECT count(*) INTO actual_count FROM nexa.purchase_order_lines pl WHERE pl."PurchaseOrderId"=NEW."Id";
                 SELECT count(*) INTO duplicate_count FROM (SELECT pl."CommercialComparisonLineId" FROM nexa.purchase_order_lines pl
                  WHERE pl."PurchaseOrderId"=NEW."Id" GROUP BY pl."CommercialComparisonLineId" HAVING count(*)<>1) duplicate_rows;
-                missing_count:=greatest(expected_count-matched_count,0); unexpected_count:=greatest(actual_count-matched_count,0);
-                stale_version_count:=unexpected_count; organization_mismatch_count:=unexpected_count;
-                parent_provenance_mismatch_count:=unexpected_count; commercial_value_mismatch_count:=unexpected_count;
-                tax_mismatch_count:=unexpected_count; attachment_qualification_mismatch_count:=unexpected_count;
-                approval_mismatch_count:=unexpected_count;
+                missing_count:=greatest(expected_count-matched_count,0);
+                SELECT count(*) INTO unexpected_count FROM nexa.purchase_order_lines pl
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND NOT EXISTS
+                       (SELECT 1 FROM nexa.commercial_comparison_lines cl
+                         WHERE cl."Id"=pl."CommercialComparisonLineId" AND cl."CommercialComparisonId"=NEW."CommercialComparisonId" AND cl."IsRecommended");
+                SELECT count(*) INTO stale_version_count FROM nexa.purchase_order_lines pl
+                 JOIN nexa.commercial_comparison_lines cl ON cl."Id"=pl."CommercialComparisonLineId"
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND (NOT q."IsCurrentRevision" OR
+                       (pl."CommercialSnapshotJson"->>'quotationRevision')::integer IS DISTINCT FROM q."RevisionNumber");
+                SELECT count(*) INTO organization_mismatch_count FROM nexa.purchase_order_lines pl
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND
+                       (pl."CommercialSnapshotJson"->>'organizationId') IS DISTINCT FROM NEW."OrganizationId";
+                SELECT count(*) INTO parent_provenance_mismatch_count FROM nexa.purchase_order_lines pl
+                 JOIN nexa.commercial_comparison_lines cl ON cl."Id"=pl."CommercialComparisonLineId"
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND
+                       ((pl."CommercialSnapshotJson"->>'commercialComparisonId')::uuid IS DISTINCT FROM NEW."CommercialComparisonId" OR
+                        (pl."CommercialSnapshotJson"->>'vendorQuotationLineId')::uuid IS DISTINCT FROM ql."Id");
+                SELECT count(*) INTO commercial_value_mismatch_count FROM nexa.purchase_order_lines pl
+                 JOIN nexa.commercial_comparison_lines cl ON cl."Id"=pl."CommercialComparisonLineId"
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND
+                       nexa.rev869b_commercial_snapshot_reconciles(ql."Id",pl."CommercialSnapshotJson",pl."TaxRuleSnapshotJson") IS NOT TRUE;
+                SELECT count(*) INTO tax_mismatch_count FROM nexa.purchase_order_lines pl
+                 JOIN nexa.commercial_comparison_lines cl ON cl."Id"=pl."CommercialComparisonLineId"
+                 JOIN nexa.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId"
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND pl."TaxRuleSnapshotJson" IS DISTINCT FROM ql."TaxRuleSnapshotJson";
+                SELECT count(*) INTO attachment_qualification_mismatch_count FROM nexa.purchase_order_lines pl
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND
+                       (length(trim(coalesce(pl."CommercialSnapshotJson"->>'attachmentObjectKey','')))=0 OR
+                        coalesce(pl."CommercialSnapshotJson"->>'attachmentSha256','')!~'^[0-9A-F]{64}$' OR
+                        coalesce(pl."CommercialSnapshotJson"->>'vendorQualificationSnapshotJson','{}')='{}');
+                SELECT count(*) INTO approval_mismatch_count FROM nexa.purchase_order_lines pl
+                 WHERE pl."PurchaseOrderId"=NEW."Id" AND
+                       (pl."CommercialSnapshotJson"->>'comparisonApprovalRoute') IS DISTINCT FROM NEW."ApprovalRoute";
                 IF expected_count=0 OR matched_count<>expected_count OR actual_count<>expected_count OR
                    missing_count<>0 OR unexpected_count<>0 OR duplicate_count<>0 OR stale_version_count<>0 OR
                    organization_mismatch_count<>0 OR parent_provenance_mismatch_count<>0 OR
@@ -330,41 +382,68 @@ internal static class Rev869BDatabaseSafetySql
         END $rev869b$;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_history_insert()
-        RETURNS trigger LANGUAGE plpgsql AS $rev869b$
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
         DECLARE matched bigint;
         BEGIN
             IF TG_TABLE_NAME='purchase_transaction_approval_history' THEN
                 SELECT count(*) INTO matched FROM nexa.commercial_comparisons c
                  WHERE c."Id"=NEW."CommercialComparisonId" AND c."Status"=NEW."ToStatus" AND
-                       c."ApprovalRoute"=NEW."ApprovalRoute" AND NEW."Action" IN ('Approve','Reject','RequestRevision','Resubmit');
+                       c."ApprovalRoute"=NEW."ApprovalRoute" AND NEW."Action" IN ('Approve','Reject','RequestRevision','Resubmit') AND
+                       NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(c."UpdatedBy",c."CreatedBy") AND
+                       NEW."CreatedAt" BETWEEN coalesce(c."UpdatedAt",c."CreatedAt") AND coalesce(c."UpdatedAt",c."CreatedAt")+interval '5 seconds';
             ELSIF TG_TABLE_NAME='purchase_order_history' THEN
                 SELECT count(*) INTO matched FROM nexa.purchase_orders p
                  WHERE p."Id"=NEW."PurchaseOrderId" AND p."Status"=NEW."ToStatus" AND
                        p."RevisionNumber"=NEW."RevisionNumber" AND
+                       NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(p."UpdatedBy",p."CreatedBy") AND
+                       NEW."CreatedAt" BETWEEN coalesce(p."UpdatedAt",p."CreatedAt") AND coalesce(p."UpdatedAt",p."CreatedAt")+interval '5 seconds' AND
                        NOT (NEW."Action"='Approve' AND lower(NEW."ActorLoginId")=lower(p."CreatedBy"));
             ELSIF TG_TABLE_NAME='purchase_transaction_status_history' THEN
                 IF NEW."EntityType"='RFQ' THEN
                     SELECT count(*) INTO matched FROM nexa.request_for_quotations r
-                     WHERE r."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND r."Status"=NEW."ToStatus";
+                     WHERE r."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND r."Status"=NEW."ToStatus" AND
+                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(r."UpdatedBy",r."CreatedBy") AND
+                           NEW."CreatedAt" BETWEEN coalesce(r."UpdatedAt",r."CreatedAt") AND coalesce(r."UpdatedAt",r."CreatedAt")+interval '5 seconds';
                 ELSIF NEW."EntityType"='RFQInvitation' THEN
                     SELECT count(*) INTO matched FROM nexa.rfq_vendor_invitations i
                     JOIN nexa.request_for_quotations r ON r."Id"=i."RequestForQuotationId"
-                     WHERE i."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND i."Status"=NEW."ToStatus";
+                     WHERE i."Id"=NEW."EntityId" AND r."OrganizationId"=NEW."OrganizationId" AND i."Status"=NEW."ToStatus" AND
+                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(i."UpdatedBy",i."CreatedBy") AND
+                           NEW."CreatedAt" BETWEEN coalesce(i."UpdatedAt",i."CreatedAt") AND coalesce(i."UpdatedAt",i."CreatedAt")+interval '5 seconds';
                 ELSIF NEW."EntityType"='VendorQuotation' THEN
                     SELECT count(*) INTO matched FROM nexa.vendor_quotations q
-                     WHERE q."Id"=NEW."EntityId" AND q."OrganizationId"=NEW."OrganizationId" AND q."Status"=NEW."ToStatus";
+                     WHERE q."Id"=NEW."EntityId" AND q."OrganizationId"=NEW."OrganizationId" AND q."Status"=NEW."ToStatus" AND
+                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(q."UpdatedBy",q."CreatedBy") AND
+                           NEW."CreatedAt" BETWEEN coalesce(q."UpdatedAt",q."CreatedAt") AND coalesce(q."UpdatedAt",q."CreatedAt")+interval '5 seconds';
                 ELSIF NEW."EntityType"='CommercialComparison' THEN
                     SELECT count(*) INTO matched FROM nexa.commercial_comparisons c
-                     WHERE c."Id"=NEW."EntityId" AND c."OrganizationId"=NEW."OrganizationId" AND c."Status"=NEW."ToStatus";
+                     WHERE c."Id"=NEW."EntityId" AND c."OrganizationId"=NEW."OrganizationId" AND c."Status"=NEW."ToStatus" AND
+                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(c."UpdatedBy",c."CreatedBy") AND
+                           NEW."CreatedAt" BETWEEN coalesce(c."UpdatedAt",c."CreatedAt") AND coalesce(c."UpdatedAt",c."CreatedAt")+interval '5 seconds';
                 ELSIF NEW."EntityType"='PurchaseOrder' THEN
                     SELECT count(*) INTO matched FROM nexa.purchase_orders p
-                     WHERE p."Id"=NEW."EntityId" AND p."OrganizationId"=NEW."OrganizationId" AND p."Status"=NEW."ToStatus";
+                     WHERE p."Id"=NEW."EntityId" AND p."OrganizationId"=NEW."OrganizationId" AND p."Status"=NEW."ToStatus" AND
+                           NEW."ActorLoginId" IS NOT DISTINCT FROM coalesce(p."UpdatedBy",p."CreatedBy") AND
+                           NEW."CreatedAt" BETWEEN coalesce(p."UpdatedAt",p."CreatedAt") AND coalesce(p."UpdatedAt",p."CreatedAt")+interval '5 seconds';
                 ELSE matched:=0;
                 END IF;
             ELSE RAISE EXCEPTION 'Unsupported REV869B history relation %.',TG_TABLE_NAME;
             END IF;
             IF matched<>1 THEN RAISE EXCEPTION 'REV869B history INSERT does not match one authorized parent transition.'; END IF;
             RETURN NEW;
+        END $rev869b$;
+
+        CREATE OR REPLACE FUNCTION nexa.rev869b_guard_extended_immutability()
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
+        BEGIN
+            IF TG_TABLE_NAME='rfq_vendor_invitations' AND TG_OP='UPDATE' THEN
+                IF to_jsonb(NEW)-ARRAY['Status','Version','UpdatedAt','UpdatedBy']
+                   IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','Version','UpdatedAt','UpdatedBy'] THEN
+                    RAISE EXCEPTION 'RFQ invitation qualification and provenance snapshot is immutable.';
+                END IF;
+                RETURN NEW;
+            END IF;
+            RAISE EXCEPTION 'REV869B controlled relation % rejects unauthorized %.',TG_TABLE_NAME,TG_OP;
         END $rev869b$;
 
         CREATE TRIGGER trg_rev869b_rfq_line_insert_guard BEFORE INSERT ON nexa.request_for_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_child_insert();
@@ -374,16 +453,20 @@ internal static class Rev869BDatabaseSafetySql
         CREATE TRIGGER trg_rev869b_po_line_insert_guard BEFORE INSERT ON nexa.purchase_order_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_child_insert();
         CREATE TRIGGER trg_rev869b_technical_insert_guard BEFORE INSERT ON nexa.quotation_technical_verifications FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_child_insert();
         CREATE TRIGGER trg_rev869b_followup_insert_guard BEFORE INSERT ON nexa.material_followup_handoffs FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_child_insert();
-        CREATE TRIGGER trg_rev869b_quotation_authoritative_guard BEFORE UPDATE ON nexa.vendor_quotations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_authoritative_transition();
         CREATE TRIGGER trg_rev869b_comparison_authoritative_guard BEFORE UPDATE ON nexa.commercial_comparisons FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_authoritative_transition();
         CREATE TRIGGER trg_rev869b_po_authoritative_guard BEFORE UPDATE ON nexa.purchase_orders FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_authoritative_transition();
         CREATE TRIGGER trg_rev869b_comparison_history_insert_guard BEFORE INSERT ON nexa.purchase_transaction_approval_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_history_insert();
         CREATE TRIGGER trg_rev869b_po_history_insert_guard BEFORE INSERT ON nexa.purchase_order_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_history_insert();
         CREATE TRIGGER trg_rev869b_status_history_insert_guard BEFORE INSERT ON nexa.purchase_transaction_status_history FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_history_insert();
+        CREATE TRIGGER trg_rev869b_rfq_lines_immutable BEFORE UPDATE OR DELETE ON nexa.request_for_quotation_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_extended_immutability();
+        CREATE TRIGGER trg_rev869b_invitation_snapshot_immutable BEFORE UPDATE OR DELETE ON nexa.rfq_vendor_invitations FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_extended_immutability();
+        CREATE TRIGGER trg_rev869b_comparison_lines_delete_guard BEFORE DELETE ON nexa.commercial_comparison_lines FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_extended_immutability();
+        CREATE TRIGGER trg_rev869b_followup_immutable BEFORE UPDATE OR DELETE ON nexa.material_followup_handoffs FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_extended_immutability();
         """;
 
     public const string Remove = """
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_history_insert() CASCADE;
+        DROP FUNCTION IF EXISTS nexa.rev869b_guard_extended_immutability() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_authoritative_transition() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_child_insert() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb) CASCADE;
