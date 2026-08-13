@@ -16,6 +16,10 @@ public sealed class Rev869BDatabaseSafetyContractTests
     private static readonly string ApplicationPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs");
     private static readonly string DirectPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs");
     private static readonly string Lease = Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
+    private static readonly string PurchaseFlows = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.RfqQuotation.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs") +
+        Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.MaterialFollowUp.cs");
     private static readonly string Postgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs") +
         Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs") +
         Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
@@ -317,7 +321,13 @@ public sealed class Rev869BDatabaseSafetyContractTests
             Assert.Contains(value, Lease);
         Assert.DoesNotContain("DELETE FROM nexa.purchase_transaction", Lease);
         Assert.DoesNotContain("try { await lease.DisposeAsync(); } catch { }", Lease);
-        Assert.Contains("REV869B_QUARANTINE_RECOVERY_APPROVAL", Lease);
+        Assert.Contains("REV869B_QUARANTINE_RECOVERY_AUTHORIZATION", Lease);
+        Assert.Contains("REV869B_QUARANTINE_RECOVERY_AUTHORIZATION_KEY", Lease);
+        Assert.Contains("PreCreateIntent", Lease);
+        Assert.Contains("RecoveryPurpose", Lease);
+        Assert.Contains("ExpiresAt", Lease);
+        Assert.Contains("FileMode.CreateNew", Lease);
+        Assert.Contains("consumed-authorizations", Lease);
         Assert.Contains("SignedQuarantineEvidence", Lease);
         Assert.Contains("CryptographicOperations.FixedTimeEquals", Lease);
         Assert.Contains("RequireNoTargetConnectionsAsync", Lease);
@@ -330,6 +340,28 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("pg_get_functiondef", Lease);
         Assert.Contains("pg_get_triggerdef", Lease);
         Assert.Contains("await VerifySourceAsync(source.ConnectionString)", Lease);
+    }
+
+    [Fact]
+    public void ThirteenthCorrectionOpensExactAuthorizationBeforeProtectedMutations()
+    {
+        Assert.Contains("OpenPendingAuthorizationAsync", PurchaseFlows);
+        Assert.Contains("SavePreauthorizedChangesAsync", PurchaseFlows);
+        Assert.Equal(19, Count(PurchaseFlows, "await OpenPendingAuthorizationAsync(ct);"));
+        Assert.Equal(18, Count(PurchaseFlows, "await SavePreauthorizedChangesAsync(ct);"));
+    }
+
+    [Fact]
+    public void ApprovedTemporaryLedgerPolicyIsBoundedOwnerOnlyAndAudited()
+    {
+        foreach (var value in new[] { "MGMT-REV869B-SECURITY-LEDGER-20260813-001", "retention_days<>90",
+            "max_rows NOT BETWEEN 1 AND 1000", "FOR UPDATE SKIP LOCKED LIMIT max_rows",
+            "pg_advisory_xact_lock", "rev869b_temporary_purge_count_mismatch", "retainedAuditCount",
+            "PurgeTemporarySecurityLedger", "REVOKE ALL ON FUNCTION nexa.rev869b_purge_temporary_security_ledger" })
+            Assert.Contains(value, CommandContext);
+        Assert.DoesNotContain("SELECT *", CommandContext);
+        Assert.Contains("REV869B_SECURITY_LEDGER_EXPORTS", Lease);
+        Assert.Contains("DISABLED", Lease);
     }
 
     [Fact]

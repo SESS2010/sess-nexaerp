@@ -96,13 +96,13 @@ public static class Rev869BCommandContextAuthorizer
         {
             var version = history.EntityType switch
             {
-                "RFQ" => TrackedVersion<RequestForQuotation>(db, history.EntityId) ?? await db.RequestForQuotations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "RFQInvitation" => TrackedVersion<RfqVendorInvitation>(db, history.EntityId) ?? await db.RfqVendorInvitations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "VendorQuotation" => TrackedVersion<VendorQuotation>(db, history.EntityId) ?? await db.VendorQuotations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "TechnicalVerification" => TrackedVersion<QuotationTechnicalVerification>(db, history.EntityId) ?? await db.QuotationTechnicalVerifications.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "CommercialComparison" => TrackedVersion<CommercialComparison>(db, history.EntityId) ?? await db.CommercialComparisons.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "PurchaseOrder" => TrackedVersion<PurchaseOrder>(db, history.EntityId) ?? await db.PurchaseOrders.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
-                "MaterialFollowUp" => TrackedVersion<MaterialFollowUpHandoff>(db, history.EntityId) ?? await db.MaterialFollowUpHandoffs.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "RFQ" => TrackedVersion<RequestForQuotation>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.RequestForQuotations, history.EntityId, ct),
+                "RFQInvitation" => TrackedVersion<RfqVendorInvitation>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.RfqVendorInvitations, history.EntityId, ct),
+                "VendorQuotation" => TrackedVersion<VendorQuotation>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.VendorQuotations, history.EntityId, ct),
+                "TechnicalVerification" => TrackedVersion<QuotationTechnicalVerification>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.QuotationTechnicalVerifications, history.EntityId, ct),
+                "CommercialComparison" => TrackedVersion<CommercialComparison>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.CommercialComparisons, history.EntityId, ct),
+                "PurchaseOrder" => TrackedVersion<PurchaseOrder>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.PurchaseOrders, history.EntityId, ct),
+                "MaterialFollowUp" => TrackedVersion<MaterialFollowUpHandoff>(db, history.EntityId) ?? await NextPersistedVersionAsync(db.MaterialFollowUpHandoffs, history.EntityId, ct),
                 _ => throw new InvalidOperationException("Unsupported exact status-history entity type.")
             };
             result.Add(new("purchase_transaction_status_history", history.Id, history.EntityType, history.EntityId,
@@ -113,7 +113,7 @@ public static class Rev869BCommandContextAuthorizer
                      .Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var version = TrackedVersion<CommercialComparison>(db, history.CommercialComparisonId) ??
-                await db.CommercialComparisons.Where(x => x.Id == history.CommercialComparisonId).Select(x => (long)x.Version).SingleAsync(ct);
+                await NextPersistedVersionAsync(db.CommercialComparisons, history.CommercialComparisonId, ct);
             result.Add(new("purchase_transaction_approval_history", history.Id, "CommercialComparison",
                 history.CommercialComparisonId, history.Action, version, history.FromStatus, history.ToStatus,
                 history.CorrelationId, history.Remarks));
@@ -123,7 +123,7 @@ public static class Rev869BCommandContextAuthorizer
                      .Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var version = TrackedVersion<PurchaseOrder>(db, history.PurchaseOrderId) ??
-                await db.PurchaseOrders.Where(x => x.Id == history.PurchaseOrderId).Select(x => (long)x.Version).SingleAsync(ct);
+                await NextPersistedVersionAsync(db.PurchaseOrders, history.PurchaseOrderId, ct);
             result.Add(new("purchase_order_history", history.Id, "PurchaseOrder", history.PurchaseOrderId,
                 history.Action, version, history.FromStatus, history.ToStatus, history.CorrelationId, history.Reason));
         }
@@ -164,6 +164,9 @@ public static class Rev869BCommandContextAuthorizer
 
     private static long? TrackedVersion<T>(NexaErpDbContext db, Guid id) where T : AuditableEntity =>
         db.ChangeTracker.Entries<T>().Where(x => x.Entity.Id == id).Select(x => (long?)x.Entity.Version).SingleOrDefault();
+
+    private static Task<long> NextPersistedVersionAsync<T>(IQueryable<T> query, Guid id, CancellationToken ct) where T : AuditableEntity =>
+        query.Where(x => x.Id == id).Select(x => checked((long)x.Version + 1L)).SingleAsync(ct);
 
     private sealed record OperationSlot(
         string ClaimKind,

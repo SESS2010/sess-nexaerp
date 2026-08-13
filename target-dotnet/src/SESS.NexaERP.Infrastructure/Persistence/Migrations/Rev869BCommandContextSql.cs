@@ -4,7 +4,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 /// Exact, issuer-reserved REV869B operation grants. The issuer commits a fingerprint-only grant on
 /// an independent connection before the business write. The grant is bound to one runtime backend,
 /// transaction, principal and finite set of history slots; business rollback cannot restore or move it.
-/// Durable purge remains disabled until an approved retention policy is supplied externally.
+/// Temporary purge is fixed to management approval MGMT-REV869B-SECURITY-LEDGER-20260813-001:
+/// unconsumed grants expire within fifteen minutes, temporary ledgers retain ninety days, exports
+/// remain disabled, and bounded owner cleanup emits minimized durable evidence retained for ten years.
 /// </summary>
 internal static class Rev869BCommandContextSql
 {
@@ -88,6 +90,55 @@ internal static class Rev869BCommandContextSql
         REVOKE ALL ON nexa.rev869b_command_grants FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_command_contexts FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_claim_sequence_pool FROM PUBLIC;
+
+        CREATE OR REPLACE FUNCTION nexa.rev869b_purge_temporary_security_ledger(
+          retention_days integer, max_rows integer, cleanup_reason text, cleanup_correlation text)
+        RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
+        SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE grant_ids uuid[]; candidate_count integer:=0; deleted_count integer:=0; retained_audit_count bigint:=0;
+        BEGIN
+          IF retention_days<>90 OR max_rows NOT BETWEEN 1 AND 1000 OR
+             length(trim(cleanup_reason)) NOT BETWEEN 1 AND 256 OR
+             length(trim(cleanup_correlation)) NOT BETWEEN 1 AND 128 THEN
+            RAISE EXCEPTION USING ERRCODE='22023',CONSTRAINT='rev869b_approved_temporary_retention',
+              MESSAGE='MGMT-REV869B-SECURITY-LEDGER-20260813-001 requires ninety-day, bounded, auditable cleanup.';
+          END IF;
+          IF NOT pg_has_role(session_user,'nexa_rev869b_security_owner','MEMBER') THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_temporary_ledger_cleanup_owner',
+              MESSAGE='Temporary security-ledger cleanup requires approved security-owner administration.';
+          END IF;
+          PERFORM pg_advisory_xact_lock(hashtextextended('MGMT-REV869B-SECURITY-LEDGER-20260813-001',0));
+          SELECT array_agg(candidate."GrantId"),count(*) INTO grant_ids,candidate_count FROM (
+            SELECT g."GrantId" FROM nexa.rev869b_command_grants g
+            WHERE g."ReservedAt"<clock_timestamp()-make_interval(days=>retention_days)
+              AND g."ExpiresAt"<=clock_timestamp()
+            ORDER BY g."ReservedAt",g."GrantId" FOR UPDATE SKIP LOCKED LIMIT max_rows
+          ) candidate;
+          IF candidate_count=0 THEN RETURN 0; END IF;
+          DELETE FROM nexa.rev869b_command_contexts c WHERE c."GrantId"=ANY(grant_ids);
+          UPDATE nexa.rev869b_claim_sequence_pool p SET "GrantId"=NULL WHERE p."GrantId"=ANY(grant_ids);
+          DELETE FROM nexa.rev869b_command_grants g WHERE g."GrantId"=ANY(grant_ids);
+          GET DIAGNOSTICS deleted_count=ROW_COUNT;
+          IF deleted_count<>candidate_count THEN
+            RAISE EXCEPTION USING ERRCODE='P0001',CONSTRAINT='rev869b_temporary_purge_count_mismatch',
+              MESSAGE='Temporary security-ledger purge count mismatch; transaction is rejected.';
+          END IF;
+          SELECT count(*) INTO retained_audit_count FROM nexa.audit_logs a
+            WHERE a."CreatedAt">statement_timestamp()-interval '10 years';
+          INSERT INTO nexa.audit_logs
+            ("Id","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","BeforeJson","AfterJson","CreatedAt","CreatedBy","Version")
+          VALUES(public.gen_random_uuid(),'Security','PurgeTemporarySecurityLedger','Rev869BSecurityLedger',NULL,
+            session_user,'Success',trim(cleanup_correlation),NULL,
+            jsonb_build_object('approvalReference','MGMT-REV869B-SECURITY-LEDGER-20260813-001',
+              'executor',session_user,'executedAt',statement_timestamp(),'eligibilityCutoff',statement_timestamp()-interval '90 days',
+              'candidateCount',candidate_count,'deletedCount',deleted_count,'retainedAuditCount',retained_audit_count,
+              'outcome','Success','reason',trim(cleanup_reason))::text,
+            statement_timestamp(),session_user,0);
+          RETURN deleted_count;
+        EXCEPTION WHEN OTHERS THEN
+          RAISE;
+        END $rev869b$;
+        REVOKE ALL ON FUNCTION nexa.rev869b_purge_temporary_security_ledger(integer,integer,text,text) FROM PUBLIC;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_slot_fingerprint(
           claim_kind text, history_id uuid, entity_type text, entity_id uuid, operation text,
@@ -293,10 +344,16 @@ internal static class Rev869BCommandContextSql
         ALTER FUNCTION nexa.rev869b_command_context_valid(text,uuid,text,text,text) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_provision_command_authority(name,name,timestamptz) OWNER TO nexa_rev869b_security_owner;
+        ALTER FUNCTION nexa.rev869b_purge_temporary_security_ledger(integer,integer,text,text) OWNER TO nexa_rev869b_security_owner;
+        DO $rev869b_grant_purge_owner$
+        BEGIN
+          EXECUTE format('GRANT EXECUTE ON FUNCTION nexa.rev869b_purge_temporary_security_ledger(integer,integer,text,text) TO %I',current_user);
+        END $rev869b_grant_purge_owner$;
         """;
 
     public const string Remove = """
         DROP FUNCTION IF EXISTS nexa.rev869b_provision_command_authority(name,name,timestamptz);
+        DROP FUNCTION IF EXISTS nexa.rev869b_purge_temporary_security_ledger(integer,integer,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_command_context_valid(text,uuid,text,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_open_command_context(uuid,uuid,text,text,text,text,integer,bigint);

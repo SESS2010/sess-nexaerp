@@ -174,14 +174,15 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
         Assert.Equal(19, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
         Assert.Equal(77, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
-        Assert.Equal(27, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
-        Assert.Equal(26, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
+        Assert.Equal(28, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
+        Assert.Equal(27, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
             .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_owner\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_grant_owner\$").Count % 2);
         foreach (var function in new[] { "rev869b_open_command_context", "rev869b_claim_command_context",
+            "rev869b_purge_temporary_security_ledger",
             "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
             "rev869b_require_qualification_history", "rev869b_guard_child_insert",
             "rev869b_enforce_transition", "rev869b_enforce_quotation_transition" })

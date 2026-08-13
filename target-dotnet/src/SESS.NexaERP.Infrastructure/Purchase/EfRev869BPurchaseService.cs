@@ -47,9 +47,14 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
     private async Task<int> SaveAuthorizedChangesAsync(CancellationToken ct)
     {
-        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, RequireOrganization(), ct);
+        await OpenPendingAuthorizationAsync(ct);
         return await db.SaveChangesAsync(ct);
     }
+
+    private Task OpenPendingAuthorizationAsync(CancellationToken ct) =>
+        Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, RequireOrganization(), ct);
+
+    private Task<int> SavePreauthorizedChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 
     private async Task<CommercialComparison> LoadComparisonAsync(string number, CancellationToken ct) =>
         await db.CommercialComparisons.AsNoTracking().Include(x => x.Lines)
@@ -82,60 +87,74 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task<uint> ReserveRfqAsync(RequestForQuotation rfq, uint expected, string action, string remarks, string correlation, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("RFQ", rfq.Id, rfq.RfqNumber, rfq.Status, rfq.Status, action, remarks, correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.RequestForQuotations.Where(x => x.Id == rfq.Id && x.OrganizationId == rfq.OrganizationId && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, expected, "RFQ");
-        AddStatus("RFQ", rfq.Id, rfq.RfqNumber, rfq.Status, rfq.Status, action, remarks, correlation);
+        await SavePreauthorizedChangesAsync(ct);
         return next;
     }
 
     private async Task<uint> ReserveInvitationAsync(RfqVendorInvitation invitation, string organization, string documentNumber, uint expected, string remarks, string correlation, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("RFQInvitation", invitation.Id, documentNumber, invitation.Status, invitation.Status, "ReserveQuotation", remarks, correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.RfqVendorInvitations.Where(x => x.Id == invitation.Id && x.RequestForQuotation!.OrganizationId == organization && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, expected, "RFQ invitation");
-        AddStatus("RFQInvitation", invitation.Id, documentNumber, invitation.Status, invitation.Status, "ReserveQuotation", remarks, correlation);
+        await SavePreauthorizedChangesAsync(ct);
         return next;
     }
 
     private async Task<uint> ReserveQuotationAsync(VendorQuotation quotation, uint expected, string remarks, string correlation, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("VendorQuotation", quotation.Id, quotation.QuotationNumber, quotation.Status, quotation.Status, "ReserveTechnicalVerification", remarks, correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.VendorQuotations.Where(x => x.Id == quotation.Id && x.OrganizationId == quotation.OrganizationId && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, expected, "vendor quotation");
-        AddStatus("VendorQuotation", quotation.Id, quotation.QuotationNumber, quotation.Status, quotation.Status, "ReserveTechnicalVerification", remarks, correlation);
+        await SavePreauthorizedChangesAsync(ct);
         return next;
     }
 
-    private async Task<uint> ReserveQuotationStatusAsync(Guid id, string organization, uint expected, string from, string to, string correlation, DateTimeOffset at, CancellationToken ct)
+    private async Task<uint> ReserveQuotationStatusAsync(Guid id, string organization, string documentNumber, uint expected, string from, string to, string action, string remarks, string correlation, DateTimeOffset at, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("VendorQuotation", id, documentNumber, from, to, action, remarks, correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var query = db.VendorQuotations.Where(x => x.Id == id && x.OrganizationId == organization);
         query = query.Where(x => x.Version == expected && x.Status == from);
         var rows = await query.ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.Status, to).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, at).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
-        return RequireCas(rows, expected, "vendor quotation status");
+        RequireCas(rows, expected, "vendor quotation status");
+        await SavePreauthorizedChangesAsync(ct);
+        return next;
     }
 
     private async Task<uint> ReserveComparisonAsync(CommercialComparison comparison, uint expected, string correlation, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, comparison.Status, comparison.Status, "ReservePurchaseOrder", "Reserved for purchase-order creation", correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.CommercialComparisons.Where(x => x.Id == comparison.Id && x.OrganizationId == comparison.OrganizationId && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, expected, "commercial comparison");
-        AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, comparison.Status, comparison.Status, "ReservePurchaseOrder", "Reserved for purchase-order creation", correlation);
+        await SavePreauthorizedChangesAsync(ct);
         return next;
     }
 
     private async Task<uint> ReservePoAsync(PurchaseOrder po, uint expected, string remarks, string correlation, CancellationToken ct)
     {
         var next = checked(expected + 1);
+        AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, po.Status, "ReserveAmendment", remarks, correlation);
+        AddPoHistory(po, "ReserveAmendment", po.Status, po.Status, remarks, correlation);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == expected)
             .ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, next).SetProperty(x => x.TransitionCorrelationId, correlation).SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, expected, "purchase order");
-        AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, po.Status, "ReserveAmendment", remarks, correlation);
-        AddPoHistory(po, "ReserveAmendment", po.Status, po.Status, remarks, correlation);
+        await SavePreauthorizedChangesAsync(ct);
         return next;
     }
 

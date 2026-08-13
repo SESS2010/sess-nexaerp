@@ -33,6 +33,10 @@ public sealed partial class EfRev869BPurchaseService
         var next = checked(request.Version + 1);
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "MaterialFollowUp", request.IdempotencyKey,
             new { handoffId, request.ToStatus, reason = request.Reason.Trim(), request.Version });
+        AddStatus("MaterialFollowUp", handoff.Id, handoff.HandoffNumber, handoff.Status, request.ToStatus,
+            request.ToStatus == Rev869BStatuses.InProgress ? "StartFollowUp" : "CompleteFollowUp",
+            request.Reason.Trim(), fingerprint);
+        await OpenPendingAuthorizationAsync(ct);
         var affected = await db.MaterialFollowUpHandoffs
             .Where(x => x.Id == handoffId && x.Version == request.Version && x.Status == handoff.Status)
             .ExecuteUpdateAsync(update => update
@@ -42,10 +46,7 @@ public sealed partial class EfRev869BPurchaseService
                 .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow)
                 .SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, request.Version, "material follow-up");
-        AddStatus("MaterialFollowUp", handoff.Id, handoff.HandoffNumber, handoff.Status, request.ToStatus,
-            request.ToStatus == Rev869BStatuses.InProgress ? "StartFollowUp" : "CompleteFollowUp",
-            request.Reason.Trim(), fingerprint);
-        await SaveAuthorizedChangesAsync(ct);
+        await SavePreauthorizedChangesAsync(ct);
         await audit.WriteAsync("Purchase", "MaterialFollowUpTransition", nameof(MaterialFollowUpHandoff), handoffId.ToString(),
             new { handoff.Status, handoff.Version }, new { request.ToStatus, Version = next, Reason = request.Reason.Trim() }, ct);
         await tx.CommitAsync(ct);
