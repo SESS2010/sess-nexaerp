@@ -18,6 +18,7 @@ public static class MasterApprovalStatuses
 {
     public const string Draft = "Draft";
     public const string PendingApproval = "Pending Approval";
+    public const string Verified = "Verified";
     public const string Approved = "Approved";
     public const string Rejected = "Rejected";
     public const string ClarificationRequested = "Clarification Requested";

@@ -15,20 +15,23 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         var id = DeterministicId(nameof(SuccessfulTransactionPersistsAndCanBeVerified), "audit"); var correlation = $"REV869B-PG-SUCCESS-{id:N}";
         await InsertAuditAsync(connection, id, correlation, "Success");
-        Assert.Equal(1L, await ScalarAsync(connection, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"CorrelationId\"=@correlation", ("id", id), ("correlation", correlation)));
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(1L, await ScalarAsync(verifier, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"CorrelationId\"=@correlation", ("id", id), ("correlation", correlation)));
     }
 
     [Fact]
     public async Task FailedTransactionRollsBackWithBeforeAfterEquality()
     {
         await using var connection = await OpenVerifiedAsync();
-        var (id, before) = await DraftRfqAsync(connection);
+        var (id, version) = await DraftRfqAsync(connection);
+        var before = await CaptureRfqStateAsync(connection, id);
         await using (var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable))
         {
-            Assert.Equal(1, await ReserveRfqAsync(connection, transaction, id, before, "rollback"));
+            Assert.Equal(1, await ReserveRfqAsync(connection, transaction, id, version, "rollback"));
             await transaction.RollbackAsync();
         }
-        Assert.Equal(before, await ScalarAsync(connection, "SELECT \"Version\" FROM nexa.request_for_quotations WHERE \"Id\"=@id", ("id", id)));
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CaptureRfqStateAsync(verifier, id));
     }
 
     [Fact]
@@ -47,7 +50,8 @@ public sealed class Rev869BPostgresBehaviorTests
         await secondTx.RollbackAsync();
         Assert.Equal(1, winner);
         Assert.Equal(0, stale);
-        Assert.Equal(expected + 1, await ScalarAsync(first, "SELECT \"Version\" FROM nexa.request_for_quotations WHERE \"Id\"=@id", ("id", id)));
+        await using var verifier = await first.OpenPeerAsync();
+        Assert.Equal(expected + 1, await ScalarAsync(verifier, "SELECT \"Version\" FROM nexa.request_for_quotations WHERE \"Id\"=@id", ("id", id)));
     }
 
     [Fact]
@@ -99,8 +103,9 @@ public sealed class Rev869BPostgresBehaviorTests
         await AssertPostgresGuardAsync(() => loserAttempt, PostgresErrorCodes.UniqueViolation,
             "IX_request_for_quotations_OrganizationId_IdempotencyKey");
         await secondTx.RollbackAsync();
-        Assert.Equal(1L, await ScalarAsync(first, "SELECT count(*) FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", ("key", key)));
-        Assert.Equal(winnerId, await ScalarGuidAsync(first, "SELECT \"Id\" FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", null, ("key", key)));
+        await using var verifier = await first.OpenPeerAsync();
+        Assert.Equal(1L, await ScalarAsync(verifier, "SELECT count(*) FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", ("key", key)));
+        Assert.Equal(winnerId, await ScalarGuidAsync(verifier, "SELECT \"Id\" FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", null, ("key", key)));
     }
 
     [Fact]
@@ -109,41 +114,60 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var connection = await OpenVerifiedAsync();
         var attempts = new[]
         {
-            """
+            (Sql: """
             INSERT INTO nexa.request_for_quotations
             SELECT (jsonb_populate_record(NULL::nexa.request_for_quotations,
                 to_jsonb(r) || jsonb_build_object('Id',@id,'RfqNumber',@number,'SequenceNumber',@sequence,'IdempotencyKey',@key,'TransitionCorrelationId',@key,'Status','Closed','Version',0))).*
             FROM nexa.request_for_quotations r
-            WHERE r."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
+            WHERE r."Id"=@sourceId AND r."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
               AND r."Status"='Draft' AND r."IdempotencyKey" LIKE 'rev869b-pg-owned:%'
-            """,
-            """
+            """, Evidence: "rev869b_enforce_transition", SourceKey: "rfq"),
+            (Sql: """
             INSERT INTO nexa.vendor_quotations
             SELECT (jsonb_populate_record(NULL::nexa.vendor_quotations,
                 to_jsonb(q) || jsonb_build_object('Id',@id,'QuotationNumber',@number,'IdempotencyKey',@key,'TransitionCorrelationId',@key,'Status','Rejected','Version',0))).*
-            FROM nexa.vendor_quotations q WHERE q."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
-            """,
-            """
+            FROM nexa.vendor_quotations q WHERE q."Id"=@sourceId AND q."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
+            """, Evidence: "rev869b_enforce_quotation_transition", SourceKey: "quotation"),
+            (Sql: """
             INSERT INTO nexa.commercial_comparisons
             SELECT (jsonb_populate_record(NULL::nexa.commercial_comparisons,
                 to_jsonb(c) || jsonb_build_object('Id',@id,'ComparisonNumber',@number,'IdempotencyKey',@key,'TransitionCorrelationId',@key,'Status','Approved','Version',0))).*
-            FROM nexa.commercial_comparisons c WHERE c."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
-            """,
-            """
+            FROM nexa.commercial_comparisons c WHERE c."Id"=@sourceId AND c."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
+            """, Evidence: "rev869b_enforce_transition", SourceKey: "comparison"),
+            (Sql: """
             INSERT INTO nexa.purchase_orders
             SELECT (jsonb_populate_record(NULL::nexa.purchase_orders,
                 to_jsonb(p) || jsonb_build_object('Id',@id,'PoNumber',@number,'IdempotencyKey',@key,'TransitionCorrelationId',@key,'Status','Issued','Version',0))).*
-            FROM nexa.purchase_orders p WHERE p."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
-            """
+            FROM nexa.purchase_orders p WHERE p."Id"=@sourceId AND p."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'
+            """, Evidence: "rev869b_enforce_transition", SourceKey: "po-approved")
         };
         foreach (var attempt in attempts)
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            var id = DeterministicId(nameof(DirectTerminalStateInsertIsRejected), attempt);
-            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, attempt, transaction,
-                ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("sequence", DeterministicSequence(id)), ("key", $"terminal-{id:N}")),
-                PostgresErrorCodes.RaiseException, "rev869b_enforce_transition");
+            var id = DeterministicId(nameof(DirectTerminalStateInsertIsRejected), attempt.Sql);
+            var sourceId = DeterministicId(nameof(DirectTerminalStateInsertIsRejected), attempt.SourceKey);
+            var sourceSelect = attempt.Sql[attempt.Sql.IndexOf("SELECT", StringComparison.Ordinal)..];
+            Assert.Equal(1L, await ScalarAsync(connection,
+                $"SELECT count(*) FROM ({sourceSelect}) exact_owned_source", transaction,
+                ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("sequence", DeterministicSequence(id)),
+                ("key", $"terminal-{id:N}"), ("sourceId", sourceId)));
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, attempt.Sql, transaction,
+                ("id", id), ("number", $"REV869B-PG-TERMINAL-{id:N}"), ("sequence", DeterministicSequence(id)),
+                ("key", $"terminal-{id:N}"), ("sourceId", sourceId)),
+                PostgresErrorCodes.RaiseException, attempt.Evidence);
             await transaction.RollbackAsync();
+        }
+        await using var verifier = await connection.OpenPeerAsync();
+        foreach (var attempt in attempts)
+        {
+            var id = DeterministicId(nameof(DirectTerminalStateInsertIsRejected), attempt.Sql);
+            Assert.Equal(0L, await ScalarAsync(verifier, """
+                SELECT
+                  (SELECT count(*) FROM nexa.request_for_quotations WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.vendor_quotations WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.commercial_comparisons WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.purchase_orders WHERE "Id"=@id)
+                """, ("id", id)));
         }
     }
 
@@ -152,11 +176,14 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         await using var connection = await OpenVerifiedAsync();
         var row = await ApprovedPoAsync(connection);
+        var before = await CapturePoStateAsync(connection, row.Id);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
         await AssertPostgresGuardAsync(() => ExecuteAsync(connection,
             "UPDATE nexa.purchase_orders SET \"Version\"=\"Version\"+1,\"Status\"='Issued',\"TotalPayableValue\"=\"TotalPayableValue\"+0.000001,\"TransitionCorrelationId\"=@correlation,\"UpdatedBy\"=@login WHERE \"Id\"=@id AND \"Version\"=@version",
             transaction, ("correlation","rev869b-pg-owned:issue-tamper"),("login",Rev869BOwnedPostgresDatabase.Login),("id", row.Id), ("version", row.Version)), PostgresErrorCodes.CheckViolation, "rev869b_po_issue_allowlist");
         await transaction.RollbackAsync();
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CapturePoStateAsync(verifier, row.Id));
     }
 
     [Fact]
@@ -164,6 +191,7 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         await using var connection = await OpenVerifiedAsync();
         var row = await ApprovedPoAsync(connection);
+        var before = await CapturePoStateAsync(connection, row.Id);
         var attempts = new (string Sql, string SqlState, string Evidence)[]
         {
             ("""UPDATE nexa.purchase_orders SET "Version"="Version"+2 WHERE "Id"=@id AND "Version"=@version""", PostgresErrorCodes.SerializationFailure, "rev869b_exact_version_increment"),
@@ -186,6 +214,8 @@ public sealed class Rev869BPostgresBehaviorTests
                 """SELECT count(*) FROM nexa.purchase_orders WHERE "Id"=@id AND "Version"=@version AND "OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'""",
                 ("id", row.Id), ("version", row.Version)));
         }
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CapturePoStateAsync(verifier, row.Id));
     }
 
     [Fact]
@@ -200,23 +230,42 @@ public sealed class Rev869BPostgresBehaviorTests
               AND permission."CanIssue"=FALSE
             """);
         Assert.Equal(1L, denied);
+        var actor = await ScalarGuidAsync(connection,
+            """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Issuer"=@issuer AND "Subject"=@subject AND "IsActive" """,
+            null, ("organization", Rev869BOwnedPostgresDatabase.Organization),
+            ("issuer", Rev869BOwnedPostgresDatabase.Issuer), ("subject", Rev869BOwnedPostgresDatabase.Login));
+        await using (var transaction = await ((NpgsqlConnection)connection).BeginTransactionAsync(IsolationLevel.Serializable))
+        {
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, """
+                SELECT nexa.rev869b_open_command_context(
+                  @employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@authenticatedAt,@nonce,@signature)
+                """, transaction, ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
+                ("subject", Rev869BOwnedPostgresDatabase.Login), ("organization", Rev869BOwnedPostgresDatabase.Organization),
+                ("authenticatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("nonce", Guid.NewGuid()),
+                ("signature", new string('0', 64))), PostgresErrorCodes.InsufficientPrivilege,
+                "rev869b_command_signature_invalid");
+            await transaction.RollbackAsync();
+        }
         var id = DeterministicId(nameof(PermissionDenialPersistsAuditEvidence), "audit"); var correlation = $"REV869B-PG-DENIED-{id:N}";
         await InsertAuditAsync(connection, id, correlation, "Failure");
-        Assert.Equal(1L, await ScalarAsync(connection, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"Action\"='Denied' AND \"Result\"='Failure'", ("id", id)));
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(1L, await ScalarAsync(verifier, "SELECT count(*) FROM nexa.audit_logs WHERE \"Id\"=@id AND \"Action\"='Denied' AND \"Result\"='Failure'", ("id", id)));
     }
 
     [Fact]
     public async Task AuditFailureCausesProtectedOperationToFailAndRollback()
     {
         await using var connection = await OpenVerifiedAsync();
-        var (id, before) = await DraftRfqAsync(connection);
+        var (id, version) = await DraftRfqAsync(connection);
+        var before = await CaptureRfqStateAsync(connection, id);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-        Assert.Equal(1, await ReserveRfqAsync(connection, transaction, id, before, "audit-failure"));
+        Assert.Equal(1, await ReserveRfqAsync(connection, transaction, id, version, "audit-failure"));
         await AssertPostgresGuardAsync(() => ExecuteAsync(connection,
             "INSERT INTO nexa.audit_logs (\"Id\",\"Module\",\"Action\",\"EntityName\",\"EntityId\",\"UserLoginId\",\"CreatedAt\",\"CreatedBy\",\"Version\",\"CorrelationId\",\"Result\") VALUES (NULL,'Purchase','ProtectedOperation','RFQ',@entity,'rev869b-pg-test',now(),'rev869b-pg-test',0,'REV869B-PG-AUDIT-FAIL','Success')",
             transaction, ("entity", id.ToString())), PostgresErrorCodes.NotNullViolation, "audit_logs|Id");
         await transaction.RollbackAsync();
-        Assert.Equal(before, await ScalarAsync(connection, "SELECT \"Version\" FROM nexa.request_for_quotations WHERE \"Id\"=@id", ("id", id)));
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CaptureRfqStateAsync(verifier, id));
     }
 
     [Fact]
@@ -224,6 +273,7 @@ public sealed class Rev869BPostgresBehaviorTests
     {
         await using var connection = await OpenVerifiedAsync();
         var (id, version) = await DraftRfqAsync(connection);
+        var before = await CaptureRfqStateAsync(connection, id);
         foreach (var proposed in new[] { version - 1, version + 2 })
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
@@ -232,45 +282,59 @@ public sealed class Rev869BPostgresBehaviorTests
                 transaction, ("proposed", proposed), ("id", id), ("version", version)), PostgresErrorCodes.SerializationFailure, "rev869b_exact_version_increment");
             await transaction.RollbackAsync();
         }
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CaptureRfqStateAsync(verifier, id));
     }
 
     [Fact]
     public async Task DirectDatabaseRejectsLateChildInsertForEveryTerminalAggregate()
     {
         await using var connection = await OpenVerifiedAsync();
+        var scenario = nameof(DirectDatabaseRejectsLateChildInsertForEveryTerminalAggregate);
         var statements = new[]
         {
-            """INSERT INTO nexa.request_for_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.request_for_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.request_for_quotation_lines child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Issued','Closed','Cancelled')""",
-            """INSERT INTO nexa.vendor_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.vendor_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.vendor_quotation_lines child JOIN nexa.vendor_quotations parent ON parent."Id"=child."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Draft'""",
-            """INSERT INTO nexa.commercial_comparison_lines SELECT (jsonb_populate_record(NULL::nexa.commercial_comparison_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.commercial_comparison_lines child JOIN nexa.commercial_comparisons parent ON parent."Id"=child."CommercialComparisonId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Draft'""",
-            """INSERT INTO nexa.purchase_order_lines SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.purchase_order_lines child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Approved','Issued','Rejected','Cancelled','Superseded')"""
-            ,
-            """INSERT INTO nexa.rfq_vendor_invitations SELECT (jsonb_populate_record(NULL::nexa.rfq_vendor_invitations,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.rfq_vendor_invitations child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Closed','Cancelled')""",
-            """INSERT INTO nexa.quotation_technical_verifications SELECT (jsonb_populate_record(NULL::nexa.quotation_technical_verifications,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.quotation_technical_verifications child JOIN nexa.vendor_quotation_lines line ON line."Id"=child."VendorQuotationLineId" JOIN nexa.vendor_quotations parent ON parent."Id"=line."VendorQuotationId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Submitted'""",
-            """INSERT INTO nexa.material_followup_handoffs SELECT (jsonb_populate_record(NULL::nexa.material_followup_handoffs,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.material_followup_handoffs child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND (parent."Status"<>'Issued' OR NOT parent."IsCurrentVersion")"""
+            ("""INSERT INTO nexa.request_for_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.request_for_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.request_for_quotation_lines child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Issued','Closed','Cancelled')""", "terminal-rfq-line"),
+            ("""INSERT INTO nexa.vendor_quotation_lines SELECT (jsonb_populate_record(NULL::nexa.vendor_quotation_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.vendor_quotation_lines child JOIN nexa.vendor_quotations parent ON parent."Id"=child."VendorQuotationId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Draft'""", "quotation-line"),
+            ("""INSERT INTO nexa.commercial_comparison_lines SELECT (jsonb_populate_record(NULL::nexa.commercial_comparison_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.commercial_comparison_lines child JOIN nexa.commercial_comparisons parent ON parent."Id"=child."CommercialComparisonId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Draft'""", "comparison-line"),
+            ("""INSERT INTO nexa.purchase_order_lines SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.purchase_order_lines child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Approved','Issued','Rejected','Cancelled','Superseded')""", "po-line-rejected"),
+            ("""INSERT INTO nexa.rfq_vendor_invitations SELECT (jsonb_populate_record(NULL::nexa.rfq_vendor_invitations,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.rfq_vendor_invitations child JOIN nexa.request_for_quotations parent ON parent."Id"=child."RequestForQuotationId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status" IN ('Closed','Cancelled')""", "terminal-invitation"),
+            ("""INSERT INTO nexa.quotation_technical_verifications SELECT (jsonb_populate_record(NULL::nexa.quotation_technical_verifications,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.quotation_technical_verifications child JOIN nexa.vendor_quotation_lines line ON line."Id"=child."VendorQuotationLineId" JOIN nexa.vendor_quotations parent ON parent."Id"=line."VendorQuotationId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND parent."Status"<>'Submitted'""", "technical"),
+            ("""INSERT INTO nexa.material_followup_handoffs SELECT (jsonb_populate_record(NULL::nexa.material_followup_handoffs,to_jsonb(child)||jsonb_build_object('Id',@id))).* FROM nexa.material_followup_handoffs child JOIN nexa.purchase_orders parent ON parent."Id"=child."PurchaseOrderId" WHERE child."Id"=@sourceId AND parent."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND (parent."Status"<>'Issued' OR NOT parent."IsCurrentVersion")""", "terminal-followup")
         };
         foreach (var statement in statements)
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            var attemptId = DeterministicId("late-child", statement);
-            var sourceSelect = statement[statement.IndexOf("SELECT", StringComparison.Ordinal)..];
+            var attemptId = DeterministicId("late-child", statement.Item2);
+            var sourceId = DeterministicId(scenario, statement.Item2);
+            var sourceSelect = statement.Item1[statement.Item1.IndexOf("SELECT", StringComparison.Ordinal)..];
             Assert.Equal(1L, await ScalarAsync(connection,
-                $"SELECT count(*) FROM ({sourceSelect}) exact_owned_source", transaction, ("id", attemptId)));
-            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, statement, transaction,
-                ("id", attemptId)), PostgresErrorCodes.RaiseException, "rev869b_validate_child_insert");
+                $"SELECT count(*) FROM ({sourceSelect}) exact_owned_source", transaction, ("id", attemptId), ("sourceId", sourceId)));
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, statement.Item1, transaction,
+                ("id", attemptId), ("sourceId", sourceId)), PostgresErrorCodes.RaiseException, "rev869b_guard_child_insert");
             await transaction.RollbackAsync();
         }
         await using var verifier = await connection.OpenPeerAsync();
-        Assert.Equal(2L, await ScalarAsync(verifier,
-            """SELECT count(*) FROM nexa.request_for_quotations WHERE "OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'"""));
-        Assert.Equal(2L, await ScalarAsync(verifier,
-            """SELECT count(*) FROM nexa.material_followup_handoffs h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'"""));
+        foreach (var statement in statements)
+        {
+            var attemptId = DeterministicId("late-child", statement.Item2);
+            Assert.Equal(0L, await ScalarAsync(verifier, """
+                SELECT
+                  (SELECT count(*) FROM nexa.request_for_quotation_lines WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.vendor_quotation_lines WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.commercial_comparison_lines WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.purchase_order_lines WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.rfq_vendor_invitations WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.quotation_technical_verifications WHERE "Id"=@id)+
+                  (SELECT count(*) FROM nexa.material_followup_handoffs WHERE "Id"=@id)
+                """, ("id", attemptId)));
+        }
     }
 
     [Fact]
     public async Task ImmutableHistoryRelationsRejectUnauthorizedUpdateAndDelete()
     {
         await using var connection = await OpenVerifiedAsync();
+        var before = await CaptureHistoryStateAsync(connection);
         var targets = new[]
         {
             "nexa.purchase_transaction_status_history WHERE \"OrganizationId\"='REV869B-PG-SELF-OWNED-GRAPH'",
@@ -278,13 +342,19 @@ public sealed class Rev869BPostgresBehaviorTests
             "nexa.purchase_order_history WHERE \"PurchaseOrderId\" IN (SELECT \"Id\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-SELF-OWNED-GRAPH')"
         };
         foreach (var target in targets)
-        foreach (var verb in new[] { $"UPDATE {target} SET \"UpdatedBy\"='unauthorized'", $"DELETE FROM {target}" })
+        foreach (var attempt in new[]
+        {
+            (Sql: $"UPDATE {target} SET \"UpdatedBy\"='unauthorized'", Evidence: "rev869b_reject_immutable_mutation", State: PostgresErrorCodes.RaiseException),
+            (Sql: $"DELETE FROM {target}", Evidence: "rev869b_controlled_delete_guard", State: PostgresErrorCodes.CheckViolation)
+        })
         {
             await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, verb, transaction),
-                PostgresErrorCodes.RaiseException, "rev869b_reject_immutable_mutation");
+            await AssertPostgresGuardAsync(() => ExecuteAsync(connection, attempt.Sql, transaction),
+                attempt.State, attempt.Evidence);
             await transaction.RollbackAsync();
         }
+        await using var verifier = await connection.OpenPeerAsync();
+        Assert.Equal(before, await CaptureHistoryStateAsync(verifier));
     }
 
     [Fact]
@@ -407,7 +477,7 @@ public sealed class Rev869BPostgresBehaviorTests
             "trg_rev869b_explicit_invitation_mutation", "trg_rev869b_explicit_po_line_insert", "trg_rev869b_explicit_po_mutation",
             "trg_rev869b_explicit_policy_mutation", "trg_rev869b_explicit_quotation_line_insert", "trg_rev869b_explicit_quotation_mutation",
             "trg_rev869b_explicit_rfq_line_insert", "trg_rev869b_explicit_rfq_mutation", "trg_rev869b_explicit_technical_insert",
-            "trg_rev869b_qualification_lifecycle"
+            "trg_rev869b_qualification_history_insert_guard", "trg_rev869b_qualification_lifecycle"
         }).Where(x => x != "trg_rev869b_followup_immutable").Order().ToArray();
         var expectedFunctions = new[]
         {
@@ -417,8 +487,10 @@ public sealed class Rev869BPostgresBehaviorTests
             "rev869b_reject_overlapping_approval_policy", "rev869b_validate_parent_contract",
             "rev869b_guard_explicit_mutation", "rev869b_reject_controlled_delete", "rev869b_require_bound_history",
             "rev869b_guard_qualification_lifecycle", "rev869b_require_qualification_history",
+            "rev869b_guard_qualification_history_insert",
             "rev869b_qualification_provenance_valid", "rev869b_write_policy_history",
             "rev869b_open_command_context", "rev869b_command_context_valid", "rev869b_claim_command_context"
+            ,"rev869b_provision_command_authority"
         }.Order().ToArray();
         var triggers = await StringsAsync(connection, "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal ORDER BY t.tgname");
         var functions = await StringsAsync(connection, "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%' ORDER BY p.proname");
@@ -510,6 +582,51 @@ public sealed class Rev869BPostgresBehaviorTests
         return result;
     }
 
+    private sealed record RfqState(Guid Id, string OrganizationId, string Number, string Status, long Version,
+        string Correlation, long LineCount, long HistoryCount);
+
+    private static async Task<RfqState> CaptureRfqStateAsync(NpgsqlConnection connection, Guid id)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT r."Id",r."OrganizationId",r."RfqNumber",r."Status",r."Version",r."TransitionCorrelationId",
+              (SELECT count(*) FROM nexa.request_for_quotation_lines l WHERE l."RequestForQuotationId"=r."Id"),
+              (SELECT count(*) FROM nexa.purchase_transaction_status_history h WHERE h."EntityType"='RFQ' AND h."EntityId"=r."Id")
+            FROM nexa.request_for_quotations r WHERE r."Id"=@id
+            """, connection);
+        command.Parameters.AddWithValue("id", id);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) throw new InvalidOperationException("The exact owned RFQ state is missing.");
+        var state = new RfqState(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+            reader.GetInt64(4), reader.GetString(5), reader.GetInt64(6), reader.GetInt64(7));
+        if (await reader.ReadAsync()) throw new InvalidOperationException("The exact owned RFQ state is ambiguous.");
+        return state;
+    }
+
+    private static Task<string> CapturePoStateAsync(NpgsqlConnection connection, Guid id) =>
+        ScalarStringAsync(connection, """
+            SELECT jsonb_build_object(
+              'purchaseOrder',to_jsonb(p),
+              'lines',(SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY l."Id"),'[]'::jsonb)
+                       FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId"=p."Id"))::text
+            FROM nexa.purchase_orders p WHERE p."Id"=@id
+            """, null, ("id", id));
+
+    private static Task<string> CaptureHistoryStateAsync(NpgsqlConnection connection) =>
+        ScalarStringAsync(connection, """
+            SELECT jsonb_build_object(
+              'status',(SELECT coalesce(jsonb_agg(to_jsonb(h) ORDER BY h."Id"),'[]'::jsonb)
+                        FROM nexa.purchase_transaction_status_history h
+                        WHERE h."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'),
+              'approval',(SELECT coalesce(jsonb_agg(to_jsonb(h) ORDER BY h."Id"),'[]'::jsonb)
+                          FROM nexa.purchase_transaction_approval_history h
+                          JOIN nexa.commercial_comparisons c ON c."Id"=h."CommercialComparisonId"
+                          WHERE c."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'),
+              'po',(SELECT coalesce(jsonb_agg(to_jsonb(h) ORDER BY h."Id"),'[]'::jsonb)
+                    FROM nexa.purchase_order_history h
+                    JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId"
+                    WHERE p."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH'))::text
+            """, null);
+
     private static async Task<(Guid Id, long Version)> ApprovedPoAsync(NpgsqlConnection connection)
     {
         await using var command = new NpgsqlCommand("SELECT \"Id\",\"Version\" FROM nexa.purchase_orders WHERE \"OrganizationId\"='REV869B-PG-SELF-OWNED-GRAPH' AND \"Status\"='Approved' AND \"IsCurrentVersion\" AND \"IdempotencyKey\" LIKE 'rev869b-pg-owned:%'", connection);
@@ -558,20 +675,16 @@ public sealed class Rev869BPostgresBehaviorTests
             Assert.True(affected > 0, "Mutation matched zero rows, so it did not exercise a database guard.");
         });
         if (sqlState is not null) Assert.Equal(sqlState, error.SqlState);
-        Assert.Equal("nexa", error.SchemaName);
         var fields = evidence.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (fields.Length == 2)
         {
+            Assert.Equal("nexa", error.SchemaName);
             Assert.Equal(fields[0], error.TableName);
             Assert.Equal(fields[1], error.ColumnName);
         }
-        else if (!string.IsNullOrWhiteSpace(error.ConstraintName))
-        {
-            Assert.Equal(evidence, error.ConstraintName, ignoreCase: true);
-        }
         else
         {
-            Assert.Contains(evidence, error.Where ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(evidence, error.ConstraintName, ignoreCase: true);
         }
     }
 

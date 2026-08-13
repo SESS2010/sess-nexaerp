@@ -35,10 +35,10 @@ public sealed class VendorQualification : AuditableEntity
     public string QualificationCode { get; set; } = string.Empty;
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
-    public string VerificationStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public string VerificationStatus { get; set; } = MasterApprovalStatuses.PendingApproval;
     public Guid? VerifiedByEmployeeId { get; set; }
     public Employee? VerifiedByEmployee { get; set; }
-    public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public string ApprovalStatus { get; set; } = MasterApprovalStatuses.PendingApproval;
     public Guid? ApprovedByEmployeeId { get; set; }
     public Employee? ApprovedByEmployee { get; set; }
     public bool IsActive { get; set; } = true;

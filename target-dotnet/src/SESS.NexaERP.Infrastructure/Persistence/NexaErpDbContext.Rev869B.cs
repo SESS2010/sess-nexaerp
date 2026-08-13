@@ -180,7 +180,7 @@ public sealed partial class NexaErpDbContext
             entity.ToTable("purchase_transaction_approval_policies", table =>
             {
                 table.HasCheckConstraint("CK_purchase_transaction_policy_amounts", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")");
-                table.HasCheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom");
+                table.HasCheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
             });
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.RouteCode, x.EffectiveFrom, x.EffectiveTo }).IsUnique().AreNullsDistinct(false); Text(entity.Property(x => x.OrganizationId), 100); Text(entity.Property(x => x.RouteCode), 40); Text(entity.Property(x => x.ApproverRoleCode), 100); Money(entity.Property(x => x.MinimumAmount)); Money(entity.Property(x => x.MaximumAmount)); entity.Property(x => x.Version).IsConcurrencyToken();
         });

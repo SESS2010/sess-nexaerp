@@ -14,7 +14,9 @@ internal static class Rev869BDatabaseLifecycleSql
         BEGIN
             IF TG_OP='INSERT' THEN
                 IF NEW."Status" IS DISTINCT FROM 'Draft' OR NEW."Version"<>0 OR NOT NEW."IsCurrentRevision" THEN
-                    RAISE EXCEPTION 'Quotation must be inserted as current Draft version zero.';
+                    RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,
+                      CONSTRAINT='rev869b_enforce_quotation_transition',
+                      MESSAGE='Quotation must be inserted as current Draft version zero.';
                 END IF;
                 RETURN NEW;
             END IF;

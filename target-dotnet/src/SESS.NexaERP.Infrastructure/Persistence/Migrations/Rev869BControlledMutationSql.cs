@@ -35,7 +35,8 @@ internal static class Rev869BControlledMutationSql
             END IF;
           END IF;
           IF NEW."ActorLoginId" IS DISTINCT FROM parent_login OR NEW."CreatedBy" IS DISTINCT FROM parent_login OR NEW."CorrelationId" IS DISTINCT FROM parent_correlation OR
-             nexa.rev869b_command_context_valid(parent_org,NEW."ActorEmployeeId",NEW."ActorLoginId",NEW."ActorRoleCode") IS NOT TRUE OR
+             nexa.rev869b_command_context_valid(parent_org,NEW."ActorEmployeeId",
+               current_setting('nexa.rev869b_identity_issuer',true),NEW."ActorLoginId",NEW."ActorRoleCode") IS NOT TRUE OR
              length(trim(coalesce(CASE WHEN TG_TABLE_NAME='purchase_order_history' THEN NEW."Reason" ELSE NEW."Remarks" END,'')))=0 OR
              NOT EXISTS (SELECT 1 FROM nexa.employee_identity_mappings m JOIN nexa.employees e ON e."Id"=m."EmployeeId" WHERE m."Subject"=NEW."ActorLoginId" AND m."EmployeeId"=NEW."ActorEmployeeId" AND m."OrganizationId"=parent_org AND m."IsActive" AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date) AND e."Status"='Active' AND e."LoginEnabled") OR
              NOT EXISTS (SELECT 1 FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId" WHERE a."EmployeeId"=NEW."ActorEmployeeId" AND r."Code"=NEW."ActorRoleCode" AND r."IsActive" AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date)) THEN
@@ -97,7 +98,7 @@ internal static class Rev869BControlledMutationSql
           ) THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_history_action_role',MESSAGE='History role is not authorized for the exact controlled action and approval route.';
           END IF;
-          PERFORM nexa.rev869b_claim_command_context(
+          PERFORM nexa.rev869b_claim_command_context(TG_TABLE_NAME,NEW."Id",
             CASE WHEN TG_TABLE_NAME='purchase_transaction_status_history' THEN NEW."EntityType"
                  WHEN TG_TABLE_NAME='purchase_transaction_approval_history' THEN 'CommercialComparison'
                  ELSE 'PurchaseOrder' END,
@@ -125,6 +126,7 @@ internal static class Rev869BControlledMutationSql
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_qualification_lifecycle()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
         DECLARE actor_employee uuid; creator_employee uuid; actor_matches bigint; creator_matches bigint; authorized_roles bigint;
+          legacy_normalization boolean;
         BEGIN
           IF TG_OP='DELETE' THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_delete_guard',MESSAGE='Vendor qualification lifecycle is retained and cannot be deleted.';
@@ -136,81 +138,145 @@ internal static class Rev869BControlledMutationSql
             END IF;
             IF nexa.rev869b_command_context_valid(
                  NEW."OrganizationId",nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid,
-                 NEW."CreatedBy",current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
+                 current_setting('nexa.rev869b_identity_issuer',true),NEW."CreatedBy",
+                 current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
               RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_command_context',
                 MESSAGE='Qualification INSERT requires a protected server-issued command context.';
             END IF;
             RETURN NEW;
           END IF;
-          IF NEW."Version"<>OLD."Version"+1 OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 OR
-             to_jsonb(NEW)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy']
-             IS DISTINCT FROM to_jsonb(OLD)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy'] THEN
-            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_lifecycle_allowlist',MESSAGE='Qualification lifecycle permits only exact versioned verifier/approver changes.';
-          END IF;
           SELECT count(*),min(m."EmployeeId") INTO actor_matches,actor_employee FROM nexa.employee_identity_mappings m JOIN nexa.employees e ON e."Id"=m."EmployeeId"
            WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=NEW."UpdatedBy" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
           SELECT count(*),min(m."EmployeeId") INTO creator_matches,creator_employee FROM nexa.employee_identity_mappings m
            WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=OLD."CreatedBy" AND m."IsActive";
-          IF actor_matches<>1 OR creator_matches<>1 OR actor_employee=creator_employee THEN
-            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_actor_binding',MESSAGE='Qualification actor must resolve uniquely and differ from creator.';
+          IF actor_matches<>1 THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_actor_binding',MESSAGE='Qualification actor must resolve to exactly one active employee.';
           END IF;
           IF nexa.rev869b_command_context_valid(
-               NEW."OrganizationId",actor_employee,NEW."UpdatedBy",current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
+               NEW."OrganizationId",actor_employee,current_setting('nexa.rev869b_identity_issuer',true),
+               NEW."UpdatedBy",current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_command_context',
               MESSAGE='Qualification lifecycle requires a protected server-issued command context.';
           END IF;
-          IF OLD."VerificationStatus"='Pending Approval' AND OLD."ApprovalStatus"='Pending Approval' AND
-             NEW."VerificationStatus"='Approved' AND NEW."ApprovalStatus"='Pending Approval' THEN
+
+          legacy_normalization:=OLD."VerificationStatus"='Draft' AND OLD."ApprovalStatus"='Draft' AND
+            OLD."VerifiedByEmployeeId" IS NULL AND OLD."ApprovedByEmployeeId" IS NULL;
+          IF legacy_normalization THEN
+            IF creator_matches<>0 OR NEW."Version"<>OLD."Version"+1 OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 OR
+               NEW."CreatedBy" IS DISTINCT FROM NEW."UpdatedBy" OR
+               NEW."VerificationStatus"<>'Pending Approval' OR NEW."ApprovalStatus"<>'Pending Approval' OR
+               NEW."VerifiedByEmployeeId" IS NOT NULL OR NEW."ApprovedByEmployeeId" IS NOT NULL OR
+               to_jsonb(NEW)-ARRAY['CreatedBy','VerificationStatus','ApprovalStatus','Version','UpdatedAt','UpdatedBy']
+               IS DISTINCT FROM to_jsonb(OLD)-ARRAY['CreatedBy','VerificationStatus','ApprovalStatus','Version','UpdatedAt','UpdatedBy'] THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_legacy_normalization',
+                MESSAGE='Only an actorless legacy Draft may be normalized once to Pending Approval by adopting the signed actor as creator.';
+            END IF;
             SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
              WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('accounts_head','technical_director')
                AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
                AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
-            IF OLD."VerifiedByEmployeeId" IS NOT NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM actor_employee OR
-               NEW."ApprovedByEmployeeId" IS DISTINCT FROM OLD."ApprovedByEmployeeId" OR authorized_roles=0 THEN
-              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_verifier_binding',MESSAGE='Qualification verification requires the exact independent employee.';
-            END IF;
-          ELSIF OLD."VerificationStatus"='Approved' AND OLD."ApprovalStatus"='Pending Approval' AND
-                NEW."VerificationStatus"='Approved' AND NEW."ApprovalStatus"='Approved' THEN
-            SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
-             WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('managing_director','technical_director')
-               AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
-               AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
-            IF OLD."VerifiedByEmployeeId" IS NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM OLD."VerifiedByEmployeeId" OR
-               NEW."ApprovedByEmployeeId" IS DISTINCT FROM actor_employee OR actor_employee=OLD."VerifiedByEmployeeId" OR authorized_roles=0 THEN
-              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_approver_binding',MESSAGE='Qualification approval requires an employee distinct from creator and verifier.';
+            IF authorized_roles=0 THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_legacy_normalizer_binding',
+                MESSAGE='Legacy qualification normalization requires an authorized signed employee.';
             END IF;
           ELSE
-            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_transition',MESSAGE='Qualification permits only Pending verification then independent approval.';
+            IF NEW."Version"<>OLD."Version"+1 OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 OR
+               to_jsonb(NEW)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy']
+               IS DISTINCT FROM to_jsonb(OLD)-ARRAY['VerificationStatus','VerifiedByEmployeeId','ApprovalStatus','ApprovedByEmployeeId','Version','UpdatedAt','UpdatedBy'] THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_lifecycle_allowlist',MESSAGE='Qualification lifecycle permits only exact versioned verifier/approver changes.';
+            END IF;
+            IF creator_matches<>1 OR actor_employee=creator_employee THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_actor_binding',MESSAGE='Qualification actor must differ from the uniquely mapped creator.';
+            END IF;
+            IF OLD."VerificationStatus"='Pending Approval' AND OLD."ApprovalStatus"='Pending Approval' AND
+             NEW."VerificationStatus"='Verified' AND NEW."ApprovalStatus"='Pending Approval' THEN
+              SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
+               WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('accounts_head','technical_director')
+                 AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
+                 AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
+              IF OLD."VerifiedByEmployeeId" IS NOT NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM actor_employee OR
+                 NEW."ApprovedByEmployeeId" IS DISTINCT FROM OLD."ApprovedByEmployeeId" OR authorized_roles=0 THEN
+                RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_verifier_binding',MESSAGE='Qualification verification requires the exact independent employee.';
+              END IF;
+            ELSIF OLD."VerificationStatus"='Verified' AND OLD."ApprovalStatus"='Pending Approval' AND
+                NEW."VerificationStatus"='Verified' AND NEW."ApprovalStatus"='Approved' THEN
+              SELECT count(*) INTO authorized_roles FROM nexa.employee_role_assignments a JOIN nexa.roles r ON r."Id"=a."RoleId"
+               WHERE a."EmployeeId"=actor_employee AND r."IsActive" AND lower(r."Code") IN ('managing_director','technical_director')
+                 AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date
+                 AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date);
+              IF OLD."VerifiedByEmployeeId" IS NULL OR NEW."VerifiedByEmployeeId" IS DISTINCT FROM OLD."VerifiedByEmployeeId" OR
+                 NEW."ApprovedByEmployeeId" IS DISTINCT FROM actor_employee OR actor_employee=OLD."VerifiedByEmployeeId" OR authorized_roles=0 THEN
+                RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_approver_binding',MESSAGE='Qualification approval requires an employee distinct from creator and verifier.';
+              END IF;
+            ELSE
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_transition',MESSAGE='Qualification permits only Pending verification then independent approval.';
+            END IF;
           END IF;
           NEW."UpdatedAt":=statement_timestamp();
           RETURN NEW;
         END $rev869b$;
 
+        CREATE OR REPLACE FUNCTION nexa.rev869b_guard_qualification_history_insert()
+        RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE actor_employee uuid;
+        BEGIN
+          IF NEW."EntityType"<>'VendorQualification' THEN RETURN NEW; END IF;
+          actor_employee:=nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid;
+          IF NEW."ActorLoginId" IS DISTINCT FROM current_setting('nexa.rev869b_identity_subject',true) OR
+             NEW."CreatedBy" IS DISTINCT FROM current_setting('nexa.rev869b_identity_subject',true) OR
+             NEW."ActorRoleCode" IS DISTINCT FROM current_setting('nexa.rev869b_actor_role',true) OR
+             nexa.rev869b_command_context_valid(NEW."OrganizationId",actor_employee,
+               current_setting('nexa.rev869b_identity_issuer',true),
+               current_setting('nexa.rev869b_identity_subject',true),
+               current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
+            RAISE EXCEPTION USING ERRCODE='42501',SCHEMA='nexa',TABLE='controlled_configuration_histories',
+              CONSTRAINT='rev869b_qualification_history_actor_binding',
+              MESSAGE='Qualification history must use the exact signed command principal.';
+          END IF;
+          NEW."CreatedAt":=transaction_timestamp(); NEW."UpdatedAt":=NULL; NEW."UpdatedBy":=NULL;
+          RETURN NEW;
+        END $rev869b$;
+
+        DROP TRIGGER IF EXISTS trg_rev869b_qualification_history_insert_guard ON nexa.controlled_configuration_histories;
+        CREATE TRIGGER trg_rev869b_qualification_history_insert_guard
+          BEFORE INSERT ON nexa.controlled_configuration_histories
+          FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_guard_qualification_history_insert();
+
         CREATE OR REPLACE FUNCTION nexa.rev869b_require_qualification_history()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
         DECLARE expected_action text; expected_employee uuid; expected_creator text; expected_correlation text;
+          expected_history_id uuid; history_matches bigint; history_remarks text;
         BEGIN
-          expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."ApprovalStatus"='Approved' THEN 'Approve' ELSE 'Verify' END;
-          expected_employee:=CASE WHEN TG_OP='INSERT' THEN nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid WHEN expected_action='Approve' THEN NEW."ApprovedByEmployeeId" ELSE NEW."VerifiedByEmployeeId" END;
+          expected_action:=CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN OLD."VerificationStatus"='Draft' THEN 'Normalize' WHEN NEW."ApprovalStatus"='Approved' THEN 'Approve' ELSE 'Verify' END;
+          expected_employee:=CASE WHEN TG_OP='INSERT' OR expected_action='Normalize' THEN nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid WHEN expected_action='Approve' THEN NEW."ApprovedByEmployeeId" ELSE NEW."VerifiedByEmployeeId" END;
           expected_creator:=CASE WHEN TG_OP='INSERT' THEN NEW."CreatedBy" ELSE NEW."UpdatedBy" END;
           expected_correlation:=format('REV869B|QUALIFICATION|%s|%s|%s',replace(NEW."Id"::text,'-',''),NEW."Version",upper(expected_action));
-          IF NOT EXISTS (
-            SELECT 1 FROM nexa.controlled_configuration_histories h
+          SELECT count(*) INTO history_matches FROM nexa.controlled_configuration_histories h
             JOIN nexa.employee_identity_mappings m ON m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=h."ActorLoginId" AND m."EmployeeId"=expected_employee AND m."IsActive"
             WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND h."OrganizationId"=NEW."OrganizationId"
               AND h."Action"=expected_action AND h."Version"=NEW."Version" AND h."CreatedBy"=expected_creator
-              AND h."CorrelationId"=expected_correlation
-              AND h.xmin::text::bigint=txid_current()) THEN
-            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_qualification_requires_history',MESSAGE='Qualification lifecycle requires exact same-transaction immutable history.';
+              AND h."CorrelationId"=expected_correlation AND h."ActorRoleCode"=current_setting('nexa.rev869b_actor_role',true)
+              AND h."CreatedAt"=transaction_timestamp() AND length(trim(h."Remarks"))>0
+              AND ((expected_action='Create' AND h."BeforeJson" IS NULL AND h."AfterJson"->>'VerificationStatus'='Pending Approval' AND h."AfterJson"->>'ApprovalStatus'='Pending Approval' AND (h."AfterJson"->>'Version')::bigint=0) OR
+                   (expected_action='Normalize' AND h."BeforeJson"->>'VerificationStatus'='Draft' AND h."BeforeJson"->>'ApprovalStatus'='Draft' AND h."AfterJson"->>'VerificationStatus'='Pending Approval' AND h."AfterJson"->>'ApprovalStatus'='Pending Approval' AND h."AfterJson"->>'CreatedBy'=h."ActorLoginId" AND (h."BeforeJson"->>'Version')::bigint=OLD."Version" AND (h."AfterJson"->>'Version')::bigint=NEW."Version") OR
+                   (expected_action='Verify' AND h."BeforeJson"->>'VerificationStatus'='Pending Approval' AND h."BeforeJson"->>'ApprovalStatus'='Pending Approval' AND h."AfterJson"->>'VerificationStatus'='Verified' AND h."AfterJson"->>'ApprovalStatus'='Pending Approval' AND (h."BeforeJson"->>'Version')::bigint=OLD."Version" AND (h."AfterJson"->>'Version')::bigint=NEW."Version") OR
+                   (expected_action='Approve' AND h."BeforeJson"->>'VerificationStatus'='Verified' AND h."BeforeJson"->>'ApprovalStatus'='Pending Approval' AND h."AfterJson"->>'VerificationStatus'='Verified' AND h."AfterJson"->>'ApprovalStatus'='Approved' AND (h."BeforeJson"->>'Version')::bigint=OLD."Version" AND (h."AfterJson"->>'Version')::bigint=NEW."Version"))
+              AND h.xmin::text::bigint=txid_current();
+          IF history_matches<>1 THEN
+            RAISE EXCEPTION USING ERRCODE='23514',SCHEMA='nexa',TABLE='controlled_configuration_histories',
+              CONSTRAINT='rev869b_qualification_requires_history',
+              MESSAGE='Qualification lifecycle requires one exact same-transaction immutable history.';
           END IF;
+          SELECT h."Id",h."Remarks" INTO expected_history_id,history_remarks
+          FROM nexa.controlled_configuration_histories h
+          WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND h."Action"=expected_action
+            AND h."Version"=NEW."Version" AND h."CorrelationId"=expected_correlation AND h.xmin::text::bigint=txid_current();
           PERFORM nexa.rev869b_claim_command_context(
-            'VendorQualification',NEW."Id",expected_action,CASE WHEN TG_OP='INSERT' THEN 0 ELSE OLD."Version" END,
+            'qualification_history',expected_history_id,'VendorQualification',NEW."Id",expected_action,
+            CASE WHEN TG_OP='INSERT' THEN 0 ELSE OLD."Version" END,
             CASE WHEN TG_OP='INSERT' THEN NULL WHEN expected_action='Approve' THEN OLD."ApprovalStatus" ELSE OLD."VerificationStatus" END,
-            CASE WHEN TG_OP='INSERT' THEN 'Pending Approval' ELSE 'Approved' END,
-            expected_correlation,
-            (SELECT h."Remarks" FROM nexa.controlled_configuration_histories h
-             WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND
-               h."Action"=expected_action AND h."Version"=NEW."Version" AND h.xmin::text::bigint=txid_current()));
+            CASE WHEN expected_action IN ('Create','Normalize') THEN 'Pending Approval' WHEN expected_action='Verify' THEN 'Verified' ELSE 'Approved' END,
+            expected_correlation,history_remarks);
           RETURN NULL;
         END $rev869b$;
 
@@ -225,7 +291,8 @@ internal static class Rev869BControlledMutationSql
              nexa.rev869b_command_context_valid(
                current_setting('nexa.rev869b_organization',true),
                nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid,
-               current_setting('nexa.rev869b_actor_login',true),
+               current_setting('nexa.rev869b_identity_issuer',true),
+               current_setting('nexa.rev869b_identity_subject',true),
                current_setting('nexa.rev869b_actor_role',true)) IS NOT TRUE THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_context_required',MESSAGE='REV869B mutation requires an authenticated transaction-local command context.';
           END IF;
@@ -422,7 +489,9 @@ internal static class Rev869BControlledMutationSql
         """;
 
     public const string Remove = """
+        DROP TRIGGER IF EXISTS trg_rev869b_qualification_history_insert_guard ON nexa.controlled_configuration_histories;
         DROP FUNCTION IF EXISTS nexa.rev869b_require_qualification_history() CASCADE;
+        DROP FUNCTION IF EXISTS nexa.rev869b_guard_qualification_history_insert() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_qualification_lifecycle() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_write_policy_history() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_require_bound_history() CASCADE;

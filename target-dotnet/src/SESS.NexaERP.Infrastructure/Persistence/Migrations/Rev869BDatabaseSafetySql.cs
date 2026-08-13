@@ -140,9 +140,12 @@ internal static class Rev869BDatabaseSafetySql
                 SELECT count(*) INTO matched FROM nexa.purchase_orders p
                  WHERE p."Id"=NEW."PurchaseOrderId" AND p."Status"='Issued'
                    AND p."IsCurrentVersion" AND length(trim(p."OrganizationId"))>0;
-            ELSE RAISE EXCEPTION 'Unsupported REV869B controlled child relation %.',TG_TABLE_NAME;
+            ELSE RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,
+              CONSTRAINT='rev869b_guard_child_insert',MESSAGE='Unsupported REV869B controlled child relation.';
             END IF;
-            IF matched<>1 THEN RAISE EXCEPTION 'REV869B child INSERT requires exactly one editable parent version.'; END IF;
+            IF matched<>1 THEN RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,
+              CONSTRAINT='rev869b_guard_child_insert',
+              MESSAGE='REV869B child INSERT requires exactly one editable parent version.'; END IF;
             RETURN NEW;
         END $rev869b$;
 
@@ -150,7 +153,7 @@ internal static class Rev869BDatabaseSafetySql
         RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog,nexa AS $rev869b$
         SELECT EXISTS (
           SELECT 1 FROM nexa.vendor_qualifications q
-          WHERE q."Id"=qualification_id AND q."VerificationStatus"='Approved' AND q."ApprovalStatus"='Approved'
+          WHERE q."Id"=qualification_id AND q."VerificationStatus" IN ('Verified','Approved') AND q."ApprovalStatus"='Approved'
             AND q."VerifiedByEmployeeId" IS NOT NULL AND q."ApprovedByEmployeeId" IS NOT NULL
             AND q."VerifiedByEmployeeId"<>q."ApprovedByEmployeeId"
             AND (SELECT count(*) FROM nexa.controlled_configuration_histories h

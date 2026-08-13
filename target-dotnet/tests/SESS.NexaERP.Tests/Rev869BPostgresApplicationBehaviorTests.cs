@@ -47,14 +47,15 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     [Fact]
     public async Task RealServiceTransactionPersistsParentChildHistoryAndAudit()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("service-success");
+        await using var fixture = await OwnedRfqFixture.CreateAsync("service-success", useAmbientTransaction: false);
         var result = await fixture.Service().CreateRfqAsync(fixture.Request("same-command"), default);
 
         Assert.Equal(Rev869BStatuses.Draft, result.Status);
-        Assert.Equal(1, await fixture.Db.RequestForQuotations.CountAsync(x => x.Id == result.Id));
-        Assert.Equal(1, await fixture.Db.RequestForQuotationLines.CountAsync(x => x.RequestForQuotationId == result.Id));
-        Assert.Equal(1, await fixture.Db.PurchaseTransactionStatusHistories.CountAsync(x => x.EntityId == result.Id));
-        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.EntityId == result.Id.ToString() && x.Action == "CreateRFQ"));
+        await using var verifier = await fixture.OpenIndependentContextAsync();
+        Assert.Equal(1, await verifier.RequestForQuotations.AsNoTracking().CountAsync(x => x.Id == result.Id));
+        Assert.Equal(1, await verifier.RequestForQuotationLines.AsNoTracking().CountAsync(x => x.RequestForQuotationId == result.Id));
+        Assert.Equal(1, await verifier.PurchaseTransactionStatusHistories.AsNoTracking().CountAsync(x => x.EntityId == result.Id));
+        Assert.Equal(1, await verifier.AuditLogs.AsNoTracking().CountAsync(x => x.EntityId == result.Id.ToString() && x.Action == "CreateRFQ"));
     }
 
     [Fact]
@@ -70,35 +71,38 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     [Fact]
     public async Task RealServiceIdempotentReplayReturnsAuthoritativeOriginalWithoutDuplicates()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("idempotent-replay");
+        await using var fixture = await OwnedRfqFixture.CreateAsync("idempotent-replay", useAmbientTransaction: false);
         var command = fixture.Request("same-command");
         var first = await fixture.Service().CreateRfqAsync(command, default);
         fixture.Db.ChangeTracker.Clear();
         var second = await fixture.Service().CreateRfqAsync(command, default);
 
         Assert.Equal(first, second);
-        Assert.Equal(1, await fixture.Db.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
-        Assert.Equal(1, await fixture.Db.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
-        Assert.Equal(1, await fixture.Db.PurchaseTransactionStatusHistories.CountAsync(x => x.OrganizationId == fixture.Organization && x.EntityType == "RFQ"));
-        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.CreatedBy == fixture.Marker && x.Action == "CreateRFQ"));
+        await using var verifier = await fixture.OpenIndependentContextAsync();
+        Assert.Equal(1, await verifier.RequestForQuotations.AsNoTracking().CountAsync(x => x.OrganizationId == fixture.Organization));
+        Assert.Equal(1, await verifier.RequestForQuotationLines.AsNoTracking().CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
+        Assert.Equal(1, await verifier.PurchaseTransactionStatusHistories.AsNoTracking().CountAsync(x => x.OrganizationId == fixture.Organization && x.EntityType == "RFQ"));
+        Assert.Equal(1, await verifier.AuditLogs.AsNoTracking().CountAsync(x => x.CreatedBy == fixture.Marker && x.Action == "CreateRFQ"));
     }
 
     [Fact]
     public async Task RealProtectedServiceDenialHasNoBusinessMutationAndNoCrossOrganizationDisclosure()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("scope-denial");
-        var before = await fixture.CountBusinessResultAsync();
+        await using var fixture = await OwnedRfqFixture.CreateAsync("scope-denial", useAmbientTransaction: false);
+        var before = await fixture.CaptureOwnedStateFromIndependentContextAsync();
         var denied = fixture.Service(scopes: new DenyingScope());
 
         var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             denied.CreateRfqAsync(fixture.Request("denied-command"), default));
 
         Assert.DoesNotContain(fixture.HandoffId.ToString(), error.Message, StringComparison.OrdinalIgnoreCase);
-        fixture.Db.ChangeTracker.Clear();
-        Assert.Equal(0, await fixture.Db.RequestForQuotations.CountAsync(x => x.OrganizationId == fixture.Organization));
-        Assert.Equal(0, await fixture.Db.RequestForQuotationLines.CountAsync(x => x.RequestForQuotation!.OrganizationId == fixture.Organization));
-        Assert.Equal(before + 1, await fixture.CountBusinessResultAsync());
-        Assert.Equal(1, await fixture.Db.AuditLogs.CountAsync(x => x.CreatedBy == fixture.Marker && x.Action == "Denied" && x.Result == "Failure"));
+        var after = await fixture.CaptureOwnedStateFromIndependentContextAsync();
+        Assert.Equal(before.Rfqs, after.Rfqs);
+        Assert.Equal(before.RfqLines, after.RfqLines);
+        Assert.Equal(before.StatusHistories, after.StatusHistories);
+        Assert.Equal(before.Audits + 1, after.Audits);
+        await using var verifier = await fixture.OpenIndependentContextAsync();
+        Assert.Equal(1, await verifier.AuditLogs.AsNoTracking().CountAsync(x => x.CreatedBy == fixture.Marker && x.Action == "Denied" && x.Result == "Failure"));
     }
 
     [Fact]
@@ -164,7 +168,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     [Fact]
     public async Task AuthenticatedMappedAspNetEndpointTraversesPermissionScopeServiceAndEf()
     {
-        await using var fixture = await OwnedRfqFixture.CreateAsync("mapped-endpoint");
+        await using var fixture = await OwnedRfqFixture.CreateAsync("mapped-endpoint", useAmbientTransaction: false);
         await Rev869BCompleteGraphSeeder.SeedAsync(fixture.DatabaseConnectionString, "mapped-endpoint-security");
         var directOrganization = Rev869BOwnedPostgresDatabase.Organization;
         var directCreator = await fixture.Db.EmployeeIdentityMappings.AsNoTracking()
@@ -247,6 +251,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
 
             user.OrganizationId = directOrganization;
+            user.IdentityIssuer = Rev869BOwnedPostgresDatabase.Issuer;
             user.LoginId = Rev869BOwnedPostgresDatabase.Login;
             user.RoleCode = Rev869ARoleCodes.PurchaseExecutive;
             user.ActorId = directCreator.EmployeeId;
@@ -293,6 +298,15 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/approve",
                 new ChangeVendorQualificationLifecycleRequest(1, "independent approval"));
             Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
+            await using (var qualificationVerifier = await fixture.OpenIndependentContextAsync())
+            {
+                var persisted = await qualificationVerifier.VendorQualifications.AsNoTracking().SingleAsync(x => x.Id == qualificationId);
+                Assert.Equal(MasterApprovalStatuses.Verified, persisted.VerificationStatus);
+                Assert.Equal(MasterApprovalStatuses.Approved, persisted.ApprovalStatus);
+                Assert.Equal<uint>(2, persisted.Version);
+                Assert.Equal(3, await qualificationVerifier.ControlledConfigurationHistories.AsNoTracking()
+                    .CountAsync(x => x.EntityType == nameof(VendorQualification) && x.EntityId == qualificationId));
+            }
 
             user.LoginId = Rev869BOwnedPostgresDatabase.Login;
             user.RoleCode = Rev869ARoleCodes.PurchaseExecutive;
@@ -320,9 +334,9 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             var auditRollback = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications", auditRollbackRequest);
             Assert.Equal(HttpStatusCode.InternalServerError, auditRollback.StatusCode);
             pipelineAudit.Fail = false;
-            fixture.Db.ChangeTracker.Clear();
-            Assert.Equal(0, await fixture.Db.VendorQualifications.CountAsync(x =>
-                x.OrganizationId == directOrganization && x.QualificationCode == "MAPPED-Q-AUDIT"));
+            await using (var rollbackVerifier = await fixture.OpenIndependentContextAsync())
+                Assert.Equal(0, await rollbackVerifier.VendorQualifications.AsNoTracking().CountAsync(x =>
+                    x.OrganizationId == directOrganization && x.QualificationCode == "MAPPED-Q-AUDIT"));
 
             user.OrganizationId = directOrganization + "-FOREIGN";
             var crossOrganizationQualification = await client.PostAsJsonAsync(
@@ -355,6 +369,10 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         private readonly OwnedDatabaseLease databaseLease;
         private readonly long ownedBefore;
         private bool disposed;
+        private bool rollbackCompleted;
+        private bool transactionDisposed;
+        private bool contextDisposed;
+        private bool baselineVerified;
 
         private OwnedRfqFixture(NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? transaction, OwnedDatabaseLease databaseLease,
             string scenario, Guid warehouseId, Guid prId, Guid lineId, Guid handoffId, Guid actorId, Guid identityMappingId, long ownedBefore)
@@ -537,28 +555,45 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public async ValueTask DisposeAsync()
         {
             if (disposed) return;
-            disposed = true;
             Exception? verificationFailure = null;
             try
             {
                 if (transaction is not null)
                 {
-                    await transaction.RollbackAsync();
-                    await transaction.DisposeAsync();
-                    await Db.DisposeAsync();
-                    var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(databaseLease.ConnectionString).Options;
-                    await using var verifier = new NexaErpDbContext(options);
-                    var after = await CountOwnedAsync(verifier, Marker, Organization);
-                    if (after != ownedBefore) throw new InvalidOperationException("REV869B outer rollback did not restore the exact test-owned baseline.");
+                    if (!rollbackCompleted)
+                    {
+                        await transaction.RollbackAsync();
+                        rollbackCompleted = true;
+                    }
+                    if (!transactionDisposed)
+                    {
+                        await transaction.DisposeAsync();
+                        transactionDisposed = true;
+                    }
+                    if (!contextDisposed)
+                    {
+                        await Db.DisposeAsync();
+                        contextDisposed = true;
+                    }
+                    if (!baselineVerified)
+                    {
+                        var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(databaseLease.ConnectionString).Options;
+                        await using var verifier = new NexaErpDbContext(options);
+                        var after = await CountOwnedAsync(verifier, Marker, Organization);
+                        if (after != ownedBefore) throw new InvalidOperationException("REV869B outer rollback did not restore the exact test-owned baseline.");
+                        baselineVerified = true;
+                    }
                 }
-                else
+                else if (!contextDisposed)
                 {
                     Db.ChangeTracker.Clear();
                     await Db.DisposeAsync();
+                    contextDisposed = true;
                 }
             }
             catch (Exception ex) { verificationFailure = ex; }
             finally { await databaseLease.DisposeAsync(); }
+            disposed = true;
             if (verificationFailure is not null) throw verificationFailure;
         }
 
@@ -642,6 +677,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         public string RoleCode { get; set; } = roleCode;
         public string? OrganizationId { get; set; } = organizationId;
         public Guid ActorId { get; set; } = actorId;
+        public string? IdentityIssuer { get; set; } = "REV869B-TEST-ISSUER";
+        public string? IdentitySubject => LoginId;
         public bool IsAuthenticated => true;
         public Guid? EmployeeId => ActorId;
     }

@@ -40257,7 +40257,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_purchase_transaction_policy_amounts", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")");
 
-                            t.HasCheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom");
+                            t.HasCheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                         });
 
                     b.HasData(

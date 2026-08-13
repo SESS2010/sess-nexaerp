@@ -17,10 +17,19 @@ public sealed partial class EfRev869BPurchaseService
         if (request.Lines.Count == 0 || request.QuoteDueAt <= DateTimeOffset.UtcNow || string.IsNullOrWhiteSpace(request.IdempotencyKey)) throw new Rev869BValidationException("RFQ lines, future due date and idempotency key are required.");
         var currency = NormalizeCurrency(request.CurrencyCode);
         if (request.IsSingleSource && string.IsNullOrWhiteSpace(request.SingleSourceJustification)) throw new InvalidOperationException("Single-source RFQ justification is required.");
-        await using var tx = await BeginTransactionScopeAsync(ct);
         var organization = RequireOrganization();
         var scope = Rev869BIdempotencyFingerprint.CommandScope(organization, "CreateRFQ", request.IdempotencyKey);
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "CreateRFQ", request.IdempotencyKey, request);
+        var ids = request.Lines.Select(x => x.PurchaseRequirementHandoffId).Distinct().ToArray();
+        if (ids.Length != request.Lines.Count) throw new InvalidOperationException("Duplicate PendingRFQ handoff in request.");
+        var authorizationTarget = await db.PurchaseRequirementHandoffs.AsNoTracking()
+            .Include(x => x.PurchaseRequisition).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
+        if (authorizationTarget.Count != ids.Length || authorizationTarget.Select(x => x.PurchaseRequisitionId).Distinct().Count() != 1)
+            throw new InvalidOperationException("RFQ must reuse valid handoffs from one PR.");
+        var authorizationPr = authorizationTarget[0].PurchaseRequisition ?? throw new InvalidOperationException("PR unavailable.");
+        await RequireScopeAsync(actor, authorizationPr.OrganizationId, authorizationPr.RequestingDepartmentId,
+            authorizationPr.DeliveryWarehouseId, null, authorizationPr.RequesterEmployeeId, ct);
+        await using var tx = await BeginTransactionScopeAsync(ct);
         // Serialize at the contested transaction boundary, before replay lookup or number consumption.
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtextextended({scope},0))", ct);
@@ -35,7 +44,6 @@ public sealed partial class EfRev869BPurchaseService
                 throw new Rev869BConflictException("RFQ idempotency key was reused with a different payload.");
             await tx.RollbackAsync(ct); return Result(existing.Id, existing.RfqNumber, Rev869BStatuses.Draft, 0);
         }
-        var ids = request.Lines.Select(x => x.PurchaseRequirementHandoffId).Distinct().ToArray(); if (ids.Length != request.Lines.Count) throw new InvalidOperationException("Duplicate PendingRFQ handoff in request.");
         var handoffs = await db.PurchaseRequirementHandoffs.Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine)!.ThenInclude(x => x!.Item).Where(x => ids.Contains(x.Id)).ToListAsync(ct);
         if (handoffs.Count != ids.Length || handoffs.Select(x => x.PurchaseRequisitionId).Distinct().Count() != 1) throw new InvalidOperationException("RFQ must reuse valid handoffs from one PR.");
         var pr = handoffs[0].PurchaseRequisition ?? throw new InvalidOperationException("PR unavailable.");

@@ -107,7 +107,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(77, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
+        Assert.Equal(78, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
         Assert.Equal(2, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);
@@ -155,6 +155,44 @@ public sealed class Rev869BPurchaseCorrectionTests
         var differ = db.GetService<IMigrationsModelDiffer>();
         var initializedSnapshot = db.GetService<IModelRuntimeInitializer>().Initialize(snapshot.Model, designTime: true);
         Assert.Empty(differ.GetDifferences(initializedSnapshot.GetRelationalModel(), current.GetRelationalModel()));
+    }
+
+    [Fact]
+    public void RetainedMigrationGeneratedSqlHasExactOfflineSyntaxAndObjectContracts()
+    {
+        const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
+        const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var up = migrator.GenerateScript(rev869A, rev869B);
+        var down = migrator.GenerateScript(rev869B, rev869A);
+
+        Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
+        Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
+        Assert.Equal(17, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
+        Assert.Equal(76, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
+        Assert.Equal(24, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
+        Assert.Equal(23, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
+            .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
+        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
+        foreach (var function in new[] { "rev869b_open_command_context", "rev869b_claim_command_context",
+            "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
+            "rev869b_require_qualification_history", "rev869b_guard_child_insert",
+            "rev869b_enforce_transition", "rev869b_enforce_quotation_transition" })
+        {
+            Assert.Contains($"FUNCTION nexa.{function}", up);
+        }
+        Assert.Contains("SET search_path=pg_catalog,nexa", up);
+        Assert.Contains("SET search_path = pg_catalog, nexa", up);
+        Assert.True(down.IndexOf("DROP FUNCTION IF EXISTS nexa.rev869b_provision_command_authority", StringComparison.Ordinal) <
+                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal));
+        Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal) <
+                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_authorities", StringComparison.Ordinal));
+        Assert.DoesNotContain("DROP EXTENSION", down, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AssertMatrix(IReadOnlySet<string> statuses, Action<string, string> require, params (string From, string To)[] allowed)

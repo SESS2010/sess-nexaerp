@@ -8,6 +8,14 @@ public sealed class Rev869BDatabaseSafetyContractTests
     private static readonly string Controlled = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BControlledMutationSql.cs");
     private static readonly string CommandContext = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BCommandContextSql.cs");
     private static readonly string Migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
+    private static readonly string Model = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.Rev869B.cs");
+    private static readonly string Designer = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.Designer.cs");
+    private static readonly string Snapshot = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs");
+    private static readonly string Authorizer = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev869BCommandContextAuthorizer.cs");
+    private static readonly string QualificationEndpoint = Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs");
+    private static readonly string ApplicationPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs");
+    private static readonly string DirectPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs");
+    private static readonly string Lease = Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
     private static readonly string Postgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs") +
         Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs") +
         Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
@@ -134,18 +142,21 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     [Fact]
-    public void NinthCorrectionUsesServerBoundTransactionLocalCommandClaims()
+    public void TenthCorrectionUsesSignedIssuerBoundTransactionLocalCommandClaims()
     {
-        foreach (var value in new[] { "SECURITY DEFINER", "REVOKE ALL", "pg_backend_pid()", "txid_current()",
+        foreach (var value in new[] { "SECURITY DEFINER", "REVOKE ALL", "pg_backend_pid()", "txid_current()", "session_user",
             "transaction_timestamp()", "rev869b_command_token", "set_config('nexa.rev869b_command_token',command_token::text,true)",
-            "'entityType'", "'entityId'", "'operation'", "'parentVersion'", "'fromStatus'", "'toStatus'",
-            "'correlation'", "'remarks'", "'serverTransactionId'", "'serverTimestamp'" })
+            "'claimKind'", "'historyId'", "'entityType'", "'entityId'", "'operation'", "'parentVersion'", "'fromStatus'", "'toStatus'",
+            "'actorEmployeeId'", "'identityIssuer'", "'identitySubject'", "'actorRole'", "'organization'",
+            "'correlation'", "'remarks'", "'serverTransactionId'", "'serverTimestamp'", "hmac(", "command_nonce", "signature_hex" })
             Assert.Contains(value, CommandContext);
         Assert.Contains("rev869b_command_context_valid", Controlled);
         Assert.Contains("rev869b_claim_command_context", Controlled);
         Assert.DoesNotContain("set_config('nexa.rev869b_command_token',command_token::text,false)", CommandContext);
         Assert.DoesNotContain("set_config('nexa.rev869b_actor_", ServiceSource(), StringComparison.Ordinal);
-        Assert.Contains("rev869b_open_command_context", ServiceSource());
+        Assert.Contains("Rev869BCommandContextAuthorizer.OpenAsync", ServiceSource());
+        Assert.Contains("rev869b_open_command_context", Authorizer);
+        Assert.DoesNotContain("rev869b_open_command_context(uuid,text,text,text)", CommandContext);
     }
 
     [Fact]
@@ -158,6 +169,106 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.DoesNotContain("""OLD."ApprovalStatus"='PendingApproval'""", Controlled);
         Assert.Contains("rev869b_qualification_lifecycle", Controlled);
         Assert.Contains("rev869b_qualification_provenance_valid", Safety + Controlled);
+        Assert.Contains("VerificationStatus = MasterApprovalStatuses.Verified", QualificationEndpoint);
+        Assert.Contains("NEW.\"VerificationStatus\"='Verified'", Controlled);
+        Assert.Contains("trg_rev869b_qualification_history_insert_guard", Controlled);
+        Assert.Contains("normalize-legacy", QualificationEndpoint);
+        Assert.Contains("Action = \"Normalize\"", QualificationEndpoint);
+        Assert.Contains("legacy_normalization:=OLD.\"VerificationStatus\"='Draft'", Controlled);
+        Assert.Contains("creator_matches<>0", Controlled);
+        Assert.Contains("expected_action='Normalize'", Controlled);
+        Assert.Contains("h.\"AfterJson\"->>'CreatedBy'=h.\"ActorLoginId\"", Controlled);
+        Assert.Contains("WHEN expected_action IN ('Create','Normalize') THEN 'Pending Approval'", Controlled);
+    }
+
+    [Fact]
+    public void RetainedMigrationDateCheckIsSyntacticallyClosedInEveryParityLocation()
+    {
+        const string valid = "\\\"EffectiveTo\\\" IS NULL OR \\\"EffectiveTo\\\" >= \\\"EffectiveFrom\\\"";
+        foreach (var source in new[] { Model, Migration, Designer, Snapshot }) Assert.Contains(valid, source);
+        foreach (var source in new[] { Model, Migration, Designer, Snapshot })
+            Assert.DoesNotContain("\\\"EffectiveTo\\\" IS NULL OR \\\"EffectiveTo\\\" >= \\\"EffectiveFrom\");", source);
+    }
+
+    [Fact]
+    public void CommandAuthorityIsExternallyKeyedIssuerBoundReplayBoundAndShortRetained()
+    {
+        foreach (var value in new[] { "rev869b_command_authorities", "DatabasePrincipal", "IdentityIssuer", "IdentitySubject",
+            "Nonce", "AuthenticatedAt", "rev869b_command_signature_stale", "rev869b_command_signature_invalid",
+            "rev869b_command_nonce_reused", "interval '15 minutes'", "DELETE FROM nexa.rev869b_command_contexts",
+            "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public", "public.hmac(" })
+            Assert.Contains(value, CommandContext);
+        Assert.Contains("SHA256.HashData", Authorizer);
+        Assert.Contains("HMACSHA256.HashData", Authorizer);
+        Assert.Contains("REV869B_COMMAND_SIGNING_KEY", Authorizer);
+        Assert.Contains("Convert.FromHexString", Authorizer);
+        Assert.DoesNotContain("const string SigningKey", Authorizer + CommandContext);
+        Assert.Contains("DELETE FROM nexa.rev869b_command_authorities", Lease);
+        Assert.Contains("rev869b_provision_command_authority(current_user,@authoritySecret,NULL)", Lease);
+        Assert.Contains("rev869b_provision_command_authority", CommandContext);
+        Assert.Contains("session_user IS DISTINCT FROM", CommandContext);
+        Assert.Contains("GRANT EXECUTE ON FUNCTION nexa.rev869b_open_command_context", CommandContext);
+    }
+
+    [Fact]
+    public void HistoryClaimSlotsAreDistinctExactAndSingleUse()
+    {
+        foreach (var value in new[] { "claim_kind text", "history_id uuid", "'claimKind'", "'historyId'",
+            "prior->>'claimKind'=claim_kind", "prior->>'historyId'=history_id::text",
+            "prior->>'parentVersion'", "rev869b_command_claim_stale_or_reused" })
+            Assert.Contains(value, CommandContext);
+        Assert.Contains("rev869b_claim_command_context(TG_TABLE_NAME,NEW.\"Id\"", Controlled);
+        Assert.Contains("'qualification_history',expected_history_id", Controlled);
+        Assert.Contains("history_matches<>1", Controlled);
+        Assert.Contains("specialized<>1", Controlled);
+    }
+
+    [Fact]
+    public void EmbeddedSqlUsesPairedDollarQuotesSearchPathsAndReverseSafeRemoval()
+    {
+        foreach (var source in new[] { Safety, Lifecycle, Controlled, CommandContext })
+        {
+            Assert.Equal(0, Count(source, "$rev869b$") % 2);
+            Assert.DoesNotContain("SECURITY DEFINER\r\n        AS", source);
+        }
+        Assert.Contains("SET search_path=pg_catalog,nexa", CommandContext);
+        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_claim_command_context", CommandContext);
+        Assert.True(CommandContext.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal) <
+                    CommandContext.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_authorities", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PostgresPathsUseExactStructuredErrorsTargetsAndIndependentEvidence()
+    {
+        Assert.Equal(1, Count(DirectPostgres, "Assert.ThrowsAsync<PostgresException>"));
+        Assert.Contains("error.ConstraintName", DirectPostgres);
+        Assert.Contains("error.TableName", DirectPostgres);
+        Assert.Contains("error.ColumnName", DirectPostgres);
+        Assert.DoesNotContain("""Assert.Equal("nexa", error.SchemaName);""", DirectPostgres);
+        Assert.Contains("Mutation matched zero rows", DirectPostgres);
+        Assert.Contains("CaptureRfqStateAsync(verifier", DirectPostgres);
+        Assert.Contains("child.\"Id\"=@sourceId", DirectPostgres);
+        Assert.Contains("rev869b_guard_child_insert", DirectPostgres);
+        Assert.DoesNotContain("rev869b_validate_child_insert", DirectPostgres);
+        Assert.Contains("useAmbientTransaction: false", ApplicationPostgres);
+        Assert.Contains("qualificationVerifier", ApplicationPostgres);
+        Assert.Contains("rollbackVerifier", ApplicationPostgres);
+    }
+
+    [Fact]
+    public void DisposableCleanupRemainsOwnedQuarantinedAndRetryable()
+    {
+        Assert.Contains("if (disposed) return;", ApplicationPostgres);
+        Assert.True(ApplicationPostgres.LastIndexOf("disposed = true;", StringComparison.Ordinal) >
+                    ApplicationPostgres.LastIndexOf("await databaseLease.DisposeAsync();", StringComparison.Ordinal));
+        foreach (var stage in new[] { "rollbackCompleted", "transactionDisposed", "contextDisposed", "baselineVerified" })
+            Assert.Contains(stage, ApplicationPostgres);
+        foreach (var value in new[] { "DatabasePrefix", "OwnershipToken", "RequireSafeOwnedName",
+            "RequireCurrentDatabaseAsync", "RequireMigrationOnceAsync", "Pooling = false",
+            "database is quarantined", "RecoverQuarantinedAsync", "Complete high-entropy quarantine recovery proof",
+            "Quarantine recovery proof mismatch; DROP is refused.", "DROP DATABASE", "RequireDatabaseAbsentAsync" })
+            Assert.Contains(value, Lease);
+        Assert.DoesNotContain("DELETE FROM nexa.purchase_transaction", Lease);
     }
 
     [Fact]
@@ -178,6 +289,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     private static string Read(params string[] parts) => File.ReadAllText(Path.Combine([Root, .. parts]));
+    private static int Count(string source, string value) =>
+        (source.Length - source.Replace(value, string.Empty, StringComparison.Ordinal).Length) / value.Length;
     private static string ServiceSource() => Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs");
     private static string FindRoot()
     {

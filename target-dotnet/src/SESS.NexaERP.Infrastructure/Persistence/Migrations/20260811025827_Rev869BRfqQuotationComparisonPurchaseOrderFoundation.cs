@@ -44,7 +44,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 {
                     table.PrimaryKey("PK_purchase_transaction_approval_policies", x => x.Id);
                     table.CheckConstraint("CK_purchase_transaction_policy_amounts", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")");
-                    table.CheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom");
+                    table.CheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
                 });
 
             migrationBuilder.CreateTable(
@@ -1352,7 +1352,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 END $rev869b$;
 
                 CREATE OR REPLACE FUNCTION nexa.rev869b_reject_immutable_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
-                BEGIN RAISE EXCEPTION 'REV869B controlled history/snapshot relation % is immutable.', TG_TABLE_NAME; END $rev869b$;
+                BEGIN RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,
+                    CONSTRAINT='rev869b_reject_immutable_mutation',
+                    MESSAGE=format('REV869B controlled history/snapshot relation %s is immutable.',TG_TABLE_NAME); END $rev869b$;
 
                 CREATE OR REPLACE FUNCTION nexa.rev869b_guard_controlled_snapshot() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
                 BEGIN
@@ -1377,15 +1379,15 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 BEGIN
                     IF TG_OP = 'INSERT' THEN
                         IF TG_TABLE_NAME = 'request_for_quotations' AND NEW."Status" <> 'Draft' THEN
-                            RAISE EXCEPTION 'RFQ must be inserted in Draft status.';
+                            RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,CONSTRAINT='rev869b_enforce_transition',MESSAGE='RFQ must be inserted in Draft status.';
                         ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' AND NEW."Status" <> 'Issued' THEN
-                            RAISE EXCEPTION 'RFQ invitation must be inserted in Issued status.';
+                            RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,CONSTRAINT='rev869b_enforce_transition',MESSAGE='RFQ invitation must be inserted in Issued status.';
                         ELSIF TG_TABLE_NAME = 'vendor_quotations' AND NEW."Status" <> 'Submitted' THEN
-                            RAISE EXCEPTION 'Quotation must be inserted in Submitted status.';
+                            RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,CONSTRAINT='rev869b_enforce_transition',MESSAGE='Quotation must be inserted in Submitted status.';
                         ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND NEW."Status" <> 'Draft' THEN
-                            RAISE EXCEPTION 'Comparison must be inserted in Draft status.';
+                            RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,CONSTRAINT='rev869b_enforce_transition',MESSAGE='Comparison must be inserted in Draft status.';
                         ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW."Status" NOT IN ('Draft','RevisionDraft') THEN
-                            RAISE EXCEPTION 'Purchase order must be inserted in a controlled draft status.';
+                            RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,CONSTRAINT='rev869b_enforce_transition',MESSAGE='Purchase order must be inserted in a controlled draft status.';
                         ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW."Status" = 'RevisionDraft' AND NOT EXISTS (
                             SELECT 1 FROM nexa.purchase_orders p
                             WHERE p."Id" = NEW."PreviousVersionId" AND p."OrganizationId" = NEW."OrganizationId"

@@ -35,8 +35,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             : new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
         var actor = RequireActor();
         var organization = RequireOrganization();
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_open_command_context({actor},{user.LoginId},{user.RoleCode},{organization})", ct);
+        await Rev869BCommandContextAuthorizer.OpenAsync(db, user, organization, ct);
         return scope;
     }
 

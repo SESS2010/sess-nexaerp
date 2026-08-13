@@ -17,6 +17,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     internal const string DatabasePrefix = "sess_nexaerp_rev869b_owned_";
     private const string MarkerTable = "rev869b_test_database_lease";
     private readonly string adminConnectionString;
+    private readonly string signingSecretHex;
+    private readonly string? previousSigningSecret;
     private readonly SemaphoreSlim disposalGate = new(1, 1);
     private bool disposed;
 
@@ -26,6 +28,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         string databaseName,
         string runId,
         string ownershipToken,
+        string signingSecretHex,
+        string? previousSigningSecret,
         string family)
     {
         ConnectionString = connectionString;
@@ -33,6 +37,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         DatabaseName = databaseName;
         RunId = runId;
         OwnershipToken = ownershipToken;
+        this.signingSecretHex = signingSecretHex;
+        this.previousSigningSecret = previousSigningSecret;
         Family = family;
     }
 
@@ -51,11 +57,12 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var source = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         if (!string.Equals(source.Database, ExactSourceDatabase, StringComparison.Ordinal))
             throw new InvalidOperationException($"Only the exact isolated source database {ExactSourceDatabase} is permitted.");
-
         await VerifySourceAsync(source.ConnectionString);
 
         var runId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var ownershipToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var signingSecretHex = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var previousSigningSecret = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY");
         var databaseName = DatabasePrefix + runId[..24];
         RequireSafeOwnedName(databaseName);
         var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
@@ -70,11 +77,13 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         }
 
         var owned = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = databaseName, Pooling = false };
-        var lease = new Rev869BTestDatabaseLease(owned.ConnectionString, admin.ConnectionString, databaseName, runId, ownershipToken, family);
+        var lease = new Rev869BTestDatabaseLease(owned.ConnectionString, admin.ConnectionString, databaseName, runId,
+            ownershipToken, signingSecretHex, previousSigningSecret, family);
         try
         {
             await lease.EstablishMarkerAsync(scenario);
             await lease.VerifyOwnershipAsync();
+            Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", signingSecretHex);
             return lease;
         }
         catch
@@ -130,6 +139,9 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             REVOKE ALL ON nexa.{{MarkerTable}} FROM PUBLIC;
             INSERT INTO nexa.{{MarkerTable}}("OwnershipToken","RunId","DatabaseName","SourceDatabase","MigrationId","FixtureFamily","ScenarioHash")
             VALUES(@token,@run,@database,@source,@migration,@family,@scenario);
+            DELETE FROM nexa.rev869b_command_contexts;
+            DELETE FROM nexa.rev869b_command_authorities;
+            SELECT nexa.rev869b_provision_command_authority(current_user,@authoritySecret,NULL);
             """, connection);
         command.Parameters.AddWithValue("token", OwnershipToken);
         command.Parameters.AddWithValue("run", RunId);
@@ -138,6 +150,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         command.Parameters.AddWithValue("migration", MigrationId);
         command.Parameters.AddWithValue("family", Family);
         command.Parameters.AddWithValue("scenario", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(scenario))));
+        command.Parameters.AddWithValue("authoritySecret",
+            Convert.FromHexString(signingSecretHex));
         await command.ExecuteNonQueryAsync();
     }
 
@@ -203,6 +217,66 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             throw new InvalidOperationException("Unsafe or unexpected REV869B disposable database name.");
     }
 
+    internal static async Task RecoverQuarantinedAsync(
+        string databaseName,
+        string runId,
+        string ownershipToken,
+        string family)
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_POSTGRES_OPT_IN"), ExactOptIn, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Set REV869B_POSTGRES_OPT_IN={ExactOptIn} explicitly.");
+        var raw = Environment.GetEnvironmentVariable("REV869B_POSTGRES")
+            ?? throw new InvalidOperationException("REV869B_POSTGRES is required; no fallback is permitted.");
+        var source = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
+        if (!string.Equals(source.Database, ExactSourceDatabase, StringComparison.Ordinal))
+            throw new InvalidOperationException($"Only the exact isolated source database {ExactSourceDatabase} is permitted.");
+        RequireSafeOwnedName(databaseName);
+        if (runId.Length != 32 || runId.Any(c => !Uri.IsHexDigit(c)) ||
+            ownershipToken.Length != 64 || ownershipToken.Any(c => !Uri.IsHexDigit(c)) ||
+            !string.Equals(databaseName, DatabasePrefix + runId[..24], StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(family))
+            throw new InvalidOperationException("Complete high-entropy quarantine recovery proof is required.");
+
+        var targetBuilder = new NpgsqlConnectionStringBuilder(source.ConnectionString)
+        {
+            Database = databaseName,
+            Pooling = false
+        };
+        await using (var target = new NpgsqlConnection(targetBuilder.ConnectionString))
+        {
+            await target.OpenAsync();
+            await RequireCurrentDatabaseAsync(target, databaseName, "quarantine recovery target proof");
+            await RequireMigrationOnceAsync(target);
+            await using var marker = new NpgsqlCommand($$"""
+                SELECT count(*) FROM nexa.{{MarkerTable}}
+                WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
+                  AND "SourceDatabase"=@source AND "MigrationId"=@migration AND "FixtureFamily"=@family
+                """, target);
+            marker.Parameters.AddWithValue("token", ownershipToken);
+            marker.Parameters.AddWithValue("run", runId);
+            marker.Parameters.AddWithValue("database", databaseName);
+            marker.Parameters.AddWithValue("source", ExactSourceDatabase);
+            marker.Parameters.AddWithValue("migration", MigrationId);
+            marker.Parameters.AddWithValue("family", family);
+            if (Convert.ToInt64(await marker.ExecuteScalarAsync()) != 1)
+                throw new InvalidOperationException("Quarantine recovery proof mismatch; DROP is refused.");
+        }
+
+        NpgsqlConnection.ClearAllPools();
+        var adminBuilder = new NpgsqlConnectionStringBuilder(source.ConnectionString)
+        {
+            Database = "postgres",
+            Pooling = false
+        };
+        await using var admin = new NpgsqlConnection(adminBuilder.ConnectionString);
+        await admin.OpenAsync();
+        await RequireCurrentDatabaseAsync(admin, "postgres", "quarantine recovery DROP boundary");
+        RequireSafeOwnedName(databaseName);
+        var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(databaseName);
+        await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", admin).ExecuteNonQueryAsync();
+        await RequireDatabaseAbsentAsync(admin, databaseName);
+    }
+
     public async ValueTask DisposeAsync()
     {
         await disposalGate.WaitAsync();
@@ -219,6 +293,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseName);
             await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", admin).ExecuteNonQueryAsync();
             await RequireDatabaseAbsentAsync(admin, DatabaseName);
+            if (string.Equals(Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY"), signingSecretHex, StringComparison.Ordinal))
+                Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", previousSigningSecret);
             disposed = true;
         }
         finally
