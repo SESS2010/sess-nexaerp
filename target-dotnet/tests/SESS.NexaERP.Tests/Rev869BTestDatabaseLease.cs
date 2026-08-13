@@ -96,8 +96,23 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var databaseName = DatabasePrefix + runId[..24];
         RequireSafeOwnedName(databaseName);
         var intentAt = DateTimeOffset.UtcNow;
+        var ownershipTokenHash = Convert.ToHexString(SHA256.HashData(Convert.FromHexString(ownershipToken)));
+        var controlPlaneIssuer = Environment.GetEnvironmentVariable("REV869B_CONTROL_PLANE_REQUEST_ISSUER")
+            ?? throw new InvalidOperationException("REV869B_CONTROL_PLANE_REQUEST_ISSUER is required.");
+        var controlPlaneAuthority = Environment.GetEnvironmentVariable("REV869B_CONTROL_PLANE_ISSUER_AUTHORITY")
+            ?? throw new InvalidOperationException("REV869B_CONTROL_PLANE_ISSUER_AUTHORITY is required.");
+        var sourceCommitFingerprint = Environment.GetEnvironmentVariable("REV869B_SOURCE_COMMIT_FINGERPRINT")
+            ?? throw new InvalidOperationException("REV869B_SOURCE_COMMIT_FINGERPRINT is required.");
+        if (sourceCommitFingerprint.Length != 40 || sourceCommitFingerprint.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidOperationException("REV869B_SOURCE_COMMIT_FINGERPRINT must be an exact Git commit fingerprint.");
+        var reservation = new Rev869BControlPlaneRegistry.LeaseReservation(databaseName, runId, ownershipTokenHash,
+            family, scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint, MigrationId,
+            sourceProof.MigrationFingerprint, sourceProof.OwnerPrincipal, intentAt, intentAt.AddHours(4), runtimeRole, issuerRole,
+            controlPlaneIssuer, controlPlaneAuthority);
+        // This durable registry reservation is the authority. It must commit before role/database creation.
+        await Rev869BControlPlaneRegistry.ReserveBeforeCreateAsync(reservation);
         await WriteEvidenceAsync(new QuarantineEvidence(databaseName, runId,
-            Convert.ToHexString(SHA256.HashData(Convert.FromHexString(ownershipToken))), family,
+            ownershipTokenHash, family,
             scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint,
             sourceProof.OwnerPrincipal, intentAt, runtimeRole, issuerRole, "PreCreateIntent"));
         var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
@@ -128,12 +143,28 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         {
             await lease.EstablishMarkerAsync(scenario);
             await lease.VerifyOwnershipAsync();
+            var markerFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|',
+                databaseName, runId, ownershipTokenHash, family, scenarioHash, ExactSourceDatabase,
+                sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint, sourceProof.OwnerPrincipal))));
+            await Rev869BControlPlaneRegistry.BindMarkerAndOutcomeAsync(
+                reservation, "PreCreateIntent", "OwnedActive", markerFingerprint, "Succeeded", null);
             await lease.WriteEvidenceAsync("OwnedActive");
             Environment.SetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION", issuer.ConnectionString);
             return lease;
         }
         catch (Exception creationFailure)
         {
+            try
+            {
+                await Rev869BControlPlaneRegistry.BindMarkerAndOutcomeAsync(
+                    reservation, "PreCreateIntent", "Quarantined", null, "Failed", creationFailure.GetType().Name);
+            }
+            catch (Exception registryFailure)
+            {
+                creationFailure = new AggregateException(
+                    "Provisioning failed and its durable control-plane failure outcome could not be recorded.",
+                    creationFailure, registryFailure);
+            }
             // The unique database is deliberately quarantined when its marker cannot be proved.
             // An explicit cleanup must independently verify the exact marker before DROP.
             try { await lease.DisposeAsync(); }
@@ -175,16 +206,19 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         await using (var owner = new NpgsqlCommand("""
             SELECT
               (SELECT count(*) FROM pg_roles r WHERE r.rolname='nexa_rev869b_security_owner' AND NOT r.rolcanlogin),
+              (SELECT count(*) FROM pg_roles r WHERE r.rolname='nexa_rev869b_purge_executor' AND r.rolcanlogin),
               (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
                    WHERE n.nspname='nexa' AND p.proname IN ('rev869b_slot_fingerprint','rev869b_issue_command_grant',
                     'rev869b_open_command_context','rev869b_command_context_valid','rev869b_claim_command_context',
-                    'rev869b_provision_command_authority','rev869b_purge_temporary_security_ledger')
+                    'rev869b_provision_command_authority','rev869b_reject_security_audit_mutation',
+                    'rev869b_register_purge_authorization','rev869b_begin_purge_execution',
+                    'rev869b_purge_temporary_security_ledger','rev869b_record_purge_failure')
                     AND pg_get_userbyid(p.proowner)='nexa_rev869b_security_owner')
             """, source))
         await using (var ownerReader = await owner.ExecuteReaderAsync())
         {
-            if (!await ownerReader.ReadAsync() || ownerReader.GetInt64(0) != 1 || ownerReader.GetInt64(1) != 7)
-                throw new InvalidOperationException("Source must use the exact dedicated NOLOGIN owner for all seven REV869B security functions.");
+            if (!await ownerReader.ReadAsync() || ownerReader.GetInt64(0) != 1 || ownerReader.GetInt64(1) != 1 || ownerReader.GetInt64(2) != 11)
+                throw new InvalidOperationException("Source must use the dedicated security owner, purge executor, and all eleven exact security functions.");
         }
         await using var fingerprint = new NpgsqlCommand("""
             SELECT
@@ -238,8 +272,10 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             DELETE FROM nexa.rev869b_command_authorities;
             GRANT USAGE ON SCHEMA nexa TO {{quotedRuntime}},{{quotedIssuer}};
             GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA nexa TO {{quotedRuntime}};
-            REVOKE UPDATE,DELETE ON nexa.audit_logs FROM {{quotedRuntime}};
-            REVOKE ALL ON nexa.rev869b_command_authorities,nexa.rev869b_command_grants,nexa.rev869b_command_contexts,nexa.rev869b_claim_sequence_pool,nexa.{{MarkerTable}} FROM {{quotedRuntime}},{{quotedIssuer}};
+            REVOKE SELECT,UPDATE,DELETE ON nexa.audit_logs FROM {{quotedRuntime}};
+            REVOKE ALL ON nexa.rev869b_command_authorities,nexa.rev869b_command_grants,nexa.rev869b_command_contexts,
+              nexa.rev869b_claim_sequence_pool,nexa.rev869b_command_security_audits,nexa.rev869b_purge_authorizations,
+              nexa.rev869b_purge_attempt_audits,nexa.{{MarkerTable}} FROM {{quotedRuntime}},{{quotedIssuer}};
             SELECT nexa.rev869b_provision_command_authority(@issuer,@runtime,NULL);
             """, connection);
         command.Parameters.AddWithValue("token", OwnershipToken);
@@ -418,9 +454,15 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var now = DateTimeOffset.UtcNow;
         if (authorization.Purpose != RecoveryPurpose || authorization.AuthorizationId == Guid.Empty ||
             authorization.Nonce.Length < 32 || authorization.IssuedAt > now || authorization.ExpiresAt <= now ||
-            authorization.ExpiresAt > authorization.IssuedAt.AddMinutes(15))
+            authorization.ExpiresAt > authorization.IssuedAt.AddMinutes(15) ||
+            string.IsNullOrWhiteSpace(authorization.ApprovalIssuer) ||
+            string.IsNullOrWhiteSpace(authorization.IssuerAuthority) || string.IsNullOrWhiteSpace(authorization.ApprovalReference) ||
+            string.IsNullOrWhiteSpace(authorization.Reason) || string.IsNullOrWhiteSpace(authorization.ExecutorIdentity) ||
+            authorization.ExpectedPreState != evidence.State || authorization.AuthorizedPostState != "Dropped")
             throw new InvalidOperationException("Recovery authorization is stale, expired, wrong-purpose, or not bounded to fifteen minutes.");
         var approvalCanonical = string.Join('|', RecoveryPurpose, authorization.AuthorizationId, authorization.Nonce,
+            authorization.ApprovalIssuer, authorization.IssuerAuthority, authorization.ExpectedPreState, authorization.AuthorizedPostState,
+            authorization.ApprovalReference, authorization.Reason, authorization.ExecutorIdentity,
             authorization.IssuedAt.ToUniversalTime().ToString("O"), authorization.ExpiresAt.ToUniversalTime().ToString("O"),
             databaseName, runId, ownershipHash, family, scenarioHash,
             ExactSourceDatabase, sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint,
@@ -429,8 +471,24 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         if (authorization.Signature.Length != 64 || authorization.Signature.Any(c => !Uri.IsHexDigit(c)) ||
             !CryptographicOperations.FixedTimeEquals(expectedApproval, Convert.FromHexString(authorization.Signature)))
             throw new InvalidOperationException("A separately governed, instance-bound quarantine recovery signature is required.");
+        var recoveryReservation = new Rev869BControlPlaneRegistry.LeaseReservation(databaseName, runId, ownershipHash,
+            family, scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint,
+            Environment.GetEnvironmentVariable("REV869B_SOURCE_COMMIT_FINGERPRINT") ?? throw new InvalidOperationException("REV869B_SOURCE_COMMIT_FINGERPRINT is required."), MigrationId,
+            sourceProof.MigrationFingerprint, expectedOwner, provisionedAt, provisionedAt.AddHours(4), runtimeRole, issuerRole,
+            authorization.ApprovalIssuer, authorization.IssuerAuthority);
+        var targetFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(approvalCanonical)));
+        var recoveryApproval = new Rev869BControlPlaneRegistry.RecoveryApproval(authorization.AuthorizationId,
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(authorization.Nonce))), authorization.Purpose,
+            authorization.ApprovalIssuer, authorization.IssuerAuthority, authorization.ExpectedPreState,
+            authorization.AuthorizedPostState, authorization.ApprovalReference, authorization.Reason,
+            authorization.ExecutorIdentity, authorization.IssuedAt, authorization.ExpiresAt);
+        // The registry atomically validates scope and consumes the approval before any target access or DROP.
+        var recoveryAttempt = await Rev869BControlPlaneRegistry.ConsumeRecoveryBeforeMutationAsync(
+            recoveryReservation, recoveryApproval, targetFingerprint);
         await ConsumeRecoveryAuthorizationAsync(databaseName, runId, authorization, approvalCanonical);
 
+        try
+        {
         var targetBuilder = new NpgsqlConnectionStringBuilder(source.ConnectionString)
         {
             Database = databaseName,
@@ -494,6 +552,23 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         await RequireDatabaseAbsentAsync(admin, databaseName);
         await DropOwnedRolesAsync(admin, runtimeRole, issuerRole, runId);
         await WriteEvidenceAsync(evidence with { State = "Dropped" });
+        await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, evidence.State, "Dropped",
+            recoveringPreCreateInterruption ? null : ownershipHash, "Succeeded", null);
+        }
+        catch (Exception recoveryFailure)
+        {
+            try
+            {
+                await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, evidence.State,
+                    evidence.State, recoveringPreCreateInterruption ? null : ownershipHash, "Failed", recoveryFailure.GetType().Name);
+            }
+            catch (Exception outcomeFailure)
+            {
+                throw new AggregateException("Recovery failed and its durable control-plane outcome could not be recorded.",
+                    recoveryFailure, outcomeFailure);
+            }
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -674,5 +749,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         string ExpectedOwner, DateTimeOffset ProvisionedAt, string RuntimeRole, string IssuerRole, string State);
     private sealed record SignedQuarantineEvidence(string Payload, string Signature);
     private sealed record RecoveryAuthorization(Guid AuthorizationId, string Nonce, string Purpose,
+        string ApprovalIssuer, string IssuerAuthority, string ExpectedPreState, string AuthorizedPostState,
+        string ApprovalReference, string Reason, string ExecutorIdentity,
         DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, string Signature);
 }

@@ -16,6 +16,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
     private static readonly string ApplicationPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresApplicationBehaviorTests.cs");
     private static readonly string DirectPostgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BPostgresBehaviorTests.cs");
     private static readonly string Lease = Read("tests", "SESS.NexaERP.Tests", "Rev869BTestDatabaseLease.cs");
+    private static readonly string ControlPlane = Read("tests", "SESS.NexaERP.Tests", "Rev869BControlPlaneRegistry.cs");
+    private static readonly string Correction14Postgres = Read("tests", "SESS.NexaERP.Tests", "Rev869BCorrection14PostgresDesignTests.cs");
     private static readonly string PurchaseFlows = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs") +
         Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.RfqQuotation.cs") +
         Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs") +
@@ -225,9 +227,50 @@ public sealed class Rev869BDatabaseSafetyContractTests
             "PurgeExpiredAudit", "minimumRetentionYears", "nexa.rev869b_audit_cleanup_reason",
             "nexa.rev869b_audit_cleanup_correlation", "session_user IS DISTINCT FROM database_owner" })
             Assert.Contains(value, Controlled);
-        Assert.Contains("REVOKE UPDATE,DELETE ON nexa.audit_logs", Lease);
+        Assert.Contains("REVOKE SELECT,UPDATE,DELETE ON nexa.audit_logs", Lease);
         Assert.Contains("DROP TRIGGER IF EXISTS trg_rev869b_durable_audit_retention", Controlled);
         Assert.DoesNotContain("DELETE FROM nexa.audit_logs", Authorizer + ServiceSource());
+    }
+
+    [Fact]
+    public void FourteenthCorrectionRequiresDatabaseBackedAuthorityBeforeMarkerOrCreation()
+    {
+        foreach (var value in new[] { "sess_nexaerp_rev869b_control_plane", "Pooling = false",
+            "rev869b_reserve_database_lease", "nexa_rev869b_control_plane_owner",
+            "no-direct-table-access proof failed", "filesystem state cannot authorize provisioning or recovery" })
+            Assert.Contains(value, ControlPlane);
+        Assert.True(Lease.IndexOf("ReserveBeforeCreateAsync", StringComparison.Ordinal) <
+                    Lease.IndexOf("CREATE ROLE", StringComparison.Ordinal));
+        Assert.Contains("BindMarkerAndOutcomeAsync", Lease);
+        Assert.Contains("PreCreateIntent", Lease);
+        Assert.Contains("OwnedActive", Lease);
+    }
+
+    [Fact]
+    public void FourteenthCorrectionBindsRecoveryIssuerPreStateConsumptionAndOutcome()
+    {
+        foreach (var value in new[] { "ApprovalIssuer", "IssuerAuthority", "ExpectedPreState", "AuthorizedPostState",
+            "ConsumeRecoveryBeforeMutationAsync", "RecordRecoveryOutcomeAsync", "Failed", "Succeeded" })
+            Assert.Contains(value, Lease + ControlPlane);
+        Assert.True(Lease.IndexOf("ConsumeRecoveryBeforeMutationAsync", StringComparison.Ordinal) <
+                    Lease.IndexOf("quarantine recovery target proof", StringComparison.Ordinal));
+        Assert.Contains("rev869b_consume_recovery_approval", ControlPlane);
+        Assert.Contains("rev869b_record_recovery_outcome", ControlPlane);
+    }
+
+    [Fact]
+    public void FourteenthCorrectionSeparatesPermanentCommandAuditAndAddsAllAdversarialDesigns()
+    {
+        foreach (var value in new[] { "rev869b_command_security_audits", "rev869b_purge_authorizations",
+            "rev869b_purge_attempt_audits", "rev869b_ten_year_append_only_security_audit",
+            "Authorized; no committed claim yet", "Claim committed atomically with protected command",
+            "REVOKE ALL ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) FROM PUBLIC",
+            "GRANT EXECUTE ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) TO nexa_rev869b_purge_executor" })
+            Assert.Contains(value, CommandContext);
+        Assert.Equal(25, Count(Correction14Postgres, "[Fact] public Task"));
+        Assert.Contains("Assert.NotEqual(actor.ProcessID, verifier.ProcessID)", Correction14Postgres);
+        Assert.Contains("""Assert.Equal("42501", denial.SqlState)""", Correction14Postgres);
+        Assert.Contains("Assert.Equal(1L, reader.GetInt64(2))", Correction14Postgres);
     }
 
     [Fact]
@@ -354,10 +397,11 @@ public sealed class Rev869BDatabaseSafetyContractTests
     [Fact]
     public void ApprovedTemporaryLedgerPolicyIsBoundedOwnerOnlyAndAudited()
     {
-        foreach (var value in new[] { "MGMT-REV869B-SECURITY-LEDGER-20260813-001", "retention_days<>90",
-            "max_rows NOT BETWEEN 1 AND 1000", "FOR UPDATE SKIP LOCKED LIMIT max_rows",
-            "pg_advisory_xact_lock", "rev869b_temporary_purge_count_mismatch", "retainedAuditCount",
-            "PurgeTemporarySecurityLedger", "REVOKE ALL ON FUNCTION nexa.rev869b_purge_temporary_security_ledger" })
+        foreach (var value in new[] { "MGMT-REV869B-SECURITY-LEDGER-20260813-001", "rev869b_fresh_exact_purge_approval_required",
+            "cutoff_at IS DISTINCT FROM issued_at-interval '90 days'", "maximum_batch_size NOT BETWEEN 1 AND 1000",
+            "ARRAY['Expired','Unclaimed']::text[]", "nexa_rev869b_purge_executor", "pg_advisory_xact_lock",
+            "rev869b_temporary_purge_count_mismatch", "RetainedAuditCount", "ZeroRows", "rev869b_record_purge_failure",
+            "PurgeTemporarySecurityLedger", "REVOKE ALL ON FUNCTION nexa.rev869b_purge_temporary_security_ledger(uuid)" })
             Assert.Contains(value, CommandContext);
         Assert.DoesNotContain("SELECT *", CommandContext);
         Assert.Contains("REV869B_SECURITY_LEDGER_EXPORTS", Lease);
