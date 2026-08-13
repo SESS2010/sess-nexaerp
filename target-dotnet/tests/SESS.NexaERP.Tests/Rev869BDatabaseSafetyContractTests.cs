@@ -142,14 +142,15 @@ public sealed class Rev869BDatabaseSafetyContractTests
     }
 
     [Fact]
-    public void TenthCorrectionUsesSignedIssuerBoundTransactionLocalCommandClaims()
+    public void EleventhCorrectionUsesFingerprintMinimizedTransactionLocalCommandClaims()
     {
         foreach (var value in new[] { "SECURITY DEFINER", "REVOKE ALL", "pg_backend_pid()", "txid_current()", "session_user",
             "transaction_timestamp()", "rev869b_command_token", "set_config('nexa.rev869b_command_token',command_token::text,true)",
-            "'claimKind'", "'historyId'", "'entityType'", "'entityId'", "'operation'", "'parentVersion'", "'fromStatus'", "'toStatus'",
-            "'actorEmployeeId'", "'identityIssuer'", "'identitySubject'", "'actorRole'", "'organization'",
-            "'correlation'", "'remarks'", "'serverTransactionId'", "'serverTimestamp'", "hmac(", "command_nonce", "signature_hex" })
+            "claim_kind", "history_id", "entity_type", "entity_id", "operation", "parent_version", "from_status", "to_status",
+            "correlation", "remarks", "claim_fingerprint", "'fingerprint'", "public.digest(", "hmac(", "command_nonce", "signature_hex" })
             Assert.Contains(value, CommandContext);
+        Assert.Contains("expected_transaction_id IS DISTINCT FROM txid_current()", CommandContext);
+        Assert.Contains("transactionId.ToString(CultureInfo.InvariantCulture)", Authorizer);
         Assert.Contains("rev869b_command_context_valid", Controlled);
         Assert.Contains("rev869b_claim_command_context", Controlled);
         Assert.DoesNotContain("set_config('nexa.rev869b_command_token',command_token::text,false)", CommandContext);
@@ -179,6 +180,25 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("expected_action='Normalize'", Controlled);
         Assert.Contains("h.\"AfterJson\"->>'CreatedBy'=h.\"ActorLoginId\"", Controlled);
         Assert.Contains("WHEN expected_action IN ('Create','Normalize') THEN 'Pending Approval'", Controlled);
+        Assert.Contains("CK_vendor_qualification_rev869b_lifecycle", Controlled);
+        var q = (char)34;
+        Assert.Contains($"{q}VerificationStatus{q}='Verified' AND {q}ApprovalStatus{q}='Approved'", Controlled);
+        Assert.Contains($"min(h.{q}Id{q}::text)::uuid,min(h.{q}Remarks{q})", Controlled);
+        Assert.DoesNotContain($"SELECT h.{q}Id{q},h.{q}Remarks{q} INTO expected_history_id,history_remarks", Controlled);
+    }
+
+    [Fact]
+    public void EleventhCorrectionAlignsQualificationConsumersAndCurrentChildParents()
+    {
+        var purchase = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.RfqQuotation.cs");
+        var foundation = Read("src", "SESS.NexaERP.Infrastructure", "Masters", "EfRev869AFoundationServices.cs");
+        Assert.All(new[] { purchase, foundation }, source =>
+            Assert.Contains("VerificationStatus == MasterApprovalStatuses.Verified", source));
+        Assert.DoesNotContain("VerificationStatus == MasterApprovalStatuses.Approved && x.ApprovalStatus", purchase + foundation);
+        var q = (char)34;
+        Assert.Equal(2, Count(Safety, $"qualification.{q}VerificationStatus{q}='Verified' AND qualification.{q}ApprovalStatus{q}='Approved'"));
+        Assert.Contains($"p.{q}Version{q}=0 AND p.{q}IsCurrentVersion{q}", Safety);
+        Assert.Contains($"q.{q}Status{q}='Submitted'\n                   AND q.{q}IsCurrentRevision{q}", Safety.Replace("\r\n", "\n"));
     }
 
     [Fact]
@@ -193,9 +213,9 @@ public sealed class Rev869BDatabaseSafetyContractTests
     [Fact]
     public void CommandAuthorityIsExternallyKeyedIssuerBoundReplayBoundAndShortRetained()
     {
-        foreach (var value in new[] { "rev869b_command_authorities", "DatabasePrincipal", "IdentityIssuer", "IdentitySubject",
+        foreach (var value in new[] { "rev869b_command_authorities", "DatabasePrincipal", "IdentityFingerprint", "ActorFingerprint",
             "Nonce", "AuthenticatedAt", "rev869b_command_signature_stale", "rev869b_command_signature_invalid",
-            "rev869b_command_nonce_reused", "interval '15 minutes'", "DELETE FROM nexa.rev869b_command_contexts",
+            "rev869b_command_nonce_reused", "ExpiresAt", "interval '30 seconds'", "SecretFingerprint",
             "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public", "public.hmac(" })
             Assert.Contains(value, CommandContext);
         Assert.Contains("SHA256.HashData", Authorizer);
@@ -203,8 +223,10 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("REV869B_COMMAND_SIGNING_KEY", Authorizer);
         Assert.Contains("Convert.FromHexString", Authorizer);
         Assert.DoesNotContain("const string SigningKey", Authorizer + CommandContext);
+        Assert.DoesNotContain($"{(char)34}Secret{(char)34} bytea", CommandContext);
+        Assert.DoesNotContain("DELETE FROM nexa.rev869b_command_contexts", CommandContext);
         Assert.Contains("DELETE FROM nexa.rev869b_command_authorities", Lease);
-        Assert.Contains("rev869b_provision_command_authority(current_user,@authoritySecret,NULL)", Lease);
+        Assert.Contains("rev869b_provision_command_authority(current_user,@authorityFingerprint,NULL)", Lease);
         Assert.Contains("rev869b_provision_command_authority", CommandContext);
         Assert.Contains("session_user IS DISTINCT FROM", CommandContext);
         Assert.Contains("GRANT EXECUTE ON FUNCTION nexa.rev869b_open_command_context", CommandContext);
@@ -213,9 +235,10 @@ public sealed class Rev869BDatabaseSafetyContractTests
     [Fact]
     public void HistoryClaimSlotsAreDistinctExactAndSingleUse()
     {
-        foreach (var value in new[] { "claim_kind text", "history_id uuid", "'claimKind'", "'historyId'",
-            "prior->>'claimKind'=claim_kind", "prior->>'historyId'=history_id::text",
-            "prior->>'parentVersion'", "rev869b_command_claim_stale_or_reused" })
+        foreach (var value in new[] { "claim_kind text", "history_id uuid", "entity_type text", "entity_id uuid",
+            "operation text", "parent_version bigint", "from_status text", "to_status text",
+            "claim_fingerprint", "prior->>'fingerprint'=claim_fingerprint",
+            "rev869b_command_claim_stale_or_reused" })
             Assert.Contains(value, CommandContext);
         Assert.Contains("rev869b_claim_command_context(TG_TABLE_NAME,NEW.\"Id\"", Controlled);
         Assert.Contains("'qualification_history',expected_history_id", Controlled);
@@ -269,6 +292,11 @@ public sealed class Rev869BDatabaseSafetyContractTests
             "Quarantine recovery proof mismatch; DROP is refused.", "DROP DATABASE", "RequireDatabaseAbsentAsync" })
             Assert.Contains(value, Lease);
         Assert.DoesNotContain("DELETE FROM nexa.purchase_transaction", Lease);
+        Assert.DoesNotContain("try { await lease.DisposeAsync(); } catch { }", Lease);
+        Assert.Contains("REV869B_QUARANTINE_RECOVERY_APPROVAL", Lease);
+        var q = (char)34;
+        Assert.Contains($"{q}ExpectedOwner{q}=current_user AND {q}QuarantineState{q}='Quarantined'", Lease);
+        Assert.Contains("await VerifySourceAsync(source.ConnectionString)", Lease);
     }
 
     [Fact]

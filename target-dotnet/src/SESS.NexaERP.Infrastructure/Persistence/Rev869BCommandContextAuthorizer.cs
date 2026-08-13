@@ -22,6 +22,7 @@ public static class Rev869BCommandContextAuthorizer
 
         var authenticatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var nonce = Guid.NewGuid();
+        var transactionId = await db.Database.SqlQueryRaw<long>("SELECT txid_current() AS \"Value\"").SingleAsync(ct);
         var canonical = string.Join('|',
             user.EmployeeId.Value.ToString("N"),
             user.IdentityIssuer,
@@ -29,11 +30,12 @@ public static class Rev869BCommandContextAuthorizer
             user.RoleCode,
             organization,
             authenticatedAt.ToString(CultureInfo.InvariantCulture),
-            nonce.ToString("N"));
+            nonce.ToString("N"),
+            transactionId.ToString(CultureInfo.InvariantCulture));
         var key = Convert.FromHexString(signingKeyHex);
         var signature = Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(canonical)));
 
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_open_command_context({user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{authenticatedAt},{nonce},{signature})", ct);
+            $"SELECT nexa.rev869b_open_command_context({user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{authenticatedAt},{nonce},{transactionId},{signature},{signingKeyHex})", ct);
     }
 }

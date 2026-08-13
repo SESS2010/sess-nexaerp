@@ -94,7 +94,7 @@ public sealed partial class EfRev869BPurchaseService
         foreach (var category in categories) if (!await vendors.IsEligibleAsync(request.VendorId, rfq.OrganizationId, category, qualificationDate, ct)) throw new InvalidOperationException("Vendor is not active, approved, effective and qualified.");
         var qualifications = await db.VendorQualifications.AsNoTracking()
             .Where(x => x.VendorId == request.VendorId && x.OrganizationId == rfq.OrganizationId && x.IsActive &&
-                x.VerificationStatus == MasterApprovalStatuses.Approved && x.ApprovalStatus == MasterApprovalStatuses.Approved &&
+                x.VerificationStatus == MasterApprovalStatuses.Verified && x.ApprovalStatus == MasterApprovalStatuses.Approved &&
                 x.EffectiveFrom <= qualificationDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= qualificationDate) &&
                 x.VerifiedByEmployeeId.HasValue && x.ApprovedByEmployeeId.HasValue &&
                 x.ItemCategoryId.HasValue && categories.Contains(x.ItemCategoryId.Value))

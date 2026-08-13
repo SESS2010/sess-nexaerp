@@ -43,15 +43,17 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
     {
         var authenticatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var nonce = Guid.NewGuid();
+        var transactionId = Convert.ToInt64(await new NpgsqlCommand("SELECT txid_current()", connection, transaction).ExecuteScalarAsync());
         var signingKeyHex = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY");
         if (signingKeyHex is null || signingKeyHex.Length != 64 || signingKeyHex.Any(c => !Uri.IsHexDigit(c)))
             throw new InvalidOperationException("Owned command signing key is missing.");
         var canonical = string.Join('|', actorEmployeeId.ToString("N"), Issuer, Login, role, Organization,
-            authenticatedAt.ToString(CultureInfo.InvariantCulture), nonce.ToString("N"));
+            authenticatedAt.ToString(CultureInfo.InvariantCulture), nonce.ToString("N"),
+            transactionId.ToString(CultureInfo.InvariantCulture));
         var key = Convert.FromHexString(signingKeyHex);
         var signature = Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(canonical)));
         var command = new NpgsqlCommand(
-            "SELECT nexa.rev869b_open_command_context(@employee,@issuer,@subject,@role,@organization,@authenticatedAt,@nonce,@signature)",
+            "SELECT nexa.rev869b_open_command_context(@employee,@issuer,@subject,@role,@organization,@authenticatedAt,@nonce,@transactionId,@signature,@signingKey)",
             connection, transaction);
         command.Parameters.AddWithValue("employee", actorEmployeeId);
         command.Parameters.AddWithValue("issuer", Issuer);
@@ -60,7 +62,9 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
         command.Parameters.AddWithValue("organization", Organization);
         command.Parameters.AddWithValue("authenticatedAt", authenticatedAt);
         command.Parameters.AddWithValue("nonce", nonce);
+        command.Parameters.AddWithValue("transactionId", transactionId);
         command.Parameters.AddWithValue("signature", signature);
+        command.Parameters.AddWithValue("signingKey", signingKeyHex);
         await command.ExecuteNonQueryAsync();
     }
 

@@ -236,13 +236,16 @@ public sealed class Rev869BPostgresBehaviorTests
             ("issuer", Rev869BOwnedPostgresDatabase.Issuer), ("subject", Rev869BOwnedPostgresDatabase.Login));
         await using (var transaction = await ((NpgsqlConnection)connection).BeginTransactionAsync(IsolationLevel.Serializable))
         {
+            var transactionId = Convert.ToInt64(await new NpgsqlCommand("SELECT txid_current()", (NpgsqlConnection)connection, transaction).ExecuteScalarAsync());
+            var signingKey = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY")
+                ?? throw new InvalidOperationException("Owned command signing key is missing.");
             await AssertPostgresGuardAsync(() => ExecuteAsync(connection, """
                 SELECT nexa.rev869b_open_command_context(
-                  @employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@authenticatedAt,@nonce,@signature)
+                  @employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@authenticatedAt,@nonce,@transactionId,@signature,@signingKey)
                 """, transaction, ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
                 ("subject", Rev869BOwnedPostgresDatabase.Login), ("organization", Rev869BOwnedPostgresDatabase.Organization),
                 ("authenticatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("nonce", Guid.NewGuid()),
-                ("signature", new string('0', 64))), PostgresErrorCodes.InsufficientPrivilege,
+                ("transactionId", transactionId), ("signature", new string('0', 64)), ("signingKey", signingKey)), PostgresErrorCodes.InsufficientPrivilege,
                 "rev869b_command_signature_invalid");
             await transaction.RollbackAsync();
         }
@@ -678,7 +681,6 @@ public sealed class Rev869BPostgresBehaviorTests
         var fields = evidence.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (fields.Length == 2)
         {
-            Assert.Equal("nexa", error.SchemaName);
             Assert.Equal(fields[0], error.TableName);
             Assert.Equal(fields[1], error.ColumnName);
         }

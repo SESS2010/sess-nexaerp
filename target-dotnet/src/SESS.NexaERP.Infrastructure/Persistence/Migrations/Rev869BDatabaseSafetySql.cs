@@ -131,11 +131,12 @@ internal static class Rev869BDatabaseSafetySql
             ELSIF TG_TABLE_NAME='purchase_order_lines' THEN
                 SELECT count(*) INTO matched FROM nexa.purchase_orders p
                  WHERE p."Id"=NEW."PurchaseOrderId" AND p."Status" IN ('Draft','RevisionDraft')
-                   AND p."Version"=0 AND length(trim(p."OrganizationId"))>0;
+                   AND p."Version"=0 AND p."IsCurrentVersion" AND length(trim(p."OrganizationId"))>0;
             ELSIF TG_TABLE_NAME='quotation_technical_verifications' THEN
                 SELECT count(*) INTO matched FROM nexa.vendor_quotation_lines ql
                 JOIN nexa.vendor_quotations q ON q."Id"=ql."VendorQuotationId"
-                 WHERE ql."Id"=NEW."VendorQuotationLineId" AND q."Status"='Submitted';
+                 WHERE ql."Id"=NEW."VendorQuotationLineId" AND q."Status"='Submitted'
+                   AND q."IsCurrentRevision" AND length(trim(q."OrganizationId"))>0;
             ELSIF TG_TABLE_NAME='material_followup_handoffs' THEN
                 SELECT count(*) INTO matched FROM nexa.purchase_orders p
                  WHERE p."Id"=NEW."PurchaseOrderId" AND p."Status"='Issued'
@@ -199,7 +200,7 @@ internal static class Rev869BDatabaseSafetySql
                        vendor."IsActive" AND vendor."VendorStatus"='Active' AND vendor."ApprovalStatus"='Approved' AND
                        vendor."CommercialVerificationStatus"='Approved' AND vendor."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (vendor."EffectiveTo" IS NULL OR vendor."EffectiveTo">=q."ReceivedAt"::date) AND
-                       qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
+                       qualification."IsActive" AND qualification."VerificationStatus"='Verified' AND qualification."ApprovalStatus"='Approved' AND
                        qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
                        qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
                        nexa.rev869b_qualification_provenance_valid(qualification."Id") IS TRUE AND
@@ -310,7 +311,7 @@ internal static class Rev869BDatabaseSafetySql
                        vendor."IsActive" AND vendor."VendorStatus"='Active' AND vendor."ApprovalStatus"='Approved' AND
                        vendor."CommercialVerificationStatus"='Approved' AND vendor."EffectiveFrom"<=q."ReceivedAt"::date AND
                        (vendor."EffectiveTo" IS NULL OR vendor."EffectiveTo">=q."ReceivedAt"::date) AND
-                       qualification."IsActive" AND qualification."VerificationStatus"='Approved' AND qualification."ApprovalStatus"='Approved' AND
+                       qualification."IsActive" AND qualification."VerificationStatus"='Verified' AND qualification."ApprovalStatus"='Approved' AND
                        qualification."VerifiedByEmployeeId" IS NOT NULL AND qualification."ApprovedByEmployeeId" IS NOT NULL AND
                        qualification."VerifiedByEmployeeId"<>qualification."ApprovedByEmployeeId" AND
                        nexa.rev869b_qualification_provenance_valid(qualification."Id") IS TRUE AND

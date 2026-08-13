@@ -3,6 +3,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 internal static class Rev869BControlledMutationSql
 {
     public const string Install = """
+        ALTER TABLE nexa.vendor_qualifications DROP CONSTRAINT IF EXISTS "CK_vendor_qualification_rev869b_lifecycle";
+        ALTER TABLE nexa.vendor_qualifications ADD CONSTRAINT "CK_vendor_qualification_rev869b_lifecycle" CHECK (
+          ("VerificationStatus"='Draft' AND "ApprovalStatus"='Draft' AND "VerifiedByEmployeeId" IS NULL AND "ApprovedByEmployeeId" IS NULL) OR
+          ("VerificationStatus"='Pending Approval' AND "ApprovalStatus"='Pending Approval' AND "VerifiedByEmployeeId" IS NULL AND "ApprovedByEmployeeId" IS NULL) OR
+          ("VerificationStatus"='Verified' AND "ApprovalStatus"='Pending Approval' AND "VerifiedByEmployeeId" IS NOT NULL AND "ApprovedByEmployeeId" IS NULL) OR
+          ("VerificationStatus"='Verified' AND "ApprovalStatus"='Approved' AND "VerifiedByEmployeeId" IS NOT NULL AND "ApprovedByEmployeeId" IS NOT NULL AND "VerifiedByEmployeeId"<>"ApprovedByEmployeeId") OR
+          ("VerificationStatus"='Approved' AND "ApprovalStatus"='Approved' AND "VerifiedByEmployeeId" IS NOT NULL AND "ApprovedByEmployeeId" IS NOT NULL AND "VerifiedByEmployeeId"<>"ApprovedByEmployeeId")
+        );
         CREATE OR REPLACE FUNCTION nexa.rev869b_guard_history_insert()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,nexa AS $rev869b$
         DECLARE matches bigint; creator_matches bigint; parent_version bigint; parent_login text; parent_org text; parent_number text; parent_status text; parent_correlation text; parent_creator text; parent_creator_employee uuid;
@@ -251,7 +259,9 @@ internal static class Rev869BControlledMutationSql
           expected_employee:=CASE WHEN TG_OP='INSERT' OR expected_action='Normalize' THEN nullif(current_setting('nexa.rev869b_actor_employee_id',true),'')::uuid WHEN expected_action='Approve' THEN NEW."ApprovedByEmployeeId" ELSE NEW."VerifiedByEmployeeId" END;
           expected_creator:=CASE WHEN TG_OP='INSERT' THEN NEW."CreatedBy" ELSE NEW."UpdatedBy" END;
           expected_correlation:=format('REV869B|QUALIFICATION|%s|%s|%s',replace(NEW."Id"::text,'-',''),NEW."Version",upper(expected_action));
-          SELECT count(*) INTO history_matches FROM nexa.controlled_configuration_histories h
+          SELECT count(*),min(h."Id"::text)::uuid,min(h."Remarks")
+            INTO history_matches,expected_history_id,history_remarks
+          FROM nexa.controlled_configuration_histories h
             JOIN nexa.employee_identity_mappings m ON m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=h."ActorLoginId" AND m."EmployeeId"=expected_employee AND m."IsActive"
             WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND h."OrganizationId"=NEW."OrganizationId"
               AND h."Action"=expected_action AND h."Version"=NEW."Version" AND h."CreatedBy"=expected_creator
@@ -267,10 +277,6 @@ internal static class Rev869BControlledMutationSql
               CONSTRAINT='rev869b_qualification_requires_history',
               MESSAGE='Qualification lifecycle requires one exact same-transaction immutable history.';
           END IF;
-          SELECT h."Id",h."Remarks" INTO expected_history_id,history_remarks
-          FROM nexa.controlled_configuration_histories h
-          WHERE h."EntityType"='VendorQualification' AND h."EntityId"=NEW."Id" AND h."Action"=expected_action
-            AND h."Version"=NEW."Version" AND h."CorrelationId"=expected_correlation AND h.xmin::text::bigint=txid_current();
           PERFORM nexa.rev869b_claim_command_context(
             'qualification_history',expected_history_id,'VendorQualification',NEW."Id",expected_action,
             CASE WHEN TG_OP='INSERT' THEN 0 ELSE OLD."Version" END,
@@ -489,6 +495,7 @@ internal static class Rev869BControlledMutationSql
         """;
 
     public const string Remove = """
+        ALTER TABLE nexa.vendor_qualifications DROP CONSTRAINT IF EXISTS "CK_vendor_qualification_rev869b_lifecycle";
         DROP TRIGGER IF EXISTS trg_rev869b_qualification_history_insert_guard ON nexa.controlled_configuration_histories;
         DROP FUNCTION IF EXISTS nexa.rev869b_require_qualification_history() CASCADE;
         DROP FUNCTION IF EXISTS nexa.rev869b_guard_qualification_history_insert() CASCADE;

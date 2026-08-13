@@ -86,11 +86,17 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", signingSecretHex);
             return lease;
         }
-        catch
+        catch (Exception creationFailure)
         {
             // The unique database is deliberately quarantined when its marker cannot be proved.
             // An explicit cleanup must independently verify the exact marker before DROP.
-            try { await lease.DisposeAsync(); } catch { }
+            try { await lease.DisposeAsync(); }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(
+                    "Disposable database creation failed and proof-bound cleanup also failed; the database remains quarantined.",
+                    creationFailure, cleanupFailure);
+            }
             throw;
         }
     }
@@ -134,14 +140,16 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
               "MigrationId" text NOT NULL,
               "FixtureFamily" text NOT NULL,
               "ScenarioHash" text NOT NULL,
+              "ExpectedOwner" name NOT NULL,
+              "QuarantineState" text NOT NULL CHECK ("QuarantineState" IN ('OwnedActive','Quarantined')),
               "ProvisionedAt" timestamptz NOT NULL DEFAULT statement_timestamp()
             );
             REVOKE ALL ON nexa.{{MarkerTable}} FROM PUBLIC;
-            INSERT INTO nexa.{{MarkerTable}}("OwnershipToken","RunId","DatabaseName","SourceDatabase","MigrationId","FixtureFamily","ScenarioHash")
-            VALUES(@token,@run,@database,@source,@migration,@family,@scenario);
+            INSERT INTO nexa.{{MarkerTable}}("OwnershipToken","RunId","DatabaseName","SourceDatabase","MigrationId","FixtureFamily","ScenarioHash","ExpectedOwner","QuarantineState")
+            VALUES(@token,@run,@database,@source,@migration,@family,@scenario,current_user,'OwnedActive');
             DELETE FROM nexa.rev869b_command_contexts;
             DELETE FROM nexa.rev869b_command_authorities;
-            SELECT nexa.rev869b_provision_command_authority(current_user,@authoritySecret,NULL);
+            SELECT nexa.rev869b_provision_command_authority(current_user,@authorityFingerprint,NULL);
             """, connection);
         command.Parameters.AddWithValue("token", OwnershipToken);
         command.Parameters.AddWithValue("run", RunId);
@@ -150,8 +158,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         command.Parameters.AddWithValue("migration", MigrationId);
         command.Parameters.AddWithValue("family", Family);
         command.Parameters.AddWithValue("scenario", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(scenario))));
-        command.Parameters.AddWithValue("authoritySecret",
-            Convert.FromHexString(signingSecretHex));
+        command.Parameters.AddWithValue("authorityFingerprint",
+            SHA256.HashData(Convert.FromHexString(signingSecretHex)));
         await command.ExecuteNonQueryAsync();
     }
 
@@ -171,6 +179,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             SELECT count(*) FROM nexa.{{MarkerTable}}
             WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
               AND "SourceDatabase"=@source AND "MigrationId"=@migration AND "FixtureFamily"=@family
+              AND "ExpectedOwner"=current_user AND "QuarantineState"='OwnedActive'
             """, connection);
         marker.Parameters.AddWithValue("token", OwnershipToken);
         marker.Parameters.AddWithValue("run", RunId);
@@ -230,6 +239,10 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var source = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         if (!string.Equals(source.Database, ExactSourceDatabase, StringComparison.Ordinal))
             throw new InvalidOperationException($"Only the exact isolated source database {ExactSourceDatabase} is permitted.");
+        await VerifySourceAsync(source.ConnectionString);
+        if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_QUARANTINE_RECOVERY_APPROVAL"),
+                "APPROVE_EXACT_REV869B_QUARANTINE_RECOVERY", StringComparison.Ordinal))
+            throw new InvalidOperationException("A separately approved exact quarantine recovery is required.");
         RequireSafeOwnedName(databaseName);
         if (runId.Length != 32 || runId.Any(c => !Uri.IsHexDigit(c)) ||
             ownershipToken.Length != 64 || ownershipToken.Any(c => !Uri.IsHexDigit(c)) ||
@@ -251,6 +264,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                 SELECT count(*) FROM nexa.{{MarkerTable}}
                 WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
                   AND "SourceDatabase"=@source AND "MigrationId"=@migration AND "FixtureFamily"=@family
+                  AND "ExpectedOwner"=current_user AND "QuarantineState"='Quarantined'
                 """, target);
             marker.Parameters.AddWithValue("token", ownershipToken);
             marker.Parameters.AddWithValue("run", runId);
@@ -297,9 +311,42 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                 Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", previousSigningSecret);
             disposed = true;
         }
+        catch
+        {
+            await MarkQuarantinedBestEffortAsync();
+            throw;
+        }
         finally
         {
             disposalGate.Release();
+        }
+    }
+
+    private async Task MarkQuarantinedBestEffortAsync()
+    {
+        try
+        {
+            await using var connection = new NpgsqlConnection(ConnectionString);
+            await connection.OpenAsync();
+            await RequireCurrentDatabaseAsync(connection, DatabaseName, "quarantine marker boundary");
+            await using var command = new NpgsqlCommand($$"""
+                UPDATE nexa.{{MarkerTable}} SET "QuarantineState"='Quarantined'
+                WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
+                  AND "SourceDatabase"=@source AND "MigrationId"=@migration
+                  AND "FixtureFamily"=@family AND "ExpectedOwner"=current_user
+                """, connection);
+            command.Parameters.AddWithValue("token", OwnershipToken);
+            command.Parameters.AddWithValue("run", RunId);
+            command.Parameters.AddWithValue("database", DatabaseName);
+            command.Parameters.AddWithValue("source", ExactSourceDatabase);
+            command.Parameters.AddWithValue("migration", MigrationId);
+            command.Parameters.AddWithValue("family", Family);
+            if (await command.ExecuteNonQueryAsync() != 1)
+                throw new InvalidOperationException("Exact quarantine marker update failed.");
+        }
+        catch
+        {
+            // A failed marker update never authorizes recovery or DROP.
         }
     }
 }

@@ -42,7 +42,7 @@ public sealed class EfVendorQualificationService(NexaErpDbContext db) : IVendorQ
         var vendor = await db.Vendors.AsNoTracking().SingleOrDefaultAsync(x => x.Id == vendorId, cancellationToken);
         if (vendor is null || !VendorQualification.IsVendorEligible(vendor, onDate)) return false;
         if (!itemCategoryId.HasValue) return true;
-        return await db.VendorQualifications.AsNoTracking().AnyAsync(x => x.VendorId == vendorId && x.OrganizationId == organizationId && x.ItemCategoryId == itemCategoryId && x.IsActive && x.VerificationStatus == MasterApprovalStatuses.Approved && x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate), cancellationToken);
+        return await db.VendorQualifications.AsNoTracking().AnyAsync(x => x.VendorId == vendorId && x.OrganizationId == organizationId && x.ItemCategoryId == itemCategoryId && x.IsActive && x.VerificationStatus == MasterApprovalStatuses.Verified && x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate), cancellationToken);
     }
 
     public async Task<string> ResolveFinalApproverRoleAsync(string organizationId, DateOnly onDate, CancellationToken cancellationToken)

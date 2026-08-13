@@ -59,7 +59,7 @@ internal static partial class Rev869BCompleteGraphSeeder
             VendorType="Supplier",PortalOrganizationId=Organization,ApprovalStatus=MasterApprovalStatuses.Approved,VendorStatus=MasterStatuses.Active,
             CommercialVerificationStatus=MasterApprovalStatuses.Approved,EffectiveFrom=On,IsActive=true,CreatedAt=At,CreatedBy=marker };
         var qualification = new VendorQualification { Id=ids.Id("qualification"),OrganizationId=Organization,VendorId=vendor.Id,ItemCategoryId=category.Id,
-            QualificationCode="APPROVED",EffectiveFrom=On,VerificationStatus=MasterApprovalStatuses.Approved,VerifiedByEmployeeId=verifier,
+            QualificationCode="APPROVED",EffectiveFrom=On,VerificationStatus=MasterApprovalStatuses.Verified,VerifiedByEmployeeId=verifier,
             ApprovalStatus=MasterApprovalStatuses.Approved,ApprovedByEmployeeId=approver,IsActive=true,Version=2,CreatedAt=At,CreatedBy=Login,UpdatedAt=At,UpdatedBy=Login };
         var warehouse = new Warehouse { Id=ids.Id("warehouse"),WarehouseCode=ids.Code("WH"),IsWarehouseCodeLocked=true,Name=marker,
             WarehouseType="ControlledTest",Status=MasterStatuses.Active,ApprovalStatus=MasterApprovalStatuses.Approved,IsActive=true,CreatedAt=At,CreatedBy=marker };

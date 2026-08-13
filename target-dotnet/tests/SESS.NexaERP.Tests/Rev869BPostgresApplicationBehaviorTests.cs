@@ -547,6 +547,14 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                   (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.purchase_requisitions t),
                   (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.purchase_requisition_lines t),
                   (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.purchase_requirement_handoffs t))
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.vendor_qualifications t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.controlled_configuration_histories t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Token")::text,'[]') FROM nexa.rev869b_command_contexts t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."KeyId")::text,'[]') FROM nexa.rev869b_command_authorities t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.role_page_permissions t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."MigrationId")::text,'[]') FROM nexa."__EFMigrationsHistory" t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'owner',pg_get_userbyid(n.nspowner)) ORDER BY n.nspname)::text,'[]')
+                           FROM pg_namespace n WHERE n.nspname='nexa')
                 """;
             var canonical = Convert.ToString(await command.ExecuteScalarAsync()) ?? string.Empty;
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
