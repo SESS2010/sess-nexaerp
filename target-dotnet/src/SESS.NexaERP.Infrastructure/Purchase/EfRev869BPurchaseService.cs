@@ -22,6 +22,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private readonly IVendorQualificationService vendors;
     private readonly ITaxGstResolver taxes;
     private readonly IAuditWriter audit;
+    private readonly List<Guid> pendingCommandGrantIds = [];
 
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
     {
@@ -30,19 +31,47 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
     private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(CancellationToken ct)
     {
-        var scope = db.Database.CurrentTransaction is not null
-            ? new Rev869BTransactionScope(null)
-            : new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
+        if (db.Database.CurrentTransaction is not null)
+            throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
+        var scope = new Rev869BTransactionScope(this,
+            await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
         _ = RequireActor();
         _ = RequireOrganization();
         return scope;
     }
 
-    private sealed class Rev869BTransactionScope(IDbContextTransaction? owned) : IAsyncDisposable
+    private sealed class Rev869BTransactionScope(
+        EfRev869BPurchaseService service,
+        IDbContextTransaction owned) : IAsyncDisposable
     {
-        public Task CommitAsync(CancellationToken ct) => owned?.CommitAsync(ct) ?? Task.CompletedTask;
-        public Task RollbackAsync(CancellationToken ct) => owned?.RollbackAsync(ct) ?? Task.CompletedTask;
-        public ValueTask DisposeAsync() => owned?.DisposeAsync() ?? ValueTask.CompletedTask;
+        private bool finalized;
+
+        public async Task CommitAsync(CancellationToken ct)
+        {
+            foreach (var grantId in service.pendingCommandGrantIds)
+                await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(service.db, grantId, ct);
+            await owned.CommitAsync(ct);
+            service.pendingCommandGrantIds.Clear();
+            finalized = true;
+        }
+
+        public async Task RollbackAsync(CancellationToken ct)
+        {
+            await owned.RollbackAsync(ct);
+            await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
+            finalized = true;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (!finalized)
+            {
+                try { await owned.RollbackAsync(); }
+                finally { await service.RecordRolledBackOutcomesAsync("Failed", "BusinessTransactionRolledBack", CancellationToken.None); }
+                finalized = true;
+            }
+            await owned.DisposeAsync();
+        }
     }
 
     private async Task<int> SaveAuthorizedChangesAsync(CancellationToken ct)
@@ -51,8 +80,21 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         return await db.SaveChangesAsync(ct);
     }
 
-    private Task OpenPendingAuthorizationAsync(CancellationToken ct) =>
-        Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, RequireOrganization(), ct);
+    private async Task OpenPendingAuthorizationAsync(CancellationToken ct)
+    {
+        var grantId = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(
+            db, user, RequireOrganization(), ct);
+        if (grantId.HasValue) pendingCommandGrantIds.Add(grantId.Value);
+    }
+
+    private async Task RecordRolledBackOutcomesAsync(string terminalEvent, string failureCategory, CancellationToken ct)
+    {
+        var runtime = (Npgsql.NpgsqlConnection)db.Database.GetDbConnection();
+        foreach (var grantId in pendingCommandGrantIds)
+            await Rev869BCommandContextAuthorizer.RecordRolledBackOutcomeAsync(
+                runtime, grantId, terminalEvent, failureCategory, ct);
+        pendingCommandGrantIds.Clear();
+    }
 
     private Task<int> SavePreauthorizedChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);
 

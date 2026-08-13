@@ -14,7 +14,7 @@ public static class Rev869BCommandContextAuthorizer
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static async Task OpenForPendingChangesAsync(
+    public static async Task<Guid?> OpenForPendingChangesAsync(
         NexaErpDbContext db,
         ICurrentUser user,
         string organization,
@@ -25,7 +25,7 @@ public static class Rev869BCommandContextAuthorizer
             throw new InvalidOperationException("Exact REV869B grants require an active business transaction.");
 
         var slots = await CollectSlotsAsync(db, ct);
-        if (slots.Count == 0) return;
+        if (slots.Count == 0) return null;
 
         var runtimeConnection = (NpgsqlConnection)db.Database.GetDbConnection();
         if (runtimeConnection.State != ConnectionState.Open)
@@ -76,8 +76,49 @@ public static class Rev869BCommandContextAuthorizer
                 ?? throw new InvalidOperationException("Exact command grant was not returned."));
         }
 
+        try
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT nexa.rev869b_open_command_context({grantId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{backendPid},{transactionId})", ct);
+        }
+        catch
+        {
+            await RecordRolledBackOutcomeAsync(runtimeConnection, grantId, "Rejected", "ContextOpenRejected", ct);
+            throw;
+        }
+        return grantId;
+    }
+
+    public static async Task StageCommittedOutcomeAsync(NexaErpDbContext db, Guid grantId, CancellationToken ct)
+    {
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Committed command outcome must be staged in the exact business transaction.");
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_open_command_context({grantId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{backendPid},{transactionId})", ct);
+            $"SELECT nexa.rev869b_record_command_outcome({grantId},{"Committed"},{string.Empty})", ct);
+    }
+
+    public static async Task RecordRolledBackOutcomeAsync(
+        NpgsqlConnection runtimeConnection, Guid grantId, string terminalEvent, string failureCategory, CancellationToken ct)
+    {
+        if (terminalEvent is not ("Failed" or "Rejected") || string.IsNullOrWhiteSpace(failureCategory))
+            throw new InvalidOperationException("A minimized Failed or Rejected outcome category is required.");
+        var issuerRaw = Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION");
+        if (string.IsNullOrWhiteSpace(issuerRaw))
+            throw new InvalidOperationException("A distinct REV869B command issuer connection is required for durable rollback evidence.");
+        var issuerBuilder = new NpgsqlConnectionStringBuilder(issuerRaw) { Pooling = false };
+        var runtimeBuilder = new NpgsqlConnectionStringBuilder(runtimeConnection.ConnectionString);
+        if (!string.Equals(issuerBuilder.Database, runtimeBuilder.Database, StringComparison.Ordinal) ||
+            string.Equals(issuerBuilder.Username, runtimeBuilder.Username, StringComparison.Ordinal))
+            throw new InvalidOperationException("Rollback outcome issuer must target the exact database through a distinct principal.");
+        await using var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString);
+        await issuer.OpenAsync(ct);
+        await using var outcome = new NpgsqlCommand(
+            "SELECT nexa.rev869b_record_command_outcome(@grant,@event,@failure)", issuer);
+        outcome.Parameters.AddWithValue("grant", grantId);
+        outcome.Parameters.AddWithValue("event", terminalEvent);
+        outcome.Parameters.AddWithValue("failure", failureCategory);
+        if (Convert.ToInt32(await outcome.ExecuteScalarAsync(ct)) < 1)
+            throw new InvalidOperationException("No durable command rollback outcome was appended.");
     }
 
     private static void RequirePrincipal(ICurrentUser user, string organization)

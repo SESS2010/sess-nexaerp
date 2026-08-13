@@ -12,6 +12,14 @@ internal static class Rev869BControlPlaneRegistry
 {
     internal const string ExactDatabase = "sess_nexaerp_rev869b_control_plane";
     internal const string Policy = "MGMT-REV869B-CONTROL-PLANE-20260813-001";
+    internal const string SecurityOwner = "nexa_rev869b_control_plane_owner";
+
+    internal sealed record LeaseSnapshot(
+        string DatabaseName, string RunId, string OwnershipTokenHash, string FixtureFamily,
+        string ScenarioHash, string SourceDatabase, string SourceFingerprint, string SourceCommitFingerprint,
+        string MigrationId, string MigrationFingerprint, string ExpectedOwner, DateTimeOffset RequestedAt,
+        DateTimeOffset LeaseExpiresAt, string RuntimeRole, string IssuerRole, string State,
+        string? MarkerFingerprint);
 
     internal sealed record LeaseReservation(
         string DatabaseName, string RunId, string OwnershipTokenHash, string FixtureFamily,
@@ -32,7 +40,7 @@ internal static class Rev869BControlPlaneRegistry
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_reserve_database_lease(
               @database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,@migration,
-              @migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,@issuerAuthority,@policy)
+              @migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,@requestAuthority,@policy)
             """, connection);
         AddLease(command, lease);
         command.Parameters.AddWithValue("policy", Policy);
@@ -47,12 +55,12 @@ internal static class Rev869BControlPlaneRegistry
         await using var connection = await OpenVerifiedAsync();
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_complete_database_lease(
-              @database,@run,@tokenHash,@exactPreState,@exactPostState,@markerFingerprint,
+              @database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,@migration,
+              @migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,@requestAuthority,
+              @exactPreState,@exactPostState,@markerFingerprint,
               @outcome,@failureCategory,@occurredAt,@policy)
             """, connection);
-        command.Parameters.AddWithValue("database", lease.DatabaseName);
-        command.Parameters.AddWithValue("run", lease.RunId);
-        command.Parameters.AddWithValue("tokenHash", lease.OwnershipTokenHash);
+        AddLease(command, lease);
         command.Parameters.AddWithValue("exactPreState", exactPreState);
         command.Parameters.AddWithValue("exactPostState", exactPostState);
         command.Parameters.AddWithValue("markerFingerprint", (object?)markerFingerprint ?? DBNull.Value);
@@ -64,23 +72,98 @@ internal static class Rev869BControlPlaneRegistry
             throw new InvalidOperationException("The control plane rejected the exact lease state/outcome transition.");
     }
 
+    internal static async Task<LeaseSnapshot> ReadExactLeaseAsync(LeaseReservation lease, string requiredState)
+    {
+        await using var connection = await OpenVerifiedAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT "DatabaseName","RunId","OwnershipTokenHash","FixtureFamily","ScenarioHash",
+              "SourceDatabase","SourceFingerprint","SourceCommitFingerprint","MigrationId","MigrationFingerprint",
+              "ExpectedOwner","RequestedAt","LeaseExpiresAt","RuntimeRole","IssuerRole","State","MarkerFingerprint"
+            FROM nexa.rev869b_read_exact_database_lease(
+              @database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,
+              @migration,@migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,
+              @requestAuthority,@requiredState,@policy)
+            """, connection);
+        AddLease(command, lease);
+        command.Parameters.AddWithValue("requiredState", requiredState);
+        command.Parameters.AddWithValue("policy", Policy);
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync())
+            throw new InvalidOperationException("The control plane did not return exactly one fully bound lease.");
+        var snapshot = new LeaseSnapshot(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+            reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7), reader.GetString(8),
+            reader.GetString(9), reader.GetString(10), reader.GetFieldValue<DateTimeOffset>(11),
+            reader.GetFieldValue<DateTimeOffset>(12), reader.GetString(13), reader.GetString(14), reader.GetString(15),
+            reader.IsDBNull(16) ? null : reader.GetString(16));
+        if (await reader.ReadAsync())
+            throw new InvalidOperationException("The control plane returned a duplicate lease.");
+        return snapshot;
+    }
+
+    internal static async Task<Guid> BeginLeaseDropAsync(
+        LeaseReservation lease, string exactPreState, string markerFingerprint, string requestedPostState)
+    {
+        await using var connection = await OpenVerifiedAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT nexa.rev869b_begin_database_drop(
+              @database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,@migration,
+              @migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,@requestAuthority,@exactPreState,
+              @markerFingerprint,@requestedPostState,@occurredAt,@policy)
+            """, connection);
+        AddLease(command, lease);
+        command.Parameters.AddWithValue("exactPreState", exactPreState);
+        command.Parameters.AddWithValue("markerFingerprint", markerFingerprint);
+        command.Parameters.AddWithValue("requestedPostState", requestedPostState);
+        command.Parameters.AddWithValue("occurredAt", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("policy", Policy);
+        var result = await command.ExecuteScalarAsync();
+        if (result is not Guid attemptId || attemptId == Guid.Empty)
+            throw new InvalidOperationException("The control plane did not durably authorize the exact drop transition.");
+        return attemptId;
+    }
+
+    internal static async Task RecordLeaseDropOutcomeAsync(
+        Guid attemptId, LeaseReservation lease, string exactPreState, string observedPostState,
+        string markerFingerprint, string outcome, string? failureCategory)
+    {
+        await using var connection = await OpenVerifiedAsync();
+        await using var command = new NpgsqlCommand("""
+            SELECT nexa.rev869b_record_database_drop_outcome(
+              @attempt,@database,@run,@tokenHash,@exactPreState,@observedPostState,@markerFingerprint,
+              @outcome,@failureCategory,@occurredAt,@policy)
+            """, connection);
+        command.Parameters.AddWithValue("attempt", attemptId);
+        command.Parameters.AddWithValue("database", lease.DatabaseName);
+        command.Parameters.AddWithValue("run", lease.RunId);
+        command.Parameters.AddWithValue("tokenHash", lease.OwnershipTokenHash);
+        command.Parameters.AddWithValue("exactPreState", exactPreState);
+        command.Parameters.AddWithValue("observedPostState", observedPostState);
+        command.Parameters.AddWithValue("markerFingerprint", markerFingerprint);
+        command.Parameters.AddWithValue("outcome", outcome);
+        command.Parameters.AddWithValue("failureCategory", (object?)failureCategory ?? DBNull.Value);
+        command.Parameters.AddWithValue("occurredAt", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("policy", Policy);
+        if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 1)
+            throw new InvalidOperationException("The control plane did not durably append the exact drop outcome.");
+    }
+
     internal static async Task<Guid> ConsumeRecoveryBeforeMutationAsync(
         LeaseReservation lease, RecoveryApproval approval, string targetFingerprint)
     {
         await using var connection = await OpenVerifiedAsync();
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_consume_recovery_approval(
-              @authorization,@database,@run,@tokenHash,@purpose,@approvalIssuer,@issuerAuthority,
+              @authorization,@database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,
+              @migration,@migrationFingerprint,@owner,@requested,@leaseExpires,@runtime,@issuer,@requestIssuer,@requestAuthority,
+              @purpose,@approvalIssuer,@approvalAuthority,
               @expectedPreState,@authorizedPostState,@approvalReference,@reason,@executor,@issued,@expires,
               @nonceHash,@targetFingerprint,@consumedAt,@policy)
             """, connection);
         command.Parameters.AddWithValue("authorization", approval.AuthorizationId);
-        command.Parameters.AddWithValue("database", lease.DatabaseName);
-        command.Parameters.AddWithValue("run", lease.RunId);
-        command.Parameters.AddWithValue("tokenHash", lease.OwnershipTokenHash);
+        AddLease(command, lease);
         command.Parameters.AddWithValue("purpose", approval.Purpose);
         command.Parameters.AddWithValue("approvalIssuer", approval.ApprovalIssuer);
-        command.Parameters.AddWithValue("issuerAuthority", approval.IssuerAuthority);
+        command.Parameters.AddWithValue("approvalAuthority", approval.IssuerAuthority);
         command.Parameters.AddWithValue("expectedPreState", approval.ExpectedPreState);
         command.Parameters.AddWithValue("authorizedPostState", approval.AuthorizedPostState);
         command.Parameters.AddWithValue("approvalReference", approval.ApprovalReference);
@@ -132,14 +215,40 @@ internal static class Rev869BControlPlaneRegistry
         var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
         await using var proof = new NpgsqlCommand("""
+            WITH required_api(name,arg_count) AS (VALUES
+              ('rev869b_reserve_database_lease',18),
+              ('rev869b_complete_database_lease',24),
+              ('rev869b_read_exact_database_lease',19),
+              ('rev869b_begin_database_drop',22),
+              ('rev869b_record_database_drop_outcome',11),
+              ('rev869b_consume_recovery_approval',32),
+              ('rev869b_record_recovery_outcome',8)
+            ), api AS (
+              SELECT p.oid,p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) owner,
+                     has_function_privilege(session_user,p.oid,'EXECUTE') caller_execute,
+                     has_function_privilege('public',p.oid,'EXECUTE') public_execute
+              FROM required_api r JOIN pg_proc p ON p.proname=r.name AND p.pronargs=r.arg_count
+                JOIN pg_namespace n ON n.oid=p.pronamespace AND n.nspname='nexa'
+            )
             SELECT count(*) FROM pg_database d
             WHERE d.datname=current_database() AND d.datname=@database
-              AND pg_get_userbyid(d.datdba)='nexa_rev869b_control_plane_owner'
-              AND to_regprocedure('nexa.rev869b_reserve_database_lease(text,text,text,text,text,text,text,text,text,text,text,timestamp with time zone,timestamp with time zone,text,text,text,text,text)') IS NOT NULL
-              AND to_regprocedure('nexa.rev869b_consume_recovery_approval(uuid,text,text,text,text,text,text,text,text,text,text,text,timestamp with time zone,timestamp with time zone,text,text,timestamp with time zone,text)') IS NOT NULL
+              AND pg_get_userbyid(d.datdba)=@owner
+              AND (SELECT count(*) FROM api WHERE owner=@owner AND prosecdef
+                    AND proconfig @> ARRAY['search_path=pg_catalog, nexa']::text[]
+                    AND caller_execute AND NOT public_execute)=7
+              AND (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname='nexa' AND c.relname IN
+                      ('rev869b_database_leases','rev869b_database_lease_events','rev869b_recovery_approvals','rev869b_recovery_attempts'))=4
+              AND (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname='nexa' AND c.relname IN ('rev869b_database_lease_events','rev869b_recovery_attempts')
+                      AND NOT t.tgisinternal AND t.tgenabled='O')>=2
               AND NOT has_table_privilege(session_user,'nexa.rev869b_database_leases','SELECT,INSERT,UPDATE,DELETE')
+              AND NOT has_table_privilege(session_user,'nexa.rev869b_database_lease_events','SELECT,INSERT,UPDATE,DELETE')
+              AND NOT has_table_privilege(session_user,'nexa.rev869b_recovery_approvals','SELECT,INSERT,UPDATE,DELETE')
+              AND NOT has_table_privilege(session_user,'nexa.rev869b_recovery_attempts','SELECT,INSERT,UPDATE,DELETE')
             """, connection);
         proof.Parameters.AddWithValue("database", ExactDatabase);
+        proof.Parameters.AddWithValue("owner", SecurityOwner);
         if (Convert.ToInt64(await proof.ExecuteScalarAsync()) != 1)
         {
             await connection.DisposeAsync();
@@ -166,6 +275,6 @@ internal static class Rev869BControlPlaneRegistry
         command.Parameters.AddWithValue("runtime", lease.RuntimeRole);
         command.Parameters.AddWithValue("issuer", lease.IssuerRole);
         command.Parameters.AddWithValue("requestIssuer", lease.RequestIssuer);
-        command.Parameters.AddWithValue("issuerAuthority", lease.IssuerAuthority);
+        command.Parameters.AddWithValue("requestAuthority", lease.IssuerAuthority);
     }
 }

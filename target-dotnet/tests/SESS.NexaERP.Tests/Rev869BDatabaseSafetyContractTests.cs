@@ -263,14 +263,42 @@ public sealed class Rev869BDatabaseSafetyContractTests
     {
         foreach (var value in new[] { "rev869b_command_security_audits", "rev869b_purge_authorizations",
             "rev869b_purge_attempt_audits", "rev869b_ten_year_append_only_security_audit",
-            "Authorized; no committed claim yet", "Claim committed atomically with protected command",
+            "Authorized; no committed claim yet", "Claim accepted in protected transaction; terminal outcome pending",
             "REVOKE ALL ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) FROM PUBLIC",
             "GRANT EXECUTE ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) TO nexa_rev869b_purge_executor" })
             Assert.Contains(value, CommandContext);
-        Assert.Equal(25, Count(Correction14Postgres, "[Fact] public Task"));
+        Assert.Equal(25, Count(Correction14Postgres, "[Fact]"));
         Assert.Contains("Assert.NotEqual(actor.ProcessID, verifier.ProcessID)", Correction14Postgres);
-        Assert.Contains("""Assert.Equal("42501", denial.SqlState)""", Correction14Postgres);
-        Assert.Contains("Assert.Equal(1L, reader.GetInt64(2))", Correction14Postgres);
+        Assert.Contains("""Assert.Equal(sqlState, denial.SqlState)""", Correction14Postgres);
+        Assert.DoesNotContain("=> ExecuteAsync();", Correction14Postgres);
+        Assert.Contains("DatabaseScenario", Correction14Postgres);
+    }
+
+    [Fact]
+    public void FifteenthCorrectionClosesAllSixIndependentReviewFindingsOffline()
+    {
+        foreach (var api in new[] { "rev869b_read_exact_database_lease", "rev869b_begin_database_drop",
+            "rev869b_record_database_drop_outcome", "rev869b_complete_database_lease",
+            "rev869b_consume_recovery_approval", "rev869b_record_recovery_outcome" })
+            Assert.Contains(api, ControlPlane);
+        foreach (var binding in new[] { "SourceCommitFingerprint", "LeaseExpiresAt", "ControlPlanePolicy",
+            "MarkerFingerprint", "ReadExactLeaseAsync", "BeginLeaseDropAsync", "RecordLeaseDropOutcomeAsync" })
+            Assert.Contains(binding, Lease + ControlPlane);
+        var normalDrop = Lease.LastIndexOf("DROP DATABASE", StringComparison.Ordinal);
+        Assert.True(Lease.IndexOf("BeginLeaseDropAsync", StringComparison.Ordinal) < normalDrop);
+        Assert.True(normalDrop < Lease.IndexOf("RecordLeaseDropOutcomeAsync", normalDrop, StringComparison.Ordinal));
+        Assert.True(Lease.IndexOf("ConsumeRecoveryAuthorizationAsync", StringComparison.Ordinal) >
+                    Lease.IndexOf("try", Lease.IndexOf("ConsumeRecoveryBeforeMutationAsync", StringComparison.Ordinal), StringComparison.Ordinal));
+        foreach (var value in new[] { "nexa_rev869b_purge_authorizer", "rolsuper", "rolcreatedb", "rolcreaterole",
+            "rolreplication", "rolbypassrls", "pg_auth_members", "has_table_privilege",
+            "CandidateSetFingerprint", "rev869b_purge_rejection_audits", "PartialFailure" })
+            Assert.Contains(value, CommandContext + Lease);
+        foreach (var value in new[] { "rev869b_record_command_outcome", "Committed", "Failed", "Rejected",
+            "StageCommittedOutcomeAsync", "RecordRolledBackOutcomeAsync" })
+            Assert.Contains(value, CommandContext + Authorizer + PurchaseFlows);
+        Assert.Equal(25, Count(Correction14Postgres, "[Fact]"));
+        Assert.DoesNotContain("=> ExecuteAsync();", Correction14Postgres);
+        Assert.True(Count(Correction14Postgres, "REV869B_") >= 25);
     }
 
     [Fact]
@@ -400,7 +428,8 @@ public sealed class Rev869BDatabaseSafetyContractTests
         foreach (var value in new[] { "MGMT-REV869B-SECURITY-LEDGER-20260813-001", "rev869b_fresh_exact_purge_approval_required",
             "cutoff_at IS DISTINCT FROM issued_at-interval '90 days'", "maximum_batch_size NOT BETWEEN 1 AND 1000",
             "ARRAY['Expired','Unclaimed']::text[]", "nexa_rev869b_purge_executor", "pg_advisory_xact_lock",
-            "rev869b_temporary_purge_count_mismatch", "RetainedAuditCount", "ZeroRows", "rev869b_record_purge_failure",
+            "rev869b_temporary_purge_count_mismatch", "RetainedAuditCount", "ZeroRows", "rev869b_purge_rejection_audits",
+            "REV869B_PURGE_FAILED", "CandidateSetFingerprint", "ApprovalFingerprint",
             "PurgeTemporarySecurityLedger", "REVOKE ALL ON FUNCTION nexa.rev869b_purge_temporary_security_ledger(uuid)" })
             Assert.Contains(value, CommandContext);
         Assert.DoesNotContain("SELECT *", CommandContext);
