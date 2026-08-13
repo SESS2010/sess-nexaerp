@@ -31,6 +31,8 @@ public static class Rev869AConfigurationEndpoints
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/normalize-legacy", NormalizeLegacyVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/verify", VerifyVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/approve", ApproveVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
+        group.MapPost("/vendor-qualifications/{qualificationId:guid}/reject", RejectVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
+        group.MapPost("/vendor-qualifications/{qualificationId:guid}/request-correction", RequestVendorQualificationCorrection).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         return endpoints;
@@ -144,7 +146,6 @@ public static class Rev869AConfigurationEndpoints
             return Results.Forbid();
         }
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await Rev869BCommandContextAuthorizer.OpenAsync(db, user, organization, ct);
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(request.VendorCode), ct);
         if (vendor is null) return Results.Conflict(new { message = "Vendor was not found." });
         Guid? categoryId = null;
@@ -172,13 +173,14 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = 0
         });
+        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, ct);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
         await transaction.CommitAsync(ct);
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
     }
 
     private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, true, db, user, scopes, audit, ct);
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Verify", db, user, scopes, audit, ct);
 
     private static async Task<IResult> NormalizeLegacyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
@@ -197,7 +199,6 @@ public static class Rev869AConfigurationEndpoints
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await Rev869BCommandContextAuthorizer.OpenAsync(db, user, user.OrganizationId, ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(
             x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
@@ -250,6 +251,7 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
+        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
         {
@@ -263,9 +265,15 @@ public static class Rev869AConfigurationEndpoints
     }
 
     private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, false, db, user, scopes, audit, ct);
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Approve", db, user, scopes, audit, ct);
 
-    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, bool verify, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static Task<IResult> RejectVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Reject", db, user, scopes, audit, ct);
+
+    private static Task<IResult> RequestVendorQualificationCorrection(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "RequestCorrection", db, user, scopes, audit, ct);
+
+    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, string action, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
@@ -273,7 +281,6 @@ public static class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
 
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await Rev869BCommandContextAuthorizer.OpenAsync(db, user, user.OrganizationId, ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
         if (qualification.Version != request.ExpectedVersion)
@@ -300,10 +307,10 @@ public static class Rev869AConfigurationEndpoints
             qualification.VerifiedByEmployeeId,
             qualification.ApprovalStatus,
             qualification.ApprovedByEmployeeId,
+            qualification.IsActive,
             qualification.Version
         };
-        var action = verify ? "Verify" : "Approve";
-        if (verify)
+        if (action == "Verify")
         {
             if (qualification.VerificationStatus != MasterApprovalStatuses.PendingApproval ||
                 qualification.ApprovalStatus != MasterApprovalStatuses.PendingApproval || qualification.VerifiedByEmployeeId.HasValue)
@@ -311,7 +318,7 @@ public static class Rev869AConfigurationEndpoints
             qualification.VerificationStatus = MasterApprovalStatuses.Verified;
             qualification.VerifiedByEmployeeId = user.EmployeeId.Value;
         }
-        else
+        else if (action == "Approve")
         {
             if (qualification.VerificationStatus != MasterApprovalStatuses.Verified || !qualification.VerifiedByEmployeeId.HasValue ||
                 qualification.ApprovalStatus != MasterApprovalStatuses.PendingApproval || qualification.ApprovedByEmployeeId.HasValue)
@@ -321,6 +328,30 @@ public static class Rev869AConfigurationEndpoints
             qualification.ApprovalStatus = MasterApprovalStatuses.Approved;
             qualification.ApprovedByEmployeeId = user.EmployeeId.Value;
         }
+        else if (action == "Reject")
+        {
+            var pendingVerification = qualification.VerificationStatus == MasterApprovalStatuses.PendingApproval &&
+                qualification.ApprovalStatus == MasterApprovalStatuses.PendingApproval && !qualification.VerifiedByEmployeeId.HasValue;
+            var pendingApproval = qualification.VerificationStatus == MasterApprovalStatuses.Verified &&
+                qualification.ApprovalStatus == MasterApprovalStatuses.PendingApproval && qualification.VerifiedByEmployeeId.HasValue;
+            if ((!pendingVerification && !pendingApproval) || qualification.ApprovedByEmployeeId.HasValue ||
+                qualification.VerifiedByEmployeeId == user.EmployeeId)
+                return Results.Conflict(new { message = "Qualification can only be rejected by an independent decision actor while pending." });
+            qualification.ApprovalStatus = MasterApprovalStatuses.Rejected;
+            qualification.ApprovedByEmployeeId = user.EmployeeId.Value;
+            qualification.IsActive = false;
+        }
+        else if (action == "RequestCorrection")
+        {
+            if ((qualification.VerificationStatus != MasterApprovalStatuses.Verified && qualification.VerificationStatus != MasterApprovalStatuses.Approved) ||
+                qualification.ApprovalStatus != MasterApprovalStatuses.Approved || !qualification.VerifiedByEmployeeId.HasValue ||
+                !qualification.ApprovedByEmployeeId.HasValue || !qualification.IsActive || qualification.VerifiedByEmployeeId == user.EmployeeId)
+                return Results.Conflict(new { message = "Only an active independently verified and approved qualification can be sent for correction." });
+            qualification.ApprovalStatus = MasterApprovalStatuses.RevisionRequested;
+            qualification.IsActive = false;
+        }
+        else
+            throw new InvalidOperationException("Unsupported qualification lifecycle action.");
 
         qualification.Version = checked(qualification.Version + 1);
         qualification.UpdatedAt = DateTimeOffset.UtcNow;
@@ -339,6 +370,7 @@ public static class Rev869AConfigurationEndpoints
                 qualification.VerifiedByEmployeeId,
                 qualification.ApprovalStatus,
                 qualification.ApprovedByEmployeeId,
+                qualification.IsActive,
                 qualification.Version
             }),
             ActorLoginId = user.LoginId,
@@ -348,6 +380,7 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
+        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
         {

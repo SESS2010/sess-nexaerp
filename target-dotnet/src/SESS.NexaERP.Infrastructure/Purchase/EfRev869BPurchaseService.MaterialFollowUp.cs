@@ -45,7 +45,7 @@ public sealed partial class EfRev869BPurchaseService
         AddStatus("MaterialFollowUp", handoff.Id, handoff.HandoffNumber, handoff.Status, request.ToStatus,
             request.ToStatus == Rev869BStatuses.InProgress ? "StartFollowUp" : "CompleteFollowUp",
             request.Reason.Trim(), fingerprint);
-        await db.SaveChangesAsync(ct);
+        await SaveAuthorizedChangesAsync(ct);
         await audit.WriteAsync("Purchase", "MaterialFollowUpTransition", nameof(MaterialFollowUpHandoff), handoffId.ToString(),
             new { handoff.Status, handoff.Version }, new { request.ToStatus, Version = next, Reason = request.Reason.Trim() }, ct);
         await tx.CommitAsync(ct);

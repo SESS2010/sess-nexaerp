@@ -42,7 +42,6 @@ public sealed class Rev869BPostgresBehaviorTests
         var (id, expected) = await DraftRfqAsync(first);
         await using var firstTx = await first.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         await using var secondTx = await second.BeginTransactionAsync(IsolationLevel.ReadCommitted);
-        await SetPeerCommandContextAsync(second, secondTx);
         var winner = await ReserveRfqAsync(first, firstTx, id, expected, "winner");
         await firstTx.CommitAsync();
         var stale = await ExecuteAsync(second, "UPDATE nexa.request_for_quotations SET \"Version\"=\"Version\"+1,\"TransitionCorrelationId\"=@correlation,\"UpdatedBy\"=@login WHERE \"Id\"=@id AND \"Version\"=@version",
@@ -95,7 +94,6 @@ public sealed class Rev869BPostgresBehaviorTests
             """;
         await using var firstTx = await first.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         await using var secondTx = await second.BeginTransactionAsync(IsolationLevel.ReadCommitted);
-        await SetPeerCommandContextAsync(second, secondTx);
         Assert.Equal(1, await ExecuteAsync(first, sql, firstTx, ("id", winnerId), ("number", $"REV869B-PG-RACE-{winnerId:N}"), ("sequence", DeterministicSequence(winnerId)), ("key", key)));
         await InsertRfqCreateHistoryAsync(first, firstTx, winnerId, $"REV869B-PG-RACE-{winnerId:N}", key);
         var loserAttempt = ExecuteAsync(second, sql, secondTx, ("id", loserId), ("number", $"REV869B-PG-RACE-{loserId:N}"), ("sequence", DeterministicSequence(loserId)), ("key", key));
@@ -106,6 +104,113 @@ public sealed class Rev869BPostgresBehaviorTests
         await using var verifier = await first.OpenPeerAsync();
         Assert.Equal(1L, await ScalarAsync(verifier, "SELECT count(*) FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", ("key", key)));
         Assert.Equal(winnerId, await ScalarGuidAsync(verifier, "SELECT \"Id\" FROM nexa.request_for_quotations WHERE \"IdempotencyKey\"=@key", null, ("key", key)));
+    }
+
+    [Fact]
+    public async Task ExactGrantRejectsEveryOperationSlotAndPrincipalSubstitution()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        var actor = await ScalarGuidAsync(connection,
+            """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""",
+            null, ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
+        var historyId = DeterministicId(nameof(ExactGrantRejectsEveryOperationSlotAndPrincipalSubstitution), "history");
+        var entityId = DeterministicId(nameof(ExactGrantRejectsEveryOperationSlotAndPrincipalSubstitution), "entity");
+        var exact = new Rev869BOwnedPostgresDatabase.ExactSlot("purchase_transaction_status_history", historyId, "RFQ", entityId,
+            "Submit", 7, "Draft", "Submitted", "exact-binding", "Exact binding evidence");
+        var substitutions = new (string Field, string? Guc, object? Value)[]
+        {
+            ("claim-kind", null, "purchase_transaction_approval_history"),
+            ("history", null, DeterministicId(nameof(ExactGrantRejectsEveryOperationSlotAndPrincipalSubstitution), "other-history")),
+            ("entity-type", null, "PurchaseOrder"),
+            ("entity", null, DeterministicId(nameof(ExactGrantRejectsEveryOperationSlotAndPrincipalSubstitution), "other-entity")),
+            ("operation", null, "Approve"), ("version", null, 8L), ("from", null, "Submitted"),
+            ("to", null, "Approved"), ("correlation", null, "other-correlation"), ("remarks", null, "Other remarks"),
+            ("actor", "nexa.rev869b_actor_employee_id", Guid.NewGuid().ToString()),
+            ("organization", "nexa.rev869b_organization", "OTHER-ORGANIZATION"),
+            ("issuer", "nexa.rev869b_identity_issuer", "OTHER-ISSUER"),
+            ("subject", "nexa.rev869b_identity_subject", "OTHER-SUBJECT"),
+            ("role", "nexa.rev869b_actor_role", "OTHER-ROLE")
+        };
+
+        foreach (var substitution in substitutions)
+        {
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+            await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_EXECUTIVE", exact);
+            if (substitution.Guc is not null)
+                await ExecuteAsync(connection, "SELECT set_config(@name,@value,true)", transaction,
+                    ("name", substitution.Guc), ("value", substitution.Value!));
+            var values = new object?[] { exact.ClaimKind, exact.HistoryId, exact.EntityType, exact.EntityId, exact.Operation,
+                exact.ParentVersion, exact.FromStatus, exact.ToStatus, exact.Correlation, exact.Remarks };
+            if (substitution.Guc is null)
+            {
+                var index = substitution.Field switch
+                {
+                    "claim-kind" => 0, "history" => 1, "entity-type" => 2, "entity" => 3, "operation" => 4,
+                    "version" => 5, "from" => 6, "to" => 7, "correlation" => 8, "remarks" => 9,
+                    _ => throw new InvalidOperationException(substitution.Field)
+                };
+                values[index] = substitution.Value;
+            }
+            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, """
+                SELECT nexa.rev869b_claim_command_context(@kind,@history,@entityType,@entity,@operation,@version,@from,@to,@correlation,@remarks)
+                """, transaction, ("kind", values[0]!), ("history", values[1]!), ("entityType", values[2]!),
+                ("entity", values[3]!), ("operation", values[4]!), ("version", values[5]!),
+                ("from", values[6] ?? DBNull.Value), ("to", values[7]!), ("correlation", values[8]!), ("remarks", values[9]!)));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            Assert.Equal("rev869b_command_claim_unissued_or_reused", error.ConstraintName, ignoreCase: true);
+            await transaction.RollbackAsync();
+        }
+    }
+
+    [Fact]
+    public async Task SavepointRollbackCannotRestoreConsumedExactClaim()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
+        var actor = await ScalarGuidAsync(connection,
+            """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""",
+            transaction, ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
+        var slot = new Rev869BOwnedPostgresDatabase.ExactSlot("purchase_transaction_status_history",
+            DeterministicId(nameof(SavepointRollbackCannotRestoreConsumedExactClaim), "history"), "RFQ",
+            DeterministicId(nameof(SavepointRollbackCannotRestoreConsumedExactClaim), "entity"),
+            "Submit", 3, "Draft", "Submitted", "savepoint-replay", "Savepoint replay evidence");
+        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_EXECUTIVE", slot);
+        await ExecuteAsync(connection, "SAVEPOINT rev869b_claim_attempt", transaction);
+        async Task<int> Claim() => await ExecuteAsync(connection, """
+            SELECT nexa.rev869b_claim_command_context(@kind,@history,@entityType,@entity,@operation,@version,@from,@to,@correlation,@remarks)
+            """, transaction, ("kind", slot.ClaimKind), ("history", slot.HistoryId), ("entityType", slot.EntityType),
+            ("entity", slot.EntityId), ("operation", slot.Operation), ("version", slot.ParentVersion),
+            ("from", slot.FromStatus!), ("to", slot.ToStatus), ("correlation", slot.Correlation), ("remarks", slot.Remarks));
+        await Claim();
+        await ExecuteAsync(connection, "ROLLBACK TO SAVEPOINT rev869b_claim_attempt", transaction);
+        var error = await Assert.ThrowsAsync<PostgresException>(Claim);
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        Assert.Equal("rev869b_command_claim_unissued_or_reused", error.ConstraintName, ignoreCase: true);
+        await transaction.RollbackAsync();
+    }
+
+    [Fact]
+    public async Task LeastPrivilegeRuntimeCannotReadSecurityLedgersOrMutateDurableAudit()
+    {
+        await using var connection = await OpenVerifiedAsync();
+        foreach (var relation in new[] { "rev869b_command_authorities", "rev869b_command_grants",
+                     "rev869b_command_contexts", "rev869b_claim_sequence_pool", "rev869b_test_database_lease" })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() =>
+                ExecuteAsync(connection, $"SELECT count(*) FROM nexa.{relation}"));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            Assert.Contains($"permission denied for table {relation}", error.MessageText, StringComparison.OrdinalIgnoreCase);
+        }
+        foreach (var statement in new[]
+                 {
+                     """UPDATE nexa.audit_logs SET "Result"="Result" WHERE false""",
+                     "DELETE FROM nexa.audit_logs WHERE false"
+                 })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => ExecuteAsync(connection, statement));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            Assert.Contains("permission denied for table audit_logs", error.MessageText, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
@@ -237,16 +342,14 @@ public sealed class Rev869BPostgresBehaviorTests
         await using (var transaction = await ((NpgsqlConnection)connection).BeginTransactionAsync(IsolationLevel.Serializable))
         {
             var transactionId = Convert.ToInt64(await new NpgsqlCommand("SELECT txid_current()", (NpgsqlConnection)connection, transaction).ExecuteScalarAsync());
-            var signingKey = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY")
-                ?? throw new InvalidOperationException("Owned command signing key is missing.");
+            var backendPid = Convert.ToInt32(await new NpgsqlCommand("SELECT pg_backend_pid()", (NpgsqlConnection)connection, transaction).ExecuteScalarAsync());
             await AssertPostgresGuardAsync(() => ExecuteAsync(connection, """
                 SELECT nexa.rev869b_open_command_context(
-                  @employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@authenticatedAt,@nonce,@transactionId,@signature,@signingKey)
-                """, transaction, ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
+                  @grant,@employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@backendPid,@transactionId)
+                """, transaction, ("grant", Guid.NewGuid()), ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
                 ("subject", Rev869BOwnedPostgresDatabase.Login), ("organization", Rev869BOwnedPostgresDatabase.Organization),
-                ("authenticatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), ("nonce", Guid.NewGuid()),
-                ("transactionId", transactionId), ("signature", new string('0', 64)), ("signingKey", signingKey)), PostgresErrorCodes.InsufficientPrivilege,
-                "rev869b_command_signature_invalid");
+                ("backendPid", backendPid), ("transactionId", transactionId)), PostgresErrorCodes.InsufficientPrivilege,
+                "rev869b_grant_missing_stale_or_reused");
             await transaction.RollbackAsync();
         }
         var id = DeterministicId(nameof(PermissionDenialPersistsAuditEvidence), "audit"); var correlation = $"REV869B-PG-DENIED-{id:N}";
@@ -368,7 +471,6 @@ public sealed class Rev869BPostgresBehaviorTests
         var manager = await ScalarGuidAsync(connection,
             """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""",
             transaction, ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
-        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, manager, "PURCHASE_MANAGER");
         var rejected = await RejectedPoAsync(connection, transaction);
         var firstRevision = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-1");
         var firstLineId = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-1-line");
@@ -480,7 +582,8 @@ public sealed class Rev869BPostgresBehaviorTests
             "trg_rev869b_explicit_invitation_mutation", "trg_rev869b_explicit_po_line_insert", "trg_rev869b_explicit_po_mutation",
             "trg_rev869b_explicit_policy_mutation", "trg_rev869b_explicit_quotation_line_insert", "trg_rev869b_explicit_quotation_mutation",
             "trg_rev869b_explicit_rfq_line_insert", "trg_rev869b_explicit_rfq_mutation", "trg_rev869b_explicit_technical_insert",
-            "trg_rev869b_qualification_history_insert_guard", "trg_rev869b_qualification_lifecycle"
+            "trg_rev869b_qualification_history_insert_guard", "trg_rev869b_qualification_lifecycle",
+            "trg_rev869b_durable_audit_retention"
         }).Where(x => x != "trg_rev869b_followup_immutable").Order().ToArray();
         var expectedFunctions = new[]
         {
@@ -489,11 +592,12 @@ public sealed class Rev869BPostgresBehaviorTests
             "rev869b_guard_history_insert", "rev869b_guard_extended_immutability", "rev869b_reject_immutable_mutation",
             "rev869b_reject_overlapping_approval_policy", "rev869b_validate_parent_contract",
             "rev869b_guard_explicit_mutation", "rev869b_reject_controlled_delete", "rev869b_require_bound_history",
+            "rev869b_guard_durable_audit_retention",
             "rev869b_guard_qualification_lifecycle", "rev869b_require_qualification_history",
             "rev869b_guard_qualification_history_insert",
             "rev869b_qualification_provenance_valid", "rev869b_write_policy_history",
-            "rev869b_open_command_context", "rev869b_command_context_valid", "rev869b_claim_command_context"
-            ,"rev869b_provision_command_authority"
+            "rev869b_slot_fingerprint", "rev869b_issue_command_grant", "rev869b_open_command_context",
+            "rev869b_command_context_valid", "rev869b_claim_command_context", "rev869b_provision_command_authority"
         }.Order().ToArray();
         var triggers = await StringsAsync(connection, "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal ORDER BY t.tgname");
         var functions = await StringsAsync(connection, "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%' ORDER BY p.proname");
@@ -519,9 +623,7 @@ public sealed class Rev869BPostgresBehaviorTests
         public static implicit operator NpgsqlConnection(OwnedConnection value) => value.connection;
         public async ValueTask<NpgsqlTransaction> BeginTransactionAsync(IsolationLevel isolationLevel)
         {
-            var transaction = await connection.BeginTransactionAsync(isolationLevel);
-            await SetPeerCommandContextAsync(connection, transaction);
-            return transaction;
+            return await connection.BeginTransactionAsync(isolationLevel);
         }
         public Task<NpgsqlConnection> OpenPeerAsync() => database.OpenConnectionAsync();
         public async ValueTask DisposeAsync()
@@ -534,13 +636,13 @@ public sealed class Rev869BPostgresBehaviorTests
         }
     }
 
-    private static async Task SetPeerCommandContextAsync(NpgsqlConnection connection, NpgsqlTransaction transaction)
+    private static async Task ProveBroadPeerCommandContextIsForbiddenAsync(NpgsqlConnection connection, NpgsqlTransaction transaction)
     {
         await using var command = new NpgsqlCommand("SELECT m.\"EmployeeId\" FROM nexa.employee_identity_mappings m WHERE m.\"OrganizationId\"=@organization AND m.\"Subject\"=@login AND m.\"IsActive\"", connection, transaction);
         command.Parameters.AddWithValue("organization", Rev869BOwnedPostgresDatabase.Organization);
         command.Parameters.AddWithValue("login", Rev869BOwnedPostgresDatabase.Login);
         var actor = (Guid)(await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("Owned command actor is missing."));
-        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_EXECUTIVE");
+        throw new InvalidOperationException("Broad peer command contexts are forbidden; callers must issue exact operation slots.");
     }
 
     private static async Task<int> ReserveRfqAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid id, long version, string suffix)
@@ -566,6 +668,9 @@ public sealed class Rev869BPostgresBehaviorTests
         var actor=await ScalarGuidAsync(connection,"SELECT \"EmployeeId\" FROM nexa.employee_identity_mappings WHERE \"OrganizationId\"=@organization AND \"Subject\"=@login",transaction,
             ("organization",Rev869BOwnedPostgresDatabase.Organization),("login",Rev869BOwnedPostgresDatabase.Login));
         var historyId=DeterministicId(correlation,"status-history");
+        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_EXECUTIVE",
+            new Rev869BOwnedPostgresDatabase.ExactSlot("purchase_transaction_status_history", historyId, "RFQ", id,
+                action, version, from, to, correlation, "Deterministic owned command"));
         Assert.Equal(1,await ExecuteAsync(connection,"""
             INSERT INTO nexa.purchase_transaction_status_history
             ("Id","OrganizationId","EntityType","EntityId","DocumentNumber","Action","FromStatus","ToStatus","ActorEmployeeId","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version")
@@ -698,21 +803,36 @@ public sealed class Rev869BPostgresBehaviorTests
 
     private static long DeterministicSequence(Guid id) => 10_000_000_000L + BitConverter.ToUInt32(id.ToByteArray(), 0);
 
-    private static Task<int> InsertPoHistoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid poId,
-        string action, string fromStatus, string toStatus, int revision, long version, string correlation) =>
-        ExecuteAsync(connection, """
+    private static async Task<int> InsertPoHistoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid poId,
+        string action, string fromStatus, string toStatus, int revision, long version, string correlation)
+    {
+        var actor = await ScalarGuidAsync(connection, """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""", transaction,
+            ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
+        var historyId = DeterministicId(poId.ToString("N"), correlation);
+        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_MANAGER",
+            new Rev869BOwnedPostgresDatabase.ExactSlot("purchase_order_history", historyId, "PurchaseOrder", poId,
+                action, version, fromStatus, toStatus, correlation, "Deterministic owned lifecycle evidence"));
+        return await ExecuteAsync(connection, """
             INSERT INTO nexa.purchase_order_history
               ("Id","PurchaseOrderId","Action","FromStatus","ToStatus","RevisionNumber","ActorEmployeeId","ActorLoginId","ActorRoleCode","Reason","CorrelationId","CreatedAt","CreatedBy","Version")
             SELECT @id,@po,@action,@from,@to,@revision,m."EmployeeId",@login,'PURCHASE_MANAGER','Deterministic owned lifecycle evidence',@correlation,statement_timestamp(),@login,@version
             FROM nexa.employee_identity_mappings m
             WHERE m."OrganizationId"='REV869B-PG-SELF-OWNED-GRAPH' AND m."Subject"=@login AND m."IsActive"
-            """, transaction, ("id", DeterministicId(poId.ToString("N"), correlation)), ("po", poId), ("action", action),
+            """, transaction, ("id", historyId), ("po", poId), ("action", action),
             ("from", fromStatus), ("to", toStatus), ("revision", revision), ("login", Rev869BOwnedPostgresDatabase.Login),
             ("correlation", correlation), ("version", version));
+    }
 
-    private static Task<int> InsertPoStatusHistoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid poId,
-        string action, string fromStatus, string toStatus, long version, string correlation) =>
-        ExecuteAsync(connection, """
+    private static async Task<int> InsertPoStatusHistoryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid poId,
+        string action, string fromStatus, string toStatus, long version, string correlation)
+    {
+        var actor = await ScalarGuidAsync(connection, """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""", transaction,
+            ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
+        var historyId = DeterministicId(poId.ToString("N"), correlation + ":status");
+        await Rev869BOwnedPostgresDatabase.SetCommandContextAsync(connection, transaction, actor, "PURCHASE_MANAGER",
+            new Rev869BOwnedPostgresDatabase.ExactSlot("purchase_transaction_status_history", historyId, "PurchaseOrder", poId,
+                action, version, fromStatus, toStatus, correlation, "Deterministic owned lifecycle evidence"));
+        return await ExecuteAsync(connection, """
             INSERT INTO nexa.purchase_transaction_status_history
               ("Id","OrganizationId","EntityType","EntityId","DocumentNumber","Action","FromStatus","ToStatus","ActorEmployeeId","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version")
             SELECT @id,p."OrganizationId",'PurchaseOrder',p."Id",p."PoNumber",@action,@from,@to,m."EmployeeId",@login,
@@ -720,9 +840,10 @@ public sealed class Rev869BPostgresBehaviorTests
             FROM nexa.purchase_orders p JOIN nexa.employee_identity_mappings m
               ON m."OrganizationId"=p."OrganizationId" AND m."Subject"=@login AND m."IsActive"
             WHERE p."Id"=@po
-            """, transaction, ("id", DeterministicId(poId.ToString("N"), correlation + ":status")), ("po", poId),
+            """, transaction, ("id", historyId), ("po", poId),
             ("action", action), ("from", fromStatus), ("to", toStatus), ("login", Rev869BOwnedPostgresDatabase.Login),
             ("correlation", correlation), ("version", version));
+    }
 
     private static Task<long> ScalarAsync(NpgsqlConnection connection, string sql, params (string Name, object Value)[] parameters) =>
         ScalarAsync(connection, sql, null, parameters);

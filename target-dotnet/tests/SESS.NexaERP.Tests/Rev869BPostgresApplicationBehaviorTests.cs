@@ -63,9 +63,17 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     {
         await using var fixture = await OwnedRfqFixture.CreateAsync("audit-rollback", useAmbientTransaction: false);
         var before = await fixture.CaptureOwnedStateFromIndependentContextAsync();
+        var securityBefore = await fixture.CaptureSecurityStateFromOwnerAsync();
         await Assert.ThrowsAsync<InjectedAuditFailure>(() =>
             fixture.Service(new FailingAuditWriter()).CreateRfqAsync(fixture.Request("failing-command"), default));
         Assert.Equal(before, await fixture.CaptureOwnedStateFromIndependentContextAsync());
+        var securityAfter = await fixture.CaptureSecurityStateFromOwnerAsync();
+        Assert.Equal(securityBefore.Authorities, securityAfter.Authorities);
+        Assert.Equal(securityBefore.Contexts, securityAfter.Contexts);
+        Assert.Equal(securityBefore.PoolSize, securityAfter.PoolSize);
+        Assert.Equal(securityBefore.Grants + 1, securityAfter.Grants);
+        Assert.Equal(securityBefore.OccupiedSequences + 1, securityAfter.OccupiedSequences);
+        Assert.NotEqual(securityBefore.SequenceFingerprint, securityAfter.SequenceFingerprint);
     }
 
     [Fact]
@@ -110,9 +118,17 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     {
         await using var fixture = await OwnedRfqFixture.CreateAsync("audit-propagation", useAmbientTransaction: false);
         var before = await fixture.CaptureOwnedStateFromIndependentContextAsync();
+        var securityBefore = await fixture.CaptureSecurityStateFromOwnerAsync();
         await Assert.ThrowsAsync<InjectedAuditFailure>(() => fixture.Service(new FailingAuditWriter())
             .CreateRfqAsync(fixture.Request("audit-failure-command"), default));
         Assert.Equal(before, await fixture.CaptureOwnedStateFromIndependentContextAsync());
+        var securityAfter = await fixture.CaptureSecurityStateFromOwnerAsync();
+        Assert.Equal(securityBefore.Authorities, securityAfter.Authorities);
+        Assert.Equal(securityBefore.Contexts, securityAfter.Contexts);
+        Assert.Equal(securityBefore.PoolSize, securityAfter.PoolSize);
+        Assert.Equal(securityBefore.Grants + 1, securityAfter.Grants);
+        Assert.Equal(securityBefore.OccupiedSequences + 1, securityAfter.OccupiedSequences);
+        Assert.NotEqual(securityBefore.SequenceFingerprint, securityAfter.SequenceFingerprint);
     }
 
     [Fact]
@@ -306,6 +322,47 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 Assert.Equal<uint>(2, persisted.Version);
                 Assert.Equal(3, await qualificationVerifier.ControlledConfigurationHistories.AsNoTracking()
                     .CountAsync(x => x.EntityType == nameof(VendorQualification) && x.EntityId == qualificationId));
+            }
+
+            var correction = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/request-correction",
+                new ChangeVendorQualificationLifecycleRequest(2, "management correction decision"));
+            Assert.Equal(HttpStatusCode.OK, correction.StatusCode);
+            await using (var correctionVerifier = await fixture.OpenIndependentContextAsync())
+            {
+                var persisted = await correctionVerifier.VendorQualifications.AsNoTracking().SingleAsync(x => x.Id == qualificationId);
+                Assert.Equal(MasterApprovalStatuses.Verified, persisted.VerificationStatus);
+                Assert.Equal(MasterApprovalStatuses.RevisionRequested, persisted.ApprovalStatus);
+                Assert.False(persisted.IsActive);
+                Assert.Equal<uint>(3, persisted.Version);
+                Assert.Equal(4, await correctionVerifier.ControlledConfigurationHistories.AsNoTracking()
+                    .CountAsync(x => x.EntityType == nameof(VendorQualification) && x.EntityId == qualificationId));
+            }
+
+            user.LoginId = Rev869BOwnedPostgresDatabase.Login;
+            user.RoleCode = Rev869ARoleCodes.PurchaseExecutive;
+            user.ActorId = directCreator.EmployeeId;
+            var rejectedCreate = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications",
+                qualificationRequest with { QualificationCode = "MAPPED-Q-REJECT", Remarks = "create rejection case" });
+            Assert.Equal(HttpStatusCode.Created, rejectedCreate.StatusCode);
+            using var rejectedJson = JsonDocument.Parse(await rejectedCreate.Content.ReadAsStringAsync());
+            var rejectedId = rejectedJson.RootElement.GetProperty("id").GetGuid();
+            user.LoginId = "REV869B-VERIFIER";
+            user.RoleCode = Rev869ARoleCodes.TechnicalDirector;
+            user.ActorId = directVerifier.EmployeeId;
+            var rejected = await client.PostAsJsonAsync(
+                $"/api/v1/rev869a/configuration/vendor-qualifications/{rejectedId}/reject",
+                new ChangeVendorQualificationLifecycleRequest(0, "independent rejection"));
+            Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+            await using (var rejectionVerifier = await fixture.OpenIndependentContextAsync())
+            {
+                var persisted = await rejectionVerifier.VendorQualifications.AsNoTracking().SingleAsync(x => x.Id == rejectedId);
+                Assert.Equal(MasterApprovalStatuses.PendingApproval, persisted.VerificationStatus);
+                Assert.Equal(MasterApprovalStatuses.Rejected, persisted.ApprovalStatus);
+                Assert.False(persisted.IsActive);
+                Assert.Equal<uint>(1, persisted.Version);
+                Assert.Equal(2, await rejectionVerifier.ControlledConfigurationHistories.AsNoTracking()
+                    .CountAsync(x => x.EntityType == nameof(VendorQualification) && x.EntityId == rejectedId));
             }
 
             user.LoginId = Rev869BOwnedPostgresDatabase.Login;
@@ -518,6 +575,25 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 await CaptureExactDatabaseFingerprintAsync(verifier));
         }
 
+        public async Task<SecurityState> CaptureSecurityStateFromOwnerAsync()
+        {
+            await using var connection = new NpgsqlConnection(databaseLease.OwnerConnectionString);
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""
+                SELECT
+                  (SELECT count(*) FROM nexa.rev869b_command_grants),
+                  (SELECT count(*) FROM nexa.rev869b_command_contexts),
+                  (SELECT count(*) FROM nexa.rev869b_command_authorities),
+                  (SELECT count(*) FROM nexa.rev869b_claim_sequence_pool),
+                  (SELECT count(*) FROM nexa.rev869b_claim_sequence_pool WHERE "GrantId" IS NOT NULL),
+                  (SELECT encode(digest(coalesce(string_agg(sequencename||':'||coalesce(last_value::text,'unused'),',' ORDER BY sequencename),''),'sha256'),'hex')
+                     FROM pg_sequences WHERE schemaname='nexa' AND sequencename LIKE 'rev869b_claim_seq_%')
+                """, connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            return new SecurityState(reader.GetInt64(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3), reader.GetInt64(4), reader.GetString(5));
+        }
+
         private static async Task<string> CaptureExactDatabaseFingerprintAsync(NexaErpDbContext verifier)
         {
             var connection = verifier.Database.GetDbConnection();
@@ -609,6 +685,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             long Comparisons, long ComparisonLines, long PurchaseOrders, long PurchaseOrderLines, long StatusHistories, long ApprovalHistories, long PoHistories,
             long Audits, long NumberSequences, long FollowUps, long IdentityMappings, long Warehouses,
             long PurchaseRequisitions, long PurchaseRequisitionLines, long RequirementHandoffs, string ExactDatabaseFingerprint);
+        public sealed record SecurityState(long Grants, long Contexts, long Authorities, long PoolSize, long OccupiedSequences, string SequenceFingerprint);
 
         private static async Task<long> CountOwnedAsync(NexaErpDbContext db, string marker, string organization) =>
             await db.RequestForQuotations.LongCountAsync(x => x.OrganizationId == organization) +
@@ -647,6 +724,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             private readonly Rev869BTestDatabaseLease lease;
             private OwnedDatabaseLease(Rev869BTestDatabaseLease lease) => this.lease = lease;
             public string ConnectionString => lease.ConnectionString;
+            public string OwnerConnectionString => lease.OwnerConnectionString;
             public string DatabaseName => lease.DatabaseName;
 
             public static async Task<OwnedDatabaseLease> CreateAsync(string scenario)

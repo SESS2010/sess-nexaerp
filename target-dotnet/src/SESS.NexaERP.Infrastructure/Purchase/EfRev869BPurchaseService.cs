@@ -33,9 +33,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var scope = db.Database.CurrentTransaction is not null
             ? new Rev869BTransactionScope(null)
             : new Rev869BTransactionScope(await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
-        var actor = RequireActor();
-        var organization = RequireOrganization();
-        await Rev869BCommandContextAuthorizer.OpenAsync(db, user, organization, ct);
+        _ = RequireActor();
+        _ = RequireOrganization();
         return scope;
     }
 
@@ -44,6 +43,12 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         public Task CommitAsync(CancellationToken ct) => owned?.CommitAsync(ct) ?? Task.CompletedTask;
         public Task RollbackAsync(CancellationToken ct) => owned?.RollbackAsync(ct) ?? Task.CompletedTask;
         public ValueTask DisposeAsync() => owned?.DisposeAsync() ?? ValueTask.CompletedTask;
+    }
+
+    private async Task<int> SaveAuthorizedChangesAsync(CancellationToken ct)
+    {
+        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, RequireOrganization(), ct);
+        return await db.SaveChangesAsync(ct);
     }
 
     private async Task<CommercialComparison> LoadComparisonAsync(string number, CancellationToken ct) =>

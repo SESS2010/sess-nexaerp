@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Npgsql;
 
 namespace SESS.NexaERP.Tests;
@@ -17,32 +19,53 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     internal const string DatabasePrefix = "sess_nexaerp_rev869b_owned_";
     private const string MarkerTable = "rev869b_test_database_lease";
     private readonly string adminConnectionString;
-    private readonly string signingSecretHex;
-    private readonly string? previousSigningSecret;
+    private readonly string ownerConnectionString;
+    private readonly string issuerConnectionString;
+    private readonly string runtimeRole;
+    private readonly string issuerRole;
+    private readonly string? previousIssuerConnection;
+    private readonly string scenarioHash;
+    private readonly string sourceFingerprint;
+    private readonly string migrationFingerprint;
     private readonly SemaphoreSlim disposalGate = new(1, 1);
+    private string expectedOwner = string.Empty;
+    private DateTimeOffset provisionedAt;
     private bool disposed;
 
     private Rev869BTestDatabaseLease(
         string connectionString,
+        string ownerConnectionString,
+        string issuerConnectionString,
         string adminConnectionString,
         string databaseName,
         string runId,
         string ownershipToken,
-        string signingSecretHex,
-        string? previousSigningSecret,
-        string family)
+        string runtimeRole,
+        string issuerRole,
+        string? previousIssuerConnection,
+        string family,
+        string scenarioHash,
+        string sourceFingerprint,
+        string migrationFingerprint)
     {
         ConnectionString = connectionString;
+        this.ownerConnectionString = ownerConnectionString;
+        this.issuerConnectionString = issuerConnectionString;
         this.adminConnectionString = adminConnectionString;
         DatabaseName = databaseName;
         RunId = runId;
         OwnershipToken = ownershipToken;
-        this.signingSecretHex = signingSecretHex;
-        this.previousSigningSecret = previousSigningSecret;
+        this.runtimeRole = runtimeRole;
+        this.issuerRole = issuerRole;
+        this.previousIssuerConnection = previousIssuerConnection;
         Family = family;
+        this.scenarioHash = scenarioHash;
+        this.sourceFingerprint = sourceFingerprint;
+        this.migrationFingerprint = migrationFingerprint;
     }
 
     internal string ConnectionString { get; }
+    internal string OwnerConnectionString => ownerConnectionString;
     internal string DatabaseName { get; }
     internal string RunId { get; }
     internal string OwnershipToken { get; }
@@ -57,12 +80,16 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var source = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         if (!string.Equals(source.Database, ExactSourceDatabase, StringComparison.Ordinal))
             throw new InvalidOperationException($"Only the exact isolated source database {ExactSourceDatabase} is permitted.");
-        await VerifySourceAsync(source.ConnectionString);
+        var sourceProof = await VerifySourceAsync(source.ConnectionString);
 
         var runId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var ownershipToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        var signingSecretHex = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        var previousSigningSecret = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY");
+        var scenarioHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scenario)));
+        var runtimeRole = "rev869b_rt_" + runId[..16];
+        var issuerRole = "rev869b_iss_" + runId[..16];
+        var runtimePassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var issuerPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        var previousIssuerConnection = Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION");
         var databaseName = DatabasePrefix + runId[..24];
         RequireSafeOwnedName(databaseName);
         var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
@@ -71,19 +98,30 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             await connection.OpenAsync();
             await RequireCurrentDatabaseAsync(connection, "postgres", "administrative CREATE boundary");
             await RequireDatabaseAbsentAsync(connection, databaseName);
+            await RequireRoleAbsentAsync(connection, runtimeRole);
+            await RequireRoleAbsentAsync(connection, issuerRole);
+            var quotedRuntime = new NpgsqlCommandBuilder().QuoteIdentifier(runtimeRole);
+            var quotedIssuer = new NpgsqlCommandBuilder().QuoteIdentifier(issuerRole);
+            await new NpgsqlCommand($"CREATE ROLE {quotedRuntime} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{runtimePassword}'", connection).ExecuteNonQueryAsync();
+            await new NpgsqlCommand($"CREATE ROLE {quotedIssuer} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '{issuerPassword}'", connection).ExecuteNonQueryAsync();
             var quotedOwned = new NpgsqlCommandBuilder().QuoteIdentifier(databaseName);
             var quotedTemplate = new NpgsqlCommandBuilder().QuoteIdentifier(ExactSourceDatabase);
             await new NpgsqlCommand($"CREATE DATABASE {quotedOwned} WITH TEMPLATE {quotedTemplate}", connection).ExecuteNonQueryAsync();
+            await new NpgsqlCommand($"GRANT CONNECT ON DATABASE {quotedOwned} TO {quotedRuntime},{quotedIssuer}", connection).ExecuteNonQueryAsync();
         }
 
-        var owned = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = databaseName, Pooling = false };
-        var lease = new Rev869BTestDatabaseLease(owned.ConnectionString, admin.ConnectionString, databaseName, runId,
-            ownershipToken, signingSecretHex, previousSigningSecret, family);
+        var owner = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = databaseName, Pooling = false };
+        var runtime = new NpgsqlConnectionStringBuilder(owner.ConnectionString) { Username = runtimeRole, Password = runtimePassword };
+        var issuer = new NpgsqlConnectionStringBuilder(owner.ConnectionString) { Username = issuerRole, Password = issuerPassword };
+        var lease = new Rev869BTestDatabaseLease(runtime.ConnectionString, owner.ConnectionString, issuer.ConnectionString,
+            admin.ConnectionString, databaseName, runId, ownershipToken, runtimeRole, issuerRole,
+            previousIssuerConnection, family, scenarioHash, sourceProof.SourceFingerprint, sourceProof.MigrationFingerprint);
         try
         {
             await lease.EstablishMarkerAsync(scenario);
             await lease.VerifyOwnershipAsync();
-            Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", signingSecretHex);
+            await lease.WriteEvidenceAsync("OwnedActive");
+            Environment.SetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION", issuer.ConnectionString);
             return lease;
         }
         catch (Exception creationFailure)
@@ -104,11 +142,13 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     internal async Task<NpgsqlConnection> OpenVerifiedConnectionAsync()
     {
         if (disposed) throw new ObjectDisposedException(nameof(Rev869BTestDatabaseLease));
+        await VerifyOwnershipAsync();
         var connection = new NpgsqlConnection(ConnectionString);
         try
         {
             await connection.OpenAsync();
-            await VerifyOwnershipAsync(connection);
+            await RequireCurrentDatabaseAsync(connection, DatabaseName, "least-privilege runtime boundary");
+            await RequireMigrationOnceAsync(connection);
             return connection;
         }
         catch
@@ -118,26 +158,62 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         }
     }
 
-    private static async Task VerifySourceAsync(string sourceConnectionString)
+    private static async Task<SourceProof> VerifySourceAsync(string sourceConnectionString)
     {
         await using var source = new NpgsqlConnection(sourceConnectionString);
         await source.OpenAsync();
         await RequireCurrentDatabaseAsync(source, ExactSourceDatabase, "source identity before CREATE");
         await RequireMigrationOnceAsync(source);
+        await using (var owner = new NpgsqlCommand("""
+            SELECT
+              (SELECT count(*) FROM pg_roles r WHERE r.rolname='nexa_rev869b_security_owner' AND NOT r.rolcanlogin),
+              (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                 WHERE n.nspname='nexa' AND p.proname IN ('rev869b_slot_fingerprint','rev869b_issue_command_grant',
+                   'rev869b_open_command_context','rev869b_command_context_valid','rev869b_claim_command_context',
+                   'rev869b_provision_command_authority') AND pg_get_userbyid(p.proowner)='nexa_rev869b_security_owner')
+            """, source))
+        await using (var ownerReader = await owner.ExecuteReaderAsync())
+        {
+            if (!await ownerReader.ReadAsync() || ownerReader.GetInt64(0) != 1 || ownerReader.GetInt64(1) != 6)
+                throw new InvalidOperationException("Source must use the exact dedicated NOLOGIN owner for all six REV869B security functions.");
+        }
+        await using var fingerprint = new NpgsqlCommand("""
+            SELECT
+              encode(public.digest(convert_to(jsonb_build_object(
+                'database',current_database(),
+                'schemaOwner',(SELECT pg_get_userbyid(n.nspowner) FROM pg_namespace n WHERE n.nspname='nexa'),
+                'migrations',(SELECT jsonb_agg(jsonb_build_array(h."MigrationId",h."ProductVersion") ORDER BY h."MigrationId") FROM nexa."__EFMigrationsHistory" h),
+                'functions',(SELECT jsonb_agg(jsonb_build_array(p.proname,pg_get_function_identity_arguments(p.oid),pg_get_userbyid(p.proowner),pg_get_functiondef(p.oid)) ORDER BY p.proname,pg_get_function_identity_arguments(p.oid)) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%'),
+                'triggers',(SELECT jsonb_agg(jsonb_build_array(c.relname,t.tgname,pg_get_triggerdef(t.oid,true)) ORDER BY c.relname,t.tgname) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal)
+              )::text,'UTF8'),'sha256'),'hex'),
+              encode(public.digest(convert_to((SELECT jsonb_build_array(h."MigrationId",h."ProductVersion")::text FROM nexa."__EFMigrationsHistory" h WHERE h."MigrationId"=@migration),'UTF8'),'sha256'),'hex')
+            """, source);
+        fingerprint.Parameters.AddWithValue("migration", MigrationId);
+        await using var proofReader = await fingerprint.ExecuteReaderAsync();
+        if (!await proofReader.ReadAsync() || proofReader.IsDBNull(0) || proofReader.IsDBNull(1))
+            throw new InvalidOperationException("Exact source and REV869B migration fingerprints are unavailable.");
+        var proof = new SourceProof(proofReader.GetString(0), proofReader.GetString(1));
+        if (proof.SourceFingerprint.Length != 64 || proof.MigrationFingerprint.Length != 64)
+            throw new InvalidOperationException("Exact source and migration SHA-256 fingerprints are invalid.");
+        return proof;
     }
 
     private async Task EstablishMarkerAsync(string scenario)
     {
-        await using var connection = new NpgsqlConnection(ConnectionString);
+        await using var connection = new NpgsqlConnection(ownerConnectionString);
         await connection.OpenAsync();
         await RequireCurrentDatabaseAsync(connection, DatabaseName, "target marker provisioning");
+        var quotedRuntime = new NpgsqlCommandBuilder().QuoteIdentifier(runtimeRole);
+        var quotedIssuer = new NpgsqlCommandBuilder().QuoteIdentifier(issuerRole);
         await using var command = new NpgsqlCommand($$"""
             CREATE TABLE nexa.{{MarkerTable}}(
               "OwnershipToken" text PRIMARY KEY,
               "RunId" text NOT NULL UNIQUE,
               "DatabaseName" text NOT NULL UNIQUE,
               "SourceDatabase" text NOT NULL,
+              "SourceFingerprint" text NOT NULL CHECK ("SourceFingerprint"~'^[0-9a-f]{64}$'),
               "MigrationId" text NOT NULL,
+              "MigrationFingerprint" text NOT NULL CHECK ("MigrationFingerprint"~'^[0-9a-f]{64}$'),
               "FixtureFamily" text NOT NULL,
               "ScenarioHash" text NOT NULL,
               "ExpectedOwner" name NOT NULL,
@@ -145,27 +221,45 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
               "ProvisionedAt" timestamptz NOT NULL DEFAULT statement_timestamp()
             );
             REVOKE ALL ON nexa.{{MarkerTable}} FROM PUBLIC;
-            INSERT INTO nexa.{{MarkerTable}}("OwnershipToken","RunId","DatabaseName","SourceDatabase","MigrationId","FixtureFamily","ScenarioHash","ExpectedOwner","QuarantineState")
-            VALUES(@token,@run,@database,@source,@migration,@family,@scenario,current_user,'OwnedActive');
+            INSERT INTO nexa.{{MarkerTable}}("OwnershipToken","RunId","DatabaseName","SourceDatabase","SourceFingerprint","MigrationId","MigrationFingerprint","FixtureFamily","ScenarioHash","ExpectedOwner","QuarantineState")
+            VALUES(@token,@run,@database,@source,@sourceFingerprint,@migration,@migrationFingerprint,@family,@scenario,current_user,'OwnedActive');
             DELETE FROM nexa.rev869b_command_contexts;
+            DELETE FROM nexa.rev869b_command_grants;
             DELETE FROM nexa.rev869b_command_authorities;
-            SELECT nexa.rev869b_provision_command_authority(current_user,@authorityFingerprint,NULL);
+            GRANT USAGE ON SCHEMA nexa TO {{quotedRuntime}},{{quotedIssuer}};
+            GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA nexa TO {{quotedRuntime}};
+            REVOKE UPDATE,DELETE ON nexa.audit_logs FROM {{quotedRuntime}};
+            REVOKE ALL ON nexa.rev869b_command_authorities,nexa.rev869b_command_grants,nexa.rev869b_command_contexts,nexa.rev869b_claim_sequence_pool,nexa.{{MarkerTable}} FROM {{quotedRuntime}},{{quotedIssuer}};
+            SELECT nexa.rev869b_provision_command_authority(@issuer,@runtime,NULL);
             """, connection);
         command.Parameters.AddWithValue("token", OwnershipToken);
         command.Parameters.AddWithValue("run", RunId);
         command.Parameters.AddWithValue("database", DatabaseName);
         command.Parameters.AddWithValue("source", ExactSourceDatabase);
+        command.Parameters.AddWithValue("sourceFingerprint", sourceFingerprint);
         command.Parameters.AddWithValue("migration", MigrationId);
+        command.Parameters.AddWithValue("migrationFingerprint", migrationFingerprint);
         command.Parameters.AddWithValue("family", Family);
-        command.Parameters.AddWithValue("scenario", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(scenario))));
-        command.Parameters.AddWithValue("authorityFingerprint",
-            SHA256.HashData(Convert.FromHexString(signingSecretHex)));
+        command.Parameters.AddWithValue("scenario", scenarioHash);
+        command.Parameters.AddWithValue("issuer", issuerRole);
+        command.Parameters.AddWithValue("runtime", runtimeRole);
         await command.ExecuteNonQueryAsync();
+        await using var markerState = new NpgsqlCommand($$"""
+            SELECT "ExpectedOwner","ProvisionedAt" FROM nexa.{{MarkerTable}}
+            WHERE "OwnershipToken"=@token AND "RunId"=@run AND "ScenarioHash"=@scenario
+            """, connection);
+        markerState.Parameters.AddWithValue("token", OwnershipToken);
+        markerState.Parameters.AddWithValue("run", RunId);
+        markerState.Parameters.AddWithValue("scenario", scenarioHash);
+        await using var reader = await markerState.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) throw new InvalidOperationException("Exact marker provisioning evidence is missing.");
+        expectedOwner = reader.GetString(0);
+        provisionedAt = reader.GetFieldValue<DateTimeOffset>(1);
     }
 
     private async Task VerifyOwnershipAsync()
     {
-        await using var connection = new NpgsqlConnection(ConnectionString);
+        await using var connection = new NpgsqlConnection(ownerConnectionString);
         await connection.OpenAsync();
         await VerifyOwnershipAsync(connection);
     }
@@ -178,15 +272,22 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         await using var marker = new NpgsqlCommand($$"""
             SELECT count(*) FROM nexa.{{MarkerTable}}
             WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
-              AND "SourceDatabase"=@source AND "MigrationId"=@migration AND "FixtureFamily"=@family
-              AND "ExpectedOwner"=current_user AND "QuarantineState"='OwnedActive'
+              AND "SourceDatabase"=@source AND "SourceFingerprint"=@sourceFingerprint
+              AND "MigrationId"=@migration AND "MigrationFingerprint"=@migrationFingerprint AND "FixtureFamily"=@family
+              AND "ScenarioHash"=@scenario AND "ExpectedOwner"=@owner AND "ExpectedOwner"=current_user
+              AND "ProvisionedAt"=@provisioned AND "QuarantineState"='OwnedActive'
             """, connection);
         marker.Parameters.AddWithValue("token", OwnershipToken);
         marker.Parameters.AddWithValue("run", RunId);
         marker.Parameters.AddWithValue("database", DatabaseName);
         marker.Parameters.AddWithValue("source", ExactSourceDatabase);
+        marker.Parameters.AddWithValue("sourceFingerprint", sourceFingerprint);
         marker.Parameters.AddWithValue("migration", MigrationId);
+        marker.Parameters.AddWithValue("migrationFingerprint", migrationFingerprint);
         marker.Parameters.AddWithValue("family", Family);
+        marker.Parameters.AddWithValue("scenario", scenarioHash);
+        marker.Parameters.AddWithValue("owner", expectedOwner);
+        marker.Parameters.AddWithValue("provisioned", provisionedAt);
         if (Convert.ToInt64(await marker.ExecuteScalarAsync()) != 1)
             throw new InvalidOperationException("Owned database marker mismatch; database is quarantined and DROP is refused.");
     }
@@ -214,6 +315,42 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             throw new InvalidOperationException("Unique test database collision; ownership is not proven and no repair is attempted.");
     }
 
+    private static async Task RequireRoleAbsentAsync(NpgsqlConnection connection, string roleName)
+    {
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM pg_roles WHERE rolname=@role", connection);
+        command.Parameters.AddWithValue("role", roleName);
+        if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 0)
+            throw new InvalidOperationException("Unique test role collision; ownership is not proven and no repair is attempted.");
+    }
+
+    private static void RequireSafeOwnedRole(string roleName, string runId, string prefix)
+    {
+        if (!string.Equals(roleName, prefix + runId[..16], StringComparison.Ordinal) ||
+            roleName.Any(c => !(char.IsAsciiLetterOrDigit(c) || c == '_')))
+            throw new InvalidOperationException("Unsafe or unexpected REV869B disposable role name.");
+    }
+
+    private static async Task DropOwnedRolesAsync(NpgsqlConnection admin, string runtimeRole, string issuerRole, string runId)
+    {
+        RequireSafeOwnedRole(runtimeRole, runId, "rev869b_rt_");
+        RequireSafeOwnedRole(issuerRole, runId, "rev869b_iss_");
+        var quotedRuntime = new NpgsqlCommandBuilder().QuoteIdentifier(runtimeRole);
+        var quotedIssuer = new NpgsqlCommandBuilder().QuoteIdentifier(issuerRole);
+        await new NpgsqlCommand($"DROP ROLE {quotedRuntime}", admin).ExecuteNonQueryAsync();
+        await new NpgsqlCommand($"DROP ROLE {quotedIssuer}", admin).ExecuteNonQueryAsync();
+        await RequireRoleAbsentAsync(admin, runtimeRole);
+        await RequireRoleAbsentAsync(admin, issuerRole);
+    }
+
+    private static async Task RequireNoTargetConnectionsAsync(NpgsqlConnection admin, string databaseName)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname=@name AND pid<>pg_backend_pid()", admin);
+        command.Parameters.AddWithValue("name", databaseName);
+        if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 0)
+            throw new InvalidOperationException("Target has active connections; broad termination is prohibited and DROP is refused.");
+    }
+
     private static void RequireSafeOwnedName(string databaseName)
     {
         var suffix = databaseName.StartsWith(DatabasePrefix, StringComparison.Ordinal) ? databaseName[DatabasePrefix.Length..] : string.Empty;
@@ -230,7 +367,12 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         string databaseName,
         string runId,
         string ownershipToken,
-        string family)
+        string family,
+        string scenarioHash,
+        string expectedOwner,
+        DateTimeOffset provisionedAt,
+        string runtimeRole,
+        string issuerRole)
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_POSTGRES_OPT_IN"), ExactOptIn, StringComparison.Ordinal))
             throw new InvalidOperationException($"Set REV869B_POSTGRES_OPT_IN={ExactOptIn} explicitly.");
@@ -239,16 +381,30 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var source = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         if (!string.Equals(source.Database, ExactSourceDatabase, StringComparison.Ordinal))
             throw new InvalidOperationException($"Only the exact isolated source database {ExactSourceDatabase} is permitted.");
-        await VerifySourceAsync(source.ConnectionString);
-        if (!string.Equals(Environment.GetEnvironmentVariable("REV869B_QUARANTINE_RECOVERY_APPROVAL"),
-                "APPROVE_EXACT_REV869B_QUARANTINE_RECOVERY", StringComparison.Ordinal))
-            throw new InvalidOperationException("A separately approved exact quarantine recovery is required.");
+        var sourceProof = await VerifySourceAsync(source.ConnectionString);
         RequireSafeOwnedName(databaseName);
         if (runId.Length != 32 || runId.Any(c => !Uri.IsHexDigit(c)) ||
             ownershipToken.Length != 64 || ownershipToken.Any(c => !Uri.IsHexDigit(c)) ||
             !string.Equals(databaseName, DatabasePrefix + runId[..24], StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(family))
+            string.IsNullOrWhiteSpace(family) || scenarioHash.Length != 64 || scenarioHash.Any(c => !Uri.IsHexDigit(c)) ||
+            string.IsNullOrWhiteSpace(expectedOwner) || provisionedAt == default)
             throw new InvalidOperationException("Complete high-entropy quarantine recovery proof is required.");
+        RequireSafeOwnedRole(runtimeRole, runId, "rev869b_rt_");
+        RequireSafeOwnedRole(issuerRole, runId, "rev869b_iss_");
+        var ownershipHash = Convert.ToHexString(SHA256.HashData(Convert.FromHexString(ownershipToken)));
+        var evidence = await ReadVerifiedEvidenceAsync(databaseName, runId);
+        if (evidence != new QuarantineEvidence(databaseName, runId, ownershipHash, family, scenarioHash,
+                ExactSourceDatabase, sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint,
+                expectedOwner, provisionedAt, runtimeRole, issuerRole, "Quarantined"))
+            throw new InvalidOperationException("Durable quarantine evidence does not match the exact recovery target.");
+        var approvalCanonical = string.Join('|', databaseName, runId, ownershipHash, family, scenarioHash,
+            ExactSourceDatabase, sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint,
+            expectedOwner, provisionedAt.ToUniversalTime().ToString("O"), runtimeRole, issuerRole);
+        var expectedApproval = HMACSHA256.HashData(RecoveryEvidenceKey(), Encoding.UTF8.GetBytes(approvalCanonical));
+        var approvalValue = Environment.GetEnvironmentVariable("REV869B_QUARANTINE_RECOVERY_APPROVAL");
+        if (approvalValue is null || approvalValue.Length != 64 || approvalValue.Any(c => !Uri.IsHexDigit(c)) ||
+            !CryptographicOperations.FixedTimeEquals(expectedApproval, Convert.FromHexString(approvalValue)))
+            throw new InvalidOperationException("A separately approved instance-bound quarantine recovery signature is required.");
 
         var targetBuilder = new NpgsqlConnectionStringBuilder(source.ConnectionString)
         {
@@ -263,15 +419,22 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             await using var marker = new NpgsqlCommand($$"""
                 SELECT count(*) FROM nexa.{{MarkerTable}}
                 WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
-                  AND "SourceDatabase"=@source AND "MigrationId"=@migration AND "FixtureFamily"=@family
-                  AND "ExpectedOwner"=current_user AND "QuarantineState"='Quarantined'
+                  AND "SourceDatabase"=@source AND "SourceFingerprint"=@sourceFingerprint
+                  AND "MigrationId"=@migration AND "MigrationFingerprint"=@migrationFingerprint AND "FixtureFamily"=@family
+                  AND "ScenarioHash"=@scenario AND "ExpectedOwner"=@owner AND "ExpectedOwner"=current_user
+                  AND "ProvisionedAt"=@provisioned AND "QuarantineState"='Quarantined'
                 """, target);
             marker.Parameters.AddWithValue("token", ownershipToken);
             marker.Parameters.AddWithValue("run", runId);
             marker.Parameters.AddWithValue("database", databaseName);
             marker.Parameters.AddWithValue("source", ExactSourceDatabase);
+            marker.Parameters.AddWithValue("sourceFingerprint", sourceProof.SourceFingerprint);
             marker.Parameters.AddWithValue("migration", MigrationId);
+            marker.Parameters.AddWithValue("migrationFingerprint", sourceProof.MigrationFingerprint);
             marker.Parameters.AddWithValue("family", family);
+            marker.Parameters.AddWithValue("scenario", scenarioHash);
+            marker.Parameters.AddWithValue("owner", expectedOwner);
+            marker.Parameters.AddWithValue("provisioned", provisionedAt);
             if (Convert.ToInt64(await marker.ExecuteScalarAsync()) != 1)
                 throw new InvalidOperationException("Quarantine recovery proof mismatch; DROP is refused.");
         }
@@ -286,9 +449,12 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         await admin.OpenAsync();
         await RequireCurrentDatabaseAsync(admin, "postgres", "quarantine recovery DROP boundary");
         RequireSafeOwnedName(databaseName);
+        await RequireNoTargetConnectionsAsync(admin, databaseName);
         var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(databaseName);
-        await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", admin).ExecuteNonQueryAsync();
+        await new NpgsqlCommand($"DROP DATABASE {quoted}", admin).ExecuteNonQueryAsync();
         await RequireDatabaseAbsentAsync(admin, databaseName);
+        await DropOwnedRolesAsync(admin, runtimeRole, issuerRole, runId);
+        await WriteEvidenceAsync(evidence with { State = "Dropped" });
     }
 
     public async ValueTask DisposeAsync()
@@ -304,11 +470,14 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             await admin.OpenAsync();
             await RequireCurrentDatabaseAsync(admin, "postgres", "administrative DROP boundary");
             RequireSafeOwnedName(DatabaseName);
+            await RequireNoTargetConnectionsAsync(admin, DatabaseName);
             var quoted = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseName);
-            await new NpgsqlCommand($"DROP DATABASE {quoted} WITH (FORCE)", admin).ExecuteNonQueryAsync();
+            await new NpgsqlCommand($"DROP DATABASE {quoted}", admin).ExecuteNonQueryAsync();
             await RequireDatabaseAbsentAsync(admin, DatabaseName);
-            if (string.Equals(Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY"), signingSecretHex, StringComparison.Ordinal))
-                Environment.SetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY", previousSigningSecret);
+            await DropOwnedRolesAsync(admin, runtimeRole, issuerRole, RunId);
+            await WriteEvidenceAsync("Dropped");
+            if (string.Equals(Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION"), issuerConnectionString, StringComparison.Ordinal))
+                Environment.SetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION", previousIssuerConnection);
             disposed = true;
         }
         catch
@@ -326,27 +495,87 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     {
         try
         {
-            await using var connection = new NpgsqlConnection(ConnectionString);
+            await using var connection = new NpgsqlConnection(ownerConnectionString);
             await connection.OpenAsync();
             await RequireCurrentDatabaseAsync(connection, DatabaseName, "quarantine marker boundary");
             await using var command = new NpgsqlCommand($$"""
                 UPDATE nexa.{{MarkerTable}} SET "QuarantineState"='Quarantined'
                 WHERE "OwnershipToken"=@token AND "RunId"=@run AND "DatabaseName"=@database
-                  AND "SourceDatabase"=@source AND "MigrationId"=@migration
+                  AND "SourceDatabase"=@source AND "SourceFingerprint"=@sourceFingerprint
+                  AND "MigrationId"=@migration AND "MigrationFingerprint"=@migrationFingerprint
                   AND "FixtureFamily"=@family AND "ExpectedOwner"=current_user
                 """, connection);
             command.Parameters.AddWithValue("token", OwnershipToken);
             command.Parameters.AddWithValue("run", RunId);
             command.Parameters.AddWithValue("database", DatabaseName);
             command.Parameters.AddWithValue("source", ExactSourceDatabase);
+            command.Parameters.AddWithValue("sourceFingerprint", sourceFingerprint);
             command.Parameters.AddWithValue("migration", MigrationId);
+            command.Parameters.AddWithValue("migrationFingerprint", migrationFingerprint);
             command.Parameters.AddWithValue("family", Family);
             if (await command.ExecuteNonQueryAsync() != 1)
                 throw new InvalidOperationException("Exact quarantine marker update failed.");
+            await WriteEvidenceAsync("Quarantined");
         }
         catch
         {
             // A failed marker update never authorizes recovery or DROP.
         }
     }
+
+    private async Task WriteEvidenceAsync(string state)
+    {
+        var evidence = new QuarantineEvidence(DatabaseName, RunId,
+            Convert.ToHexString(SHA256.HashData(Convert.FromHexString(OwnershipToken))), Family,
+            scenarioHash, ExactSourceDatabase, sourceFingerprint, MigrationId, migrationFingerprint,
+            expectedOwner, provisionedAt, runtimeRole, issuerRole, state);
+        await WriteEvidenceAsync(evidence);
+    }
+
+    private static async Task WriteEvidenceAsync(QuarantineEvidence evidence)
+    {
+        var payload = JsonSerializer.Serialize(evidence);
+        var signature = Convert.ToHexString(HMACSHA256.HashData(RecoveryEvidenceKey(), Encoding.UTF8.GetBytes(payload)));
+        var path = EvidencePath(evidence.DatabaseName, evidence.RunId);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new SignedQuarantineEvidence(payload, signature)), Encoding.UTF8);
+    }
+
+    private static async Task<QuarantineEvidence> ReadVerifiedEvidenceAsync(string databaseName, string runId)
+    {
+        var path = EvidencePath(databaseName, runId);
+        var envelope = JsonSerializer.Deserialize<SignedQuarantineEvidence>(await File.ReadAllTextAsync(path, Encoding.UTF8))
+            ?? throw new InvalidOperationException("Signed quarantine evidence is missing.");
+        var expected = HMACSHA256.HashData(RecoveryEvidenceKey(), Encoding.UTF8.GetBytes(envelope.Payload));
+        var supplied = Convert.FromHexString(envelope.Signature);
+        if (!CryptographicOperations.FixedTimeEquals(expected, supplied))
+            throw new InvalidOperationException("Signed quarantine evidence verification failed.");
+        return JsonSerializer.Deserialize<QuarantineEvidence>(envelope.Payload)
+            ?? throw new InvalidOperationException("Signed quarantine evidence payload is invalid.");
+    }
+
+    private static string EvidencePath(string databaseName, string runId)
+    {
+        RequireSafeOwnedName(databaseName);
+        if (runId.Length != 32 || runId.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidOperationException("Exact evidence run identifier is required.");
+        var directory = Environment.GetEnvironmentVariable("REV869B_QUARANTINE_EVIDENCE_DIRECTORY");
+        if (string.IsNullOrWhiteSpace(directory) || !Path.IsPathFullyQualified(directory))
+            throw new InvalidOperationException("A fully qualified protected quarantine evidence directory is required.");
+        return Path.Combine(Path.GetFullPath(directory), $"{databaseName}.{runId}.json");
+    }
+
+    private static byte[] RecoveryEvidenceKey()
+    {
+        var value = Environment.GetEnvironmentVariable("REV869B_QUARANTINE_RECOVERY_KEY");
+        if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidOperationException("A separately managed 256-bit quarantine evidence key is required.");
+        return Convert.FromHexString(value);
+    }
+
+    private sealed record SourceProof(string SourceFingerprint, string MigrationFingerprint);
+    private sealed record QuarantineEvidence(string DatabaseName, string RunId, string OwnershipTokenHash,
+        string FixtureFamily, string ScenarioHash, string SourceDatabase, string SourceFingerprint, string MigrationId, string MigrationFingerprint,
+        string ExpectedOwner, DateTimeOffset ProvisionedAt, string RuntimeRole, string IssuerRole, string State);
+    private sealed record SignedQuarantineEvidence(string Payload, string Signature);
 }

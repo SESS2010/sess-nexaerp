@@ -107,7 +107,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     [Fact]
     public void MigrationOwnsImmutableAndCrossParentFailClosedGuards()
     {
-        Assert.Equal(78, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
+        Assert.Equal(79, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_") + Count(MigrationInstall, "CREATE CONSTRAINT TRIGGER trg_rev869b_"));
         Assert.Equal(2, Count(MigrationInstall, "CREATE TRIGGER trg_rev869b_down_"));
         Assert.Contains("rev869b_guard_controlled_snapshot", Migration);
         Assert.Contains("rev869b_enforce_transition", Migration);
@@ -172,13 +172,15 @@ public sealed class Rev869BPurchaseCorrectionTests
 
         Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
-        Assert.Equal(17, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
-        Assert.Equal(76, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
-        Assert.Equal(24, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
-        Assert.Equal(23, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
+        Assert.Equal(19, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
+        Assert.Equal(77, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
+        Assert.Equal(27, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
+        Assert.Equal(26, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
             .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
+        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_owner\$").Count % 2);
+        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_grant_owner\$").Count % 2);
         foreach (var function in new[] { "rev869b_open_command_context", "rev869b_claim_command_context",
             "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
             "rev869b_require_qualification_history", "rev869b_guard_child_insert",
@@ -191,6 +193,8 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.True(down.IndexOf("DROP FUNCTION IF EXISTS nexa.rev869b_provision_command_authority", StringComparison.Ordinal) <
                     down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal));
         Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal) <
+                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_grants", StringComparison.Ordinal));
+        Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_grants", StringComparison.Ordinal) <
                     down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_authorities", StringComparison.Ordinal));
         Assert.DoesNotContain("DROP EXTENSION", down, StringComparison.OrdinalIgnoreCase);
     }

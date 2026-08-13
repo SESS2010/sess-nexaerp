@@ -1,41 +1,179 @@
-using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
+using System.Data;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 using SESS.NexaERP.Application.Common;
+using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
 public static class Rev869BCommandContextAuthorizer
 {
-    public static async Task OpenAsync(NexaErpDbContext db, ICurrentUser user, string organization, CancellationToken ct)
-    {
-        if (!user.IsAuthenticated || !user.EmployeeId.HasValue ||
-            string.IsNullOrWhiteSpace(user.IdentityIssuer) || string.IsNullOrWhiteSpace(user.IdentitySubject) ||
-            !string.Equals(user.LoginId, user.IdentitySubject, StringComparison.Ordinal))
-            throw new UnauthorizedAccessException("An exact authenticated OIDC issuer/subject employee identity is required.");
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-        var signingKeyHex = Environment.GetEnvironmentVariable("REV869B_COMMAND_SIGNING_KEY");
-        if (signingKeyHex is null || signingKeyHex.Length != 64 ||
-            signingKeyHex.Any(c => !Uri.IsHexDigit(c)))
-            throw new InvalidOperationException("A 256-bit external REV869B command signing key is required.");
+    public static async Task OpenForPendingChangesAsync(
+        NexaErpDbContext db,
+        ICurrentUser user,
+        string organization,
+        CancellationToken ct)
+    {
+        RequirePrincipal(user, organization);
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Exact REV869B grants require an active business transaction.");
+
+        var slots = await CollectSlotsAsync(db, ct);
+        if (slots.Count == 0) return;
+
+        var runtimeConnection = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (runtimeConnection.State != ConnectionState.Open)
+            throw new InvalidOperationException("REV869B runtime connection must already be open.");
+        var runtimeTransaction = (NpgsqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
+        int backendPid;
+        long transactionId;
+        string runtimePrincipal;
+        await using (var identity = new NpgsqlCommand(
+            "SELECT pg_backend_pid(),txid_current(),session_user::text", runtimeConnection, runtimeTransaction))
+        await using (var reader = await identity.ExecuteReaderAsync(ct))
+        {
+            if (!await reader.ReadAsync(ct)) throw new InvalidOperationException("Runtime database identity is unavailable.");
+            backendPid = reader.GetInt32(0);
+            transactionId = reader.GetInt64(1);
+            runtimePrincipal = reader.GetString(2);
+        }
+
+        var issuerRaw = Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION");
+        if (string.IsNullOrWhiteSpace(issuerRaw))
+            throw new InvalidOperationException("A distinct REV869B command issuer connection is required.");
+        var issuerBuilder = new NpgsqlConnectionStringBuilder(issuerRaw) { Pooling = false };
+        var runtimeBuilder = new NpgsqlConnectionStringBuilder(runtimeConnection.ConnectionString);
+        if (!string.Equals(issuerBuilder.Database, runtimeBuilder.Database, StringComparison.Ordinal) ||
+            string.Equals(issuerBuilder.Username, runtimeBuilder.Username, StringComparison.Ordinal))
+            throw new InvalidOperationException("Command issuer must target the exact database through a principal distinct from runtime.");
 
         var authenticatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var nonce = Guid.NewGuid();
-        var transactionId = await db.Database.SqlQueryRaw<long>("SELECT txid_current() AS \"Value\"").SingleAsync(ct);
-        var canonical = string.Join('|',
-            user.EmployeeId.Value.ToString("N"),
-            user.IdentityIssuer,
-            user.IdentitySubject,
-            user.RoleCode,
-            organization,
-            authenticatedAt.ToString(CultureInfo.InvariantCulture),
-            nonce.ToString("N"),
-            transactionId.ToString(CultureInfo.InvariantCulture));
-        var key = Convert.FromHexString(signingKeyHex);
-        var signature = Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(canonical)));
+        Guid grantId;
+        await using (var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString))
+        {
+            await issuer.OpenAsync(ct);
+            await using var issue = new NpgsqlCommand("""
+                SELECT nexa.rev869b_issue_command_grant(
+                  @runtime,@backend,@transaction,@actor,@issuer,@subject,@role,@organization,@authenticated,@slots::jsonb)
+                """, issuer);
+            issue.Parameters.AddWithValue("runtime", runtimePrincipal);
+            issue.Parameters.AddWithValue("backend", backendPid);
+            issue.Parameters.AddWithValue("transaction", transactionId);
+            issue.Parameters.AddWithValue("actor", user.EmployeeId!.Value);
+            issue.Parameters.AddWithValue("issuer", user.IdentityIssuer!);
+            issue.Parameters.AddWithValue("subject", user.IdentitySubject!);
+            issue.Parameters.AddWithValue("role", user.RoleCode);
+            issue.Parameters.AddWithValue("organization", organization);
+            issue.Parameters.AddWithValue("authenticated", authenticatedAt);
+            issue.Parameters.AddWithValue("slots", JsonSerializer.Serialize(slots, JsonOptions));
+            grantId = (Guid)(await issue.ExecuteScalarAsync(ct)
+                ?? throw new InvalidOperationException("Exact command grant was not returned."));
+        }
 
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_open_command_context({user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{authenticatedAt},{nonce},{transactionId},{signature},{signingKeyHex})", ct);
+            $"SELECT nexa.rev869b_open_command_context({grantId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{backendPid},{transactionId})", ct);
     }
+
+    private static void RequirePrincipal(ICurrentUser user, string organization)
+    {
+        if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(organization) ||
+            string.IsNullOrWhiteSpace(user.IdentityIssuer) || string.IsNullOrWhiteSpace(user.IdentitySubject) ||
+            string.IsNullOrWhiteSpace(user.RoleCode) || !string.Equals(user.LoginId, user.IdentitySubject, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException("An exact authenticated OIDC issuer/subject employee identity is required.");
+    }
+
+    private static async Task<List<OperationSlot>> CollectSlotsAsync(NexaErpDbContext db, CancellationToken ct)
+    {
+        var result = new List<OperationSlot>();
+        foreach (var history in db.ChangeTracker.Entries<PurchaseTransactionStatusHistory>()
+                     .Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = history.EntityType switch
+            {
+                "RFQ" => TrackedVersion<RequestForQuotation>(db, history.EntityId) ?? await db.RequestForQuotations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "RFQInvitation" => TrackedVersion<RfqVendorInvitation>(db, history.EntityId) ?? await db.RfqVendorInvitations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "VendorQuotation" => TrackedVersion<VendorQuotation>(db, history.EntityId) ?? await db.VendorQuotations.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "TechnicalVerification" => TrackedVersion<QuotationTechnicalVerification>(db, history.EntityId) ?? await db.QuotationTechnicalVerifications.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "CommercialComparison" => TrackedVersion<CommercialComparison>(db, history.EntityId) ?? await db.CommercialComparisons.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "PurchaseOrder" => TrackedVersion<PurchaseOrder>(db, history.EntityId) ?? await db.PurchaseOrders.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                "MaterialFollowUp" => TrackedVersion<MaterialFollowUpHandoff>(db, history.EntityId) ?? await db.MaterialFollowUpHandoffs.Where(x => x.Id == history.EntityId).Select(x => (long)x.Version).SingleAsync(ct),
+                _ => throw new InvalidOperationException("Unsupported exact status-history entity type.")
+            };
+            result.Add(new("purchase_transaction_status_history", history.Id, history.EntityType, history.EntityId,
+                history.Action, version, history.FromStatus, history.ToStatus, history.CorrelationId, history.Remarks));
+        }
+
+        foreach (var history in db.ChangeTracker.Entries<PurchaseTransactionApprovalHistory>()
+                     .Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<CommercialComparison>(db, history.CommercialComparisonId) ??
+                await db.CommercialComparisons.Where(x => x.Id == history.CommercialComparisonId).Select(x => (long)x.Version).SingleAsync(ct);
+            result.Add(new("purchase_transaction_approval_history", history.Id, "CommercialComparison",
+                history.CommercialComparisonId, history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
+        }
+
+        foreach (var history in db.ChangeTracker.Entries<PurchaseOrderHistory>()
+                     .Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<PurchaseOrder>(db, history.PurchaseOrderId) ??
+                await db.PurchaseOrders.Where(x => x.Id == history.PurchaseOrderId).Select(x => (long)x.Version).SingleAsync(ct);
+            result.Add(new("purchase_order_history", history.Id, "PurchaseOrder", history.PurchaseOrderId,
+                history.Action, version, history.FromStatus, history.ToStatus, history.CorrelationId, history.Reason));
+        }
+
+        foreach (var history in db.ChangeTracker.Entries<ControlledConfigurationHistory>()
+                     .Where(x => x.State == EntityState.Added && x.Entity.EntityType == nameof(VendorQualification))
+                     .Select(x => x.Entity))
+        {
+            var qualification = db.ChangeTracker.Entries<VendorQualification>()
+                .Single(x => x.Entity.Id == history.EntityId).Entity;
+            var parentVersion = history.Action == "Create" ? 0L : checked((long)qualification.Version - 1L);
+            var from = history.Action switch
+            {
+                "Approve" => MasterApprovalStatuses.PendingApproval,
+                "Reject" => MasterApprovalStatuses.PendingApproval,
+                "RequestCorrection" => MasterApprovalStatuses.Approved,
+                "Create" => null,
+                "Normalize" => MasterApprovalStatuses.Draft,
+                _ => MasterApprovalStatuses.PendingApproval
+            };
+            var to = history.Action switch
+            {
+                "Verify" => MasterApprovalStatuses.Verified,
+                "Approve" => MasterApprovalStatuses.Approved,
+                "Reject" => MasterApprovalStatuses.Rejected,
+                "RequestCorrection" => MasterApprovalStatuses.RevisionRequested,
+                _ => MasterApprovalStatuses.PendingApproval
+            };
+            result.Add(new("qualification_history", history.Id, nameof(VendorQualification), history.EntityId,
+                history.Action, parentVersion, from, to, history.CorrelationId, history.Remarks));
+        }
+
+        if (result.GroupBy(x => new { x.ClaimKind, x.EntityType, x.EntityId, x.Operation, x.ParentVersion, x.Correlation })
+            .Any(x => x.Count() != 1))
+            throw new InvalidOperationException("Duplicate semantic operation slots are prohibited before issuance.");
+        return result;
+    }
+
+    private static long? TrackedVersion<T>(NexaErpDbContext db, Guid id) where T : AuditableEntity =>
+        db.ChangeTracker.Entries<T>().Where(x => x.Entity.Id == id).Select(x => (long?)x.Entity.Version).SingleOrDefault();
+
+    private sealed record OperationSlot(
+        string ClaimKind,
+        Guid HistoryId,
+        string EntityType,
+        Guid EntityId,
+        string Operation,
+        long ParentVersion,
+        string? FromStatus,
+        string ToStatus,
+        string Correlation,
+        string Remarks);
 }
