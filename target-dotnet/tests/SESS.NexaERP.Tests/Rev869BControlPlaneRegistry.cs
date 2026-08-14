@@ -208,45 +208,15 @@ internal static class Rev869BControlPlaneRegistry
             ?? throw new InvalidOperationException("REV869B_CONTROL_PLANE is required; filesystem state cannot authorize provisioning or recovery.");
         var builder = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         var database = builder.Database ?? string.Empty;
+        Rev869BControlPlaneProvisioningContract.RequireSafeTarget(database);
         if (!string.Equals(database, ExactDatabase, StringComparison.Ordinal) ||
             string.Equals(builder.Database, Rev869BTestDatabaseLease.ExactSourceDatabase, StringComparison.Ordinal) ||
             database.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, StringComparison.Ordinal))
             throw new InvalidOperationException("The separately provisioned exact REV869B control-plane database is required.");
         var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
-        await using var proof = new NpgsqlCommand("""
-            WITH required_api(name,arg_count) AS (VALUES
-              ('rev869b_reserve_database_lease',18),
-              ('rev869b_complete_database_lease',24),
-              ('rev869b_read_exact_database_lease',19),
-              ('rev869b_begin_database_drop',22),
-              ('rev869b_record_database_drop_outcome',11),
-              ('rev869b_consume_recovery_approval',32),
-              ('rev869b_record_recovery_outcome',8)
-            ), api AS (
-              SELECT p.oid,p.prosecdef,p.proconfig,pg_get_userbyid(p.proowner) owner,
-                     has_function_privilege(session_user,p.oid,'EXECUTE') caller_execute,
-                     has_function_privilege('public',p.oid,'EXECUTE') public_execute
-              FROM required_api r JOIN pg_proc p ON p.proname=r.name AND p.pronargs=r.arg_count
-                JOIN pg_namespace n ON n.oid=p.pronamespace AND n.nspname='nexa'
-            )
-            SELECT count(*) FROM pg_database d
-            WHERE d.datname=current_database() AND d.datname=@database
-              AND pg_get_userbyid(d.datdba)=@owner
-              AND (SELECT count(*) FROM api WHERE owner=@owner AND prosecdef
-                    AND proconfig @> ARRAY['search_path=pg_catalog, nexa']::text[]
-                    AND caller_execute AND NOT public_execute)=7
-              AND (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-                    WHERE n.nspname='nexa' AND c.relname IN
-                      ('rev869b_database_leases','rev869b_database_lease_events','rev869b_recovery_approvals','rev869b_recovery_attempts'))=4
-              AND (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-                    WHERE n.nspname='nexa' AND c.relname IN ('rev869b_database_lease_events','rev869b_recovery_attempts')
-                      AND NOT t.tgisinternal AND t.tgenabled='O')>=2
-              AND NOT has_table_privilege(session_user,'nexa.rev869b_database_leases','SELECT,INSERT,UPDATE,DELETE')
-              AND NOT has_table_privilege(session_user,'nexa.rev869b_database_lease_events','SELECT,INSERT,UPDATE,DELETE')
-              AND NOT has_table_privilege(session_user,'nexa.rev869b_recovery_approvals','SELECT,INSERT,UPDATE,DELETE')
-              AND NOT has_table_privilege(session_user,'nexa.rev869b_recovery_attempts','SELECT,INSERT,UPDATE,DELETE')
-            """, connection);
+        await using var proof = new NpgsqlCommand(
+            Rev869BControlPlaneProvisioningContract.ExactReadinessSql, connection);
         proof.Parameters.AddWithValue("database", ExactDatabase);
         proof.Parameters.AddWithValue("owner", SecurityOwner);
         if (Convert.ToInt64(await proof.ExecuteScalarAsync()) != 1)

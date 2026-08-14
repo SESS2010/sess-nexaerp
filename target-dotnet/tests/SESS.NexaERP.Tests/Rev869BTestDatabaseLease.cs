@@ -114,13 +114,14 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             family, scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint, MigrationId,
             sourceProof.MigrationFingerprint, sourceProof.OwnerPrincipal, intentAt, intentAt.AddHours(4), runtimeRole, issuerRole,
             controlPlaneIssuer, controlPlaneAuthority);
-        // This durable registry reservation is the authority. It must commit before role/database creation.
-        await Rev869BControlPlaneRegistry.ReserveBeforeCreateAsync(reservation);
+        // Supplemental intent is written first so an interruption after registry reservation is discoverable.
+        // It never authorizes creation: the following registry reservation remains the sole authority.
         await WriteEvidenceAsync(new QuarantineEvidence(databaseName, runId,
             ownershipTokenHash, family,
             scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint,
             MigrationId, sourceProof.MigrationFingerprint, sourceProof.OwnerPrincipal, intentAt, intentAt.AddHours(4),
             runtimeRole, issuerRole, Rev869BControlPlaneRegistry.Policy, "PreCreateIntent", null));
+        await Rev869BControlPlaneRegistry.ReserveBeforeCreateAsync(reservation);
         var admin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = "postgres", Pooling = false };
         try
         {
@@ -153,6 +154,10 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         {
             await Rev869BControlPlaneRegistry.BindMarkerAndOutcomeAsync(
                 reservation, "PreCreateIntent", "Quarantined", null, "Failed", preMarkerFailure.GetType().Name);
+            await WriteEvidenceAsync(new QuarantineEvidence(databaseName, runId, ownershipTokenHash, family,
+                scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint,
+                MigrationId, sourceProof.MigrationFingerprint, sourceProof.OwnerPrincipal, intentAt, intentAt.AddHours(4),
+                runtimeRole, issuerRole, Rev869BControlPlaneRegistry.Policy, "Quarantined", null));
             throw;
         }
 
@@ -523,7 +528,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         string family,
         string scenarioHash,
         string expectedOwner,
-        DateTimeOffset provisionedAt,
+        DateTimeOffset leaseRequestedAt,
+        DateTimeOffset markerProvisionedAt,
         string runtimeRole,
         string issuerRole)
     {
@@ -541,20 +547,20 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             ownershipToken.Length != 64 || ownershipToken.Any(c => !Uri.IsHexDigit(c)) ||
             !string.Equals(databaseName, DatabasePrefix + runId[..24], StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(family) || scenarioHash.Length != 64 || scenarioHash.Any(c => !Uri.IsHexDigit(c)) ||
-            string.IsNullOrWhiteSpace(expectedOwner) || provisionedAt == default)
+            string.IsNullOrWhiteSpace(expectedOwner) || leaseRequestedAt == default || markerProvisionedAt == default)
             throw new InvalidOperationException("Complete high-entropy quarantine recovery proof is required.");
         RequireSafeOwnedRole(runtimeRole, runId, "rev869b_rt_");
         RequireSafeOwnedRole(issuerRole, runId, "rev869b_iss_");
         var ownershipHash = Convert.ToHexString(SHA256.HashData(Convert.FromHexString(ownershipToken)));
         var sourceCommitFingerprint = ResolveAuthoritativeSourceCommitFingerprint();
-        var leaseExpiresAt = provisionedAt.AddHours(4);
+        var leaseExpiresAt = leaseRequestedAt.AddHours(4);
         var quarantineMarkerFingerprint = ComputeMarkerFingerprint(databaseName, runId, ownershipHash, family,
             scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint, MigrationId,
-            sourceProof.MigrationFingerprint, expectedOwner, provisionedAt, leaseExpiresAt, "Quarantined");
+            sourceProof.MigrationFingerprint, expectedOwner, leaseRequestedAt, leaseExpiresAt, "Quarantined");
         var evidence = await ReadVerifiedEvidenceAsync(databaseName, runId);
         var quarantinedEvidence = new QuarantineEvidence(databaseName, runId, ownershipHash, family, scenarioHash,
             ExactSourceDatabase, sourceProof.SourceFingerprint, sourceCommitFingerprint, MigrationId,
-            sourceProof.MigrationFingerprint, expectedOwner, provisionedAt, leaseExpiresAt, runtimeRole, issuerRole,
+            sourceProof.MigrationFingerprint, expectedOwner, leaseRequestedAt, leaseExpiresAt, runtimeRole, issuerRole,
             Rev869BControlPlaneRegistry.Policy, "Quarantined", quarantineMarkerFingerprint);
         var preCreateEvidence = quarantinedEvidence with { State = "PreCreateIntent", MarkerFingerprint = null };
         if (evidence != quarantinedEvidence && evidence != preCreateEvidence)
@@ -579,7 +585,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
             authorization.IssuedAt.ToUniversalTime().ToString("O"), authorization.ExpiresAt.ToUniversalTime().ToString("O"),
             databaseName, runId, ownershipHash, family, scenarioHash,
             ExactSourceDatabase, sourceProof.SourceFingerprint, MigrationId, sourceProof.MigrationFingerprint,
-            expectedOwner, provisionedAt.ToUniversalTime().ToString("O"), runtimeRole, issuerRole);
+            expectedOwner, leaseRequestedAt.ToUniversalTime().ToString("O"),
+            markerProvisionedAt.ToUniversalTime().ToString("O"), runtimeRole, issuerRole);
         var expectedApproval = HMACSHA256.HashData(RecoveryAuthorizationKey(), Encoding.UTF8.GetBytes(approvalCanonical));
         if (authorization.Signature.Length != 64 || authorization.Signature.Any(c => !Uri.IsHexDigit(c)) ||
             !CryptographicOperations.FixedTimeEquals(expectedApproval, Convert.FromHexString(authorization.Signature)))
@@ -587,7 +594,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         var recoveryReservation = new Rev869BControlPlaneRegistry.LeaseReservation(databaseName, runId, ownershipHash,
             family, scenarioHash, ExactSourceDatabase, sourceProof.SourceFingerprint,
             sourceCommitFingerprint, MigrationId,
-            sourceProof.MigrationFingerprint, expectedOwner, provisionedAt, provisionedAt.AddHours(4), runtimeRole, issuerRole,
+            sourceProof.MigrationFingerprint, expectedOwner, leaseRequestedAt, leaseRequestedAt.AddHours(4), runtimeRole, issuerRole,
             authorization.ApprovalIssuer, authorization.IssuerAuthority);
         var targetFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(approvalCanonical)));
         var recoveryApproval = new Rev869BControlPlaneRegistry.RecoveryApproval(authorization.AuthorizationId,
@@ -660,9 +667,9 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                       AND "SourceDatabase"=@source AND "SourceFingerprint"=@sourceFingerprint
                       AND "MigrationId"=@migration AND "MigrationFingerprint"=@migrationFingerprint AND "FixtureFamily"=@family
                       AND "ScenarioHash"=@scenario AND "ExpectedOwner"=@owner AND "ExpectedOwner"=current_user
-                      AND "LeaseRequestedAt"=@provisioned AND "LeaseExpiresAt"=@leaseExpires
+                      AND "LeaseRequestedAt"=@leaseRequested AND "LeaseExpiresAt"=@leaseExpires
                       AND "RegistryState"='Quarantined' AND "MarkerFingerprint"=@markerFingerprint
-                      AND "ProvisionedAt"=@provisioned AND "QuarantineState"='Quarantined'
+                      AND "ProvisionedAt"=@markerProvisioned AND "QuarantineState"='Quarantined'
                     """, target);
                 marker.Parameters.AddWithValue("token", ownershipToken);
                 marker.Parameters.AddWithValue("run", runId);
@@ -676,7 +683,8 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                 marker.Parameters.AddWithValue("family", family);
                 marker.Parameters.AddWithValue("scenario", scenarioHash);
                 marker.Parameters.AddWithValue("owner", expectedOwner);
-                marker.Parameters.AddWithValue("provisioned", provisionedAt);
+                marker.Parameters.AddWithValue("leaseRequested", leaseRequestedAt);
+                marker.Parameters.AddWithValue("markerProvisioned", markerProvisionedAt);
                 marker.Parameters.AddWithValue("leaseExpires", leaseExpiresAt);
                 marker.Parameters.AddWithValue("markerFingerprint", evidence.MarkerFingerprint!);
                 if (Convert.ToInt64(await marker.ExecuteScalarAsync()) != 1)
@@ -744,6 +752,23 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         }
         catch (Exception disposalFailure)
         {
+            if (dropAttempt.HasValue)
+            {
+                await using var reconcile = new NpgsqlConnection(adminConnectionString);
+                await reconcile.OpenAsync();
+                await RequireCurrentDatabaseAsync(reconcile, "postgres", "post-drop outcome reconciliation");
+                await using var exists = new NpgsqlCommand("SELECT count(*) FROM pg_database WHERE datname=@database", reconcile);
+                exists.Parameters.AddWithValue("database", DatabaseName);
+                if (Convert.ToInt64(await exists.ExecuteScalarAsync()) == 0)
+                {
+                    await DropOwnedRolesAsync(reconcile, runtimeRole, issuerRole, RunId);
+                    await Rev869BControlPlaneRegistry.RecordLeaseDropOutcomeAsync(
+                        dropAttempt.Value, reservation, "OwnedActive", "Dropped", markerFingerprint, "Succeeded", null);
+                    await WriteEvidenceAsync("Dropped");
+                    disposed = true;
+                    return;
+                }
+            }
             Exception? registryFailure = null;
             if (dropAttempt.HasValue)
             {
@@ -920,7 +945,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     private sealed record QuarantineEvidence(string DatabaseName, string RunId, string OwnershipTokenHash,
         string FixtureFamily, string ScenarioHash, string SourceDatabase, string SourceFingerprint,
         string SourceCommitFingerprint, string MigrationId, string MigrationFingerprint,
-        string ExpectedOwner, DateTimeOffset ProvisionedAt, DateTimeOffset LeaseExpiresAt,
+        string ExpectedOwner, DateTimeOffset LeaseRequestedAt, DateTimeOffset LeaseExpiresAt,
         string RuntimeRole, string IssuerRole, string ControlPlanePolicy, string State, string? MarkerFingerprint);
     private sealed record SignedQuarantineEvidence(string Payload, string Signature);
     private sealed record RecoveryAuthorization(Guid AuthorizationId, string Nonce, string Purpose,

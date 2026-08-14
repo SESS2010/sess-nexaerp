@@ -52,7 +52,7 @@ public sealed class Rev869BCorrection14PostgresDesignTests
     [Fact] public Task PurgeRequiresFreshPerExecutionApproval() => ExecuteDatabaseScenarioAsync(new(
         "REV869B_PURGE_FRESH_REQUIRED", null,
         "SELECT nexa.rev869b_begin_purge_execution(gen_random_uuid(),digest('missing','sha256'))",
-        "42501", "rev869b_purge_authorizations",
+        null, null,
         "SELECT count(*) FROM nexa.rev869b_purge_rejection_audits a WHERE to_jsonb(a)->>'AcceptanceLabel'='REV869B_PURGE_REJECTED'", 1));
     [Fact] public Task WrongPurgeCutoffBatchDatabasePolicyOrExecutorIsRejected() => ExecuteDatabaseScenarioAsync(new(
         "REV869B_PURGE_SCOPE_REJECTED", null,
@@ -156,12 +156,22 @@ public sealed class Rev869BCorrection14PostgresDesignTests
 
     private static async Task ExecuteDatabaseScenarioAsync(DatabaseScenario scenario)
     {
-        await using var lease = await Rev869BTestDatabaseLease.CreateAsync(scenario.AcceptanceLabel, "correction15-purge-audit");
-        await using var actor = await lease.OpenVerifiedConnectionAsync();
-        await using var verifier = await lease.OpenVerifiedConnectionAsync();
+        await using var lease = await Rev869BTestDatabaseLease.CreateAsync(scenario.AcceptanceLabel, "correction16-purge-audit");
+        var isRegistration = scenario.AttackSql.Contains("rev869b_register_purge_authorization", StringComparison.Ordinal);
+        await using var actor = isRegistration
+            ? await Rev869BPurgeCoordinator.OpenExactRoleAsync(
+                "REV869B_PURGE_AUTHORIZER_CONNECTION", "nexa_rev869b_purge_authorizer", lease.DatabaseName)
+            : await Rev869BPurgeCoordinator.OpenExactRoleAsync(
+                "REV869B_PURGE_EXECUTOR_CONNECTION", "nexa_rev869b_purge_executor", lease.DatabaseName);
+        await using var verifier = new NpgsqlConnection(lease.OwnerConnectionString);
+        await verifier.OpenAsync();
         Assert.NotEqual(actor.ProcessID, verifier.ProcessID);
+        Assert.Equal(lease.DatabaseName, verifier.Database);
         if (scenario.SetupSql is not null)
-            await new NpgsqlCommand(scenario.SetupSql, actor).ExecuteNonQueryAsync();
+        {
+            await using var setup = new NpgsqlCommand(scenario.SetupSql, verifier);
+            await setup.ExecuteNonQueryAsync();
+        }
         if (scenario.ExpectedSqlState is null)
             await new NpgsqlCommand(scenario.AttackSql, actor).ExecuteScalarAsync();
         else

@@ -1,4 +1,7 @@
+
 using System.Data;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -74,6 +77,32 @@ public static class Rev869BCommandContextAuthorizer
             issue.Parameters.AddWithValue("slots", JsonSerializer.Serialize(slots, JsonOptions));
             grantId = (Guid)(await issue.ExecuteScalarAsync(ct)
                 ?? throw new InvalidOperationException("Exact command grant was not returned."));
+
+            var executionValue = Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID");
+            if (!Guid.TryParse(executionValue, out var executionInstanceId) || executionInstanceId == Guid.Empty)
+                throw new InvalidOperationException("A non-empty REV869B execution-instance ID is required.");
+            static byte[] ExactFingerprint(string name)
+            {
+                var value = Environment.GetEnvironmentVariable(name);
+                if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
+                    throw new InvalidOperationException(name + " must be an exact SHA-256 fingerprint.");
+                return Convert.FromHexString(value);
+            }
+            var serviceFingerprint = ExactFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT");
+            var ownershipFingerprint = ExactFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT");
+            var businessFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
+                JsonSerializer.Serialize(slots, JsonOptions)));
+            var attemptId = Guid.NewGuid();
+            await using var attempt = new NpgsqlCommand(
+                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership)", issuer);
+            attempt.Parameters.AddWithValue("grant", grantId);
+            attempt.Parameters.AddWithValue("attempt", attemptId);
+            attempt.Parameters.AddWithValue("execution", executionInstanceId);
+            attempt.Parameters.AddWithValue("service", serviceFingerprint);
+            attempt.Parameters.AddWithValue("business", businessFingerprint);
+            attempt.Parameters.AddWithValue("ownership", ownershipFingerprint);
+            if (await attempt.ExecuteScalarAsync(ct) is not Guid recordedAttempt || recordedAttempt != attemptId)
+                throw new InvalidOperationException("The exact durable consumption attempt was not recorded before context open.");
         }
 
         try

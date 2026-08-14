@@ -1,3 +1,4 @@
+
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -172,10 +173,10 @@ public sealed class Rev869BPurchaseCorrectionTests
 
         Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
-        Assert.Equal(23, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
-        Assert.Equal(80, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
-        Assert.Equal(32, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
-        Assert.Equal(31, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
+        Assert.Equal(24, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
+        Assert.Equal(81, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
+        Assert.Equal(33, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
+        Assert.Equal(32, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
             .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
@@ -184,6 +185,7 @@ public sealed class Rev869BPurchaseCorrectionTests
         foreach (var function in new[] { "rev869b_open_command_context", "rev869b_claim_command_context",
             "rev869b_register_purge_authorization", "rev869b_begin_purge_execution",
             "rev869b_purge_temporary_security_ledger", "rev869b_record_command_outcome",
+            "rev869b_record_command_consumption_attempt",
             "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
             "rev869b_require_qualification_history", "rev869b_guard_child_insert",
             "rev869b_enforce_transition", "rev869b_enforce_quotation_transition" })
@@ -205,8 +207,8 @@ public sealed class Rev869BPurchaseCorrectionTests
     {
         var edges = allowed.ToHashSet();
         foreach (var from in statuses)
-        foreach (var to in statuses)
-            if (edges.Contains((from, to))) require(from, to); else Assert.Throws<InvalidOperationException>(() => require(from, to));
+            foreach (var to in statuses)
+                if (edges.Contains((from, to))) require(from, to); else Assert.Throws<InvalidOperationException>(() => require(from, to));
         Assert.Throws<InvalidOperationException>(() => require("UNKNOWN", statuses.First()));
     }
 
