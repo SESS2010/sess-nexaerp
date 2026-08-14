@@ -16,8 +16,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 public static class Rev869BCommandContextAuthorizer
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    public readonly record struct CommandAttemptHandle(Guid GrantId, Guid AttemptId);
 
-    public static async Task<Guid?> OpenForPendingChangesAsync(
+    public static async Task<CommandAttemptHandle?> OpenForPendingChangesAsync(
         NexaErpDbContext db,
         ICurrentUser user,
         string organization,
@@ -58,6 +59,7 @@ public static class Rev869BCommandContextAuthorizer
 
         var authenticatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         Guid grantId;
+        Guid attemptId;
         await using (var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString))
         {
             await issuer.OpenAsync(ct);
@@ -90,17 +92,20 @@ public static class Rev869BCommandContextAuthorizer
             }
             var serviceFingerprint = ExactFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT");
             var ownershipFingerprint = ExactFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT");
-            var businessFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(
-                JsonSerializer.Serialize(slots, JsonOptions)));
-            var attemptId = Guid.NewGuid();
+            var businessFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(slots, JsonOptions)));
+            var idempotencyValue = Environment.GetEnvironmentVariable("REV869B_COMMAND_IDEMPOTENCY_KEY");
+            if (string.IsNullOrWhiteSpace(idempotencyValue)) throw new InvalidOperationException("Idempotency key required.");
+            var idempotencyFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(idempotencyValue));
+            attemptId = Guid.NewGuid();
             await using var attempt = new NpgsqlCommand(
-                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership)", issuer);
+                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership,@idempotency)", issuer);
             attempt.Parameters.AddWithValue("grant", grantId);
             attempt.Parameters.AddWithValue("attempt", attemptId);
             attempt.Parameters.AddWithValue("execution", executionInstanceId);
             attempt.Parameters.AddWithValue("service", serviceFingerprint);
             attempt.Parameters.AddWithValue("business", businessFingerprint);
             attempt.Parameters.AddWithValue("ownership", ownershipFingerprint);
+            attempt.Parameters.AddWithValue("idempotency", idempotencyFingerprint);
             if (await attempt.ExecuteScalarAsync(ct) is not Guid recordedAttempt || recordedAttempt != attemptId)
                 throw new InvalidOperationException("The exact durable consumption attempt was not recorded before context open.");
         }
@@ -108,30 +113,26 @@ public static class Rev869BCommandContextAuthorizer
         try
         {
             await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT nexa.rev869b_open_command_context({grantId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{backendPid},{transactionId})", ct);
+                $"SELECT nexa.rev869b_open_command_context({grantId},{attemptId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{backendPid},{transactionId})", ct);
         }
         catch
         {
-            await RecordRolledBackOutcomeAsync(runtimeConnection, grantId, "Rejected", "ContextOpenRejected", ct);
+            await RecordRolledBackOutcomeAsync(runtimeConnection, new(grantId, attemptId), "Rejected", "ContextOpenRejected", ct);
             throw;
         }
-        return grantId;
+        return new(grantId, attemptId);
     }
 
-    public static async Task StageCommittedOutcomeAsync(NexaErpDbContext db, Guid grantId, CancellationToken ct)
+    public static async Task StageCommittedOutcomeAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("Committed command outcome must be staged in the exact business transaction.");
         await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_record_command_outcome({grantId},{"Committed"},{string.Empty})", ct);
+            $"SELECT nexa.rev869b_record_command_outcome({attempt.GrantId},{attempt.AttemptId},{"Committed"},{string.Empty},{Guid.NewGuid()})", ct);
     }
 
-    public static Task RecordCommittedAttemptAfterCommitAsync(
-        NpgsqlConnection runtimeConnection, Guid grantId, CancellationToken ct) =>
-        RecordDurableAttemptTerminalAsync(runtimeConnection, grantId, "Committed", string.Empty, ct);
-
     public static async Task RecordRolledBackOutcomeAsync(
-        NpgsqlConnection runtimeConnection, Guid grantId, string terminalEvent, string failureCategory, CancellationToken ct)
+        NpgsqlConnection runtimeConnection, CommandAttemptHandle attempt, string terminalEvent, string failureCategory, CancellationToken ct)
     {
         if (terminalEvent is not ("Failed" or "Rejected") || string.IsNullOrWhiteSpace(failureCategory))
             throw new InvalidOperationException("A minimized Failed or Rejected outcome category is required.");
@@ -145,44 +146,16 @@ public static class Rev869BCommandContextAuthorizer
             throw new InvalidOperationException("Rollback outcome issuer must target the exact database through a distinct principal.");
         await using var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString);
         await issuer.OpenAsync(ct);
+        var outcomeId = Guid.NewGuid();
         await using var outcome = new NpgsqlCommand(
-            "SELECT nexa.rev869b_record_command_outcome(@grant,@event,@failure)", issuer);
-        outcome.Parameters.AddWithValue("grant", grantId);
+            "SELECT nexa.rev869b_record_command_outcome(@grant,@attempt,@event,@failure,@outcome)", issuer);
+        outcome.Parameters.AddWithValue("grant", attempt.GrantId);
+        outcome.Parameters.AddWithValue("attempt", attempt.AttemptId);
         outcome.Parameters.AddWithValue("event", terminalEvent);
         outcome.Parameters.AddWithValue("failure", failureCategory);
-        if (Convert.ToInt32(await outcome.ExecuteScalarAsync(ct)) < 1)
+        outcome.Parameters.AddWithValue("outcome", outcomeId);
+        if (await outcome.ExecuteScalarAsync(ct) is not Guid recorded || recorded != outcomeId)
             throw new InvalidOperationException("No durable command rollback outcome was appended.");
-        await RecordAttemptTerminalOnIssuerAsync(issuer, grantId, terminalEvent, failureCategory, ct);
-    }
-
-    private static async Task RecordDurableAttemptTerminalAsync(
-        NpgsqlConnection runtimeConnection, Guid grantId, string terminalEvent, string failureCategory, CancellationToken ct)
-    {
-        var issuerRaw = Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION");
-        if (string.IsNullOrWhiteSpace(issuerRaw))
-            throw new InvalidOperationException("A distinct command issuer is required for durable terminal linkage.");
-        var issuerBuilder = new NpgsqlConnectionStringBuilder(issuerRaw) { Pooling = false };
-        var runtimeBuilder = new NpgsqlConnectionStringBuilder(runtimeConnection.ConnectionString);
-        if (!string.Equals(issuerBuilder.Database, runtimeBuilder.Database, StringComparison.Ordinal) ||
-            string.Equals(issuerBuilder.Username, runtimeBuilder.Username, StringComparison.Ordinal))
-            throw new InvalidOperationException("Durable terminal linkage must use the exact distinct issuer and database.");
-        await using var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString);
-        await issuer.OpenAsync(ct);
-        await RecordAttemptTerminalOnIssuerAsync(issuer, grantId, terminalEvent, failureCategory, ct);
-    }
-
-    private static async Task RecordAttemptTerminalOnIssuerAsync(
-        NpgsqlConnection issuer, Guid grantId, string terminalEvent, string failureCategory, CancellationToken ct)
-    {
-        var outcomeId = Guid.NewGuid();
-        await using var terminal = new NpgsqlCommand(
-            "SELECT nexa.rev869b_record_command_attempt_outcome(@grant,@event,@failure,@outcome)", issuer);
-        terminal.Parameters.AddWithValue("grant", grantId);
-        terminal.Parameters.AddWithValue("event", terminalEvent);
-        terminal.Parameters.AddWithValue("failure", failureCategory);
-        terminal.Parameters.AddWithValue("outcome", outcomeId);
-        if (await terminal.ExecuteScalarAsync(ct) is not Guid recorded || recorded != outcomeId)
-            throw new InvalidOperationException("The durable command attempt did not receive exactly one terminal linkage.");
     }
 
     private static void RequirePrincipal(ICurrentUser user, string organization)

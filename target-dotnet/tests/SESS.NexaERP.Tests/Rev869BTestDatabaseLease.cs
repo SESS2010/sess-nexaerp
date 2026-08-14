@@ -663,7 +663,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                     throw new InvalidOperationException("Only a registry-proven pre-create interruption may recover without a target database.");
                 await DropOwnedRolesAsync(preTargetAdmin, runtimeRole, issuerRole, runId);
                 await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(
-                    recoveryAttempt, evidence.State, "Dropped", null, "Succeeded", null);
+                    recoveryAttempt, recoveryReservation, evidence.State, "Dropped", null, "Succeeded", null);
                 await WriteEvidenceAsync(evidence with { State = "Dropped", MarkerFingerprint = null });
                 return;
             }
@@ -733,7 +733,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
         await new NpgsqlCommand($"DROP DATABASE {quoted}", admin).ExecuteNonQueryAsync();
         await RequireDatabaseAbsentAsync(admin, databaseName);
         await DropOwnedRolesAsync(admin, runtimeRole, issuerRole, runId);
-        await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, evidence.State, "Dropped",
+        await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, recoveryReservation, evidence.State, "Dropped",
             evidence.MarkerFingerprint, "Succeeded", null);
         await WriteEvidenceAsync(evidence with { State = "Dropped" });
         }
@@ -750,14 +750,14 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
                 {
                     await DropOwnedRolesAsync(postDropAdmin, runtimeRole, issuerRole, runId);
                     await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(
-                        recoveryAttempt, authorization.ExpectedPreState, "Dropped", evidence.MarkerFingerprint, "Succeeded", null);
+                        recoveryAttempt, recoveryReservation, authorization.ExpectedPreState, "Dropped", evidence.MarkerFingerprint, "Succeeded", null);
                     await WriteEvidenceAsync(evidence with { State = "Dropped" });
                     return;
                 }
             }
             try
             {
-                await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, evidence.State,
+                await Rev869BControlPlaneRegistry.RecordRecoveryOutcomeAsync(recoveryAttempt, recoveryReservation, evidence.State,
                     evidence.State, evidence.MarkerFingerprint, "Failed", recoveryFailure.GetType().Name);
             }
             catch (Exception outcomeFailure)

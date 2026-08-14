@@ -12,7 +12,7 @@ bad_roles AS (
  WHERE r.oid IS NULL OR r.rolcanlogin<>e.login OR r.rolinherit<>e.inherit OR
   r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls),
 expected_relations(name,column_count) AS (VALUES ('rev869b_database_leases',29),('rev869b_database_lease_events',19),
- ('rev869b_recovery_approvals',18),('rev869b_recovery_attempts',13),('rev869b_recovery_outcomes',7)),
+ ('rev869b_recovery_approvals',18),('rev869b_recovery_attempts',8),('rev869b_recovery_outcomes',7)),
 bad_relations AS (
  SELECT e.name FROM expected_relations e LEFT JOIN pg_class c ON c.relname=e.name
   LEFT JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='nexa'

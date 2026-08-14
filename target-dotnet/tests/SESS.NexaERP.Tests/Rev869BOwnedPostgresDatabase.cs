@@ -59,6 +59,7 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
             throw new InvalidOperationException("Owned issuer must be distinct and target the exact runtime database.");
 
         Guid grantId;
+        Guid attemptId;
         await using (var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString))
         {
             await issuer.OpenAsync();
@@ -88,24 +89,28 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
                 return Convert.FromHexString(value);
             }
             var serializedSlots = JsonSerializer.Serialize(slots, JsonOptions);
-            var attemptId = Guid.NewGuid();
+            attemptId = Guid.NewGuid();
+            var idempotency = Environment.GetEnvironmentVariable("REV869B_COMMAND_IDEMPOTENCY_KEY")
+                ?? throw new InvalidOperationException("Exact owned idempotency key is required.");
             await using var attempt = new NpgsqlCommand(
-                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership)", issuer);
+                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership,@idempotency)", issuer);
             attempt.Parameters.AddWithValue("grant", grantId);
             attempt.Parameters.AddWithValue("attempt", attemptId);
             attempt.Parameters.AddWithValue("execution", executionId);
             attempt.Parameters.AddWithValue("service", Fingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT"));
             attempt.Parameters.AddWithValue("business", SHA256.HashData(Encoding.UTF8.GetBytes(serializedSlots)));
             attempt.Parameters.AddWithValue("ownership", Fingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT"));
+            attempt.Parameters.AddWithValue("idempotency", SHA256.HashData(Encoding.UTF8.GetBytes(idempotency)));
             if (await attempt.ExecuteScalarAsync() is not Guid recorded || recorded != attemptId)
                 throw new InvalidOperationException("Owned helper failed to durably record the exact attempt before open.");
         }
 
         await using var open = new NpgsqlCommand("""
             SELECT nexa.rev869b_open_command_context(
-              @grant,@actor,@issuer,@subject,@role,@organization,@backend,@transaction)
+              @grant,@attempt,@actor,@issuer,@subject,@role,@organization,@backend,@transaction)
             """, connection, transaction);
         open.Parameters.AddWithValue("grant", grantId);
+        open.Parameters.AddWithValue("attempt", attemptId);
         open.Parameters.AddWithValue("actor", actorEmployeeId);
         open.Parameters.AddWithValue("issuer", Issuer);
         open.Parameters.AddWithValue("subject", Login);

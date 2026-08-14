@@ -173,9 +173,20 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = 0
         });
-        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, ct);
-        await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
-        await transaction.CommitAsync(ct);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, ct)
+            ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await RollbackCommandAttemptAsync(db, transaction, attempt, "BusinessTransactionRolledBack", ct);
+            throw;
+        }
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
     }
 
@@ -251,16 +262,26 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
-        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct)
+            ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
         {
-            await transaction.RollbackAsync(ct);
+            await RollbackCommandAttemptAsync(db, transaction, attempt, "IdempotentReplayOrExplicitRollback", ct);
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
         }
-        await audit.WriteAsync("Masters", "NormalizeLegacyVendorQualification", nameof(VendorQualification),
-            qualification.Id.ToString(), before, qualification, ct);
-        await transaction.CommitAsync(ct);
+        try
+        {
+            await audit.WriteAsync("Masters", "NormalizeLegacyVendorQualification", nameof(VendorQualification),
+                qualification.Id.ToString(), before, qualification, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await RollbackCommandAttemptAsync(db, transaction, attempt, "BusinessTransactionRolledBack", ct);
+            throw;
+        }
         return Results.Ok(new { qualification.Id, qualification.VerificationStatus, qualification.ApprovalStatus, qualification.Version });
     }
 
@@ -380,15 +401,25 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
-        await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct)
+            ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
         {
-            await transaction.RollbackAsync(ct);
+            await RollbackCommandAttemptAsync(db, transaction, attempt, "IdempotentReplayOrExplicitRollback", ct);
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
         }
-        await audit.WriteAsync("Masters", action + "VendorQualification", nameof(VendorQualification), qualification.Id.ToString(), before, qualification, ct);
-        await transaction.CommitAsync(ct);
+        try
+        {
+            await audit.WriteAsync("Masters", action + "VendorQualification", nameof(VendorQualification), qualification.Id.ToString(), before, qualification, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch
+        {
+            await RollbackCommandAttemptAsync(db, transaction, attempt, "BusinessTransactionRolledBack", ct);
+            throw;
+        }
         return Results.Ok(new { qualification.Id, qualification.VerificationStatus, qualification.ApprovalStatus, qualification.Version });
     }
 
@@ -424,6 +455,15 @@ public static class Rev869AConfigurationEndpoints
         db.QcInspectionPolicies.Add(entity); AddHistory(db, entity.OrganizationId, nameof(QcInspectionPolicy), entity.Id, "CreateVersion", null, entity, request.Remarks, user);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("QC", "CreateInspectionPolicy", nameof(QcInspectionPolicy), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/qc-inspection-policies/{entity.Id}", new { entity.Id });
+    }
+
+    private static async Task RollbackCommandAttemptAsync(
+        NexaErpDbContext db, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        Rev869BCommandContextAuthorizer.CommandAttemptHandle attempt, string category, CancellationToken ct)
+    {
+        await transaction.RollbackAsync(ct);
+        await Rev869BCommandContextAuthorizer.RecordRolledBackOutcomeAsync(
+            (Npgsql.NpgsqlConnection)db.Database.GetDbConnection(), attempt, "Failed", category, ct);
     }
 
     private static void AddHistory(NexaErpDbContext db, string organizationId, string type, Guid id, string action, object? before, object? after, string remarks, ICurrentUser user)

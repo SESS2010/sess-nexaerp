@@ -92,7 +92,9 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("rev869b_command_attempt_outcomes", sql);
         Assert.Contains("INTO STRICT durable_attempt_id", sql);
         Assert.Contains("FK_rev869b_command_context_attempt", sql);
-        Assert.Contains("rev869b_record_command_attempt_outcome", app);
+        Assert.Contains("rev869b_record_command_outcome", app);
+        Assert.DoesNotContain("RecordCommittedAttemptAfterCommitAsync", app);
+        Assert.DoesNotContain("rev869b_record_command_attempt_outcome", sql);
         Assert.Contains("rev869b_record_command_consumption_attempt", direct);
     }
 

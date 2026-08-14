@@ -67,11 +67,9 @@ CREATE TABLE nexa.rev869b_recovery_attempts(
   "AttemptId" uuid PRIMARY KEY,"AuthorizationId" uuid NOT NULL UNIQUE
     REFERENCES nexa.rev869b_recovery_approvals("AuthorizationId") ON DELETE RESTRICT,
   "LeaseId" uuid NOT NULL REFERENCES nexa.rev869b_database_leases("LeaseId") ON DELETE RESTRICT,
-  "StartedAt" timestamptz NOT NULL,"FinishedAt" timestamptz NULL,
+  "StartedAt" timestamptz NOT NULL,
   "PreState" text NOT NULL,"PreStateVersion" bigint NOT NULL,"RequestedPostState" text NOT NULL,
-  "ObservedPostState" text NULL,"OutcomeId" uuid NULL UNIQUE,"Outcome" text NOT NULL
-    CHECK ("Outcome" IN ('Started','Succeeded','Failed','Interrupted')),
-  "FailureCategory" text NULL,"CorrelationId" uuid NOT NULL UNIQUE
+  "CorrelationId" uuid NOT NULL UNIQUE
 );
 CREATE TABLE nexa.rev869b_recovery_outcomes(
   "OutcomeId" uuid PRIMARY KEY,"AttemptId" uuid NOT NULL UNIQUE
@@ -123,7 +121,7 @@ BEGIN
    ('Executing','DropStarted'),('DropStarted','Dropped'),('Dropped','Finalized'),
    ('PreCreate','Failed'),('Created','Failed'),('Provisioned','Failed'),('Executing','Failed'),
    ('PreCreate','Quarantined'),('Created','Quarantined'),('Provisioned','Quarantined'),('Executing','Quarantined'),
-   ('Failed','Quarantined'),('Quarantined','CleanupAuthorized'),('CleanupFailed','CleanupAuthorized'),
+   ('Failed','Quarantined'),('PreCreate','CleanupAuthorized'),('Quarantined','CleanupAuthorized'),('CleanupFailed','CleanupAuthorized'),
    ('DropStarted','CleanupAuthorized'),('CleanupAuthorized','DropStarted'),
    ('CleanupAuthorized','Dropped'),('CleanupAuthorized','CleanupFailed'),('DropStarted','CleanupFailed'));
  IF NOT allowed THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_control_plane_illegal_transition'; END IF;
@@ -188,6 +186,16 @@ CREATE FUNCTION nexa.rev869b_complete_database_lease(
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$
 DECLARE l nexa.rev869b_database_leases%ROWTYPE; correlation uuid:=public.gen_random_uuid();
 BEGIN
+ IF session_user<>'nexa_rev869b_control_plane_api'
+  OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001'
+  OR (exact_pre_state,exact_post_state) NOT IN
+     (('PreCreate','Created'),('Created','Provisioned'),('Provisioned','Executing'),
+      ('PreCreate','Failed'),('Created','Failed'),('Provisioned','Failed'),('Executing','Failed'),
+      ('PreCreate','Quarantined'),('Created','Quarantined'),('Provisioned','Quarantined'),('Executing','Quarantined'))
+  OR occurred_at<requested_at OR occurred_at>clock_timestamp()+interval '30 seconds'
+  OR (outcome='Succeeded') IS DISTINCT FROM (failure_category IS NULL) THEN
+  RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_creation_transition_scope';
+ END IF;
  SELECT * INTO STRICT l FROM nexa.rev869b_database_leases WHERE "DatabaseName"=database_name
   AND "RunId"=run_id AND "OwnershipTokenHash"=ownership_token_hash AND "FixtureFamily"=fixture_family
   AND "ScenarioHash"=scenario_hash AND "SourceDatabase"=source_database
@@ -236,9 +244,21 @@ CREATE FUNCTION nexa.rev869b_begin_database_drop(
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$
 DECLARE l nexa.rev869b_database_leases%ROWTYPE; attempt uuid:=public.gen_random_uuid();
 BEGIN
+ IF session_user<>'nexa_rev869b_control_plane_api'
+  OR requested_post_state<>'DropStarted' OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001'
+  OR exact_pre_state NOT IN ('Executing','CleanupAuthorized')
+  OR occurred_at<requested_at OR occurred_at>clock_timestamp()+interval '30 seconds' THEN
+  RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_drop_request';
+ END IF;
  SELECT * INTO STRICT l FROM nexa.rev869b_database_leases WHERE "DatabaseName"=database_name
   AND "RunId"=run_id AND "OwnershipTokenHash"=ownership_token_hash AND "State"=exact_pre_state
-  AND "MarkerFingerprint"=marker_fingerprint FOR UPDATE;
+  AND "FixtureFamily"=fixture_family AND "ScenarioHash"=scenario_hash
+  AND "SourceDatabase"=source_database AND "SourceFingerprint"=source_fingerprint
+  AND "SourceCommitFingerprint"=source_commit_fingerprint AND "MigrationId"=migration_id
+  AND "MigrationFingerprint"=migration_fingerprint AND "ExpectedOwner"=expected_owner
+  AND "RequestedAt"=requested_at AND "LeaseExpiresAt"=lease_expires_at
+  AND "RuntimeRole"=runtime_role AND "IssuerRole"=issuer_role AND "RequestIssuer"=request_issuer
+  AND "IssuerAuthority"=issuer_authority AND "MarkerFingerprint"=marker_fingerprint FOR UPDATE;
  PERFORM nexa.rev869b_transition_database_lease(database_name,run_id,exact_pre_state,l."StateVersion",
   'DropStarted',l."OrganizationFingerprint",l."ExecutionInstanceId",l."ActorFingerprint",
   l."RequestIssuer",l."Operation",l."TargetFingerprint",l."NonceFingerprint",attempt,
@@ -253,11 +273,20 @@ CREATE FUNCTION nexa.rev869b_record_database_drop_outcome(
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$
 DECLARE l nexa.rev869b_database_leases%ROWTYPE;
 BEGIN
+ IF session_user<>'nexa_rev869b_control_plane_audit_writer'
+  OR exact_pre_state<>'DropStarted' OR observed_post_state NOT IN ('Dropped','CleanupFailed')
+  OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001'
+  OR occurred_at>clock_timestamp()+interval '30 seconds'
+  OR (observed_post_state='Dropped') IS DISTINCT FROM (outcome='Succeeded' AND failure_category IS NULL)
+  OR (observed_post_state='CleanupFailed' AND length(trim(coalesce(failure_category,'')))=0) THEN
+  RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_drop_outcome';
+ END IF;
  SELECT * INTO STRICT l FROM nexa.rev869b_database_leases WHERE "DatabaseName"=database_name
-  AND "RunId"=run_id AND "OwnershipTokenHash"=ownership_token_hash AND "State"='DropStarted'
+  AND "RunId"=run_id AND "OwnershipTokenHash"=ownership_token_hash AND "State"=exact_pre_state
+  AND "MarkerFingerprint"=marker_fingerprint
   AND EXISTS(SELECT 1 FROM nexa.rev869b_database_lease_events e WHERE e."LeaseId"=l."LeaseId"
-   AND e."CorrelationId"=attempt_id AND e."PostState"='DropStarted') FOR UPDATE;
- RETURN nexa.rev869b_transition_database_lease(database_name,run_id,'DropStarted',l."StateVersion",
+   AND e."CorrelationId"=attempt_id AND e."PostState"=exact_pre_state AND e."OccurredAt"<=occurred_at) FOR UPDATE;
+ RETURN nexa.rev869b_transition_database_lease(database_name,run_id,exact_pre_state,l."StateVersion",
   observed_post_state,l."OrganizationFingerprint",l."ExecutionInstanceId",l."ActorFingerprint",
   l."RequestIssuer",l."Operation",l."TargetFingerprint",l."NonceFingerprint",public.gen_random_uuid(),
   marker_fingerprint,outcome,failure_category);
@@ -278,7 +307,12 @@ DECLARE l nexa.rev869b_database_leases%ROWTYPE; attempt uuid:=public.gen_random_
 BEGIN
  IF session_user<>'nexa_rev869b_recovery_administrator' OR purpose<>'REV869B_QUARANTINE_DROP_V1'
   OR authorized_post_state<>'Dropped' OR expires_at<=clock_timestamp()
+  OR expected_pre_state NOT IN ('PreCreate','Failed','Quarantined','DropStarted','CleanupFailed')
+  OR executor<>'nexa_rev869b_recovery_administrator' OR length(trim(approval_reference))<8
+  OR length(trim(reason))<8 OR length(trim(approval_issuer))=0
+  OR approval_authority<>'REV869B_MANAGEMENT_RECOVERY_AUTHORITY_V1'
   OR expires_at>issued_at+interval '15 minutes' OR consumed_at<issued_at OR consumed_at>expires_at
+  OR consumed_at>clock_timestamp()+interval '30 seconds' OR consumed_at<clock_timestamp()-interval '30 seconds'
   OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001' THEN
   RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_fresh_exact_recovery_approval';
  END IF;
@@ -288,8 +322,12 @@ BEGIN
   AND "SourceFingerprint"=source_fingerprint AND "SourceCommitFingerprint"=source_commit_fingerprint
   AND "MigrationId"=migration_id AND "MigrationFingerprint"=migration_fingerprint
   AND "ExpectedOwner"=expected_owner AND "RequestedAt"=requested_at AND "LeaseExpiresAt"=lease_expires_at
-  AND "RuntimeRole"=runtime_role AND "IssuerRole"=issuer_role AND "State"=expected_pre_state FOR UPDATE;
+  AND "RuntimeRole"=runtime_role AND "IssuerRole"=issuer_role AND "RequestIssuer"=request_issuer
+  AND "IssuerAuthority"=request_authority AND "State"=expected_pre_state FOR UPDATE;
  approval_nonce:=decode(nonce_hash,'hex'); approval_target:=decode(target_fingerprint,'hex');
+ IF approval_nonce IS DISTINCT FROM l."NonceFingerprint" OR approval_target IS DISTINCT FROM l."TargetFingerprint" THEN
+  RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_recovery_target_or_nonce_substitution';
+ END IF;
  INSERT INTO nexa.rev869b_recovery_approvals VALUES(
   authorization_id,l."LeaseId",approval_reference,approval_issuer,approval_authority,
   l."OrganizationFingerprint",l."ExecutionInstanceId",l."ActorFingerprint",purpose,
@@ -297,9 +335,9 @@ BEGIN
   issued_at,expires_at,consumed_at,attempt);
  INSERT INTO nexa.rev869b_recovery_attempts(
   "AttemptId","AuthorizationId","LeaseId","StartedAt","PreState","PreStateVersion",
-  "RequestedPostState","Outcome","CorrelationId")
+  "RequestedPostState","CorrelationId")
  VALUES(attempt,authorization_id,l."LeaseId",consumed_at,expected_pre_state,l."StateVersion",
-  authorized_post_state,'Started',transition_id);
+  authorized_post_state,transition_id);
  PERFORM nexa.rev869b_transition_database_lease(database_name,run_id,expected_pre_state,l."StateVersion",
   'CleanupAuthorized',l."OrganizationFingerprint",l."ExecutionInstanceId",l."ActorFingerprint",
   l."RequestIssuer",l."Operation",l."TargetFingerprint",l."NonceFingerprint",transition_id,
@@ -315,7 +353,10 @@ DECLARE a nexa.rev869b_recovery_attempts%ROWTYPE; l nexa.rev869b_database_leases
  outcome_id uuid:=public.gen_random_uuid(); post_state text;
 BEGIN
  IF session_user NOT IN ('nexa_rev869b_recovery_administrator','nexa_rev869b_control_plane_audit_writer')
-  OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001' OR outcome NOT IN ('Succeeded','Failed','Interrupted') THEN
+  OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001' OR outcome NOT IN ('Succeeded','Failed','Interrupted')
+  OR finished_at>clock_timestamp()+interval '30 seconds'
+  OR (outcome='Succeeded' AND (observed_post_state<>'Dropped' OR failure_category IS NOT NULL))
+  OR (outcome<>'Succeeded' AND length(trim(coalesce(failure_category,'')))=0) THEN
   RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_recovery_outcome';
  END IF;
  SELECT * INTO STRICT a FROM nexa.rev869b_recovery_attempts WHERE "AttemptId"=attempt_id
@@ -333,6 +374,37 @@ BEGIN
  RETURN 1;
 END $$;
 
+CREATE FUNCTION nexa.rev869b_finalize_database_lease(
+ attempt_id uuid,database_name name,run_id text,marker_fingerprint text,
+ finalized_at timestamptz,policy text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$
+DECLARE l nexa.rev869b_database_leases%ROWTYPE; transition_id uuid:=public.gen_random_uuid();
+BEGIN
+ IF session_user<>'nexa_rev869b_control_plane_audit_writer'
+  OR policy<>'MGMT-REV869B-CONTROL-PLANE-20260813-001'
+  OR finalized_at>clock_timestamp()+interval '30 seconds' THEN
+  RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_finalization_caller';
+ END IF;
+ SELECT * INTO STRICT l FROM nexa.rev869b_database_leases
+  WHERE "DatabaseName"=database_name AND "RunId"=run_id AND "State"='Dropped'
+   AND "MarkerFingerprint" IS NOT DISTINCT FROM marker_fingerprint
+   AND (EXISTS(SELECT 1 FROM nexa.rev869b_recovery_attempts a
+      JOIN nexa.rev869b_recovery_outcomes o ON o."AttemptId"=a."AttemptId"
+      WHERE a."LeaseId"=l."LeaseId" AND a."AttemptId"=attempt_id
+       AND o."Outcome"='Succeeded' AND o."ObservedPostState"='Dropped' AND o."FinishedAt"<=finalized_at)
+    OR EXISTS(SELECT 1 FROM nexa.rev869b_database_lease_events started
+      WHERE started."LeaseId"=l."LeaseId" AND started."CorrelationId"=attempt_id
+       AND started."PostState"='DropStarted' AND EXISTS(
+        SELECT 1 FROM nexa.rev869b_database_lease_events dropped
+        WHERE dropped."LeaseId"=l."LeaseId" AND dropped."PostState"='Dropped'
+         AND dropped."OccurredAt" BETWEEN started."OccurredAt" AND finalized_at)))
+  FOR UPDATE;
+ RETURN nexa.rev869b_transition_database_lease(database_name,run_id,'Dropped',l."StateVersion",
+  'Finalized',l."OrganizationFingerprint",l."ExecutionInstanceId",l."ActorFingerprint",
+  l."RequestIssuer",l."Operation",l."TargetFingerprint",l."NonceFingerprint",transition_id,
+  marker_fingerprint,'Finalized',NULL);
+END $$;
+
 CREATE FUNCTION nexa.rev869b_verify_exact_control_plane(expected_database name,expected_owner name,expected_caller name)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$
  WITH expected_roles(name,login) AS (VALUES
@@ -344,11 +416,11 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,
   ('nexa_rev869b_command_issuer',true),('nexa_rev869b_purge_audit_writer',true),
   ('nexa_rev869b_security_export_authorizer',true),('nexa_rev869b_security_export_reader',true)),
  expected_relations(name,column_count) AS (VALUES ('rev869b_database_leases',29),('rev869b_database_lease_events',19),
-  ('rev869b_recovery_approvals',18),('rev869b_recovery_attempts',13),('rev869b_recovery_outcomes',7)),
+  ('rev869b_recovery_approvals',18),('rev869b_recovery_attempts',8),('rev869b_recovery_outcomes',7)),
  expected_functions(name) AS (VALUES ('rev869b_reserve_database_lease'),('rev869b_complete_database_lease'),
   ('rev869b_read_exact_database_lease'),('rev869b_begin_database_drop'),
   ('rev869b_record_database_drop_outcome'),('rev869b_consume_recovery_approval'),
-  ('rev869b_record_recovery_outcome'),('rev869b_transition_database_lease'),
+  ('rev869b_record_recovery_outcome'),('rev869b_finalize_database_lease'),('rev869b_transition_database_lease'),
   ('rev869b_read_authoritative_database_lease'),('rev869b_read_drop_started_attempt'),
   ('rev869b_read_database_lease_transition_states'),('rev869b_verify_exact_control_plane'),
   ('rev869b_reject_registry_audit_mutation'))
@@ -396,7 +468,7 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,
       AND p.proparallel='u' AND NOT p.proleakproof
       AND p.proconfig=ARRAY['search_path=pg_catalog, nexa']::text[]
       AND pg_get_userbyid(p.proowner)=expected_owner
-      AND NOT has_function_privilege('public',p.oid,'EXECUTE'))=13
+      AND NOT has_function_privilege('public',p.oid,'EXECUTE'))=14
   AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%'
       AND p.proname NOT IN (SELECT name FROM expected_functions))
@@ -436,6 +508,7 @@ ALTER FUNCTION nexa.rev869b_begin_database_drop(name,text,text,text,text,name,te
 ALTER FUNCTION nexa.rev869b_record_database_drop_outcome(uuid,name,text,text,text,text,text,text,text,timestamptz,text) OWNER TO nexa_rev869b_control_plane_owner;
 ALTER FUNCTION nexa.rev869b_consume_recovery_approval(uuid,name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,text,text,text,text,text,timestamptz,timestamptz,text,text,timestamptz,text) OWNER TO nexa_rev869b_control_plane_owner;
 ALTER FUNCTION nexa.rev869b_record_recovery_outcome(uuid,text,text,text,text,text,timestamptz,text) OWNER TO nexa_rev869b_control_plane_owner;
+ALTER FUNCTION nexa.rev869b_finalize_database_lease(uuid,name,text,text,timestamptz,text) OWNER TO nexa_rev869b_control_plane_owner;
 ALTER FUNCTION nexa.rev869b_verify_exact_control_plane(name,name,name) OWNER TO nexa_rev869b_control_plane_owner;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA nexa FROM PUBLIC;
@@ -446,8 +519,6 @@ REVOKE ALL ON ALL TABLES IN SCHEMA nexa FROM nexa_rev869b_control_plane_api,
  nexa_rev869b_recovery_administrator,nexa_rev869b_verifier;
 GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_control_plane_api,nexa_rev869b_control_plane_audit_writer,
  nexa_rev869b_recovery_administrator,nexa_rev869b_verifier,nexa_rev869b_provisioning_administrator;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_transition_database_lease(name,text,text,bigint,text,bytea,uuid,bytea,name,text,bytea,bytea,uuid,text,text,text)
- TO nexa_rev869b_control_plane_api,nexa_rev869b_control_plane_audit_writer,nexa_rev869b_recovery_administrator;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_read_authoritative_database_lease(name,text),
  nexa.rev869b_read_drop_started_attempt(name,text),
  nexa.rev869b_read_database_lease_transition_states(name,text)
@@ -455,9 +526,12 @@ GRANT EXECUTE ON FUNCTION nexa.rev869b_read_authoritative_database_lease(name,te
 GRANT EXECUTE ON FUNCTION nexa.rev869b_reserve_database_lease(name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text),
  nexa.rev869b_complete_database_lease(name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,text,text,timestamptz,text),
  nexa.rev869b_read_exact_database_lease(name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text),
- nexa.rev869b_begin_database_drop(name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,timestamptz,text),
- nexa.rev869b_record_database_drop_outcome(uuid,name,text,text,text,text,text,text,text,timestamptz,text)
+ nexa.rev869b_begin_database_drop(name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,timestamptz,text)
  TO nexa_rev869b_control_plane_api;
+GRANT EXECUTE ON FUNCTION
+ nexa.rev869b_record_database_drop_outcome(uuid,name,text,text,text,text,text,text,text,timestamptz,text),
+ nexa.rev869b_finalize_database_lease(uuid,name,text,text,timestamptz,text)
+ TO nexa_rev869b_control_plane_audit_writer;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_consume_recovery_approval(uuid,name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,text,text,text,text,text,timestamptz,timestamptz,text,text,timestamptz,text),
  nexa.rev869b_record_recovery_outcome(uuid,text,text,text,text,text,timestamptz,text)
  TO nexa_rev869b_recovery_administrator;

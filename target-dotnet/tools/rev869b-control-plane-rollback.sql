@@ -7,6 +7,7 @@ DO $guard$ BEGIN
  END IF;
 END $guard$;
 DROP FUNCTION nexa.rev869b_verify_exact_control_plane(name,name,name);
+DROP FUNCTION nexa.rev869b_finalize_database_lease(uuid,name,text,text,timestamptz,text);
 DROP FUNCTION nexa.rev869b_record_recovery_outcome(uuid,text,text,text,text,text,timestamptz,text);
 DROP FUNCTION nexa.rev869b_consume_recovery_approval(uuid,name,text,text,text,text,name,text,text,text,text,name,timestamptz,timestamptz,name,name,text,text,text,text,text,text,text,text,text,text,timestamptz,timestamptz,text,text,timestamptz,text);
 DROP FUNCTION nexa.rev869b_record_database_drop_outcome(uuid,name,text,text,text,text,text,text,text,timestamptz,text);

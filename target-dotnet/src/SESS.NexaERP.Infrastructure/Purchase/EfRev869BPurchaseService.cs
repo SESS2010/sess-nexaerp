@@ -22,7 +22,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private readonly IVendorQualificationService vendors;
     private readonly ITaxGstResolver taxes;
     private readonly IAuditWriter audit;
-    private readonly List<Guid> pendingCommandGrantIds = [];
+    private readonly List<Rev869BCommandContextAuthorizer.CommandAttemptHandle> pendingCommandAttempts = [];
 
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
     {
@@ -48,13 +48,10 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
         public async Task CommitAsync(CancellationToken ct)
         {
-            foreach (var grantId in service.pendingCommandGrantIds)
-                await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(service.db, grantId, ct);
+            foreach (var attempt in service.pendingCommandAttempts)
+                await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(service.db, attempt, ct);
             await owned.CommitAsync(ct);
-            var runtime = (Npgsql.NpgsqlConnection)service.db.Database.GetDbConnection();
-            foreach (var grantId in service.pendingCommandGrantIds)
-                await Rev869BCommandContextAuthorizer.RecordCommittedAttemptAfterCommitAsync(runtime, grantId, ct);
-            service.pendingCommandGrantIds.Clear();
+            service.pendingCommandAttempts.Clear();
             finalized = true;
         }
 
@@ -85,18 +82,18 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
     private async Task OpenPendingAuthorizationAsync(CancellationToken ct)
     {
-        var grantId = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(
             db, user, RequireOrganization(), ct);
-        if (grantId.HasValue) pendingCommandGrantIds.Add(grantId.Value);
+        if (attempt.HasValue) pendingCommandAttempts.Add(attempt.Value);
     }
 
     private async Task RecordRolledBackOutcomesAsync(string terminalEvent, string failureCategory, CancellationToken ct)
     {
         var runtime = (Npgsql.NpgsqlConnection)db.Database.GetDbConnection();
-        foreach (var grantId in pendingCommandGrantIds)
+        foreach (var attempt in pendingCommandAttempts)
             await Rev869BCommandContextAuthorizer.RecordRolledBackOutcomeAsync(
-                runtime, grantId, terminalEvent, failureCategory, ct);
-        pendingCommandGrantIds.Clear();
+                runtime, attempt, terminalEvent, failureCategory, ct);
+        pendingCommandAttempts.Clear();
     }
 
     private Task<int> SavePreauthorizedChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);

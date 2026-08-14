@@ -137,7 +137,8 @@ internal static class Rev869BControlPlaneRegistry
         Guid attemptId, LeaseReservation lease, string exactPreState, string observedPostState,
         string markerFingerprint, string outcome, string? failureCategory)
     {
-        await using var connection = await OpenVerifiedAsync();
+        await using var connection = await OpenVerifiedAsync(
+            "REV869B_CONTROL_PLANE_AUDIT_WRITER", "nexa_rev869b_control_plane_audit_writer");
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_record_database_drop_outcome(
               @attempt,@database,@run,@tokenHash,@exactPreState,@observedPostState,@markerFingerprint,
@@ -156,6 +157,8 @@ internal static class Rev869BControlPlaneRegistry
         command.Parameters.AddWithValue("policy", Policy);
         if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 1)
             throw new InvalidOperationException("The control plane did not durably append the exact drop outcome.");
+        if (observedPostState == "Dropped" && outcome == "Succeeded")
+            await FinalizeLeaseAsync(connection, attemptId, lease, markerFingerprint);
     }
 
     internal static async Task<Guid> ConsumeRecoveryBeforeMutationAsync(
@@ -193,8 +196,25 @@ internal static class Rev869BControlPlaneRegistry
         return attemptId;
     }
 
+    private static async Task FinalizeLeaseAsync(
+        NpgsqlConnection auditWriter, Guid attemptId, LeaseReservation lease, string? markerFingerprint)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT nexa.rev869b_finalize_database_lease(
+              @attempt,@database,@run,@marker,@finalized,@policy)
+            """, auditWriter);
+        command.Parameters.AddWithValue("attempt", attemptId);
+        command.Parameters.AddWithValue("database", lease.DatabaseName);
+        command.Parameters.AddWithValue("run", lease.RunId);
+        command.Parameters.AddWithValue("marker", (object?)markerFingerprint ?? DBNull.Value);
+        command.Parameters.AddWithValue("finalized", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("policy", Policy);
+        if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 1)
+            throw new InvalidOperationException("The exact dropped lease did not reach Finalized.");
+    }
+
     internal static async Task RecordRecoveryOutcomeAsync(
-        Guid attemptId, string exactPreState, string observedPostState, string? markerFingerprint,
+        Guid attemptId, LeaseReservation lease, string exactPreState, string observedPostState, string? markerFingerprint,
         string outcome, string? failureCategory)
     {
         await using var connection = await OpenVerifiedAsync(
@@ -213,6 +233,12 @@ internal static class Rev869BControlPlaneRegistry
         command.Parameters.AddWithValue("policy", Policy);
         if (Convert.ToInt64(await command.ExecuteScalarAsync()) != 1)
             throw new InvalidOperationException("Recovery outcome was not durably appended to the control plane.");
+        if (observedPostState == "Dropped" && outcome == "Succeeded")
+        {
+            await using var auditWriter = await OpenVerifiedAsync(
+                "REV869B_CONTROL_PLANE_AUDIT_WRITER", "nexa_rev869b_control_plane_audit_writer");
+            await FinalizeLeaseAsync(auditWriter, attemptId, lease, markerFingerprint);
+        }
     }
 
     private static Task<NpgsqlConnection> OpenVerifiedAsync() =>
