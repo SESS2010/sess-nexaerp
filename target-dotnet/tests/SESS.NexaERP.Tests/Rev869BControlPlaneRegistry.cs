@@ -24,6 +24,24 @@ internal static class Rev869BControlPlaneRegistry
     internal sealed record FinalizationEvidence(Guid AttemptId, string AbsenceSha256,
         string RolesCleanupSha256, LeaseState TerminalState);
 
+    internal sealed record LifecycleAttemptAuthority(Guid AttemptId, Guid LeaseId, string Kind,
+        Guid ExecutionInstanceId, string ActorId, string ActorIssuer, string Operation,
+        Guid RegistrationRequestId, string AuthorityEvidenceSha256);
+
+    internal sealed record QuarantineEvidence(Guid OutcomeId, Guid LeaseId, Guid RequestId,
+        Guid AttemptId, long SourceLeaseVersion, long TerminalLeaseVersion, string EvidenceSha256);
+
+    internal static bool AuthorizesQuarantine(LifecycleAttemptAuthority authority,
+        LeaseSnapshot lease, Guid requestId, Guid executionInstanceId, string actorId,
+        string actorIssuer, string operation) =>
+        authority.Kind == "Quarantine" && authority.LeaseId == lease.LeaseId &&
+        authority.AttemptId == lease.ActiveAttemptId && authority.RegistrationRequestId == requestId &&
+        authority.ExecutionInstanceId == executionInstanceId && executionInstanceId != Guid.Empty &&
+        authority.AuthorityEvidenceSha256.Length == 64 && authority.AuthorityEvidenceSha256.All(Uri.IsHexDigit) &&
+        string.Equals(authority.ActorId, actorId, StringComparison.Ordinal) &&
+        string.Equals(authority.ActorIssuer, actorIssuer, StringComparison.Ordinal) &&
+        string.Equals(authority.Operation, operation, StringComparison.Ordinal);
+
     internal static bool IsLegal(LeaseState from, LeaseState to) => (from, to) switch
     {
         (LeaseState.Reserved, LeaseState.Provisioning) => true,

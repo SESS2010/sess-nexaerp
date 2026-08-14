@@ -84,7 +84,7 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("State IN ('Reserved','Provisioning','Ready','InUse')", quarantine);
         Assert.Contains("TerminalState='Quarantined'", quarantine);
         Assert.Contains("Quarantine replay evidence mismatch", quarantine);
-        foreach (var binding in new[] { "rev869b_quarantine_outcomes", "ExecutionInstanceId", "TargetDatabase", "ClusterSystemIdentifier", "SourceState", "ObservedTargetState", "EvidenceKind", "FailureReason", "ActorId", "ActorIssuer", "Operation", "LeaseVersion", "TerminalOutcome", "rev869b_quarantine_attempt_binding" })
+        foreach (var binding in new[] { "rev869b_quarantine_outcomes", "ExecutionInstanceId", "TargetDatabase", "ClusterSystemIdentifier", "SourceState", "ObservedTargetState", "EvidenceKind", "FailureReason", "ActorId", "ActorIssuer", "Operation", "SourceLeaseVersion", "LeaseVersion", "TerminalOutcome", "RegistrationRequestId", "rev869b_begin_quarantine_attempt", "rev869b_quarantine_attempt_binding" })
             Assert.Contains(binding, sql);
         Assert.Contains("TR_rev869b_quarantine_outcomes_immutable", sql);
         var drop = Slice(sql, "CREATE FUNCTION nexa.rev869b_begin_drop", "CREATE FUNCTION nexa.rev869b_register_recovery_decision");

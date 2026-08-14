@@ -50,18 +50,18 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     internal async Task<LeaseAllocation> AllocateAsync(string scenario, string family, CancellationToken ct = default)
     {
         var requestId = Guid.NewGuid();
-        using var response = await http.PostAsJsonAsync("v1/rev869b/test-leases", new { requestId, scenario, family }, ct);
+        var contractSha256 = ExactContractSha256(new { requestId, scenario, family, pins.SourceCommit, pins.ManifestSha256, pins.ClusterSystemIdentifier });
+        using var response = await http.PostAsJsonAsync("v1/rev869b/test-leases", new { requestId, scenario, family, contractSha256 }, ct);
         response.EnsureSuccessStatusCode();
-        var lease = await response.Content.ReadFromJsonAsync<LeaseAllocation>(cancellationToken: ct)
-            ?? throw new InvalidOperationException("Lifecycle controller returned no lease allocation.");
-        RequireAllocation(lease, requestId);
+        var lease = await ReadSignedAsync<LeaseAllocation>(response, ct);
+        RequireAllocation(lease, requestId, contractSha256);
         return lease;
     }
 
     internal async Task<AcceptanceEvidence> RunAcceptanceScenarioAsync(AcceptanceContract contract, CancellationToken ct = default)
     {
         var runId = Guid.NewGuid();
-        var contractSha256 = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(contract, JsonOptions))).ToLowerInvariant();
+        var contractSha256 = ExactContractSha256(contract);
         using var response = await http.PostAsJsonAsync($"v1/rev869b/acceptance/{contract.ScenarioId}", new
         {
             runId,
@@ -75,16 +75,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             pins.SigningPublicKeySha256
         }, ct);
         response.EnsureSuccessStatusCode();
-        var envelope = await response.Content.ReadFromJsonAsync<SignedAcceptanceEnvelope>(cancellationToken: ct)
-            ?? throw new InvalidOperationException("Acceptance controller returned no signed evidence envelope.");
-        var payload = Convert.FromBase64String(envelope.PayloadBase64);
-        var signature = Convert.FromBase64String(envelope.SignatureBase64);
-        using var verifier = ECDsa.Create();
-        verifier.ImportFromPem(pins.SigningPublicKeyPem);
-        if (!verifier.VerifyData(payload, signature, HashAlgorithmName.SHA256))
-            throw new InvalidOperationException("Acceptance evidence signature was invalid.");
-        var evidence = JsonSerializer.Deserialize<AcceptanceEvidence>(payload, JsonOptions)
-            ?? throw new InvalidOperationException("Signed acceptance evidence payload was absent.");
+        var evidence = await ReadSignedAsync<AcceptanceEvidence>(response, ct);
         RequireAcceptanceEvidence(contract, contractSha256, runId, evidence);
         return evidence;
     }
@@ -102,15 +93,25 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             !string.Equals(evidence.FinalState, contract.ExpectedFinalState, StringComparison.Ordinal) ||
             !string.Equals(evidence.TerminalOutcome, contract.ExpectedTerminalOutcome, StringComparison.Ordinal) ||
             !string.Equals(evidence.CleanupOutcome, contract.ExpectedCleanupOutcome, StringComparison.Ordinal) ||
+            !string.Equals(evidence.DatabaseName, contract.ExpectedDatabaseName, StringComparison.Ordinal) ||
+            !string.Equals(evidence.TargetInstanceSha256, contract.ExpectedTargetInstanceSha256, StringComparison.Ordinal) ||
+            evidence.FixtureId != contract.ExpectedFixtureId || evidence.CommandId != contract.ExpectedCommandId ||
+            evidence.AuthorizationId != contract.ExpectedAuthorizationId || evidence.AttemptId != contract.ExpectedAttemptId ||
+            evidence.DecisionId != contract.ExpectedDecisionId || evidence.DurableEvidenceId != contract.ExpectedDurableEvidenceId ||
+            evidence.CleanupEvidenceId != contract.ExpectedCleanupEvidenceId ||
             !string.Equals(evidence.DatabaseIdentity.Schema, contract.ExpectedIdentity.Schema, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Table, contract.ExpectedIdentity.Table, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Constraint, contract.ExpectedIdentity.Constraint, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Function, contract.ExpectedIdentity.Function, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Trigger, contract.ExpectedIdentity.Trigger, StringComparison.Ordinal) ||
             evidence.BeforeCount != contract.ExpectedBeforeCount || evidence.AfterCount != contract.ExpectedAfterCount ||
-            !ExactSha256(evidence.BeforeSha256) || !ExactSha256(evidence.AfterSha256) ||
+            !string.Equals(evidence.BeforeSha256, contract.ExpectedBeforeSha256, StringComparison.Ordinal) ||
+            !string.Equals(evidence.AfterSha256, contract.ExpectedAfterSha256, StringComparison.Ordinal) ||
             !ExactSha256(evidence.InitialStateSha256) || !ExactSha256(evidence.FinalStateSha256) ||
-            !ExactSha256(evidence.FixtureSha256) || !ExactSha256(evidence.DurableEvidenceSha256) ||
+            !string.Equals(evidence.FixtureSha256, contract.ExpectedFixtureSha256, StringComparison.Ordinal) ||
+            !string.Equals(evidence.DurableEvidenceSha256, contract.ExpectedDurableEvidenceSha256, StringComparison.Ordinal) ||
+            !string.Equals(evidence.CleanupEvidenceSha256, contract.ExpectedCleanupEvidenceSha256, StringComparison.Ordinal) ||
+            !evidence.SubcaseEvidenceKeys.SequenceEqual(contract.ExpectedSubcaseEvidenceKeys, StringComparer.Ordinal) ||
             !string.Equals(evidence.SourceCommit, pins.SourceCommit, StringComparison.Ordinal) ||
             !string.Equals(evidence.ManifestSha256, pins.ManifestSha256, StringComparison.Ordinal) ||
             !string.Equals(evidence.TlsSpkiSha256, pins.TlsSpkiSha256, StringComparison.Ordinal) ||
@@ -164,19 +165,22 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     internal async Task ReleaseAsync(Guid leaseId, Guid requestId, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync($"v1/rev869b/test-leases/{leaseId}/release", new { requestId }, ct);
+        var contractSha256 = ExactContractSha256(new { leaseId, requestId, outcome = "Finalized", targetAbsent = true, rolesAbsent = true });
+        using var response = await http.PostAsJsonAsync($"v1/rev869b/test-leases/{leaseId}/release", new { requestId, contractSha256 }, ct);
         response.EnsureSuccessStatusCode();
-        var result = await response.Content.ReadFromJsonAsync<ReleaseEvidence>(cancellationToken: ct)
-            ?? throw new InvalidOperationException("Lifecycle controller returned no cleanup evidence.");
+        var result = await ReadSignedAsync<ReleaseEvidence>(response, ct);
         if (result.LeaseId != leaseId || result.EvidenceId == Guid.Empty || !ExactSha256(result.EvidenceSha256) ||
+            result.ContractSha256 != contractSha256 || result.SigningPublicKeySha256 != pins.SigningPublicKeySha256 ||
             result.State != "Finalized" || !result.TargetAbsent || !result.RolesAbsent)
             throw new InvalidOperationException("Lifecycle cleanup was not authoritatively finalized.");
     }
 
-    private void RequireAllocation(LeaseAllocation lease, Guid requestId)
+    private void RequireAllocation(LeaseAllocation lease, Guid requestId, string contractSha256)
     {
         if (lease.RequestId != requestId || lease.LeaseId == Guid.Empty || lease.Version < 1 || lease.State != "InUse" ||
             !lease.FixturePrepared || lease.FixtureSha256.Length != 64 || lease.FixtureSha256.Any(c => !Uri.IsHexDigit(c)) ||
+            !string.Equals(lease.ContractSha256, contractSha256, StringComparison.Ordinal) ||
+            !string.Equals(lease.SigningPublicKeySha256, pins.SigningPublicKeySha256, StringComparison.Ordinal) ||
             !string.Equals(lease.SourceCommit, pins.SourceCommit, StringComparison.Ordinal) ||
             !string.Equals(lease.ManifestSha256, pins.ManifestSha256, StringComparison.Ordinal) ||
             !string.Equals(lease.TlsSpkiSha256, pins.TlsSpkiSha256, StringComparison.Ordinal) ||
@@ -201,26 +205,51 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     public ValueTask DisposeAsync() { http.Dispose(); return ValueTask.CompletedTask; }
 
+    internal static string ExactContractSha256<T>(T value) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))).ToLowerInvariant();
+
+    private async Task<T> ReadSignedAsync<T>(HttpResponseMessage response, CancellationToken ct)
+    {
+        var envelope = await response.Content.ReadFromJsonAsync<SignedAcceptanceEnvelope>(cancellationToken: ct)
+            ?? throw new InvalidOperationException("Lifecycle controller returned no signed evidence envelope.");
+        var payload = Convert.FromBase64String(envelope.PayloadBase64);
+        var signature = Convert.FromBase64String(envelope.SignatureBase64);
+        using var verifier = ECDsa.Create();
+        verifier.ImportFromPem(pins.SigningPublicKeyPem);
+        if (!verifier.VerifyData(payload, signature, HashAlgorithmName.SHA256))
+            throw new InvalidOperationException("Lifecycle controller evidence signature was invalid.");
+        return JsonSerializer.Deserialize<T>(payload, JsonOptions)
+            ?? throw new InvalidOperationException("Signed lifecycle evidence payload was absent.");
+    }
+
     internal sealed record LeaseAllocation(Guid RequestId, Guid LeaseId, long Version, string State, string DatabaseName,
         string RuntimeConnectionString, string VerifierConnectionString, string RunId, string OwnershipNonceSha256,
         string MarkerSha256, string ClusterSystemIdentifier, string TlsSpkiSha256, string SourceCommit, string ManifestSha256,
-        bool FixturePrepared, string FixtureSha256);
-    internal sealed record ReleaseEvidence(Guid LeaseId, Guid EvidenceId, string State, bool TargetAbsent, bool RolesAbsent, string EvidenceSha256);
+        bool FixturePrepared, string FixtureSha256, string ContractSha256, string SigningPublicKeySha256);
+    internal sealed record ReleaseEvidence(Guid LeaseId, Guid EvidenceId, string State, bool TargetAbsent, bool RolesAbsent, string EvidenceSha256, string ContractSha256, string SigningPublicKeySha256);
     internal sealed record DatabaseObjectIdentity(string Schema, string Table, string Constraint, string Function, string Trigger);
     internal sealed record AcceptanceContract(string ScenarioId, string Setup, string Action,
         string ExpectedInitialState, string ExpectedFinalState, string? ExpectedSqlState,
         string? ExpectedDatabaseObject, int ExpectedAffectedRows, bool RequiresDenial,
         bool AllowsZeroRowsTerminal, bool RequiresDecision, DatabaseObjectIdentity ExpectedIdentity,
-        int ExpectedBeforeCount, int ExpectedAfterCount, string ExpectedTerminalOutcome, string ExpectedCleanupOutcome);
+        int ExpectedBeforeCount, int ExpectedAfterCount, string ExpectedTerminalOutcome, string ExpectedCleanupOutcome,
+        string ExpectedDatabaseName, Guid ExpectedFixtureId, Guid ExpectedCommandId, Guid ExpectedAuthorizationId,
+        Guid ExpectedAttemptId, Guid? ExpectedDecisionId, string ExpectedTargetInstanceSha256,
+        string ExpectedBeforeSha256, string ExpectedAfterSha256, Guid ExpectedDurableEvidenceId,
+        string ExpectedDurableEvidenceSha256, Guid ExpectedCleanupEvidenceId, string ExpectedCleanupEvidenceSha256,
+        IReadOnlyList<string> ExpectedSubcaseEvidenceKeys)
+    {
+        public string ExpectedFixtureSha256 => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"REV869B-C22|{ScenarioId}|fixture"))).ToLowerInvariant();
+    }
     internal sealed record SignedAcceptanceEnvelope(string PayloadBase64, string SignatureBase64);
     private sealed record AcceptancePins(string SourceCommit, string ManifestSha256, string TlsSpkiSha256,
         string ClusterSystemIdentifier, string SigningPublicKeyPem, string SigningPublicKeySha256);
     internal sealed record AcceptanceEvidence(string ScenarioId, string ContractSha256, Guid RunId, Guid LeaseId,
         Guid CommandId, Guid AuthorizationId, Guid AttemptId,
-        Guid? DecisionId, Guid FixtureId, string FixtureSha256, string ClusterSystemIdentifier,
+        Guid? DecisionId, Guid FixtureId, string FixtureSha256, string DatabaseName, string TargetInstanceSha256, string ClusterSystemIdentifier,
         string TlsSpkiSha256, string SourceCommit, string ManifestSha256, string SigningPublicKeySha256, string Setup, string Action, string ActionPerformed,
         bool SetupCompleted, bool ActionReached, int AffectedRows, int DurableEvidenceCount,
-        Guid DurableEvidenceId, string DurableEvidenceSha256, Guid CleanupEvidenceId, int UnrelatedMutationCount, bool CleanupFinalized,
+        Guid DurableEvidenceId, string DurableEvidenceSha256, Guid CleanupEvidenceId, string CleanupEvidenceSha256, IReadOnlyList<string> SubcaseEvidenceKeys, int UnrelatedMutationCount, bool CleanupFinalized,
         bool TargetAbsent, bool RolesAbsent, string? SqlState, string? DatabaseObject,
         string InitialState, string InitialStateSha256, string FinalState, string FinalStateSha256,
         int BeforeCount, string BeforeSha256, int AfterCount, string AfterSha256,

@@ -30,7 +30,7 @@ internal static class Rev869BControlPlaneProvisioningContract
 
     internal static readonly string[] PurposeSpecificApis =
     [
-        "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready",
+        "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_begin_quarantine_attempt", "rev869b_mark_ready",
         "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_begin_drop",
         "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision",
         "rev869b_record_quarantine", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target",

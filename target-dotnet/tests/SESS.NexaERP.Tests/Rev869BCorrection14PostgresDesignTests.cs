@@ -11,7 +11,30 @@ internal static class Rev869BAcceptanceScenarioInventory
         bool zeroRows = false, bool decision = false, int? before = null, int? after = null, string? terminal = null) =>
         new(id, setup, action, initial, final, sqlState, databaseObject, affected, sqlState is not null, zeroRows, decision,
             Identity(id), before ?? (zeroRows ? 0 : 1), after ?? (sqlState is not null ? before ?? 1 : zeroRows ? 0 : 1),
-            terminal ?? final, "Finalized");
+            terminal ?? final, "Finalized", Database(id), Id(id,"fixture"), Id(id,"command"), Id(id,"authorization"),
+            Id(id,"attempt"), decision ? Id(id,"decision") : null, Sha(id,"target-instance"), Sha(id,"before"),
+            Sha(id,"after"), Id(id,"durable-evidence"), Sha(id,"durable-evidence"), Id(id,"cleanup-evidence"),
+            Sha(id,"cleanup-evidence"), EvidenceKeys(id));
+
+    private static string Sha(string id, string purpose) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"REV869B-C22|{id}|{purpose}"))).ToLowerInvariant();
+    private static Guid Id(string id, string purpose) => new(Convert.FromHexString(Sha(id,purpose))[..16]);
+    private static string Database(string id) => Rev869BTestDatabaseLease.DatabasePrefix + Sha(id,"database")[..24];
+    private static IReadOnlyList<string> EvidenceKeys(string id) => id switch
+    {
+        "L02" => ["reserved","database-created","roles-created","migration-applied","verified","ready"],
+        "L03" => ["ready-race","inuse-race","single-cleanup-winner"],
+        "L04" => ["drop-started","sessions-terminated","database-absent","roles-absent","finalized"],
+        "L05" => ["mismatch-detected","use-denied","drop-denied","quarantine-authorized","quarantined"],
+        "R02" => ["first-consumption","same-action-replay-denied","changed-action-replay-denied"],
+        "C06" => ["before-open","after-open","during-commit","after-response"],
+        "C08" => ["backend","actor","organization","role","operation"],
+        "G01" => ["missing","expired","wrong-target","wrong-batch","wrong-organization"],
+        "G06" => ["concurrent-start","concurrent-execute","substituted-policy-denied","exact-retry"],
+        "A02" => ["runtime","purge","export","recovery","ordinary-principal","public"],
+        "T03" => ["fixture-a","fixture-b","barrier","isolation","cleanup"],
+        _ => [id.ToLowerInvariant()+"-action"]
+    };
 
     private static Rev869BLifecycleControllerClient.DatabaseObjectIdentity Identity(string id) => id switch
     {
@@ -19,11 +42,11 @@ internal static class Rev869BAcceptanceScenarioInventory
         "P02" => new("pg_catalog", "pg_database", string.Empty, "pg_catalog.int4div(integer,integer)", string.Empty),
         "P03" => new("nexa", "rev869b_control_plane_manifest", string.Empty, "pg_catalog.int4div(integer,integer)", "TR_rev869b_lease_events_immutable"),
         "L01" => new("nexa", "rev869b_database_leases", "rev869b_database_leases_pkey", "nexa.rev869b_mark_ready(uuid,bigint,uuid,text,text,text)", "TR_rev869b_lease_events_immutable"),
-        "L02" => new("nexa", "rev869b_lifecycle_attempts", "UX_rev869b_one_active_lifecycle_attempt", "nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,text)", "TR_rev869b_lease_events_immutable"),
-        "L03" => new("nexa", "rev869b_lifecycle_attempts", "UX_rev869b_one_active_lifecycle_attempt", "nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,text)", "TR_rev869b_lease_events_immutable"),
+        "L02" => new("nexa", "rev869b_lifecycle_attempts", "UX_rev869b_one_active_lifecycle_attempt", "nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,uuid,text,text,text,text)", "TR_rev869b_lease_events_immutable"),
+        "L03" => new("nexa", "rev869b_lifecycle_attempts", "UX_rev869b_one_active_lifecycle_attempt", "nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,uuid,text,text,text,text)", "TR_rev869b_lease_events_immutable"),
         "L04" => new("nexa", "rev869b_lifecycle_outcomes", "rev869b_lifecycle_outcomes_attemptid_key", "nexa.rev869b_finalize_absent_target(uuid,text,text,text)", "TR_rev869b_lifecycle_outcomes_immutable"),
-        "L05" => new("nexa", "rev869b_quarantine_outcomes", "rev869b_quarantine_outcomes_attemptid_key", "nexa.rev869b_record_quarantine(uuid,bigint,uuid,uuid,uuid,text,text,text,text,text,text,text)", "TR_rev869b_quarantine_outcomes_immutable"),
-        "R01" or "R02" or "R03" => new("nexa", "rev869b_recovery_decisions", "rev869b_recovery_decisions_pkey", "nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,text)", "TR_rev869b_recovery_decisions_immutable"),
+        "L05" => new("nexa", "rev869b_quarantine_outcomes", "rev869b_quarantine_outcomes_attemptid_key", "nexa.rev869b_record_quarantine(uuid,bigint,uuid,uuid,text,text,text,text)", "TR_rev869b_quarantine_outcomes_immutable"),
+        "R01" or "R02" or "R03" => new("nexa", "rev869b_recovery_decisions", "rev869b_recovery_decisions_pkey", "nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text)", "TR_rev869b_recovery_decisions_immutable"),
         "C01" or "C02" => new("nexa", "rev869b_command_receipts", "rev869b_command_receipts_attemptid_key", "nexa.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid)", "TR_rev869b_command_receipts_immutable"),
         "C04" => new("nexa", "rev869b_command_receipts", string.Empty, "nexa.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid)", "TR_rev869b_command_receipt_failpoint"),
         "C03" => new("nexa", "rev869b_command_requests", "rev869b_command_request_replay_mismatch", "nexa.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text)", string.Empty),

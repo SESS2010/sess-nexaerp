@@ -40,6 +40,7 @@ public sealed class Rev869BCorrection17PostgresScenarios
     [Fact]
     public async Task T01_ControllerOwnsFixtureAllocation()
     {
+        await RunAsync(Rev869BAcceptanceScenarioInventory.T01);
         await using var controller = Rev869BLifecycleControllerClient.Create();
         var lease = await controller.AllocateAsync("T01", "ControllerOwnedFixture");
         Assert.Equal("InUse", lease.State);
@@ -52,6 +53,11 @@ public sealed class Rev869BCorrection17PostgresScenarios
     [Fact]
     public async Task T03_ConcurrentFixturesRemainIsolated()
     {
+        var canonical = Rev869BAcceptanceScenarioInventory.T03;
+        var actionRemoved = canonical with { Action = string.Empty };
+        Assert.NotEqual(Rev869BLifecycleControllerClient.ExactContractSha256(canonical),
+            Rev869BLifecycleControllerClient.ExactContractSha256(actionRemoved));
+        await RunAsync(Rev869BAcceptanceScenarioInventory.T03);
         await using var controller = Rev869BLifecycleControllerClient.Create();
         var allocations = await Task.WhenAll(
             controller.AllocateAsync("T03-A", "ConcurrentFixtureIsolation"),
@@ -74,12 +80,21 @@ public sealed class Rev869BCorrection17PostgresScenarios
         Assert.Equal(contract.ExpectedInitialState, evidence.InitialState);
         Assert.Equal(contract.ExpectedFinalState, evidence.FinalState);
         Assert.Equal(contract.ExpectedAffectedRows, evidence.AffectedRows);
-        Assert.NotEqual(Guid.Empty, evidence.FixtureId);
-        Assert.NotEqual(Guid.Empty, evidence.CommandId);
-        Assert.NotEqual(Guid.Empty, evidence.AuthorizationId);
-        Assert.NotEqual(Guid.Empty, evidence.AttemptId);
-        Assert.NotEqual(Guid.Empty, evidence.DurableEvidenceId);
-        Assert.NotEqual(Guid.Empty, evidence.CleanupEvidenceId);
+        Assert.Equal(contract.ExpectedDatabaseName, evidence.DatabaseName);
+        Assert.Equal(contract.ExpectedTargetInstanceSha256, evidence.TargetInstanceSha256);
+        Assert.Equal(contract.ExpectedFixtureId, evidence.FixtureId);
+        Assert.Equal(contract.ExpectedCommandId, evidence.CommandId);
+        Assert.Equal(contract.ExpectedAuthorizationId, evidence.AuthorizationId);
+        Assert.Equal(contract.ExpectedAttemptId, evidence.AttemptId);
+        Assert.Equal(contract.ExpectedDecisionId, evidence.DecisionId);
+        Assert.Equal(contract.ExpectedDurableEvidenceId, evidence.DurableEvidenceId);
+        Assert.Equal(contract.ExpectedCleanupEvidenceId, evidence.CleanupEvidenceId);
+        Assert.Equal(contract.ExpectedFixtureSha256, evidence.FixtureSha256);
+        Assert.Equal(contract.ExpectedBeforeSha256, evidence.BeforeSha256);
+        Assert.Equal(contract.ExpectedAfterSha256, evidence.AfterSha256);
+        Assert.Equal(contract.ExpectedDurableEvidenceSha256, evidence.DurableEvidenceSha256);
+        Assert.Equal(contract.ExpectedCleanupEvidenceSha256, evidence.CleanupEvidenceSha256);
+        Assert.Equal(contract.ExpectedSubcaseEvidenceKeys, evidence.SubcaseEvidenceKeys);
         Assert.Equal(contract.ExpectedBeforeCount, evidence.BeforeCount);
         Assert.Equal(contract.ExpectedAfterCount, evidence.AfterCount);
         Assert.Equal(contract.ExpectedIdentity, evidence.DatabaseIdentity);

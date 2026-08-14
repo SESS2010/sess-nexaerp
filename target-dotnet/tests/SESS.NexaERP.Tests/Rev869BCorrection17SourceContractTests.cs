@@ -48,6 +48,54 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
+    public void Correction22RollbackProofUsesDurableAttemptIdentityWithoutRequiringRolledBackContext()
+    {
+        var terminal = Slice(Sql, "CREATE FUNCTION nexa.rev869b_record_noncommit_outcome", "CREATE FUNCTION nexa.rev869b_reconcile_command_attempt");
+        var rolledBack = Slice(terminal, "terminal_state='RolledBack'", "terminal_state='Abandoned'");
+        var quote = Convert.ToChar(34);
+        Assert.Contains("a." + quote + "TargetBackendPid" + quote, rolledBack);
+        Assert.Contains("a." + quote + "TargetTransactionId" + quote, rolledBack);
+        /* Superseded malformed literals:
+        Assert.Contains("a.\TargetBackendPid\", rolledBack);
+        Assert.Contains("a.\TargetTransactionId\", rolledBack);
+        */
+        Assert.Contains("rev869b_command_receipts", rolledBack);
+        Assert.Contains("NOT EXISTS(SELECT 1 FROM pg_stat_activity", rolledBack);
+        Assert.DoesNotContain("RolledBack' AND EXISTS", rolledBack);
+    }
+
+    [Fact]
+    public void Correction22TargetIdentityAndUnresolvedPurgeChainAreAuthoritative()
+    {
+        Assert.Contains("CREATE TABLE nexa.rev869b_target_instance_identity", Sql);
+        Assert.Contains("TR_rev869b_target_instance_identity_immutable", Sql);
+        Assert.Contains("target_instance_sha256 text", Sql);
+        var quote = Convert.ToChar(34);
+        Assert.Contains("i." + quote + "DatabaseName" + quote + "=current_database()", Sql);
+        Assert.Contains("i." + quote + "InstanceSha256" + quote + "=target_instance_sha", Sql);
+        Assert.Contains("child." + quote + "PriorAttemptId" + quote + "=p." + quote + "PurgeAttemptId" + quote, Sql);
+        /* Superseded malformed literals:
+        Assert.Contains("i.\DatabaseName\=current_database()", Sql);
+        Assert.Contains("i.\InstanceSha256\=target_instance_sha", Sql);
+        Assert.Contains("child.\PriorAttemptId\=p.\PurgeAttemptId\", Sql);
+        */
+        Assert.Contains("independent of replacement policy labels", Sql);
+    }
+
+    [Fact]
+    public void Correction22AclClosureAndQuarantineAuthorityCoverTheCompleteUniverse()
+    {
+        var control = Source("tools/rev869b-control-plane-install.sql");
+        var verify = Source("tools/rev869b-control-plane-verify.sql");
+        Assert.Contains("rev869b_begin_quarantine_attempt", control);
+        foreach (var binding in new[] { "ExecutionInstanceId", "ActorId", "ActorIssuer", "Operation", "RegistrationRequestId", "AuthorityEvidenceSha256", "SourceLeaseVersion" }) Assert.Contains(binding, control);
+        Assert.Contains("replay.SourceLeaseVersion<>expected_version", control);
+        Assert.Contains("n.nspname='nexa' AND pg_get_userbyid(p.proowner)<>'nexa_rev869b_security_owner'", Sql);
+        Assert.Contains("d.defaclnamespace='nexa'::regnamespace AND (x.grantee=0 OR x.grantee<>d.defaclrole)", Sql);
+        Assert.Contains("d.defaclnamespace='nexa'::regnamespace AND (x.grantee=0 OR x.grantee<>d.defaclrole)", verify);
+    }
+
+    [Fact]
     public void TerminalizationReferencesOnlyAuthoritativeColumnsWithExactTypes()
     {
         var attempts = TableColumns(Sql, "rev869b_command_attempts");
@@ -180,18 +228,35 @@ public sealed class Rev869BCorrection17SourceContractTests
             Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Function));
             Assert.True(contract.ExpectedBeforeCount >= 0);
             Assert.True(contract.ExpectedAfterCount >= 0);
+            Assert.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, contract.ExpectedDatabaseName, StringComparison.Ordinal);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedFixtureId);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedCommandId);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedAuthorizationId);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedAttemptId);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedDurableEvidenceId);
+            Assert.NotEqual(Guid.Empty, contract.ExpectedCleanupEvidenceId);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedTargetInstanceSha256);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedFixtureSha256);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedBeforeSha256);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedAfterSha256);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedDurableEvidenceSha256);
+            Assert.Matches("^[0-9a-f]{64}$", contract.ExpectedCleanupEvidenceSha256);
+            Assert.NotEmpty(contract.ExpectedSubcaseEvidenceKeys);
+            Assert.Equal(contract.ExpectedSubcaseEvidenceKeys.Count, contract.ExpectedSubcaseEvidenceKeys.Distinct(StringComparer.Ordinal).Count());
             if (contract.RequiresDenial) { Assert.NotNull(contract.ExpectedSqlState); Assert.NotNull(contract.ExpectedDatabaseObject); }
             else Assert.True(contract.ExpectedAffectedRows > 0 || contract.AllowsZeroRowsTerminal);
         });
         var bodies = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection17PostgresScenarios.cs");
         Assert.Equal(34, Regex.Matches(bodies, @"\[Fact\]").Count);
-        Assert.Equal(32, Regex.Matches(bodies, @"=> RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
+        Assert.Equal(34, Regex.Matches(bodies, @"RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
         Assert.Equal(3, Regex.Matches(bodies, @"controller\.AllocateAsync\(").Count);
         Assert.Equal(3, Regex.Matches(bodies, @"controller\.ReleaseAsync\(").Count);
+        Assert.Contains("actionRemoved", bodies);
+        Assert.Contains("ExactContractSha256", bodies);
         Assert.DoesNotContain("File.ReadAllText", bodies);
         Assert.DoesNotContain("Assert.ThrowsAny", bodies);
         var client = Source("tests/SESS.NexaERP.Tests/Rev869BLifecycleControllerClient.cs");
-        foreach (var pin in new[] { "REV869B_EXPECTED_SOURCE_COMMIT", "REV869B_EXPECTED_MANIFEST_SHA256", "REV869B_EXPECTED_TLS_SPKI_SHA256", "REV869B_EXPECTED_CLUSTER_SYSTEM_IDENTIFIER", "REV869B_CONTROLLER_SIGNING_PUBLIC_KEY_PEM", "VerifyData", "ContractSha256", "CommandId", "AuthorizationId", "DurableEvidenceId", "BeforeSha256", "AfterSha256", "DatabaseIdentity", "TerminalOutcome", "CleanupOutcome" })
+        foreach (var pin in new[] { "REV869B_EXPECTED_SOURCE_COMMIT", "REV869B_EXPECTED_MANIFEST_SHA256", "REV869B_EXPECTED_TLS_SPKI_SHA256", "REV869B_EXPECTED_CLUSTER_SYSTEM_IDENTIFIER", "REV869B_CONTROLLER_SIGNING_PUBLIC_KEY_PEM", "VerifyData", "ContractSha256", "CommandId", "AuthorizationId", "DurableEvidenceId", "BeforeSha256", "AfterSha256", "DatabaseIdentity", "TerminalOutcome", "CleanupOutcome", "ExpectedTargetInstanceSha256", "ExpectedSubcaseEvidenceKeys", "ReadSignedAsync<LeaseAllocation>", "ReadSignedAsync<ReleaseEvidence>" })
             Assert.Contains(pin, client);
         Assert.DoesNotContain("ReadFromJsonAsync<AcceptanceEvidence>", client);
     }
