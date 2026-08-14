@@ -13,12 +13,12 @@ public sealed class Rev869BCorrection16SourceContractTests
         var plan = Rev869BControlPlaneProvisioningContract.GeneratePlan(
             Rev869BControlPlaneProvisioningContract.SafeMode.GeneratePlanOnly);
         Assert.Equal(7, Rev869BControlPlaneProvisioningContract.Apis.Length);
-        Assert.Equal(4, Rev869BControlPlaneProvisioningContract.Relations.Length);
+        Assert.Equal(5, Rev869BControlPlaneProvisioningContract.Relations.Length);
         Assert.Contains("NO_SILENT_REPAIR=TRUE", plan);
         Assert.Contains("PUBLIC=NO_CONNECT", plan);
         Assert.Contains("DEFAULT_PRIVILEGES=REVOKE_ALL_FROM_PUBLIC", plan);
-        Assert.Contains("pg_get_function_identity_arguments", Rev869BControlPlaneProvisioningContract.ExactReadinessSql);
-        Assert.Contains("pg_get_function_result", Rev869BControlPlaneProvisioningContract.ExactReadinessSql);
+        Assert.Contains("rev869b_verify_exact_control_plane", Rev869BControlPlaneProvisioningContract.ExactReadinessSql);
+        Assert.Contains("EXECUTABLE_INSTALL=tools/rev869b-control-plane-install.sql", plan);
         Assert.DoesNotContain("PASSWORD=", plan, StringComparison.OrdinalIgnoreCase);
         Assert.Throws<InvalidOperationException>(() =>
             Rev869BControlPlaneProvisioningContract.RequireSafeTarget("postgres"));
@@ -29,12 +29,12 @@ public sealed class Rev869BCorrection16SourceContractTests
     {
         var source = Read("tests/SESS.NexaERP.Tests/Rev869BTestDatabaseLease.cs");
         Assert.Contains("DateTimeOffset leaseRequestedAt", source);
-        Assert.Contains("DateTimeOffset markerProvisionedAt", source);
+        Assert.Contains("DateTimeOffset? markerProvisionedAt", source);
         Assert.Contains(((char)34) + "LeaseRequestedAt" + ((char)34) + "=@leaseRequested", source);
         Assert.Contains(((char)34) + "ProvisionedAt" + ((char)34) + "=@markerProvisioned", source);
         Assert.Contains("post-drop outcome reconciliation", source);
-        Assert.True(source.IndexOf("WriteEvidenceAsync(new QuarantineEvidence", StringComparison.Ordinal) <
-                    source.IndexOf("ReserveBeforeCreateAsync(reservation)", StringComparison.Ordinal));
+        Assert.True(source.IndexOf("ReserveBeforeCreateAsync(reservation)", StringComparison.Ordinal) <
+                    source.IndexOf("WriteEvidenceAsync(new QuarantineEvidence", StringComparison.Ordinal));
         Assert.Contains(((char)34) + "Quarantined" + ((char)34) + ", null", source);
     }
 
@@ -46,7 +46,8 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("Pooling = false", coordinator);
         Assert.Contains("fresh autocommit executor connection", coordinator);
         Assert.Contains("Rejected probes are audited but never consume or destroy", sql);
-        Assert.Contains(((char)34) + "EventType" + ((char)34) + " IN ('Committed','Failed','Rejected')", sql);
+        Assert.Contains(((char)34) + "EventType" + ((char)34) + "=ANY(approval." +
+            ((char)34) + "EligibleStates" + ((char)34) + ")", sql);
         Assert.DoesNotContain("approval.\"State\"='Approved' THEN\n              UPDATE", sql);
     }
 

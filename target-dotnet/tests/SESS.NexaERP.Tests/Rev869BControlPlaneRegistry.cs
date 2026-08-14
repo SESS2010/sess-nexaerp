@@ -100,6 +100,17 @@ internal static class Rev869BControlPlaneRegistry
         return snapshot;
     }
 
+    internal static async Task<string[]> ReadTransitionStatesAsync(LeaseReservation lease)
+    {
+        await using var connection = await OpenVerifiedAsync();
+        await using var command = new NpgsqlCommand(
+            "SELECT nexa.rev869b_read_database_lease_transition_states(@database,@run)", connection);
+        command.Parameters.AddWithValue("database", lease.DatabaseName);
+        command.Parameters.AddWithValue("run", lease.RunId);
+        return (string[]?)await command.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("Authoritative lifecycle transition evidence is missing.");
+    }
+
     internal static async Task<Guid> BeginLeaseDropAsync(
         LeaseReservation lease, string exactPreState, string markerFingerprint, string requestedPostState)
     {
@@ -150,7 +161,8 @@ internal static class Rev869BControlPlaneRegistry
     internal static async Task<Guid> ConsumeRecoveryBeforeMutationAsync(
         LeaseReservation lease, RecoveryApproval approval, string targetFingerprint)
     {
-        await using var connection = await OpenVerifiedAsync();
+        await using var connection = await OpenVerifiedAsync(
+            "REV869B_CONTROL_PLANE_RECOVERY", "nexa_rev869b_recovery_administrator");
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_consume_recovery_approval(
               @authorization,@database,@run,@tokenHash,@family,@scenario,@source,@sourceFingerprint,@sourceCommit,
@@ -185,7 +197,8 @@ internal static class Rev869BControlPlaneRegistry
         Guid attemptId, string exactPreState, string observedPostState, string? markerFingerprint,
         string outcome, string? failureCategory)
     {
-        await using var connection = await OpenVerifiedAsync();
+        await using var connection = await OpenVerifiedAsync(
+            "REV869B_CONTROL_PLANE_RECOVERY", "nexa_rev869b_recovery_administrator");
         await using var command = new NpgsqlCommand("""
             SELECT nexa.rev869b_record_recovery_outcome(
               @attempt,@pre,@post,@marker,@outcome,@failure,@finished,@policy)
@@ -202,10 +215,15 @@ internal static class Rev869BControlPlaneRegistry
             throw new InvalidOperationException("Recovery outcome was not durably appended to the control plane.");
     }
 
-    private static async Task<NpgsqlConnection> OpenVerifiedAsync()
+    private static Task<NpgsqlConnection> OpenVerifiedAsync() =>
+        OpenVerifiedAsync("REV869B_CONTROL_PLANE", ApiRoleName);
+
+    private const string ApiRoleName = "nexa_rev869b_control_plane_api";
+
+    private static async Task<NpgsqlConnection> OpenVerifiedAsync(string environmentName, string expectedRole)
     {
-        var raw = Environment.GetEnvironmentVariable("REV869B_CONTROL_PLANE")
-            ?? throw new InvalidOperationException("REV869B_CONTROL_PLANE is required; filesystem state cannot authorize provisioning or recovery.");
+        var raw = Environment.GetEnvironmentVariable(environmentName)
+            ?? throw new InvalidOperationException(environmentName + " is required; filesystem state cannot authorize lifecycle or recovery.");
         var builder = new NpgsqlConnectionStringBuilder(raw) { Pooling = false };
         var database = builder.Database ?? string.Empty;
         Rev869BControlPlaneProvisioningContract.RequireSafeTarget(database);
@@ -213,6 +231,8 @@ internal static class Rev869BControlPlaneRegistry
             string.Equals(builder.Database, Rev869BTestDatabaseLease.ExactSourceDatabase, StringComparison.Ordinal) ||
             database.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, StringComparison.Ordinal))
             throw new InvalidOperationException("The separately provisioned exact REV869B control-plane database is required.");
+        if (!string.Equals(builder.Username, expectedRole, StringComparison.Ordinal))
+            throw new InvalidOperationException("The exact least-privilege control-plane principal is required.");
         var connection = new NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync();
         await using var proof = new NpgsqlCommand(

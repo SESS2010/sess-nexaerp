@@ -14,7 +14,7 @@ internal static class Rev869BCommandContextSql
     public const string Install = """
         CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
         DO $rev869b_owner$
-        DECLARE owner_role oid; purge_role oid; authorizer_role oid; migration_role oid;
+        DECLARE owner_role oid; purge_role oid; authorizer_role oid; audit_writer_role oid; migration_role oid;
         BEGIN
           SELECT oid INTO owner_role FROM pg_roles WHERE rolname='nexa_rev869b_security_owner'
             AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
@@ -23,6 +23,9 @@ internal static class Rev869BCommandContextSql
             AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
             AND NOT rolreplication AND NOT rolbypassrls;
           SELECT oid INTO authorizer_role FROM pg_roles WHERE rolname='nexa_rev869b_purge_authorizer'
+            AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+            AND NOT rolreplication AND NOT rolbypassrls;
+          SELECT oid INTO audit_writer_role FROM pg_roles WHERE rolname='nexa_rev869b_purge_audit_writer'
             AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
             AND NOT rolreplication AND NOT rolbypassrls;
           SELECT oid INTO migration_role FROM pg_roles WHERE rolname=current_user;
@@ -35,10 +38,12 @@ internal static class Rev869BCommandContextSql
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_dedicated_security_owner_required',
               MESSAGE='Exact NOLOGIN, no-capability security owner with one non-inheriting SET ROLE migration-owner membership is required.';
           END IF;
-          IF purge_role IS NULL OR authorizer_role IS NULL OR purge_role=authorizer_role OR
+          IF purge_role IS NULL OR authorizer_role IS NULL OR audit_writer_role IS NULL OR
+             purge_role=authorizer_role OR purge_role=audit_writer_role OR authorizer_role=audit_writer_role OR
              pg_has_role(current_user,'nexa_rev869b_purge_executor','MEMBER') OR
              pg_has_role(current_user,'nexa_rev869b_purge_authorizer','MEMBER') OR
-             EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid IN (purge_role,authorizer_role) OR m.member IN (purge_role,authorizer_role)) THEN
+             EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid IN (purge_role,authorizer_role,audit_writer_role)
+               OR m.member IN (purge_role,authorizer_role,audit_writer_role)) THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_dedicated_purge_executor_required',
               MESSAGE='Distinct capability-free, membership-closed purge authorizer and executor LOGIN roles are required.';
           END IF;
@@ -83,6 +88,7 @@ internal static class Rev869BCommandContextSql
         CREATE TABLE nexa.rev869b_command_contexts(
           "Token" uuid PRIMARY KEY,
           "GrantId" uuid NOT NULL UNIQUE REFERENCES nexa.rev869b_command_grants("GrantId") ON DELETE RESTRICT,
+          "AttemptId" uuid NOT NULL UNIQUE,
           "BackendPid" integer NOT NULL,
           "TransactionId" bigint NOT NULL,
           "DatabasePrincipal" name NOT NULL,
@@ -107,24 +113,42 @@ internal static class Rev869BCommandContextSql
         CREATE INDEX "IX_rev869b_command_security_audit_grant_time" ON nexa.rev869b_command_security_audits("GrantId","OccurredAt");
 
         CREATE TABLE nexa.rev869b_command_consumption_attempt_audits(
-          "AttemptId" uuid PRIMARY KEY,"GrantId" uuid NOT NULL REFERENCES nexa.rev869b_command_grants("GrantId") ON DELETE RESTRICT,
+          "AttemptId" uuid PRIMARY KEY,"GrantId" uuid NOT NULL,
+          "GrantAnchorFingerprint" bytea NOT NULL CHECK (octet_length("GrantAnchorFingerprint")=32),
           "DatabaseName" name NOT NULL,"DatabaseInstanceFingerprint" bytea NOT NULL CHECK (octet_length("DatabaseInstanceFingerprint")=32),
           "ControlPlanePolicy" text NOT NULL CHECK ("ControlPlanePolicy"='MGMT-REV869B-CONTROL-PLANE-20260813-001'),
           "ExecutionInstanceId" uuid NOT NULL,"ServiceInstanceFingerprint" bytea NOT NULL CHECK (octet_length("ServiceInstanceFingerprint")=32),
           "RuntimePrincipal" name NOT NULL,"BackendPid" integer NOT NULL,"TransactionId" bigint NOT NULL,
+          "OrganizationFingerprint" bytea NOT NULL CHECK (octet_length("OrganizationFingerprint")=32),
           "ActorFingerprint" bytea NOT NULL CHECK (octet_length("ActorFingerprint")=32),"IssuerPrincipal" name NOT NULL,
           "AuthorizationFingerprint" bytea NOT NULL CHECK (octet_length("AuthorizationFingerprint")=32),
           "AuthorizationExpiresAt" timestamptz NOT NULL,"BusinessCommandFingerprint" bytea NOT NULL CHECK (octet_length("BusinessCommandFingerprint")=32),
           "OwnershipLeaseFingerprint" bytea NOT NULL CHECK (octet_length("OwnershipLeaseFingerprint")=32),
-          "AttemptSequence" bigint NOT NULL CHECK ("AttemptSequence">0),"AttemptedAt" timestamptz NOT NULL,
-          "OutcomeId" uuid NULL,"FinalState" text NOT NULL DEFAULT 'Attempted'
-            CHECK ("FinalState" IN ('Attempted','Rejected','Failed','RolledBack','Committed','Quarantined','Recovered')),
-          "RecoveryAttemptId" uuid NULL,"PurgeExecutionId" uuid NULL,
+          "OperationBindings" jsonb NOT NULL CHECK (jsonb_typeof("OperationBindings")='array' AND jsonb_array_length("OperationBindings") BETWEEN 1 AND 64),
+          "CorrelationFingerprint" bytea NOT NULL CHECK (octet_length("CorrelationFingerprint")=32),
+          "IdempotencyKeyFingerprint" bytea NOT NULL CHECK (octet_length("IdempotencyKeyFingerprint")=32),
+          "AttemptSequence" bigint GENERATED ALWAYS AS IDENTITY CHECK ("AttemptSequence">0),"AttemptedAt" timestamptz NOT NULL,
           CONSTRAINT "UX_rev869b_command_attempt_grant_sequence" UNIQUE("GrantId","AttemptSequence"),
-          CONSTRAINT "UX_rev869b_command_attempt_execution" UNIQUE("ExecutionInstanceId","AttemptId")
+          CONSTRAINT "UX_rev869b_command_attempt_execution" UNIQUE("ExecutionInstanceId","AttemptId"),
+          CONSTRAINT "UX_rev869b_command_attempt_idempotency" UNIQUE("DatabaseInstanceFingerprint","ExecutionInstanceId","IdempotencyKeyFingerprint","AttemptSequence")
         );
         CREATE INDEX "IX_rev869b_command_attempt_database_execution"
           ON nexa.rev869b_command_consumption_attempt_audits("DatabaseInstanceFingerprint","ExecutionInstanceId","AttemptedAt");
+
+        CREATE TABLE nexa.rev869b_command_attempt_outcomes(
+          "OutcomeId" uuid PRIMARY KEY,
+          "AttemptId" uuid NOT NULL UNIQUE REFERENCES nexa.rev869b_command_consumption_attempt_audits("AttemptId") ON DELETE RESTRICT,
+          "GrantAnchorFingerprint" bytea NOT NULL CHECK (octet_length("GrantAnchorFingerprint")=32),
+          "FinalState" text NOT NULL CHECK ("FinalState" IN ('Rejected','Failed','RolledBack','Committed','Quarantined','Recovered')),
+          "FinalBusinessStateFingerprint" bytea NOT NULL CHECK (octet_length("FinalBusinessStateFingerprint")=32),
+          "RecoveryAttemptId" uuid NULL,"PurgeExecutionId" uuid NULL,
+          "OccurredAt" timestamptz NOT NULL,"FailureCategory" text NULL,
+          CONSTRAINT "CK_rev869b_command_attempt_terminal_shape" CHECK (
+            ("FinalState"='Committed' AND "FailureCategory" IS NULL) OR
+            ("FinalState"<>'Committed' AND length(trim("FailureCategory"))>0))
+        );
+        ALTER TABLE nexa.rev869b_command_contexts ADD CONSTRAINT "FK_rev869b_command_context_attempt"
+          FOREIGN KEY ("AttemptId") REFERENCES nexa.rev869b_command_consumption_attempt_audits("AttemptId") ON DELETE RESTRICT;
 
         CREATE TABLE nexa.rev869b_purge_authorizations(
           "ExecutionId" uuid PRIMARY KEY,"ApprovalReference" text NOT NULL,"ApprovalFingerprint" bytea NOT NULL UNIQUE,
@@ -141,7 +165,7 @@ internal static class Rev869BCommandContextSql
           CONSTRAINT "CK_rev869b_purge_approval_batch" CHECK ("MaximumBatchSize" BETWEEN 1 AND 1000 AND "MaximumPermittedRows">= "MaximumBatchSize")
         );
         CREATE TABLE nexa.rev869b_purge_attempt_audits(
-          "AttemptId" uuid PRIMARY KEY,"ExecutionId" uuid NOT NULL REFERENCES nexa.rev869b_purge_authorizations("ExecutionId") ON DELETE RESTRICT,
+          "AttemptId" uuid PRIMARY KEY,"ExecutionId" uuid NOT NULL,
           "ApprovalReference" text NOT NULL,"ApprovalFingerprint" bytea NOT NULL CHECK (octet_length("ApprovalFingerprint")=32),
           "PolicyVersion" text NOT NULL,
           "Issuer" text NOT NULL,"Executor" name NOT NULL,"DatabaseName" name NOT NULL,"StartedAt" timestamptz NOT NULL,
@@ -159,6 +183,28 @@ internal static class Rev869BCommandContextSql
           "RejectionId" uuid PRIMARY KEY,"ExecutionId" uuid NOT NULL,"ActorFingerprint" bytea NOT NULL,
           "ReasonCategory" text NOT NULL,"SqlState" text NOT NULL,"DatabaseObject" text NOT NULL,
           "AcceptanceLabel" text NOT NULL,"OccurredAt" timestamptz NOT NULL,
+          "PolicyVersion" text NOT NULL CHECK ("PolicyVersion"='MGMT-REV869B-SECURITY-LEDGER-20260813-001')
+        );
+        CREATE TABLE nexa.rev869b_security_export_authorizations(
+          "AuthorizationId" uuid PRIMARY KEY,"OrganizationFingerprint" bytea NOT NULL CHECK (octet_length("OrganizationFingerprint")=32),
+          "Purpose" text NOT NULL,"AllowedFields" text[] NOT NULL,
+          "MaximumRows" integer NOT NULL CHECK ("MaximumRows" BETWEEN 1 AND 1000),
+          "IssuedAt" timestamptz NOT NULL,"ExpiresAt" timestamptz NOT NULL,
+          "NonceFingerprint" bytea NOT NULL UNIQUE CHECK (octet_length("NonceFingerprint")=32),
+          "ReaderPrincipal" name NOT NULL CHECK ("ReaderPrincipal"='nexa_rev869b_security_export_reader'),
+          "State" text NOT NULL CHECK ("State" IN ('Approved','Consumed')),"ConsumedAt" timestamptz NULL,
+          CHECK ("ExpiresAt">"IssuedAt" AND "ExpiresAt"<="IssuedAt"+interval '15 minutes'),
+          CHECK ("AllowedFields"=ARRAY['AuditId','EventType','CommandFingerprint','Operation','EntityType',
+            'EntityId','ExpectedVersion','OccurredAt','Outcome','FailureCategory']::text[])
+        );
+        CREATE TABLE nexa.rev869b_security_export_audits(
+          "ExportAuditId" uuid PRIMARY KEY,"AuthorizationId" uuid NOT NULL UNIQUE,
+          "OrganizationFingerprint" bytea NOT NULL CHECK (octet_length("OrganizationFingerprint")=32),
+          "PurposeFingerprint" bytea NOT NULL CHECK (octet_length("PurposeFingerprint")=32),
+          "FieldSetFingerprint" bytea NOT NULL CHECK (octet_length("FieldSetFingerprint")=32),
+          "MaximumRows" integer NOT NULL,"ExportedRows" integer NOT NULL CHECK ("ExportedRows">=0),
+          "ReaderPrincipal" name NOT NULL,"OccurredAt" timestamptz NOT NULL,
+          "Outcome" text NOT NULL CHECK ("Outcome" IN ('Succeeded','ZeroRows')),
           "PolicyVersion" text NOT NULL CHECK ("PolicyVersion"='MGMT-REV869B-SECURITY-LEDGER-20260813-001')
         );
 
@@ -183,9 +229,12 @@ internal static class Rev869BCommandContextSql
         REVOKE ALL ON nexa.rev869b_claim_sequence_pool FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_command_security_audits FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_command_consumption_attempt_audits FROM PUBLIC;
+        REVOKE ALL ON nexa.rev869b_command_attempt_outcomes FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_purge_authorizations FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_purge_attempt_audits FROM PUBLIC;
         REVOKE ALL ON nexa.rev869b_purge_rejection_audits FROM PUBLIC;
+        REVOKE ALL ON nexa.rev869b_security_export_authorizations FROM PUBLIC;
+        REVOKE ALL ON nexa.rev869b_security_export_audits FROM PUBLIC;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_reject_security_audit_mutation()
         RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
@@ -198,10 +247,69 @@ internal static class Rev869BCommandContextSql
           FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
         CREATE TRIGGER "TR_rev869b_command_attempt_audit_immutable" BEFORE UPDATE OR DELETE ON nexa.rev869b_command_consumption_attempt_audits
           FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
+        CREATE TRIGGER "TR_rev869b_command_attempt_outcome_immutable" BEFORE UPDATE OR DELETE ON nexa.rev869b_command_attempt_outcomes
+          FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
         CREATE TRIGGER TR_rev869b_purge_attempt_audit_immutable BEFORE UPDATE OR DELETE ON nexa.rev869b_purge_attempt_audits
           FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
         CREATE TRIGGER TR_rev869b_purge_rejection_audit_immutable BEFORE UPDATE OR DELETE ON nexa.rev869b_purge_rejection_audits
           FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
+        CREATE TRIGGER TR_rev869b_security_export_audit_immutable BEFORE UPDATE OR DELETE ON nexa.rev869b_security_export_audits
+          FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_reject_security_audit_mutation();
+
+        CREATE OR REPLACE FUNCTION nexa.rev869b_register_security_export_authorization(
+          authorization_id uuid,organization_fingerprint bytea,purpose text,allowed_fields text[],
+          maximum_rows integer,issued_at timestamptz,expires_at timestamptz,nonce_fingerprint bytea)
+        RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
+        BEGIN
+          IF session_user<>'nexa_rev869b_security_export_authorizer' OR authorization_id IS NULL OR
+             octet_length(organization_fingerprint)<>32 OR length(trim(purpose))<12 OR
+             allowed_fields IS DISTINCT FROM ARRAY['AuditId','EventType','CommandFingerprint','Operation','EntityType',
+               'EntityId','ExpectedVersion','OccurredAt','Outcome','FailureCategory']::text[] OR
+             maximum_rows NOT BETWEEN 1 AND 1000 OR issued_at>clock_timestamp()+interval '30 seconds' OR
+             expires_at<=clock_timestamp() OR expires_at>issued_at+interval '15 minutes' OR
+             octet_length(nonce_fingerprint)<>32 THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_security_export_authorization';
+          END IF;
+          INSERT INTO nexa.rev869b_security_export_authorizations VALUES(
+            authorization_id,organization_fingerprint,trim(purpose),allowed_fields,maximum_rows,
+            issued_at,expires_at,nonce_fingerprint,'nexa_rev869b_security_export_reader','Approved',NULL);
+        END $rev869b$;
+        REVOKE ALL ON FUNCTION nexa.rev869b_register_security_export_authorization(uuid,bytea,text,text[],integer,timestamptz,timestamptz,bytea) FROM PUBLIC;
+
+        CREATE OR REPLACE FUNCTION nexa.rev869b_export_minimized_security_ledger(
+          authorization_id uuid,nonce_fingerprint bytea)
+        RETURNS TABLE("AuditId" uuid,"EventType" text,"CommandFingerprint" text,"Operation" text,
+          "EntityType" text,"EntityId" uuid,"ExpectedVersion" bigint,"OccurredAt" timestamptz,
+          "Outcome" text,"FailureCategory" text)
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE approval nexa.rev869b_security_export_authorizations%ROWTYPE; exported integer;
+        BEGIN
+          IF session_user<>'nexa_rev869b_security_export_reader' THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_security_export_reader';
+          END IF;
+          SELECT a.* INTO STRICT approval FROM nexa.rev869b_security_export_authorizations a
+            WHERE a."AuthorizationId"=authorization_id AND a."State"='Approved' AND a."ConsumedAt" IS NULL
+              AND a."ExpiresAt">clock_timestamp() AND a."NonceFingerprint"=nonce_fingerprint
+              AND a."ReaderPrincipal"=session_user FOR UPDATE;
+          SELECT least(count(*),approval."MaximumRows")::integer INTO exported
+          FROM nexa.rev869b_command_security_audits a
+          WHERE a."OrganizationFingerprint"=approval."OrganizationFingerprint";
+          UPDATE nexa.rev869b_security_export_authorizations SET "State"='Consumed',"ConsumedAt"=clock_timestamp()
+            WHERE "AuthorizationId"=authorization_id;
+          INSERT INTO nexa.rev869b_security_export_audits VALUES(
+            public.gen_random_uuid(),authorization_id,approval."OrganizationFingerprint",
+            public.digest(convert_to(approval."Purpose",'UTF8'),'sha256'),
+            public.digest(convert_to(approval."AllowedFields"::text,'UTF8'),'sha256'),
+            approval."MaximumRows",exported,session_user,clock_timestamp(),
+            CASE WHEN exported=0 THEN 'ZeroRows' ELSE 'Succeeded' END,
+            'MGMT-REV869B-SECURITY-LEDGER-20260813-001');
+          RETURN QUERY SELECT a."AuditId",a."EventType",a."CommandFingerprint",a."Operation",a."EntityType",
+            a."EntityId",a."ExpectedVersion",a."OccurredAt",a."Outcome",a."FailureCategory"
+          FROM nexa.rev869b_command_security_audits a
+          WHERE a."OrganizationFingerprint"=approval."OrganizationFingerprint"
+          ORDER BY a."OccurredAt",a."AuditId" LIMIT approval."MaximumRows";
+        END $rev869b$;
+        REVOKE ALL ON FUNCTION nexa.rev869b_export_minimized_security_ledger(uuid,bytea) FROM PUBLIC;
 
         CREATE OR REPLACE FUNCTION nexa.rev869b_register_purge_authorization(
           execution_id uuid, approval_reference text, approval_fingerprint bytea, organization_scope_fingerprint bytea,
@@ -214,7 +322,7 @@ internal static class Rev869BCommandContextSql
              length(trim(approval_reference))<8 OR octet_length(approval_fingerprint)<>32 OR
              octet_length(organization_scope_fingerprint)<>32 OR cutoff_at IS DISTINCT FROM issued_at-interval '90 days' OR
              maximum_batch_size NOT BETWEEN 1 AND 1000 OR maximum_permitted_rows<maximum_batch_size OR
-             eligible_states IS DISTINCT FROM ARRAY['Expired','Unclaimed']::text[] OR
+             eligible_states IS DISTINCT FROM ARRAY['Expired','Committed','Failed','Rejected']::text[] OR
              issued_at>clock_timestamp()+interval '30 seconds' OR expires_at<=clock_timestamp() OR
              expires_at>issued_at+interval '15 minutes' OR octet_length(nonce_fingerprint)<>32 OR
              expected_audit_destination<>'nexa.rev869b_purge_attempt_audits' THEN
@@ -239,9 +347,9 @@ internal static class Rev869BCommandContextSql
         DECLARE approval nexa.rev869b_purge_authorizations%ROWTYPE; candidate_ids uuid[]; candidate_count integer;
           eligible_count bigint; candidate_fingerprint bytea; evidence text; rejection text;
         BEGIN
-          IF session_user<>'nexa_rev869b_purge_executor' THEN
+          IF session_user<>'nexa_rev869b_purge_audit_writer' THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_purge_executor',
-              MESSAGE='Only the dedicated purge executor may consume an approval.';
+              MESSAGE='Only the isolated durable purge audit writer may consume an approval.';
           END IF;
           SELECT a.* INTO approval FROM nexa.rev869b_purge_authorizations a WHERE a."ExecutionId"=execution_id FOR UPDATE;
           IF NOT FOUND THEN rejection:='MissingAuthorization';
@@ -262,10 +370,10 @@ internal static class Rev869BCommandContextSql
             WHERE g."OrganizationFingerprint"=approval."OrganizationScopeFingerprint"
               AND g."ReservedAt"<approval."CutoffAt" AND g."ExpiresAt"<=approval."IssuedAt"
               AND (
-                (g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
+                ('Expired'=ANY(approval."EligibleStates") AND g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
                   WHERE x."GrantId"=g."GrantId" AND x."EventType"='Claimed'))
                 OR EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
-                  WHERE x."GrantId"=g."GrantId" AND x."EventType" IN ('Committed','Failed','Rejected')
+                  WHERE x."GrantId"=g."GrantId" AND x."EventType"=ANY(approval."EligibleStates")
                     AND x."OccurredAt"<approval."CutoffAt")
               );
           SELECT array_agg(q."GrantId"),count(*) INTO candidate_ids,candidate_count FROM (
@@ -273,10 +381,10 @@ internal static class Rev869BCommandContextSql
             WHERE g."OrganizationFingerprint"=approval."OrganizationScopeFingerprint"
               AND g."ReservedAt"<approval."CutoffAt" AND g."ExpiresAt"<=approval."IssuedAt"
               AND (
-                (g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
+                ('Expired'=ANY(approval."EligibleStates") AND g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
                   WHERE x."GrantId"=g."GrantId" AND x."EventType"='Claimed'))
                 OR EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
-                  WHERE x."GrantId"=g."GrantId" AND x."EventType" IN ('Committed','Failed','Rejected')
+                  WHERE x."GrantId"=g."GrantId" AND x."EventType"=ANY(approval."EligibleStates")
                     AND x."OccurredAt"<approval."CutoffAt")
               )
             ORDER BY g."ReservedAt",g."GrantId" LIMIT approval."MaximumBatchSize") q;
@@ -330,10 +438,10 @@ internal static class Rev869BCommandContextSql
             WHERE g."OrganizationFingerprint"=approval."OrganizationScopeFingerprint"
               AND g."ReservedAt"<approval."CutoffAt" AND g."ExpiresAt"<=approval."IssuedAt"
               AND (
-                (g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
+                ('Expired'=ANY(approval."EligibleStates") AND g."ExpiresAt"<=approval."IssuedAt" AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
                   WHERE x."GrantId"=g."GrantId" AND x."EventType"='Claimed'))
                 OR EXISTS (SELECT 1 FROM nexa.rev869b_command_security_audits x
-                  WHERE x."GrantId"=g."GrantId" AND x."EventType" IN ('Committed','Failed','Rejected')
+                  WHERE x."GrantId"=g."GrantId" AND x."EventType"=ANY(approval."EligibleStates")
                     AND x."OccurredAt"<approval."CutoffAt")
               )
             ORDER BY g."ReservedAt",g."GrantId" FOR UPDATE LIMIT approval."MaximumBatchSize") q;
@@ -508,6 +616,7 @@ internal static class Rev869BCommandContextSql
           grant_id uuid, attempt_id uuid, execution_instance_id uuid, service_instance_fingerprint bytea,
           business_command_fingerprint bytea, ownership_lease_fingerprint bytea)
         RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE grant_anchor bytea; operation_bindings jsonb; correlation_fingerprint bytea;
         BEGIN
           IF attempt_id IS NULL OR execution_instance_id IS NULL OR octet_length(service_instance_fingerprint)<>32 OR
              octet_length(business_command_fingerprint)<>32 OR octet_length(ownership_lease_fingerprint)<>32 THEN
@@ -515,15 +624,24 @@ internal static class Rev869BCommandContextSql
               MESSAGE='Complete durable command-consumption attempt binding is required.';
           END IF;
           INSERT INTO nexa.rev869b_command_consumption_attempt_audits
-            ("AttemptId","GrantId","DatabaseName","DatabaseInstanceFingerprint","ControlPlanePolicy","ExecutionInstanceId",
+            ("AttemptId","GrantId","GrantAnchorFingerprint","DatabaseName","DatabaseInstanceFingerprint","ControlPlanePolicy","ExecutionInstanceId",
              "ServiceInstanceFingerprint","RuntimePrincipal","BackendPid","TransactionId","ActorFingerprint","IssuerPrincipal",
-             "AuthorizationFingerprint","AuthorizationExpiresAt","BusinessCommandFingerprint","OwnershipLeaseFingerprint","AttemptSequence","AttemptedAt")
-          SELECT attempt_id,g."GrantId",current_database(),
+             "OrganizationFingerprint","AuthorizationFingerprint","AuthorizationExpiresAt","BusinessCommandFingerprint",
+             "OwnershipLeaseFingerprint","OperationBindings","CorrelationFingerprint","IdempotencyKeyFingerprint","AttemptedAt")
+          SELECT attempt_id,g."GrantId",
+            public.digest(convert_to(jsonb_build_array(g."GrantId",g."IssuerPrincipal",g."RuntimePrincipal",
+              g."TargetBackendPid",g."TargetTransactionId",encode(g."OrganizationFingerprint",'hex'),
+              encode(g."ActorFingerprint",'hex'),g."IssuedAt",g."ExpiresAt")::text,'UTF8'),'sha256'),
+            current_database(),
             public.digest(convert_to(current_database()||':'||(SELECT oid::text FROM pg_database WHERE datname=current_database()),'UTF8'),'sha256'),
             'MGMT-REV869B-CONTROL-PLANE-20260813-001',execution_instance_id,service_instance_fingerprint,g."RuntimePrincipal",
-            g."TargetBackendPid",g."TargetTransactionId",g."ActorFingerprint",g."IssuerPrincipal",
-            public.digest(convert_to(g."GrantId"::text||':'||encode(g."NonceHash",'hex'),'UTF8'),'sha256'),
-            g."ExpiresAt",business_command_fingerprint,ownership_lease_fingerprint,1,clock_timestamp()
+            g."TargetBackendPid",g."TargetTransactionId",g."ActorFingerprint",g."IssuerPrincipal",g."OrganizationFingerprint",
+            public.digest(convert_to(jsonb_build_array(g."GrantId",g."IssuerPrincipal",g."RuntimePrincipal",
+              g."TargetBackendPid",g."TargetTransactionId",g."IssuedAt",g."ExpiresAt",g."SlotFingerprints")::text,'UTF8'),'sha256'),
+            g."ExpiresAt",business_command_fingerprint,ownership_lease_fingerprint,g."SlotFingerprints",
+            public.digest(convert_to((SELECT jsonb_agg(encode(a."CorrelationFingerprint",'hex') ORDER BY a."CommandFingerprint")
+              FROM nexa.rev869b_command_security_audits a WHERE a."GrantId"=g."GrantId" AND a."EventType"='Issued')::text,'UTF8'),'sha256'),
+            business_command_fingerprint,clock_timestamp()
           FROM nexa.rev869b_command_grants g WHERE g."GrantId"=grant_id AND g."IssuerPrincipal"=session_user;
           IF NOT FOUND THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_consumption_attempt_issuer_binding',
@@ -539,6 +657,7 @@ internal static class Rev869BCommandContextSql
         RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
         SET search_path=pg_catalog,nexa AS $rev869b$
         DECLARE command_token uuid:=gen_random_uuid(); grant_expires timestamptz;
+          durable_attempt_id uuid;
         BEGIN
           IF expected_backend_pid IS DISTINCT FROM pg_backend_pid() OR expected_transaction_id IS DISTINCT FROM txid_current() THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_grant_connection_transaction_binding',MESSAGE='Grant is bound to another connection or transaction.';
@@ -550,8 +669,14 @@ internal static class Rev869BCommandContextSql
              AND g."ActorFingerprint"=public.digest(convert_to(actor_employee::text,'UTF8'),'sha256')
              AND g."IdentityFingerprint"=public.digest(convert_to(jsonb_build_array(identity_issuer,identity_subject)::text,'UTF8'),'sha256')
              AND g."RoleFingerprint"=public.digest(convert_to(actor_role,'UTF8'),'sha256');
-          INSERT INTO nexa.rev869b_command_contexts("Token","GrantId","BackendPid","TransactionId","DatabasePrincipal","OpenedAt","ExpiresAt")
-          VALUES(command_token,grant_id,pg_backend_pid(),txid_current(),session_user,clock_timestamp(),grant_expires);
+          SELECT a."AttemptId" INTO STRICT durable_attempt_id
+          FROM nexa.rev869b_command_consumption_attempt_audits a
+          WHERE a."GrantId"=grant_id AND a."RuntimePrincipal"=session_user
+            AND a."BackendPid"=pg_backend_pid() AND a."TransactionId"=txid_current()
+            AND a."AuthorizationExpiresAt"=grant_expires
+            AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_attempt_outcomes o WHERE o."AttemptId"=a."AttemptId");
+          INSERT INTO nexa.rev869b_command_contexts("Token","GrantId","AttemptId","BackendPid","TransactionId","DatabasePrincipal","OpenedAt","ExpiresAt")
+          VALUES(command_token,grant_id,durable_attempt_id,pg_backend_pid(),txid_current(),session_user,clock_timestamp(),grant_expires);
           INSERT INTO nexa.rev869b_command_security_audits
             ("AuditId","GrantId","EventId","EventType","CommandFingerprint","OrganizationFingerprint","ActorFingerprint","IssuerPrincipal",
              "Operation","EntityType","EntityId","ExpectedVersion","SourceStatus","TargetStatus","CorrelationFingerprint","OccurredAt","Outcome","PolicyVersion")
@@ -679,6 +804,40 @@ internal static class Rev869BCommandContextSql
         END $rev869b$;
         REVOKE ALL ON FUNCTION nexa.rev869b_record_command_outcome(uuid,text,text) FROM PUBLIC;
 
+        CREATE OR REPLACE FUNCTION nexa.rev869b_record_command_attempt_outcome(
+          grant_id uuid, terminal_event text, failure_category text, outcome_id uuid)
+        RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
+        DECLARE inserted_id uuid; terminal_fingerprint bytea;
+        BEGIN
+          IF outcome_id IS NULL OR terminal_event NOT IN ('Committed','Failed','Rejected') OR
+             (terminal_event='Committed' AND nullif(trim(coalesce(failure_category,'')),'') IS NOT NULL) OR
+             (terminal_event<>'Committed' AND length(trim(coalesce(failure_category,'')))=0) THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_exact_attempt_terminal_link',
+              MESSAGE='A unique exact durable command-attempt terminal link is required.';
+          END IF;
+          SELECT public.digest(convert_to(jsonb_agg(jsonb_build_array(
+              a."CommandFingerprint",a."EventType",a."Outcome",a."FailureCategory") ORDER BY a."CommandFingerprint")::text,'UTF8'),'sha256')
+            INTO STRICT terminal_fingerprint
+          FROM nexa.rev869b_command_security_audits a
+          WHERE a."GrantId"=grant_id AND a."EventType"=terminal_event;
+          INSERT INTO nexa.rev869b_command_attempt_outcomes
+            ("OutcomeId","AttemptId","GrantAnchorFingerprint","FinalState","FinalBusinessStateFingerprint",
+             "OccurredAt","FailureCategory")
+          SELECT outcome_id,t."AttemptId",t."GrantAnchorFingerprint",
+            CASE terminal_event WHEN 'Committed' THEN 'Committed' WHEN 'Rejected' THEN 'Rejected' ELSE 'RolledBack' END,
+            terminal_fingerprint,clock_timestamp(),nullif(trim(coalesce(failure_category,'')),'')
+          FROM nexa.rev869b_command_consumption_attempt_audits t
+          WHERE t."GrantId"=grant_id AND t."IssuerPrincipal"=session_user
+            AND NOT EXISTS (SELECT 1 FROM nexa.rev869b_command_attempt_outcomes o WHERE o."AttemptId"=t."AttemptId")
+          RETURNING "OutcomeId" INTO inserted_id;
+          IF inserted_id IS NULL THEN
+            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_attempt_terminal_missing_or_replayed',
+              MESSAGE='Exactly one pending durable command attempt was not available.';
+          END IF;
+          RETURN inserted_id;
+        END $rev869b$;
+        REVOKE ALL ON FUNCTION nexa.rev869b_record_command_attempt_outcome(uuid,text,text,uuid) FROM PUBLIC;
+
         CREATE OR REPLACE FUNCTION nexa.rev869b_provision_command_authority(issuer_principal name, runtime_principal name, active_to timestamptz DEFAULT NULL)
         RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $rev869b$
         BEGIN
@@ -700,6 +859,7 @@ internal static class Rev869BCommandContextSql
           EXECUTE format('GRANT EXECUTE ON FUNCTION nexa.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text) TO %I',runtime_principal);
           EXECUTE format('GRANT EXECUTE ON FUNCTION nexa.rev869b_record_command_outcome(uuid,text,text) TO %I',runtime_principal);
           EXECUTE format('GRANT EXECUTE ON FUNCTION nexa.rev869b_record_command_outcome(uuid,text,text) TO %I',issuer_principal);
+          EXECUTE format('GRANT EXECUTE ON FUNCTION nexa.rev869b_record_command_attempt_outcome(uuid,text,text,uuid) TO %I',issuer_principal);
         END $rev869b$;
         REVOKE ALL ON FUNCTION nexa.rev869b_provision_command_authority(name,name,timestamptz) FROM PUBLIC;
         DO $rev869b_grant_owner$
@@ -713,9 +873,12 @@ internal static class Rev869BCommandContextSql
         ALTER TABLE nexa.rev869b_claim_sequence_pool OWNER TO nexa_rev869b_security_owner;
         ALTER TABLE nexa.rev869b_command_security_audits OWNER TO nexa_rev869b_security_owner;
         ALTER TABLE nexa.rev869b_command_consumption_attempt_audits OWNER TO nexa_rev869b_security_owner;
+        ALTER TABLE nexa.rev869b_command_attempt_outcomes OWNER TO nexa_rev869b_security_owner;
         ALTER TABLE nexa.rev869b_purge_authorizations OWNER TO nexa_rev869b_security_owner;
         ALTER TABLE nexa.rev869b_purge_attempt_audits OWNER TO nexa_rev869b_security_owner;
         ALTER TABLE nexa.rev869b_purge_rejection_audits OWNER TO nexa_rev869b_security_owner;
+        ALTER TABLE nexa.rev869b_security_export_authorizations OWNER TO nexa_rev869b_security_owner;
+        ALTER TABLE nexa.rev869b_security_export_audits OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_reject_security_audit_mutation() OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_slot_fingerprint(text,uuid,text,uuid,text,bigint,text,text,uuid,text,text,text,text,text,text,boolean) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_issue_command_grant(name,integer,bigint,uuid,text,text,text,text,bigint,jsonb) OWNER TO nexa_rev869b_security_owner;
@@ -724,18 +887,21 @@ internal static class Rev869BCommandContextSql
         ALTER FUNCTION nexa.rev869b_command_context_valid(text,uuid,text,text,text) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_record_command_outcome(uuid,text,text) OWNER TO nexa_rev869b_security_owner;
+        ALTER FUNCTION nexa.rev869b_record_command_attempt_outcome(uuid,text,text,uuid) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_provision_command_authority(name,name,timestamptz) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_register_purge_authorization(uuid,text,bytea,bytea,timestamptz,integer,integer,text[],timestamptz,timestamptz,bytea,text,text) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) OWNER TO nexa_rev869b_security_owner;
         ALTER FUNCTION nexa.rev869b_purge_temporary_security_ledger(uuid) OWNER TO nexa_rev869b_security_owner;
+        ALTER FUNCTION nexa.rev869b_register_security_export_authorization(uuid,bytea,text,text[],integer,timestamptz,timestamptz,bytea) OWNER TO nexa_rev869b_security_owner;
+        ALTER FUNCTION nexa.rev869b_export_minimized_security_ledger(uuid,bytea) OWNER TO nexa_rev869b_security_owner;
         DO $rev869b_grant_purge_owner$
         BEGIN
-          REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer;
-          REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer;
-          REVOKE ALL ON SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer;
-          GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer;
+          REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer,nexa_rev869b_purge_audit_writer;
+          REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer,nexa_rev869b_purge_audit_writer;
+          REVOKE ALL ON SCHEMA nexa FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer,nexa_rev869b_purge_audit_writer;
+          GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer,nexa_rev869b_purge_audit_writer;
           GRANT EXECUTE ON FUNCTION nexa.rev869b_register_purge_authorization(uuid,text,bytea,bytea,timestamptz,integer,integer,text[],timestamptz,timestamptz,bytea,text,text) TO nexa_rev869b_purge_authorizer;
-          GRANT EXECUTE ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) TO nexa_rev869b_purge_executor;
+          GRANT EXECUTE ON FUNCTION nexa.rev869b_begin_purge_execution(uuid,bytea) TO nexa_rev869b_purge_audit_writer;
           GRANT EXECUTE ON FUNCTION nexa.rev869b_purge_temporary_security_ledger(uuid) TO nexa_rev869b_purge_executor;
           GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_security_owner;
           GRANT SELECT ON nexa.employee_identity_mappings,nexa.employees,nexa.employee_role_assignments,nexa.roles
@@ -743,18 +909,28 @@ internal static class Rev869BCommandContextSql
         END $rev869b_grant_purge_owner$;
         REVOKE ALL ON nexa.rev869b_command_authorities,nexa.rev869b_command_grants,nexa.rev869b_command_contexts,
           nexa.rev869b_claim_sequence_pool,nexa.rev869b_command_security_audits,nexa.rev869b_command_consumption_attempt_audits,
+          nexa.rev869b_command_attempt_outcomes,
           nexa.rev869b_purge_authorizations,
-          nexa.rev869b_purge_attempt_audits,nexa.rev869b_purge_rejection_audits
-          FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer;
+          nexa.rev869b_purge_attempt_audits,nexa.rev869b_purge_rejection_audits,
+          nexa.rev869b_security_export_authorizations,nexa.rev869b_security_export_audits
+          FROM nexa_rev869b_purge_executor,nexa_rev869b_purge_authorizer,nexa_rev869b_purge_audit_writer,
+            nexa_rev869b_security_export_authorizer,nexa_rev869b_security_export_reader;
+        GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_security_export_authorizer,nexa_rev869b_security_export_reader;
+        GRANT EXECUTE ON FUNCTION nexa.rev869b_register_security_export_authorization(uuid,bytea,text,text[],integer,timestamptz,timestamptz,bytea)
+          TO nexa_rev869b_security_export_authorizer;
+        GRANT EXECUTE ON FUNCTION nexa.rev869b_export_minimized_security_ledger(uuid,bytea)
+          TO nexa_rev869b_security_export_reader;
         DO $rev869b_acl_closure$
         BEGIN
           IF has_schema_privilege('nexa_rev869b_purge_executor','nexa','CREATE') OR
              has_schema_privilege('nexa_rev869b_purge_authorizer','nexa','CREATE') OR
+             has_schema_privilege('nexa_rev869b_purge_audit_writer','nexa','CREATE') OR
              has_table_privilege('nexa_rev869b_purge_executor','nexa.rev869b_command_grants','SELECT,INSERT,UPDATE,DELETE') OR
              has_table_privilege('nexa_rev869b_purge_authorizer','nexa.rev869b_purge_authorizations','SELECT,INSERT,UPDATE,DELETE') OR
              has_function_privilege('nexa_rev869b_purge_executor','nexa.rev869b_register_purge_authorization(uuid,text,bytea,bytea,timestamp with time zone,integer,integer,text[],timestamp with time zone,timestamp with time zone,bytea,text,text)','EXECUTE') OR
              has_function_privilege('nexa_rev869b_purge_authorizer','nexa.rev869b_begin_purge_execution(uuid,bytea)','EXECUTE') OR
-             NOT has_function_privilege('nexa_rev869b_purge_executor','nexa.rev869b_begin_purge_execution(uuid,bytea)','EXECUTE') OR
+             has_function_privilege('nexa_rev869b_purge_executor','nexa.rev869b_begin_purge_execution(uuid,bytea)','EXECUTE') OR
+             NOT has_function_privilege('nexa_rev869b_purge_audit_writer','nexa.rev869b_begin_purge_execution(uuid,bytea)','EXECUTE') OR
              NOT has_function_privilege('nexa_rev869b_purge_executor','nexa.rev869b_purge_temporary_security_ledger(uuid)','EXECUTE') OR
              NOT has_function_privilege('nexa_rev869b_purge_authorizer','nexa.rev869b_register_purge_authorization(uuid,text,bytea,bytea,timestamp with time zone,integer,integer,text[],timestamp with time zone,timestamp with time zone,bytea,text,text)','EXECUTE') OR
              has_table_privilege('nexa_rev869b_security_owner','nexa.purchase_orders','SELECT,INSERT,UPDATE,DELETE') OR
@@ -770,10 +946,13 @@ internal static class Rev869BCommandContextSql
 
     public const string Remove = """
         DROP FUNCTION IF EXISTS nexa.rev869b_provision_command_authority(name,name,timestamptz);
+        DROP FUNCTION IF EXISTS nexa.rev869b_export_minimized_security_ledger(uuid,bytea);
+        DROP FUNCTION IF EXISTS nexa.rev869b_register_security_export_authorization(uuid,bytea,text,text[],integer,timestamptz,timestamptz,bytea);
         DROP FUNCTION IF EXISTS nexa.rev869b_purge_temporary_security_ledger(uuid);
         DROP FUNCTION IF EXISTS nexa.rev869b_begin_purge_execution(uuid,bytea);
         DROP FUNCTION IF EXISTS nexa.rev869b_register_purge_authorization(uuid,text,bytea,bytea,timestamptz,integer,integer,text[],timestamptz,timestamptz,bytea,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_record_command_outcome(uuid,text,text);
+        DROP FUNCTION IF EXISTS nexa.rev869b_record_command_attempt_outcome(uuid,text,text,uuid);
         DROP FUNCTION IF EXISTS nexa.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_command_context_valid(text,uuid,text,text,text);
         DROP FUNCTION IF EXISTS nexa.rev869b_record_command_consumption_attempt(uuid,uuid,uuid,bytea,bytea,bytea);
@@ -782,12 +961,18 @@ internal static class Rev869BCommandContextSql
         DROP FUNCTION IF EXISTS nexa.rev869b_slot_fingerprint(text,uuid,text,uuid,text,bigint,text,text,uuid,text,text,text,text,text,text,boolean);
         DROP TRIGGER IF EXISTS "TR_rev869b_purge_attempt_audit_immutable" ON nexa.rev869b_purge_attempt_audits;
         DROP TRIGGER IF EXISTS "TR_rev869b_purge_rejection_audit_immutable" ON nexa.rev869b_purge_rejection_audits;
+        DROP TRIGGER IF EXISTS "TR_rev869b_security_export_audit_immutable" ON nexa.rev869b_security_export_audits;
         DROP TRIGGER IF EXISTS "TR_rev869b_command_attempt_audit_immutable" ON nexa.rev869b_command_consumption_attempt_audits;
+        DROP TRIGGER IF EXISTS "TR_rev869b_command_attempt_outcome_immutable" ON nexa.rev869b_command_attempt_outcomes;
         DROP TRIGGER IF EXISTS "TR_rev869b_command_security_audit_immutable" ON nexa.rev869b_command_security_audits;
         DROP FUNCTION IF EXISTS nexa.rev869b_reject_security_audit_mutation();
         DROP TABLE IF EXISTS nexa.rev869b_purge_attempt_audits;
         DROP TABLE IF EXISTS nexa.rev869b_purge_rejection_audits;
         DROP TABLE IF EXISTS nexa.rev869b_purge_authorizations;
+        DROP TABLE IF EXISTS nexa.rev869b_security_export_audits;
+        DROP TABLE IF EXISTS nexa.rev869b_security_export_authorizations;
+        DROP TABLE IF EXISTS nexa.rev869b_command_contexts;
+        DROP TABLE IF EXISTS nexa.rev869b_command_attempt_outcomes;
         DROP TABLE IF EXISTS nexa.rev869b_command_consumption_attempt_audits;
         DROP TABLE IF EXISTS nexa.rev869b_command_security_audits;
         DROP TABLE IF EXISTS nexa.rev869b_claim_sequence_pool;
@@ -799,7 +984,6 @@ internal static class Rev869BCommandContextSql
             EXECUTE format('DROP SEQUENCE IF EXISTS nexa.%I',sequence_name);
           END LOOP;
         END $rev869b_drop_claim_sequences$;
-        DROP TABLE IF EXISTS nexa.rev869b_command_contexts;
         DROP TABLE IF EXISTS nexa.rev869b_command_grants;
         DROP TABLE IF EXISTS nexa.rev869b_command_authorities;
         -- The shared pgcrypto extension and pre-provisioned NOLOGIN owner role are not migration-owned.

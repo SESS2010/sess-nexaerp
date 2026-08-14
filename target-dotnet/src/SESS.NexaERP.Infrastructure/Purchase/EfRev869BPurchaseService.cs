@@ -51,6 +51,9 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             foreach (var grantId in service.pendingCommandGrantIds)
                 await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(service.db, grantId, ct);
             await owned.CommitAsync(ct);
+            var runtime = (Npgsql.NpgsqlConnection)service.db.Database.GetDbConnection();
+            foreach (var grantId in service.pendingCommandGrantIds)
+                await Rev869BCommandContextAuthorizer.RecordCommittedAttemptAfterCommitAsync(runtime, grantId, ct);
             service.pendingCommandGrantIds.Clear();
             finalized = true;
         }

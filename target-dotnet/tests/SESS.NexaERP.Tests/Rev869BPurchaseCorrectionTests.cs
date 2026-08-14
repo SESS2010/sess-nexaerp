@@ -173,10 +173,10 @@ public sealed class Rev869BPurchaseCorrectionTests
 
         Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
-        Assert.Equal(24, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
-        Assert.Equal(81, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
-        Assert.Equal(33, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
-        Assert.Equal(32, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
+        Assert.Equal(27, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
+        Assert.Equal(83, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
+        Assert.Equal(36, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
+        Assert.Equal(35, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
             .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);

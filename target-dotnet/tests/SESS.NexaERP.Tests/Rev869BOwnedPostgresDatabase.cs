@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Npgsql;
 
 namespace SESS.NexaERP.Tests;
@@ -15,6 +17,7 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
     { this.lease = lease; ConnectionString = lease.ConnectionString; DatabaseName = lease.DatabaseName; }
 
     public string ConnectionString { get; }
+    internal string OwnerConnectionString => lease.OwnerConnectionString;
     public string DatabaseName { get; }
 
     public static async Task<Rev869BOwnedPostgresDatabase> CreateAsync(string scenario)
@@ -74,6 +77,28 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
             issue.Parameters.AddWithValue("authenticated", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             issue.Parameters.AddWithValue("slots", JsonSerializer.Serialize(slots, JsonOptions));
             grantId = (Guid)(await issue.ExecuteScalarAsync() ?? throw new InvalidOperationException("Owned exact grant was not returned."));
+            var executionRaw = Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID");
+            if (!Guid.TryParse(executionRaw, out var executionId) || executionId == Guid.Empty)
+                throw new InvalidOperationException("Exact owned execution instance is required.");
+            static byte[] Fingerprint(string name)
+            {
+                var value = Environment.GetEnvironmentVariable(name);
+                if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
+                    throw new InvalidOperationException(name + " must be an exact SHA-256 fingerprint.");
+                return Convert.FromHexString(value);
+            }
+            var serializedSlots = JsonSerializer.Serialize(slots, JsonOptions);
+            var attemptId = Guid.NewGuid();
+            await using var attempt = new NpgsqlCommand(
+                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership)", issuer);
+            attempt.Parameters.AddWithValue("grant", grantId);
+            attempt.Parameters.AddWithValue("attempt", attemptId);
+            attempt.Parameters.AddWithValue("execution", executionId);
+            attempt.Parameters.AddWithValue("service", Fingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT"));
+            attempt.Parameters.AddWithValue("business", SHA256.HashData(Encoding.UTF8.GetBytes(serializedSlots)));
+            attempt.Parameters.AddWithValue("ownership", Fingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT"));
+            if (await attempt.ExecuteScalarAsync() is not Guid recorded || recorded != attemptId)
+                throw new InvalidOperationException("Owned helper failed to durably record the exact attempt before open.");
         }
 
         await using var open = new NpgsqlCommand("""
