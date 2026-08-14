@@ -43,4 +43,18 @@ internal static class Rev869BControlPlaneRegistry
     internal static bool IsIdempotentFinalization(
         FinalizationEvidence first, FinalizationEvidence replay) =>
         first == replay && first.TerminalState == LeaseState.Finalized;
+
+    internal static bool Authorizes(RecoveryDecision decision, LeaseSnapshot lease,
+        Guid attemptId, string requestedAction, DateTimeOffset now) =>
+        decision.LeaseId == lease.LeaseId && decision.ExpectedPreState == lease.State &&
+        decision.ConsumedAt is null && decision.ExpiresAt > now && attemptId != Guid.Empty &&
+        string.Equals(decision.AuthorizedAction, requestedAction, StringComparison.Ordinal) &&
+        requestedAction is "DropAndFinalize" or "FinalizeAbsent";
+
+    internal static bool IsExactSetMatch<T>(IEnumerable<T> expected, IEnumerable<T> actual) where T : notnull
+    {
+        var left = expected.ToHashSet();
+        var right = actual.ToHashSet();
+        return left.SetEquals(right) && left.Count == expected.Count() && right.Count == actual.Count();
+    }
 }

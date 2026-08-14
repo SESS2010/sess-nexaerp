@@ -29,15 +29,15 @@ internal static class Rev869BPurgeCoordinator
 
     internal static Task<Guid> RecordFailureAsync(string databaseName, Guid attemptId,
         string terminalState, string minimizedCategory, byte[] evidenceSha256) =>
-        ScalarAsync("REV869B_PURGE_WORKER_CONNECTION", "nexa_rev869b_purge_worker", databaseName,
+        ScalarAsync("REV869B_PURGE_AUDIT_CONNECTION", "nexa_rev869b_purge_audit", databaseName,
             "SELECT nexa.rev869b_record_purge_failure(@attempt,@state,@category,@evidence)",
             c => { c.Parameters.AddWithValue("attempt", attemptId); c.Parameters.AddWithValue("state", terminalState);
                 c.Parameters.AddWithValue("category", minimizedCategory); c.Parameters.AddWithValue("evidence", evidenceSha256); });
 
     internal static async Task<string> ReconcileAsync(string databaseName, Guid attemptId)
     {
-        await using var connection = await OpenAsync("REV869B_PURGE_WORKER_CONNECTION",
-            "nexa_rev869b_purge_worker", databaseName);
+        await using var connection = await OpenAsync("REV869B_PURGE_AUDIT_CONNECTION",
+            "nexa_rev869b_purge_audit", databaseName);
         await using var command = new NpgsqlCommand("SELECT nexa.rev869b_reconcile_purge(@attempt)::text", connection);
         command.Parameters.AddWithValue("attempt", attemptId);
         return Convert.ToString(await command.ExecuteScalarAsync())

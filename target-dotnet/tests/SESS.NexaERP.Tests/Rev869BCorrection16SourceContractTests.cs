@@ -33,7 +33,7 @@ public sealed class Rev869BCorrection16SourceContractTests
     {
         var sql = Source("tools/rev869b-control-plane-install.sql");
         var functions = Regex.Matches(sql, @"CREATE FUNCTION nexa\.(?<name>[a-z0-9_]+)\(").Select(x => x.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
-        var expected = new[] { "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready", "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_begin_drop", "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target", "rev869b_read_lease", "rev869b_read_nonterminal_leases" };
+        var expected = new[] { "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready", "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_record_quarantine", "rev869b_begin_drop", "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target", "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_control_plane_catalogue_fingerprint" };
         Assert.All(expected, name => Assert.Contains(name, functions));
         Assert.DoesNotContain("rev869b_transition_database_lease", functions);
         Assert.Contains("session_user", sql);
@@ -57,10 +57,54 @@ public sealed class Rev869BCorrection16SourceContractTests
     public void CanonicalVerifierComparesCompleteObjectAndEffectiveAclSets()
     {
         var sql = Source("tools/rev869b-control-plane-verify.sql");
-        foreach (var set in new[] { "expected_relations", "actual_relations", "relation_delta", "expected_functions", "actual_functions", "function_delta", "expected_exec", "actual_exec", "exec_delta", "direct_table_access" }) Assert.Contains(set, sql);
+        foreach (var set in new[] { "expected_relations", "actual_relations", "relation_delta", "expected_functions", "actual_functions", "function_delta", "expected_exec", "actual_exec", "exec_delta", "direct_relation_access", "direct_sequence_access", "unexpected_database_access", "expected_database_denial", "schema_access_mismatch" }) Assert.Contains(set, sql);
         Assert.Contains("EXCEPT", sql);
         Assert.Contains("pg_auth_members", sql);
+        foreach (var fact in new[] { "relation|", "column|", "constraint|", "index|", "trigger|", "function|", "schema|", "defaultacl|", "p.prosrc", "p.proacl", "relacl" })
+            Assert.Contains(fact, Source("tools/rev869b-control-plane-install.sql"));
         Assert.DoesNotContain("column_count", sql);
+    }
+
+    [Fact]
+    public void ExactInventoryModelRejectsAddedRemovedChangedAndDuplicateFacts()
+    {
+        var canonical = new[] { "column|LeaseId|uuid", "constraint|lease_pk", "function|reserve|sha256:a" };
+        Assert.True(Rev869BControlPlaneRegistry.IsExactSetMatch(canonical, canonical));
+        Assert.False(Rev869BControlPlaneRegistry.IsExactSetMatch(canonical, canonical.Append("acl|arbitrary|SELECT")));
+        Assert.False(Rev869BControlPlaneRegistry.IsExactSetMatch(canonical, canonical.Skip(1)));
+        Assert.False(Rev869BControlPlaneRegistry.IsExactSetMatch(canonical, canonical.Select(x => x.Replace("sha256:a", "sha256:b", StringComparison.Ordinal))));
+        Assert.False(Rev869BControlPlaneRegistry.IsExactSetMatch(canonical, canonical.Append(canonical[0])));
+    }
+
+    [Fact]
+    public void QuarantineRecoveryActionAndTerminalReplayAreDatabaseBound()
+    {
+        var sql = Source("tools/rev869b-control-plane-install.sql");
+        var quarantine = Slice(sql, "CREATE FUNCTION nexa.rev869b_record_quarantine", "CREATE FUNCTION nexa.rev869b_begin_drop");
+        Assert.Contains("State IN ('Reserved','Provisioning','Ready','InUse')", quarantine);
+        Assert.Contains("TerminalState='Quarantined'", quarantine);
+        Assert.Contains("Quarantine replay evidence mismatch", quarantine);
+        var drop = Slice(sql, "CREATE FUNCTION nexa.rev869b_begin_drop", "CREATE FUNCTION nexa.rev869b_register_recovery_decision");
+        Assert.Contains("d.AuthorizedAction='DropAndFinalize'", drop);
+        Assert.Contains("session_user='nexa_rev869b_lifecycle_api' AND State='DropAuthorized'", drop);
+        Assert.Contains("session_user='nexa_rev869b_recovery_executor' AND State='RecoveryAuthorized'", drop);
+        var failure = Slice(sql, "CREATE FUNCTION nexa.rev869b_record_cleanup_failure", "CREATE FUNCTION nexa.rev869b_finalize_absent_target");
+        Assert.Contains("RETURN existing.OutcomeId", failure);
+        Assert.Contains("Cleanup failure replay evidence mismatch", failure);
+        var finalizer = Slice(sql, "CREATE FUNCTION nexa.rev869b_finalize_absent_target", "CREATE FUNCTION nexa.rev869b_read_lease");
+        Assert.Contains("action='FinalizeAbsent' AND lease_state<>'RecoveryAuthorized'", finalizer);
+        Assert.Contains("action='DropAndFinalize' AND lease_state<>'DropStarted'", finalizer);
+    }
+
+    [Fact]
+    public void PreflightRejectsUnexpectedPackageRolesAndWrongCapabilities()
+    {
+        var sql = Source("tools/rev869b-control-plane-preflight.sql");
+        Assert.Contains("r.rolname LIKE 'nexa_rev869b_%'", sql);
+        Assert.Contains("role_mismatch", sql);
+        Assert.Contains("rolsuper OR r.rolreplication OR r.rolbypassrls OR r.rolinherit", sql);
+        foreach (var role in Rev869BControlPlaneProvisioningContract.Roles.Concat(Rev869BControlPlaneProvisioningContract.TargetRoles))
+            Assert.Contains(role, sql);
     }
 
     [Fact]

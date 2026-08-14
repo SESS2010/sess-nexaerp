@@ -28,7 +28,8 @@ public static class Rev869BCommandContextAuthorizer
         }
     }
 
-    public readonly record struct CommandAttemptHandle(Guid CommandId, Guid AttemptId, byte[] BusinessFingerprint);
+    public readonly record struct CommandAttemptHandle(Guid CommandId, Guid AttemptId, byte[] BusinessFingerprint,
+        Guid ExecutionInstanceId, byte[] ServiceInstanceFingerprint, byte[] OwnershipLeaseFingerprint);
 
     public static async Task<CommandAttemptHandle?> OpenForPendingChangesAsync(
         NexaErpDbContext db, ICurrentUser user, string organization, CommandEnvelope envelope, CancellationToken ct)
@@ -62,6 +63,9 @@ public static class Rev869BCommandContextAuthorizer
         var auditBuilder = RequireIndependentAuditConnection(runtime.ConnectionString);
         Guid commandId;
         Guid attemptId;
+        Guid executionInstanceId = Guid.Empty;
+        byte[] exactServiceFingerprint = [];
+        byte[] exactOwnershipFingerprint = [];
         await using (var audit = new NpgsqlConnection(auditBuilder.ConnectionString))
         {
             await audit.OpenAsync(ct);
@@ -78,11 +82,13 @@ public static class Rev869BCommandContextAuthorizer
 
             if (!Guid.TryParse(Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID"), out var executionId) || executionId == Guid.Empty)
                 throw new InvalidOperationException("A non-empty REV869B execution-instance ID is required.");
+            var serviceFingerprint = ExactFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT");
+            var ownershipFingerprint = ExactFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT");
             await using var start = new NpgsqlCommand("SELECT nexa.rev869b_start_command_attempt(@command,@execution,@service,@ownership,@runtime,@backend,@transaction)", audit);
             start.Parameters.AddWithValue("command", commandId);
             start.Parameters.AddWithValue("execution", executionId);
-            start.Parameters.AddWithValue("service", ExactFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT"));
-            start.Parameters.AddWithValue("ownership", ExactFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT"));
+            start.Parameters.AddWithValue("service", serviceFingerprint);
+            start.Parameters.AddWithValue("ownership", ownershipFingerprint);
             start.Parameters.AddWithValue("runtime", runtimePrincipal);
             start.Parameters.AddWithValue("backend", backendPid);
             start.Parameters.AddWithValue("transaction", transactionId);
@@ -90,6 +96,9 @@ public static class Rev869BCommandContextAuthorizer
             if (started is not Guid exactAttempt || exactAttempt == Guid.Empty)
                 throw new InvalidOperationException("The command already has a committed receipt; caller must use the authoritative replay result.");
             attemptId = exactAttempt;
+            executionInstanceId = executionId;
+            exactServiceFingerprint = serviceFingerprint;
+            exactOwnershipFingerprint = ownershipFingerprint;
         }
 
         try
@@ -99,10 +108,12 @@ public static class Rev869BCommandContextAuthorizer
         }
         catch
         {
-            await RecordNoncommitOutcomeAsync(runtime, new(commandId, attemptId, businessFingerprint), "Rejected", "ContextOpenRejected", ct);
+            await RecordNoncommitOutcomeAsync(runtime, new(commandId, attemptId, businessFingerprint,
+                executionInstanceId, exactServiceFingerprint, exactOwnershipFingerprint), "Rejected", "ContextOpenRejected", ct);
             throw;
         }
-        return new(commandId, attemptId, businessFingerprint);
+        return new(commandId, attemptId, businessFingerprint,
+            executionInstanceId, exactServiceFingerprint, exactOwnershipFingerprint);
     }
 
     public static async Task StageCommittedReceiptAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
@@ -122,11 +133,14 @@ public static class Rev869BCommandContextAuthorizer
         var auditBuilder = RequireIndependentAuditConnection(runtimeConnection.ConnectionString);
         await using var audit = new NpgsqlConnection(auditBuilder.ConnectionString);
         await audit.OpenAsync(ct);
-        await using var command = new NpgsqlCommand("SELECT nexa.rev869b_record_noncommit_outcome(@attempt,@state,@category,@outcome)", audit);
+        await using var command = new NpgsqlCommand("SELECT nexa.rev869b_record_noncommit_outcome(@attempt,@execution,@service,@ownership,@state,@category,@outcome)", audit);
         command.Parameters.AddWithValue("attempt", attempt.AttemptId);
+        command.Parameters.AddWithValue("execution", attempt.ExecutionInstanceId);
+        command.Parameters.AddWithValue("service", attempt.ServiceInstanceFingerprint);
+        command.Parameters.AddWithValue("ownership", attempt.OwnershipLeaseFingerprint);
         command.Parameters.AddWithValue("state", terminalState);
         command.Parameters.AddWithValue("category", category.Trim());
-        command.Parameters.AddWithValue("outcome", Guid.NewGuid());
+        command.Parameters.AddWithValue("outcome", DeterministicOutcomeId(attempt.AttemptId, terminalState, category.Trim()));
         if (await command.ExecuteScalarAsync(ct) is not Guid) throw new InvalidOperationException("No durable noncommit outcome was recorded.");
     }
 
@@ -148,6 +162,12 @@ public static class Rev869BCommandContextAuthorizer
         if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
             throw new InvalidOperationException(name + " must be an exact SHA-256 fingerprint.");
         return Convert.FromHexString(value);
+    }
+
+    private static Guid DeterministicOutcomeId(Guid attemptId, string terminalState, string category)
+    {
+        var material = Encoding.UTF8.GetBytes($"REV869B-NONCOMMIT|{attemptId:D}|{terminalState}|{category}");
+        return new Guid(SHA256.HashData(material)[..16]);
     }
 
     private static void RequirePrincipal(ICurrentUser user, string organization)

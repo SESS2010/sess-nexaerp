@@ -7,12 +7,23 @@ WITH expected_roles(name,can_login,can_createdb,can_createrole) AS (VALUES
  ('nexa_rev869b_recovery_executor',true,false,false),
  ('nexa_rev869b_control_plane_verifier',true,false,false),
  ('nexa_rev869b_management_writer',true,false,false),
+ ('nexa_rev869b_security_owner',false,false,false),
+ ('nexa_rev869b_app_runtime',true,false,false),
+ ('nexa_rev869b_command_audit',true,false,false),
+ ('nexa_rev869b_purge_worker',true,false,false),
+ ('nexa_rev869b_purge_audit',true,false,false),
+ ('nexa_rev869b_export_service',true,false,false),
+ ('nexa_rev869b_target_verifier',true,false,false),
  ('nexa_rev869b_lifecycle_administrator',true,true,true)),
+actual_roles AS (
+ SELECT r.rolname::text name,r.rolcanlogin can_login,r.rolcreatedb can_createdb,r.rolcreaterole can_createrole
+ FROM pg_roles r WHERE r.rolname LIKE 'nexa_rev869b_%'),
 role_mismatch AS (
- SELECT e.name FROM expected_roles e LEFT JOIN pg_roles r ON r.rolname=e.name
- WHERE r.oid IS NULL OR r.rolcanlogin<>e.can_login OR r.rolcreatedb<>e.can_createdb
-    OR r.rolcreaterole<>e.can_createrole OR r.rolsuper OR r.rolreplication OR r.rolbypassrls
-    OR r.rolinherit),
+ (SELECT * FROM expected_roles EXCEPT SELECT * FROM actual_roles)
+ UNION ALL (SELECT * FROM actual_roles EXCEPT SELECT * FROM expected_roles)),
+role_capability_mismatch AS (
+ SELECT 1 FROM pg_roles r WHERE r.rolname IN (SELECT name FROM expected_roles)
+ AND (r.rolsuper OR r.rolreplication OR r.rolbypassrls OR r.rolinherit OR r.rolconnlimit<>-1 OR r.rolvaliduntil IS NOT NULL)),
 unexpected_membership AS (
  SELECT 1 FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
  JOIN pg_roles member ON member.oid=m.member
@@ -33,6 +44,7 @@ SELECT CASE WHEN current_database()='postgres'
       AND datallowconn AND NOT datistemplate)=1
  AND NOT has_database_privilege('public',:'target_database','CONNECT,TEMPORARY')
  AND NOT EXISTS(SELECT 1 FROM role_mismatch)
+ AND NOT EXISTS(SELECT 1 FROM role_capability_mismatch)
  AND NOT EXISTS(SELECT 1 FROM unexpected_membership)
  AND EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE granted.rolname='nexa_rev869b_control_plane_owner' AND member.rolname='nexa_rev869b_lifecycle_administrator')
  THEN 'REV869B_EXTERNAL_PROVISIONING_EXACT' ELSE 1/0::text END;

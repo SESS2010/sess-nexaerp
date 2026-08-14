@@ -61,7 +61,7 @@ internal sealed class Rev869BTestDatabaseLease : IAsyncDisposable
     internal static async Task RecoverQuarantinedAsync(string scenario)
     {
         await using var controller = Rev869BLifecycleControllerClient.Create();
-        var evidence = await controller.RunAcceptanceScenarioAsync("R03");
+        var evidence = await controller.RunAcceptanceScenarioAsync(Rev869BAcceptanceScenarioInventory.R03);
         if (evidence.FinalState is not ("CleanupFailed" or "Finalized"))
             throw new InvalidOperationException("Quarantine recovery did not produce an authoritative terminal state for " + scenario + ".");
     }

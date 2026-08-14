@@ -12,12 +12,12 @@ REVOKE ALL ON SCHEMA nexa FROM PUBLIC;
 CREATE TABLE nexa.rev869b_control_plane_manifest(
  PackageId uuid PRIMARY KEY,Environment text NOT NULL,ClusterSystemIdentifier text NOT NULL CHECK(ClusterSystemIdentifier~'^[0-9]{10,20}$'),
  TlsSpkiSha256 text NOT NULL CHECK(TlsSpkiSha256~'^[0-9a-f]{64}$'),Endpoint text NOT NULL,
- SourceCommit text NOT NULL CHECK(SourceCommit~'^[0-9a-f]{40}$'),ManifestSha256 text NOT NULL CHECK(ManifestSha256~'^[0-9a-f]{64}$'),
+ SourceCommit text NOT NULL CHECK(SourceCommit~'^[0-9a-f]{40}$'),ManifestSha256 text NOT NULL CHECK(ManifestSha256~'^[0-9a-f]{64}$'),CatalogueSha256 text NULL CHECK(CatalogueSha256 IS NULL OR CatalogueSha256~'^[0-9a-f]{64}$'),
  InstalledAt timestamptz NOT NULL DEFAULT clock_timestamp(),InstalledBy name NOT NULL DEFAULT session_user);
 INSERT INTO nexa.rev869b_control_plane_manifest
 VALUES(gen_random_uuid(),:'expected_environment',:'expected_system_identifier',lower(:'expected_tls_spki_sha256'),
        :'expected_server_address'||':'||:'expected_server_port',:'expected_source_commit',
-       lower(:'expected_manifest_sha256'),clock_timestamp(),session_user);
+       lower(:'expected_manifest_sha256'),NULL,clock_timestamp(),session_user);
 
 CREATE TABLE nexa.rev869b_database_leases(
  LeaseId uuid PRIMARY KEY,ReservationRequestId uuid NOT NULL UNIQUE,TargetDatabase name NOT NULL UNIQUE,
@@ -45,7 +45,7 @@ CREATE TABLE nexa.rev869b_recovery_decisions(
 CREATE TABLE nexa.rev869b_lifecycle_attempts(
  AttemptId uuid PRIMARY KEY,LeaseId uuid NOT NULL REFERENCES nexa.rev869b_database_leases(LeaseId),Kind text NOT NULL CHECK(Kind IN ('Provision','NormalDrop','Recovery')),
  DecisionId uuid NULL REFERENCES nexa.rev869b_recovery_decisions(DecisionId),StartedAt timestamptz NOT NULL DEFAULT clock_timestamp(),StartedBy name NOT NULL DEFAULT session_user,
- TerminalState text NULL CHECK(TerminalState IS NULL OR TerminalState IN ('Ready','Finalized','CleanupFailed')),
+ TerminalState text NULL CHECK(TerminalState IS NULL OR TerminalState IN ('Ready','Quarantined','Finalized','CleanupFailed')),
  UNIQUE(LeaseId,AttemptId));
 CREATE UNIQUE INDEX UX_rev869b_one_active_lifecycle_attempt ON nexa.rev869b_lifecycle_attempts(LeaseId) WHERE TerminalState IS NULL;
 
@@ -112,12 +112,22 @@ CREATE FUNCTION nexa.rev869b_authorize_normal_drop(lease_id uuid,expected_versio
  IF v IS NULL THEN RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='Lease state/version conflict'; END IF;
  INSERT INTO nexa.rev869b_database_lease_events VALUES(DEFAULT,lease_id,request_id,NULL,prior,'DropAuthorized',v,evidence,clock_timestamp(),session_user); RETURN v; END $$;
 
+CREATE FUNCTION nexa.rev869b_record_quarantine(lease_id uuid,expected_version bigint,request_id uuid,observed_target_state text,failure_category text,evidence text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE v bigint; prior text; active_attempt uuid; replay nexa.rev869b_database_lease_events%ROWTYPE; BEGIN
+ IF session_user<>'nexa_rev869b_lifecycle_audit' OR length(observed_target_state) NOT BETWEEN 1 AND 100 OR length(failure_category) NOT BETWEEN 1 AND 100 OR evidence!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Exact quarantine evidence required'; END IF;
+ SELECT * INTO replay FROM nexa.rev869b_database_lease_events WHERE LeaseId=lease_id AND RequestId=request_id;
+ IF FOUND THEN IF replay.ToState<>'Quarantined' OR replay.EvidenceSha256<>evidence THEN RAISE EXCEPTION 'Quarantine replay evidence mismatch'; END IF; RETURN replay.Version; END IF;
+ SELECT State,ActiveAttemptId INTO prior,active_attempt FROM nexa.rev869b_database_leases WHERE LeaseId=lease_id AND Version=expected_version AND State IN ('Reserved','Provisioning','Ready','InUse') FOR UPDATE;
+ IF prior IS NULL THEN RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='Quarantine state/version conflict'; END IF;
+ IF active_attempt IS NOT NULL THEN UPDATE nexa.rev869b_lifecycle_attempts SET TerminalState='Quarantined' WHERE AttemptId=active_attempt AND TerminalState IS NULL; IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='Quarantine attempt conflict'; END IF; END IF;
+ UPDATE nexa.rev869b_database_leases SET State='Quarantined',Version=Version+1,ActiveAttemptId=NULL,UpdatedAt=clock_timestamp() WHERE LeaseId=lease_id AND Version=expected_version RETURNING Version INTO v;
+ INSERT INTO nexa.rev869b_database_lease_events VALUES(DEFAULT,lease_id,request_id,active_attempt,prior,'Quarantined',v,evidence,clock_timestamp(),session_user); RETURN v; END $$;
+
 CREATE FUNCTION nexa.rev869b_begin_drop(lease_id uuid,expected_version bigint,request_id uuid,attempt_id uuid,evidence text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE v bigint; BEGIN
  IF session_user NOT IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_recovery_executor') THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Lifecycle or recovery executor required'; END IF;
- UPDATE nexa.rev869b_database_leases SET State='DropStarted',Version=Version+1,ActiveAttemptId=attempt_id,UpdatedAt=clock_timestamp() WHERE LeaseId=lease_id AND Version=expected_version AND State IN ('DropAuthorized','RecoveryAuthorized') RETURNING Version INTO v;
+ UPDATE nexa.rev869b_database_leases SET State='DropStarted',Version=Version+1,ActiveAttemptId=attempt_id,UpdatedAt=clock_timestamp() WHERE LeaseId=lease_id AND Version=expected_version AND ((session_user='nexa_rev869b_lifecycle_api' AND State='DropAuthorized') OR (session_user='nexa_rev869b_recovery_executor' AND State='RecoveryAuthorized')) RETURNING Version INTO v;
  IF v IS NULL THEN RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='Lease state/version conflict'; END IF;
  IF session_user='nexa_rev869b_lifecycle_api' THEN INSERT INTO nexa.rev869b_lifecycle_attempts(AttemptId,LeaseId,Kind) VALUES(attempt_id,lease_id,'NormalDrop');
- ELSIF NOT EXISTS(SELECT 1 FROM nexa.rev869b_lifecycle_attempts WHERE AttemptId=attempt_id AND LeaseId=lease_id AND Kind='Recovery' AND TerminalState IS NULL) THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Recovery attempt binding mismatch'; END IF;
+ ELSIF NOT EXISTS(SELECT 1 FROM nexa.rev869b_lifecycle_attempts a JOIN nexa.rev869b_recovery_decisions d ON d.DecisionId=a.DecisionId WHERE a.AttemptId=attempt_id AND a.LeaseId=lease_id AND a.Kind='Recovery' AND a.TerminalState IS NULL AND d.ConsumedAttemptId=attempt_id AND d.AuthorizedAction='DropAndFinalize') THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Recovery attempt/action binding mismatch'; END IF;
  INSERT INTO nexa.rev869b_database_lease_events VALUES(DEFAULT,lease_id,request_id,attempt_id,CASE WHEN session_user='nexa_rev869b_recovery_executor' THEN 'RecoveryAuthorized' ELSE 'DropAuthorized' END,'DropStarted',v,evidence,clock_timestamp(),session_user); RETURN v; END $$;
 
 CREATE FUNCTION nexa.rev869b_register_recovery_decision(decision_id uuid,lease_id uuid,authorized_action text,pre_state text,nonce_sha text,expires_at timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ BEGIN
@@ -138,19 +148,22 @@ CREATE FUNCTION nexa.rev869b_consume_recovery_decision(lease_id uuid,expected_ve
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Recovery attempt replay mismatch'; END IF;
  INSERT INTO nexa.rev869b_database_lease_events VALUES(DEFAULT,lease_id,request_id,attempt_id,prior,'RecoveryAuthorized',v,evidence,clock_timestamp(),session_user); RETURN v; END $$;
 
-CREATE FUNCTION nexa.rev869b_record_cleanup_failure(attempt_id uuid,observed_target_state text,failure_category text,evidence text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE lease uuid; outcome_id uuid:=gen_random_uuid(); BEGIN
- IF session_user<>'nexa_rev869b_lifecycle_audit' OR length(failure_category) NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Lifecycle audit and minimized failure required'; END IF;
+CREATE FUNCTION nexa.rev869b_record_cleanup_failure(attempt_id uuid,observed_target_state text,failure_category text,evidence text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE lease uuid; outcome_id uuid:=gen_random_uuid(); existing nexa.rev869b_lifecycle_outcomes%ROWTYPE; BEGIN
+ IF session_user<>'nexa_rev869b_lifecycle_audit' OR length(observed_target_state) NOT BETWEEN 1 AND 100 OR length(failure_category) NOT BETWEEN 1 AND 100 OR evidence!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Lifecycle audit and minimized failure required'; END IF;
+ SELECT * INTO existing FROM nexa.rev869b_lifecycle_outcomes WHERE AttemptId=attempt_id;
+ IF FOUND THEN IF existing.Outcome<>'CleanupFailed' OR existing.ObservedTargetState<>observed_target_state OR existing.FailureCategory<>failure_category OR existing.EvidenceSha256<>evidence THEN RAISE EXCEPTION 'Cleanup failure replay evidence mismatch'; END IF; RETURN existing.OutcomeId; END IF;
  SELECT LeaseId INTO STRICT lease FROM nexa.rev869b_lifecycle_attempts WHERE AttemptId=attempt_id AND TerminalState IS NULL FOR UPDATE;
  INSERT INTO nexa.rev869b_lifecycle_outcomes VALUES(outcome_id,attempt_id,'CleanupFailed',observed_target_state,NULL,NULL,failure_category,evidence,clock_timestamp(),session_user);
  UPDATE nexa.rev869b_lifecycle_attempts SET TerminalState='CleanupFailed' WHERE AttemptId=attempt_id;
  UPDATE nexa.rev869b_database_leases SET State='CleanupFailed',Version=Version+1,UpdatedAt=clock_timestamp() WHERE LeaseId=lease AND ActiveAttemptId=attempt_id;
  RETURN outcome_id; END $$;
 
-CREATE FUNCTION nexa.rev869b_finalize_absent_target(attempt_id uuid,absence_sha text,roles_cleanup_sha text,evidence text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE lease uuid; existing nexa.rev869b_lifecycle_outcomes%ROWTYPE; outcome_id uuid:=gen_random_uuid(); BEGIN
+CREATE FUNCTION nexa.rev869b_finalize_absent_target(attempt_id uuid,absence_sha text,roles_cleanup_sha text,evidence text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE lease uuid; existing nexa.rev869b_lifecycle_outcomes%ROWTYPE; outcome_id uuid:=gen_random_uuid(); action text; lease_state text; BEGIN
  IF session_user<>'nexa_rev869b_lifecycle_audit' OR absence_sha!~'^[0-9a-f]{64}$' OR roles_cleanup_sha!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Exact absence evidence required'; END IF;
  SELECT * INTO existing FROM nexa.rev869b_lifecycle_outcomes WHERE AttemptId=attempt_id;
  IF FOUND THEN IF existing.Outcome<>'Finalized' OR existing.AbsenceSha256<>absence_sha OR existing.RolesCleanupSha256<>roles_cleanup_sha OR existing.EvidenceSha256<>evidence THEN RAISE EXCEPTION 'Finalizer replay evidence mismatch'; END IF; RETURN existing.OutcomeId; END IF;
- SELECT LeaseId INTO STRICT lease FROM nexa.rev869b_lifecycle_attempts WHERE AttemptId=attempt_id AND TerminalState IS NULL FOR UPDATE;
+ SELECT a.LeaseId,d.AuthorizedAction,l.State INTO STRICT lease,action,lease_state FROM nexa.rev869b_lifecycle_attempts a JOIN nexa.rev869b_database_leases l ON l.LeaseId=a.LeaseId LEFT JOIN nexa.rev869b_recovery_decisions d ON d.DecisionId=a.DecisionId WHERE a.AttemptId=attempt_id AND a.TerminalState IS NULL FOR UPDATE OF a,l;
+ IF (action='FinalizeAbsent' AND lease_state<>'RecoveryAuthorized') OR (action='DropAndFinalize' AND lease_state<>'DropStarted') OR (action IS NULL AND lease_state<>'DropStarted') THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Finalization action binding mismatch'; END IF;
  INSERT INTO nexa.rev869b_lifecycle_outcomes VALUES(outcome_id,attempt_id,'Finalized','Absent',absence_sha,roles_cleanup_sha,NULL,evidence,clock_timestamp(),session_user);
  UPDATE nexa.rev869b_lifecycle_attempts SET TerminalState='Finalized' WHERE AttemptId=attempt_id;
  UPDATE nexa.rev869b_database_leases SET State='Finalized',Version=Version+1,UpdatedAt=clock_timestamp() WHERE LeaseId=lease AND ActiveAttemptId=attempt_id AND State IN ('DropStarted','RecoveryAuthorized');
@@ -158,16 +171,28 @@ CREATE FUNCTION nexa.rev869b_finalize_absent_target(attempt_id uuid,absence_sha 
 
 CREATE FUNCTION nexa.rev869b_read_lease(lease_id uuid) RETURNS SETOF nexa.rev869b_database_leases LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$ SELECT * FROM nexa.rev869b_database_leases WHERE LeaseId=$1 AND session_user IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_lifecycle_audit','nexa_rev869b_recovery_executor','nexa_rev869b_control_plane_verifier') $$;
 CREATE FUNCTION nexa.rev869b_read_nonterminal_leases(cluster_id text) RETURNS SETOF nexa.rev869b_database_leases LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$ SELECT * FROM nexa.rev869b_database_leases WHERE ClusterSystemIdentifier=$1 AND State<>'Finalized' AND session_user IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_lifecycle_audit','nexa_rev869b_recovery_executor','nexa_rev869b_control_plane_verifier') $$;
+CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
+ WITH facts(fact) AS (
+  SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'column|'||c.oid::regclass::text||'|'||a.attnum||'|'||a.attname||'|'||format_type(a.atttypid,a.atttypmod)||'|'||a.attnotnull||'|'||coalesce(pg_get_expr(d.adbin,d.adrelid),'') FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE n.nspname='nexa' AND a.attnum>0 AND NOT a.attisdropped
+  UNION ALL SELECT 'constraint|'||conrelid::regclass::text||'|'||conname||'|'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='nexa'::regnamespace
+  UNION ALL SELECT 'index|'||indexrelid::regclass::text||'|'||pg_get_indexdef(indexrelid) FROM pg_index WHERE indrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa')
+  UNION ALL SELECT 'trigger|'||tgrelid::regclass::text||'|'||tgname||'|'||pg_get_triggerdef(oid,true) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa')
+  UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||pg_get_function_result(p.oid)||'|'||p.prosecdef||'|'||p.provolatile||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||encode(digest(p.prosrc,'sha256'),'hex')||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'schema|'||n.nspname||'|'||pg_get_userbyid(n.nspowner)||'|'||coalesce(n.nspacl::text,'') FROM pg_namespace n WHERE n.nspname='nexa'
+  UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='nexa'::regnamespace)
+ SELECT encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex') FROM facts $$;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA nexa FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC;
 REVOKE ALL ON SCHEMA nexa FROM PUBLIC;
 GRANT USAGE ON SCHEMA nexa TO nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_reserve_lease(uuid,uuid,name,text,text,text,text,text,text,name,name,name,text),nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,text),nexa.rev869b_mark_ready(uuid,bigint,uuid,text,text,text),nexa.rev869b_mark_in_use(uuid,bigint,uuid,text),nexa.rev869b_authorize_normal_drop(uuid,bigint,uuid,text),nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_api;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_record_cleanup_failure(uuid,text,text,text),nexa.rev869b_finalize_absent_target(uuid,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_audit;
+GRANT EXECUTE ON FUNCTION nexa.rev869b_record_quarantine(uuid,bigint,uuid,text,text,text),nexa.rev869b_record_cleanup_failure(uuid,text,text,text),nexa.rev869b_finalize_absent_target(uuid,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_audit;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,text),nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_recovery_executor;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_register_recovery_decision(uuid,uuid,text,text,text,timestamptz) TO nexa_rev869b_management_writer;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_control_plane_verifier;
+GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON TABLES FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+UPDATE nexa.rev869b_control_plane_manifest SET CatalogueSha256=nexa.rev869b_control_plane_catalogue_fingerprint();
 COMMIT;
