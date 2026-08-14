@@ -48,7 +48,41 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
-    public void PurgeFreezesCandidatesAndHasNoRetryEligibleState()
+    public void TerminalizationReferencesOnlyAuthoritativeColumnsWithExactTypes()
+    {
+        var attempts = TableColumns(Sql, "rev869b_command_attempts");
+        var contexts = TableColumns(Sql, "rev869b_command_contexts");
+        var terminal = Slice(Sql, "CREATE FUNCTION nexa.rev869b_record_noncommit_outcome", "CREATE FUNCTION nexa.rev869b_reconcile_command_attempt");
+        AssertAliasColumnsExist(terminal, "a", attempts);
+        AssertAliasColumnsExist(terminal, "c", contexts);
+        var quoted = Convert.ToChar(34).ToString();
+        Assert.Contains(quoted + "TargetBackendPid" + quoted + " integer NOT NULL", Sql);
+        Assert.Contains(quoted + "TargetTransactionId" + quoted + " bigint NOT NULL", Sql);
+        Assert.Contains(quoted + "BackendPid" + quoted + " integer NOT NULL", Sql);
+        Assert.Contains(quoted + "TransactionId" + quoted + " bigint NOT NULL", Sql);
+        Assert.DoesNotContain("a." + quoted + "OpenedAt" + quoted, terminal);
+        Assert.DoesNotContain("a." + quoted + "BackendPid" + quoted, terminal);
+        Assert.DoesNotContain("a." + quoted + "TransactionId" + quoted, terminal);
+        Assert.Contains("c." + quoted + "BackendPid" + quoted + "=a." + quoted + "TargetBackendPid" + quoted, terminal);
+        Assert.Contains("c." + quoted + "TransactionId" + quoted + "=a." + quoted + "TargetTransactionId" + quoted, terminal);
+        /* Superseded malformed literals:
+        Assert.Contains("\TargetBackendPid\ integer NOT NULL", Sql);
+        Assert.Contains("\TargetTransactionId\ bigint NOT NULL", Sql);
+        Assert.Contains("\BackendPid\ integer NOT NULL", Sql);
+        Assert.Contains("\TransactionId\ bigint NOT NULL", Sql);
+        Assert.DoesNotContain("a.\OpenedAt\", terminal);
+        Assert.DoesNotContain("a.\BackendPid\", terminal);
+        Assert.DoesNotContain("a.\TransactionId\", terminal);
+        Assert.Contains("c.\BackendPid\=a.\TargetBackendPid\", terminal);
+        Assert.Contains("c.\TransactionId\=a.\TargetTransactionId\", terminal);
+        Assert.DoesNotContain("EXECUTE format", terminal, StringComparison.OrdinalIgnoreCase);
+        */
+        Assert.DoesNotContain("EXECUTE format", terminal, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EXCEPTION WHEN", terminal, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PurgeFreezesCandidatesAndBindsAOneWayMonotonicRetryChain()
     {
         foreach (var relation in new[] { "rev869b_purge_authorizations", "rev869b_purge_attempts", "rev869b_purge_candidates", "rev869b_purge_events" })
             Assert.Contains("CREATE TABLE nexa." + relation, Sql);
@@ -57,10 +91,19 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("deleted<>expected", Sql);
         Assert.DoesNotContain("RetryEligible", Sql);
         Assert.Contains("PriorAttemptId", Sql);
+        foreach (var binding in new[] { "RootAuthorizationId", "AuthorizedBatchId", "TargetInstanceSha256", "Operation", "RetryOrdinal", "PriorTerminalOutcome", "PriorEvidenceSha256", "UX_rev869b_purge_authorizations_prior_attempt" })
+            Assert.Contains(binding, Sql);
         Assert.Contains("FK_rev869b_purge_authorizations_prior_attempt", Sql);
+        Assert.Contains("FK_rev869b_purge_authorizations_root", Sql);
         Assert.Contains("scope!~'^organization:", Sql);
         Assert.Contains("approved_organization", Sql);
         Assert.Contains("Failed','Interrupted", Sql);
+        Assert.Contains("retry_ordinal:=prior_ordinal+1", Sql);
+        Assert.Contains(Convert.ToChar(34) + "AuthorizedBatchId" + Convert.ToChar(34) + "=purge_attempt_id", Sql);
+        /* Superseded malformed literal:
+        Assert.Contains("\AuthorizedBatchId\=purge_attempt_id", Sql);
+        */
+        Assert.Contains("rev869b_purge_batch_binding", Sql);
         var grants = Slice(Sql, "GRANT EXECUTE ON FUNCTION nexa.rev869b_start_purge", "GRANT EXECUTE ON FUNCTION nexa.rev869b_prepare_export_batch");
         Assert.DoesNotContain("rev869b_record_purge_failure(uuid,text,text,bytea) TO nexa_rev869b_purge_worker", grants);
         Assert.Contains("rev869b_record_purge_failure(uuid,text,text,bytea),nexa.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_audit", grants);
@@ -97,6 +140,10 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.All(roles, role => Assert.Contains(role, Sql));
         Assert.Contains("REVOKE ALL ON ALL TABLES IN SCHEMA nexa FROM PUBLIC", Sql);
         Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC", Sql);
+        Assert.Contains("REVOKE ALL ON ALL SEQUENCES IN SCHEMA nexa FROM PUBLIC", Sql);
+        Assert.Contains("ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_security_owner", Sql);
+        foreach (var closure in new[] { "read_relation", "write_relation", "checked_privilege", "Target relation ACL mismatch", "Target sequence ACL mismatch", "Target object ownership mismatch", "Target default ACL mismatch", "Target role membership mismatch", "Target role capability mismatch" })
+            Assert.Contains(closure, Sql);
         var dmlGrants = Regex.Matches(Sql, @"GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE|TRUNCATE)[^;]+TO\s+(?<roles>[^;]+);", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         Assert.Contains(dmlGrants.Cast<Match>(), grant => grant.Groups["roles"].Value.Contains("nexa_rev869b_app_runtime", StringComparison.Ordinal));
         foreach (Match grant in dmlGrants)
@@ -114,7 +161,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
-    public void AcceptanceInventoryHasExactlyThirtyFourUniqueExecutablePostgresFacts()
+    public void AcceptanceInventoryHasExactlyThirtyFourUniqueExecutableDatabaseFacts()
     {
         var inventory = Rev869BAcceptanceScenarioInventory.All;
         Assert.Equal(34, inventory.Count);
@@ -126,14 +173,48 @@ public sealed class Rev869BCorrection17SourceContractTests
             Assert.False(string.IsNullOrWhiteSpace(contract.Action));
             Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedInitialState));
             Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedFinalState));
+            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedTerminalOutcome));
+            Assert.Equal("Finalized", contract.ExpectedCleanupOutcome);
+            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Schema));
+            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Table));
+            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Function));
+            Assert.True(contract.ExpectedBeforeCount >= 0);
+            Assert.True(contract.ExpectedAfterCount >= 0);
             if (contract.RequiresDenial) { Assert.NotNull(contract.ExpectedSqlState); Assert.NotNull(contract.ExpectedDatabaseObject); }
             else Assert.True(contract.ExpectedAffectedRows > 0 || contract.AllowsZeroRowsTerminal);
         });
         var bodies = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection17PostgresScenarios.cs");
-        Assert.Equal(34, Regex.Matches(bodies, @"\[Fact\]\s+public Task").Count);
-        Assert.Equal(34, Regex.Matches(bodies, @"=> RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
+        Assert.Equal(34, Regex.Matches(bodies, @"\[Fact\]").Count);
+        Assert.Equal(32, Regex.Matches(bodies, @"=> RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
+        Assert.Equal(3, Regex.Matches(bodies, @"controller\.AllocateAsync\(").Count);
+        Assert.Equal(3, Regex.Matches(bodies, @"controller\.ReleaseAsync\(").Count);
         Assert.DoesNotContain("File.ReadAllText", bodies);
         Assert.DoesNotContain("Assert.ThrowsAny", bodies);
+        var client = Source("tests/SESS.NexaERP.Tests/Rev869BLifecycleControllerClient.cs");
+        foreach (var pin in new[] { "REV869B_EXPECTED_SOURCE_COMMIT", "REV869B_EXPECTED_MANIFEST_SHA256", "REV869B_EXPECTED_TLS_SPKI_SHA256", "REV869B_EXPECTED_CLUSTER_SYSTEM_IDENTIFIER", "REV869B_CONTROLLER_SIGNING_PUBLIC_KEY_PEM", "VerifyData", "ContractSha256", "CommandId", "AuthorizationId", "DurableEvidenceId", "BeforeSha256", "AfterSha256", "DatabaseIdentity", "TerminalOutcome", "CleanupOutcome" })
+            Assert.Contains(pin, client);
+        Assert.DoesNotContain("ReadFromJsonAsync<AcceptanceEvidence>", client);
+    }
+
+    private static HashSet<string> TableColumns(string sql, string table)
+    {
+        var definition = Slice(sql, "CREATE TABLE nexa." + table + "(", ");");
+        return Regex.Matches(definition, Convert.ToChar(34) + "(?<name>[A-Za-z][A-Za-z0-9]*)" + Convert.ToChar(34))
+            .Select(match => match.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
+        /* Correction 20 malformed literal retained only inside this compile-time comment.
+        return Regex.Matches(definition, "\(?<name>[A-Za-z][A-Za-z0-9]*)\")
+            .Select(match => match.Groups["name"].Value).ToHashSet(StringComparer.Ordinal); */
+    }
+
+    private static void AssertAliasColumnsExist(string sql, string alias, HashSet<string> authoritativeColumns)
+    {
+        var references = Regex.Matches(sql, Regex.Escape(alias) + "\\." + Convert.ToChar(34) + "(?<name>[A-Za-z][A-Za-z0-9]*)" + Convert.ToChar(34))
+            .Select(match => match.Groups["name"].Value).Distinct(StringComparer.Ordinal).ToArray();
+        /* Correction 20 malformed literal retained only inside this compile-time comment.
+        var references = Regex.Matches(sql, Regex.Escape(alias) + "\\.\(?<name>[A-Za-z][A-Za-z0-9]*)\")
+            .Select(match => match.Groups["name"].Value).Distinct(StringComparer.Ordinal).ToArray(); */
+        Assert.NotEmpty(references);
+        Assert.All(references, column => Assert.Contains(column, authoritativeColumns));
     }
 
     private static string Slice(string value, string start, string end) => value[value.IndexOf(start, StringComparison.Ordinal)..value.IndexOf(end, value.IndexOf(start, StringComparison.Ordinal), StringComparison.Ordinal)];

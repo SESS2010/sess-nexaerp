@@ -84,6 +84,9 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("State IN ('Reserved','Provisioning','Ready','InUse')", quarantine);
         Assert.Contains("TerminalState='Quarantined'", quarantine);
         Assert.Contains("Quarantine replay evidence mismatch", quarantine);
+        foreach (var binding in new[] { "rev869b_quarantine_outcomes", "ExecutionInstanceId", "TargetDatabase", "ClusterSystemIdentifier", "SourceState", "ObservedTargetState", "EvidenceKind", "FailureReason", "ActorId", "ActorIssuer", "Operation", "LeaseVersion", "TerminalOutcome", "rev869b_quarantine_attempt_binding" })
+            Assert.Contains(binding, sql);
+        Assert.Contains("TR_rev869b_quarantine_outcomes_immutable", sql);
         var drop = Slice(sql, "CREATE FUNCTION nexa.rev869b_begin_drop", "CREATE FUNCTION nexa.rev869b_register_recovery_decision");
         Assert.Contains("d.AuthorizedAction='DropAndFinalize'", drop);
         Assert.Contains("session_user='nexa_rev869b_lifecycle_api' AND State='DropAuthorized'", drop);
@@ -94,6 +97,10 @@ public sealed class Rev869BCorrection16SourceContractTests
         var finalizer = Slice(sql, "CREATE FUNCTION nexa.rev869b_finalize_absent_target", "CREATE FUNCTION nexa.rev869b_read_lease");
         Assert.Contains("action='FinalizeAbsent' AND lease_state<>'RecoveryAuthorized'", finalizer);
         Assert.Contains("action='DropAndFinalize' AND lease_state<>'DropStarted'", finalizer);
+        var recovery = Slice(sql, "CREATE FUNCTION nexa.rev869b_consume_recovery_decision", "CREATE FUNCTION nexa.rev869b_record_cleanup_failure");
+        Assert.Contains("TerminalState='Interrupted'", recovery);
+        Assert.Contains("rev869b_recovery_attempt_freshness", recovery);
+        Assert.DoesNotMatch(new Regex(@"\bON\s+CONFLICT\b", RegexOptions.IgnoreCase), recovery);
     }
 
     [Fact]

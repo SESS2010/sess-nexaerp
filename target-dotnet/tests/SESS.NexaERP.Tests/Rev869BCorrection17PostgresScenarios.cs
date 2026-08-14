@@ -37,9 +37,32 @@ public sealed class Rev869BCorrection17PostgresScenarios
     [Fact] public Task E04_InterruptedDeliveryRequiresNewRelease() => RunAsync(Rev869BAcceptanceScenarioInventory.E04);
     [Fact] public Task A01_EffectivePrivilegeInventoryMatchesExactly() => RunAsync(Rev869BAcceptanceScenarioInventory.A01);
     [Fact] public Task A02_ProtectedDirectAccessIsDenied() => RunAsync(Rev869BAcceptanceScenarioInventory.A02);
-    [Fact] public Task T01_ControllerOwnsFixtureAllocation() => RunAsync(Rev869BAcceptanceScenarioInventory.T01);
+    [Fact]
+    public async Task T01_ControllerOwnsFixtureAllocation()
+    {
+        await using var controller = Rev869BLifecycleControllerClient.Create();
+        var lease = await controller.AllocateAsync("T01", "ControllerOwnedFixture");
+        Assert.Equal("InUse", lease.State);
+        Assert.True(lease.FixturePrepared);
+        Assert.NotEqual(Guid.Empty, lease.LeaseId);
+        Assert.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, lease.DatabaseName, StringComparison.Ordinal);
+        await controller.ReleaseAsync(lease.LeaseId, Guid.NewGuid());
+    }
     [Fact] public Task T02_FailedScenarioCleanupSurvivesRestart() => RunAsync(Rev869BAcceptanceScenarioInventory.T02);
-    [Fact] public Task T03_ConcurrentFixturesRemainIsolated() => RunAsync(Rev869BAcceptanceScenarioInventory.T03);
+    [Fact]
+    public async Task T03_ConcurrentFixturesRemainIsolated()
+    {
+        await using var controller = Rev869BLifecycleControllerClient.Create();
+        var allocations = await Task.WhenAll(
+            controller.AllocateAsync("T03-A", "ConcurrentFixtureIsolation"),
+            controller.AllocateAsync("T03-B", "ConcurrentFixtureIsolation"));
+        Assert.NotEqual(allocations[0].LeaseId, allocations[1].LeaseId);
+        Assert.NotEqual(allocations[0].DatabaseName, allocations[1].DatabaseName);
+        Assert.NotEqual(allocations[0].FixtureSha256, allocations[1].FixtureSha256);
+        await Task.WhenAll(
+            controller.ReleaseAsync(allocations[0].LeaseId, Guid.NewGuid()),
+            controller.ReleaseAsync(allocations[1].LeaseId, Guid.NewGuid()));
+    }
 
     private static async Task RunAsync(Rev869BLifecycleControllerClient.AcceptanceContract contract)
     {
@@ -51,6 +74,17 @@ public sealed class Rev869BCorrection17PostgresScenarios
         Assert.Equal(contract.ExpectedInitialState, evidence.InitialState);
         Assert.Equal(contract.ExpectedFinalState, evidence.FinalState);
         Assert.Equal(contract.ExpectedAffectedRows, evidence.AffectedRows);
+        Assert.NotEqual(Guid.Empty, evidence.FixtureId);
+        Assert.NotEqual(Guid.Empty, evidence.CommandId);
+        Assert.NotEqual(Guid.Empty, evidence.AuthorizationId);
+        Assert.NotEqual(Guid.Empty, evidence.AttemptId);
+        Assert.NotEqual(Guid.Empty, evidence.DurableEvidenceId);
+        Assert.NotEqual(Guid.Empty, evidence.CleanupEvidenceId);
+        Assert.Equal(contract.ExpectedBeforeCount, evidence.BeforeCount);
+        Assert.Equal(contract.ExpectedAfterCount, evidence.AfterCount);
+        Assert.Equal(contract.ExpectedIdentity, evidence.DatabaseIdentity);
+        Assert.Equal(contract.ExpectedTerminalOutcome, evidence.TerminalOutcome);
+        Assert.Equal(contract.ExpectedCleanupOutcome, evidence.CleanupOutcome);
         Assert.True(evidence.SetupCompleted);
         Assert.True(evidence.ActionReached);
         Assert.True(evidence.CleanupFinalized);

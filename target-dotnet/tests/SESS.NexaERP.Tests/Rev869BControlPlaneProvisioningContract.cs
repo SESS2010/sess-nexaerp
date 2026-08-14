@@ -25,7 +25,7 @@ internal static class Rev869BControlPlaneProvisioningContract
     [
         "rev869b_control_plane_manifest", "rev869b_database_leases",
         "rev869b_database_lease_events", "rev869b_recovery_decisions",
-        "rev869b_lifecycle_attempts", "rev869b_lifecycle_outcomes"
+        "rev869b_lifecycle_attempts", "rev869b_lifecycle_outcomes", "rev869b_quarantine_outcomes"
     ];
 
     internal static readonly string[] PurposeSpecificApis =

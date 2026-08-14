@@ -9,14 +9,19 @@ internal static class Rev869BPurgeCoordinator
         byte[] CandidateSha256, Guid AuthorizationId, Guid? PriorAttemptId);
 
     internal static Task<Guid> RegisterAsync(string databaseName, Guid authorizationId,
-        Guid managementDecisionId, Guid? priorAttemptId, string scope, DateTimeOffset cutoff,
-        int maximumRows, byte[] nonceSha256, DateTimeOffset expiresAt) =>
+        Guid managementDecisionId, Guid rootAuthorizationId, Guid? priorAttemptId,
+        Guid authorizedBatchId, byte[] targetInstanceSha256, string operation, string scope,
+        DateTimeOffset cutoff, int maximumRows, byte[] nonceSha256,
+        string? priorTerminalOutcome, byte[]? priorEvidenceSha256, DateTimeOffset expiresAt) =>
         ScalarAsync("REV869B_MANAGEMENT_WRITER_CONNECTION", "nexa_rev869b_management_writer", databaseName,
-            "SELECT nexa.rev869b_register_purge_authorization(@id,@decision,@prior,@scope,@cutoff,@maximum,@nonce,@expires)",
+            "SELECT nexa.rev869b_register_purge_authorization(@id,@decision,@root,@prior,@batch,@target,@operation,@scope,@cutoff,@maximum,@nonce,@prior_outcome,@prior_evidence,@expires)",
             c => { c.Parameters.AddWithValue("id", authorizationId); c.Parameters.AddWithValue("decision", managementDecisionId);
-                c.Parameters.AddWithValue("prior", (object?)priorAttemptId ?? DBNull.Value); c.Parameters.AddWithValue("scope", scope);
+                c.Parameters.AddWithValue("root", rootAuthorizationId); c.Parameters.AddWithValue("prior", (object?)priorAttemptId ?? DBNull.Value);
+                c.Parameters.AddWithValue("batch", authorizedBatchId); c.Parameters.AddWithValue("target", targetInstanceSha256);
+                c.Parameters.AddWithValue("operation", operation); c.Parameters.AddWithValue("scope", scope);
                 c.Parameters.AddWithValue("cutoff", cutoff); c.Parameters.AddWithValue("maximum", maximumRows);
-                c.Parameters.AddWithValue("nonce", nonceSha256); c.Parameters.AddWithValue("expires", expiresAt); });
+                c.Parameters.AddWithValue("nonce", nonceSha256); c.Parameters.AddWithValue("prior_outcome", (object?)priorTerminalOutcome ?? DBNull.Value);
+                c.Parameters.AddWithValue("prior_evidence", (object?)priorEvidenceSha256 ?? DBNull.Value); c.Parameters.AddWithValue("expires", expiresAt); });
 
     internal static Task<Guid> StartAsync(string databaseName, Guid authorizationId, Guid attemptId) =>
         ScalarAsync("REV869B_PURGE_WORKER_CONNECTION", "nexa_rev869b_purge_worker", databaseName,
