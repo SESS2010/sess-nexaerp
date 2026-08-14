@@ -17,7 +17,8 @@ public sealed partial class EfRev869BPurchaseService
         if (request.ToStatus is not (Rev869BStatuses.InProgress or Rev869BStatuses.Completed))
             throw new Rev869BValidationException("Material Follow-up target must be InProgress or Completed.");
 
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("MaterialFollowUp", request.IdempotencyKey,
+            new { handoffId, request }, ct);
         var organization = RequireOrganization();
         var handoff = await db.MaterialFollowUpHandoffs.AsNoTracking().Include(x => x.PurchaseOrder)
             .SingleOrDefaultAsync(x => x.Id == handoffId && x.PurchaseOrder!.OrganizationId == organization, ct)

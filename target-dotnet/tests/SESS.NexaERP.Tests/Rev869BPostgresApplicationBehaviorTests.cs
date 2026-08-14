@@ -70,7 +70,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         var securityAfter = await fixture.CaptureSecurityStateFromOwnerAsync();
         Assert.Equal(securityBefore.Authorities, securityAfter.Authorities);
         Assert.Equal(securityBefore.Contexts, securityAfter.Contexts);
-        Assert.Equal(securityBefore.PoolSize, securityAfter.PoolSize);
+        Assert.Equal(securityBefore.PoolSize + 1, securityAfter.PoolSize);
         Assert.Equal(securityBefore.Grants + 1, securityAfter.Grants);
         Assert.Equal(securityBefore.OccupiedSequences + 1, securityAfter.OccupiedSequences);
         Assert.NotEqual(securityBefore.SequenceFingerprint, securityAfter.SequenceFingerprint);
@@ -125,7 +125,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         var securityAfter = await fixture.CaptureSecurityStateFromOwnerAsync();
         Assert.Equal(securityBefore.Authorities, securityAfter.Authorities);
         Assert.Equal(securityBefore.Contexts, securityAfter.Contexts);
-        Assert.Equal(securityBefore.PoolSize, securityAfter.PoolSize);
+        Assert.Equal(securityBefore.PoolSize + 1, securityAfter.PoolSize);
         Assert.Equal(securityBefore.Grants + 1, securityAfter.Grants);
         Assert.Equal(securityBefore.OccupiedSequences + 1, securityAfter.OccupiedSequences);
         Assert.NotEqual(securityBefore.SequenceFingerprint, securityAfter.SequenceFingerprint);
@@ -470,41 +470,15 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 var marker = "REV869B-PG-OWNED:" + scenario;
                 var organization = "REV869B-PG-OWNED-" + scenario.ToUpperInvariant();
                 var ownedBefore = await CountOwnedAsync(db, marker, organization);
-                if (ownedBefore != 0 || await db.Warehouses.AnyAsync(x => x.Id == warehouseId) ||
-                    await db.PurchaseRequisitions.AnyAsync(x => x.Id == prId) ||
-                    await db.PurchaseRequisitionLines.AnyAsync(x => x.Id == lineId) ||
-                    await db.PurchaseRequirementHandoffs.AnyAsync(x => x.Id == handoffId))
-                    throw new InvalidOperationException("REV869B deterministic fixture collision or unproven earlier rollback.");
+                if (ownedBefore == 0 || !await db.Warehouses.AnyAsync(x => x.Id == warehouseId && x.CreatedBy == marker) ||
+                    !await db.PurchaseRequisitions.AnyAsync(x => x.Id == prId && x.OrganizationId == organization) ||
+                    !await db.PurchaseRequisitionLines.AnyAsync(x => x.Id == lineId && x.PurchaseRequisitionId == prId) ||
+                    !await db.PurchaseRequirementHandoffs.AnyAsync(x => x.Id == handoffId && x.PurchaseRequisitionId == prId))
+                    throw new InvalidOperationException("Lifecycle controller did not prepare the exact isolated fixture.");
                 if (!await db.Employees.AnyAsync(x => x.Id == actorId) ||
-                    !await db.Items.AnyAsync(x => x.Id == Rev869ASeedData.ApprovedEaItemId))
+                    !await db.Items.AnyAsync(x => x.Id == Rev869ASeedData.ApprovedEaItemId) ||
+                    !await db.EmployeeIdentityMappings.AnyAsync(x => x.Id == identityMappingId && x.OrganizationId == organization))
                     throw new InvalidOperationException("Required exact accepted seed identities are missing.");
-
-                var warehouse = new Warehouse { Id = warehouseId, WarehouseCode = "R869B-" + scenario.ToUpperInvariant(),
-                    Name = marker, WarehouseType = "ControlledTest", Status = MasterStatuses.Active,
-                    ApprovalStatus = MasterApprovalStatuses.Approved, IsActive = true, CreatedBy = marker };
-                var pr = new PurchaseRequisition { Id = prId, PrNumber = "REV869B-PG-PR-" + scenario.ToUpperInvariant(),
-                    FinancialYear = "2026-27", PrSequence = DeterministicSequence(scenario),
-                    OrganizationId = organization, RequestDate = new DateOnly(2026, 8, 12), RequiredByDate = new DateOnly(2026, 9, 30),
-                    Priority = "Normal", PurposeJustification = marker, DeliveryWarehouseId = warehouseId,
-                    Status = PurchaseRequisitionStatuses.NotAvailable, EstimatedTotal = 100m, IsActive = true, CreatedBy = marker };
-                var line = new PurchaseRequisitionLine { Id = lineId, PurchaseRequisitionId = prId, LineNumber = 1,
-                    ItemId = Rev869ASeedData.ApprovedEaItemId, PreferredWarehouseId = warehouseId,
-                    ItemCodeSnapshot = Rev869ASeedData.ApprovedEaUomCode + "-ITEM", ItemNameSnapshot = marker,
-                    UomSnapshot = Rev869ASeedData.ApprovedEaUomCode, RequestedQuantity = 1m,
-                    EstimatedUnitPriceSnapshot = 100m, EstimatedLineTotal = 100m, RequiredDate = pr.RequiredByDate,
-                    ShortageQuantity = 1m, ProcurementHandoffQuantity = 1m,
-                    LineStatus = PurchaseRequisitionLineStatuses.PurchaseRequired, CreatedBy = marker };
-                var handoff = new PurchaseRequirementHandoff { Id = handoffId, PurchaseRequisitionId = prId,
-                    PurchaseRequisitionLineId = lineId, ItemId = Rev869ASeedData.ApprovedEaItemId,
-                    WarehouseId = warehouseId, LocationKey = warehouseId.ToString("N"), HandoffQuantity = 1m,
-                    Status = "PendingRFQ", HandoffNumber = "REV869B-PG-HO-" + scenario.ToUpperInvariant(),
-                    HandoffBy = marker, CorrelationId = marker, CreatedBy = marker };
-                var identityMapping = new EmployeeIdentityMapping { Id = identityMappingId, OrganizationId = organization,
-                    Issuer = "REV869B-TEST-ISSUER", Subject = marker, EmployeeId = actorId,
-                    EffectiveFrom = new DateOnly(2026, 1, 1), EffectiveTo = new DateOnly(2027, 12, 31),
-                    IsActive = true, CreatedBy = marker };
-                db.AddRange(warehouse, pr, line, handoff, identityMapping);
-                await db.SaveChangesAsync();
                 return new OwnedRfqFixture(db, tx, databaseLease, scenario, warehouseId, prId, lineId, handoffId, actorId, identityMappingId, ownedBefore);
             }
             catch
@@ -577,17 +551,10 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
         public async Task<SecurityState> CaptureSecurityStateFromOwnerAsync()
         {
-            await using var connection = new NpgsqlConnection(databaseLease.OwnerConnectionString);
+            await using var connection = new NpgsqlConnection(databaseLease.VerifierConnectionString);
             await connection.OpenAsync();
             await using var command = new NpgsqlCommand("""
-                SELECT
-                  (SELECT count(*) FROM nexa.rev869b_command_grants),
-                  (SELECT count(*) FROM nexa.rev869b_command_contexts),
-                  (SELECT count(*) FROM nexa.rev869b_command_authorities),
-                  (SELECT count(*) FROM nexa.rev869b_claim_sequence_pool),
-                  (SELECT count(*) FROM nexa.rev869b_claim_sequence_pool WHERE "GrantId" IS NOT NULL),
-                  (SELECT encode(digest(coalesce(string_agg(sequencename||':'||coalesce(last_value::text,'unused'),',' ORDER BY sequencename),''),'sha256'),'hex')
-                     FROM pg_sequences WHERE schemaname='nexa' AND sequencename LIKE 'rev869b_claim_seq_%')
+                SELECT * FROM nexa.rev869b_read_target_security_state()
                 """, connection);
             await using var reader = await command.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
@@ -625,8 +592,11 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                   (SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.purchase_requirement_handoffs t))
                   ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.vendor_qualifications t)
                   ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.controlled_configuration_histories t)
-                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Token")::text,'[]') FROM nexa.rev869b_command_contexts t)
-                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."KeyId")::text,'[]') FROM nexa.rev869b_command_authorities t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."ContextToken")::text,'[]') FROM nexa.rev869b_command_contexts t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."CommandId")::text,'[]') FROM nexa.rev869b_command_requests t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."AttemptId")::text,'[]') FROM nexa.rev869b_command_attempts t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."OutcomeId")::text,'[]') FROM nexa.rev869b_command_attempt_outcomes t)
+                  ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."ReceiptId")::text,'[]') FROM nexa.rev869b_command_receipts t)
                   ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."Id")::text,'[]') FROM nexa.role_page_permissions t)
                   ||'|'||(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t."MigrationId")::text,'[]') FROM nexa."__EFMigrationsHistory" t)
                   ||'|'||(SELECT coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'owner',pg_get_userbyid(n.nspowner)) ORDER BY n.nspname)::text,'[]')
@@ -724,7 +694,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             private readonly Rev869BTestDatabaseLease lease;
             private OwnedDatabaseLease(Rev869BTestDatabaseLease lease) => this.lease = lease;
             public string ConnectionString => lease.ConnectionString;
-            public string OwnerConnectionString => lease.OwnerConnectionString;
+            public string VerifierConnectionString => lease.VerifierConnectionString;
             public string DatabaseName => lease.DatabaseName;
 
             public static async Task<OwnedDatabaseLease> CreateAsync(string scenario)

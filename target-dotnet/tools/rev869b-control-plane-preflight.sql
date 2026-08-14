@@ -1,19 +1,38 @@
-set ON_ERROR_STOP on
+\set ON_ERROR_STOP on
+-- Read-only prerequisite verification. External IaC owns every cluster role and database.
+WITH expected_roles(name,can_login,can_createdb,can_createrole) AS (VALUES
+ ('nexa_rev869b_control_plane_owner',false,false,false),
+ ('nexa_rev869b_lifecycle_api',true,false,false),
+ ('nexa_rev869b_lifecycle_audit',true,false,false),
+ ('nexa_rev869b_recovery_executor',true,false,false),
+ ('nexa_rev869b_control_plane_verifier',true,false,false),
+ ('nexa_rev869b_management_writer',true,false,false),
+ ('nexa_rev869b_lifecycle_administrator',true,true,true)),
+role_mismatch AS (
+ SELECT e.name FROM expected_roles e LEFT JOIN pg_roles r ON r.rolname=e.name
+ WHERE r.oid IS NULL OR r.rolcanlogin<>e.can_login OR r.rolcreatedb<>e.can_createdb
+    OR r.rolcreaterole<>e.can_createrole OR r.rolsuper OR r.rolreplication OR r.rolbypassrls
+    OR r.rolinherit),
+unexpected_membership AS (
+ SELECT 1 FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid
+ JOIN pg_roles member ON member.oid=m.member
+ WHERE (granted.rolname LIKE 'nexa_rev869b_%' OR member.rolname LIKE 'nexa_rev869b_%')
+   AND NOT (granted.rolname='nexa_rev869b_control_plane_owner' AND member.rolname='nexa_rev869b_lifecycle_administrator'))
 SELECT CASE WHEN current_database()='postgres'
  AND pg_control_system().system_identifier::text=:'expected_system_identifier'
  AND coalesce(inet_server_addr()::text,'local')=:'expected_server_address'
  AND inet_server_port()=:'expected_server_port'::integer
  AND session_user=:'expected_administrative_user'
  AND :'expected_manifest_sha256'~'^[0-9A-F]{64}$'
+ AND :'expected_tls_spki_sha256'~'^[0-9a-f]{64}$'
+ AND :'expected_environment'~'^[a-z][a-z0-9-]{1,30}$'
  AND :'expected_source_commit'~'^[0-9a-f]{40}$'
  AND :'execution_instance_id'~'^[0-9a-fA-F-]{36}$'
- AND NOT EXISTS(SELECT 1 FROM pg_database WHERE datname=:'target_database')
- AND NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=ANY(ARRAY[
-  'nexa_rev869b_control_plane_owner','nexa_rev869b_control_plane_api',
-  'nexa_rev869b_control_plane_issuer','nexa_rev869b_control_plane_audit_writer',
-  'nexa_rev869b_recovery_administrator','nexa_rev869b_purge_authorizer',
-  'nexa_rev869b_purge_executor','nexa_rev869b_verifier','nexa_rev869b_security_owner',
-  'nexa_rev869b_runtime','nexa_rev869b_command_issuer','nexa_rev869b_purge_audit_writer',
-  'nexa_rev869b_security_export_authorizer','nexa_rev869b_security_export_reader',
-  'nexa_rev869b_provisioning_administrator']::name[]))
- THEN 'REV869B_PREFLIGHT_EXACT_EMPTY_TARGET' ELSE 1/0::text END;
+ AND (SELECT count(*) FROM pg_database WHERE datname=:'target_database'
+      AND pg_get_userbyid(datdba)='nexa_rev869b_control_plane_owner'
+      AND datallowconn AND NOT datistemplate)=1
+ AND NOT has_database_privilege('public',:'target_database','CONNECT,TEMPORARY')
+ AND NOT EXISTS(SELECT 1 FROM role_mismatch)
+ AND NOT EXISTS(SELECT 1 FROM unexpected_membership)
+ AND EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles granted ON granted.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE granted.rolname='nexa_rev869b_control_plane_owner' AND member.rolname='nexa_rev869b_lifecycle_administrator')
+ THEN 'REV869B_EXTERNAL_PROVISIONING_EXACT' ELSE 1/0::text END;

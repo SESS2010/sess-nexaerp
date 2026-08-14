@@ -193,8 +193,8 @@ public sealed class Rev869BPostgresBehaviorTests
     public async Task LeastPrivilegeRuntimeCannotReadSecurityLedgersOrMutateDurableAudit()
     {
         await using var connection = await OpenVerifiedAsync();
-        foreach (var relation in new[] { "rev869b_command_authorities", "rev869b_command_grants",
-                     "rev869b_command_contexts", "rev869b_claim_sequence_pool", "rev869b_test_database_lease" })
+        foreach (var relation in new[] { "rev869b_command_requests", "rev869b_command_attempts",
+                     "rev869b_command_contexts", "rev869b_command_attempt_outcomes", "rev869b_command_receipts" })
         {
             var error = await Assert.ThrowsAsync<PostgresException>(() =>
                 ExecuteAsync(connection, $"SELECT count(*) FROM nexa.{relation}"));
@@ -344,12 +344,11 @@ public sealed class Rev869BPostgresBehaviorTests
             var transactionId = Convert.ToInt64(await new NpgsqlCommand("SELECT txid_current()", (NpgsqlConnection)connection, transaction).ExecuteScalarAsync());
             var backendPid = Convert.ToInt32(await new NpgsqlCommand("SELECT pg_backend_pid()", (NpgsqlConnection)connection, transaction).ExecuteScalarAsync());
             await AssertPostgresGuardAsync(() => ExecuteAsync(connection, """
-                SELECT nexa.rev869b_open_command_context(
-                  @grant,@employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,@backendPid,@transactionId)
-                """, transaction, ("grant", Guid.NewGuid()), ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
-                ("subject", Rev869BOwnedPostgresDatabase.Login), ("organization", Rev869BOwnedPostgresDatabase.Organization),
-                ("backendPid", backendPid), ("transactionId", transactionId)), PostgresErrorCodes.InsufficientPrivilege,
-                "rev869b_grant_missing_stale_or_reused");
+                SELECT nexa.rev869b_open_command_attempt(
+                  @attempt,@employee,@issuer,@subject,'MANAGING_DIRECTOR',@organization,digest('denied','sha256'),'[{}]'::jsonb)
+                """, transaction, ("attempt", Guid.NewGuid()), ("employee", actor), ("issuer", Rev869BOwnedPostgresDatabase.Issuer),
+                ("subject", Rev869BOwnedPostgresDatabase.Login), ("organization", Rev869BOwnedPostgresDatabase.Organization)),
+                PostgresErrorCodes.InsufficientPrivilege, "rev869b_attempt_binding");
             await transaction.RollbackAsync();
         }
         var id = DeterministicId(nameof(PermissionDenialPersistsAuditEvidence), "audit"); var correlation = $"REV869B-PG-DENIED-{id:N}";
@@ -596,8 +595,15 @@ public sealed class Rev869BPostgresBehaviorTests
             "rev869b_guard_qualification_lifecycle", "rev869b_require_qualification_history",
             "rev869b_guard_qualification_history_insert",
             "rev869b_qualification_provenance_valid", "rev869b_write_policy_history",
-            "rev869b_slot_fingerprint", "rev869b_issue_command_grant", "rev869b_open_command_context",
-            "rev869b_command_context_valid", "rev869b_claim_command_context", "rev869b_provision_command_authority"
+            "rev869b_deny_ledger_mutation", "rev869b_register_command_request", "rev869b_start_command_attempt", "rev869b_open_command_attempt",
+            "rev869b_command_context_valid", "rev869b_claim_command_context", "rev869b_commit_command_attempt",
+            "rev869b_record_noncommit_outcome", "rev869b_reconcile_command_attempt",
+            "rev869b_read_target_security_state",
+            "rev869b_register_purge_authorization", "rev869b_start_purge", "rev869b_execute_purge",
+            "rev869b_record_purge_failure", "rev869b_reconcile_purge",
+            "rev869b_register_export_authorization", "rev869b_prepare_export_batch",
+            "rev869b_authorize_export_release", "rev869b_read_prepared_export_batch",
+            "rev869b_record_export_release_outcome"
         }.Order().ToArray();
         var triggers = await StringsAsync(connection, "SELECT t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa' AND t.tgname LIKE 'trg_rev869b_%' AND NOT t.tgisinternal ORDER BY t.tgname");
         var functions = await StringsAsync(connection, "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND p.proname LIKE 'rev869b_%' ORDER BY p.proname");

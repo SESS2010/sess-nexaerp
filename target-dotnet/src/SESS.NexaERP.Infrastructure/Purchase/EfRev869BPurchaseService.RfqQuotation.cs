@@ -29,7 +29,7 @@ public sealed partial class EfRev869BPurchaseService
         var authorizationPr = authorizationTarget[0].PurchaseRequisition ?? throw new InvalidOperationException("PR unavailable.");
         await RequireScopeAsync(actor, authorizationPr.OrganizationId, authorizationPr.RequestingDepartmentId,
             authorizationPr.DeliveryWarehouseId, null, authorizationPr.RequesterEmployeeId, ct);
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("CreateRFQ", request.IdempotencyKey, request, ct);
         // Serialize at the contested transaction boundary, before replay lookup or number consumption.
         await db.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT pg_advisory_xact_lock(hashtextextended({scope},0))", ct);
@@ -72,7 +72,8 @@ public sealed partial class EfRev869BPurchaseService
     public async Task<Rev869BDocumentResult> InviteVendorAsync(string rfqNumber, Rev869BInviteVendorRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("InviteVendor", request.IdempotencyKey,
+            new { rfqNumber = rfqNumber.Trim().ToUpperInvariant(), request }, ct);
         var organization = RequireOrganization();
         var fingerprint = Rev869BIdempotencyFingerprint.Create(organization, "InviteVendor", request.IdempotencyKey, new { rfqNumber = rfqNumber.Trim().ToUpperInvariant(), request.VendorId, request.Remarks, request.RfqVersion });
         var rfq = await db.RequestForQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.Item)
@@ -135,7 +136,8 @@ public sealed partial class EfRev869BPurchaseService
     public async Task<Rev869BDocumentResult> SubmitQuotationRevisionAsync(Guid invitationId, Rev869BSubmitQuotationRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("SubmitQuotation", request.IdempotencyKey,
+            new { invitationId, request }, ct);
         var organization = RequireOrganization();
         var quoteScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "SubmitQuotation", request.IdempotencyKey);
         var quoteFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "SubmitQuotation", request.IdempotencyKey, new { invitationId, request });
@@ -246,7 +248,8 @@ public sealed partial class EfRev869BPurchaseService
     public async Task<Rev869BDocumentResult> VerifyTechnicalAsync(string quotationNumber, Rev869BTechnicalVerificationRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole("TECHNICAL_ENGINEER", Rev869ARoleCodes.TechnicalDirector);
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("TechnicalVerification", request.IdempotencyKey,
+            new { quotationNumber = quotationNumber.Trim().ToUpperInvariant(), request }, ct);
         var organization = RequireOrganization();
         var line = await db.VendorQuotationLines.AsNoTracking().Include(x => x.VendorQuotation)!.ThenInclude(x => x!.Lines).Include(x => x.VendorQuotation)!.ThenInclude(x => x!.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation)
             .SingleOrDefaultAsync(x => x.Id == request.VendorQuotationLineId && x.VendorQuotation!.OrganizationId == organization && x.VendorQuotation.QuotationNumber == quotationNumber.Trim().ToUpper(), ct)

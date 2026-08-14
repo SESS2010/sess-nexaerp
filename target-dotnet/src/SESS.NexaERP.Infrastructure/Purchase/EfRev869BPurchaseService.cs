@@ -23,16 +23,20 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private readonly ITaxGstResolver taxes;
     private readonly IAuditWriter audit;
     private readonly List<Rev869BCommandContextAuthorizer.CommandAttemptHandle> pendingCommandAttempts = [];
+    private Rev869BCommandContextAuthorizer.CommandEnvelope? currentCommandEnvelope;
 
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
     {
         this.db = db; this.user = user; this.scopes = scopes; this.vendors = vendors; this.taxes = taxes; this.audit = audit;
     }
 
-    private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(CancellationToken ct)
+    private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(
+        string operation, string idempotencyKey, object request, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
+        currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
+            RequireOrganization(), operation, idempotencyKey, request);
         var scope = new Rev869BTransactionScope(this,
             await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
         _ = RequireActor();
@@ -49,9 +53,10 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         public async Task CommitAsync(CancellationToken ct)
         {
             foreach (var attempt in service.pendingCommandAttempts)
-                await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(service.db, attempt, ct);
+                await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(service.db, attempt, ct);
             await owned.CommitAsync(ct);
             service.pendingCommandAttempts.Clear();
+            service.currentCommandEnvelope = null;
             finalized = true;
         }
 
@@ -59,6 +64,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         {
             await owned.RollbackAsync(ct);
             await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
+            service.currentCommandEnvelope = null;
             finalized = true;
         }
 
@@ -67,7 +73,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             if (!finalized)
             {
                 try { await owned.RollbackAsync(); }
-                finally { await service.RecordRolledBackOutcomesAsync("Failed", "BusinessTransactionRolledBack", CancellationToken.None); }
+                finally { await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None); }
+                service.currentCommandEnvelope = null;
                 finalized = true;
             }
             await owned.DisposeAsync();
@@ -83,15 +90,27 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task OpenPendingAuthorizationAsync(CancellationToken ct)
     {
         var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(
-            db, user, RequireOrganization(), ct);
-        if (attempt.HasValue) pendingCommandAttempts.Add(attempt.Value);
+            db, user, RequireOrganization(), currentCommandEnvelope ??
+                throw new InvalidOperationException("Caller command envelope must be established before mutation."), ct);
+        if (attempt.HasValue)
+        {
+            var prior = pendingCommandAttempts.SingleOrDefault(x => x.AttemptId == attempt.Value.AttemptId);
+            pendingCommandAttempts.RemoveAll(x => x.AttemptId == attempt.Value.AttemptId);
+            pendingCommandAttempts.Add(prior.AttemptId == Guid.Empty
+                ? attempt.Value
+                : attempt.Value with
+                {
+                    BusinessFingerprint = System.Security.Cryptography.SHA256.HashData(
+                        prior.BusinessFingerprint.Concat(attempt.Value.BusinessFingerprint).ToArray())
+                });
+        }
     }
 
     private async Task RecordRolledBackOutcomesAsync(string terminalEvent, string failureCategory, CancellationToken ct)
     {
         var runtime = (Npgsql.NpgsqlConnection)db.Database.GetDbConnection();
         foreach (var attempt in pendingCommandAttempts)
-            await Rev869BCommandContextAuthorizer.RecordRolledBackOutcomeAsync(
+            await Rev869BCommandContextAuthorizer.RecordNoncommitOutcomeAsync(
                 runtime, attempt, terminalEvent, failureCategory, ct);
         pendingCommandAttempts.Clear();
     }

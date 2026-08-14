@@ -1,6 +1,6 @@
-using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Npgsql;
 
 namespace SESS.NexaERP.Tests;
@@ -17,108 +17,85 @@ internal sealed class Rev869BOwnedPostgresDatabase : IAsyncDisposable
     { this.lease = lease; ConnectionString = lease.ConnectionString; DatabaseName = lease.DatabaseName; }
 
     public string ConnectionString { get; }
-    internal string OwnerConnectionString => lease.OwnerConnectionString;
+    internal string VerifierConnectionString => lease.VerifierConnectionString;
     public string DatabaseName { get; }
 
     public static async Task<Rev869BOwnedPostgresDatabase> CreateAsync(string scenario)
     {
         var databaseLease = await Rev869BTestDatabaseLease.CreateAsync(scenario, "direct");
         var owned = new Rev869BOwnedPostgresDatabase(databaseLease);
-        try
-        {
-            await Rev869BCompleteGraphSeeder.SeedAsync(databaseLease.OwnerConnectionString, scenario);
-            return owned;
-        }
-        catch
-        {
-            await owned.DisposeAsync();
-            throw;
-        }
+        return owned;
     }
 
     public Task<NpgsqlConnection> OpenConnectionAsync() => lease.OpenVerifiedConnectionAsync();
 
-    public static async Task SetCommandContextAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        Guid actorEmployeeId,
-        string role,
-        params ExactSlot[] slots)
+    public static async Task<Guid> SetCommandContextAsync(NpgsqlConnection connection,
+        NpgsqlTransaction transaction, Guid actorEmployeeId, string role, params ExactSlot[] slots)
     {
-        if (slots.Length == 0) throw new InvalidOperationException("Direct database tests must pre-authorize at least one exact history slot.");
+        if (slots.Length == 0)
+            throw new InvalidOperationException("At least one exact history slot is required.");
+        var serialized = JsonSerializer.Serialize(slots, JsonOptions);
+        var requestSha = SHA256.HashData(Encoding.UTF8.GetBytes(serialized));
+        var callerKey = string.Join('|', slots.Select(s => s.Correlation)) + "|" + actorEmployeeId;
+        var keySha = SHA256.HashData(Encoding.UTF8.GetBytes(callerKey));
+        var operation = string.Join('+', slots.Select(s => s.Operation).Distinct(StringComparer.Ordinal).Order());
+        var backend = Convert.ToInt32(await new NpgsqlCommand("SELECT pg_backend_pid()", connection, transaction).ExecuteScalarAsync());
         var transactionId = Convert.ToInt64(await new NpgsqlCommand("SELECT txid_current()", connection, transaction).ExecuteScalarAsync());
-        var backendPid = Convert.ToInt32(await new NpgsqlCommand("SELECT pg_backend_pid()", connection, transaction).ExecuteScalarAsync());
-        var runtimePrincipal = Convert.ToString(await new NpgsqlCommand("SELECT session_user", connection, transaction).ExecuteScalarAsync())
-            ?? throw new InvalidOperationException("Runtime principal is missing.");
-        var issuerRaw = Environment.GetEnvironmentVariable("REV869B_COMMAND_ISSUER_CONNECTION")
-            ?? throw new InvalidOperationException("Owned command issuer connection is missing.");
-        var issuerBuilder = new NpgsqlConnectionStringBuilder(issuerRaw) { Pooling = false };
-        var runtimeBuilder = new NpgsqlConnectionStringBuilder(connection.ConnectionString);
-        if (!string.Equals(issuerBuilder.Database, runtimeBuilder.Database, StringComparison.Ordinal) ||
-            string.Equals(issuerBuilder.Username, runtimeBuilder.Username, StringComparison.Ordinal))
-            throw new InvalidOperationException("Owned issuer must be distinct and target the exact runtime database.");
 
-        Guid grantId;
+        var auditRaw = Environment.GetEnvironmentVariable("REV869B_COMMAND_AUDIT_CONNECTION")
+            ?? throw new InvalidOperationException("REV869B command-audit connection is required.");
+        var auditBuilder = new NpgsqlConnectionStringBuilder(auditRaw) { Pooling = false };
+        var runtimeBuilder = new NpgsqlConnectionStringBuilder(connection.ConnectionString);
+        if (!string.Equals(auditBuilder.Database, runtimeBuilder.Database, StringComparison.Ordinal) ||
+            !string.Equals(auditBuilder.Username, "nexa_rev869b_command_audit", StringComparison.Ordinal))
+            throw new InvalidOperationException("Exact target command-audit identity is required.");
+
+        var execution = RequireGuid("REV869B_EXECUTION_INSTANCE_ID");
+        var service = RequireFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT");
+        var ownership = RequireFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT");
+        Guid commandId;
         Guid attemptId;
-        await using (var issuer = new NpgsqlConnection(issuerBuilder.ConnectionString))
+        await using (var audit = new NpgsqlConnection(auditBuilder.ConnectionString))
         {
-            await issuer.OpenAsync();
-            await using var issue = new NpgsqlCommand("""
-                SELECT nexa.rev869b_issue_command_grant(
-                  @runtime,@backend,@transaction,@actor,@issuer,@subject,@role,@organization,@authenticated,@slots::jsonb)
-                """, issuer);
-            issue.Parameters.AddWithValue("runtime", runtimePrincipal);
-            issue.Parameters.AddWithValue("backend", backendPid);
-            issue.Parameters.AddWithValue("transaction", transactionId);
-            issue.Parameters.AddWithValue("actor", actorEmployeeId);
-            issue.Parameters.AddWithValue("issuer", Issuer);
-            issue.Parameters.AddWithValue("subject", Login);
-            issue.Parameters.AddWithValue("role", role);
-            issue.Parameters.AddWithValue("organization", Organization);
-            issue.Parameters.AddWithValue("authenticated", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            issue.Parameters.AddWithValue("slots", JsonSerializer.Serialize(slots, JsonOptions));
-            grantId = (Guid)(await issue.ExecuteScalarAsync() ?? throw new InvalidOperationException("Owned exact grant was not returned."));
-            var executionRaw = Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID");
-            if (!Guid.TryParse(executionRaw, out var executionId) || executionId == Guid.Empty)
-                throw new InvalidOperationException("Exact owned execution instance is required.");
-            static byte[] Fingerprint(string name)
-            {
-                var value = Environment.GetEnvironmentVariable(name);
-                if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
-                    throw new InvalidOperationException(name + " must be an exact SHA-256 fingerprint.");
-                return Convert.FromHexString(value);
-            }
-            var serializedSlots = JsonSerializer.Serialize(slots, JsonOptions);
-            attemptId = Guid.NewGuid();
-            var idempotency = Environment.GetEnvironmentVariable("REV869B_COMMAND_IDEMPOTENCY_KEY")
-                ?? throw new InvalidOperationException("Exact owned idempotency key is required.");
-            await using var attempt = new NpgsqlCommand(
-                "SELECT nexa.rev869b_record_command_consumption_attempt(@grant,@attempt,@execution,@service,@business,@ownership,@idempotency)", issuer);
-            attempt.Parameters.AddWithValue("grant", grantId);
-            attempt.Parameters.AddWithValue("attempt", attemptId);
-            attempt.Parameters.AddWithValue("execution", executionId);
-            attempt.Parameters.AddWithValue("service", Fingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT"));
-            attempt.Parameters.AddWithValue("business", SHA256.HashData(Encoding.UTF8.GetBytes(serializedSlots)));
-            attempt.Parameters.AddWithValue("ownership", Fingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT"));
-            attempt.Parameters.AddWithValue("idempotency", SHA256.HashData(Encoding.UTF8.GetBytes(idempotency)));
-            if (await attempt.ExecuteScalarAsync() is not Guid recorded || recorded != attemptId)
-                throw new InvalidOperationException("Owned helper failed to durably record the exact attempt before open.");
+            await audit.OpenAsync();
+            await using var register = new NpgsqlCommand(
+                "SELECT nexa.rev869b_register_command_request(@organization,@operation,@key,@request,@actor,@issuer,@subject,@role)", audit);
+            register.Parameters.AddWithValue("organization", Organization); register.Parameters.AddWithValue("operation", operation);
+            register.Parameters.AddWithValue("key", keySha); register.Parameters.AddWithValue("request", requestSha);
+            register.Parameters.AddWithValue("actor", actorEmployeeId); register.Parameters.AddWithValue("issuer", Issuer);
+            register.Parameters.AddWithValue("subject", Login); register.Parameters.AddWithValue("role", role);
+            commandId = (Guid)(await register.ExecuteScalarAsync() ?? throw new InvalidOperationException("Command request was not registered."));
+
+            await using var start = new NpgsqlCommand(
+                "SELECT nexa.rev869b_start_command_attempt(@command,@execution,@service,@ownership,@runtime,@backend,@transaction)", audit);
+            start.Parameters.AddWithValue("command", commandId); start.Parameters.AddWithValue("execution", execution);
+            start.Parameters.AddWithValue("service", service); start.Parameters.AddWithValue("ownership", ownership);
+            start.Parameters.AddWithValue("runtime", "nexa_rev869b_app_runtime"); start.Parameters.AddWithValue("backend", backend);
+            start.Parameters.AddWithValue("transaction", transactionId);
+            attemptId = (Guid)(await start.ExecuteScalarAsync() ?? throw new InvalidOperationException("Committed command replay has no new attempt."));
         }
 
-        await using var open = new NpgsqlCommand("""
-            SELECT nexa.rev869b_open_command_context(
-              @grant,@attempt,@actor,@issuer,@subject,@role,@organization,@backend,@transaction)
-            """, connection, transaction);
-        open.Parameters.AddWithValue("grant", grantId);
-        open.Parameters.AddWithValue("attempt", attemptId);
-        open.Parameters.AddWithValue("actor", actorEmployeeId);
-        open.Parameters.AddWithValue("issuer", Issuer);
-        open.Parameters.AddWithValue("subject", Login);
-        open.Parameters.AddWithValue("role", role);
-        open.Parameters.AddWithValue("organization", Organization);
-        open.Parameters.AddWithValue("backend", backendPid);
-        open.Parameters.AddWithValue("transaction", transactionId);
-        await open.ExecuteNonQueryAsync();
+        await using var open = new NpgsqlCommand(
+            "SELECT nexa.rev869b_open_command_attempt(@attempt,@actor,@issuer,@subject,@role,@organization,@slotsSha,@slots::jsonb)",
+            connection, transaction);
+        open.Parameters.AddWithValue("attempt", attemptId); open.Parameters.AddWithValue("actor", actorEmployeeId);
+        open.Parameters.AddWithValue("issuer", Issuer); open.Parameters.AddWithValue("subject", Login);
+        open.Parameters.AddWithValue("role", role); open.Parameters.AddWithValue("organization", Organization);
+        open.Parameters.AddWithValue("slotsSha", requestSha); open.Parameters.AddWithValue("slots", serialized);
+        await open.ExecuteScalarAsync();
+        return attemptId;
+    }
+
+    private static Guid RequireGuid(string name) =>
+        Guid.TryParse(Environment.GetEnvironmentVariable(name), out var value) && value != Guid.Empty
+            ? value : throw new InvalidOperationException(name + " must be an exact UUID.");
+
+    private static byte[] RequireFingerprint(string name)
+    {
+        var value = Environment.GetEnvironmentVariable(name);
+        if (value is null || value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidOperationException(name + " must be an exact SHA-256 fingerprint.");
+        return Convert.FromHexString(value);
     }
 
     internal sealed record ExactSlot(string ClaimKind, Guid HistoryId, string EntityType, Guid EntityId,

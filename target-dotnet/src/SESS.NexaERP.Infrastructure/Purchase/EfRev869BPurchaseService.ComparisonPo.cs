@@ -11,7 +11,7 @@ public sealed partial class EfRev869BPurchaseService
 {
     public async Task<Rev869BDocumentResult> CreateComparisonAsync(Rev869BCreateComparisonRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("CreateComparison", request.IdempotencyKey, request, ct);
         var organization = RequireOrganization();
         var comparisonScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "CreateComparison", request.IdempotencyKey);
         var comparisonFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "CreateComparison", request.IdempotencyKey, request);
@@ -42,7 +42,7 @@ public sealed partial class EfRev869BPurchaseService
     public async Task<Rev869BDocumentResult> RecommendAsync(string number, Rev869BRecommendComparisonRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager);
-        await using var tx = await BeginTransactionScopeAsync(ct);
+        await using var tx = await BeginTransactionScopeAsync("RecommendComparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct);
         var organization = RequireOrganization(); var comparison = await LoadComparisonAsync(number, ct); await AuthorizeComparisonAsync(actor, comparison, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "RecommendComparison", request.IdempotencyKey);
         var commandFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "RecommendComparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
@@ -89,7 +89,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> ResubmitAsync(string number, Rev869BApprovalActionRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("ResubmitComparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct);
         var c = await LoadComparisonAsync(number, ct); await AuthorizeComparisonAsync(actor, c, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(c.OrganizationId, "ResubmitComparison", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(c.OrganizationId, "ResubmitComparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseTransactionApprovalHistories.AsNoTracking().SingleOrDefaultAsync(x => x.CommercialComparisonId == c.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
@@ -105,7 +105,7 @@ public sealed partial class EfRev869BPurchaseService
 
     private async Task<Rev869BDocumentResult> ApprovalActionAsync(string number, Rev869BApprovalActionRequest request, string action, string next, CancellationToken ct)
     {
-        var actor = RequireActor(); await using var tx = await BeginTransactionScopeAsync(ct); var c = await LoadComparisonAsync(number, ct); await AuthorizeComparisonAsync(actor, c, ct);
+        var actor = RequireActor(); await using var tx = await BeginTransactionScopeAsync(action + "Comparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var c = await LoadComparisonAsync(number, ct); await AuthorizeComparisonAsync(actor, c, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(c.OrganizationId, action + "Comparison", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(c.OrganizationId, action + "Comparison", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseTransactionApprovalHistories.AsNoTracking().SingleOrDefaultAsync(x => x.CommercialComparisonId == c.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != action || replay.Remarks != request.Remarks.Trim()) throw new Rev869BConflictException("Approval idempotency key was reused."); await tx.RollbackAsync(ct); return Result(c.Id, c.ComparisonNumber, replay.ToStatus, checked(request.Version + 1)); }
@@ -124,7 +124,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> CreatePurchaseOrderAsync(Rev869BCreatePurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct); var c = await LoadComparisonAsync(request.ComparisonNumber, ct); await AuthorizeComparisonAsync(actor, c, ct);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("CreatePO", request.IdempotencyKey, request, ct); var c = await LoadComparisonAsync(request.ComparisonNumber, ct); await AuthorizeComparisonAsync(actor, c, ct);
         var poScope = Rev869BIdempotencyFingerprint.CommandScope(c.OrganizationId, "CreatePO", request.IdempotencyKey);
         var poFingerprint = Rev869BIdempotencyFingerprint.Create(c.OrganizationId, "CreatePO", request.IdempotencyKey, request);
         if (c.Status != Rev869BStatuses.Approved || !c.RecommendedVendorQuotationId.HasValue || !c.SelectedVendorId.HasValue) throw new Rev869BConflictException("PO requires approved comparison and explicit selection.");
@@ -167,7 +167,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> SubmitPurchaseOrderAsync(string number, Rev869BSubmitPurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct); var organization = RequireOrganization();
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("SubmitPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var organization = RequireOrganization();
         var po = await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines).Where(x => x.OrganizationId == organization && x.PoNumber == number.Trim().ToUpper()).OrderByDescending(x => x.RevisionNumber).FirstOrDefaultAsync(ct)
             ?? throw new Rev869BNotFoundException("Purchase-order version was not found in the current organization.");
         await AuthorizePoAsync(actor, po, ct);
@@ -192,7 +192,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> IssuePurchaseOrderAsync(string number, Rev869BIssuePurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct); var po = await LoadPoAsync(number, ct); await AuthorizePoAsync(actor, po, ct);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("IssuePO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var po = await LoadPoAsync(number, ct); await AuthorizePoAsync(actor, po, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(po.OrganizationId, "IssuePO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(po.OrganizationId, "IssuePO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != "Issue" || replay.Reason != request.Remarks.Trim()) throw new Rev869BConflictException("PO issue idempotency key was reused."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }
@@ -223,7 +223,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> AmendPurchaseOrderAsync(string number, Rev869BAmendPurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct); var organization = RequireOrganization();
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("AmendPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var organization = RequireOrganization();
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "AmendPO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "AmendPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrders.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey.StartsWith(commandScope + "."), ct);
         if (replay is not null)
@@ -246,7 +246,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> ReviseRejectedPurchaseOrderAsync(string number, Rev869BReviseRejectedPurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync(ct); var organization = RequireOrganization();
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("ReviseRejectedPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var organization = RequireOrganization();
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "ReviseRejectedPO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "ReviseRejectedPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrders.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organization && x.IdempotencyKey.StartsWith(commandScope + "."), ct);
         if (replay is not null)
@@ -294,10 +294,10 @@ public sealed partial class EfRev869BPurchaseService
 
     private async Task<Rev869BDocumentResult> PurchaseOrderApprovalActionAsync(string number, Rev869BPoApprovalActionRequest request, bool approve, CancellationToken ct)
     {
-        var actor = RequireActor(); await using var tx = await BeginTransactionScopeAsync(ct); var organization = RequireOrganization();
+        var actor = RequireActor(); var action = approve ? "Approve" : "Reject"; await using var tx = await BeginTransactionScopeAsync(action + "PO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var organization = RequireOrganization();
         var po = await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines).Where(x => x.OrganizationId == organization && x.PoNumber == number.Trim().ToUpper()).OrderByDescending(x => x.RevisionNumber).FirstOrDefaultAsync(ct)
             ?? throw new Rev869BNotFoundException("Purchase-order version was not found in the current organization.");
-        await AuthorizePoAsync(actor, po, ct); var action = approve ? "Approve" : "Reject"; var next = approve ? Rev869BStatuses.Approved : Rev869BStatuses.Rejected;
+        await AuthorizePoAsync(actor, po, ct); var next = approve ? Rev869BStatuses.Approved : Rev869BStatuses.Rejected;
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(organization, action + "PO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(organization, action + "PO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != action || replay.Reason != request.Remarks.Trim()) throw new Rev869BConflictException("PO approval idempotency key was reused with a different payload."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }
@@ -339,7 +339,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> CancelPurchaseOrderAsync(string number, Rev869BCancelPurchaseOrderRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.TechnicalDirector, Rev869ARoleCodes.ManagingDirector); await using var tx = await BeginTransactionScopeAsync(ct); var po = await LoadPoAsync(number, ct); await AuthorizePoAsync(actor, po, ct);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.TechnicalDirector, Rev869ARoleCodes.ManagingDirector); await using var tx = await BeginTransactionScopeAsync("CancelPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var po = await LoadPoAsync(number, ct); await AuthorizePoAsync(actor, po, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(po.OrganizationId, "CancelPO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(po.OrganizationId, "CancelPO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });
         var replay = await db.PurchaseOrderHistories.AsNoTracking().SingleOrDefaultAsync(x => x.PurchaseOrderId == po.Id && x.CorrelationId.StartsWith(commandScope + "."), ct);
         if (replay is not null) { if (replay.CorrelationId != commandFingerprint || replay.Action != "Cancel" || replay.Reason != request.Reason.Trim()) throw new Rev869BConflictException("PO cancellation idempotency key was reused."); await tx.RollbackAsync(ct); return Result(po.Id, po.PoNumber, replay.ToStatus, checked(request.Version + 1)); }

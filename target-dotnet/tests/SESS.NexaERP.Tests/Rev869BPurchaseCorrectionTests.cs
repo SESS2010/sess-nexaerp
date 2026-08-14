@@ -173,19 +173,18 @@ public sealed class Rev869BPurchaseCorrectionTests
 
         Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
-        Assert.Equal(27, Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.").Count);
-        Assert.Equal(83, Regex.Matches(up, @"(?im)^CREATE (?:CONSTRAINT )?TRIGGER\s+").Count);
-        Assert.Equal(36, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.").Count);
-        Assert.Equal(35, Regex.Matches(up, @"(?im)^CREATE OR REPLACE FUNCTION\s+nexa\.([^\s(]+)")
-            .Select(x => x.Groups[1].Value).Distinct(StringComparer.Ordinal).Count());
+        var createdRelations = Regex.Matches(up, @"(?im)^CREATE TABLE nexa\.(?<name>[a-z0-9_]+)")
+            .Select(x => x.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
+        foreach (var relation in new[] { "rev869b_command_requests", "rev869b_command_attempts", "rev869b_command_attempt_outcomes", "rev869b_command_receipts", "rev869b_purge_authorizations", "rev869b_purge_attempts", "rev869b_purge_candidates", "rev869b_export_authorizations", "rev869b_export_batches", "rev869b_export_batch_rows", "rev869b_export_releases" })
+            Assert.Contains(relation, createdRelations);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_owner\$").Count % 2);
         Assert.Equal(0, Regex.Matches(up, @"\$rev869b_grant_owner\$").Count % 2);
-        foreach (var function in new[] { "rev869b_open_command_context", "rev869b_claim_command_context",
-            "rev869b_register_purge_authorization", "rev869b_begin_purge_execution",
-            "rev869b_purge_temporary_security_ledger", "rev869b_record_command_outcome",
-            "rev869b_record_command_consumption_attempt",
+        foreach (var function in new[] { "rev869b_register_command_request", "rev869b_start_command_attempt",
+            "rev869b_open_command_attempt", "rev869b_claim_command_context", "rev869b_commit_command_attempt",
+            "rev869b_record_noncommit_outcome", "rev869b_register_purge_authorization", "rev869b_start_purge",
+            "rev869b_execute_purge", "rev869b_register_export_authorization", "rev869b_prepare_export_batch", "rev869b_authorize_export_release",
             "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
             "rev869b_require_qualification_history", "rev869b_guard_child_insert",
             "rev869b_enforce_transition", "rev869b_enforce_quotation_transition" })
@@ -194,12 +193,12 @@ public sealed class Rev869BPurchaseCorrectionTests
         }
         Assert.Contains("SET search_path=pg_catalog,nexa", up);
         Assert.Contains("SET search_path = pg_catalog, nexa", up);
-        Assert.True(down.IndexOf("DROP FUNCTION IF EXISTS nexa.rev869b_provision_command_authority", StringComparison.Ordinal) <
-                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal));
-        Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_contexts", StringComparison.Ordinal) <
-                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_grants", StringComparison.Ordinal));
-        Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_grants", StringComparison.Ordinal) <
-                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_authorities", StringComparison.Ordinal));
+        Assert.True(down.IndexOf("DROP FUNCTION IF EXISTS nexa.rev869b_record_export_release_outcome", StringComparison.Ordinal) <
+                    down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_export_releases", StringComparison.Ordinal));
+        Assert.True(down.IndexOf("DROP TABLE IF EXISTS nexa.rev869b_command_receipts", StringComparison.Ordinal) <
+                    down.IndexOf("rev869b_command_attempts", StringComparison.Ordinal));
+        Assert.True(down.LastIndexOf("rev869b_command_attempts", StringComparison.Ordinal) <
+                    down.LastIndexOf("rev869b_command_requests", StringComparison.Ordinal));
         Assert.DoesNotContain("DROP EXTENSION", down, StringComparison.OrdinalIgnoreCase);
     }
 

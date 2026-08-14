@@ -38,8 +38,6 @@ public static class Rev869BPurchaseEndpoints
         group.MapGet("/comparisons/{number}", GetComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.View);
         group.MapGet("/purchase-orders/{number}", GetPo).RequirePagePermission("purchase.po", PagePermissionActions.View);
         group.MapGet("/quotations/{number}/attachment", GetQuotationAttachment).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Download);
-        group.MapGet("/comparisons/{number}/export", ExportComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.Export);
-        group.MapGet("/purchase-orders/{number}/export", ExportPo).RequirePagePermission("purchase.po", PagePermissionActions.Export);
         group.MapGet("/material-followup", GetFollowUp).RequirePagePermission("purchase.material-followup", PagePermissionActions.View);
         return endpoints;
     }
@@ -73,23 +71,6 @@ public static class Rev869BPurchaseEndpoints
         await audit.WriteAsync("Purchase", "AttachmentAccess", nameof(VendorQuotation), row.Id.ToString(), null,
             new { row.QuotationNumber, organizationId = row.OrganizationId, evidencePresent = true }, ct);
         return Results.Ok(new { row.QuotationNumber, row.AttachmentObjectKey, row.AttachmentSha256, row.SubmissionSource, row.ReceivedAt });
-    }
-    private static async Task<IResult> ExportComparison(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
-    {
-        var row = await db.CommercialComparisons.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.ComparisonNumber == number.Trim().ToUpperInvariant(), ct);
-        if (row is null) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct);
-        var rfq = await db.RequestForQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == row.RequestForQuotationId && x.OrganizationId == row.OrganizationId, ct);
-        if (rfq is null || !await Allowed(user, scopes, row.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct);
-        await audit.WriteAsync("Purchase", "Export", nameof(CommercialComparison), row.Id.ToString(), null, new { row.ComparisonNumber, lineCount = row.Lines.Count }, ct);
-        return Results.Ok(new { row.ComparisonNumber, row.CurrencyCode, row.Status, row.TotalPayableValue, Lines = row.Lines.Select(x => new { x.VendorId, x.TotalPayableValue, x.IsRecommended }) });
-    }
-    private static async Task<IResult> ExportPo(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
-    {
-        var row = await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.PoNumber == number.Trim().ToUpperInvariant() && x.IsCurrentVersion, ct);
-        if (row is null) return await Missing(audit, "purchase.po", number, user, ct);
-        if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Missing(audit, "purchase.po", number, user, ct);
-        await audit.WriteAsync("Purchase", "Export", nameof(PurchaseOrder), row.Id.ToString(), null, new { row.PoNumber, row.RevisionNumber, lineCount = row.Lines.Count }, ct);
-        return Results.Ok(new { row.PoNumber, row.RevisionNumber, row.CurrencyCode, row.Status, row.TaxableValue, row.TaxValue, row.TotalPayableValue, Lines = row.Lines.Select(x => new { x.LineNumber, x.ItemCodeSnapshot, x.OrderedQuantity, x.UnitRate, x.TotalPayableValue }) });
     }
     private static async Task<IResult> GetFollowUp(int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {

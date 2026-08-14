@@ -130,7 +130,7 @@ public static class Rev869AConfigurationEndpoints
         return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{candidate.Id}", new { candidate.Id });
     }
 
-    private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
@@ -145,6 +145,7 @@ public static class Rev869AConfigurationEndpoints
             await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), organization, null, new { scope.Reason, user.RoleCode }, ct);
             return Results.Forbid();
         }
+        if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(request.VendorCode), ct);
         if (vendor is null) return Results.Conflict(new { message = "Vendor was not found." });
@@ -173,13 +174,14 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = 0
         });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, ct)
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(organization, "CreateVendorQualification", idempotencyKey, request);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try
         {
             await db.SaveChangesAsync(ct);
             await audit.WriteAsync("Masters", "CreateVendorQualification", nameof(VendorQualification), entity.Id.ToString(), null, entity, ct);
-            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
             await transaction.CommitAsync(ct);
         }
         catch
@@ -190,10 +192,10 @@ public static class Rev869AConfigurationEndpoints
         return Results.Created($"/api/v1/rev869a/configuration/vendor-qualifications/{entity.Id}", new { entity.Id });
     }
 
-    private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, "Verify", db, user, scopes, audit, ct);
+    private static Task<IResult> VerifyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Verify", http, db, user, scopes, audit, ct);
 
-    private static async Task<IResult> NormalizeLegacyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> NormalizeLegacyVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
@@ -209,6 +211,7 @@ public static class Rev869AConfigurationEndpoints
             return Results.Forbid();
         }
 
+        if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(
             x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
@@ -262,7 +265,8 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct)
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(user.OrganizationId, "NormalizeVendorQualification", idempotencyKey, new { qualificationId, request });
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
@@ -274,7 +278,7 @@ public static class Rev869AConfigurationEndpoints
         {
             await audit.WriteAsync("Masters", "NormalizeLegacyVendorQualification", nameof(VendorQualification),
                 qualification.Id.ToString(), before, qualification, ct);
-            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
             await transaction.CommitAsync(ct);
         }
         catch
@@ -285,22 +289,23 @@ public static class Rev869AConfigurationEndpoints
         return Results.Ok(new { qualification.Id, qualification.VerificationStatus, qualification.ApprovalStatus, qualification.Version });
     }
 
-    private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, "Approve", db, user, scopes, audit, ct);
+    private static Task<IResult> ApproveVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Approve", http, db, user, scopes, audit, ct);
 
-    private static Task<IResult> RejectVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, "Reject", db, user, scopes, audit, ct);
+    private static Task<IResult> RejectVendorQualification(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "Reject", http, db, user, scopes, audit, ct);
 
-    private static Task<IResult> RequestVendorQualificationCorrection(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
-        ChangeVendorQualificationLifecycle(qualificationId, request, "RequestCorrection", db, user, scopes, audit, ct);
+    private static Task<IResult> RequestVendorQualificationCorrection(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct) =>
+        ChangeVendorQualificationLifecycle(qualificationId, request, "RequestCorrection", http, db, user, scopes, audit, ct);
 
-    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, string action, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> ChangeVendorQualificationLifecycle(Guid qualificationId, ChangeVendorQualificationLifecycleRequest request, string action, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
         if (string.IsNullOrWhiteSpace(request.Remarks))
             return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
 
+        if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
@@ -401,7 +406,8 @@ public static class Rev869AConfigurationEndpoints
             CreatedBy = user.LoginId,
             Version = qualification.Version
         });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, ct)
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(user.OrganizationId, action + "VendorQualification", idempotencyKey, new { qualificationId, request });
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
@@ -412,7 +418,7 @@ public static class Rev869AConfigurationEndpoints
         try
         {
             await audit.WriteAsync("Masters", action + "VendorQualification", nameof(VendorQualification), qualification.Id.ToString(), before, qualification, ct);
-            await Rev869BCommandContextAuthorizer.StageCommittedOutcomeAsync(db, attempt, ct);
+            await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
             await transaction.CommitAsync(ct);
         }
         catch
@@ -462,8 +468,14 @@ public static class Rev869AConfigurationEndpoints
         Rev869BCommandContextAuthorizer.CommandAttemptHandle attempt, string category, CancellationToken ct)
     {
         await transaction.RollbackAsync(ct);
-        await Rev869BCommandContextAuthorizer.RecordRolledBackOutcomeAsync(
-            (Npgsql.NpgsqlConnection)db.Database.GetDbConnection(), attempt, "Failed", category, ct);
+        await Rev869BCommandContextAuthorizer.RecordNoncommitOutcomeAsync(
+            (Npgsql.NpgsqlConnection)db.Database.GetDbConnection(), attempt, "RolledBack", category, ct);
+    }
+
+    private static bool TryGetIdempotencyKey(HttpContext http, out string key)
+    {
+        key = http.Request.Headers["Idempotency-Key"].ToString().Trim();
+        return key.Length is >= 8 and <= 200;
     }
 
     private static void AddHistory(NexaErpDbContext db, string organizationId, string type, Guid id, string action, object? before, object? after, string remarks, ICurrentUser user)

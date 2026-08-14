@@ -1,16 +1,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet('GeneratePlanOnly','PreflightOnly','ProvisionAuthorized','PostProvisionVerification','RollbackAuthorized')]
+    [ValidateSet('GeneratePlanOnly','PreflightOnly','PostProvisionVerification')]
     [string]$Mode,
     [string]$HostName = '127.0.0.1',
     [ValidateRange(1,65535)][int]$Port = 5432,
     [string]$AdministrativeDatabase = 'postgres',
     [string]$AdministrativeUser,
     [string]$TargetDatabase = 'sess_nexaerp_rev869b_control_plane',
-    [string]$AuthorizationReference,
     [string]$ExpectedSystemIdentifier,
+    [string]$ExpectedTlsSpkiSha256,
     [string]$ExpectedServerAddress,
+    [string]$ExpectedEnvironment,
     [string]$ExpectedManifestSha256,
     [string]$ExpectedSourceCommit,
     [Guid]$ExecutionInstanceId
@@ -23,11 +24,9 @@ $policy = 'MGMT-REV869B-CONTROL-PLANE-20260813-001'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $artifacts = [ordered]@{
     Preflight = Join-Path $scriptRoot 'rev869b-control-plane-preflight.sql'
-    Bootstrap = Join-Path $scriptRoot 'rev869b-control-plane-bootstrap.sql'
     Install = Join-Path $scriptRoot 'rev869b-control-plane-install.sql'
     Verify = Join-Path $scriptRoot 'rev869b-control-plane-verify.sql'
     Rollback = Join-Path $scriptRoot 'rev869b-control-plane-rollback.sql'
-    Deprovision = Join-Path $scriptRoot 'rev869b-control-plane-deprovision.sql'
 }
 
 function Assert-ExactTarget {
@@ -51,6 +50,7 @@ function Invoke-PsqlFile {
     $arguments = @('--no-password','--set','ON_ERROR_STOP=1','--host',$HostName,'--port',$Port,
         '--username',$AdministrativeUser,'--dbname',$Database,
         '--set',"expected_system_identifier=$ExpectedSystemIdentifier",
+        '--set',"expected_tls_spki_sha256=$ExpectedTlsSpkiSha256",'--set',"expected_environment=$ExpectedEnvironment",
         '--set',"expected_server_address=$ExpectedServerAddress",'--set',"expected_server_port=$Port",
         '--set',"expected_administrative_user=$AdministrativeUser",'--set',"target_database=$TargetDatabase",
         '--set',"expected_manifest_sha256=$ExpectedManifestSha256",'--set',"expected_source_commit=$ExpectedSourceCommit",
@@ -80,6 +80,8 @@ if ($databaseMode) {
     if ($HostName -cne $ExpectedServerAddress -or $AdministrativeDatabase -cne 'postgres' -or
         $AdministrativeUser -notmatch '^[a-z_][a-z0-9_]{0,62}$' -or
         $ExpectedSystemIdentifier -notmatch '^[0-9]{10,20}$' -or
+        $ExpectedTlsSpkiSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $ExpectedEnvironment -notmatch '^[a-z][a-z0-9-]{1,30}$' -or
         $ExpectedManifestSha256 -cne $computedManifestSha256 -or
         $ExpectedSourceCommit -notmatch '^[0-9a-f]{40}$' -or $ExecutionInstanceId -eq [Guid]::Empty) {
         throw 'Exact external cluster, administrator, manifest, source-commit, and execution identity is required.'
@@ -107,28 +109,8 @@ switch ($Mode) {
         $evidence.PostgreSqlAccessed = $true
         $evidence | ConvertTo-Json -Depth 5
     }
-    'ProvisionAuthorized' {
-        if ($AuthorizationReference -cne 'MGMT-REV869B-CONTROL-PLANE-PROVISION') {
-            throw 'A separate exact provisioning authorization reference is required.'
-        }
-        Invoke-PsqlFile 'postgres' $artifacts.Preflight
-        Invoke-PsqlFile 'postgres' $artifacts.Bootstrap
-        Invoke-PsqlFile $TargetDatabase $artifacts.Install
-        Invoke-PsqlFile $TargetDatabase $artifacts.Verify
-        $evidence.PostgreSqlAccessed = $true
-        $evidence | ConvertTo-Json -Depth 5
-    }
     'PostProvisionVerification' {
         Invoke-PsqlFile $TargetDatabase $artifacts.Verify
-        $evidence.PostgreSqlAccessed = $true
-        $evidence | ConvertTo-Json -Depth 5
-    }
-    'RollbackAuthorized' {
-        if ($AuthorizationReference -cne 'MGMT-REV869B-CONTROL-PLANE-ROLLBACK') {
-            throw 'A separate exact rollback authorization reference is required.'
-        }
-        Invoke-PsqlFile $TargetDatabase $artifacts.Rollback
-        Invoke-PsqlFile 'postgres' $artifacts.Deprovision
         $evidence.PostgreSqlAccessed = $true
         $evidence | ConvertTo-Json -Depth 5
     }

@@ -1,101 +1,81 @@
-
+using System.Text.RegularExpressions;
 
 namespace SESS.NexaERP.Tests;
 
 public sealed class Rev869BCorrection16SourceContractTests
 {
-    private static string Read(string relative) =>
-        File.ReadAllText(Path.Combine(FindRoot(), relative.Replace('/', Path.DirectorySeparatorChar)));
-
     [Fact]
-    public void C15N01ProvisioningManifestIsExactReproducibleAndNonMutating()
+    public void ExternalProvisioningHelperHasOnlyOfflinePlanAndReadOnlyModes()
     {
-        var plan = Rev869BControlPlaneProvisioningContract.GeneratePlan(
-            Rev869BControlPlaneProvisioningContract.SafeMode.GeneratePlanOnly);
-        Assert.Equal(7, Rev869BControlPlaneProvisioningContract.Apis.Length);
-        Assert.Equal(5, Rev869BControlPlaneProvisioningContract.Relations.Length);
-        Assert.Contains("NO_SILENT_REPAIR=TRUE", plan);
-        Assert.Contains("PUBLIC=NO_CONNECT", plan);
-        Assert.Contains("DEFAULT_PRIVILEGES=REVOKE_ALL_FROM_PUBLIC", plan);
-        Assert.Contains("rev869b_verify_exact_control_plane", Rev869BControlPlaneProvisioningContract.ExactReadinessSql);
-        Assert.Contains("EXECUTABLE_INSTALL=tools/rev869b-control-plane-install.sql", plan);
-        Assert.DoesNotContain("PASSWORD=", plan, StringComparison.OrdinalIgnoreCase);
-        Assert.Throws<InvalidOperationException>(() =>
-            Rev869BControlPlaneProvisioningContract.RequireSafeTarget("postgres"));
+        var helper = Source("tools/manage-rev869b-control-plane-secure.ps1");
+        var modes = Regex.Match(helper, @"ValidateSet\((?<m>[^)]*)\)").Groups["m"].Value;
+        Assert.Contains("GeneratePlanOnly", modes);
+        Assert.Contains("PreflightOnly", modes);
+        Assert.Contains("PostProvisionVerification", modes);
+        Assert.DoesNotContain("ProvisionAuthorized", helper);
+        Assert.DoesNotContain("RollbackAuthorized", helper);
+        Assert.DoesNotContain("Bootstrap", helper);
+        Assert.DoesNotContain("Deprovision", helper);
+        Assert.False(File.Exists(Path.Combine(Root, "tools", "rev869b-control-plane-bootstrap.sql")));
+        Assert.False(File.Exists(Path.Combine(Root, "tools", "rev869b-control-plane-deprovision.sql")));
     }
 
     [Fact]
-    public void C15N02LifecycleSeparatesRequestAndMarkerTimesAndReconcilesPostDrop()
+    public void PreflightVerifiesExternallyProvisionedIdentityWithoutClusterMutation()
     {
-        var source = Read("tests/SESS.NexaERP.Tests/Rev869BTestDatabaseLease.cs");
-        Assert.Contains("DateTimeOffset leaseRequestedAt", source);
-        Assert.Contains("DateTimeOffset? markerProvisionedAt", source);
-        Assert.Contains(((char)34) + "LeaseRequestedAt" + ((char)34) + "=@leaseRequested", source);
-        Assert.Contains(((char)34) + "ProvisionedAt" + ((char)34) + "=@markerProvisioned", source);
-        Assert.Contains("post-drop outcome reconciliation", source);
-        Assert.True(source.IndexOf("ReserveBeforeCreateAsync(reservation)", StringComparison.Ordinal) <
-                    source.IndexOf("WriteEvidenceAsync(new QuarantineEvidence", StringComparison.Ordinal));
-        Assert.Contains(((char)34) + "Quarantined" + ((char)34) + ", null", source);
+        var sql = Source("tools/rev869b-control-plane-preflight.sql");
+        foreach (var required in new[] { "pg_control_system().system_identifier", "expected_server_address", "expected_manifest_sha256", "expected_source_commit", "nexa_rev869b_lifecycle_administrator", "nexa_rev869b_management_writer" }) Assert.Contains(required, sql);
+        Assert.DoesNotMatch(new Regex(@"(?im)^\s*(CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE)\b"), sql);
     }
 
     [Fact]
-    public void C15N03PurgeUsesFreshAutocommitPhasesAndDoesNotDestroyApprovalOnProbe()
+    public void ControlPlaneFunctionsArePurposeSpecificAndNoGenericTransitionExists()
     {
-        var coordinator = Read("tests/SESS.NexaERP.Tests/Rev869BPurgeCoordinator.cs");
-        var sql = Read("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs");
-        Assert.Contains("Pooling = false", coordinator);
-        Assert.Contains("fresh autocommit executor connection", coordinator);
-        Assert.Contains("Rejected probes are audited but never consume or destroy", sql);
-        Assert.Contains(((char)34) + "EventType" + ((char)34) + "=ANY(approval." +
-            ((char)34) + "EligibleStates" + ((char)34) + ")", sql);
-        Assert.DoesNotContain("approval.\"State\"='Approved' THEN\n              UPDATE", sql);
+        var sql = Source("tools/rev869b-control-plane-install.sql");
+        var functions = Regex.Matches(sql, @"CREATE FUNCTION nexa\.(?<name>[a-z0-9_]+)\(").Select(x => x.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
+        var expected = new[] { "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready", "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_begin_drop", "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target", "rev869b_read_lease", "rev869b_read_nonterminal_leases" };
+        Assert.All(expected, name => Assert.Contains(name, functions));
+        Assert.DoesNotContain("rev869b_transition_database_lease", functions);
+        Assert.Contains("session_user", sql);
+        Assert.DoesNotContain("issuer_authority", sql, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void C15N04DurableAttemptBindsDatabaseExecutionAuthorizationAndBusinessCommand()
+    public void LifecycleStateConstraintMatchesTheFrozenGraphAndFinalizerIsIdempotent()
     {
-        var sql = Read("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs");
-        var authorizer = Read("src/SESS.NexaERP.Infrastructure/Persistence/Rev869BCommandContextAuthorizer.cs");
-        foreach (var field in new[] { "DatabaseInstanceFingerprint", "ControlPlanePolicy", "ExecutionInstanceId",
-                     "ServiceInstanceFingerprint", "AuthorizationFingerprint", "AuthorizationExpiresAt",
-                     "BusinessCommandFingerprint", "OwnershipLeaseFingerprint", "AttemptSequence", "AttemptedAt" })
-            Assert.Contains(field, sql);
-        Assert.Contains("rev869b_record_command_consumption_attempt", authorizer);
-        Assert.True(authorizer.IndexOf("rev869b_record_command_consumption_attempt", StringComparison.Ordinal) <
-                    authorizer.IndexOf("rev869b_open_command_context", StringComparison.Ordinal));
+        var sql = Source("tools/rev869b-control-plane-install.sql");
+        var states = Regex.Match(sql, @"State IN \((?<states>[^)]*)\)").Groups["states"].Value;
+        foreach (var state in new[] { "Reserved", "Provisioning", "Ready", "InUse", "DropAuthorized", "DropStarted", "Quarantined", "RecoveryAuthorized", "CleanupFailed", "Finalized" }) Assert.Contains("'" + state + "'", states);
+        Assert.DoesNotContain("'Dropped'", states);
+        var finalizer = Slice(sql, "CREATE FUNCTION nexa.rev869b_finalize_absent_target", "CREATE FUNCTION nexa.rev869b_read_lease");
+        Assert.Contains("Finalizer replay evidence mismatch", finalizer);
+        Assert.Contains("RETURN existing.OutcomeId", finalizer);
+        Assert.Contains("State='Finalized'", finalizer);
     }
 
     [Fact]
-    public void C15N05ManifestClosesRoleAclOwnershipAndExportByDefault()
+    public void CanonicalVerifierComparesCompleteObjectAndEffectiveAclSets()
     {
-        var plan = Rev869BControlPlaneProvisioningContract.GeneratePlan(
-            Rev869BControlPlaneProvisioningContract.SafeMode.PostProvisionVerification);
-        foreach (var value in new[] { "NOINHERIT", "TABLE_DML=NONE", "PUBLIC=NONE",
-                     "NO_FUNCTION_EXECUTE", "OWNERSHIP=ALL_REGISTRY_RELATIONS_FUNCTIONS_TRIGGERS" })
-            Assert.Contains(value, plan);
-        Assert.DoesNotContain("EXPORT=UNRESTRICTED", plan);
+        var sql = Source("tools/rev869b-control-plane-verify.sql");
+        foreach (var set in new[] { "expected_relations", "actual_relations", "relation_delta", "expected_functions", "actual_functions", "function_delta", "expected_exec", "actual_exec", "exec_delta", "direct_table_access" }) Assert.Contains(set, sql);
+        Assert.Contains("EXCEPT", sql);
+        Assert.Contains("pg_auth_members", sql);
+        Assert.DoesNotContain("column_count", sql);
     }
 
     [Fact]
-    public void C15N06FuturePurgeHarnessUsesExactDistinctRolesAndOwnedDatabase()
+    public void RollbackIsSchemaOnlyAndGatedOnEveryLeaseFinalized()
     {
-        var source = Read("tests/SESS.NexaERP.Tests/Rev869BPurgeCoordinator.cs");
-        Assert.Contains("REV869B_PURGE_EXECUTOR_CONNECTION", source);
-        Assert.Contains("nexa_rev869b_purge_executor", source);
-        Assert.Contains("DatabasePrefix", source);
-        Assert.Contains("session_user=@role", source);
-        Assert.Contains("Pooling = false", source);
+        var sql = Source("tools/rev869b-control-plane-rollback.sql");
+        Assert.Contains("session_user<>'nexa_rev869b_lifecycle_administrator'", sql);
+        Assert.Contains("WHERE State<>'Finalized'", sql);
+        Assert.Contains("DROP SCHEMA nexa CASCADE", sql);
+        Assert.DoesNotContain("DROP DATABASE", sql);
+        Assert.DoesNotContain("DROP ROLE", sql);
     }
 
-    private static string FindRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "SESS.NexaERP.slnx")))
-                return directory.FullName;
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException("Repository root was not found.");
-    }
+    private static string Slice(string value, string start, string end) => value[value.IndexOf(start, StringComparison.Ordinal)..value.IndexOf(end, value.IndexOf(start, StringComparison.Ordinal), StringComparison.Ordinal)];
+    private static string Source(string relative) => File.ReadAllText(Path.Combine(Root, relative.Replace('/', Path.DirectorySeparatorChar)));
+    private static readonly string Root = FindRoot();
+    private static string FindRoot() { for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent) if (File.Exists(Path.Combine(d.FullName, "SESS.NexaERP.slnx"))) return d.FullName; throw new DirectoryNotFoundException(); }
 }
