@@ -254,6 +254,65 @@ CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence() RETURNS jsonb LAN
   UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='nexa'::regnamespace
   UNION ALL SELECT 'role|'||r.rolname||'|'||r.rolcanlogin||'|'||r.rolinherit||'|'||r.rolsuper||'|'||r.rolcreatedb||'|'||r.rolcreaterole||'|'||r.rolreplication||'|'||r.rolbypassrls FROM pg_roles r WHERE r.rolname LIKE 'nexa_rev869b_%')
  SELECT jsonb_build_object('facts',jsonb_agg(fact ORDER BY fact),'count',count(*),'sha256',encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex'),'ownerFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'database|%' OR fact LIKE 'schema|%' OR fact LIKE 'relation|%' OR fact LIKE 'function|%'),'defaultPrivilegeFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'defaultacl|%'),'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%')) FROM facts WHERE session_user='nexa_rev869b_control_plane_verifier' $$;
+CREATE FUNCTION nexa.rev869b_read_lifecycle_evidence_v2(instance_sha256 text,lease_id uuid,scenario_id text,subcase_id text,attempt_id uuid,request_id uuid,decision_id uuid,lease_version bigint) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
+ WITH selected_lease AS (
+  SELECT l.* FROM nexa.rev869b_database_leases l
+  WHERE l.LeaseId=$2 AND l.Version=$8 AND l.ObservedDatabaseIdentitySha256=$1
+ ), selected_events AS (
+  SELECT e.* FROM nexa.rev869b_database_lease_events e JOIN selected_lease l ON l.LeaseId=e.LeaseId
+ ), selected_attempts AS (
+  SELECT a.* FROM nexa.rev869b_lifecycle_attempts a JOIN selected_lease l ON l.LeaseId=a.LeaseId WHERE a.AttemptId=$5
+ ), selected_outcomes AS (
+  SELECT o.* FROM nexa.rev869b_lifecycle_outcomes o JOIN selected_attempts a ON a.AttemptId=o.AttemptId
+ ), selected_decisions AS (
+  SELECT d.* FROM nexa.rev869b_recovery_decisions d JOIN selected_lease l ON l.LeaseId=d.LeaseId WHERE $7 IS NOT NULL AND d.DecisionId=$7
+ ), selected_quarantine AS (
+  SELECT q.* FROM nexa.rev869b_quarantine_outcomes q JOIN selected_attempts a ON a.AttemptId=q.AttemptId
+ )
+ SELECT jsonb_build_object(
+  'readerId','CP-L2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',$1,'leaseBindingId',$2,
+  'leaseVersion',$8,'requestId',$6,'attemptId',$5,'decisionId',$7,
+  'lease',(SELECT to_jsonb(l) FROM selected_lease l),
+  'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.Version,e.EventId) FROM selected_events e),'[]'::jsonb),
+  'attempt',(SELECT to_jsonb(a) FROM selected_attempts a),
+  'outcomes',coalesce((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.RecordedAt,o.OutcomeId) FROM selected_outcomes o),'[]'::jsonb),
+  'decisions',coalesce((SELECT jsonb_agg(to_jsonb(d)-'NonceSha256' ORDER BY d.DecisionId) FROM selected_decisions d),'[]'::jsonb),
+  'quarantine',coalesce((SELECT jsonb_agg(to_jsonb(q) ORDER BY q.QuarantineOutcomeId) FROM selected_quarantine q),'[]'::jsonb),
+  'leaseCount',(SELECT count(*) FROM selected_lease),'eventCount',(SELECT count(*) FROM selected_events),
+  'requestEventCount',(SELECT count(*) FROM selected_events WHERE RequestId=$6),
+  'attemptCount',(SELECT count(*) FROM selected_attempts),'outcomeCount',(SELECT count(*) FROM selected_outcomes),
+  'decisionCount',(SELECT count(*) FROM selected_decisions),'quarantineCount',(SELECT count(*) FROM selected_quarantine),
+  'canonicalSha256',encode(digest(coalesce((SELECT string_agg(e.EventId::text||':'||e.RequestId::text||':'||coalesce(e.AttemptId::text,'')||':'||coalesce(e.FromState,'')||':'||e.ToState||':'||e.Version::text||':'||e.EvidenceSha256,',' ORDER BY e.Version,e.EventId) FROM selected_events e),''),'sha256'),'hex'))
+ WHERE $1~'^[0-9a-f]{64}$' AND $2<>'00000000-0000-0000-0000-000000000000'::uuid
+   AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
+   AND $5<>'00000000-0000-0000-0000-000000000000'::uuid
+   AND $6<>'00000000-0000-0000-0000-000000000000'::uuid
+   AND session_user='nexa_rev869b_control_plane_verifier' $$;
+CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence_v2(oracle_version text,observation_stage text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
+ WITH direct_acl(fact) AS (
+  SELECT 'database|'||d.datname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl,acldefault('d',d.datdba))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.datname=current_database()
+  UNION ALL SELECT 'schema|'||n.nspname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+  UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+  UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+  UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='nexa'::regnamespace
+ ), membership(fact) AS (
+  SELECT 'membership|'||parent.rolname||'|'||member.rolname||'|'||m.admin_option FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE parent.rolname LIKE 'nexa_rev869b_%' OR member.rolname LIKE 'nexa_rev869b_%'
+ ), ownership(fact) AS (
+  SELECT 'database-owner|'||current_database()||'|'||pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()
+  UNION ALL SELECT 'schema-owner|nexa|'||pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='nexa'
+  UNION ALL SELECT 'object-owner|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'function-owner|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
+ ), capability(fact) AS (
+  SELECT 'role|'||rolname||'|'||rolcanlogin||'|'||rolinherit||'|'||rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'||rolreplication||'|'||rolbypassrls FROM pg_roles WHERE rolname LIKE 'nexa_rev869b_%'
+ ), facts AS (SELECT fact FROM direct_acl UNION ALL SELECT fact FROM membership UNION ALL SELECT fact FROM ownership UNION ALL SELECT fact FROM capability)
+ SELECT jsonb_build_object('readerId','CP-A2','oracleVersion',$1,'observationStage',$2,
+  'facts',jsonb_agg(fact ORDER BY fact),'factCount',count(*),
+  'sha256',encode(digest(string_agg(fact,chr(10) ORDER BY fact),'sha256'),'hex'),
+  'publicGrantCount',count(*) FILTER(WHERE fact LIKE '%|PUBLIC|%'),
+  'roleMembershipCount',count(*) FILTER(WHERE fact LIKE 'membership|%'),
+  'ownerFactCount',count(*) FILTER(WHERE fact LIKE '%-owner|%'))
+ FROM facts WHERE $1='REV869B-C26-ORACLE-v1' AND $2 IN ('Before','After','Durable','authoritative')
+   AND session_user='nexa_rev869b_control_plane_verifier' $$;
 CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  WITH facts(fact) AS (
   SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
@@ -275,7 +334,7 @@ GRANT EXECUTE ON FUNCTION nexa.rev869b_reserve_lease(uuid,uuid,name,text,text,te
 GRANT EXECUTE ON FUNCTION nexa.rev869b_record_quarantine(uuid,bigint,uuid,uuid,text,text,text,text),nexa.rev869b_record_cleanup_failure(uuid,text,text,text),nexa.rev869b_finalize_absent_target(uuid,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_audit;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text),nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,uuid,uuid,text,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_recovery_executor;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_register_recovery_decision(uuid,uuid,text,text,text,timestamptz) TO nexa_rev869b_management_writer;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid),nexa.rev869b_read_control_plane_acl_evidence(),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
+GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid),nexa.rev869b_read_control_plane_acl_evidence(),nexa.rev869b_read_lifecycle_evidence_v2(text,uuid,text,text,uuid,uuid,uuid,bigint),nexa.rev869b_read_control_plane_acl_evidence_v2(text,text),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON TABLES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON SEQUENCES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;

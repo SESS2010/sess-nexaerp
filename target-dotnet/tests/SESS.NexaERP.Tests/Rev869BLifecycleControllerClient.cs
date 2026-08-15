@@ -88,13 +88,22 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     internal async Task<AcceptanceResult> RunAcceptanceScenarioAsync(AcceptanceContract contract, CancellationToken ct = default)
     {
         ValidateContract(contract);
+        AcceptanceResult? last = null;
+        foreach (var subcase in contract.RequiredSubcases)
+            last = await RunAcceptanceSubcaseAsync(contract, subcase, ct);
+        return last ?? throw new InvalidOperationException("A frozen scenario requires at least one subcase.");
+    }
+
+    private async Task<AcceptanceResult> RunAcceptanceSubcaseAsync(AcceptanceContract contract,
+        SubcaseRequirement subcase, CancellationToken ct)
+    {
         var runId = Guid.NewGuid();
         var descriptorSha256 = ExactContractSha256(contract.Descriptor);
-        var preparation = await PrepareAsync(contract, runId, descriptorSha256, ct);
-        RequirePreparation(contract, runId, descriptorSha256, preparation);
+        var preparation = await PrepareAsync(contract, subcase, runId, descriptorSha256, ct);
+        RequirePreparation(contract, subcase, runId, descriptorSha256, preparation);
 
         var before = await ObserveAsync(contract.Plan.Before, preparation, ct);
-        var action = await ActAsync(contract, preparation, runId, descriptorSha256, ct);
+        var action = await ActAsync(contract, subcase, preparation, runId, descriptorSha256, ct);
         var after = await ObserveAsync(contract.Plan.After, preparation, ct);
         var durable = await ObserveAsync(contract.Plan.Durable, preparation, ct);
         var independentAudit = await ObserveAsync(contract.Plan.Audit, preparation, ct);
@@ -104,23 +113,27 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         var cleanup = await ObserveAsync(contract.Plan.Cleanup, preparation, ct);
 
         var bundle = new EvidenceBundle(before, after, durable, independentAudit, cleanup, ActionObservation(action));
-        var failures = contract.Plan.Assertions.Where(assertion => !Evaluate(assertion, bundle)).Select(x => x.AssertionId).ToArray();
+        var failures = VerifyEvidence(contract, subcase, bundle);
         if (failures.Length != 0)
             throw new InvalidOperationException("Independent acceptance formula failed: " + string.Join(",", failures));
 
-        if (action.RunId != runId || action.ScenarioId != contract.ScenarioId ||
+        if (action.RunId != runId || action.ScenarioId != contract.ScenarioId || action.SubcaseId != subcase.SubcaseId ||
+            action.PreparationId != subcase.PreparationId || action.ExpectedResultId != subcase.ExpectedResultId ||
             action.LeaseId != preparation.LeaseId || action.FixtureId != preparation.FixtureId ||
             action.CommandId != preparation.CommandId || action.AuthorizationId != preparation.AuthorizationId ||
-            action.AttemptId != preparation.AttemptId || action.DecisionId != preparation.DecisionId)
+            action.AttemptId != preparation.AttemptId || action.DecisionId != preparation.DecisionId ||
+            action.EvidenceId != subcase.EvidenceId || !ExactSha256(action.EvidenceSha256) ||
+            action.TerminalState != subcase.ExpectedResult)
             throw new InvalidOperationException("Signed action correlation did not bind the prepared immutable identities.");
 
-        return new AcceptanceResult(contract.ScenarioId, runId, preparation.LeaseId, preparation.FixtureId,
+        return new AcceptanceResult(contract.ScenarioId, subcase.SubcaseId, runId, preparation.LeaseId, preparation.FixtureId,
             preparation.CommandId, preparation.AuthorizationId, preparation.AttemptId, preparation.DecisionId,
             before, after, durable, independentAudit, cleanup, action, failures);
     }
 
     internal static void ValidateContract(AcceptanceContract contract)
     {
+        Rev869BCorrection26FrozenOracle.Validate();
         static void Required(string value, string field)
         {
             if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(field + " is required.");
@@ -154,13 +167,31 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         var components = contract.Plan.FormulaComponents;
         if (required.Count == 0 || required.Distinct(StringComparer.Ordinal).Count() != required.Count ||
             !required.ToHashSet(StringComparer.Ordinal).SetEquals(asserted) ||
-            components.Count != asserted.Length ||
-            !components.Select(x => x.ComponentId).ToHashSet(StringComparer.Ordinal).SetEquals(asserted) ||
+            components.Count != Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId).Count ||
+            components.Select(x => x.ComponentId).Distinct(StringComparer.Ordinal).Count() != components.Count ||
             components.Any(component => string.IsNullOrWhiteSpace(component.LocalReducer) ||
                 !contract.Plan.Assertions.Any(assertion => assertion.AssertionId == component.ComponentId &&
                     assertion.Stage == component.Stage && assertion.JsonPath == component.AuthoritativeSelector &&
                     assertion.Operator == component.Operator && assertion.Expected == component.Expected)))
             throw new ArgumentException("Every immutable formula component must bind bijectively to one executable local reducer and assertion.");
+
+        var oracleComponents = Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId);
+        if (!oracleComponents.Select(x => x.ComponentId).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(components.Select(x => x.ComponentId)) ||
+            components.Any(component => oracleComponents.All(oracle =>
+                oracle.ComponentId != component.ComponentId || oracle.ValueType != component.ValueType ||
+                oracle.ReaderId != component.ReaderId || oracle.Source != component.Source ||
+                oracle.Scope != component.Scope || oracle.Cardinality != component.Cardinality ||
+                oracle.NullSemantics != component.NullSemantics)))
+            throw new ArgumentException("Formula assertions must match the independently frozen typed-selector oracle.");
+
+        var oracleSubcases = Rev869BCorrection26FrozenOracle.SubcasesFor(contract.ScenarioId);
+        if (contract.RequiredSubcases.Count != oracleSubcases.Count ||
+            contract.RequiredSubcases.Any(subcase => oracleSubcases.All(oracle => oracle.SubcaseId != subcase.SubcaseId ||
+                oracle.PreparationId != subcase.PreparationId || oracle.AttemptId != subcase.AttemptId ||
+                oracle.EvidenceId != subcase.EvidenceId || oracle.ExpectedResultId != subcase.ExpectedResultId ||
+                oracle.ExpectedOutcome != subcase.ExpectedResult || oracle.ActionId != subcase.ActionId)))
+            throw new ArgumentException("Every subcase must retain its frozen preparation, attempt, evidence and expected-result binding.");
 
         if (contract.Plan.Assertions.Any(x => x.Stage == EvidenceStage.Audit ||
             x.Expected.StartsWith("Audit:", StringComparison.Ordinal) ||
@@ -204,6 +235,70 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         };
     }
 
+    internal static string[] VerifyEvidence(AcceptanceContract contract, SubcaseRequirement subcase, EvidenceBundle bundle)
+    {
+        ValidateContract(contract);
+        var failures = new List<string>();
+        var decisiveStages = new[] { EvidenceStage.Before, EvidenceStage.After, EvidenceStage.Durable, EvidenceStage.Cleanup };
+        string? instance = null;
+        string? lease = null;
+        foreach (var stage in decisiveStages)
+        {
+            var root = bundle.For(stage).Document.RootElement;
+            bool Exact(string name, string expected) => root.TryGetProperty(name, out var value) &&
+                string.Equals(Scalar(value), expected, StringComparison.Ordinal);
+            if (!Exact("oracleVersion", Rev869BCorrection26FrozenOracle.Version) ||
+                !Exact("oracleSha256", Rev869BCorrection26FrozenOracle.ExpectedSha256) ||
+                !Exact("scenarioId", contract.ScenarioId) || !Exact("subcaseId", subcase.SubcaseId) ||
+                !Exact("preparationId", subcase.PreparationId.ToString()) ||
+                !Exact("attemptId", subcase.AttemptId.ToString()) ||
+                !Exact("evidenceId", subcase.EvidenceId.ToString()) ||
+                !Exact("expectedResultId", subcase.ExpectedResultId.ToString()) ||
+                !Exact("expectedOutcome", subcase.ExpectedResult) ||
+                !Exact("provenance", "authoritative-local-reader"))
+                failures.Add("envelope:" + stage);
+            if (!root.TryGetProperty("asOfSequence", out var sequence) || !sequence.TryGetInt64(out var n) || n < 0)
+                failures.Add("freshness:" + stage);
+            if (!root.TryGetProperty("duplicateEvidenceCount", out var duplicates) ||
+                !duplicates.TryGetInt64(out var duplicateCount) || duplicateCount != 0)
+                failures.Add("duplicates:" + stage);
+            if (!root.TryGetProperty("targetInstanceSha256", out var target) ||
+                target.ValueKind != JsonValueKind.String || !ExactSha256(target.GetString()!))
+                failures.Add("instance:" + stage);
+            else if (instance is null) instance = target.GetString();
+            else if (!string.Equals(instance, target.GetString(), StringComparison.Ordinal)) failures.Add("cross-instance:" + stage);
+            if (!root.TryGetProperty("leaseBindingId", out var leaseValue) ||
+                leaseValue.ValueKind != JsonValueKind.String || !Guid.TryParse(leaseValue.GetString(), out _))
+                failures.Add("lease:" + stage);
+            else if (lease is null) lease = leaseValue.GetString();
+            else if (!string.Equals(lease, leaseValue.GetString(), StringComparison.Ordinal)) failures.Add("cross-lease:" + stage);
+        }
+
+        foreach (var stage in new[] { EvidenceStage.Before, EvidenceStage.After, EvidenceStage.Durable })
+        {
+            var expected = RequiredSelectorReaders(contract.ScenarioId, stage);
+            if (expected.Length == 0) continue;
+            var root = bundle.For(stage).Document.RootElement;
+            if (!root.TryGetProperty("selectors", out var selectors) || selectors.ValueKind != JsonValueKind.Object)
+                failures.Add("selectors:missing:" + stage);
+            else
+            {
+                var actual = selectors.EnumerateObject().Select(x => x.Name).ToArray();
+                if (actual.Length != actual.Distinct(StringComparer.Ordinal).Count() ||
+                    !actual.ToHashSet(StringComparer.Ordinal).SetEquals(expected.Select(x => x.SelectorName)))
+                    failures.Add("selectors:exact-set:" + stage);
+            }
+            if (!root.TryGetProperty("selectorReaders", out var readers) || readers.ValueKind != JsonValueKind.Object ||
+                expected.Any(selector => !readers.TryGetProperty(selector.SelectorName, out var reader) ||
+                    reader.ValueKind != JsonValueKind.String || reader.GetString() != selector.ReaderId))
+                failures.Add("selectors:reader-binding:" + stage);
+        }
+
+        failures.AddRange(contract.Plan.Assertions.Where(assertion => !Evaluate(assertion, bundle))
+            .Select(assertion => assertion.AssertionId));
+        return failures.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
     private static bool CompareObservationPath(string reference, JsonElement? actual, EvidenceBundle bundle, bool equal)
     {
         var parts = reference.Split(':', 2);
@@ -216,7 +311,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     private static bool ExactlyOneTrue(string references, EvidenceBundle bundle)
     {
-        var values = references.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(reference =>
+        var values = SplitReferences(references).Select(reference =>
         {
             var parts = reference.Split(':', 2);
             if (parts.Length != 2 || !Enum.TryParse<EvidenceStage>(parts[0], out var stage)) return false;
@@ -225,17 +320,39 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         });
         return values.Count(value => value) == 1;
     }
-    internal static EvidenceBundle BuildSyntheticEvidence(AcceptanceContract contract)
+    internal static EvidenceBundle BuildOracleEvidence(AcceptanceContract contract, SubcaseRequirement subcase)
     {
         ValidateContract(contract);
+        if (contract.RequiredSubcases.All(x => x.SubcaseId != subcase.SubcaseId))
+            throw new ArgumentException("Subcase is not part of the frozen scenario.", nameof(subcase));
+        var instanceSha256 = ExactContractSha256(new { subcase.SubcaseId, kind = "target-instance" });
         var roots = Enum.GetValues<EvidenceStage>().ToDictionary(stage => stage,
-            stage => new JsonObject { ["observationStage"] = stage.ToString(), ["scenarioId"] = contract.ScenarioId });
+            stage => new JsonObject
+            {
+                ["observationStage"] = stage.ToString(),
+                ["oracleVersion"] = Rev869BCorrection26FrozenOracle.Version,
+                ["oracleSha256"] = Rev869BCorrection26FrozenOracle.ExpectedSha256,
+                ["scenarioId"] = contract.ScenarioId,
+                ["subcaseId"] = subcase.SubcaseId,
+                ["preparationId"] = subcase.PreparationId,
+                ["attemptId"] = subcase.AttemptId,
+                ["evidenceId"] = subcase.EvidenceId,
+                ["expectedResultId"] = subcase.ExpectedResultId,
+                ["expectedOutcome"] = subcase.ExpectedResult,
+                ["targetInstanceSha256"] = instanceSha256,
+                ["leaseBindingId"] = subcase.PreparationId,
+                ["asOfSequence"] = 1,
+                ["duplicateEvidenceCount"] = 0,
+                ["provenance"] = stage == EvidenceStage.Audit ? "controller-supplementary" : "authoritative-local-reader"
+            });
 
-        foreach (var assertion in contract.Plan.Assertions)
+        foreach (var selector in Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId))
         {
+            var assertion = new EvidenceAssertion(selector.ComponentId, Enum.Parse<EvidenceStage>(selector.Stage),
+                "selectors." + selector.SelectorName, Enum.Parse<EvidenceOperator>(selector.Operator), selector.Expected);
             if (assertion.Operator == EvidenceOperator.ExactlyOneTrue)
             {
-                var references = assertion.Expected.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                var references = SplitReferences(assertion.Expected);
                 for (var index = 0; index < references.Length; index++)
                 {
                     var reference = ParseReference(references[index]);
@@ -268,9 +385,32 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             if (assertion.Operator is EvidenceOperator.EqualsObservationPath or EvidenceOperator.NotEqualsObservationPath)
             {
                 var reference = ParseReference(assertion.Expected);
-                SetPath(roots[reference.Stage], reference.Path,
-                    JsonValue.Create(assertion.Operator == EvidenceOperator.EqualsObservationPath ? "same-value" : "right-value"));
+                var referenced = GetPath(roots[reference.Stage], reference.Path);
+                if (referenced is null)
+                {
+                    SetPath(roots[reference.Stage], reference.Path, JsonValue.Create("right-value"));
+                    referenced = GetPath(roots[reference.Stage], reference.Path);
+                }
+                SetPath(roots[assertion.Stage], assertion.JsonPath,
+                    assertion.Operator == EvidenceOperator.EqualsObservationPath
+                        ? referenced?.DeepClone()
+                        : JsonValue.Create("left-value"));
             }
+        }
+
+        SetPath(roots[EvidenceStage.Action], "actionReached", JsonValue.Create(true));
+        SetPath(roots[EvidenceStage.Action], "terminalState", JsonValue.Create(subcase.ExpectedResult));
+        var scenario = Rev869BCorrection26FrozenOracle.Scenario(contract.ScenarioId);
+        if (scenario.SqlState.Length != 0) SetPath(roots[EvidenceStage.Action], "sqlState", JsonValue.Create(scenario.SqlState));
+        if (scenario.ErrorCode.Length != 0) SetPath(roots[EvidenceStage.Action], "errorCode", JsonValue.Create(scenario.ErrorCode));
+        if (scenario.DatabaseObject.Length != 0) SetPath(roots[EvidenceStage.Action], "databaseObject", JsonValue.Create(scenario.DatabaseObject));
+        SetPath(roots[EvidenceStage.Cleanup], "lease", new JsonObject { ["leaseBindingId"] = subcase.PreparationId });
+        foreach (var stage in new[] { EvidenceStage.Before, EvidenceStage.After, EvidenceStage.Durable })
+        {
+            var selectorReaders = new JsonObject();
+            foreach (var selector in RequiredSelectorReaders(contract.ScenarioId, stage))
+                selectorReaders[selector.SelectorName] = selector.ReaderId;
+            if (selectorReaders.Count != 0) roots[stage]["selectorReaders"] = selectorReaders;
         }
 
         EvidenceObservation Observation(EvidenceStage stage)
@@ -282,8 +422,10 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         var bundle = new EvidenceBundle(Observation(EvidenceStage.Before), Observation(EvidenceStage.After),
             Observation(EvidenceStage.Durable), Observation(EvidenceStage.Audit), Observation(EvidenceStage.Cleanup),
             Observation(EvidenceStage.Action));
-        foreach (var assertion in contract.Plan.Assertions)
+        foreach (var selector in Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId))
         {
+            var assertion = new EvidenceAssertion(selector.ComponentId, Enum.Parse<EvidenceStage>(selector.Stage),
+                "selectors." + selector.SelectorName, Enum.Parse<EvidenceOperator>(selector.Operator), selector.Expected);
             if (assertion.Operator == EvidenceOperator.SameCanonicalSha256AsBefore)
                 bundle = ReplaceStage(bundle, assertion.Stage, bundle.For(assertion.Stage) with { CanonicalSha256 = bundle.Before.CanonicalSha256 });
             else if (assertion.Operator == EvidenceOperator.DifferentCanonicalSha256FromBefore &&
@@ -292,6 +434,40 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         }
         return bundle;
     }
+
+    private static SelectorReader[] RequiredSelectorReaders(string scenarioId, EvidenceStage stage)
+    {
+        var readers = new Dictionary<string, string>(StringComparer.Ordinal);
+        void Add(string name, string reader)
+        {
+            if (readers.TryGetValue(name, out var prior) && prior != reader)
+                throw new InvalidOperationException("One authoritative selector cannot be assigned to two reader meanings.");
+            readers[name] = reader;
+        }
+
+        foreach (var selector in Rev869BCorrection26FrozenOracle.SelectorsFor(scenarioId))
+        {
+            if (selector.Stage == stage.ToString() && selector.Operator != "ExactlyOneTrue")
+                Add(selector.SelectorName, selector.ReaderId);
+            if (selector.Operator is "EqualsObservationPath" or "NotEqualsObservationPath")
+            {
+                var reference = ParseReference(selector.Expected);
+                if (reference.Stage == stage && reference.Path.StartsWith("selectors.", StringComparison.Ordinal))
+                    Add(reference.Path["selectors.".Length..], selector.ReaderId);
+            }
+            if (selector.Operator == "ExactlyOneTrue")
+                foreach (var referenceText in SplitReferences(selector.Expected))
+                {
+                    var reference = ParseReference(referenceText);
+                    if (reference.Stage == stage && reference.Path.StartsWith("selectors.", StringComparison.Ordinal))
+                        Add(reference.Path["selectors.".Length..], selector.ReaderId);
+                }
+        }
+        return readers.OrderBy(x => x.Key, StringComparer.Ordinal)
+            .Select(x => new SelectorReader(x.Key, x.Value)).ToArray();
+    }
+
+    private sealed record SelectorReader(string SelectorName, string ReaderId);
 
     internal static EvidenceBundle TamperEvidence(EvidenceBundle pristine, EvidenceAssertion assertion)
     {
@@ -302,7 +478,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         if (assertion.Operator == EvidenceOperator.ExactlyOneTrue)
         {
             var changed = pristine;
-            foreach (var referenceText in assertion.Expected.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            foreach (var referenceText in SplitReferences(assertion.Expected))
             {
                 var reference = ParseReference(referenceText);
                 changed = ChangePath(changed, reference.Stage, reference.Path, JsonValue.Create(true), remove: false);
@@ -328,6 +504,40 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             remove: assertion.Operator == EvidenceOperator.Exists);
     }
 
+    internal static EvidenceBundle MutateEvidence(AcceptanceContract contract, SubcaseRequirement subcase,
+        EvidenceBundle pristine, EvidenceMutationKind mutation)
+    {
+        var formula = contract.Plan.Assertions.First(x => x.AssertionId.Contains(":formula-", StringComparison.Ordinal));
+        return mutation switch
+        {
+            EvidenceMutationKind.Missing => ChangePath(pristine, formula.Stage, formula.JsonPath, null, remove: true),
+            EvidenceMutationKind.Additional => ChangePath(pristine, formula.Stage,
+                "selectors.unexpectedSelector", JsonValue.Create(1L), remove: false),
+            EvidenceMutationKind.Duplicated => ChangePath(pristine, formula.Stage,
+                "duplicateEvidenceCount", JsonValue.Create(1L), remove: false),
+            EvidenceMutationKind.Altered => TamperEvidence(pristine, formula),
+            EvidenceMutationKind.Stale => ChangePath(pristine, EvidenceStage.Before,
+                "asOfSequence", JsonValue.Create(-1L), remove: false),
+            EvidenceMutationKind.Replayed => ChangePath(pristine, EvidenceStage.Durable,
+                "evidenceId", JsonValue.Create(Guid.Empty), remove: false),
+            EvidenceMutationKind.Fabricated => ChangePath(pristine, EvidenceStage.Durable,
+                "provenance", JsonValue.Create("controller-fabricated"), remove: false),
+            EvidenceMutationKind.CrossInstance => ChangePath(pristine, EvidenceStage.After,
+                "targetInstanceSha256", JsonValue.Create(new string('f', 64)), remove: false),
+            EvidenceMutationKind.CrossLease => ChangePath(pristine, EvidenceStage.Cleanup,
+                "leaseBindingId", JsonValue.Create(Guid.Empty), remove: false),
+            EvidenceMutationKind.WrongVersion => ChangePath(pristine, EvidenceStage.Durable,
+                "oracleVersion", JsonValue.Create("REV869B-C26-ORACLE-wrong"), remove: false),
+            EvidenceMutationKind.WrongState => ChangePath(pristine, EvidenceStage.Action,
+                "terminalState", JsonValue.Create("FabricatedState"), remove: false),
+            EvidenceMutationKind.WrongCount => TamperEvidence(pristine,
+                contract.Plan.Assertions.FirstOrDefault(x => x.Operator is EvidenceOperator.Zero or
+                    EvidenceOperator.GreaterThanZero or EvidenceOperator.AtMostOne ||
+                    x.Operator == EvidenceOperator.EqualsLiteral && long.TryParse(x.Expected, out _)) ?? formula),
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation))
+        };
+    }
+
     private static (EvidenceStage Stage, string Path) ParseReference(string reference)
     {
         var parts = reference.Split(':', 2);
@@ -335,6 +545,10 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             throw new ArgumentException("Exact observation reference required.", nameof(reference));
         return (stage, parts[1]);
     }
+
+    private static string[] SplitReferences(string references) =>
+        references.Replace(" OR ", "|", StringComparison.Ordinal)
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static string ReferenceScalar(EvidenceBundle bundle, string reference)
     {
@@ -380,6 +594,16 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         current[parts[^1]] = value?.DeepClone();
     }
 
+    private static JsonNode? GetPath(JsonObject root, string path)
+    {
+        JsonNode? current = root;
+        foreach (var part in path.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (current is not JsonObject obj || !obj.TryGetPropertyValue(part, out current)) return null;
+        }
+        return current;
+    }
+
     private static void RemovePath(JsonObject root, string path)
     {
         var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -405,6 +629,11 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
                 Cleanup = contract.Plan.Cleanup.ReadId == mutation.TargetReadId ? contract.Plan.Cleanup with { ReadId = string.Empty } : contract.Plan.Cleanup
             },
             MutationKind.RemoveAssertion => contract.Plan with { Assertions = contract.Plan.Assertions.Where(x => x.AssertionId != mutation.TargetReadId).ToArray() },
+            MutationKind.WeakenAssertion => contract.Plan with
+            {
+                Assertions = contract.Plan.Assertions.Select(x => x.AssertionId == mutation.TargetReadId
+                    ? x with { Operator = EvidenceOperator.Exists, Expected = string.Empty } : x).ToArray()
+            },
             MutationKind.FabricateEvidence => contract.Plan with
             {
                 Assertions = contract.Plan.Assertions.Select((x, i) => i == 0 ? x with { Expected = "fabricated" } : x).ToArray()
@@ -441,14 +670,23 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         return contract with { Plan = plan };
     }
 
-    private async Task<ScenarioPreparation> PrepareAsync(AcceptanceContract contract, Guid runId, string descriptorSha256, CancellationToken ct)
+    private async Task<ScenarioPreparation> PrepareAsync(AcceptanceContract contract, SubcaseRequirement subcase,
+        Guid runId, string descriptorSha256, CancellationToken ct)
     {
         using var response = await actionHttp.PostAsJsonAsync("v1/rev869b/acceptance/prepare", new
         {
             runId,
             contract.ScenarioId,
+            subcase.SubcaseId,
+            subcase.PreparationId,
+            subcase.AttemptId,
+            subcase.EvidenceId,
+            subcase.ExpectedResultId,
             contract.Plan.FixtureOperationId,
-            contract.Plan.ActionOperationId,
+            actionOperationId = subcase.ActionId,
+            expectedResult = subcase.ExpectedResult,
+            oracleVersion = Rev869BCorrection26FrozenOracle.Version,
+            oracleSha256 = Rev869BCorrection26FrozenOracle.ExpectedSha256,
             descriptorSha256,
             pins.SourceCommit,
             pins.ManifestSha256,
@@ -458,18 +696,26 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         return await ReadSignedAsync<ScenarioPreparation>(response, pins.ControllerSigningPublicKeyPem, ct);
     }
 
-    private async Task<ActionReceipt> ActAsync(AcceptanceContract contract, ScenarioPreparation preparation, Guid runId, string descriptorSha256, CancellationToken ct)
+    private async Task<ActionReceipt> ActAsync(AcceptanceContract contract, SubcaseRequirement subcase,
+        ScenarioPreparation preparation, Guid runId, string descriptorSha256, CancellationToken ct)
     {
         using var response = await actionHttp.PostAsJsonAsync($"v1/rev869b/acceptance/{contract.ScenarioId}/actions", new
         {
             runId,
+            subcase.SubcaseId,
+            subcase.PreparationId,
+            subcase.EvidenceId,
+            subcase.ExpectedResultId,
             preparation.LeaseId,
             preparation.FixtureId,
             preparation.CommandId,
             preparation.AuthorizationId,
             preparation.AttemptId,
             preparation.DecisionId,
-            actionOperationId = contract.Plan.ActionOperationId,
+            actionOperationId = subcase.ActionId,
+            expectedResult = subcase.ExpectedResult,
+            oracleVersion = Rev869BCorrection26FrozenOracle.Version,
+            oracleSha256 = Rev869BCorrection26FrozenOracle.ExpectedSha256,
             descriptorSha256
         }, ct);
         var receipt = await ReadSignedAsync<ActionReceipt>(response, pins.ControllerSigningPublicKeyPem, ct);
@@ -493,36 +739,55 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             : preparation.TargetVerifierConnectionString;
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(ct);
-        await using var command = BuildReadCommand(read.Surface, connection, preparation);
+        await using var command = BuildReadCommand(read, connection, preparation);
         var scalar = await command.ExecuteScalarAsync(ct) as string
             ?? throw new InvalidOperationException("Independent verifier query returned no evidence.");
         using var document = JsonDocument.Parse(scalar);
         return CanonicalObservation(read.ReadId, document.RootElement);
     }
 
-    private static NpgsqlCommand BuildReadCommand(EvidenceSurface surface, NpgsqlConnection connection, ScenarioPreparation p)
+    private static NpgsqlCommand BuildReadCommand(EvidenceRead read, NpgsqlConnection connection, ScenarioPreparation p)
     {
-        var sql = surface switch
+        var sql = read.Surface switch
         {
-            EvidenceSurface.ControlLifecycle => "SELECT nexa.rev869b_read_lifecycle_evidence(@lease_id,@attempt_id,@request_id,@decision_id)::text",
-            EvidenceSurface.ControlAcl => "SELECT nexa.rev869b_read_control_plane_acl_evidence()::text",
-            EvidenceSurface.TargetCommand => "SELECT nexa.rev869b_read_command_evidence(@command_id,@attempt_id)::text",
-            EvidenceSurface.TargetPurge => "SELECT nexa.rev869b_read_purge_evidence(@authorization_id,@attempt_id)::text",
-            EvidenceSurface.TargetExport => "SELECT nexa.rev869b_read_export_evidence(@authorization_id,@batch_id,@release_id)::text",
-            EvidenceSurface.TargetAcl => "SELECT nexa.rev869b_read_target_acl_evidence()::text",
+            EvidenceSurface.ControlLifecycle => "SELECT nexa.rev869b_read_lifecycle_evidence_v2(@instance_sha256_text,@lease_id,@scenario_id,@subcase_id,@attempt_id,@request_id,@decision_id,@lease_version)::text",
+            EvidenceSurface.ControlAcl => "SELECT nexa.rev869b_read_control_plane_acl_evidence_v2(@oracle_version,@observation_stage)::text",
+            EvidenceSurface.TargetCommand => "SELECT nexa.rev869b_read_command_evidence_v2(@instance_sha256,@lease_id,@scenario_id,@subcase_id,@command_id,@attempt_id)::text",
+            EvidenceSurface.TargetPurge => "SELECT nexa.rev869b_read_purge_evidence_v2(@instance_sha256,@lease_id,@scenario_id,@subcase_id,@authorization_id,@root_authorization_id,@batch_id,@attempt_id)::text",
+            EvidenceSurface.TargetExport => "SELECT nexa.rev869b_read_export_evidence_v2(@instance_sha256,@lease_id,@scenario_id,@subcase_id,@authorization_id,@batch_id,@release_id,@as_of)::text",
+            EvidenceSurface.TargetAcl => "SELECT nexa.rev869b_read_target_acl_evidence_v2(@instance_sha256,@lease_id,@scenario_id,@subcase_id,@observation_principal,@observation_object,@observation_operation,@observation_stage)::text",
             _ => throw new InvalidOperationException("Unsupported database evidence surface.")
         };
         var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("lease_id", p.LeaseId);
+        command.Parameters.AddWithValue("lease_version", p.LeaseVersion);
         command.Parameters.AddWithValue("attempt_id", p.AttemptId);
+        command.Parameters.AddWithValue("scenario_id", p.ScenarioId);
+        command.Parameters.AddWithValue("subcase_id", p.SubcaseId);
+        command.Parameters.AddWithValue("instance_sha256_text", p.TargetInstanceSha256);
+        command.Parameters.Add("instance_sha256", NpgsqlDbType.Bytea).Value = Convert.FromHexString(p.TargetInstanceSha256);
+        command.Parameters.AddWithValue("oracle_version", Rev869BCorrection26FrozenOracle.Version);
+        command.Parameters.AddWithValue("observation_stage", ReadStage(read.ReadId));
         command.Parameters.AddWithValue("request_id", p.RegistrationRequestId);
         command.Parameters.Add("decision_id", NpgsqlDbType.Uuid).Value = (object?)p.DecisionId ?? DBNull.Value;
         command.Parameters.AddWithValue("command_id", p.CommandId);
         command.Parameters.AddWithValue("authorization_id", p.AuthorizationId);
+        command.Parameters.AddWithValue("root_authorization_id", p.RootAuthorizationId);
         command.Parameters.AddWithValue("batch_id", p.BatchId);
+        command.Parameters.AddWithValue("as_of", p.AsOf);
+        command.Parameters.AddWithValue("observation_principal", p.ObservationPrincipal);
+        command.Parameters.AddWithValue("observation_object", p.ObservationObject);
+        command.Parameters.AddWithValue("observation_operation", p.ObservationOperation);
         command.Parameters.Add("release_id", NpgsqlDbType.Uuid).Value = (object?)p.ReleaseId ?? DBNull.Value;
         return command;
     }
+
+    private static string ReadStage(string readId) =>
+        readId.Contains(":before", StringComparison.Ordinal) ? EvidenceStage.Before.ToString() :
+        readId.Contains(":after", StringComparison.Ordinal) ? EvidenceStage.After.ToString() :
+        readId.Contains(":durable", StringComparison.Ordinal) ? EvidenceStage.Durable.ToString() :
+        readId.Contains(":cleanup", StringComparison.Ordinal) ? EvidenceStage.Cleanup.ToString() :
+        throw new InvalidOperationException("Evidence read identifier does not declare an exact observation stage.");
 
     private async Task RequestCleanupAsync(Guid leaseId, Guid requestId, CancellationToken ct)
     {
@@ -533,11 +798,19 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             throw new InvalidOperationException("Cleanup receipt correlation failed.");
     }
 
-    private void RequirePreparation(AcceptanceContract contract, Guid runId, string descriptorSha256, ScenarioPreparation p)
+    private void RequirePreparation(AcceptanceContract contract, SubcaseRequirement subcase,
+        Guid runId, string descriptorSha256, ScenarioPreparation p)
     {
-        var ids = new[] { p.RunId, p.LeaseId, p.FixtureId, p.CommandId, p.AuthorizationId, p.AttemptId, p.RegistrationRequestId, p.BatchId };
-        if (p.RunId != runId || p.ScenarioId != contract.ScenarioId || p.DescriptorSha256 != descriptorSha256 ||
+        var ids = new[] { p.RunId, p.PreparationId, p.ExpectedResultId, p.LeaseId, p.FixtureId,
+            p.CommandId, p.AuthorizationId, p.AttemptId, p.RegistrationRequestId, p.BatchId };
+        if (p.RunId != runId || p.ScenarioId != contract.ScenarioId || p.SubcaseId != subcase.SubcaseId ||
+            p.PreparationId != subcase.PreparationId || p.EvidenceId != subcase.EvidenceId ||
+            p.ExpectedResultId != subcase.ExpectedResultId || p.ExpectedOutcome != subcase.ExpectedResult ||
+            p.AttemptId != subcase.AttemptId || p.DescriptorSha256 != descriptorSha256 ||
             ids.Any(x => x == Guid.Empty) || ids.Distinct().Count() != ids.Length ||
+            p.RootAuthorizationId == Guid.Empty || p.LeaseVersion < 1 ||
+            p.AsOf == default || string.IsNullOrWhiteSpace(p.ObservationPrincipal) ||
+            string.IsNullOrWhiteSpace(p.ObservationObject) || string.IsNullOrWhiteSpace(p.ObservationOperation) ||
             !ExactSha256(p.TargetInstanceSha256) || !ExactSha256(p.FixtureSha256) ||
             p.SourceCommit != pins.SourceCommit || p.ManifestSha256 != pins.ManifestSha256 ||
             p.ClusterSystemIdentifier != pins.ClusterSystemIdentifier ||
@@ -548,7 +821,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         RequireTargetConnection(p.ControlPlaneVerifierConnectionString, Rev869BControlPlaneProvisioningContract.Database, "nexa_rev869b_control_plane_verifier");
         if ((p.TargetVerifierConnectionString + p.ControlPlaneVerifierConnectionString)
             .Contains("lifecycle_administrator", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Lifecycle administrator credentials must never enter tests.");
+            throw new InvalidOperationException("Privileged controller credentials must never enter tests.");
     }
 
     private static EvidenceObservation ActionObservation(ActionReceipt action)
@@ -667,11 +940,13 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     internal enum EvidenceSurface { ControlLifecycle, ControlAcl, TargetCommand, TargetPurge, TargetExport, TargetAcl, ControllerAudit }
     internal enum EvidenceStage { Before, After, Durable, Audit, Cleanup, Action }
     internal enum EvidenceOperator { Exists, Absent, EqualsLiteral, NotEqualsLiteral, GreaterThanZero, Zero, ExactSha256, SameCanonicalSha256AsBefore, DifferentCanonicalSha256FromBefore, EqualsObservationPath, NotEqualsObservationPath, AtMostOne, ExactlyOneTrue }
-    internal enum MutationKind { RemoveAction, RemoveRead, RemoveAssertion, FabricateEvidence, DuplicateEvidence, SubstituteIdentity, StaleEvidence, CrossInstanceEvidence, CrossLeaseEvidence, WrongVersionEvidence, WrongCountEvidence }
+    internal enum MutationKind { RemoveAction, RemoveRead, RemoveAssertion, WeakenAssertion, FabricateEvidence, DuplicateEvidence, SubstituteIdentity, StaleEvidence, CrossInstanceEvidence, CrossLeaseEvidence, WrongVersionEvidence, WrongCountEvidence }
+    internal enum EvidenceMutationKind { Missing, Additional, Duplicated, Altered, Stale, Replayed, Fabricated, CrossInstance, CrossLease, WrongVersion, WrongState, WrongCount }
 
     internal sealed record EvidenceRead(string ReadId, EvidenceSurface Surface, string Purpose);
     internal sealed record FormulaComponent(string ComponentId, EvidenceStage Stage, string AuthoritativeSelector,
-        EvidenceOperator Operator, string Expected, string LocalReducer);
+        EvidenceOperator Operator, string Expected, string LocalReducer, string ValueType, string ReaderId,
+        string Source, string Scope, string Cardinality, string NullSemantics);
     internal sealed record EvidenceAssertion(string AssertionId, EvidenceStage Stage, string JsonPath, EvidenceOperator Operator, string Expected);
     internal sealed record SemanticMutation(string MutationId, MutationKind Kind, string TargetReadId);
     internal sealed record ScenarioEvidencePlan(string FixtureOperationId, string ActionOperationId, string CleanupOperationId,
@@ -690,7 +965,8 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             Plan, RequiredSubcases.Select(x => x.SubcaseId).ToArray());
     }
 
-    internal sealed record SubcaseRequirement(string SubcaseId, string ExpectedResult);
+    internal sealed record SubcaseRequirement(string SubcaseId, string ExpectedResult, Guid PreparationId,
+        Guid AttemptId, Guid EvidenceId, Guid ExpectedResultId, string ActionId);
     internal sealed record DatabaseObjectIdentity(string Schema, string Table, string Constraint, string Function, string Trigger);
     internal sealed record EvidenceObservation(string ReadId, JsonDocument Document, string CanonicalSha256, int FactCount);
     internal sealed record EvidenceBundle(EvidenceObservation Before, EvidenceObservation After, EvidenceObservation Durable,
@@ -708,7 +984,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         };
     }
 
-    internal sealed record AcceptanceResult(string ScenarioId, Guid RunId, Guid LeaseId, Guid FixtureId, Guid CommandId,
+    internal sealed record AcceptanceResult(string ScenarioId, string SubcaseId, Guid RunId, Guid LeaseId, Guid FixtureId, Guid CommandId,
         Guid AuthorizationId, Guid AttemptId, Guid? DecisionId, EvidenceObservation Before, EvidenceObservation After,
         EvidenceObservation Durable, EvidenceObservation Audit, EvidenceObservation Cleanup, ActionReceipt Action,
         IReadOnlyList<string> FailedAssertions)
@@ -721,13 +997,17 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         string MarkerSha256, string ClusterSystemIdentifier, string TlsSpkiSha256, string SourceCommit, string ManifestSha256,
         bool FixturePrepared, string FixtureSha256, string ContractSha256, string SigningPublicKeySha256);
 
-    internal sealed record ScenarioPreparation(Guid RunId, string ScenarioId, Guid LeaseId, Guid FixtureId,
+    internal sealed record ScenarioPreparation(Guid RunId, string ScenarioId, string SubcaseId, Guid PreparationId,
+        Guid EvidenceId, Guid ExpectedResultId, string ExpectedOutcome, Guid LeaseId, long LeaseVersion, Guid FixtureId,
         Guid CommandId, Guid AuthorizationId, Guid AttemptId, Guid RegistrationRequestId, Guid? DecisionId,
-        Guid BatchId, Guid? ReleaseId, string DatabaseName, string TargetInstanceSha256, string FixtureSha256,
+        Guid RootAuthorizationId, Guid BatchId, Guid? ReleaseId, DateTimeOffset AsOf,
+        string ObservationPrincipal, string ObservationObject, string ObservationOperation,
+        string DatabaseName, string TargetInstanceSha256, string FixtureSha256,
         string TargetVerifierConnectionString, string ControlPlaneVerifierConnectionString, string SourceCommit,
         string ManifestSha256, string ClusterSystemIdentifier, string DescriptorSha256);
 
-    internal sealed record ActionReceipt(Guid RunId, string ScenarioId, Guid LeaseId, Guid FixtureId, Guid CommandId,
+    internal sealed record ActionReceipt(Guid RunId, string ScenarioId, string SubcaseId, Guid PreparationId,
+        Guid ExpectedResultId, Guid LeaseId, Guid FixtureId, Guid CommandId,
         Guid AuthorizationId, Guid AttemptId, Guid? DecisionId, bool ActionReached, int AffectedRows,
         string? SqlState, string? ErrorCode, string? DatabaseObject, string TerminalState,
         Guid EvidenceId, string EvidenceSha256, Guid ControllerInstanceId, int HttpStatus);

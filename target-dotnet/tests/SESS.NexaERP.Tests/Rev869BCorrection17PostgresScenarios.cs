@@ -40,19 +40,28 @@ public sealed class Rev869BCorrection17PostgresScenarios
     [Fact]
     public void T03_EveryScenarioActionQueryAssertionAndCleanupIsMutationSensitive()
     {
+        Rev869BCorrection26FrozenOracle.Validate();
         Assert.Equal(34, Rev869BAcceptanceScenarioInventory.All.Count);
+        Assert.Equal(108, Rev869BCorrection26FrozenOracle.Subcases.Length);
+        Assert.Equal(133, Rev869BCorrection26FrozenOracle.Selectors.Length);
         foreach (var canonical in Rev869BAcceptanceScenarioInventory.All)
         {
             Rev869BLifecycleControllerClient.ValidateContract(canonical);
-            Assert.Equal(canonical.Plan.Assertions.Count + 14, canonical.Plan.Mutations.Count);
-            var pristine = Rev869BLifecycleControllerClient.BuildSyntheticEvidence(canonical);
-            Assert.All(canonical.Plan.Assertions, assertion =>
-                Assert.True(Rev869BLifecycleControllerClient.Evaluate(assertion, pristine), assertion.AssertionId));
-
-            foreach (var assertion in canonical.Plan.Assertions)
+            Assert.Equal(canonical.Plan.Assertions.Count * 2 + 6, canonical.Plan.Mutations.Count);
+            foreach (var subcase in canonical.RequiredSubcases)
             {
-                var tampered = Rev869BLifecycleControllerClient.TamperEvidence(pristine, assertion);
-                Assert.False(Rev869BLifecycleControllerClient.Evaluate(assertion, tampered), assertion.AssertionId);
+                var pristine = Rev869BLifecycleControllerClient.BuildOracleEvidence(canonical, subcase);
+                Assert.Empty(Rev869BLifecycleControllerClient.VerifyEvidence(canonical, subcase, pristine));
+                foreach (var mutation in Enum.GetValues<Rev869BLifecycleControllerClient.EvidenceMutationKind>())
+                {
+                    var tampered = Rev869BLifecycleControllerClient.MutateEvidence(canonical, subcase, pristine, mutation);
+                    Assert.NotEmpty(Rev869BLifecycleControllerClient.VerifyEvidence(canonical, subcase, tampered));
+                }
+                foreach (var assertion in canonical.Plan.Assertions)
+                {
+                    var tampered = Rev869BLifecycleControllerClient.TamperEvidence(pristine, assertion);
+                    Assert.False(Rev869BLifecycleControllerClient.Evaluate(assertion, tampered), assertion.AssertionId);
+                }
             }
             foreach (var mutation in canonical.Plan.Mutations)
             {
@@ -61,19 +70,7 @@ public sealed class Rev869BCorrection17PostgresScenarios
                     Rev869BLifecycleControllerClient.ExactContractSha256(canonical.Descriptor),
                     Rev869BLifecycleControllerClient.ExactContractSha256(changed.Descriptor));
 
-                var rejectedStructurally = false;
-                try { Rev869BLifecycleControllerClient.ValidateContract(changed); }
-                catch (ArgumentException) { rejectedStructurally = true; }
-
-                if (!rejectedStructurally)
-                {
-                    if (mutation.Kind == Rev869BLifecycleControllerClient.MutationKind.RemoveAssertion)
-                        Assert.DoesNotContain(changed.Plan.Assertions, assertion => assertion.AssertionId == mutation.TargetReadId);
-                    else
-                        Assert.Contains(changed.Plan.Assertions, assertion =>
-                            assertion.Expected is "fabricated" or "foreign_target" ||
-                            assertion.Expected == Guid.Empty.ToString());
-                }
+                Assert.Throws<ArgumentException>(() => Rev869BLifecycleControllerClient.ValidateContract(changed));
             }
         }
     }

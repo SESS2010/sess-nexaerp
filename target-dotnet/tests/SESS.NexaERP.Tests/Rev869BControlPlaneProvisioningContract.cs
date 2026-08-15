@@ -35,8 +35,14 @@ internal static class Rev869BControlPlaneProvisioningContract
         "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision",
         "rev869b_record_quarantine", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target",
         "rev869b_control_plane_catalogue_fingerprint", "rev869b_read_control_plane_acl_evidence",
-        "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_read_lifecycle_evidence"
+        "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_read_lifecycle_evidence",
+        "rev869b_read_lifecycle_evidence_v2", "rev869b_read_control_plane_acl_evidence_v2",
+        "rev869b_read_command_evidence_v2", "rev869b_read_purge_evidence_v2",
+        "rev869b_read_export_evidence_v2", "rev869b_read_target_acl_evidence_v2"
     ];
+
+    internal const string Correction26OracleVersion = "REV869B-C26-ORACLE-v1";
+    internal const string TargetLeaseSessionSetting = "nexa.rev869b_lease_id";
 
     internal static readonly string[] SafeModes =
         ["GeneratePlanOnly", "PreflightOnly", "PostProvisionVerification"];

@@ -36,12 +36,13 @@ internal static class Rev869BCommandContextSql
           "ReceiptId" uuid PRIMARY KEY,"AttemptId" uuid NOT NULL UNIQUE REFERENCES nexa.rev869b_command_attempts("AttemptId"),"CommandId" uuid NOT NULL UNIQUE REFERENCES nexa.rev869b_command_requests("CommandId"),
           "BusinessSha256" bytea NOT NULL CHECK(octet_length("BusinessSha256")=32),"ResponseJson" jsonb NOT NULL,"CommittedAt" timestamptz NOT NULL DEFAULT transaction_timestamp());
         CREATE TABLE nexa.rev869b_target_instance_identity(
-          "IdentityId" boolean PRIMARY KEY DEFAULT true CHECK("IdentityId"),"InstanceId" uuid NOT NULL UNIQUE,
+          "IdentityId" boolean PRIMARY KEY DEFAULT true CHECK("IdentityId"),"InstanceId" uuid NOT NULL UNIQUE,"LeaseId" uuid NOT NULL UNIQUE,
           "DatabaseName" name NOT NULL,"InstanceSha256" bytea NOT NULL UNIQUE CHECK(octet_length("InstanceSha256")=32),
           "CreatedAt" timestamptz NOT NULL DEFAULT clock_timestamp(),CHECK("DatabaseName"=current_database()));
         WITH identity AS (SELECT gen_random_uuid() AS id)
-        INSERT INTO nexa.rev869b_target_instance_identity("IdentityId","InstanceId","DatabaseName","InstanceSha256")
-        SELECT true,id,current_database(),digest(convert_to(current_database()||':'||id::text,'UTF8'),'sha256') FROM identity;
+        INSERT INTO nexa.rev869b_target_instance_identity("IdentityId","InstanceId","LeaseId","DatabaseName","InstanceSha256")
+        SELECT true,id,current_setting('nexa.rev869b_lease_id')::uuid,current_database(),digest(convert_to(current_database()||':'||id::text,'UTF8'),'sha256') FROM identity
+        WHERE current_setting('nexa.rev869b_lease_id')::uuid<>'00000000-0000-0000-0000-000000000000'::uuid;
         CREATE TABLE nexa.rev869b_purge_authorizations(
           "AuthorizationId" uuid PRIMARY KEY,"ManagementDecisionId" uuid NOT NULL UNIQUE,"RootAuthorizationId" uuid NOT NULL,"PriorAttemptId" uuid NULL,"AuthorizedBatchId" uuid NOT NULL UNIQUE,
           "TargetInstanceSha256" bytea NOT NULL CHECK(octet_length("TargetInstanceSha256")=32),"Operation" text NOT NULL CHECK("Operation"='CommandContextRetentionPurge'),
@@ -232,6 +233,114 @@ internal static class Rev869BCommandContextSql
             'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%'),
             'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM nexa.rev869b_command_requests)::text||':'||(SELECT count(*) FROM nexa.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM nexa.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM nexa.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM nexa.rev869b_export_batches)::text,'sha256'),'hex'))
           FROM facts WHERE session_user='nexa_rev869b_target_verifier' $f$;
+        CREATE FUNCTION nexa.rev869b_read_command_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,command_id uuid,attempt_id uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $f$
+          WITH identity AS (
+            SELECT i.* FROM nexa.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
+          ), request AS (
+            SELECT r.* FROM nexa.rev869b_command_requests r WHERE r."CommandId"=$5
+          ), attempt AS (
+            SELECT a.* FROM nexa.rev869b_command_attempts a JOIN request r ON r."CommandId"=a."CommandId" WHERE a."AttemptId"=$6
+          ), claims AS (
+            SELECT q.* FROM nexa.rev869b_command_claims q JOIN nexa.rev869b_command_contexts c ON c."ContextToken"=q."ContextToken" JOIN attempt a ON a."AttemptId"=c."AttemptId"
+          )
+          SELECT jsonb_build_object('readerId','TC2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,
+            'identity',(SELECT to_jsonb(i) FROM identity i),'request',(SELECT to_jsonb(r) FROM request r),'attempt',(SELECT to_jsonb(a) FROM attempt a),
+            'contexts',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c."ContextToken") FROM nexa.rev869b_command_contexts c JOIN attempt a ON a."AttemptId"=c."AttemptId"),'[]'::jsonb),
+            'claims',coalesce((SELECT jsonb_agg(to_jsonb(q) ORDER BY q."ClaimId") FROM claims q),'[]'::jsonb),
+            'outcomes',coalesce((SELECT jsonb_agg(to_jsonb(o) ORDER BY o."OccurredAt",o."OutcomeId") FROM nexa.rev869b_command_attempt_outcomes o JOIN attempt a ON a."AttemptId"=o."AttemptId"),'[]'::jsonb),
+            'receipts',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r."CommittedAt",r."ReceiptId") FROM nexa.rev869b_command_receipts r JOIN attempt a ON a."AttemptId"=r."AttemptId"),'[]'::jsonb),
+            'requestCount',(SELECT count(*) FROM request),'attemptCount',(SELECT count(*) FROM attempt),
+            'businessRowCount',(SELECT count(*) FROM claims WHERE "ClaimKind"='Business'),
+            'historyRowCount',(SELECT count(*) FROM claims WHERE "ClaimKind"<>'Business'),
+            'claimSha256',encode(digest(coalesce((SELECT string_agg("ClaimId"::text||':'||"ClaimKind"||':'||"HistoryId"::text||':'||"EntityId"::text,',' ORDER BY "ClaimId") FROM claims),''),'sha256'),'hex'))
+          WHERE EXISTS(SELECT 1 FROM identity) AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
+            AND session_user='nexa_rev869b_target_verifier' $f$;
+
+        CREATE FUNCTION nexa.rev869b_read_purge_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,authorization_id uuid,root_authorization_id uuid,batch_id uuid,purge_attempt_id uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $f$
+          WITH identity AS (
+            SELECT i.* FROM nexa.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
+          ), authorization AS (
+            SELECT a.* FROM nexa.rev869b_purge_authorizations a JOIN identity i ON i."InstanceSha256"=a."TargetInstanceSha256"
+            WHERE a."AuthorizationId"=$5 AND a."RootAuthorizationId"=$6 AND a."AuthorizedBatchId"=$7
+          ), root_authorization AS (
+            SELECT root.* FROM nexa.rev869b_purge_authorizations root JOIN authorization a ON a."RootAuthorizationId"=root."AuthorizationId"
+            WHERE root."TargetInstanceSha256"=$1 AND root."Operation"=a."Operation" AND root."Scope"=a."Scope" AND root."Cutoff"=a."Cutoff" AND root."MaximumRows"=a."MaximumRows"
+          ), attempt AS (
+            SELECT p.* FROM nexa.rev869b_purge_attempts p JOIN authorization a ON a."AuthorizationId"=p."AuthorizationId" WHERE p."PurgeAttemptId"=$8
+          ), scoped_context AS (
+            SELECT c.* FROM nexa.rev869b_command_contexts c JOIN nexa.rev869b_command_attempts ca ON ca."AttemptId"=c."AttemptId"
+            JOIN nexa.rev869b_command_requests cr ON cr."CommandId"=ca."CommandId" JOIN authorization a ON cr."OrganizationId"=substring(a."Scope" from 14)
+            WHERE c."OpenedAt"<a."Cutoff"
+          )
+          SELECT jsonb_build_object('readerId','TP2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,
+            'authorization',(SELECT to_jsonb(a)-'NonceSha256' FROM authorization a),
+            'rootAuthorization',(SELECT to_jsonb(a)-'NonceSha256' FROM root_authorization a),
+            'attempt',(SELECT to_jsonb(p) FROM attempt p),
+            'priorAttempt',(SELECT to_jsonb(prior) FROM authorization a JOIN nexa.rev869b_purge_attempts prior ON prior."PurgeAttemptId"=a."PriorAttemptId"),
+            'candidates',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c."LedgerName",c."RowId") FROM nexa.rev869b_purge_candidates c JOIN attempt p ON p."PurgeAttemptId"=c."PurgeAttemptId"),'[]'::jsonb),
+            'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e."EventId") FROM nexa.rev869b_purge_events e JOIN attempt p ON p."PurgeAttemptId"=e."PurgeAttemptId"),'[]'::jsonb),
+            'scopedContexts',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c."ContextToken") FROM scoped_context c),'[]'::jsonb),
+            'scopedContextCount',(SELECT count(*) FROM scoped_context),
+            'scopedContextSha256',encode(digest(coalesce((SELECT string_agg(c."ContextToken"::text||':'||c."AttemptId"::text,',' ORDER BY c."ContextToken") FROM scoped_context c),''),'sha256'),'hex'),
+            'candidateCount',(SELECT count(*) FROM nexa.rev869b_purge_candidates c JOIN attempt p ON p."PurgeAttemptId"=c."PurgeAttemptId"),
+            'eventCount',(SELECT count(*) FROM nexa.rev869b_purge_events e JOIN attempt p ON p."PurgeAttemptId"=e."PurgeAttemptId"),
+            'activeChildCount',(SELECT count(*) FROM nexa.rev869b_purge_authorizations child JOIN attempt p ON child."PriorAttemptId"=p."PurgeAttemptId" WHERE child."State"<>'Expired'))
+          WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM root_authorization)
+            AND EXISTS(SELECT 1 FROM attempt) AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
+            AND session_user='nexa_rev869b_target_verifier' $f$;
+
+        CREATE FUNCTION nexa.rev869b_read_export_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,authorization_id uuid,batch_id uuid,release_id uuid,as_of timestamptz) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $f$
+          WITH identity AS (
+            SELECT i.* FROM nexa.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
+          ), authorization AS (
+            SELECT a.* FROM nexa.rev869b_export_authorizations a WHERE a."AuthorizationId"=$5 AND a."AsOf"=$8
+          ), batch AS (
+            SELECT b.* FROM nexa.rev869b_export_batches b JOIN authorization a ON a."AuthorizationId"=b."AuthorizationId"
+            WHERE b."BatchId"=$6 AND b."AsOf"=$8 AND b."ManagementDecisionId"=a."ManagementDecisionId"
+          )
+          SELECT jsonb_build_object('readerId','TE2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,'asOf',$8,
+            'authorization',(SELECT to_jsonb(a) FROM authorization a),'batch',(SELECT to_jsonb(b) FROM batch b),
+            'rows',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r."Ordinal") FROM nexa.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId"),'[]'::jsonb),
+            'releases',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r."StartedAt",r."ReleaseId") FROM nexa.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId"),'[]'::jsonb),
+            'selectedRelease',(SELECT to_jsonb(r) FROM nexa.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE $7 IS NOT NULL AND r."ReleaseId"=$7),
+            'rowCount',(SELECT count(*) FROM nexa.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId"),
+            'batchSha256',encode(digest(coalesce((SELECT string_agg(encode(r."RowSha256",'hex'),',' ORDER BY r."Ordinal") FROM nexa.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId"),''),'sha256'),'hex'),
+            'activeReleaseCount',(SELECT count(*) FROM nexa.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE r."State"='ReleaseStarted'),
+            'deliverySuccessCount',(SELECT count(*) FROM nexa.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE r."State"='Delivered'))
+          WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM batch)
+            AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160 AND session_user='nexa_rev869b_target_verifier' $f$;
+
+        CREATE FUNCTION nexa.rev869b_read_target_acl_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,principal name,object_identity text,operation text,observation_stage text) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $f$
+          WITH identity AS (
+            SELECT i.* FROM nexa.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
+          ), direct_acl(fact) AS (
+            SELECT 'database|'||d.datname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl,acldefault('d',d.datdba))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.datname=current_database()
+            UNION ALL SELECT 'schema|'||n.nspname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+            UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+            UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+            UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='nexa'::regnamespace
+          ), membership(fact) AS (
+            SELECT 'membership|'||parent.rolname||'|'||member.rolname||'|'||m.admin_option FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE parent.rolname LIKE 'nexa_rev869b_%' OR member.rolname LIKE 'nexa_rev869b_%'
+          ), ownership(fact) AS (
+            SELECT 'database-owner|'||current_database()||'|'||pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()
+            UNION ALL SELECT 'schema-owner|nexa|'||pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='nexa'
+            UNION ALL SELECT 'object-owner|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
+            UNION ALL SELECT 'function-owner|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
+          ), role_capability(fact) AS (
+            SELECT 'role|'||rolname||'|'||rolcanlogin||'|'||rolinherit||'|'||rolsuper||'|'||rolcreatedb||'|'||rolcreaterole||'|'||rolreplication||'|'||rolbypassrls FROM pg_roles WHERE rolname LIKE 'nexa_rev869b_%'
+          ), facts AS (SELECT fact FROM direct_acl UNION ALL SELECT fact FROM membership UNION ALL SELECT fact FROM ownership UNION ALL SELECT fact FROM role_capability)
+          SELECT jsonb_build_object('readerId','TA2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,
+            'principal',$5,'objectIdentity',$6,'operation',$7,'observationStage',$8,
+            'facts',jsonb_agg(fact ORDER BY fact),'factCount',count(*),'aclSha256',encode(digest(string_agg(fact,chr(10) ORDER BY fact),'sha256'),'hex'),
+            'publicGrantCount',count(*) FILTER(WHERE fact LIKE '%|PUBLIC|%'),'roleMembershipCount',count(*) FILTER(WHERE fact LIKE 'membership|%'),
+            'ownerFactCount',count(*) FILTER(WHERE fact LIKE '%-owner|%'),
+            'effectiveTablePrivilege',CASE WHEN to_regclass($6) IS NULL THEN false ELSE has_table_privilege($5,to_regclass($6),$7) END,
+            'effectiveFunctionPrivilege',CASE WHEN to_regprocedure($6) IS NULL THEN false ELSE has_function_privilege($5,to_regprocedure($6),$7) END,
+            'principalBypassRls',(SELECT rolbypassrls FROM pg_roles WHERE rolname=$5),
+            'principalSuperuser',(SELECT rolsuper FROM pg_roles WHERE rolname=$5))
+          FROM facts WHERE EXISTS(SELECT 1 FROM identity) AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
+            AND $8 IN ('Before','After','Durable','Cleanup') AND session_user='nexa_rev869b_target_verifier' $f$;
+
         CREATE FUNCTION nexa.rev869b_target_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $f$
           WITH facts(fact) AS (
             SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
@@ -297,7 +406,7 @@ internal static class Rev869BCommandContextSql
             ('nexa_rev869b_purge_worker','nexa.rev869b_start_purge(uuid,uuid)'),('nexa_rev869b_purge_worker','nexa.rev869b_execute_purge(uuid)'),('nexa_rev869b_purge_worker','nexa.rev869b_reconcile_purge(uuid)'),
             ('nexa_rev869b_purge_audit','nexa.rev869b_record_purge_failure(uuid,text,text,bytea)'),('nexa_rev869b_purge_audit','nexa.rev869b_reconcile_purge(uuid)'),
             ('nexa_rev869b_export_service','nexa.rev869b_prepare_export_batch(uuid,uuid)'),('nexa_rev869b_export_service','nexa.rev869b_authorize_export_release(uuid,uuid)'),('nexa_rev869b_export_service','nexa.rev869b_read_prepared_export_batch(uuid,uuid)'),('nexa_rev869b_export_service','nexa.rev869b_record_export_release_outcome(uuid,text,text)'),
-            ('nexa_rev869b_target_verifier','nexa.rev869b_reconcile_command_attempt(uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_reconcile_purge(uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_target_security_state()'),('nexa_rev869b_target_verifier','nexa.rev869b_read_command_evidence(uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_purge_evidence(uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_export_evidence(uuid,uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_target_acl_evidence()'),('nexa_rev869b_target_verifier','nexa.rev869b_target_catalogue_fingerprint()'),('nexa_rev869b_target_verifier','nexa.rev869b_verify_target_catalogue_acl()')),
+            ('nexa_rev869b_target_verifier','nexa.rev869b_reconcile_command_attempt(uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_reconcile_purge(uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_target_security_state()'),('nexa_rev869b_target_verifier','nexa.rev869b_read_command_evidence(uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_purge_evidence(uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_export_evidence(uuid,uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_target_acl_evidence()'),('nexa_rev869b_target_verifier','nexa.rev869b_read_command_evidence_v2(bytea,uuid,text,text,uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_purge_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,uuid)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_export_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,timestamp with time zone)'),('nexa_rev869b_target_verifier','nexa.rev869b_read_target_acl_evidence_v2(bytea,uuid,text,text,name,text,text,text)'),('nexa_rev869b_target_verifier','nexa.rev869b_target_catalogue_fingerprint()'),('nexa_rev869b_target_verifier','nexa.rev869b_verify_target_catalogue_acl()')),
           actual AS (SELECT r.rolname::text role_name,p.oid::regprocedure::text signature FROM pg_roles r CROSS JOIN pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND NOT r.rolsuper AND r.rolname!~'^pg_' AND r.rolname<>'nexa_rev869b_security_owner' AND has_function_privilege(r.oid,p.oid,'EXECUTE')),
           delta AS ((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) SELECT EXISTS(SELECT 1 FROM delta) INTO mismatch;
           IF mismatch THEN RAISE EXCEPTION 'Target function ACL mismatch'; END IF;
@@ -348,7 +457,7 @@ internal static class Rev869BCommandContextSql
         GRANT EXECUTE ON FUNCTION nexa.rev869b_start_purge(uuid,uuid),nexa.rev869b_execute_purge(uuid),nexa.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_worker;
         GRANT EXECUTE ON FUNCTION nexa.rev869b_record_purge_failure(uuid,text,text,bytea),nexa.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_audit;
         GRANT EXECUTE ON FUNCTION nexa.rev869b_prepare_export_batch(uuid,uuid),nexa.rev869b_authorize_export_release(uuid,uuid),nexa.rev869b_read_prepared_export_batch(uuid,uuid),nexa.rev869b_record_export_release_outcome(uuid,text,text) TO nexa_rev869b_export_service;
-        GRANT EXECUTE ON FUNCTION nexa.rev869b_reconcile_command_attempt(uuid),nexa.rev869b_reconcile_purge(uuid),nexa.rev869b_read_target_security_state(),nexa.rev869b_read_command_evidence(uuid,uuid),nexa.rev869b_read_purge_evidence(uuid,uuid),nexa.rev869b_read_export_evidence(uuid,uuid,uuid),nexa.rev869b_read_target_acl_evidence() TO nexa_rev869b_target_verifier;
+        GRANT EXECUTE ON FUNCTION nexa.rev869b_reconcile_command_attempt(uuid),nexa.rev869b_reconcile_purge(uuid),nexa.rev869b_read_target_security_state(),nexa.rev869b_read_command_evidence(uuid,uuid),nexa.rev869b_read_purge_evidence(uuid,uuid),nexa.rev869b_read_export_evidence(uuid,uuid,uuid),nexa.rev869b_read_target_acl_evidence(),nexa.rev869b_read_command_evidence_v2(bytea,uuid,text,text,uuid,uuid),nexa.rev869b_read_purge_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,uuid),nexa.rev869b_read_export_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,timestamptz),nexa.rev869b_read_target_acl_evidence_v2(bytea,uuid,text,text,name,text,text,text) TO nexa_rev869b_target_verifier;
         GRANT EXECUTE ON FUNCTION nexa.rev869b_target_catalogue_fingerprint(),nexa.rev869b_verify_target_catalogue_acl() TO nexa_rev869b_target_verifier;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_security_owner IN SCHEMA nexa REVOKE ALL ON TABLES FROM PUBLIC,nexa_rev869b_app_runtime,nexa_rev869b_command_audit,nexa_rev869b_management_writer,nexa_rev869b_purge_worker,nexa_rev869b_purge_audit,nexa_rev869b_export_service,nexa_rev869b_target_verifier;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_security_owner IN SCHEMA nexa REVOKE ALL ON SEQUENCES FROM PUBLIC,nexa_rev869b_app_runtime,nexa_rev869b_command_audit,nexa_rev869b_management_writer,nexa_rev869b_purge_worker,nexa_rev869b_purge_audit,nexa_rev869b_export_service,nexa_rev869b_target_verifier;
@@ -357,6 +466,10 @@ internal static class Rev869BCommandContextSql
         """;
 
     internal const string Remove = """
+        DROP FUNCTION IF EXISTS nexa.rev869b_read_target_acl_evidence_v2(bytea,uuid,text,text,name,text,text,text);
+        DROP FUNCTION IF EXISTS nexa.rev869b_read_export_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,timestamptz);
+        DROP FUNCTION IF EXISTS nexa.rev869b_read_purge_evidence_v2(bytea,uuid,text,text,uuid,uuid,uuid,uuid);
+        DROP FUNCTION IF EXISTS nexa.rev869b_read_command_evidence_v2(bytea,uuid,text,text,uuid,uuid);
         DROP FUNCTION IF EXISTS nexa.rev869b_read_target_acl_evidence();
         DROP FUNCTION IF EXISTS nexa.rev869b_read_export_evidence(uuid,uuid,uuid);
         DROP FUNCTION IF EXISTS nexa.rev869b_read_purge_evidence(uuid,uuid);

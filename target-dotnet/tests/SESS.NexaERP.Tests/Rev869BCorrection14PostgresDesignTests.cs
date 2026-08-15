@@ -5,35 +5,45 @@ internal static class Rev869BAcceptanceScenarioInventory
 {
     private static Rev869BLifecycleControllerClient.AcceptanceContract S(string id) =>
         new(id, Setup(id), Action(id), Expected(id), Identity(id), Plan(id),
-            EvidenceKeys(id).Select(key => new Rev869BLifecycleControllerClient.SubcaseRequirement(id + ":" + key, Expected(id))).ToArray());
+            Rev869BCorrection26FrozenOracle.SubcasesFor(id).Select(subcase =>
+                new Rev869BLifecycleControllerClient.SubcaseRequirement(subcase.SubcaseId, subcase.ExpectedOutcome,
+                    subcase.PreparationId, subcase.AttemptId, subcase.EvidenceId, subcase.ExpectedResultId,
+                    subcase.ActionId)).ToArray());
 
     private static Rev869BLifecycleControllerClient.ScenarioEvidencePlan Plan(string id)
     {
         var surface = Surface(id);
+        var beforeSurface = BeforeSurface(id);
+        var afterSurface = AfterSurface(id);
         var assertions = Assertions(id);
         var plan = new Rev869BLifecycleControllerClient.ScenarioEvidencePlan(
             "rev869b/" + id + "/fixture/v2",
             "rev869b/" + id + "/action/v2",
             "rev869b/" + id + "/cleanup/v2",
-            new(id + ":before:" + surface, surface, "Independent fixture and pre-state observation"),
-            new(id + ":after:" + surface, surface, "Independent post-action observation"),
+            new(id + ":before:" + beforeSurface, beforeSurface, "Independent fixture and pre-state observation"),
+            new(id + ":after:" + afterSurface, afterSurface, "Independent post-action observation"),
             new(id + ":durable:" + surface, surface, "Independent immutable ledger observation"),
             new(id + ":audit:controller", Rev869BLifecycleControllerClient.EvidenceSurface.ControllerAudit, "Supplementary process-only audit; never an acceptance source"),
             new(id + ":cleanup:control", Rev869BLifecycleControllerClient.EvidenceSurface.ControlLifecycle, "Independent cleanup or quarantine observation"),
-            Formula(id), assertions, Mutations(id, assertions));
+            Rev869BCorrection26FrozenOracle.FormulaVersion + ":" + Formula(id), assertions, Mutations(id, assertions));
         return plan with
         {
-            RequiredComponentIds = assertions.Select(x => x.AssertionId).Order(StringComparer.Ordinal).ToArray(),
-            FormulaComponents = assertions.Select(x => new Rev869BLifecycleControllerClient.FormulaComponent(
-                x.AssertionId, x.Stage, x.JsonPath, x.Operator, x.Expected, "authoritative-local-reducer")).ToArray()
+            RequiredComponentIds = Rev869BCorrection26FrozenOracle.RequiredAssertionIds(id),
+            FormulaComponents = Rev869BCorrection26FrozenOracle.SelectorsFor(id).Select(selector =>
+                new Rev869BLifecycleControllerClient.FormulaComponent(selector.ComponentId,
+                    Enum.Parse<Rev869BLifecycleControllerClient.EvidenceStage>(selector.Stage),
+                    "selectors." + selector.SelectorName,
+                    Enum.Parse<Rev869BLifecycleControllerClient.EvidenceOperator>(selector.Operator),
+                    selector.Expected, selector.Reducer, selector.ValueType, selector.ReaderId,
+                    selector.Source, selector.Scope, selector.Cardinality, selector.NullSemantics)).ToArray()
         };
     }
 
     private static IReadOnlyList<Rev869BLifecycleControllerClient.SemanticMutation> Mutations(string id,
         IReadOnlyList<Rev869BLifecycleControllerClient.EvidenceAssertion> assertions)
     {
-        var before = id + ":before:" + Surface(id);
-        var after = id + ":after:" + Surface(id);
+        var before = id + ":before:" + BeforeSurface(id);
+        var after = id + ":after:" + AfterSurface(id);
         var durable = id + ":durable:" + Surface(id);
         var audit = id + ":audit:controller";
         var cleanup = id + ":cleanup:control";
@@ -44,19 +54,14 @@ internal static class Rev869BAcceptanceScenarioInventory
             new(id + ":mutate-after-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, after),
             new(id + ":mutate-durable-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, durable),
             new(id + ":mutate-audit-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, audit),
-            new(id + ":mutate-cleanup-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, cleanup),
-            new(id + ":mutate-fabricated", Rev869BLifecycleControllerClient.MutationKind.FabricateEvidence, durable),
-            new(id + ":mutate-duplicate", Rev869BLifecycleControllerClient.MutationKind.DuplicateEvidence, durable),
-            new(id + ":mutate-substituted", Rev869BLifecycleControllerClient.MutationKind.SubstituteIdentity, durable),
-            new(id + ":mutate-stale", Rev869BLifecycleControllerClient.MutationKind.StaleEvidence, before),
-new(id + ":mutate-cross-instance", Rev869BLifecycleControllerClient.MutationKind.CrossInstanceEvidence, after),
-            new(id + ":mutate-cross-lease", Rev869BLifecycleControllerClient.MutationKind.CrossLeaseEvidence, durable),
-            new(id + ":mutate-wrong-version", Rev869BLifecycleControllerClient.MutationKind.WrongVersionEvidence, durable),
-            new(id + ":mutate-wrong-count", Rev869BLifecycleControllerClient.MutationKind.WrongCountEvidence, durable)
+            new(id + ":mutate-cleanup-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, cleanup)
         };
         mutations.AddRange(assertions.Select(assertion => new Rev869BLifecycleControllerClient.SemanticMutation(
             id + ":mutate-assertion:" + assertion.AssertionId[(id.Length + 1)..],
             Rev869BLifecycleControllerClient.MutationKind.RemoveAssertion, assertion.AssertionId)));
+        mutations.AddRange(assertions.Select(assertion => new Rev869BLifecycleControllerClient.SemanticMutation(
+            id + ":weaken-assertion:" + assertion.AssertionId[(id.Length + 1)..],
+            Rev869BLifecycleControllerClient.MutationKind.WeakenAssertion, assertion.AssertionId)));
         return mutations;
     }
 
@@ -89,10 +94,12 @@ new(id + ":mutate-cross-instance", Rev869BLifecycleControllerClient.MutationKind
             assertions.Add(A(id, "object-exact", Rev869BLifecycleControllerClient.EvidenceStage.Action, "databaseObject",
                 Rev869BLifecycleControllerClient.EvidenceOperator.EqualsLiteral, exactError.Object));
 
-        foreach (var assertion in DomainAssertions(id, A))
-            assertions.Add(assertion);
-        foreach (var assertion in FormulaAssertions(id, A))
-            assertions.Add(assertion);
+        assertions.AddRange(Rev869BCorrection26FrozenOracle.SelectorsFor(id).Select(selector =>
+            A(id, selector.ComponentId[(id.Length + 1)..],
+                Enum.Parse<Rev869BLifecycleControllerClient.EvidenceStage>(selector.Stage),
+                "selectors." + selector.SelectorName,
+                Enum.Parse<Rev869BLifecycleControllerClient.EvidenceOperator>(selector.Operator),
+                selector.Expected)));
         return assertions;
     }
 
@@ -171,6 +178,14 @@ new(id + ":mutate-cross-instance", Rev869BLifecycleControllerClient.MutationKind
         "A01" or "A02" or "T03" => Rev869BLifecycleControllerClient.EvidenceSurface.TargetAcl,
         _ => throw new ArgumentOutOfRangeException(nameof(id))
     };
+
+    private static Rev869BLifecycleControllerClient.EvidenceSurface BeforeSurface(string id) =>
+        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "CP-A2")
+            ? Rev869BLifecycleControllerClient.EvidenceSurface.ControlAcl : Surface(id);
+
+    private static Rev869BLifecycleControllerClient.EvidenceSurface AfterSurface(string id) =>
+        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "TA2")
+            ? Rev869BLifecycleControllerClient.EvidenceSurface.TargetAcl : Surface(id);
 
     private static (string? SqlState,string? Code,string? Object) Error(string id) => id switch
     {
