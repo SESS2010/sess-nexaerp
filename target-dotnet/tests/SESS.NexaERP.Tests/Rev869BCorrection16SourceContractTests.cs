@@ -91,6 +91,14 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("d.AuthorizedAction='DropAndFinalize'", drop);
         Assert.Contains("session_user='nexa_rev869b_lifecycle_api' AND State='DropAuthorized'", drop);
         Assert.Contains("session_user='nexa_rev869b_recovery_executor' AND State='RecoveryAuthorized'", drop);
+        Assert.Contains("transition_request_id uuid", drop);
+        Assert.Contains("registration_request_id uuid", drop);
+        Assert.Contains("transition_request_id=registration_request_id", drop);
+        Assert.Contains("rev869b_drop_transition_request_binding", drop);
+        Assert.Contains("a.RegistrationRequestId=registration_request_id", drop);
+        Assert.Contains("rev869b_drop_attempt_binding", drop);
+        Assert.Contains("lease_id,transition_request_id,attempt_id", drop);
+        Assert.DoesNotContain("lease_id,request_id,attempt_id", drop);
         var failure = Slice(sql, "CREATE FUNCTION nexa.rev869b_record_cleanup_failure", "CREATE FUNCTION nexa.rev869b_finalize_absent_target");
         Assert.Contains("RETURN existing.OutcomeId", failure);
         Assert.Contains("Cleanup failure replay evidence mismatch", failure);

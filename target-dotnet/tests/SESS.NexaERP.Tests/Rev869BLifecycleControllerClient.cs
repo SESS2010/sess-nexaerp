@@ -60,6 +60,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     internal async Task<AcceptanceEvidence> RunAcceptanceScenarioAsync(AcceptanceContract contract, CancellationToken ct = default)
     {
+        ValidateContract(contract);
         var runId = Guid.NewGuid();
         var contractSha256 = ExactContractSha256(contract);
         using var response = await http.PostAsJsonAsync($"v1/rev869b/acceptance/{contract.ScenarioId}", new
@@ -80,6 +81,44 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         return evidence;
     }
 
+    internal static void ValidateContract(AcceptanceContract contract)
+    {
+        static void Required(string value, string field)
+        {
+            if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(field + " is required.");
+        }
+        Required(contract.ScenarioId, nameof(contract.ScenarioId));
+        Required(contract.Setup, nameof(contract.Setup));
+        Required(contract.Action, nameof(contract.Action));
+        Required(contract.ExpectedInitialState, nameof(contract.ExpectedInitialState));
+        Required(contract.ExpectedFinalState, nameof(contract.ExpectedFinalState));
+        Required(contract.ExpectedTerminalOutcome, nameof(contract.ExpectedTerminalOutcome));
+        Required(contract.ExpectedCleanupOutcome, nameof(contract.ExpectedCleanupOutcome));
+        Required(contract.Fixture.FixtureOperationId, nameof(contract.Fixture.FixtureOperationId));
+        Required(contract.Fixture.ActionOperationId, nameof(contract.Fixture.ActionOperationId));
+        Required(contract.Fixture.EvidenceQuery, nameof(contract.Fixture.EvidenceQuery));
+        Required(contract.Fixture.CleanupOperationId, nameof(contract.Fixture.CleanupOperationId));
+        if (contract.ExpectedBeforeCount < 0 || contract.ExpectedAfterCount < 0 ||
+            contract.Fixture.FixtureIdentity != contract.ExpectedIdentity || contract.RequiredSubcases.Count == 0 ||
+            contract.RequiredSubcases.Select(x => x.SubcaseId).Distinct(StringComparer.Ordinal).Count() != contract.RequiredSubcases.Count)
+            throw new ArgumentException("Scenario fixture, counts, identity and subcases must be exact.");
+        if (contract.ExpectedIdentity.Trigger.Contains("failpoint", StringComparison.OrdinalIgnoreCase) &&
+            (contract.Fixture.FixtureDdl.Count != 2 || contract.Fixture.CleanupDdl.Count != 2))
+            throw new ArgumentException("A failpoint scenario requires exact creation and teardown DDL.");
+        foreach (var subcase in contract.RequiredSubcases)
+        {
+            Required(subcase.SubcaseId, nameof(subcase.SubcaseId));
+            Required(subcase.RequiredAction, nameof(subcase.RequiredAction));
+            Required(subcase.EvidenceSource, nameof(subcase.EvidenceSource));
+            Required(subcase.ExpectedInitialState, nameof(subcase.ExpectedInitialState));
+            Required(subcase.ExpectedFinalState, nameof(subcase.ExpectedFinalState));
+            Required(subcase.ExpectedTerminalOutcome, nameof(subcase.ExpectedTerminalOutcome));
+            if (!subcase.SubcaseId.StartsWith(contract.ScenarioId + ":", StringComparison.Ordinal) ||
+                subcase.ExpectedBeforeCount < 0 || subcase.ExpectedAfterCount < 0 ||
+                ((subcase.ExpectedSqlState is null) != (subcase.ExpectedDatabaseObject is null)))
+                throw new ArgumentException("Each subcase requires scenario-local exact state, denial and result evidence.");
+        }
+    }
     private void RequireAcceptanceEvidence(AcceptanceContract contract, string contractSha256, Guid runId, AcceptanceEvidence evidence)
     {
         if (!string.Equals(evidence.ScenarioId, contract.ScenarioId, StringComparison.Ordinal) || evidence.RunId != runId ||
@@ -88,43 +127,36 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             evidence.DurableEvidenceId == Guid.Empty || evidence.CleanupEvidenceId == Guid.Empty ||
             (contract.RequiresDecision && evidence.DecisionId.GetValueOrDefault() == Guid.Empty) ||
             !string.Equals(evidence.Setup, contract.Setup, StringComparison.Ordinal) ||
+            !string.Equals(evidence.FixtureOperationId, contract.Fixture.FixtureOperationId, StringComparison.Ordinal) ||
+            !string.Equals(evidence.ActionOperationId, contract.Fixture.ActionOperationId, StringComparison.Ordinal) ||
+            !string.Equals(evidence.EvidenceQuery, contract.Fixture.EvidenceQuery, StringComparison.Ordinal) ||
+            !string.Equals(evidence.CleanupOperationId, contract.Fixture.CleanupOperationId, StringComparison.Ordinal) ||
             !string.Equals(evidence.Action, contract.Action, StringComparison.Ordinal) || !string.Equals(evidence.ActionPerformed, contract.Action, StringComparison.Ordinal) || !evidence.SetupCompleted || !evidence.ActionReached ||
             !string.Equals(evidence.InitialState, contract.ExpectedInitialState, StringComparison.Ordinal) ||
             !string.Equals(evidence.FinalState, contract.ExpectedFinalState, StringComparison.Ordinal) ||
             !string.Equals(evidence.TerminalOutcome, contract.ExpectedTerminalOutcome, StringComparison.Ordinal) ||
             !string.Equals(evidence.CleanupOutcome, contract.ExpectedCleanupOutcome, StringComparison.Ordinal) ||
-            !string.Equals(evidence.DatabaseName, contract.ExpectedDatabaseName, StringComparison.Ordinal) ||
-            !string.Equals(evidence.TargetInstanceSha256, contract.ExpectedTargetInstanceSha256, StringComparison.Ordinal) ||
-            evidence.FixtureId != contract.ExpectedFixtureId || evidence.CommandId != contract.ExpectedCommandId ||
-            evidence.AuthorizationId != contract.ExpectedAuthorizationId || evidence.AttemptId != contract.ExpectedAttemptId ||
-            evidence.DecisionId != contract.ExpectedDecisionId || evidence.DurableEvidenceId != contract.ExpectedDurableEvidenceId ||
-            evidence.CleanupEvidenceId != contract.ExpectedCleanupEvidenceId ||
+            !evidence.DatabaseName.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, StringComparison.Ordinal) ||
+            !ExactSha256(evidence.TargetInstanceSha256) || !ExactSha256(evidence.FixtureSha256) ||
+            !ExactSha256(evidence.DurableEvidenceSha256) || !ExactSha256(evidence.CleanupEvidenceSha256) ||
+            new[] { evidence.LeaseId, evidence.FixtureId, evidence.CommandId, evidence.AuthorizationId, evidence.AttemptId, evidence.DurableEvidenceId, evidence.CleanupEvidenceId }.Distinct().Count() != 7 ||
+            (contract.RequiresDecision ? evidence.DecisionId.GetValueOrDefault() == Guid.Empty : evidence.DecisionId is not null) ||
             !string.Equals(evidence.DatabaseIdentity.Schema, contract.ExpectedIdentity.Schema, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Table, contract.ExpectedIdentity.Table, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Constraint, contract.ExpectedIdentity.Constraint, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Function, contract.ExpectedIdentity.Function, StringComparison.Ordinal) ||
             !string.Equals(evidence.DatabaseIdentity.Trigger, contract.ExpectedIdentity.Trigger, StringComparison.Ordinal) ||
             evidence.BeforeCount != contract.ExpectedBeforeCount || evidence.AfterCount != contract.ExpectedAfterCount ||
-            !string.Equals(evidence.BeforeSha256, contract.ExpectedBeforeSha256, StringComparison.Ordinal) ||
-            !string.Equals(evidence.AfterSha256, contract.ExpectedAfterSha256, StringComparison.Ordinal) ||
+            !ExactSha256(evidence.BeforeSha256) || !ExactSha256(evidence.AfterSha256) ||
             !ExactSha256(evidence.InitialStateSha256) || !ExactSha256(evidence.FinalStateSha256) ||
-            !string.Equals(evidence.FixtureSha256, contract.ExpectedFixtureSha256, StringComparison.Ordinal) ||
-            !string.Equals(evidence.DurableEvidenceSha256, contract.ExpectedDurableEvidenceSha256, StringComparison.Ordinal) ||
-            !string.Equals(evidence.CleanupEvidenceSha256, contract.ExpectedCleanupEvidenceSha256, StringComparison.Ordinal) ||
-            !evidence.SubcaseEvidenceKeys.SequenceEqual(contract.ExpectedSubcaseEvidenceKeys, StringComparer.Ordinal) ||
+            !SubcasesMatch(contract.RequiredSubcases, evidence.Subcases) ||
             !string.Equals(evidence.SourceCommit, pins.SourceCommit, StringComparison.Ordinal) ||
             !string.Equals(evidence.ManifestSha256, pins.ManifestSha256, StringComparison.Ordinal) ||
             !string.Equals(evidence.TlsSpkiSha256, pins.TlsSpkiSha256, StringComparison.Ordinal) ||
             !string.Equals(evidence.ClusterSystemIdentifier, pins.ClusterSystemIdentifier, StringComparison.Ordinal) ||
             !string.Equals(evidence.SigningPublicKeySha256, pins.SigningPublicKeySha256, StringComparison.Ordinal) ||
-            evidence.DurableEvidenceCount < 1 || evidence.UnrelatedMutationCount != 0 || !evidence.CleanupFinalized ||
-            !evidence.TargetAbsent || !evidence.RolesAbsent || evidence.AffectedRows != contract.ExpectedAffectedRows ||
-            evidence.Metrics.ValueKind != JsonValueKind.Object ||
-            !TryPositiveMetric(evidence.Metrics, "fixtureRowCount") ||
-            !TryNonNegativeMetric(evidence.Metrics, "beforeRowCount") ||
-            !TryNonNegativeMetric(evidence.Metrics, "afterRowCount") ||
-            !TrySha256Metric(evidence.Metrics, "actionEvidenceSha256") ||
-            !TrySha256Metric(evidence.Metrics, "cleanupEvidenceSha256"))
+            evidence.DurableEvidenceCount < contract.RequiredSubcases.Count || evidence.UnrelatedMutationCount != 0 || !evidence.CleanupFinalized ||
+            !evidence.TargetAbsent || !evidence.RolesAbsent || evidence.AffectedRows != contract.ExpectedAffectedRows)
             throw new InvalidOperationException("Acceptance evidence did not prove the exact fixture, action, state, durability, isolation and cleanup contract.");
         if (contract.RequiresDenial)
         {
@@ -137,6 +169,23 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             throw new InvalidOperationException("A successful acceptance action must affect and prove at least one authoritative fact.");
     }
 
+    private static bool SubcasesMatch(IReadOnlyList<SubcaseRequirement> required, IReadOnlyList<SubcaseEvidence> actual)
+    {
+        if (required.Count != actual.Count || actual.Select(x => x.EvidenceId).Distinct().Count() != actual.Count) return false;
+        return required.Zip(actual).All(pair =>
+            string.Equals(pair.First.SubcaseId, pair.Second.SubcaseId, StringComparison.Ordinal) &&
+            string.Equals(pair.First.RequiredAction, pair.Second.ActionPerformed, StringComparison.Ordinal) &&
+            string.Equals(pair.First.EvidenceSource, pair.Second.EvidenceSource, StringComparison.Ordinal) &&
+            string.Equals(pair.First.ExpectedInitialState, pair.Second.PreState, StringComparison.Ordinal) &&
+            string.Equals(pair.First.ExpectedFinalState, pair.Second.PostState, StringComparison.Ordinal) &&
+            pair.First.ExpectedBeforeCount == pair.Second.PreCount && pair.First.ExpectedAfterCount == pair.Second.PostCount &&
+            string.Equals(pair.First.ExpectedSqlState, pair.Second.SqlState, StringComparison.Ordinal) &&
+            string.Equals(pair.First.ExpectedDatabaseObject, pair.Second.DatabaseObject, StringComparison.Ordinal) &&
+            pair.First.ExpectedAffectedRows == pair.Second.AffectedRows &&
+            string.Equals(pair.First.ExpectedTerminalOutcome, pair.Second.TerminalOutcome, StringComparison.Ordinal) &&
+            pair.Second.EvidenceId != Guid.Empty && pair.Second.ActionReached && pair.Second.Durable &&
+            ExactSha256(pair.Second.PreStateSha256) && ExactSha256(pair.Second.PostStateSha256));
+    }
     private static bool ExactSha256(string value) => value.Length == 64 && value.All(Uri.IsHexDigit);
 
     private static string Required(string name) => Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
@@ -228,30 +277,35 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         bool FixturePrepared, string FixtureSha256, string ContractSha256, string SigningPublicKeySha256);
     internal sealed record ReleaseEvidence(Guid LeaseId, Guid EvidenceId, string State, bool TargetAbsent, bool RolesAbsent, string EvidenceSha256, string ContractSha256, string SigningPublicKeySha256);
     internal sealed record DatabaseObjectIdentity(string Schema, string Table, string Constraint, string Function, string Trigger);
+    internal sealed record ScenarioFixtureManifest(string FixtureOperationId, string ActionOperationId,
+        string EvidenceQuery, string CleanupOperationId, DatabaseObjectIdentity FixtureIdentity,
+        IReadOnlyList<string> FixtureDdl, IReadOnlyList<string> CleanupDdl);
+    internal sealed record SubcaseRequirement(string SubcaseId, string RequiredAction, string EvidenceSource,
+        string ExpectedInitialState, string ExpectedFinalState, int ExpectedBeforeCount, int ExpectedAfterCount,
+        string? ExpectedSqlState, string? ExpectedDatabaseObject, int ExpectedAffectedRows, string ExpectedTerminalOutcome);
+    internal sealed record SubcaseEvidence(string SubcaseId, Guid EvidenceId, string ActionPerformed,
+        string EvidenceSource, string PreState, string PostState, int PreCount, int PostCount,
+        string PreStateSha256, string PostStateSha256, string TerminalOutcome, int AffectedRows,
+        string? SqlState, string? DatabaseObject, bool ActionReached, bool Durable);
     internal sealed record AcceptanceContract(string ScenarioId, string Setup, string Action,
         string ExpectedInitialState, string ExpectedFinalState, string? ExpectedSqlState,
         string? ExpectedDatabaseObject, int ExpectedAffectedRows, bool RequiresDenial,
         bool AllowsZeroRowsTerminal, bool RequiresDecision, DatabaseObjectIdentity ExpectedIdentity,
         int ExpectedBeforeCount, int ExpectedAfterCount, string ExpectedTerminalOutcome, string ExpectedCleanupOutcome,
-        string ExpectedDatabaseName, Guid ExpectedFixtureId, Guid ExpectedCommandId, Guid ExpectedAuthorizationId,
-        Guid ExpectedAttemptId, Guid? ExpectedDecisionId, string ExpectedTargetInstanceSha256,
-        string ExpectedBeforeSha256, string ExpectedAfterSha256, Guid ExpectedDurableEvidenceId,
-        string ExpectedDurableEvidenceSha256, Guid ExpectedCleanupEvidenceId, string ExpectedCleanupEvidenceSha256,
-        IReadOnlyList<string> ExpectedSubcaseEvidenceKeys)
-    {
-        public string ExpectedFixtureSha256 => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"REV869B-C22|{ScenarioId}|fixture"))).ToLowerInvariant();
-    }
+        ScenarioFixtureManifest Fixture, IReadOnlyList<SubcaseRequirement> RequiredSubcases);
+
     internal sealed record SignedAcceptanceEnvelope(string PayloadBase64, string SignatureBase64);
     private sealed record AcceptancePins(string SourceCommit, string ManifestSha256, string TlsSpkiSha256,
         string ClusterSystemIdentifier, string SigningPublicKeyPem, string SigningPublicKeySha256);
     internal sealed record AcceptanceEvidence(string ScenarioId, string ContractSha256, Guid RunId, Guid LeaseId,
         Guid CommandId, Guid AuthorizationId, Guid AttemptId,
         Guid? DecisionId, Guid FixtureId, string FixtureSha256, string DatabaseName, string TargetInstanceSha256, string ClusterSystemIdentifier,
-        string TlsSpkiSha256, string SourceCommit, string ManifestSha256, string SigningPublicKeySha256, string Setup, string Action, string ActionPerformed,
+        string TlsSpkiSha256, string SourceCommit, string ManifestSha256, string SigningPublicKeySha256, string Setup,
+        string FixtureOperationId, string ActionOperationId, string EvidenceQuery, string CleanupOperationId, string Action, string ActionPerformed,
         bool SetupCompleted, bool ActionReached, int AffectedRows, int DurableEvidenceCount,
-        Guid DurableEvidenceId, string DurableEvidenceSha256, Guid CleanupEvidenceId, string CleanupEvidenceSha256, IReadOnlyList<string> SubcaseEvidenceKeys, int UnrelatedMutationCount, bool CleanupFinalized,
+        Guid DurableEvidenceId, string DurableEvidenceSha256, Guid CleanupEvidenceId, string CleanupEvidenceSha256, IReadOnlyList<SubcaseEvidence> Subcases, int UnrelatedMutationCount, bool CleanupFinalized,
         bool TargetAbsent, bool RolesAbsent, string? SqlState, string? DatabaseObject,
         string InitialState, string InitialStateSha256, string FinalState, string FinalStateSha256,
         int BeforeCount, string BeforeSha256, int AfterCount, string AfterSha256,
-        DatabaseObjectIdentity DatabaseIdentity, string TerminalOutcome, string CleanupOutcome, JsonElement Metrics);
+        DatabaseObjectIdentity DatabaseIdentity, string TerminalOutcome, string CleanupOutcome);
 }

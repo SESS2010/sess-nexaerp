@@ -9,10 +9,10 @@ public sealed class Rev869BCorrection17PostgresScenarios
     [Fact] public Task P01_ExternalProvisioningManifestIsVerified() => RunAsync(Rev869BAcceptanceScenarioInventory.P01);
     [Fact] public Task P02_MismatchedExternalManifestIsDenied() => RunAsync(Rev869BAcceptanceScenarioInventory.P02);
     [Fact] public Task P03_CatalogueOrAclDriftIsDenied() => RunAsync(Rev869BAcceptanceScenarioInventory.P03);
-    [Fact] public Task L01_ReservedLeaseBecomesReady() => RunAsync(Rev869BAcceptanceScenarioInventory.L01);
+    [Fact] public Task L01_ReservedInterruptionResumesOrUsesApprovedCleanup() => RunAsync(Rev869BAcceptanceScenarioInventory.L01);
     [Fact] public Task L02_InterruptedCreateIsRecovered() => RunAsync(Rev869BAcceptanceScenarioInventory.L02);
-    [Fact] public Task L03_ConcurrentLifecycleAttemptIsDenied() => RunAsync(Rev869BAcceptanceScenarioInventory.L03);
-    [Fact] public Task L04_DropAuthorizedLeaseIsFinalized() => RunAsync(Rev869BAcceptanceScenarioInventory.L04);
+    [Fact] public Task L03_ConcurrentNormalCleanupProducesOneDrop() => RunAsync(Rev869BAcceptanceScenarioInventory.L03);
+    [Fact] public Task L04_EveryCleanupBoundaryReconcilesOnce() => RunAsync(Rev869BAcceptanceScenarioInventory.L04);
     [Fact] public Task L05_IdentityMismatchIsQuarantined() => RunAsync(Rev869BAcceptanceScenarioInventory.L05);
     [Fact] public Task R01_ExactRecoveryDecisionIsConsumed() => RunAsync(Rev869BAcceptanceScenarioInventory.R01);
     [Fact] public Task R02_RecoveryDecisionReplayIsDenied() => RunAsync(Rev869BAcceptanceScenarioInventory.R02);
@@ -51,50 +51,82 @@ public sealed class Rev869BCorrection17PostgresScenarios
     }
     [Fact] public Task T02_FailedScenarioCleanupSurvivesRestart() => RunAsync(Rev869BAcceptanceScenarioInventory.T02);
     [Fact]
-    public async Task T03_ConcurrentFixturesRemainIsolated()
+    public void T03_EveryScenarioActionIsMutationSensitive()
     {
-        var canonical = Rev869BAcceptanceScenarioInventory.T03;
-        var actionRemoved = canonical with { Action = string.Empty };
-        Assert.NotEqual(Rev869BLifecycleControllerClient.ExactContractSha256(canonical),
-            Rev869BLifecycleControllerClient.ExactContractSha256(actionRemoved));
-        await RunAsync(Rev869BAcceptanceScenarioInventory.T03);
-        await using var controller = Rev869BLifecycleControllerClient.Create();
-        var allocations = await Task.WhenAll(
-            controller.AllocateAsync("T03-A", "ConcurrentFixtureIsolation"),
-            controller.AllocateAsync("T03-B", "ConcurrentFixtureIsolation"));
-        Assert.NotEqual(allocations[0].LeaseId, allocations[1].LeaseId);
-        Assert.NotEqual(allocations[0].DatabaseName, allocations[1].DatabaseName);
-        Assert.NotEqual(allocations[0].FixtureSha256, allocations[1].FixtureSha256);
-        await Task.WhenAll(
-            controller.ReleaseAsync(allocations[0].LeaseId, Guid.NewGuid()),
-            controller.ReleaseAsync(allocations[1].LeaseId, Guid.NewGuid()));
+        foreach (var canonical in Rev869BAcceptanceScenarioInventory.All)
+        {
+            Assert.NotEmpty(canonical.RequiredSubcases);
+            var first = canonical.RequiredSubcases[0];
+            var mutations = new[]
+            {
+                canonical with { Setup = string.Empty },
+                canonical with { Action = string.Empty },
+                canonical with { ExpectedInitialState = string.Empty },
+                canonical with { ExpectedFinalState = string.Empty },
+                canonical with { ExpectedTerminalOutcome = string.Empty },
+                canonical with { ExpectedCleanupOutcome = string.Empty },
+                canonical with { Fixture = canonical.Fixture with { FixtureOperationId = string.Empty } },
+                canonical with { Fixture = canonical.Fixture with { ActionOperationId = string.Empty } },
+                canonical with { Fixture = canonical.Fixture with { EvidenceQuery = string.Empty } },
+                canonical with { Fixture = canonical.Fixture with { CleanupOperationId = string.Empty } },
+                canonical with { RequiredSubcases = canonical.RequiredSubcases.Select((x, index) => index == 0 ? x with { RequiredAction = string.Empty } : x).ToArray() },
+                canonical with { RequiredSubcases = canonical.RequiredSubcases.Select((x, index) => index == 0 ? x with { EvidenceSource = string.Empty } : x).ToArray() },
+                canonical with { RequiredSubcases = canonical.RequiredSubcases.Select((x, index) => index == 0 ? x with { ExpectedTerminalOutcome = string.Empty } : x).ToArray() }
+            };
+            if (canonical.Fixture.FixtureDdl.Count > 0)
+            {
+                var fixtureDdlRemoved = canonical with { Fixture = canonical.Fixture with { FixtureDdl = canonical.Fixture.FixtureDdl.Skip(1).ToArray() } };
+                Assert.NotEqual(Rev869BLifecycleControllerClient.ExactContractSha256(canonical),
+                    Rev869BLifecycleControllerClient.ExactContractSha256(fixtureDdlRemoved));
+                Assert.Throws<ArgumentException>(() => Rev869BLifecycleControllerClient.ValidateContract(fixtureDdlRemoved));
+            }
+            Assert.All(mutations, mutation =>
+            {
+                Assert.NotEqual(Rev869BLifecycleControllerClient.ExactContractSha256(canonical),
+                    Rev869BLifecycleControllerClient.ExactContractSha256(mutation));
+                Assert.Throws<ArgumentException>(() => Rev869BLifecycleControllerClient.ValidateContract(mutation));
+            });
+            Assert.StartsWith(canonical.ScenarioId + ":", first.SubcaseId, StringComparison.Ordinal);
+        }
     }
-
     private static async Task RunAsync(Rev869BLifecycleControllerClient.AcceptanceContract contract)
     {
         await using var controller = Rev869BLifecycleControllerClient.Create();
         var evidence = await controller.RunAcceptanceScenarioAsync(contract);
         Assert.Equal(contract.ScenarioId, evidence.ScenarioId);
         Assert.Equal(contract.Setup, evidence.Setup);
+        Assert.Equal(contract.Fixture.FixtureOperationId, evidence.FixtureOperationId);
+        Assert.Equal(contract.Fixture.ActionOperationId, evidence.ActionOperationId);
+        Assert.Equal(contract.Fixture.EvidenceQuery, evidence.EvidenceQuery);
+        Assert.Equal(contract.Fixture.CleanupOperationId, evidence.CleanupOperationId);
         Assert.Equal(contract.Action, evidence.Action);
         Assert.Equal(contract.ExpectedInitialState, evidence.InitialState);
         Assert.Equal(contract.ExpectedFinalState, evidence.FinalState);
         Assert.Equal(contract.ExpectedAffectedRows, evidence.AffectedRows);
-        Assert.Equal(contract.ExpectedDatabaseName, evidence.DatabaseName);
-        Assert.Equal(contract.ExpectedTargetInstanceSha256, evidence.TargetInstanceSha256);
-        Assert.Equal(contract.ExpectedFixtureId, evidence.FixtureId);
-        Assert.Equal(contract.ExpectedCommandId, evidence.CommandId);
-        Assert.Equal(contract.ExpectedAuthorizationId, evidence.AuthorizationId);
-        Assert.Equal(contract.ExpectedAttemptId, evidence.AttemptId);
-        Assert.Equal(contract.ExpectedDecisionId, evidence.DecisionId);
-        Assert.Equal(contract.ExpectedDurableEvidenceId, evidence.DurableEvidenceId);
-        Assert.Equal(contract.ExpectedCleanupEvidenceId, evidence.CleanupEvidenceId);
-        Assert.Equal(contract.ExpectedFixtureSha256, evidence.FixtureSha256);
-        Assert.Equal(contract.ExpectedBeforeSha256, evidence.BeforeSha256);
-        Assert.Equal(contract.ExpectedAfterSha256, evidence.AfterSha256);
-        Assert.Equal(contract.ExpectedDurableEvidenceSha256, evidence.DurableEvidenceSha256);
-        Assert.Equal(contract.ExpectedCleanupEvidenceSha256, evidence.CleanupEvidenceSha256);
-        Assert.Equal(contract.ExpectedSubcaseEvidenceKeys, evidence.SubcaseEvidenceKeys);
+        Assert.StartsWith(Rev869BTestDatabaseLease.DatabasePrefix, evidence.DatabaseName, StringComparison.Ordinal);
+        Assert.All(new[] { evidence.TargetInstanceSha256, evidence.FixtureSha256, evidence.BeforeSha256,
+            evidence.AfterSha256, evidence.DurableEvidenceSha256, evidence.CleanupEvidenceSha256 },
+            value => Assert.Matches("^[0-9a-f]{64}$", value));
+        Assert.Equal(7, new[] { evidence.LeaseId, evidence.FixtureId, evidence.CommandId, evidence.AuthorizationId,
+            evidence.AttemptId, evidence.DurableEvidenceId, evidence.CleanupEvidenceId }.Distinct().Count());
+        Assert.Equal(contract.RequiredSubcases.Count, evidence.Subcases.Count);
+        Assert.All(evidence.Subcases, subcase =>
+        {
+            var required = Assert.Single(contract.RequiredSubcases, x => x.SubcaseId == subcase.SubcaseId);
+            Assert.Equal(required.RequiredAction, subcase.ActionPerformed);
+            Assert.Equal(required.EvidenceSource, subcase.EvidenceSource);
+            Assert.Equal(required.ExpectedInitialState, subcase.PreState);
+            Assert.Equal(required.ExpectedFinalState, subcase.PostState);
+            Assert.Equal(required.ExpectedBeforeCount, subcase.PreCount);
+            Assert.Equal(required.ExpectedAfterCount, subcase.PostCount);
+            Assert.Equal(required.ExpectedSqlState, subcase.SqlState);
+            Assert.Equal(required.ExpectedDatabaseObject, subcase.DatabaseObject);
+            Assert.Equal(required.ExpectedAffectedRows, subcase.AffectedRows);
+            Assert.Equal(required.ExpectedTerminalOutcome, subcase.TerminalOutcome);
+            Assert.NotEqual(Guid.Empty, subcase.EvidenceId);
+            Assert.True(subcase.ActionReached);
+            Assert.True(subcase.Durable);
+        });
         Assert.Equal(contract.ExpectedBeforeCount, evidence.BeforeCount);
         Assert.Equal(contract.ExpectedAfterCount, evidence.AfterCount);
         Assert.Equal(contract.ExpectedIdentity, evidence.DatabaseIdentity);
