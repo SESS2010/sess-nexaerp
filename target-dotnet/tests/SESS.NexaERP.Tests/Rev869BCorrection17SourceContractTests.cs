@@ -228,107 +228,93 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
-    public void AcceptanceInventoryHasExactlyThirtyFourUniqueExecutableDatabaseFacts()
+    public void AcceptanceInventoryHasExactlyThirtyFourUniqueIndependentEvidencePlans()
     {
         var inventory = Rev869BAcceptanceScenarioInventory.All;
         Assert.Equal(34, inventory.Count);
         Assert.Equal(34, inventory.Select(x => x.ScenarioId).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(new[] { "P01", "P02", "P03", "L01", "L02", "L03", "L04", "L05", "R01", "R02", "R03", "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "G01", "G02", "G03", "G04", "G05", "G06", "E01", "E02", "E03", "E04", "A01", "A02", "T01", "T02", "T03" }, inventory.Select(x => x.ScenarioId));
-        Assert.Equal(34, inventory.Select(x => x.Fixture.FixtureOperationId).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(34, inventory.Select(x => x.Fixture.ActionOperationId).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(34, inventory.Select(x => x.Fixture.CleanupOperationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(new[] { "P01", "P02", "P03", "L01", "L02", "L03", "L04", "L05", "R01", "R02", "R03",
+            "C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "G01", "G02", "G03", "G04", "G05", "G06",
+            "E01", "E02", "E03", "E04", "A01", "A02", "T01", "T02", "T03" }, inventory.Select(x => x.ScenarioId));
+
+        Assert.Equal(34, inventory.Select(x => x.Plan.FixtureOperationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(34, inventory.Select(x => x.Plan.ActionOperationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(34, inventory.Select(x => x.Plan.CleanupOperationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(170, inventory.SelectMany(x => new[] { x.Plan.Before.ReadId, x.Plan.After.ReadId, x.Plan.Durable.ReadId, x.Plan.Audit.ReadId, x.Plan.Cleanup.ReadId }).Distinct(StringComparer.Ordinal).Count());
+
         Assert.All(inventory, contract =>
         {
-            Assert.False(string.IsNullOrWhiteSpace(contract.Setup));
-            Assert.False(string.IsNullOrWhiteSpace(contract.Action));
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedInitialState));
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedFinalState));
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedTerminalOutcome));
-            Assert.Equal("Finalized", contract.ExpectedCleanupOutcome);
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Schema));
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Table));
-            Assert.False(string.IsNullOrWhiteSpace(contract.ExpectedIdentity.Function));
-            Assert.False(string.IsNullOrWhiteSpace(contract.Fixture.FixtureOperationId));
-            Assert.False(string.IsNullOrWhiteSpace(contract.Fixture.ActionOperationId));
-            Assert.False(string.IsNullOrWhiteSpace(contract.Fixture.EvidenceQuery));
-            Assert.False(string.IsNullOrWhiteSpace(contract.Fixture.CleanupOperationId));
-            Assert.Equal(contract.ExpectedIdentity, contract.Fixture.FixtureIdentity);
-            Assert.DoesNotContain(contract.Fixture.EvidenceQuery, contract.Fixture.ActionOperationId, StringComparison.Ordinal);
-            Assert.Equal(contract.Fixture.FixtureDdl.Count, contract.Fixture.CleanupDdl.Count);
-            if (contract.ScenarioId is "C04" or "G05")
-            {
-                Assert.Equal(2, contract.Fixture.FixtureDdl.Count);
-                Assert.Equal(2, contract.Fixture.CleanupDdl.Count);
-                Assert.Contains(contract.Fixture.FixtureDdl, x => x.StartsWith("CREATE TRIGGER TR_rev869b_", StringComparison.Ordinal));
-                Assert.Contains(contract.Fixture.CleanupDdl, x => x.StartsWith("DROP TRIGGER TR_rev869b_", StringComparison.Ordinal));
-            }
-            else
-            {
-                Assert.Empty(contract.Fixture.FixtureDdl);
-                Assert.Empty(contract.Fixture.CleanupDdl);
-            }
-            Assert.True(contract.ExpectedBeforeCount >= 0);
-            Assert.True(contract.ExpectedAfterCount >= 0);
+            Rev869BLifecycleControllerClient.ValidateContract(contract);
+            Assert.StartsWith("rev869b/" + contract.ScenarioId + "/fixture/", contract.Plan.FixtureOperationId, StringComparison.Ordinal);
+            Assert.StartsWith("rev869b/" + contract.ScenarioId + "/action/", contract.Plan.ActionOperationId, StringComparison.Ordinal);
+            Assert.StartsWith("rev869b/" + contract.ScenarioId + "/cleanup/", contract.Plan.CleanupOperationId, StringComparison.Ordinal);
+            Assert.NotEqual(contract.Plan.Before.ReadId, contract.Plan.After.ReadId);
+            Assert.NotEqual(contract.Plan.After.ReadId, contract.Plan.Durable.ReadId);
+            Assert.NotEqual(contract.Plan.Durable.ReadId, contract.Plan.Cleanup.ReadId);
+            Assert.Equal(contract.Plan.Assertions.Count + 11, contract.Plan.Mutations.Count);
+            Assert.Contains("AND", contract.Plan.ExactFormula, StringComparison.Ordinal);
+            Assert.DoesNotContain("PASS", contract.Plan.ExactFormula, StringComparison.OrdinalIgnoreCase);
             Assert.NotEmpty(contract.RequiredSubcases);
-            Assert.Equal(contract.RequiredSubcases.Count, contract.RequiredSubcases.Select(x => x.SubcaseId).Distinct(StringComparer.Ordinal).Count());
-            Assert.All(contract.RequiredSubcases, requirement =>
-            {
-                Assert.StartsWith(contract.ScenarioId + ":", requirement.SubcaseId, StringComparison.Ordinal);
-                Assert.False(string.IsNullOrWhiteSpace(requirement.RequiredAction));
-                Assert.False(string.IsNullOrWhiteSpace(requirement.EvidenceSource));
-                Assert.False(string.IsNullOrWhiteSpace(requirement.ExpectedInitialState));
-                Assert.False(string.IsNullOrWhiteSpace(requirement.ExpectedFinalState));
-                Assert.False(string.IsNullOrWhiteSpace(requirement.ExpectedTerminalOutcome));
-                Assert.True(requirement.ExpectedBeforeCount >= 0);
-                Assert.True(requirement.ExpectedAfterCount >= 0);
-                if (requirement.ExpectedSqlState is null)
-                    Assert.Null(requirement.ExpectedDatabaseObject);
-                else
-                {
-                    Assert.Matches("^[0-9A-Z]{5}$", requirement.ExpectedSqlState);
-                    Assert.False(string.IsNullOrWhiteSpace(requirement.ExpectedDatabaseObject));
-                }
-            });            if (contract.RequiresDenial) { Assert.NotNull(contract.ExpectedSqlState); Assert.NotNull(contract.ExpectedDatabaseObject); }
-            else Assert.True(contract.ExpectedAffectedRows > 0 || contract.AllowsZeroRowsTerminal);
+            Assert.All(contract.RequiredSubcases, subcase => Assert.StartsWith(contract.ScenarioId + ":", subcase.SubcaseId, StringComparison.Ordinal));
         });
+
+        var design = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection14PostgresDesignTests.cs");
+        Assert.DoesNotContain("ScenarioExpectedResult", design);
+        Assert.DoesNotContain("ExpectedBeforeCount", design);
+        Assert.DoesNotContain("ExpectedAfterCount", design);
+        Assert.DoesNotContain("\"22012\"", design);
+        Assert.DoesNotContain("int4div", design, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("constant PASS", design, StringComparison.OrdinalIgnoreCase);
+        foreach (var required in new[] { "Formula(id)", "EvidenceAssertion", "SemanticMutation", "mutate-action",
+            "mutate-before-read", "mutate-after-read", "mutate-durable-read", "mutate-fabricated", "mutate-duplicate",
+            "mutate-substituted", "mutate-stale", "mutate-cross-instance" })
+            Assert.Contains(required, design);
+
         var bodies = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection17PostgresScenarios.cs");
         Assert.Equal(34, Regex.Matches(bodies, @"\[Fact\]").Count);
         Assert.Equal(33, Regex.Matches(bodies, @"RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
-        Assert.Single(Regex.Matches(bodies, @"controller\.AllocateAsync\("));
-        Assert.Single(Regex.Matches(bodies, @"controller\.ReleaseAsync\("));
-        Assert.Contains("var mutations", bodies);
-        Assert.Contains("EvidenceQuery = string.Empty", bodies);
-        Assert.Contains("ExpectedTerminalOutcome = string.Empty", bodies);
-        Assert.Contains("ValidateContract(mutation)", bodies);
-        Assert.Contains("ExactContractSha256", bodies);
-        Assert.DoesNotContain("File.ReadAllText", bodies);
+        Assert.Contains("ApplyMutation", bodies);
+        Assert.Contains("ValidateContract(changed)", bodies);
+        Assert.DoesNotContain("ExpectedBeforeCount", bodies);
+        Assert.DoesNotContain("ExpectedAfterCount", bodies);
         Assert.DoesNotContain("Assert.ThrowsAny", bodies);
+
         var client = Source("tests/SESS.NexaERP.Tests/Rev869BLifecycleControllerClient.cs");
-        Assert.Contains("ValidateContract(contract)", client);
-        foreach (var pin in new[] { "REV869B_EXPECTED_SOURCE_COMMIT", "REV869B_EXPECTED_MANIFEST_SHA256", "REV869B_EXPECTED_TLS_SPKI_SHA256", "REV869B_EXPECTED_CLUSTER_SYSTEM_IDENTIFIER", "REV869B_CONTROLLER_SIGNING_PUBLIC_KEY_PEM", "VerifyData", "ContractSha256", "CommandId", "AuthorizationId", "DurableEvidenceId", "BeforeSha256", "AfterSha256", "DatabaseIdentity", "TerminalOutcome", "CleanupOutcome", "RequiredSubcases", "SubcaseEvidence", "ReadSignedAsync<LeaseAllocation>", "ReadSignedAsync<ReleaseEvidence>" })
-            Assert.Contains(pin, client);
-        Assert.DoesNotContain("ReadFromJsonAsync<AcceptanceEvidence>", client);
-        Assert.DoesNotContain("ExpectedTargetInstanceSha256", client);
-        Assert.DoesNotContain("REV869B-C22", client);
+        foreach (var required in new[] { "PrepareAsync", "ObserveAsync", "ActAsync", "RequestCleanupAsync", "BuildReadCommand",
+            "rev869b_read_lifecycle_evidence", "rev869b_read_control_plane_acl_evidence", "rev869b_read_command_evidence",
+            "rev869b_read_purge_evidence", "rev869b_read_export_evidence", "rev869b_read_target_acl_evidence",
+            "TargetVerifierConnectionString", "ControlPlaneVerifierConnectionString", "ControllerAudit",
+            "AuditSigningPublicKeyPem", "CanonicalObservation", "Evaluate", "ExecuteScalarAsync" })
+            Assert.Contains(required, client);
+        Assert.DoesNotContain("RequireAcceptanceEvidence", client);
+        Assert.DoesNotContain("AcceptanceEvidence", client);
+        Assert.DoesNotContain("ActionPerformed, contract.Action", client);
+        Assert.DoesNotContain("evidence.EvidenceQuery", client);
+        Assert.DoesNotContain("ExpectedBeforeCount", client);
+        Assert.DoesNotContain("ExpectedAfterCount", client);
         Assert.DoesNotContain("JsonElement Metrics", client);
-        var design = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection14PostgresDesignTests.cs");
-        Assert.DoesNotContain("int affected =", design);
-        Assert.DoesNotContain("string? sqlState =", design);
-        Assert.DoesNotContain("bool zeroRows =", design);
-        Assert.DoesNotContain("bool decision =", design);
-        Assert.DoesNotContain("int? before =", design);
-        Assert.DoesNotContain("string? terminal =", design);
-        Assert.DoesNotContain("placeholder", design, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("CommittedRolledBackOrAbandoned", design);
-        Assert.DoesNotContain("InterruptedThenReleaseStarted", design);
-        Assert.Contains("FourExactInterruptionOutcomesReconciled", design);
-        Assert.Contains("ReleaseRetrySequenceVerified", design);
-        Assert.Contains("rev869b_test_c04_receipt_failpoint", design);
-        Assert.Contains("rev869b_test_g05_purge_delete_failpoint", design);
-        Assert.DoesNotContain("rev869b_test_c04_receipt_failpoint", Sql);
-        Assert.DoesNotContain("rev869b_test_g05_purge_delete_failpoint", Sql);
+        Assert.DoesNotContain("lifecycle_administrator credentials", client, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Correction24EvidenceReadersAreVerifierOnlyMinimalAndAclClosed()
+    {
+        foreach (var function in new[] { "rev869b_read_command_evidence", "rev869b_read_purge_evidence",
+            "rev869b_read_export_evidence", "rev869b_read_target_acl_evidence" })
+            Assert.Contains("CREATE FUNCTION nexa." + function, Sql);
+        Assert.Contains("session_user='nexa_rev869b_target_verifier'", Sql);
+        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC", Sql);
+        Assert.Contains("GRANT EXECUTE ON FUNCTION nexa.rev869b_reconcile_command_attempt(uuid),nexa.rev869b_reconcile_purge(uuid),nexa.rev869b_read_target_security_state(),nexa.rev869b_read_command_evidence", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_command_evidence(uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_purge_evidence(uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_export_evidence(uuid,uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_target_acl_evidence()", Sql);
+        Assert.DoesNotContain("GRANT SELECT ON nexa.rev869b_", Sql);
+        Assert.DoesNotContain("EXECUTE format", Slice(Sql, "CREATE FUNCTION nexa.rev869b_read_command_evidence", "CREATE FUNCTION nexa.rev869b_target_catalogue_fingerprint"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("recomputedSha256", Sql);
+        Assert.Contains("recomputedBatchSha256", Sql);
+        Assert.Contains("fieldKeys", Sql);
+    }
     private static HashSet<string> TableColumns(string sql, string table)
     {
         var definition = Slice(sql, "CREATE TABLE nexa." + table + "(", ");");

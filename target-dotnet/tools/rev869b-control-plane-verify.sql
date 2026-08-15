@@ -10,6 +10,7 @@ expected_functions(signature,owner) AS (VALUES
  ('nexa.rev869b_authorize_normal_drop(uuid,bigint,uuid,text)','nexa_rev869b_control_plane_owner'),('nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,uuid,uuid,text,text,text,text)','nexa_rev869b_control_plane_owner'),
  ('nexa.rev869b_begin_provisioning(uuid,bigint,uuid,uuid,uuid,text,text,text,text)','nexa_rev869b_control_plane_owner'),('nexa.rev869b_begin_quarantine_attempt(uuid,bigint,uuid,uuid,uuid,text,text,text,text)','nexa_rev869b_control_plane_owner'),('nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text)','nexa_rev869b_control_plane_owner'),
  ('nexa.rev869b_control_plane_catalogue_fingerprint()','nexa_rev869b_control_plane_owner'),
+ ('nexa.rev869b_read_control_plane_acl_evidence()','nexa_rev869b_control_plane_owner'),('nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid)','nexa_rev869b_control_plane_owner'),
  ('nexa.rev869b_deny_evidence_mutation()','nexa_rev869b_control_plane_owner'),('nexa.rev869b_finalize_absent_target(uuid,text,text,text)','nexa_rev869b_control_plane_owner'),
  ('nexa.rev869b_mark_in_use(uuid,bigint,uuid,text)','nexa_rev869b_control_plane_owner'),('nexa.rev869b_mark_ready(uuid,bigint,uuid,text,text,text)','nexa_rev869b_control_plane_owner'),
  ('nexa.rev869b_read_lease(uuid)','nexa_rev869b_control_plane_owner'),('nexa.rev869b_read_nonterminal_leases(text)','nexa_rev869b_control_plane_owner'),
@@ -26,7 +27,7 @@ expected_exec(role_name,signature) AS (VALUES
  ('nexa_rev869b_recovery_executor','nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text)'),('nexa_rev869b_recovery_executor','nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,uuid,uuid,text,text,text,text)'),
  ('nexa_rev869b_recovery_executor','nexa.rev869b_read_lease(uuid)'),('nexa_rev869b_recovery_executor','nexa.rev869b_read_nonterminal_leases(text)'),
  ('nexa_rev869b_management_writer','nexa.rev869b_register_recovery_decision(uuid,uuid,text,text,text,timestamp with time zone)'),
- ('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_lease(uuid)'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_nonterminal_leases(text)'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_control_plane_catalogue_fingerprint()')),
+ ('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_lease(uuid)'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_nonterminal_leases(text)'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid)'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_read_control_plane_acl_evidence()'),('nexa_rev869b_control_plane_verifier','nexa.rev869b_control_plane_catalogue_fingerprint()')),
 actual_exec AS (SELECT r.rolname::text role_name,p.oid::regprocedure::text signature FROM pg_roles r CROSS JOIN pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND NOT r.rolsuper AND r.rolname!~'^pg_' AND r.rolname<>'nexa_rev869b_control_plane_owner' AND has_function_privilege(r.oid,p.oid,'EXECUTE')),
 relation_delta AS ((SELECT * FROM expected_relations EXCEPT SELECT * FROM actual_relations) UNION ALL (SELECT * FROM actual_relations EXCEPT SELECT * FROM expected_relations)),
 function_delta AS ((SELECT * FROM expected_functions EXCEPT SELECT * FROM actual_functions) UNION ALL (SELECT * FROM actual_functions EXCEPT SELECT * FROM expected_functions)),
@@ -54,4 +55,4 @@ SELECT CASE WHEN current_database()='sess_nexaerp_rev869b_control_plane'
  AND NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles a ON a.oid=m.roleid JOIN pg_roles b ON b.oid=m.member WHERE (a.rolname LIKE 'nexa_rev869b_%' OR b.rolname LIKE 'nexa_rev869b_%') AND NOT (a.rolname='nexa_rev869b_control_plane_owner' AND b.rolname='nexa_rev869b_lifecycle_administrator'))
  AND EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles a ON a.oid=m.roleid JOIN pg_roles b ON b.oid=m.member WHERE a.rolname='nexa_rev869b_control_plane_owner' AND b.rolname='nexa_rev869b_lifecycle_administrator')
  AND NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa' AND has_function_privilege('public',p.oid,'EXECUTE'))
- THEN 'REV869B_CONTROL_PLANE_CANONICAL_EXACT' ELSE 1/0::text END;
+ THEN 'REV869B_CONTROL_PLANE_CANONICAL_EXACT' ELSE 'REV869B_CONTROL_PLANE_CATALOGUE_MISMATCH|rev869b_control_plane_catalogue_acl' END;

@@ -161,12 +161,23 @@ DECLARE v bigint; prior text; active_attempt uuid; target_database name; cluster
  VALUES(gen_random_uuid(),lease_id,request_id,attempt_id,execution_instance_id,target_database,cluster_id,prior,observed_target_state,evidence_kind,failure_reason,actor_id,actor_issuer,operation,expected_version,v,'Quarantined',evidence);
  RETURN v; END $$;
 
-CREATE FUNCTION nexa.rev869b_begin_drop(lease_id uuid,expected_version bigint,transition_request_id uuid,attempt_id uuid,registration_request_id uuid,execution_instance_id uuid,actor_id text,actor_issuer text,operation text,evidence text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE v bigint; BEGIN
+CREATE FUNCTION nexa.rev869b_begin_drop(lease_id uuid,expected_version bigint,transition_request_id uuid,attempt_id uuid,registration_request_id uuid,execution_instance_id uuid,actor_id text,actor_issuer text,operation text,evidence text) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,nexa AS $$ DECLARE v bigint; authorization_event nexa.rev869b_database_lease_events%ROWTYPE; BEGIN
  IF session_user NOT IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_recovery_executor') OR execution_instance_id='00000000-0000-0000-0000-000000000000'::uuid OR length(actor_id) NOT BETWEEN 1 AND 200 OR length(actor_issuer) NOT BETWEEN 1 AND 200 OR length(operation) NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Exact lifecycle or recovery authority required'; END IF;
  IF transition_request_id='00000000-0000-0000-0000-000000000000'::uuid OR registration_request_id='00000000-0000-0000-0000-000000000000'::uuid OR transition_request_id=registration_request_id THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_drop_transition_request_binding',MESSAGE='Drop transition requires distinct registration and transition request identities'; END IF;
+ IF session_user='nexa_rev869b_lifecycle_api' THEN
+  SELECT e.* INTO authorization_event FROM nexa.rev869b_database_lease_events e JOIN nexa.rev869b_database_leases l ON l.LeaseId=e.LeaseId JOIN nexa.rev869b_control_plane_manifest m ON m.ClusterSystemIdentifier=l.ClusterSystemIdentifier AND m.TlsSpkiSha256=l.TlsSpkiSha256 AND m.Endpoint=l.Endpoint AND m.SourceCommit=l.SourceCommit
+   WHERE e.LeaseId=lease_id AND e.RequestId=registration_request_id AND e.AttemptId IS NULL
+     AND e.FromState IN ('Ready','InUse') AND e.ToState='DropAuthorized' AND e.Version=expected_version
+     AND e.Principal='nexa_rev869b_lifecycle_api'
+     AND l.State='DropAuthorized' AND l.Version=expected_version
+     AND l.TargetDatabase~'^sess_nexaerp_rev869b_[0-9a-f]{24}$'
+     AND l.TargetManifestSha256~'^[0-9a-f]{64}$' AND l.TargetMarkerSha256~'^[0-9a-f]{64}$'
+     AND m.ManifestSha256~'^[0-9a-f]{64}$';
+  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_drop_authorization_event_binding',MESSAGE='Normal drop registration must bind the exact preceding immutable DropAuthorized event, target instance, lease, version, authority, pre-state, and evidence'; END IF;
+ END IF;
  UPDATE nexa.rev869b_database_leases SET State='DropStarted',Version=Version+1,ActiveAttemptId=attempt_id,UpdatedAt=clock_timestamp() WHERE LeaseId=lease_id AND Version=expected_version AND ((session_user='nexa_rev869b_lifecycle_api' AND State='DropAuthorized') OR (session_user='nexa_rev869b_recovery_executor' AND State='RecoveryAuthorized')) RETURNING Version INTO v;
  IF v IS NULL THEN RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='Lease state/version conflict'; END IF;
- IF session_user='nexa_rev869b_lifecycle_api' THEN INSERT INTO nexa.rev869b_lifecycle_attempts(AttemptId,LeaseId,Kind,ExecutionInstanceId,ActorId,ActorIssuer,Operation,RegistrationRequestId,AuthorityEvidenceSha256) VALUES(attempt_id,lease_id,'NormalDrop',execution_instance_id,actor_id,actor_issuer,operation,registration_request_id,evidence);
+ IF session_user='nexa_rev869b_lifecycle_api' THEN INSERT INTO nexa.rev869b_lifecycle_attempts(AttemptId,LeaseId,Kind,ExecutionInstanceId,ActorId,ActorIssuer,Operation,RegistrationRequestId,AuthorityEvidenceSha256) VALUES(attempt_id,lease_id,'NormalDrop',execution_instance_id,actor_id,actor_issuer,operation,registration_request_id,authorization_event.EvidenceSha256);
  ELSIF NOT EXISTS(SELECT 1 FROM nexa.rev869b_lifecycle_attempts a JOIN nexa.rev869b_recovery_decisions d ON d.DecisionId=a.DecisionId WHERE a.AttemptId=attempt_id AND a.LeaseId=lease_id AND a.Kind='Recovery' AND a.TerminalState IS NULL AND a.ExecutionInstanceId=execution_instance_id AND a.ActorId=actor_id AND a.ActorIssuer=actor_issuer AND a.Operation=operation AND a.RegistrationRequestId=registration_request_id AND d.ConsumedAttemptId=attempt_id AND d.AuthorizedAction='DropAndFinalize') THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_drop_attempt_binding',MESSAGE='Recovery attempt/action/registration binding mismatch'; END IF;
  INSERT INTO nexa.rev869b_database_lease_events VALUES(DEFAULT,lease_id,transition_request_id,attempt_id,CASE WHEN session_user='nexa_rev869b_recovery_executor' THEN 'RecoveryAuthorized' ELSE 'DropAuthorized' END,'DropStarted',v,evidence,clock_timestamp(),session_user); RETURN v; END $$;
 
@@ -213,6 +224,27 @@ CREATE FUNCTION nexa.rev869b_finalize_absent_target(attempt_id uuid,absence_sha 
 
 CREATE FUNCTION nexa.rev869b_read_lease(lease_id uuid) RETURNS SETOF nexa.rev869b_database_leases LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$ SELECT * FROM nexa.rev869b_database_leases WHERE LeaseId=$1 AND session_user IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_lifecycle_audit','nexa_rev869b_recovery_executor','nexa_rev869b_control_plane_verifier') $$;
 CREATE FUNCTION nexa.rev869b_read_nonterminal_leases(cluster_id text) RETURNS SETOF nexa.rev869b_database_leases LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$ SELECT * FROM nexa.rev869b_database_leases WHERE ClusterSystemIdentifier=$1 AND State<>'Finalized' AND session_user IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_lifecycle_audit','nexa_rev869b_recovery_executor','nexa_rev869b_control_plane_verifier') $$;
+CREATE FUNCTION nexa.rev869b_read_lifecycle_evidence(lease_id uuid,attempt_id uuid,request_id uuid,decision_id uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
+ SELECT jsonb_build_object(
+  'lease',to_jsonb(l),
+  'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.Version,e.EventId) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=l.LeaseId),'[]'::jsonb),
+  'requestEvent',(SELECT to_jsonb(e) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=l.LeaseId AND e.RequestId=$3),
+  'attempt',(SELECT to_jsonb(a) FROM nexa.rev869b_lifecycle_attempts a WHERE a.LeaseId=l.LeaseId AND a.AttemptId=$2),
+  'outcome',(SELECT to_jsonb(o) FROM nexa.rev869b_lifecycle_outcomes o JOIN nexa.rev869b_lifecycle_attempts a ON a.AttemptId=o.AttemptId WHERE a.LeaseId=l.LeaseId AND o.AttemptId=$2),
+  'decision',(SELECT to_jsonb(d) FROM nexa.rev869b_recovery_decisions d WHERE d.LeaseId=l.LeaseId AND d.DecisionId=$4),
+  'quarantine',(SELECT to_jsonb(q) FROM nexa.rev869b_quarantine_outcomes q WHERE q.LeaseId=l.LeaseId AND q.AttemptId=$2),
+  'targetIdentitySha256',encode(digest(l.TargetDatabase::text||':'||l.ClusterSystemIdentifier||':'||l.TargetManifestSha256||':'||coalesce(l.TargetMarkerSha256,''),'sha256'),'hex'))
+ FROM nexa.rev869b_database_leases l
+ WHERE l.LeaseId=$1 AND $1<>'00000000-0000-0000-0000-000000000000'::uuid AND session_user='nexa_rev869b_control_plane_verifier' $$;
+CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence() RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
+ WITH facts(fact) AS (
+  SELECT 'database|'||current_database()||'|'||pg_get_userbyid(d.datdba)||'|'||coalesce(d.datacl::text,'') FROM pg_database d WHERE d.datname=current_database()
+  UNION ALL SELECT 'schema|'||n.nspname||'|'||pg_get_userbyid(n.nspowner)||'|'||coalesce(n.nspacl::text,'') FROM pg_namespace n WHERE n.nspname='nexa'
+  UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='nexa'::regnamespace
+  UNION ALL SELECT 'role|'||r.rolname||'|'||r.rolcanlogin||'|'||r.rolinherit||'|'||r.rolsuper||'|'||r.rolcreatedb||'|'||r.rolcreaterole||'|'||r.rolreplication||'|'||r.rolbypassrls FROM pg_roles r WHERE r.rolname LIKE 'nexa_rev869b_%')
+ SELECT jsonb_build_object('facts',jsonb_agg(fact ORDER BY fact),'count',count(*),'sha256',encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex')) FROM facts WHERE session_user='nexa_rev869b_control_plane_verifier' $$;
 CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  WITH facts(fact) AS (
   SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
@@ -234,7 +266,7 @@ GRANT EXECUTE ON FUNCTION nexa.rev869b_reserve_lease(uuid,uuid,name,text,text,te
 GRANT EXECUTE ON FUNCTION nexa.rev869b_record_quarantine(uuid,bigint,uuid,uuid,text,text,text,text),nexa.rev869b_record_cleanup_failure(uuid,text,text,text),nexa.rev869b_finalize_absent_target(uuid,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_audit;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text),nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,uuid,uuid,text,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_recovery_executor;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_register_recovery_decision(uuid,uuid,text,text,text,timestamptz) TO nexa_rev869b_management_writer;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
+GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid),nexa.rev869b_read_control_plane_acl_evidence(),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON TABLES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON SEQUENCES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;

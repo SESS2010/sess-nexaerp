@@ -34,8 +34,8 @@ internal static class Rev869BControlPlaneProvisioningContract
         "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_begin_drop",
         "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision",
         "rev869b_record_quarantine", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target",
-        "rev869b_control_plane_catalogue_fingerprint",
-        "rev869b_read_lease", "rev869b_read_nonterminal_leases"
+        "rev869b_control_plane_catalogue_fingerprint", "rev869b_read_control_plane_acl_evidence",
+        "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_read_lifecycle_evidence"
     ];
 
     internal static readonly string[] SafeModes =

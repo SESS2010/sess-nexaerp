@@ -33,7 +33,7 @@ public sealed class Rev869BCorrection16SourceContractTests
     {
         var sql = Source("tools/rev869b-control-plane-install.sql");
         var functions = Regex.Matches(sql, @"CREATE FUNCTION nexa\.(?<name>[a-z0-9_]+)\(").Select(x => x.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
-        var expected = new[] { "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready", "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_record_quarantine", "rev869b_begin_drop", "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target", "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_control_plane_catalogue_fingerprint" };
+        var expected = new[] { "rev869b_reserve_lease", "rev869b_begin_provisioning", "rev869b_mark_ready", "rev869b_mark_in_use", "rev869b_authorize_normal_drop", "rev869b_record_quarantine", "rev869b_begin_drop", "rev869b_register_recovery_decision", "rev869b_consume_recovery_decision", "rev869b_record_cleanup_failure", "rev869b_finalize_absent_target", "rev869b_read_lease", "rev869b_read_nonterminal_leases", "rev869b_read_lifecycle_evidence", "rev869b_read_control_plane_acl_evidence", "rev869b_control_plane_catalogue_fingerprint" };
         Assert.All(expected, name => Assert.Contains(name, functions));
         Assert.DoesNotContain("rev869b_transition_database_lease", functions);
         Assert.Contains("session_user", sql);
@@ -96,6 +96,19 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("transition_request_id=registration_request_id", drop);
         Assert.Contains("rev869b_drop_transition_request_binding", drop);
         Assert.Contains("a.RegistrationRequestId=registration_request_id", drop);
+        Assert.Contains("authorization_event nexa.rev869b_database_lease_events%ROWTYPE", drop);
+        Assert.Contains("e.LeaseId=lease_id AND e.RequestId=registration_request_id", drop);
+        Assert.Contains("e.FromState IN ('Ready','InUse') AND e.ToState='DropAuthorized' AND e.Version=expected_version", drop);
+        Assert.Contains("e.AttemptId IS NULL", drop);
+        Assert.Contains("e.Principal='nexa_rev869b_lifecycle_api'", drop);
+        Assert.Contains("registration_request_id,authorization_event.EvidenceSha256", drop);
+        Assert.Contains("l.State='DropAuthorized' AND l.Version=expected_version", drop);
+        Assert.Contains("l.TargetDatabase~'^sess_nexaerp_rev869b_[0-9a-f]{24}$'", drop);
+        Assert.Contains("m.ClusterSystemIdentifier=l.ClusterSystemIdentifier", drop);
+        Assert.Contains("l.TargetManifestSha256~'^[0-9a-f]{64}$'", drop);
+        Assert.Contains("rev869b_drop_authorization_event_binding", drop);
+        Assert.True(drop.IndexOf("SELECT e.* INTO authorization_event", StringComparison.Ordinal) <
+            drop.IndexOf("UPDATE nexa.rev869b_database_leases SET State='DropStarted'", StringComparison.Ordinal));
         Assert.Contains("rev869b_drop_attempt_binding", drop);
         Assert.Contains("lease_id,transition_request_id,attempt_id", drop);
         Assert.DoesNotContain("lease_id,request_id,attempt_id", drop);
@@ -109,6 +122,47 @@ public sealed class Rev869BCorrection16SourceContractTests
         Assert.Contains("TerminalState='Interrupted'", recovery);
         Assert.Contains("rev869b_recovery_attempt_freshness", recovery);
         Assert.DoesNotMatch(new Regex(@"\bON\s+CONFLICT\b", RegexOptions.IgnoreCase), recovery);
+    }
+
+    [Fact]
+    public void NormalDropAuthorizationBindingRejectsEveryProvenanceMutation()
+    {
+        var sql = Source("tools/rev869b-control-plane-install.sql");
+        var drop = Slice(sql, "CREATE FUNCTION nexa.rev869b_begin_drop", "CREATE FUNCTION nexa.rev869b_register_recovery_decision");
+        static bool Exact(string value) =>
+            value.Contains("e.LeaseId=lease_id", StringComparison.Ordinal) &&
+            value.Contains("e.RequestId=registration_request_id", StringComparison.Ordinal) &&
+            value.Contains("e.AttemptId IS NULL", StringComparison.Ordinal) &&
+            value.Contains("e.FromState IN ('Ready','InUse')", StringComparison.Ordinal) &&
+            value.Contains("e.ToState='DropAuthorized'", StringComparison.Ordinal) &&
+            value.Contains("e.Version=expected_version", StringComparison.Ordinal) &&
+            value.Contains("registration_request_id,authorization_event.EvidenceSha256", StringComparison.Ordinal) &&
+            value.Contains("e.Principal='nexa_rev869b_lifecycle_api'", StringComparison.Ordinal) &&
+            value.Contains("l.State='DropAuthorized'", StringComparison.Ordinal) &&
+            value.Contains("l.Version=expected_version", StringComparison.Ordinal) &&
+            value.Contains("l.TargetDatabase~'^sess_nexaerp_rev869b_[0-9a-f]{24}$'", StringComparison.Ordinal) &&
+            value.Contains("m.ClusterSystemIdentifier=l.ClusterSystemIdentifier", StringComparison.Ordinal) &&
+            value.Contains("l.TargetManifestSha256~'^[0-9a-f]{64}$'", StringComparison.Ordinal) &&
+            value.Contains("rev869b_drop_authorization_event_binding", StringComparison.Ordinal);
+        Assert.True(Exact(drop));
+
+        var mutations = new[]
+        {
+            drop.Replace("e.RequestId=registration_request_id", "e.RequestId IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("e.LeaseId=lease_id", "e.LeaseId IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("e.Version=expected_version", "e.Version<=expected_version", StringComparison.Ordinal),
+            drop.Replace("e.AttemptId IS NULL", "true", StringComparison.Ordinal),
+            drop.Replace("e.FromState IN ('Ready','InUse')", "e.FromState IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("e.ToState='DropAuthorized'", "e.ToState IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("registration_request_id,authorization_event.EvidenceSha256", "registration_request_id,evidence", StringComparison.Ordinal),
+            drop.Replace("e.Principal='nexa_rev869b_lifecycle_api'", "e.Principal IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("l.State='DropAuthorized'", "l.State IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("l.TargetDatabase~'^sess_nexaerp_rev869b_[0-9a-f]{24}$'", "l.TargetDatabase IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("m.ClusterSystemIdentifier=l.ClusterSystemIdentifier", "m.ClusterSystemIdentifier IS NOT NULL", StringComparison.Ordinal),
+            drop.Replace("l.TargetManifestSha256~'^[0-9a-f]{64}$'", "l.TargetManifestSha256 IS NOT NULL", StringComparison.Ordinal)
+        };
+        Assert.Equal(12, mutations.Length);
+        Assert.All(mutations, mutation => Assert.False(Exact(mutation)));
     }
 
     [Fact]
