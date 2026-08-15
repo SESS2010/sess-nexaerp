@@ -39,14 +39,18 @@ internal static class Rev869BControlPlaneProvisioningContract
         "rev869b_read_lifecycle_evidence_v2", "rev869b_read_control_plane_acl_evidence_v2",
         "rev869b_read_command_evidence_v2", "rev869b_read_purge_evidence_v2",
         "rev869b_read_export_evidence_v2", "rev869b_read_target_acl_evidence_v2",
-        "rev869b_read_lifecycle_facts_v3", "rev869b_read_control_acl_facts_v3",
-        "rev869b_read_command_facts_v3", "rev869b_read_purge_facts_v3",
-        "rev869b_read_export_facts_v3", "rev869b_read_target_acl_facts_v3"
+        "rev869b_read_lifecycle_facts_v4", "rev869b_read_control_acl_facts_v4",
+        "rev869b_read_command_facts_v4", "rev869b_read_purge_facts_v4",
+        "rev869b_read_export_facts_v4", "rev869b_read_target_acl_facts_v4"
     ];
 
     internal const string Correction27OracleVersion = "REV869B-C27-ORACLE-v1";
     internal const string Correction27ReaderContractVersion = "REV869B-FACTS-v3";
     internal const string Correction27EvidenceSchemaVersion = "REV869B-EVIDENCE-v3";
+    internal const string Correction28ReaderContractVersion = "REV869B-FACTS-v4";
+    internal const string Correction28EvidenceSchemaVersion = "REV869B-EVIDENCE-v4";
+    internal const string Correction28MappingVersion = "REV869B-MAPPING-v4";
+    internal const string TrustedAdapterProductionOwnershipState = "EXTERNAL_PENDING";
     internal const string TargetLeaseSessionSetting = "nexa.rev869b_lease_id";
 
     internal static readonly string[] SafeModes =

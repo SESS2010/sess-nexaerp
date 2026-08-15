@@ -281,7 +281,7 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Equal(33, Regex.Matches(bodies, @"RunAsync\(Rev869BAcceptanceScenarioInventory\.[A-Z][0-9]{2}\)").Count);
         Assert.Contains("BuildDatabaseShapedRawEvidence", bodies);
         Assert.Contains("AdaptAndVerifyDatabaseShapedEvidence", bodies);
-        Assert.Contains("PipelineMutationIsRejected", bodies);
+        Assert.Contains("EvaluatePipelineMutation", bodies);
         Assert.Contains("VerifyEvidence", bodies);
         Assert.DoesNotContain("BuildOracleEvidence", bodies);
         Assert.DoesNotContain("ExpectedBeforeCount", bodies);
@@ -290,8 +290,8 @@ public sealed class Rev869BCorrection17SourceContractTests
 
         var client = Source("tests/SESS.NexaERP.Tests/Rev869BLifecycleControllerClient.cs");
         foreach (var required in new[] { "PrepareAsync", "ObserveAsync", "ActAsync", "RequestCleanupAsync", "BuildReadCommand",
-            "rev869b_read_lifecycle_facts_v3", "rev869b_read_control_acl_facts_v3", "rev869b_read_command_facts_v3",
-            "rev869b_read_purge_facts_v3", "rev869b_read_export_facts_v3", "rev869b_read_target_acl_facts_v3",
+            "rev869b_read_lifecycle_facts_v4", "rev869b_read_control_acl_facts_v4", "rev869b_read_command_facts_v4",
+            "rev869b_read_purge_facts_v4", "rev869b_read_export_facts_v4", "rev869b_read_target_acl_facts_v4",
             "TargetVerifierConnectionString", "ControlPlaneVerifierConnectionString", "ControllerAudit",
             "AuditSigningPublicKeyPem", "CanonicalObservation", "Evaluate", "FormulaComponent",
             "BuildDatabaseShapedRawEvidence", "AdaptAndVerifyDatabaseShapedEvidence", "ParseTypedObservation",
@@ -309,28 +309,28 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
-    public void Correction27FactPipelineIsBijectiveLocallyEvaluatedAndTamperSensitive()
+    public void Correction28FactPipelineIsBijectiveLocallyEvaluatedAndTamperSensitive()
     {
         Rev869BCorrection26FrozenOracle.Validate();
         Assert.Equal(34, Rev869BCorrection26FrozenOracle.Scenarios.Length);
         Assert.Equal(108, Rev869BCorrection26FrozenOracle.Subcases.Length);
         Assert.Equal(133, Rev869BCorrection26FrozenOracle.Selectors.Length);
-        Assert.Equal("6a1196cdad0bcbb086c771efb4f46f9b15db86aaabf6a1ff89e67afca5383bda",
+        Assert.Equal("bc0d3a4b292553041a6e1b6bf756ca1c04a84d0b76fc3062092e3c54c9b5c0ca",
             Rev869BCorrection26FrozenOracle.ComputedSha256);
         var controlSql = Source("tools/rev869b-control-plane-install.sql");
-        foreach (var required in new[] { "rev869b_read_lifecycle_facts_v3", "REV869B-FACTS-v3", "CP-L3",
+        foreach (var required in new[] { "rev869b_read_lifecycle_facts_v4", "REV869B-FACTS-v4", "CP-L4",
             "ObservedDatabaseIdentitySha256=$1", "l.Version=$3", "requested_facts text[]",
-            "rev869b_read_control_acl_facts_v3", "CP-A3", "aclexplode", "pg_auth_members",
+            "rev869b_read_control_acl_facts_v4", "CP-A4", "aclexplode", "pg_auth_members",
             "PUBLIC", "default|", "function|", "rev869b_canonical_json_v3" })
             Assert.Contains(required, controlSql);
-        foreach (var required in new[] { "rev869b_read_command_facts_v3", "rev869b_read_purge_facts_v3",
-            "rev869b_read_export_facts_v3", "rev869b_read_target_acl_facts_v3", "REV869B-FACTS-v3",
+        foreach (var required in new[] { "rev869b_read_command_facts_v4", "rev869b_read_purge_facts_v4",
+            "rev869b_read_export_facts_v4", "rev869b_read_target_acl_facts_v4", "REV869B-FACTS-v4",
             @"""LeaseId"" uuid NOT NULL UNIQUE", "current_setting('nexa.rev869b_lease_id')",
             "RootAuthorizationId", "AuthorizedBatchId", "aclexplode", "pg_auth_members",
             "has_table_privilege", "has_function_privilege", "rolbypassrls", "PUBLIC",
-            "rev869b_build_raw_facts_v3", "rev869b_canonical_json_v3" })
+            "rev869b_build_raw_facts_v4", "rev869b_canonical_json_v3" })
             Assert.Contains(required, Sql);
-        var purgeV3 = Sql[Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_purge_facts_v3", StringComparison.Ordinal)
+        var purgeV3 = Sql[Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_purge_facts_v4", StringComparison.Ordinal)
             ..Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_purge_evidence_v2", StringComparison.Ordinal)];
         Assert.DoesNotContain("'contextRows'", purgeV3);
         Assert.DoesNotContain("scopedContexts", purgeV3);
@@ -343,7 +343,7 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("IX_rev869b_lease_events_attempt_version", controlSql);
         foreach (var forbidden in new[] { "oracleVersion", "oracleSha256", "expectedOutcome", "assertionResult", "passState" })
         {
-            var v3Control = controlSql[controlSql.IndexOf("CREATE FUNCTION nexa.rev869b_read_lifecycle_facts_v3", StringComparison.Ordinal)
+            var v3Control = controlSql[controlSql.IndexOf("CREATE FUNCTION nexa.rev869b_read_lifecycle_facts_v4", StringComparison.Ordinal)
                 ..controlSql.IndexOf("CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint", StringComparison.Ordinal)];
             Assert.DoesNotContain(forbidden, v3Control, StringComparison.OrdinalIgnoreCase);
             var v3Target = Sql[Sql.IndexOf("CREATE FUNCTION nexa.rev869b_canonical_json_v3", StringComparison.Ordinal)
@@ -367,8 +367,12 @@ public sealed class Rev869BCorrection17SourceContractTests
                 Assert.True(pristineFailures.Length == 0,
                     contract.ScenarioId + "/" + subcase.SubcaseId + ": " + string.Join(",", pristineFailures));
                 foreach (var mutation in Enum.GetValues<Rev869BLifecycleControllerClient.PipelineMutationKind>())
-                    Assert.True(Rev869BLifecycleControllerClient.PipelineMutationIsRejected(contract, subcase, mutation),
-                        contract.ScenarioId + "/" + subcase.SubcaseId + ":" + mutation);
+                {
+                    var result = Rev869BLifecycleControllerClient.EvaluatePipelineMutation(contract, subcase, mutation);
+                    Assert.True(result.Killed, result.MutationId);
+                    Assert.False(result.Survived, result.MutationId);
+                    Assert.Equal(result.ExpectedRejectionCode, result.ActualRejectionCode);
+                }
 
                 foreach (var assertion in contract.Plan.Assertions)
                 {
@@ -388,7 +392,58 @@ public sealed class Rev869BCorrection17SourceContractTests
         }
     }
     [Fact]
-    public void Correction27OfflineUpDownSqlIsGeneratedWithoutConnectingAndHasPinnedHashes()
+    public void Correction28IndependentFixturesFreshObservationsStructuredRejectionsAndLiveOr3AreExecutable()
+    {
+        Rev869BCorrection28IndependentEvidenceFixtures.Validate();
+        var fixtures = Rev869BCorrection28IndependentEvidenceFixtures.All;
+        Assert.Equal(108, fixtures.Length);
+        Assert.Equal(108, fixtures.Select(x => x.BeforeObservationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(108, fixtures.Select(x => x.AfterObservationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(108, fixtures.Select(x => x.DurableObservationId).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(fixtures, fixture => Assert.Equal(5, new[] { fixture.BeforeObservationId,
+            fixture.AfterObservationId, fixture.DurableObservationId, fixture.AuditObservationId,
+            fixture.CleanupObservationId }.Distinct(StringComparer.Ordinal).Count()));
+
+        var fixtureSource = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection28IndependentEvidenceFixtures.cs");
+        Assert.DoesNotContain("Rev869BCorrection26FrozenOracle", fixtureSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("ScenarioSpec", fixtureSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("SelectorSpec", fixtureSource, StringComparison.Ordinal);
+        var clientSource = Source("tests/SESS.NexaERP.Tests/Rev869BLifecycleControllerClient.cs");
+        Assert.DoesNotContain("catch (Exception", clientSource, StringComparison.Ordinal);
+        Assert.True(clientSource.IndexOf("readerIds.Contains(\"OR3\"", StringComparison.Ordinal) <
+            clientSource.IndexOf("new NpgsqlConnection", StringComparison.Ordinal));
+
+        Rev869BLifecycleControllerClient.RequireLocalOr3Route("OR3",
+            Rev869BLifecycleControllerClient.EvidenceStage.Durable, new[] { "OR3" });
+        var wrongOperation = Assert.Throws<InvalidOperationException>(() =>
+            Rev869BLifecycleControllerClient.RequireLocalOr3Route("TC4",
+                Rev869BLifecycleControllerClient.EvidenceStage.Durable, new[] { "OR3" }));
+        Assert.Equal("OR3_WRONG_OPERATION", wrongOperation.Message);
+
+        var contract = Rev869BAcceptanceScenarioInventory.T03;
+        var subcase = contract.RequiredSubcases[0];
+        var fixture = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
+        var results = Enum.GetValues<Rev869BLifecycleControllerClient.PipelineMutationKind>()
+            .Select(mutation => Rev869BLifecycleControllerClient.EvaluatePipelineMutation(contract, subcase, mutation)).ToArray();
+        Assert.Equal(20, results.Length);
+        var records = results.Select(result => new Rev869BLifecycleControllerClient.MutationRunRecord(
+            Rev869BCorrection26FrozenOracle.Version, Rev869BCorrection26FrozenOracle.ExpectedSha256,
+            fixture.ActionIdentity, contract.ScenarioId, subcase.SubcaseId, result.MutationId,
+            result.TargetComponent, result.ExpectedRejectionCode, result.ActualRejectionCode,
+            result.Survived, result.EvidenceSha256)).ToArray();
+        var observed = Rev869BLifecycleControllerClient.DispatchLocalOr3(records, contract.ScenarioId,
+            subcase.SubcaseId, fixture.PreparationIdentity, fixture.ObservationIdentity, fixture.EnvelopeIdentity);
+        Assert.Equal(20, observed.Facts.Single(x => x.Name == "killedMutants").Value.GetInt64());
+        Assert.Equal(0, observed.Facts.Single(x => x.Name == "survivingMutants").Value.GetInt64());
+        var substituted = records.ToArray();
+        substituted[0] = substituted[0] with { ActualRejectionCode = "WRONG_OPERATION" };
+        var rejected = Assert.Throws<InvalidOperationException>(() => Rev869BLifecycleControllerClient.DispatchLocalOr3(
+            substituted, contract.ScenarioId, subcase.SubcaseId, fixture.PreparationIdentity,
+            fixture.ObservationIdentity, fixture.EnvelopeIdentity));
+        Assert.Equal("OR3_RECORD_EXACT_SET", rejected.Message);
+    }
+    [Fact]
+    public void Correction28OfflineUpDownSqlIsGeneratedWithoutConnectingAndHasPinnedHashes()
     {
         const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
         const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
@@ -403,12 +458,12 @@ public sealed class Rev869BCorrection17SourceContractTests
         var downBytes = Encoding.UTF8.GetBytes(down);
         var upSha256 = Convert.ToHexString(SHA256.HashData(upBytes));
         var downSha256 = Convert.ToHexString(SHA256.HashData(downBytes));
-        Assert.Equal(322999, upBytes.Length);
+        Assert.Equal(324914, upBytes.Length);
         Assert.Equal(2635, up.Count(x => x == '\n') + 1);
-        Assert.Equal("B4D22AB600F2F7B27A8ACBD417B067ACC5D8A1488E513F562BEAAAD146781F1C", upSha256);
-        Assert.Equal(11700, downBytes.Length);
+        Assert.Equal("39B067351894AB5732B6DF9C6348B04D708780AFAA18E073F8E6594D07FAF213", upSha256);
+        Assert.Equal(11720, downBytes.Length);
         Assert.Equal(231, down.Count(x => x == '\n') + 1);
-        Assert.Equal("268D0FC8FCE08B7F3ADBE378879AD0A325965F784A87FC987D2BAF2FAFA42131", downSha256);
+        Assert.Equal("FC4BCB671501D601041FCED25D6053545BE9F38CF1D9982006953F47229E0AE4", downSha256);
     }
     [Fact]
     public void Correction24EvidenceReadersAreVerifierOnlyMinimalAndAclClosed()

@@ -17,9 +17,9 @@ internal static class Rev869BAcceptanceScenarioInventory
         var afterSurface = AfterSurface(id);
         var assertions = Assertions(id);
         var plan = new Rev869BLifecycleControllerClient.ScenarioEvidencePlan(
-            "rev869b/" + id + "/fixture/v3",
-            "rev869b/" + id + "/action/v3",
-            "rev869b/" + id + "/cleanup/v3",
+            "rev869b/" + id + "/fixture/v4",
+            "rev869b/" + id + "/action/v4",
+            "rev869b/" + id + "/cleanup/v4",
             new(id + ":before:" + beforeSurface, beforeSurface, "Independent fixture and pre-state observation"),
             new(id + ":after:" + afterSurface, afterSurface, "Independent post-action observation"),
             new(id + ":durable:" + surface, surface, "Independent immutable ledger observation"),
@@ -49,7 +49,7 @@ internal static class Rev869BAcceptanceScenarioInventory
         var cleanup = id + ":cleanup:control";
         var mutations = new List<Rev869BLifecycleControllerClient.SemanticMutation>
         {
-            new(id + ":mutate-action", Rev869BLifecycleControllerClient.MutationKind.RemoveAction, "rev869b/" + id + "/action/v3"),
+            new(id + ":mutate-action", Rev869BLifecycleControllerClient.MutationKind.RemoveAction, "rev869b/" + id + "/action/v4"),
             new(id + ":mutate-before-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, before),
             new(id + ":mutate-after-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, after),
             new(id + ":mutate-durable-read", Rev869BLifecycleControllerClient.MutationKind.RemoveRead, durable),
@@ -180,11 +180,11 @@ internal static class Rev869BAcceptanceScenarioInventory
     };
 
     private static Rev869BLifecycleControllerClient.EvidenceSurface BeforeSurface(string id) =>
-        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "CP-A3")
+        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "CP-A4")
             ? Rev869BLifecycleControllerClient.EvidenceSurface.ControlAcl : Surface(id);
 
     private static Rev869BLifecycleControllerClient.EvidenceSurface AfterSurface(string id) =>
-        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "TA3")
+        Rev869BCorrection26FrozenOracle.SelectorsFor(id).Any(x => x.ReaderId == "TA4")
             ? Rev869BLifecycleControllerClient.EvidenceSurface.TargetAcl : Surface(id);
 
     private static (string? SqlState,string? Code,string? Object) Error(string id) => id switch

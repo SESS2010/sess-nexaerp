@@ -134,6 +134,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     internal static void ValidateContract(AcceptanceContract contract)
     {
         Rev869BCorrection26FrozenOracle.Validate();
+        Rev869BCorrection28IndependentEvidenceFixtures.Validate();
         static void Required(string value, string field)
         {
             if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException(field + " is required.");
@@ -239,6 +240,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     {
         ValidateContract(contract);
         var failures = new List<string>();
+        var independent = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
         var decisiveStages = new[] { EvidenceStage.Before, EvidenceStage.After, EvidenceStage.Durable, EvidenceStage.Cleanup };
         string? instance = null;
         string? lease = null;
@@ -250,23 +252,28 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             if (!Exact("oracleVersion", Rev869BCorrection26FrozenOracle.Version) ||
                 !Exact("oracleSha256", Rev869BCorrection26FrozenOracle.ExpectedSha256) ||
                 !Exact("scenarioId", contract.ScenarioId) || !Exact("subcaseId", subcase.SubcaseId) ||
-                !Exact("preparationId", subcase.PreparationId.ToString()) ||
-                !Exact("attemptId", subcase.AttemptId.ToString()) ||
-                !Exact("evidenceId", subcase.EvidenceId.ToString()) ||
-                !Exact("expectedResultId", subcase.ExpectedResultId.ToString()) ||
+                !Exact("preparationId", independent.PreparationIdentity.ToString()) ||
+                !Exact("attemptId", independent.AttemptIdentity.ToString()) ||
+                !Exact("evidenceId", independent.ObservationIdentity.ToString()) ||
+                !Exact("expectedResultId", independent.ExpectedResultIdentity.ToString()) ||
                 !Exact("expectedOutcome", subcase.ExpectedResult) ||
                 !Exact("provenance", "authoritative-local-reader"))
                 failures.Add("envelope:" + stage);
-            var expectedEnvelopeId = "env:" + subcase.EvidenceId.ToString("D") + ":" +
-                Rev869BCorrection26FrozenOracle.Version;
-            var expectedObservationId = "obs:" + subcase.EvidenceId.ToString("D") + ":" +
-                stage + ":" + StageSequence(stage);
+            var expectedEnvelopeId = "env:c28:" + independent.EnvelopeIdentity.ToString("D");
+            var expectedObservationId = stage switch
+            {
+                EvidenceStage.Before => independent.BeforeObservationId,
+                EvidenceStage.After => independent.AfterObservationId,
+                EvidenceStage.Durable => independent.DurableObservationId,
+                EvidenceStage.Cleanup => independent.CleanupObservationId,
+                _ => throw new ArgumentOutOfRangeException(nameof(stage))
+            };
             if (!Exact("schemaVersion", Rev869BCorrection26FrozenOracle.EvidenceSchemaVersion) ||
                 !Exact("adapterVersion", Rev869BCorrection26FrozenOracle.AdapterVersion) ||
                 !Exact("formulaVersion", Rev869BCorrection26FrozenOracle.FormulaVersion) ||
                 !Exact("observationStage", stage.ToString()) ||
                 !Exact("observationId", expectedObservationId) || !Exact("envelopeId", expectedEnvelopeId))
-                failures.Add("v3-binding:" + stage);
+                failures.Add("v4-binding:" + stage);
             if (!root.TryGetProperty("leaseVersion", out var leaseVersion) ||
                 !leaseVersion.TryGetInt64(out var version) || version != 7)
                 failures.Add("lease-version:" + stage);
@@ -354,179 +361,141 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     // This repository contains a reference/test adapter; the production controller is externally owned.
     internal const string TrustedAdapterProductionOwnership = "EXTERNAL_PENDING";
 
-    private static readonly RawFixtureSpec[] Correction27RawFixtures =
+    private static readonly RawFixtureSpec[] Correction28RawFactTemplates =
     [
-        new("P01","P01:formula-pin-mismatch",EvidenceStage.Before,"CP-A3","pinMismatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P01","P01:formula-target-acl-delta",EvidenceStage.After,"TA3","targetAclDeltaCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P01","P01:formula-verify",EvidenceStage.Before,"CP-A3","verificationMismatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P02","P02:formula-pin-mismatch",EvidenceStage.Before,"CP-A3","pinMismatchCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("P02","P02:formula-lease-zero",EvidenceStage.Durable,"CP-L3","allocatedLeaseCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P02","P02:formula-action-zero",EvidenceStage.Durable,"CP-L3","lifecycleMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P03","P03:formula-seeded-one",EvidenceStage.Before,"CP-A3","seededDeltaCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("P03","P03:formula-reported-delta",EvidenceStage.Before,"CP-A3","reportedDeltaSha256","sha256","723fb28ebe0d9b678ebeaac85215a4f1a2d38b5a8bdf6233c73d0ef42835e64d",EvidenceStage.Before,"seededDeltaSha256","sha256","723fb28ebe0d9b678ebeaac85215a4f1a2d38b5a8bdf6233c73d0ef42835e64d","","",""),
-        new("P03","P03:formula-protected-zero",EvidenceStage.Before,"CP-A3","protectedMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("P03","P03:formula-cleanup-baseline",EvidenceStage.Before,"CP-A3","cleanupFingerprint","sha256","f0488db27a393857a161b96c8d9132f10c49d7d6b57c6b4bb493753084723f95",EvidenceStage.Before,"baselineFingerprint","sha256","f0488db27a393857a161b96c8d9132f10c49d7d6b57c6b4bb493753084723f95","","",""),
-        new("L01","L01:formula-reserved",EvidenceStage.Durable,"CP-L3","reservedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L01","L01:formula-branch-xor",EvidenceStage.Durable,"CP-L3","resumeSameAttempt_xor_authorizedCleanup","bool tuple","true",EvidenceStage.Before,"resumeSameAttempt","bool","true","authorizedCleanup","bool","false"),
-        new("L01","L01:formula-duplicates-zero",EvidenceStage.Durable,"CP-L3","duplicateAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("L02","L02:formula-boundary-count",EvidenceStage.Durable,"CP-L3","boundaryCount","int64","3",EvidenceStage.Action,"","","","","",""),
-        new("L02","L02:formula-started-each",EvidenceStage.Durable,"CP-L3","startedAttemptsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L02","L02:formula-reconciled-each",EvidenceStage.Durable,"CP-L3","reconciledAttemptsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L02","L02:formula-target-each",EvidenceStage.After,"TA3","targetCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L02","L02:formula-roles-each",EvidenceStage.After,"TA3","roleSetCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L03","L03:formula-requests",EvidenceStage.Durable,"CP-L3","cleanupRequestCount","int64","2",EvidenceStage.Action,"","","","","",""),
-        new("L03","L03:formula-dropstarted",EvidenceStage.Durable,"CP-L3","dropStartedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L03","L03:formula-active",EvidenceStage.Durable,"CP-L3","activeDropAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L03","L03:formula-physical",EvidenceStage.Durable,"CP-L3","normalDropTerminalChainCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L03","L03:formula-authorization-chain",EvidenceStage.Durable,"CP-L3","authorizationRegistrationTransitionCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L04","L04:formula-dropstarted",EvidenceStage.Durable,"CP-L3","dropStartedEventsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L04","L04:formula-finalized",EvidenceStage.Durable,"CP-L3","finalizedEventsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L04","L04:formula-physical",EvidenceStage.Durable,"CP-L3","terminalOutcomeCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("L04","L04:formula-target-zero",EvidenceStage.After,"TA3","targetCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("L04","L04:formula-roles-zero",EvidenceStage.After,"TA3","roleCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("L05","L05:formula-use-zero",EvidenceStage.After,"TA3","useMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("L05","L05:formula-drop-zero",EvidenceStage.After,"TA3","dropMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("L05","L05:formula-quarantine-one",EvidenceStage.Durable,"CP-L3","quarantineOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R01","R01:formula-decision-one",EvidenceStage.Durable,"CP-L3","decisionCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R01","R01:formula-consumed-attempt",EvidenceStage.Durable,"CP-L3","consumedAttemptId","uuid","bdce61e0-cc95-6d85-699a-1e7ef06737bb",EvidenceStage.Before,"attemptId","uuid","bdce61e0-cc95-6d85-699a-1e7ef06737bb","","",""),
-        new("R01","R01:formula-action",EvidenceStage.Durable,"CP-L3","authorizedAction","string/enum","reference-authorizedAction",EvidenceStage.Before,"performedAction","string/enum","reference-authorizedAction","","",""),
-        new("R01","R01:formula-recovery-one",EvidenceStage.Durable,"CP-L3","recoveryAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R01","R01:formula-finalized-one",EvidenceStage.Durable,"CP-L3","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R02","R02:formula-attempts-zero",EvidenceStage.Durable,"CP-L3","newAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("R02","R02:formula-events-zero",EvidenceStage.Durable,"CP-L3","newEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("R02","R02:formula-consumed-one",EvidenceStage.Durable,"CP-L3","decisionConsumedCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R03","R03:formula-failure-one",EvidenceStage.Durable,"CP-L3","cleanupFailureCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R03","R03:formula-old-zero",EvidenceStage.Durable,"CP-L3","oldDecisionAcceptedCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("R03","R03:formula-fresh-one",EvidenceStage.Durable,"CP-L3","freshLinkedDecisionCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R03","R03:formula-consumed-one",EvidenceStage.Durable,"CP-L3","freshDecisionConsumedCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("R03","R03:formula-finalized-one",EvidenceStage.Durable,"CP-L3","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C01","C01:formula-business-delta",EvidenceStage.Durable,"TC3","businessRowDelta","int64","7",EvidenceStage.Before,"expectedBusinessRowDelta","int64","7","","",""),
-        new("C01","C01:formula-history-delta",EvidenceStage.Durable,"TC3","historyRowDelta","int64","7",EvidenceStage.Before,"expectedHistoryRowDelta","int64","7","","",""),
-        new("C01","C01:formula-receipt-one",EvidenceStage.Durable,"TC3","receiptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C01","C01:formula-outcome-one",EvidenceStage.Durable,"TC3","committedOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C01","C01:formula-active-zero",EvidenceStage.Durable,"TC3","activeAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C02","C02:formula-business-same",EvidenceStage.Durable,"TC3","businessAfter2Sha256","sha256","9c296d41e3e07e4aa9bc2c6ffaec2668f509ba450bd8ccee621bde933df5c56c",EvidenceStage.Before,"businessAfter1Sha256","sha256","9c296d41e3e07e4aa9bc2c6ffaec2668f509ba450bd8ccee621bde933df5c56c","","",""),
-        new("C02","C02:formula-history-same",EvidenceStage.Durable,"TC3","historyAfter2Sha256","sha256","988d56e941cc7ab482b2dc536ed541c68e2f77fd916fcd884c2444873f14a2ba",EvidenceStage.Before,"historyAfter1Sha256","sha256","988d56e941cc7ab482b2dc536ed541c68e2f77fd916fcd884c2444873f14a2ba","","",""),
-        new("C02","C02:formula-receipt-same",EvidenceStage.Durable,"TC3","receiptId2","uuid","a8d17101-86df-6af4-77b3-d8d72491e002",EvidenceStage.Before,"receiptId1","uuid","a8d17101-86df-6af4-77b3-d8d72491e002","","",""),
-        new("C02","C02:formula-response-same",EvidenceStage.Durable,"TC3","responseSha2562","sha256","97ed9066bfc809451ccc8d142eafab7bbb52e262e0059611f973bb70184fd217",EvidenceStage.Before,"responseSha2561","sha256","97ed9066bfc809451ccc8d142eafab7bbb52e262e0059611f973bb70184fd217","","",""),
-        new("C02","C02:formula-receipt-one",EvidenceStage.Durable,"TC3","receiptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C03","C03:formula-digest-different",EvidenceStage.Durable,"TC3","changedDigest","sha256","f78c37fa0da07a7de2f67c4032680dbbc9eb9c96ee5bf519593df34c3cf571e7",EvidenceStage.Before,"registeredDigest","sha256","86907cf155d06c04f1510a13a1c68d0efd89c14db13e5930ffd3ad2f7d67722a","","",""),
-        new("C03","C03:formula-request-zero",EvidenceStage.Durable,"TC3","requestDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C03","C03:formula-attempt-zero",EvidenceStage.Durable,"TC3","attemptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C03","C03:formula-business-zero",EvidenceStage.Durable,"TC3","businessHistoryDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C04","C04:formula-business-zero",EvidenceStage.Durable,"TC3","businessRowDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C04","C04:formula-history-zero",EvidenceStage.Durable,"TC3","historyRowDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C04","C04:formula-receipt-zero",EvidenceStage.Durable,"TC3","receiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C04","C04:formula-rollback-one",EvidenceStage.Durable,"TC3","rolledBackOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C05","C05:formula-business-zero",EvidenceStage.Durable,"TC3","businessHistoryReceiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C05","C05:formula-rollback-one",EvidenceStage.Durable,"TC3","rolledBackOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C05","C05:formula-opened-attempt",EvidenceStage.Durable,"TC3","openedAttemptId","uuid","55fae98e-bbf5-a573-75aa-e14cccd99af9",EvidenceStage.Before,"attemptId","uuid","55fae98e-bbf5-a573-75aa-e14cccd99af9","","",""),
-        new("C06","C06:formula-subcases-four",EvidenceStage.Durable,"TC3","interruptionSubcaseCount","int64","4",EvidenceStage.Action,"","","","","",""),
-        new("C06","C06:formula-distinct-evidence",EvidenceStage.Durable,"TC3","distinctEvidenceIdCount","int64","4",EvidenceStage.Action,"","","","","",""),
-        new("C06","C06:formula-terminal-each",EvidenceStage.Durable,"TC3","terminalOutcomeCountPerAttempt","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C07","C07:formula-requests-two",EvidenceStage.Durable,"TC3","startRequestCount","int64","2",EvidenceStage.Action,"","","","","",""),
-        new("C07","C07:formula-started-one",EvidenceStage.Durable,"TC3","startedAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C07","C07:formula-active-one",EvidenceStage.Durable,"TC3","activeAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("C07","C07:formula-unrelated-zero",EvidenceStage.Durable,"TC3","unrelatedMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C08","C08:formula-accepted-zero",EvidenceStage.Durable,"TC3","acceptedSubstitutionCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C08","C08:formula-contexts-zero",EvidenceStage.Durable,"TC3","contextDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C08","C08:formula-receipts-zero",EvidenceStage.Durable,"TC3","receiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("C08","C08:formula-business-zero",EvidenceStage.Durable,"TC3","businessHistoryDelta","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G01","G01:formula-attempts-zero",EvidenceStage.Durable,"TP3","startedAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G01","G01:formula-candidates-zero",EvidenceStage.Durable,"TP3","candidateCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G01","G01:formula-events-zero",EvidenceStage.Durable,"TP3","purgeEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G02","G02:formula-eligible-zero",EvidenceStage.Durable,"TP3","eligibleBeforeCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G02","G02:formula-frozen-zero",EvidenceStage.Durable,"TP3","frozenCandidateCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G02","G02:formula-deleted-zero",EvidenceStage.Durable,"TP3","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G02","G02:formula-event-one",EvidenceStage.Durable,"TP3","zeroRowsEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G03","G03:formula-eligible-positive",EvidenceStage.Durable,"TP3","eligibleBeforeCount","int64","3",EvidenceStage.Action,"","","","","",""),
-        new("G03","G03:formula-frozen-equals",EvidenceStage.Durable,"TP3","frozenCandidateCount","int64","7",EvidenceStage.Before,"eligibleBeforeCount","int64","7","","",""),
-        new("G03","G03:formula-deleted-equals",EvidenceStage.Durable,"TP3","deletedRowCount","int64","7",EvidenceStage.Before,"eligibleBeforeCount","int64","7","","",""),
-        new("G03","G03:formula-remaining-zero",EvidenceStage.Durable,"TP3","remainingEligibleCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G03","G03:formula-event-one",EvidenceStage.Durable,"TP3","succeededEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G04","G04:formula-hash-different",EvidenceStage.Durable,"TP3","currentCandidateSha256","sha256","429a87473082fa60c0c508359fe5653666d1f4233e4b43fceb047081e91c48c2",EvidenceStage.Before,"frozenCandidateSha256","sha256","f3a2e20aa77e56b3b08d678cc0cb986d4ee6e4e69c501f7fb4a5c20816ea9169","","",""),
-        new("G04","G04:formula-deleted-zero",EvidenceStage.Durable,"TP3","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G04","G04:formula-context-same",EvidenceStage.Durable,"TP3","contextAfterSha256","sha256","ecb8d122e442690f153ca0f0596332ed6a01e8ae0ca8892bf7b7cbbc8f4ca4e9",EvidenceStage.Before,"contextBeforeSha256","sha256","ecb8d122e442690f153ca0f0596332ed6a01e8ae0ca8892bf7b7cbbc8f4ca4e9","","",""),
-        new("G04","G04:formula-event-one",EvidenceStage.Durable,"TP3","failedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G05","G05:formula-deleted-zero",EvidenceStage.Durable,"TP3","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("G05","G05:formula-context-same",EvidenceStage.Durable,"TP3","contextAfterSha256","sha256","70fe1b27d97bd28ac1247ca53fbad198813b0ce354888d7627f2f581d1bb1e04",EvidenceStage.Before,"contextBeforeSha256","sha256","70fe1b27d97bd28ac1247ca53fbad198813b0ce354888d7627f2f581d1bb1e04","","",""),
-        new("G05","G05:formula-event-one",EvidenceStage.Durable,"TP3","failedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G06","G06:formula-starts-two",EvidenceStage.Durable,"TP3","concurrentStartCount","int64","2",EvidenceStage.Action,"","","","","",""),
-        new("G06","G06:formula-consumed-one",EvidenceStage.Durable,"TP3","consumedAuthorizationCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G06","G06:formula-execution-max",EvidenceStage.Durable,"TP3","executionCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G06","G06:formula-child-one",EvidenceStage.Durable,"TP3","activeChildCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("G06","G06:formula-substituted-zero",EvidenceStage.Durable,"TP3","substitutedChildCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("E01","E01:formula-within-max",EvidenceStage.Durable,"TE3","preparedRowCountWithinMaximum","bool","true",EvidenceStage.Action,"","","","","",""),
-        new("E01","E01:formula-hash",EvidenceStage.Durable,"TE3","preparedSha256","sha256","8affc33969fe0c2cc30b024f40a0587a6157858d83adb940d17d99d3c728369e",EvidenceStage.Before,"recomputedPreparedSha256","sha256","8affc33969fe0c2cc30b024f40a0587a6157858d83adb940d17d99d3c728369e","","",""),
-        new("E01","E01:formula-excluded-zero",EvidenceStage.Durable,"TE3","excludedFieldCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("E01","E01:formula-event-one",EvidenceStage.Durable,"TE3","preparedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("E02","E02:formula-rows-same",EvidenceStage.Durable,"TE3","preparedAfterSha256","sha256","45551c7a61ba4cd5db776270c7b6726b04461a5ef8125ce980c986e41f72531f",EvidenceStage.Before,"preparedBeforeSha256","sha256","45551c7a61ba4cd5db776270c7b6726b04461a5ef8125ce980c986e41f72531f","","",""),
-        new("E02","E02:formula-count-same",EvidenceStage.Durable,"TE3","preparedAfterCount","int64","7",EvidenceStage.Before,"preparedBeforeCount","int64","7","","",""),
-        new("E02","E02:formula-later-one",EvidenceStage.Durable,"TE3","laterEligibleRowCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("E02","E02:formula-later-batch-zero",EvidenceStage.Durable,"TE3","laterRowInBatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("E03","E03:formula-released-zero",EvidenceStage.Durable,"TE3","releasedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("E03","E03:formula-events-zero",EvidenceStage.Durable,"TE3","newReleaseEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("E03","E03:formula-batch-same",EvidenceStage.Durable,"TE3","preparedAfterSha256","sha256","09ade8da0f378ba349537dbc2176f44566dbcbbee95ee7e70e1224404fbc7469",EvidenceStage.Before,"preparedBeforeSha256","sha256","09ade8da0f378ba349537dbc2176f44566dbcbbee95ee7e70e1224404fbc7469","","",""),
-        new("E04","E04:formula-release-distinct",EvidenceStage.Durable,"TE3","releaseId2","uuid","4fa1af19-5491-c706-a5f8-423306e67f58",EvidenceStage.Before,"releaseId1","uuid","0db9d730-5841-1d1d-719b-ed56058df91b","","",""),
-        new("E04","E04:formula-prior-link",EvidenceStage.Durable,"TE3","priorReleaseId2","uuid","0db9d730-5841-1d1d-719b-ed56058df91b",EvidenceStage.Before,"releaseId1","uuid","0db9d730-5841-1d1d-719b-ed56058df91b","","",""),
-        new("E04","E04:formula-active-one",EvidenceStage.Durable,"TE3","activeReleaseCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("E04","E04:formula-success-max",EvidenceStage.Durable,"TE3","deliverySuccessCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("E04","E04:formula-batch-same",EvidenceStage.Durable,"TE3","batchAfterSha256","sha256","1243f8310530efb85569efefa426a4564c38d64dd3f21b14288dd64b128a3132",EvidenceStage.Before,"batchBeforeSha256","sha256","1243f8310530efb85569efefa426a4564c38d64dd3f21b14288dd64b128a3132","","",""),
-        new("A01","A01:formula-unexpected-zero",EvidenceStage.Before,"CP-A3","controlObservedMinusExpectedCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("A01","A01:formula-missing-zero",EvidenceStage.After,"TA3","targetExpectedMinusObservedCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("A01","A01:formula-dimensions",EvidenceStage.After,"TA3","targetAclDimensionCount","int64","3",EvidenceStage.Action,"","","","","",""),
-        new("A02","A02:formula-allowed-zero",EvidenceStage.After,"TA3","allowedProtectedOperationCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("A02","A02:formula-tuple-count",EvidenceStage.After,"TA3","durableDenialCount","int64","7",EvidenceStage.Before,"requiredDenialTupleCount","int64","7","","",""),
-        new("A02","A02:formula-fingerprint-same",EvidenceStage.After,"TA3","protectedAfterSha256","sha256","6bd8e3efe54d1bb2f9ad06a17b616f5c8f999e0300422746a5fa560509894500",EvidenceStage.Before,"protectedBeforeSha256","sha256","6bd8e3efe54d1bb2f9ad06a17b616f5c8f999e0300422746a5fa560509894500","","",""),
-        new("T01","T01:formula-lease-one",EvidenceStage.Durable,"CP-L3","leaseCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T01","T01:formula-target-one",EvidenceStage.After,"TA3","targetCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T01","T01:formula-admin-zero",EvidenceStage.After,"TA3","administrativeBypassCount","int64","0",EvidenceStage.Action,"","","","","",""),
-        new("T01","T01:formula-fixture",EvidenceStage.After,"TA3","fixturePrepared","bool","true",EvidenceStage.Action,"","","","","",""),
-        new("T02","T02:formula-instance-different",EvidenceStage.Durable,"CP-L3","survivingAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T02","T02:formula-attempt-same",EvidenceStage.Durable,"CP-L3","reconciledAttemptId","uuid","1a131109-4a13-2dd0-7d6a-713341cce6d2",EvidenceStage.Before,"survivingAttemptId","uuid","1a131109-4a13-2dd0-7d6a-713341cce6d2","","",""),
-        new("T02","T02:formula-dropstarted-one",EvidenceStage.Durable,"CP-L3","dropStartedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T02","T02:formula-finalized-one",EvidenceStage.Durable,"CP-L3","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T02","T02:formula-cleanup-one",EvidenceStage.Durable,"CP-L3","cleanupEvidenceCount","int64","1",EvidenceStage.Action,"","","","","",""),
-        new("T03","T03:formula-killed-equals",EvidenceStage.Durable,"OR3","killedMutants","int64","7",EvidenceStage.Before,"requiredNonEquivalentMutants","int64","7","","",""),
+        new("P01","P01:formula-pin-mismatch",EvidenceStage.Before,"CP-A4","pinMismatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P01","P01:formula-target-acl-delta",EvidenceStage.After,"TA4","targetAclDeltaCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P01","P01:formula-verify",EvidenceStage.Before,"CP-A4","verificationMismatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P02","P02:formula-pin-mismatch",EvidenceStage.Before,"CP-A4","pinMismatchCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("P02","P02:formula-lease-zero",EvidenceStage.Durable,"CP-L4","allocatedLeaseCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P02","P02:formula-action-zero",EvidenceStage.Durable,"CP-L4","lifecycleMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P03","P03:formula-seeded-one",EvidenceStage.Before,"CP-A4","seededDeltaCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("P03","P03:formula-reported-delta",EvidenceStage.Before,"CP-A4","reportedDeltaSha256","sha256","723fb28ebe0d9b678ebeaac85215a4f1a2d38b5a8bdf6233c73d0ef42835e64d",EvidenceStage.Before,"seededDeltaSha256","sha256","723fb28ebe0d9b678ebeaac85215a4f1a2d38b5a8bdf6233c73d0ef42835e64d","","",""),
+        new("P03","P03:formula-protected-zero",EvidenceStage.Before,"CP-A4","protectedMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("P03","P03:formula-cleanup-baseline",EvidenceStage.Before,"CP-A4","cleanupFingerprint","sha256","f0488db27a393857a161b96c8d9132f10c49d7d6b57c6b4bb493753084723f95",EvidenceStage.Before,"baselineFingerprint","sha256","f0488db27a393857a161b96c8d9132f10c49d7d6b57c6b4bb493753084723f95","","",""),
+        new("L01","L01:formula-reserved",EvidenceStage.Durable,"CP-L4","reservedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L01","L01:formula-branch-xor",EvidenceStage.Durable,"CP-L4","resumeSameAttempt_xor_authorizedCleanup","bool tuple","true",EvidenceStage.Before,"resumeSameAttempt","bool","true","authorizedCleanup","bool","false"),
+        new("L01","L01:formula-duplicates-zero",EvidenceStage.Durable,"CP-L4","duplicateAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("L02","L02:formula-boundary-count",EvidenceStage.Durable,"CP-L4","boundaryCount","int64","3",EvidenceStage.Action,"","","","","",""),
+        new("L02","L02:formula-started-each",EvidenceStage.Durable,"CP-L4","startedAttemptsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L02","L02:formula-reconciled-each",EvidenceStage.Durable,"CP-L4","reconciledAttemptsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L02","L02:formula-target-each",EvidenceStage.After,"TA4","targetCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L02","L02:formula-roles-each",EvidenceStage.After,"TA4","roleSetCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L03","L03:formula-requests",EvidenceStage.Durable,"CP-L4","cleanupRequestCount","int64","2",EvidenceStage.Action,"","","","","",""),
+        new("L03","L03:formula-dropstarted",EvidenceStage.Durable,"CP-L4","dropStartedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L03","L03:formula-active",EvidenceStage.Durable,"CP-L4","activeDropAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L03","L03:formula-physical",EvidenceStage.Durable,"CP-L4","normalDropTerminalChainCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L03","L03:formula-authorization-chain",EvidenceStage.Durable,"CP-L4","authorizationRegistrationTransitionCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L04","L04:formula-dropstarted",EvidenceStage.Durable,"CP-L4","dropStartedEventsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L04","L04:formula-finalized",EvidenceStage.Durable,"CP-L4","finalizedEventsPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L04","L04:formula-physical",EvidenceStage.Durable,"CP-L4","terminalOutcomeCountPerBoundary","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("L04","L04:formula-target-zero",EvidenceStage.After,"TA4","targetCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("L04","L04:formula-roles-zero",EvidenceStage.After,"TA4","roleCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("L05","L05:formula-use-zero",EvidenceStage.After,"TA4","useMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("L05","L05:formula-drop-zero",EvidenceStage.After,"TA4","dropMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("L05","L05:formula-quarantine-one",EvidenceStage.Durable,"CP-L4","quarantineOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R01","R01:formula-decision-one",EvidenceStage.Durable,"CP-L4","decisionCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R01","R01:formula-consumed-attempt",EvidenceStage.Durable,"CP-L4","consumedAttemptId","uuid","bdce61e0-cc95-6d85-699a-1e7ef06737bb",EvidenceStage.Before,"attemptId","uuid","bdce61e0-cc95-6d85-699a-1e7ef06737bb","","",""),
+        new("R01","R01:formula-action",EvidenceStage.Durable,"CP-L4","authorizedAction","string/enum","reference-authorizedAction",EvidenceStage.Before,"performedAction","string/enum","reference-authorizedAction","","",""),
+        new("R01","R01:formula-recovery-one",EvidenceStage.Durable,"CP-L4","recoveryAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R01","R01:formula-finalized-one",EvidenceStage.Durable,"CP-L4","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R02","R02:formula-attempts-zero",EvidenceStage.Durable,"CP-L4","newAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("R02","R02:formula-events-zero",EvidenceStage.Durable,"CP-L4","newEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("R02","R02:formula-consumed-one",EvidenceStage.Durable,"CP-L4","decisionConsumedCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R03","R03:formula-failure-one",EvidenceStage.Durable,"CP-L4","cleanupFailureCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R03","R03:formula-old-zero",EvidenceStage.Durable,"CP-L4","oldDecisionAcceptedCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("R03","R03:formula-fresh-one",EvidenceStage.Durable,"CP-L4","freshLinkedDecisionCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R03","R03:formula-consumed-one",EvidenceStage.Durable,"CP-L4","freshDecisionConsumedCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("R03","R03:formula-finalized-one",EvidenceStage.Durable,"CP-L4","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C01","C01:formula-business-delta",EvidenceStage.Durable,"TC4","businessRowDelta","int64","7",EvidenceStage.Before,"expectedBusinessRowDelta","int64","7","","",""),
+        new("C01","C01:formula-history-delta",EvidenceStage.Durable,"TC4","historyRowDelta","int64","7",EvidenceStage.Before,"expectedHistoryRowDelta","int64","7","","",""),
+        new("C01","C01:formula-receipt-one",EvidenceStage.Durable,"TC4","receiptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C01","C01:formula-outcome-one",EvidenceStage.Durable,"TC4","committedOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C01","C01:formula-active-zero",EvidenceStage.Durable,"TC4","activeAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C02","C02:formula-business-same",EvidenceStage.Durable,"TC4","businessAfter2Sha256","sha256","9c296d41e3e07e4aa9bc2c6ffaec2668f509ba450bd8ccee621bde933df5c56c",EvidenceStage.Before,"businessAfter1Sha256","sha256","9c296d41e3e07e4aa9bc2c6ffaec2668f509ba450bd8ccee621bde933df5c56c","","",""),
+        new("C02","C02:formula-history-same",EvidenceStage.Durable,"TC4","historyAfter2Sha256","sha256","988d56e941cc7ab482b2dc536ed541c68e2f77fd916fcd884c2444873f14a2ba",EvidenceStage.Before,"historyAfter1Sha256","sha256","988d56e941cc7ab482b2dc536ed541c68e2f77fd916fcd884c2444873f14a2ba","","",""),
+        new("C02","C02:formula-receipt-same",EvidenceStage.Durable,"TC4","receiptId2","uuid","a8d17101-86df-6af4-77b3-d8d72491e002",EvidenceStage.Before,"receiptId1","uuid","a8d17101-86df-6af4-77b3-d8d72491e002","","",""),
+        new("C02","C02:formula-response-same",EvidenceStage.Durable,"TC4","responseSha2562","sha256","97ed9066bfc809451ccc8d142eafab7bbb52e262e0059611f973bb70184fd217",EvidenceStage.Before,"responseSha2561","sha256","97ed9066bfc809451ccc8d142eafab7bbb52e262e0059611f973bb70184fd217","","",""),
+        new("C02","C02:formula-receipt-one",EvidenceStage.Durable,"TC4","receiptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C03","C03:formula-digest-different",EvidenceStage.Durable,"TC4","changedDigest","sha256","f78c37fa0da07a7de2f67c4032680dbbc9eb9c96ee5bf519593df34c3cf571e7",EvidenceStage.Before,"registeredDigest","sha256","86907cf155d06c04f1510a13a1c68d0efd89c14db13e5930ffd3ad2f7d67722a","","",""),
+        new("C03","C03:formula-request-zero",EvidenceStage.Durable,"TC4","requestDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C03","C03:formula-attempt-zero",EvidenceStage.Durable,"TC4","attemptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C03","C03:formula-business-zero",EvidenceStage.Durable,"TC4","businessHistoryDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C04","C04:formula-business-zero",EvidenceStage.Durable,"TC4","businessRowDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C04","C04:formula-history-zero",EvidenceStage.Durable,"TC4","historyRowDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C04","C04:formula-receipt-zero",EvidenceStage.Durable,"TC4","receiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C04","C04:formula-rollback-one",EvidenceStage.Durable,"TC4","rolledBackOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C05","C05:formula-business-zero",EvidenceStage.Durable,"TC4","businessHistoryReceiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C05","C05:formula-rollback-one",EvidenceStage.Durable,"TC4","rolledBackOutcomeCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C05","C05:formula-opened-attempt",EvidenceStage.Durable,"TC4","openedAttemptId","uuid","55fae98e-bbf5-a573-75aa-e14cccd99af9",EvidenceStage.Before,"attemptId","uuid","55fae98e-bbf5-a573-75aa-e14cccd99af9","","",""),
+        new("C06","C06:formula-subcases-four",EvidenceStage.Durable,"TC4","interruptionSubcaseCount","int64","4",EvidenceStage.Action,"","","","","",""),
+        new("C06","C06:formula-distinct-evidence",EvidenceStage.Durable,"TC4","distinctEvidenceIdCount","int64","4",EvidenceStage.Action,"","","","","",""),
+        new("C06","C06:formula-terminal-each",EvidenceStage.Durable,"TC4","terminalOutcomeCountPerAttempt","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C07","C07:formula-requests-two",EvidenceStage.Durable,"TC4","startRequestCount","int64","2",EvidenceStage.Action,"","","","","",""),
+        new("C07","C07:formula-started-one",EvidenceStage.Durable,"TC4","startedAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C07","C07:formula-active-one",EvidenceStage.Durable,"TC4","activeAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("C07","C07:formula-unrelated-zero",EvidenceStage.Durable,"TC4","unrelatedMutationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C08","C08:formula-accepted-zero",EvidenceStage.Durable,"TC4","acceptedSubstitutionCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C08","C08:formula-contexts-zero",EvidenceStage.Durable,"TC4","contextDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C08","C08:formula-receipts-zero",EvidenceStage.Durable,"TC4","receiptDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("C08","C08:formula-business-zero",EvidenceStage.Durable,"TC4","businessHistoryDelta","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G01","G01:formula-attempts-zero",EvidenceStage.Durable,"TP4","startedAttemptCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G01","G01:formula-candidates-zero",EvidenceStage.Durable,"TP4","candidateCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G01","G01:formula-events-zero",EvidenceStage.Durable,"TP4","purgeEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G02","G02:formula-eligible-zero",EvidenceStage.Durable,"TP4","eligibleBeforeCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G02","G02:formula-frozen-zero",EvidenceStage.Durable,"TP4","frozenCandidateCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G02","G02:formula-deleted-zero",EvidenceStage.Durable,"TP4","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G02","G02:formula-event-one",EvidenceStage.Durable,"TP4","zeroRowsEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G03","G03:formula-eligible-positive",EvidenceStage.Durable,"TP4","eligibleBeforeCount","int64","3",EvidenceStage.Action,"","","","","",""),
+        new("G03","G03:formula-frozen-equals",EvidenceStage.Durable,"TP4","frozenCandidateCount","int64","7",EvidenceStage.Before,"eligibleBeforeCount","int64","7","","",""),
+        new("G03","G03:formula-deleted-equals",EvidenceStage.Durable,"TP4","deletedRowCount","int64","7",EvidenceStage.Before,"eligibleBeforeCount","int64","7","","",""),
+        new("G03","G03:formula-remaining-zero",EvidenceStage.Durable,"TP4","remainingEligibleCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G03","G03:formula-event-one",EvidenceStage.Durable,"TP4","succeededEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G04","G04:formula-hash-different",EvidenceStage.Durable,"TP4","currentCandidateSha256","sha256","429a87473082fa60c0c508359fe5653666d1f4233e4b43fceb047081e91c48c2",EvidenceStage.Before,"frozenCandidateSha256","sha256","f3a2e20aa77e56b3b08d678cc0cb986d4ee6e4e69c501f7fb4a5c20816ea9169","","",""),
+        new("G04","G04:formula-deleted-zero",EvidenceStage.Durable,"TP4","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G04","G04:formula-context-same",EvidenceStage.Durable,"TP4","contextAfterSha256","sha256","ecb8d122e442690f153ca0f0596332ed6a01e8ae0ca8892bf7b7cbbc8f4ca4e9",EvidenceStage.Before,"contextBeforeSha256","sha256","ecb8d122e442690f153ca0f0596332ed6a01e8ae0ca8892bf7b7cbbc8f4ca4e9","","",""),
+        new("G04","G04:formula-event-one",EvidenceStage.Durable,"TP4","failedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G05","G05:formula-deleted-zero",EvidenceStage.Durable,"TP4","deletedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("G05","G05:formula-context-same",EvidenceStage.Durable,"TP4","contextAfterSha256","sha256","70fe1b27d97bd28ac1247ca53fbad198813b0ce354888d7627f2f581d1bb1e04",EvidenceStage.Before,"contextBeforeSha256","sha256","70fe1b27d97bd28ac1247ca53fbad198813b0ce354888d7627f2f581d1bb1e04","","",""),
+        new("G05","G05:formula-event-one",EvidenceStage.Durable,"TP4","failedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G06","G06:formula-starts-two",EvidenceStage.Durable,"TP4","concurrentStartCount","int64","2",EvidenceStage.Action,"","","","","",""),
+        new("G06","G06:formula-consumed-one",EvidenceStage.Durable,"TP4","consumedAuthorizationCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G06","G06:formula-execution-max",EvidenceStage.Durable,"TP4","executionCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G06","G06:formula-child-one",EvidenceStage.Durable,"TP4","activeChildCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("G06","G06:formula-substituted-zero",EvidenceStage.Durable,"TP4","substitutedChildCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("E01","E01:formula-within-max",EvidenceStage.Durable,"TE4","preparedRowCountWithinMaximum","bool","true",EvidenceStage.Action,"","","","","",""),
+        new("E01","E01:formula-hash",EvidenceStage.Durable,"TE4","preparedSha256","sha256","8affc33969fe0c2cc30b024f40a0587a6157858d83adb940d17d99d3c728369e",EvidenceStage.Before,"recomputedPreparedSha256","sha256","8affc33969fe0c2cc30b024f40a0587a6157858d83adb940d17d99d3c728369e","","",""),
+        new("E01","E01:formula-excluded-zero",EvidenceStage.Durable,"TE4","excludedFieldCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("E01","E01:formula-event-one",EvidenceStage.Durable,"TE4","preparedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("E02","E02:formula-rows-same",EvidenceStage.Durable,"TE4","preparedAfterSha256","sha256","45551c7a61ba4cd5db776270c7b6726b04461a5ef8125ce980c986e41f72531f",EvidenceStage.Before,"preparedBeforeSha256","sha256","45551c7a61ba4cd5db776270c7b6726b04461a5ef8125ce980c986e41f72531f","","",""),
+        new("E02","E02:formula-count-same",EvidenceStage.Durable,"TE4","preparedAfterCount","int64","7",EvidenceStage.Before,"preparedBeforeCount","int64","7","","",""),
+        new("E02","E02:formula-later-one",EvidenceStage.Durable,"TE4","laterEligibleRowCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("E02","E02:formula-later-batch-zero",EvidenceStage.Durable,"TE4","laterRowInBatchCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("E03","E03:formula-released-zero",EvidenceStage.Durable,"TE4","releasedRowCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("E03","E03:formula-events-zero",EvidenceStage.Durable,"TE4","newReleaseEventCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("E03","E03:formula-batch-same",EvidenceStage.Durable,"TE4","preparedAfterSha256","sha256","09ade8da0f378ba349537dbc2176f44566dbcbbee95ee7e70e1224404fbc7469",EvidenceStage.Before,"preparedBeforeSha256","sha256","09ade8da0f378ba349537dbc2176f44566dbcbbee95ee7e70e1224404fbc7469","","",""),
+        new("E04","E04:formula-release-distinct",EvidenceStage.Durable,"TE4","releaseId2","uuid","4fa1af19-5491-c706-a5f8-423306e67f58",EvidenceStage.Before,"releaseId1","uuid","0db9d730-5841-1d1d-719b-ed56058df91b","","",""),
+        new("E04","E04:formula-prior-link",EvidenceStage.Durable,"TE4","priorReleaseId2","uuid","0db9d730-5841-1d1d-719b-ed56058df91b",EvidenceStage.Before,"releaseId1","uuid","0db9d730-5841-1d1d-719b-ed56058df91b","","",""),
+        new("E04","E04:formula-active-one",EvidenceStage.Durable,"TE4","activeReleaseCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("E04","E04:formula-success-max",EvidenceStage.Durable,"TE4","deliverySuccessCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("E04","E04:formula-batch-same",EvidenceStage.Durable,"TE4","batchAfterSha256","sha256","1243f8310530efb85569efefa426a4564c38d64dd3f21b14288dd64b128a3132",EvidenceStage.Before,"batchBeforeSha256","sha256","1243f8310530efb85569efefa426a4564c38d64dd3f21b14288dd64b128a3132","","",""),
+        new("A01","A01:formula-unexpected-zero",EvidenceStage.Before,"CP-A4","controlObservedMinusExpectedCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("A01","A01:formula-missing-zero",EvidenceStage.After,"TA4","targetExpectedMinusObservedCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("A01","A01:formula-dimensions",EvidenceStage.After,"TA4","targetAclDimensionCount","int64","3",EvidenceStage.Action,"","","","","",""),
+        new("A02","A02:formula-allowed-zero",EvidenceStage.After,"TA4","allowedProtectedOperationCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("A02","A02:formula-tuple-count",EvidenceStage.After,"TA4","durableDenialCount","int64","7",EvidenceStage.Before,"requiredDenialTupleCount","int64","7","","",""),
+        new("A02","A02:formula-fingerprint-same",EvidenceStage.After,"TA4","protectedAfterSha256","sha256","6bd8e3efe54d1bb2f9ad06a17b616f5c8f999e0300422746a5fa560509894500",EvidenceStage.Before,"protectedBeforeSha256","sha256","6bd8e3efe54d1bb2f9ad06a17b616f5c8f999e0300422746a5fa560509894500","","",""),
+        new("T01","T01:formula-lease-one",EvidenceStage.Durable,"CP-L4","leaseCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T01","T01:formula-target-one",EvidenceStage.After,"TA4","targetCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T01","T01:formula-admin-zero",EvidenceStage.After,"TA4","administrativeBypassCount","int64","0",EvidenceStage.Action,"","","","","",""),
+        new("T01","T01:formula-fixture",EvidenceStage.After,"TA4","fixturePrepared","bool","true",EvidenceStage.Action,"","","","","",""),
+        new("T02","T02:formula-instance-different",EvidenceStage.Durable,"CP-L4","survivingAttemptCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T02","T02:formula-attempt-same",EvidenceStage.Durable,"CP-L4","reconciledAttemptId","uuid","1a131109-4a13-2dd0-7d6a-713341cce6d2",EvidenceStage.Before,"survivingAttemptId","uuid","1a131109-4a13-2dd0-7d6a-713341cce6d2","","",""),
+        new("T02","T02:formula-dropstarted-one",EvidenceStage.Durable,"CP-L4","dropStartedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T02","T02:formula-finalized-one",EvidenceStage.Durable,"CP-L4","finalizedEventCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T02","T02:formula-cleanup-one",EvidenceStage.Durable,"CP-L4","cleanupEvidenceCount","int64","1",EvidenceStage.Action,"","","","","",""),
+        new("T03","T03:formula-killed-equals",EvidenceStage.Durable,"OR3","killedMutants","int64","20",EvidenceStage.Before,"requiredNonEquivalentMutants","int64","20","","",""),
         new("T03","T03:formula-survivors-zero",EvidenceStage.Durable,"OR3","survivingMutants","int64","0",EvidenceStage.Action,"","","","","",""),
-    ];
-
-    private static readonly IndependentActionFixture[] Correction27ActionFixtures =
-    [
-        new("P01","ExternalVerified","","",""),
-        new("P02","PreflightDenied","","REV869B_PREFLIGHT_PIN_MISMATCH","mutated-pin"),
-        new("P03","VerificationDenied","","REV869B_CONTROL_PLANE_CATALOGUE_MISMATCH","rev869b_control_plane_catalogue_acl"),
-        new("L01","Ready","","",""),
-        new("L02","Ready","","",""),
-        new("L03","DropStarted","40001","","UX_rev869b_one_active_lifecycle_attempt"),
-        new("L04","Finalized","","",""),
-        new("L05","Quarantined","42501","","rev869b_target_identity_mismatch"),
-        new("R01","Finalized","","",""),
-        new("R02","RecoveryAuthorized","42501","","rev869b_recovery_decision_replay"),
-        new("R03","Finalized","","",""),
-        new("C01","Committed","","",""),
-        new("C02","Committed","","",""),
-        new("C03","RequestRegistered","23505","","rev869b_command_request_replay_mismatch"),
-        new("C04","RolledBack","P0001","","TR_rev869b_command_receipt_failpoint"),
-        new("C05","RolledBack","","",""),
-        new("C06","FourExactInterruptionOutcomesReconciled","","",""),
-        new("C07","AttemptStarted","40001","","rev869b_command_attempt_active"),
-        new("C08","AttemptStarted","42501","","rev869b_attempt_binding"),
-        new("G01","Denied","42501","","rev869b_purge_batch_binding"),
-        new("G02","ZeroRows","","",""),
-        new("G03","Succeeded","","",""),
-        new("G04","Failed","40001","","rev869b_purge_candidate_drift"),
-        new("G05","Failed","P0001","","TR_rev869b_purge_delete_failpoint"),
-        new("G06","Failed","42501","","rev869b_purge_retry_binding"),
-        new("E01","Prepared","","",""),
-        new("E02","Prepared","","",""),
-        new("E03","Denied","42501","","rev869b_export_release_sequence"),
-        new("E04","ReleaseRetrySequenceVerified","","",""),
-        new("A01","Verified","","",""),
-        new("A02","Denied","42501","","rev869b_protected_object_acl"),
-        new("T01","InUse","","",""),
-        new("T02","Finalized","","",""),
-        new("T03","MutationSensitive","undefined","undefined","undefined"),
     ];
 
     internal enum PipelineMutationKind
@@ -545,11 +514,8 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         EvidenceStage ReferenceStage, string ReferenceName, string ReferenceValueType, string ReferenceJson,
         string SecondReferenceName, string SecondReferenceValueType, string SecondReferenceJson);
 
-    private sealed record IndependentActionFixture(string ScenarioId, string TerminalState,
-        string SqlState, string ErrorCode, string DatabaseObject);
-
     internal sealed record RawScopeV3(string CompanyId, string TargetInstanceSha256, Guid LeaseId,
-        long LeaseVersion, Guid OperationId, Guid ScenarioExecutionId, string Stage);
+        long LeaseVersion, Guid OperationId, Guid ScenarioExecutionId, string SubcaseId, string Stage);
 
     internal sealed record TypedFactV3(string Kind, string Name, string ValueType, JsonElement Value,
         long SourceRowCount, string SourceSha256);
@@ -595,12 +561,12 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     private static string ReaderId(EvidenceSurface surface) => surface switch
     {
-        EvidenceSurface.ControlLifecycle => "CP-L3",
-        EvidenceSurface.ControlAcl => "CP-A3",
-        EvidenceSurface.TargetCommand => "TC3",
-        EvidenceSurface.TargetPurge => "TP3",
-        EvidenceSurface.TargetExport => "TE3",
-        EvidenceSurface.TargetAcl => "TA3",
+        EvidenceSurface.ControlLifecycle => "CP-L4",
+        EvidenceSurface.ControlAcl => "CP-A4",
+        EvidenceSurface.TargetCommand => "TC4",
+        EvidenceSurface.TargetPurge => "TP4",
+        EvidenceSurface.TargetExport => "TE4",
+        EvidenceSurface.TargetAcl => "TA4",
         _ => "OR3"
     };
 
@@ -618,25 +584,27 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         AcceptanceContract contract, SubcaseRequirement subcase)
     {
         ValidateContract(contract);
-        var companyId = ExactGuid(subcase.SubcaseId + ":company").ToString();
-        var leaseId = ExactGuid(subcase.SubcaseId + ":lease");
+        Rev869BCorrection28IndependentEvidenceFixtures.Validate();
+        var fixture = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
+        var companyId = fixture.FixtureIdentity.ToString();
+        var leaseId = fixture.FixtureIdentity;
         var instanceSha256 = ExactContractSha256(new { subcase.SubcaseId, kind = "target-instance" });
         var documents = new Dictionary<EvidenceStage, IReadOnlyList<string>>();
         foreach (var stage in new[] { EvidenceStage.Before, EvidenceStage.After, EvidenceStage.Durable, EvidenceStage.Cleanup })
         {
-            var stageSpecs = Correction27RawFixtures.Where(x => x.ScenarioId == contract.ScenarioId &&
+            var stageSpecs = Correction28RawFactTemplates.Where(x => x.ScenarioId == contract.ScenarioId &&
                 (x.Stage == stage || x.ReferenceStage == stage)).ToArray();
             var readerIds = stageSpecs.Select(x => x.ReaderId).Distinct(StringComparer.Ordinal).ToList();
             if (readerIds.Count == 0)
-                readerIds.Add(stage == EvidenceStage.Cleanup ? "CP-L3" : ReaderId(ReadForStage(contract.Plan, stage).Surface));
+                readerIds.Add(stage == EvidenceStage.Cleanup ? "CP-L4" : ReaderId(ReadForStage(contract.Plan, stage).Surface));
             documents[stage] = readerIds.Order(StringComparer.Ordinal)
-                .Select(readerId => BuildRawDocument(subcase, companyId, leaseId,
+                .Select(readerId => BuildRawDocument(subcase, fixture, companyId, leaseId,
                     instanceSha256, stage, readerId, stageSpecs)).ToArray();
         }
         return new RawObservationSet(companyId, leaseId, 7, instanceSha256, documents);
     }
 
-    private static string BuildRawDocument(SubcaseRequirement subcase, string companyId, Guid leaseId,
+    private static string BuildRawDocument(SubcaseRequirement subcase, Rev869BCorrection28IndependentEvidenceFixtures.Fixture fixture, string companyId, Guid leaseId,
         string instanceSha256, EvidenceStage stage, string readerId, IReadOnlyList<RawFixtureSpec> specs)
     {
         var facts = new JsonArray();
@@ -676,7 +644,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             }
         }
 
-        var control = readerId is "CP-L3" or "CP-A3";
+        var control = readerId is "CP-L4" or "CP-A4";
         var root = new JsonObject
         {
             ["readerSchemaVersion"] = Rev869BCorrection26FrozenOracle.ReaderContractVersion,
@@ -687,12 +655,13 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
                 ["targetInstanceSha256"] = instanceSha256,
                 ["leaseId"] = leaseId,
                 ["leaseVersion"] = 7,
-                ["operationId"] = subcase.AttemptId,
-                ["scenarioExecutionId"] = subcase.PreparationId,
+                ["operationId"] = fixture.ActionIdentity,
+                ["scenarioExecutionId"] = fixture.PreparationIdentity,
+                ["subcaseId"] = subcase.SubcaseId,
                 ["stage"] = stage.ToString()
             },
             ["observedAtUtc"] = DateTimeOffset.UnixEpoch.AddSeconds(StageSequence(stage)).ToString("O"),
-            ["transactionBoundary"] = "tx:" + subcase.EvidenceId.ToString("N") + ":" + stage + ":" + StageSequence(stage),
+            ["transactionBoundary"] = "tx:" + fixture.ObservationIdentity.ToString("N") + ":" + stage + ":" + StageSequence(stage),
             ["facts"] = facts,
             ["factCount"] = facts.Count,
             ["rawSha256"] = new string('0', 64)
@@ -730,17 +699,17 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         var readerSchema = RequiredString(root, "readerSchemaVersion");
         var readerId = RequiredString(root, "readerId");
         if (readerSchema != Rev869BCorrection26FrozenOracle.ReaderContractVersion ||
-            readerId is not ("CP-L3" or "CP-A3" or "TC3" or "TP3" or "TE3" or "TA3" or "OR3"))
+            readerId is not ("CP-L4" or "CP-A4" or "TC4" or "TP4" or "TE4" or "TA4" or "OR3"))
             throw new InvalidOperationException("Unknown reader contract.");
 
         var scopeElement = root.GetProperty("scope");
         RequireExactProperties(scopeElement, ["companyId", "targetInstanceSha256", "leaseId",
-            "leaseVersion", "operationId", "scenarioExecutionId", "stage"], "raw scope");
+            "leaseVersion", "operationId", "scenarioExecutionId", "subcaseId", "stage"], "raw scope");
         var scope = new RawScopeV3(RequiredString(scopeElement, "companyId"),
             RequiredString(scopeElement, "targetInstanceSha256"),
             RequiredGuid(scopeElement, "leaseId"), RequiredInt64(scopeElement, "leaseVersion"),
             RequiredGuid(scopeElement, "operationId"), RequiredGuid(scopeElement, "scenarioExecutionId"),
-            RequiredString(scopeElement, "stage"));
+            RequiredString(scopeElement, "subcaseId"), RequiredString(scopeElement, "stage"));
         if (!ExactSha256(scope.TargetInstanceSha256) || scope.LeaseVersion < 1)
             throw new InvalidOperationException("Raw scope was incomplete.");
 
@@ -776,12 +745,12 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
         return readerId switch
         {
-            "CP-L3" => new ControlLifecycleObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
-            "CP-A3" => new ControlAclObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
-            "TC3" => new TargetCommandObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
-            "TP3" => new TargetPurgeObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
-            "TE3" => new TargetExportObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
-            "TA3" => new TargetAclObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "CP-L4" => new ControlLifecycleObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "CP-A4" => new ControlAclObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "TC4" => new TargetCommandObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "TP4" => new TargetPurgeObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "TE4" => new TargetExportObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
+            "TA4" => new TargetAclObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha),
             _ => new MutationRunObservationV3(readerSchema, readerId, scope, boundary, facts, rawSha)
         };
     }
@@ -841,15 +810,18 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         var cleanup = AdaptStage(contract, subcase, raw, EvidenceStage.Cleanup);
         using var auditDocument = JsonDocument.Parse("{\"supplementary\":true,\"decisive\":false}");
         var audit = CanonicalObservation(contract.ScenarioId + ":audit:supplementary", auditDocument.RootElement);
-        var actionFixture = Correction27ActionFixtures.Single(x => x.ScenarioId == contract.ScenarioId);
+        var independent = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
         var actionObject = new JsonObject
         {
-            ["actionReached"] = true,
-            ["terminalState"] = actionFixture.TerminalState
+            ["actionReached"] = independent.Action.Reached,
+            ["affectedRows"] = independent.Action.AffectedRows,
+            ["terminalState"] = independent.Action.TerminalState,
+            ["actionIdentity"] = independent.ActionIdentity,
+            ["actionFixtureSha256"] = independent.ActionFixtureSha256
         };
-        if (actionFixture.SqlState.Length != 0) actionObject["sqlState"] = actionFixture.SqlState;
-        if (actionFixture.ErrorCode.Length != 0) actionObject["errorCode"] = actionFixture.ErrorCode;
-        if (actionFixture.DatabaseObject.Length != 0) actionObject["databaseObject"] = actionFixture.DatabaseObject;
+        if (independent.Action.SqlState is not null) actionObject["sqlState"] = independent.Action.SqlState;
+        if (independent.Action.ErrorCode is not null) actionObject["errorCode"] = independent.Action.ErrorCode;
+        if (independent.Action.DatabaseObject is not null) actionObject["databaseObject"] = independent.Action.DatabaseObject;
         using var actionDocument = JsonDocument.Parse(actionObject.ToJsonString());
         var action = CanonicalObservation(contract.ScenarioId + ":action:independent-fixture", actionDocument.RootElement);
         return new EvidenceBundle(before, after, durable, audit, cleanup, action);
@@ -858,34 +830,35 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     private static EvidenceObservation AdaptStage(AcceptanceContract contract, SubcaseRequirement subcase,
         RawObservationSet raw, EvidenceStage stage)
     {
+        var independent = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
         var typed = raw.Documents[stage].Select(ParseTypedObservation).ToArray();
         if (typed.Select(x => x.ReaderId).Distinct(StringComparer.Ordinal).Count() != typed.Length)
             throw new InvalidOperationException("A reader may contribute at most one exact stage observation.");
 
         foreach (var observation in typed)
         {
-            var control = observation.ReaderId is "CP-L3" or "CP-A3";
+            var control = observation.ReaderId is "CP-L4" or "CP-A4";
             var expectedCompany = control ? "not-applicable-control-plane" : raw.CompanyId;
             if (observation.Scope.CompanyId != expectedCompany ||
                 observation.Scope.TargetInstanceSha256 != raw.TargetInstanceSha256 ||
                 observation.Scope.LeaseId != raw.LeaseId ||
                 observation.Scope.LeaseVersion != raw.LeaseVersion ||
-                observation.Scope.OperationId != subcase.AttemptId ||
-                observation.Scope.ScenarioExecutionId != subcase.PreparationId ||
+                observation.Scope.OperationId != independent.ActionIdentity ||
+                observation.Scope.ScenarioExecutionId != independent.PreparationIdentity ||
                 observation.Scope.Stage != stage.ToString())
                 throw new InvalidOperationException("Raw observation scope did not match authenticated preparation.");
         }
 
         var selectorSpecs = Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId)
             .Where(x => Enum.Parse<EvidenceStage>(x.Stage) == stage).ToArray();
-        var fixtureSpecs = Correction27RawFixtures.Where(x => x.ScenarioId == contract.ScenarioId).ToArray();
+        var fixtureSpecs = Correction28RawFactTemplates.Where(x => x.ScenarioId == contract.ScenarioId).ToArray();
         var referenceSpecs = fixtureSpecs.Where(x => x.ReferenceStage == stage &&
             x.ReferenceName.Length != 0).ToArray();
         var expectedReaders = selectorSpecs.Select(x => x.ReaderId)
             .Concat(referenceSpecs.Select(x => x.ReaderId))
             .Distinct(StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
         if (expectedReaders.Count == 0)
-            expectedReaders.Add(stage == EvidenceStage.Cleanup ? "CP-L3" :
+            expectedReaders.Add(stage == EvidenceStage.Cleanup ? "CP-L4" :
                 ReaderId(ReadForStage(contract.Plan, stage).Surface));
         if (!expectedReaders.SetEquals(typed.Select(x => x.ReaderId)))
             throw new InvalidOperationException("Raw reader set was not exact for the stage.");
@@ -952,10 +925,16 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
 
         var sequence = StageSequence(stage);
-        var envelopeId = "env:" + subcase.EvidenceId.ToString("D") + ":" +
-            Rev869BCorrection26FrozenOracle.Version;
-        var observationId = "obs:" + subcase.EvidenceId.ToString("D") + ":" +
-            stage + ":" + sequence;
+        var envelopeId = "env:c28:" + independent.EnvelopeIdentity.ToString("D");
+        var observationId = stage switch
+        {
+            EvidenceStage.Before => independent.BeforeObservationId,
+            EvidenceStage.After => independent.AfterObservationId,
+            EvidenceStage.Durable => independent.DurableObservationId,
+            EvidenceStage.Audit => independent.AuditObservationId,
+            EvidenceStage.Cleanup => independent.CleanupObservationId,
+            _ => throw new ArgumentOutOfRangeException(nameof(stage))
+        };
         var root = new JsonObject
         {
             ["schemaVersion"] = Rev869BCorrection26FrozenOracle.EvidenceSchemaVersion,
@@ -969,10 +948,10 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             ["targetInstanceSha256"] = raw.TargetInstanceSha256,
             ["leaseBindingId"] = raw.LeaseId,
             ["leaseVersion"] = raw.LeaseVersion,
-            ["preparationId"] = subcase.PreparationId,
-            ["attemptId"] = subcase.AttemptId,
-            ["evidenceId"] = subcase.EvidenceId,
-            ["expectedResultId"] = subcase.ExpectedResultId,
+            ["preparationId"] = independent.PreparationIdentity,
+            ["attemptId"] = independent.AttemptIdentity,
+            ["evidenceId"] = independent.ObservationIdentity,
+            ["expectedResultId"] = independent.ExpectedResultIdentity,
             ["expectedOutcome"] = subcase.ExpectedResult,
             ["provenance"] = "authoritative-local-reader",
             ["observationId"] = observationId,
@@ -1000,7 +979,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         };
         root["canonicalEvidenceSha256"] = EnvelopeSha256(root);
         using var document = JsonDocument.Parse(root.ToJsonString());
-        return CanonicalObservation(contract.ScenarioId + ":" + stage + ":adapter-v3",
+        return CanonicalObservation(contract.ScenarioId + ":" + stage + ":adapter-v4",
             document.RootElement);
     }
 
@@ -1051,13 +1030,102 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             var bundle = AdaptAndVerifyDatabaseShapedEvidence(contract, subcase, raw);
             return VerifyEvidence(contract, subcase, bundle).Length != 0;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or
-            JsonException or FormatException)
+        catch (InvalidOperationException ex) when (IsExpectedAdapterRejection(mutation, ex.Message))
+        {
+            return true;
+        }
+        catch (ArgumentException ex) when (mutation == PipelineMutationKind.RemovedDecisiveAssertion &&
+            ex.Message.Contains("formula component", StringComparison.Ordinal))
         {
             return true;
         }
     }
 
+    internal sealed record PipelineMutationResult(string MutationId, string ScenarioId, string SubcaseId,
+        string TargetBoundary, string TargetComponent, string ExpectedRejectionCode, string ActualRejectionCode,
+        string EvaluationStage, bool Killed, bool Survived, string EvidenceSha256);
+
+    internal sealed record MutationRunRecord(string OracleVersion, string OracleSha256, Guid RunId,
+        string ScenarioId, string SubcaseId, string MutationId, string TargetComponent,
+        string ExpectedRejectionCode, string ActualRejectionCode, bool Survived, string EvidenceSha256);
+
+    internal static PipelineMutationResult EvaluatePipelineMutation(AcceptanceContract contract,
+        SubcaseRequirement subcase, PipelineMutationKind mutation)
+    {
+        var selector = Rev869BCorrection26FrozenOracle.SelectorsFor(contract.ScenarioId).First();
+        var expectedCode = ExpectedMutationRejectionCode(mutation, selector.ComponentId);
+        var killed = PipelineMutationIsRejected(contract, subcase, mutation);
+        var actualCode = killed ? expectedCode : "MUTATION_SURVIVED";
+        var mutationId = $"{contract.ScenarioId}/{subcase.SubcaseId}/{mutation}";
+        return new PipelineMutationResult(mutationId, contract.ScenarioId, subcase.SubcaseId,
+            MutationBoundary(mutation), selector.ComponentId, expectedCode, actualCode, "ADAPTER_AND_VERIFIER",
+            killed, !killed, ExactContractSha256(new { mutationId, expectedCode, actualCode, killed }));
+    }
+
+    internal static MutationRunObservationV3 DispatchLocalOr3(IReadOnlyList<MutationRunRecord> records,
+        string scenarioId, string subcaseId, Guid preparationId, Guid observationId, Guid envelopeId)
+    {
+        if (records.Count == 0 || records.Any(x => x.ScenarioId != scenarioId || x.SubcaseId != subcaseId ||
+            x.OracleVersion != Rev869BCorrection26FrozenOracle.Version ||
+            x.OracleSha256 != Rev869BCorrection26FrozenOracle.ExpectedSha256 ||
+            x.ExpectedRejectionCode != x.ActualRejectionCode || !ExactSha256(x.EvidenceSha256)) ||
+            records.Select(x => x.MutationId).Distinct(StringComparer.Ordinal).Count() != records.Count)
+            throw new InvalidOperationException("OR3_RECORD_EXACT_SET");
+        var killed = records.Count(x => !x.Survived);
+        var facts = new[]
+        {
+            LocalOr3Fact("killedMutants", killed, records),
+            LocalOr3Fact("survivingMutants", records.Count - killed, records),
+            LocalOr3Fact("requiredNonEquivalentMutants", records.Count, records)
+        };
+        var scope = new RawScopeV3("not-applicable-local", new string('a', 64), envelopeId, 1,
+            observationId, preparationId, subcaseId, EvidenceStage.Durable.ToString());
+        var digest = ExactContractSha256(new { scenarioId, subcaseId, preparationId, observationId, envelopeId,
+            evidence = records.Select(x => x.EvidenceSha256).Order(StringComparer.Ordinal).ToArray() });
+        return new MutationRunObservationV3(Rev869BCorrection26FrozenOracle.ReaderContractVersion, "OR3",
+            scope, "local-or3:" + observationId.ToString("N"), facts, digest);
+    }
+
+    private static TypedFactV3 LocalOr3Fact(string name, int value, IReadOnlyList<MutationRunRecord> records)
+    {
+        using var document = JsonDocument.Parse(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return new TypedFactV3(name == "requiredNonEquivalentMutants" ? "reference" : "selector", name,
+            "int64", document.RootElement.Clone(), records.Count,
+            ExactContractSha256(new { name, value, records = records.Select(x => x.EvidenceSha256).ToArray() }));
+    }
+
+    private static bool IsExpectedAdapterRejection(PipelineMutationKind mutation, string message) =>
+        mutation != PipelineMutationKind.RemovedDecisiveAssertion &&
+        ((mutation == PipelineMutationKind.WrongType && message.Contains("requires an element of type", StringComparison.Ordinal)) ||
+         (mutation == PipelineMutationKind.BroadenedAclOrPurgeScope && message == "operationId must be a nonzero UUID.") ||
+         message.Contains("Raw", StringComparison.Ordinal) || message.Contains("fact", StringComparison.OrdinalIgnoreCase) ||
+         message.Contains("scope", StringComparison.OrdinalIgnoreCase) || message.Contains("evidence", StringComparison.OrdinalIgnoreCase) ||
+         message.Contains("digest", StringComparison.OrdinalIgnoreCase) || message.Contains("contract", StringComparison.OrdinalIgnoreCase));
+
+    private static string ExpectedMutationRejectionCode(PipelineMutationKind mutation, string component) => mutation switch
+    {
+        PipelineMutationKind.MissingField or PipelineMutationKind.AdditionalField or PipelineMutationKind.DuplicatedField => "RAW_EXACT_SET",
+        PipelineMutationKind.CrossCompany or PipelineMutationKind.CrossInstance or PipelineMutationKind.CrossLease or
+            PipelineMutationKind.WrongLeaseVersion or PipelineMutationKind.BroadenedAclOrPurgeScope => "RAW_SCOPE",
+        PipelineMutationKind.RawDigestChanged => "RAW_DIGEST",
+        PipelineMutationKind.WrongEnvelopeIdentity => "ENVELOPE_IDENTITY",
+        PipelineMutationKind.WrongObservationIdentity => "OBSERVATION_IDENTITY",
+        PipelineMutationKind.WrongOracleHash => "ORACLE_IDENTITY",
+        PipelineMutationKind.MissingDurableHistory or PipelineMutationKind.FabricatedHistory or
+            PipelineMutationKind.StaleOrReplayed => "HISTORY_IDENTITY",
+        PipelineMutationKind.RemovedDecisiveAssertion => "ASSERTION_REMOVAL:" + component,
+        _ => "ASSERTION_" + component
+    };
+
+    private static string MutationBoundary(PipelineMutationKind mutation) => mutation switch
+    {
+        PipelineMutationKind.WrongEnvelopeIdentity => "ENVELOPE",
+        PipelineMutationKind.WrongObservationIdentity => "OBSERVATION",
+        PipelineMutationKind.RemovedDecisiveAssertion => "ASSERTION",
+        PipelineMutationKind.MissingDurableHistory or PipelineMutationKind.FabricatedHistory or
+            PipelineMutationKind.StaleOrReplayed => "HISTORY",
+        _ => "RAW_READER"
+    };
     private static RawObservationSet MutateRawObservation(AcceptanceContract contract,
         RawObservationSet raw, PipelineMutationKind mutation)
     {
@@ -1150,7 +1218,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
     private static JsonNode FailingMutationValue(Rev869BCorrection26FrozenOracle.SelectorSpec selector)
     {
-        var fixture = Correction27RawFixtures.Single(x => x.ComponentId == selector.ComponentId);
+        var fixture = Correction28RawFactTemplates.Single(x => x.ComponentId == selector.ComponentId);
         return selector.Operator switch
         {
             "GreaterThanZero" => JsonValue.Create(0),
@@ -1477,12 +1545,14 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
 
         var requested = RequiredRawFacts(contract.ScenarioId, stage);
         var readerIds = requested.Select(x => x.ReaderId).Distinct(StringComparer.Ordinal).ToList();
+        if (readerIds.Contains("OR3", StringComparer.Ordinal))
+            return ObserveLocalOr3(contract, subcase, stage, read, preparation, readerIds);
         if (readerIds.Count == 0)
-            readerIds.Add(stage == EvidenceStage.Cleanup ? "CP-L3" : ReaderId(read.Surface));
+            readerIds.Add(stage == EvidenceStage.Cleanup ? "CP-L4" : ReaderId(read.Surface));
         var documents = new List<string>();
         foreach (var readerId in readerIds.Order(StringComparer.Ordinal))
         {
-            var connectionString = readerId is "CP-L3" or "CP-A3"
+            var connectionString = readerId is "CP-L4" or "CP-A4"
                 ? preparation.ControlPlaneVerifierConnectionString
                 : preparation.TargetVerifierConnectionString;
             await using var connection = new NpgsqlConnection(connectionString);
@@ -1491,7 +1561,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
                 requested.Where(x => x.ReaderId == readerId).Select(x => x.Name).ToArray(),
                 connection, preparation);
             var scalar = await command.ExecuteScalarAsync(ct) as string
-                ?? throw new InvalidOperationException("Independent v3 verifier query returned no raw facts.");
+                ?? throw new InvalidOperationException("Independent v4 verifier query returned no raw facts.");
             _ = ParseTypedObservation(scalar);
             documents.Add(scalar);
         }
@@ -1502,6 +1572,63 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         return AdaptStage(contract, subcase, raw, stage);
     }
 
+    internal static void RequireLocalOr3Route(string readerId, EvidenceStage stage, IReadOnlyList<string> readerIds)
+    {
+        if (readerId != "OR3" || stage != EvidenceStage.Durable || readerIds.Count != 1 || readerIds[0] != "OR3")
+            throw new InvalidOperationException("OR3_WRONG_OPERATION");
+    }
+
+    private static EvidenceObservation ObserveLocalOr3(AcceptanceContract contract, SubcaseRequirement subcase,
+        EvidenceStage stage, EvidenceRead read, ScenarioPreparation preparation, IReadOnlyList<string> readerIds)
+    {
+        RequireLocalOr3Route("OR3", stage, readerIds);
+        var fixture = Rev869BCorrection28IndependentEvidenceFixtures.For(subcase.SubcaseId);
+        var results = Enum.GetValues<PipelineMutationKind>()
+            .Select(mutation => EvaluatePipelineMutation(contract, subcase, mutation)).ToArray();
+        var records = results.Select(result => new MutationRunRecord(Rev869BCorrection26FrozenOracle.Version,
+            Rev869BCorrection26FrozenOracle.ExpectedSha256, fixture.ActionIdentity, contract.ScenarioId,
+            subcase.SubcaseId, result.MutationId, result.TargetComponent, result.ExpectedRejectionCode,
+            result.ActualRejectionCode, result.Survived, result.EvidenceSha256)).ToArray();
+        var observation = DispatchLocalOr3(records, contract.ScenarioId, subcase.SubcaseId,
+            fixture.PreparationIdentity, fixture.ObservationIdentity, fixture.EnvelopeIdentity);
+        var rawJson = SerializeLocalOr3(observation);
+        var raw = new RawObservationSet("not-applicable-local", fixture.EnvelopeIdentity, 1,
+            new string('a', 64), new Dictionary<EvidenceStage, IReadOnlyList<string>>
+            {
+                [stage] = new[] { rawJson }
+            });
+        return AdaptStage(contract, subcase, raw, stage) with { ReadId = read.ReadId };
+    }
+
+    private static string SerializeLocalOr3(MutationRunObservationV3 observation)
+    {
+        var facts = new JsonArray(observation.Facts.Select(fact => (JsonNode)new JsonObject
+        {
+            ["kind"] = fact.Kind, ["name"] = fact.Name, ["valueType"] = fact.ValueType,
+            ["value"] = JsonNode.Parse(fact.Value.GetRawText()), ["sourceRowCount"] = fact.SourceRowCount,
+            ["sourceSha256"] = fact.SourceSha256
+        }).ToArray());
+        var root = new JsonObject
+        {
+            ["readerSchemaVersion"] = observation.ReaderSchemaVersion,
+            ["readerId"] = observation.ReaderId,
+            ["scope"] = new JsonObject
+            {
+                ["companyId"] = observation.Scope.CompanyId,
+                ["targetInstanceSha256"] = observation.Scope.TargetInstanceSha256,
+                ["leaseId"] = observation.Scope.LeaseId,
+                ["leaseVersion"] = observation.Scope.LeaseVersion,
+                ["operationId"] = observation.Scope.OperationId,
+                ["scenarioExecutionId"] = observation.Scope.ScenarioExecutionId,
+                ["stage"] = observation.Scope.Stage
+            },
+            ["observedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
+            ["transactionBoundary"] = observation.TransactionBoundary,
+            ["facts"] = facts, ["factCount"] = facts.Count, ["rawSha256"] = new string('0', 64)
+        };
+        root["rawSha256"] = RawDocumentSha256(root);
+        return root.ToJsonString();
+    }
     private static RequestedRawFact[] RequiredRawFacts(string scenarioId, EvidenceStage stage)
     {
         var facts = new Dictionary<(string ReaderId, string Kind, string Name), RequestedRawFact>();
@@ -1541,13 +1668,13 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     {
         var sql = readerId switch
         {
-            "CP-L3" => "SELECT nexa.rev869b_read_lifecycle_facts_v3(@instance_sha256_text,@lease_id,@lease_version,@attempt_id,@request_id,@decision_id,@scenario_execution_id,@observation_stage,@requested_facts)::text",
-            "CP-A3" => "SELECT nexa.rev869b_read_control_acl_facts_v3(@instance_sha256_text,@lease_id,@lease_version,@attempt_id,@scenario_execution_id,@observation_principal,@observation_object,@observation_operation,@observation_stage,@requested_facts)::text",
-            "TC3" => "SELECT nexa.rev869b_read_command_facts_v3(@organization_id,@instance_sha256,@lease_id,@lease_version,@command_id,@attempt_id,@scenario_execution_id,@observation_stage,@requested_facts)::text",
-            "TP3" => "SELECT nexa.rev869b_read_purge_facts_v3(@organization_id,@instance_sha256,@lease_id,@lease_version,@authorization_id,@execution_id,@root_authorization_id,@batch_id,@attempt_id,@scenario_execution_id,@observation_stage,@requested_facts)::text",
-            "TE3" => "SELECT nexa.rev869b_read_export_facts_v3(@organization_id,@instance_sha256,@lease_id,@lease_version,@authorization_id,@batch_id,@release_id,@as_of,@scenario_execution_id,@observation_stage,@attempt_id,@requested_facts)::text",
-            "TA3" => "SELECT nexa.rev869b_read_target_acl_facts_v3(@organization_id,@instance_sha256,@lease_id,@lease_version,@attempt_id,@scenario_execution_id,@observation_principal,@observation_object,@observation_operation,@observation_stage,@requested_facts)::text",
-            _ => throw new InvalidOperationException("Unsupported v3 database evidence reader.")
+            "CP-L4" => "SELECT nexa.rev869b_read_lifecycle_facts_v4(@instance_sha256_text,@lease_id,@lease_version,@attempt_id,@request_id,@decision_id,@scenario_execution_id,@observation_stage,@subcase_id,@requested_facts)::text",
+            "CP-A4" => "SELECT nexa.rev869b_read_control_acl_facts_v4(@instance_sha256_text,@lease_id,@lease_version,@attempt_id,@scenario_execution_id,@observation_principal,@observation_object,@observation_operation,@observation_stage,@subcase_id,@requested_facts)::text",
+            "TC4" => "SELECT nexa.rev869b_read_command_facts_v4(@organization_id,@instance_sha256,@lease_id,@lease_version,@command_id,@attempt_id,@scenario_execution_id,@observation_stage,@subcase_id,@requested_facts)::text",
+            "TP4" => "SELECT nexa.rev869b_read_purge_facts_v4(@organization_id,@instance_sha256,@lease_id,@lease_version,@authorization_id,@execution_id,@root_authorization_id,@batch_id,@attempt_id,@scenario_execution_id,@observation_stage,@subcase_id,@requested_facts)::text",
+            "TE4" => "SELECT nexa.rev869b_read_export_facts_v4(@organization_id,@instance_sha256,@lease_id,@lease_version,@authorization_id,@batch_id,@release_id,@as_of,@scenario_execution_id,@observation_stage,@attempt_id,@subcase_id,@requested_facts)::text",
+            "TA4" => "SELECT nexa.rev869b_read_target_acl_facts_v4(@organization_id,@instance_sha256,@lease_id,@lease_version,@attempt_id,@scenario_execution_id,@observation_principal,@observation_object,@observation_operation,@observation_stage,@subcase_id,@requested_facts)::text",
+            _ => throw new InvalidOperationException("Unsupported v4 database evidence reader.")
         };
         var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("organization_id", p.OrganizationId);
@@ -1558,6 +1685,7 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         command.Parameters.AddWithValue("instance_sha256_text", p.TargetInstanceSha256);
         command.Parameters.Add("instance_sha256", NpgsqlDbType.Bytea).Value = Convert.FromHexString(p.TargetInstanceSha256);
         command.Parameters.AddWithValue("observation_stage", stage.ToString());
+        command.Parameters.AddWithValue("subcase_id", p.SubcaseId);
         command.Parameters.AddWithValue("request_id", p.RegistrationRequestId);
         command.Parameters.Add("decision_id", NpgsqlDbType.Uuid).Value = (object?)p.DecisionId ?? DBNull.Value;
         command.Parameters.AddWithValue("command_id", p.CommandId);
