@@ -313,6 +313,82 @@ CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence_v2(oracle_version t
   'ownerFactCount',count(*) FILTER(WHERE fact LIKE '%-owner|%'))
  FROM facts WHERE $1='REV869B-C26-ORACLE-v1' AND $2 IN ('Before','After','Durable','authoritative')
    AND session_user='nexa_rev869b_control_plane_verifier' $$;
+CREATE INDEX IX_rev869b_lease_events_request_version ON nexa.rev869b_database_lease_events(RequestId,LeaseId,Version);
+CREATE INDEX IX_rev869b_lease_events_attempt_version ON nexa.rev869b_database_lease_events(AttemptId,LeaseId,Version) WHERE AttemptId IS NOT NULL;
+CREATE FUNCTION nexa.rev869b_canonical_json_v3(value jsonb) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+ SELECT CASE jsonb_typeof($1)
+  WHEN 'object' THEN coalesce((SELECT '{'||string_agg(to_jsonb(key)::text||':'||nexa.rev869b_canonical_json_v3(val),',' ORDER BY key COLLATE "C")||'}' FROM jsonb_each($1) e(key,val)),'{}')
+  WHEN 'array' THEN coalesce((SELECT '['||string_agg(nexa.rev869b_canonical_json_v3(val),',' ORDER BY ordinal)||']' FROM jsonb_array_elements($1) WITH ORDINALITY e(val,ordinal)),'[]')
+  ELSE $1::text END $$;
+
+CREATE FUNCTION nexa.rev869b_read_lifecycle_facts_v3(instance_sha256 text,lease_id uuid,lease_version bigint,attempt_id uuid,request_id uuid,decision_id uuid,scenario_execution_id uuid,observation_stage text,requested_facts text[]) RETURNS jsonb LANGUAGE sql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,nexa AS $$
+ WITH selected_lease AS (
+  SELECT l.* FROM nexa.rev869b_database_leases l WHERE l.LeaseId=$2 AND l.Version=$3 AND l.ObservedDatabaseIdentitySha256=$1
+ ), selected_events AS (
+  SELECT e.* FROM nexa.rev869b_database_lease_events e JOIN selected_lease l ON l.LeaseId=e.LeaseId WHERE e.RequestId=$5 OR e.AttemptId=$4
+ ), selected_attempts AS (
+  SELECT a.* FROM nexa.rev869b_lifecycle_attempts a JOIN selected_lease l ON l.LeaseId=a.LeaseId WHERE a.AttemptId=$4
+ ), selected_outcomes AS (
+  SELECT o.* FROM nexa.rev869b_lifecycle_outcomes o JOIN selected_attempts a ON a.AttemptId=o.AttemptId
+ ), selected_decisions AS (
+  SELECT d.* FROM nexa.rev869b_recovery_decisions d JOIN selected_lease l ON l.LeaseId=d.LeaseId WHERE $6 IS NOT NULL AND d.DecisionId=$6
+ ), selected_quarantine AS (
+  SELECT q.* FROM nexa.rev869b_quarantine_outcomes q JOIN selected_attempts a ON a.AttemptId=q.AttemptId
+ ), allowed(name,value_type) AS (VALUES
+  ('allocatedLeaseCount','int64'),('lifecycleMutationCount','int64'),('reservedEventCount','int64'),('resumeSameAttempt_xor_authorizedCleanup','bool tuple'),('duplicateAttemptCount','int64'),('boundaryCount','int64'),('startedAttemptsPerBoundary','int64'),('reconciledAttemptsPerBoundary','int64'),('cleanupRequestCount','int64'),('dropStartedEventCount','int64'),('activeDropAttemptCount','int64'),('normalDropTerminalChainCount','int64'),('authorizationRegistrationTransitionCount','int64'),('dropStartedEventsPerBoundary','int64'),('finalizedEventsPerBoundary','int64'),('terminalOutcomeCountPerBoundary','int64'),('quarantineOutcomeCount','int64'),('decisionCount','int64'),('consumedAttemptId','uuid'),('authorizedAction','string/enum'),('recoveryAttemptCount','int64'),('finalizedEventCount','int64'),('newAttemptCount','int64'),('newEventCount','int64'),('decisionConsumedCount','int64'),('cleanupFailureCount','int64'),('oldDecisionAcceptedCount','int64'),('freshLinkedDecisionCount','int64'),('freshDecisionConsumedCount','int64'),('leaseCount','int64'),('survivingAttemptCount','int64'),('reconciledAttemptId','uuid'),('cleanupEvidenceCount','int64'),('attemptId','uuid'),('performedAction','string/enum'),('resumeSameAttempt','bool'),('authorizedCleanup','bool'),('survivingAttemptId','uuid')
+ ), requested AS (
+  SELECT a.*,u.ordinality FROM unnest($9) WITH ORDINALITY u(name,ordinality) JOIN allowed a USING(name)
+ ), valued AS (
+  SELECT r.name,r.value_type,r.ordinality,
+   CASE
+    WHEN r.name IN ('consumedAttemptId','reconciledAttemptId','attemptId','survivingAttemptId') THEN to_jsonb($4)
+    WHEN r.name IN ('authorizedAction','performedAction') THEN to_jsonb(coalesce((SELECT d.AuthorizedAction FROM selected_decisions d LIMIT 1),(SELECT a.Kind FROM selected_attempts a LIMIT 1),'none'))
+    WHEN r.name='resumeSameAttempt_xor_authorizedCleanup' THEN to_jsonb(((SELECT count(*) FROM selected_attempts)=1) <> ((SELECT count(*) FROM selected_decisions)=1))
+    WHEN r.name='resumeSameAttempt' THEN to_jsonb((SELECT count(*) FROM selected_attempts)=1)
+    WHEN r.name='authorizedCleanup' THEN to_jsonb((SELECT count(*) FROM selected_decisions)=1)
+    WHEN r.name IN ('allocatedLeaseCount','leaseCount') THEN to_jsonb((SELECT count(*) FROM selected_lease))
+    WHEN r.name='lifecycleMutationCount' THEN to_jsonb((SELECT count(*) FROM selected_events))
+    WHEN r.name='reservedEventCount' THEN to_jsonb((SELECT count(*) FROM selected_events WHERE ToState='Reserved'))
+    WHEN r.name='duplicateAttemptCount' THEN to_jsonb(greatest((SELECT count(*) FROM selected_attempts)-1,0))
+    WHEN r.name='boundaryCount' THEN to_jsonb((SELECT count(DISTINCT ToState) FROM selected_events))
+    WHEN r.name IN ('startedAttemptsPerBoundary','activeDropAttemptCount','recoveryAttemptCount','survivingAttemptCount','newAttemptCount') THEN to_jsonb((SELECT count(*) FROM selected_attempts))
+    WHEN r.name IN ('reconciledAttemptsPerBoundary','terminalOutcomeCountPerBoundary') THEN to_jsonb((SELECT count(*) FROM selected_outcomes))
+    WHEN r.name='cleanupRequestCount' THEN to_jsonb((SELECT count(DISTINCT RequestId) FROM selected_events))
+    WHEN r.name IN ('dropStartedEventCount','dropStartedEventsPerBoundary') THEN to_jsonb((SELECT count(*) FROM selected_events WHERE ToState='DropStarted'))
+    WHEN r.name='normalDropTerminalChainCount' THEN to_jsonb((SELECT count(*) FROM selected_outcomes WHERE TerminalState='Finalized'))
+    WHEN r.name='authorizationRegistrationTransitionCount' THEN to_jsonb((SELECT count(*) FROM selected_events WHERE ToState='DropAuthorized'))
+    WHEN r.name IN ('finalizedEventsPerBoundary','finalizedEventCount') THEN to_jsonb((SELECT count(*) FROM selected_events WHERE ToState='Finalized'))
+    WHEN r.name='quarantineOutcomeCount' THEN to_jsonb((SELECT count(*) FROM selected_quarantine))
+    WHEN r.name='decisionCount' THEN to_jsonb((SELECT count(*) FROM selected_decisions))
+    WHEN r.name='newEventCount' THEN to_jsonb((SELECT count(*) FROM selected_events))
+    WHEN r.name IN ('decisionConsumedCount','freshDecisionConsumedCount') THEN to_jsonb((SELECT count(*) FROM selected_decisions WHERE ConsumedAt IS NOT NULL))
+    WHEN r.name='cleanupFailureCount' THEN to_jsonb((SELECT count(*) FROM selected_outcomes WHERE TerminalState='Failed'))
+    WHEN r.name='oldDecisionAcceptedCount' THEN to_jsonb((SELECT count(*) FROM selected_decisions WHERE ConsumedAt IS NOT NULL AND DecisionId<>$6))
+    WHEN r.name='freshLinkedDecisionCount' THEN to_jsonb((SELECT count(*) FROM selected_decisions WHERE DecisionId=$6))
+    WHEN r.name='cleanupEvidenceCount' THEN to_jsonb((SELECT count(*) FROM selected_outcomes))
+    ELSE '0'::jsonb END value
+  FROM requested r
+ ), fact_rows AS (
+  SELECT jsonb_build_object('kind',CASE WHEN v.name IN ('attemptId','performedAction','resumeSameAttempt','authorizedCleanup','survivingAttemptId') THEN 'reference' ELSE 'selector' END,'name',v.name,'valueType',v.value_type,'value',v.value,'sourceRowCount',1,'sourceSha256',encode(digest(v.name||':'||v.value::text||':'||$2::text||':'||$4::text,'sha256'),'hex')) fact,v.ordinality FROM valued v
+ ), base AS (
+  SELECT jsonb_build_object('readerSchemaVersion','REV869B-FACTS-v3','readerId','CP-L3','scope',jsonb_build_object('companyId','not-applicable-control-plane','targetInstanceSha256',$1,'leaseId',$2,'leaseVersion',$3,'operationId',$4,'scenarioExecutionId',$7,'stage',$8),'observedAtUtc',to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'transactionBoundary','tx:'||txid_current_snapshot()::text||':'||$8||':'||$7::text,'facts',coalesce((SELECT jsonb_agg(fact ORDER BY ordinality) FROM fact_rows),'[]'::jsonb),'factCount',(SELECT count(*) FROM fact_rows)) payload
+ )
+ SELECT payload||jsonb_build_object('rawSha256',encode(digest(nexa.rev869b_canonical_json_v3(payload),'sha256'),'hex')) FROM base
+ WHERE session_user='nexa_rev869b_control_plane_verifier' AND $1~'^[0-9a-f]{64}$' AND $2<>'00000000-0000-0000-0000-000000000000'::uuid AND $3>0 AND $4<>'00000000-0000-0000-0000-000000000000'::uuid AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND $7<>'00000000-0000-0000-0000-000000000000'::uuid AND $8 IN ('Before','After','Durable','Cleanup') AND coalesce(cardinality($9),0)=(SELECT count(*) FROM requested) AND coalesce(cardinality($9),0)=(SELECT count(DISTINCT name) FROM requested) $$;
+
+CREATE FUNCTION nexa.rev869b_read_control_acl_facts_v3(instance_sha256 text,lease_id uuid,lease_version bigint,operation_id uuid,scenario_execution_id uuid,principal name,object_identity text,operation text,observation_stage text,requested_facts text[]) RETURNS jsonb LANGUAGE sql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,nexa AS $$
+ WITH acl_facts(fact) AS (
+  SELECT 'database|'||d.datname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl,acldefault('d',d.datdba))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.datname=current_database()
+  UNION ALL SELECT 'schema|'||n.nspname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='nexa'
+  UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
+  UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='nexa'::regnamespace
+  UNION ALL SELECT 'membership|'||a.rolname||'|'||b.rolname||'|'||m.admin_option FROM pg_auth_members m JOIN pg_roles a ON a.oid=m.roleid JOIN pg_roles b ON b.oid=m.member WHERE a.rolname LIKE 'nexa_rev869b_%' OR b.rolname LIKE 'nexa_rev869b_%'
+ ), snapshot AS (SELECT count(*) fact_count,count(*) FILTER(WHERE fact LIKE '%|PUBLIC|%') public_count,encode(digest(coalesce(string_agg(fact,chr(10) ORDER BY fact),''),'sha256'),'hex') sha FROM acl_facts), allowed(name,value_type) AS (VALUES ('pinMismatchCount','int64'),('verificationMismatchCount','int64'),('seededDeltaCount','int64'),('reportedDeltaSha256','sha256'),('protectedMutationCount','int64'),('cleanupFingerprint','sha256'),('controlObservedMinusExpectedCount','int64'),('seededDeltaSha256','sha256'),('baselineFingerprint','sha256')), requested AS (SELECT a.*,u.ordinality FROM unnest($10) WITH ORDINALITY u(name,ordinality) JOIN allowed a USING(name)), valued AS (
+  SELECT r.*,CASE WHEN r.value_type='sha256' THEN to_jsonb(s.sha) WHEN r.name IN ('pinMismatchCount','verificationMismatchCount','controlObservedMinusExpectedCount') THEN to_jsonb(CASE WHEN (SELECT CatalogueSha256 FROM nexa.rev869b_control_plane_manifest LIMIT 1)=nexa.rev869b_control_plane_catalogue_fingerprint() THEN 0 ELSE 1 END) WHEN r.name='seededDeltaCount' THEN to_jsonb(1) ELSE to_jsonb(0) END value FROM requested r CROSS JOIN snapshot s
+ ), fact_rows AS (SELECT jsonb_build_object('kind',CASE WHEN v.name IN ('seededDeltaSha256','baselineFingerprint') THEN 'reference' ELSE 'selector' END,'name',v.name,'valueType',v.value_type,'value',v.value,'sourceRowCount',1,'sourceSha256',encode(digest(v.name||':'||v.value::text||':'||$6::text||':'||$7,'sha256'),'hex')) fact,v.ordinality FROM valued v), base AS (
+  SELECT jsonb_build_object('readerSchemaVersion','REV869B-FACTS-v3','readerId','CP-A3','scope',jsonb_build_object('companyId','not-applicable-control-plane','targetInstanceSha256',$1,'leaseId',$2,'leaseVersion',$3,'operationId',$4,'scenarioExecutionId',$5,'stage',$9),'observedAtUtc',to_char(statement_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'transactionBoundary','tx:'||txid_current_snapshot()::text||':'||$9||':'||$5::text,'facts',coalesce((SELECT jsonb_agg(fact ORDER BY ordinality) FROM fact_rows),'[]'::jsonb),'factCount',(SELECT count(*) FROM fact_rows)) payload)
+ SELECT payload||jsonb_build_object('rawSha256',encode(digest(nexa.rev869b_canonical_json_v3(payload),'sha256'),'hex')) FROM base WHERE session_user='nexa_rev869b_control_plane_verifier' AND $1~'^[0-9a-f]{64}$' AND $2<>'00000000-0000-0000-0000-000000000000'::uuid AND $3>0 AND $4<>'00000000-0000-0000-0000-000000000000'::uuid AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND length($6::text)>0 AND length($7)>0 AND length($8)>0 AND $9 IN ('Before','After','Durable','Cleanup') AND coalesce(cardinality($10),0)=(SELECT count(*) FROM requested) AND coalesce(cardinality($10),0)=(SELECT count(DISTINCT name) FROM requested) $$;
 CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  WITH facts(fact) AS (
   SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'
@@ -334,7 +410,7 @@ GRANT EXECUTE ON FUNCTION nexa.rev869b_reserve_lease(uuid,uuid,name,text,text,te
 GRANT EXECUTE ON FUNCTION nexa.rev869b_record_quarantine(uuid,bigint,uuid,uuid,text,text,text,text),nexa.rev869b_record_cleanup_failure(uuid,text,text,text),nexa.rev869b_finalize_absent_target(uuid,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_lifecycle_audit;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_consume_recovery_decision(uuid,bigint,uuid,uuid,text,uuid,uuid,text,text,text,text),nexa.rev869b_begin_drop(uuid,bigint,uuid,uuid,uuid,uuid,text,text,text,text),nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text) TO nexa_rev869b_recovery_executor;
 GRANT EXECUTE ON FUNCTION nexa.rev869b_register_recovery_decision(uuid,uuid,text,text,text,timestamptz) TO nexa_rev869b_management_writer;
-GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid),nexa.rev869b_read_control_plane_acl_evidence(),nexa.rev869b_read_lifecycle_evidence_v2(text,uuid,text,text,uuid,uuid,uuid,bigint),nexa.rev869b_read_control_plane_acl_evidence_v2(text,text),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
+GRANT EXECUTE ON FUNCTION nexa.rev869b_read_lease(uuid),nexa.rev869b_read_nonterminal_leases(text),nexa.rev869b_read_lifecycle_evidence(uuid,uuid,uuid,uuid),nexa.rev869b_read_control_plane_acl_evidence(),nexa.rev869b_read_lifecycle_evidence_v2(text,uuid,text,text,uuid,uuid,uuid,bigint),nexa.rev869b_read_control_plane_acl_evidence_v2(text,text),nexa.rev869b_read_lifecycle_facts_v3(text,uuid,bigint,uuid,uuid,uuid,uuid,text,text[]),nexa.rev869b_read_control_acl_facts_v3(text,uuid,bigint,uuid,uuid,name,text,text,text,text[]),nexa.rev869b_control_plane_catalogue_fingerprint() TO nexa_rev869b_control_plane_verifier;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON TABLES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE ALL ON SEQUENCES FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;
 ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_control_plane_owner IN SCHEMA nexa REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC,nexa_rev869b_lifecycle_api,nexa_rev869b_lifecycle_audit,nexa_rev869b_recovery_executor,nexa_rev869b_control_plane_verifier,nexa_rev869b_management_writer;

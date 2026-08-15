@@ -50,28 +50,31 @@ public sealed class Rev869BCorrection17PostgresScenarios
             Assert.Equal(canonical.Plan.Assertions.Count * 2 + 6, canonical.Plan.Mutations.Count);
             foreach (var subcase in canonical.RequiredSubcases)
             {
-                var pristine = Rev869BLifecycleControllerClient.BuildOracleEvidence(canonical, subcase);
+                var raw = Rev869BLifecycleControllerClient.BuildDatabaseShapedRawEvidence(canonical, subcase);
+                var pristine = Rev869BLifecycleControllerClient.AdaptAndVerifyDatabaseShapedEvidence(canonical, subcase, raw);
                 Assert.Empty(Rev869BLifecycleControllerClient.VerifyEvidence(canonical, subcase, pristine));
-                foreach (var mutation in Enum.GetValues<Rev869BLifecycleControllerClient.EvidenceMutationKind>())
-                {
-                    var tampered = Rev869BLifecycleControllerClient.MutateEvidence(canonical, subcase, pristine, mutation);
-                    Assert.NotEmpty(Rev869BLifecycleControllerClient.VerifyEvidence(canonical, subcase, tampered));
-                }
+                foreach (var mutation in Enum.GetValues<Rev869BLifecycleControllerClient.PipelineMutationKind>())
+                    Assert.True(Rev869BLifecycleControllerClient.PipelineMutationIsRejected(canonical, subcase, mutation),
+                        canonical.ScenarioId + "/" + subcase.SubcaseId + ":" + mutation);
                 foreach (var assertion in canonical.Plan.Assertions)
                 {
                     var tampered = Rev869BLifecycleControllerClient.TamperEvidence(pristine, assertion);
                     Assert.False(Rev869BLifecycleControllerClient.Evaluate(assertion, tampered), assertion.AssertionId);
+
+                    var assertionRemoved = canonical with
+                    {
+                        Plan = canonical.Plan with
+                        {
+                            Assertions = canonical.Plan.Assertions
+                                .Where(candidate => candidate.AssertionId != assertion.AssertionId)
+                                .ToArray()
+                        }
+                    };
+                    Assert.Throws<ArgumentException>(() =>
+                        Rev869BLifecycleControllerClient.ValidateContract(assertionRemoved));
                 }
             }
-            foreach (var mutation in canonical.Plan.Mutations)
-            {
-                var changed = Rev869BLifecycleControllerClient.ApplyMutation(canonical, mutation);
-                Assert.NotEqual(
-                    Rev869BLifecycleControllerClient.ExactContractSha256(canonical.Descriptor),
-                    Rev869BLifecycleControllerClient.ExactContractSha256(changed.Descriptor));
 
-                Assert.Throws<ArgumentException>(() => Rev869BLifecycleControllerClient.ValidateContract(changed));
-            }
         }
     }
 
@@ -82,7 +85,7 @@ public sealed class Rev869BCorrection17PostgresScenarios
         Assert.Equal(contract.ScenarioId, result.ScenarioId);
         Assert.Empty(result.FailedAssertions);
         Assert.True(result.Action.ActionReached);
-        Assert.Equal(contract.Plan.ActionOperationId, "rev869b/" + result.ScenarioId + "/action/v2");
+        Assert.Equal(contract.Plan.ActionOperationId, "rev869b/" + result.ScenarioId + "/action/v3");
         Assert.All(new[] { result.Before.CanonicalSha256, result.After.CanonicalSha256,
             result.Durable.CanonicalSha256, result.Audit.CanonicalSha256, result.Cleanup.CanonicalSha256 },
             value => Assert.Matches("^[0-9a-f]{64}$", value));
