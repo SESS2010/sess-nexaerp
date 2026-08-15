@@ -1,4 +1,10 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
 
@@ -251,7 +257,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             Assert.NotEqual(contract.Plan.Before.ReadId, contract.Plan.After.ReadId);
             Assert.NotEqual(contract.Plan.After.ReadId, contract.Plan.Durable.ReadId);
             Assert.NotEqual(contract.Plan.Durable.ReadId, contract.Plan.Cleanup.ReadId);
-            Assert.Equal(contract.Plan.Assertions.Count + 11, contract.Plan.Mutations.Count);
+            Assert.Equal(contract.Plan.Assertions.Count + 14, contract.Plan.Mutations.Count);
             Assert.Contains("AND", contract.Plan.ExactFormula, StringComparison.Ordinal);
             Assert.DoesNotContain("PASS", contract.Plan.ExactFormula, StringComparison.OrdinalIgnoreCase);
             Assert.NotEmpty(contract.RequiredSubcases);
@@ -267,7 +273,7 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.DoesNotContain("constant PASS", design, StringComparison.OrdinalIgnoreCase);
         foreach (var required in new[] { "Formula(id)", "EvidenceAssertion", "SemanticMutation", "mutate-action",
             "mutate-before-read", "mutate-after-read", "mutate-durable-read", "mutate-fabricated", "mutate-duplicate",
-            "mutate-substituted", "mutate-stale", "mutate-cross-instance" })
+            "mutate-substituted", "mutate-stale", "mutate-cross-instance", "mutate-cross-lease", "mutate-wrong-version", "mutate-wrong-count" })
             Assert.Contains(required, design);
 
         var bodies = Source("tests/SESS.NexaERP.Tests/Rev869BCorrection17PostgresScenarios.cs");
@@ -284,7 +290,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             "rev869b_read_lifecycle_evidence", "rev869b_read_control_plane_acl_evidence", "rev869b_read_command_evidence",
             "rev869b_read_purge_evidence", "rev869b_read_export_evidence", "rev869b_read_target_acl_evidence",
             "TargetVerifierConnectionString", "ControlPlaneVerifierConnectionString", "ControllerAudit",
-            "AuditSigningPublicKeyPem", "CanonicalObservation", "Evaluate", "ExecuteScalarAsync" })
+            "AuditSigningPublicKeyPem", "CanonicalObservation", "Evaluate", "FormulaComponent", "BuildSyntheticEvidence", "TamperEvidence", "ExecuteScalarAsync" })
             Assert.Contains(required, client);
         Assert.DoesNotContain("RequireAcceptanceEvidence", client);
         Assert.DoesNotContain("AcceptanceEvidence", client);
@@ -296,6 +302,51 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.DoesNotContain("lifecycle_administrator credentials", client, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Correction25AcceptanceTermsAreBijectiveLocallyEvaluatedAndTamperSensitive()
+    {
+        foreach (var contract in Rev869BAcceptanceScenarioInventory.All)
+        {
+            Rev869BLifecycleControllerClient.ValidateContract(contract);
+            Assert.Equal(
+                contract.Plan.Assertions.Select(x => x.AssertionId).Order(StringComparer.Ordinal),
+                contract.Plan.RequiredComponentIds.Order(StringComparer.Ordinal));
+            Assert.DoesNotContain(contract.Plan.Assertions, x => x.Stage == Rev869BLifecycleControllerClient.EvidenceStage.Audit);
+            Assert.DoesNotContain(contract.Plan.Assertions, x => x.Expected.StartsWith("Audit:", StringComparison.Ordinal));
+
+            var pristine = Rev869BLifecycleControllerClient.BuildSyntheticEvidence(contract);
+            Assert.All(contract.Plan.Assertions, assertion =>
+                Assert.True(Rev869BLifecycleControllerClient.Evaluate(assertion, pristine), assertion.AssertionId));
+            Assert.All(contract.Plan.Assertions, assertion =>
+            {
+                var tampered = Rev869BLifecycleControllerClient.TamperEvidence(pristine, assertion);
+                Assert.False(Rev869BLifecycleControllerClient.Evaluate(assertion, tampered), assertion.AssertionId);
+            });
+        }
+    }
+    [Fact]
+    public void Correction25OfflineUpDownSqlIsGeneratedWithoutConnectingAndHasPinnedHashes()
+    {
+        const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
+        const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect;Timeout=1;Pooling=false")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var up = migrator.GenerateScript(rev869A, rev869B);
+        var down = migrator.GenerateScript(rev869B, rev869A);
+        var upBytes = Encoding.UTF8.GetBytes(up);
+        var downBytes = Encoding.UTF8.GetBytes(down);
+        var upSha256 = Convert.ToHexString(SHA256.HashData(upBytes));
+        var downSha256 = Convert.ToHexString(SHA256.HashData(downBytes));
+        Assert.Equal(284254, upBytes.Length);
+        Assert.Equal(2426, up.Count(x => x == '\n') + 1);
+        Assert.Equal("554C8CA562DEC27CDFC80B70D72EEE6D68AB67F86A4F585DF77FAD38B6A1787A", upSha256);
+        Assert.Equal(10629, downBytes.Length);
+        Assert.Equal(222, down.Count(x => x == '\n') + 1);
+        Assert.Equal("78F17339EE2FCB75D09B4E7581C8D84ED7199B1C687825FE0A1892B6798B7360", downSha256);
+    }
     [Fact]
     public void Correction24EvidenceReadersAreVerifierOnlyMinimalAndAclClosed()
     {

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -148,9 +149,23 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             contract.RequiredSubcases.Any(x => !x.SubcaseId.StartsWith(contract.ScenarioId + ":", StringComparison.Ordinal)))
             throw new ArgumentException("Scenario evidence must be scenario-local and exhaustive.");
 
-        if (contract.Plan.Assertions.Any(x => x.Operator == EvidenceOperator.EqualsLiteral &&
-            string.Equals(x.Expected, "PASS", StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("Self-asserted PASS values are prohibited.");
+        var required = contract.Plan.RequiredComponentIds;
+        var asserted = contract.Plan.Assertions.Select(x => x.AssertionId).ToArray();
+        var components = contract.Plan.FormulaComponents;
+        if (required.Count == 0 || required.Distinct(StringComparer.Ordinal).Count() != required.Count ||
+            !required.ToHashSet(StringComparer.Ordinal).SetEquals(asserted) ||
+            components.Count != asserted.Length ||
+            !components.Select(x => x.ComponentId).ToHashSet(StringComparer.Ordinal).SetEquals(asserted) ||
+            components.Any(component => string.IsNullOrWhiteSpace(component.LocalReducer) ||
+                !contract.Plan.Assertions.Any(assertion => assertion.AssertionId == component.ComponentId &&
+                    assertion.Stage == component.Stage && assertion.JsonPath == component.AuthoritativeSelector &&
+                    assertion.Operator == component.Operator && assertion.Expected == component.Expected)))
+            throw new ArgumentException("Every immutable formula component must bind bijectively to one executable local reducer and assertion.");
+
+        if (contract.Plan.Assertions.Any(x => x.Stage == EvidenceStage.Audit ||
+            x.Expected.StartsWith("Audit:", StringComparison.Ordinal) ||
+            (x.Operator == EvidenceOperator.EqualsLiteral && string.Equals(x.Expected, "PASS", StringComparison.OrdinalIgnoreCase))))
+            throw new ArgumentException("Controller audit and self-asserted PASS values are prohibited as decisive evidence.");
 
         if (contract.Plan.Before.ReadId == contract.Plan.After.ReadId ||
             contract.Plan.Durable.ReadId == contract.Plan.Cleanup.ReadId ||
@@ -210,6 +225,172 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
         });
         return values.Count(value => value) == 1;
     }
+    internal static EvidenceBundle BuildSyntheticEvidence(AcceptanceContract contract)
+    {
+        ValidateContract(contract);
+        var roots = Enum.GetValues<EvidenceStage>().ToDictionary(stage => stage,
+            stage => new JsonObject { ["observationStage"] = stage.ToString(), ["scenarioId"] = contract.ScenarioId });
+
+        foreach (var assertion in contract.Plan.Assertions)
+        {
+            if (assertion.Operator == EvidenceOperator.ExactlyOneTrue)
+            {
+                var references = assertion.Expected.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                for (var index = 0; index < references.Length; index++)
+                {
+                    var reference = ParseReference(references[index]);
+                    SetPath(roots[reference.Stage], reference.Path, JsonValue.Create(index == 0));
+                }
+                continue;
+            }
+
+            if (assertion.Operator is EvidenceOperator.SameCanonicalSha256AsBefore or EvidenceOperator.DifferentCanonicalSha256FromBefore)
+                continue;
+
+            JsonNode? value = assertion.Operator switch
+            {
+                EvidenceOperator.Exists => JsonValue.Create("present"),
+                EvidenceOperator.Absent => null,
+                EvidenceOperator.EqualsLiteral => JsonValue.Create(assertion.Expected),
+                EvidenceOperator.NotEqualsLiteral => JsonValue.Create("different:" + assertion.Expected),
+                EvidenceOperator.GreaterThanZero => JsonValue.Create(1L),
+                EvidenceOperator.Zero => JsonValue.Create(0L),
+                EvidenceOperator.ExactSha256 => JsonValue.Create(new string('a', 64)),
+                EvidenceOperator.AtMostOne => JsonValue.Create(1L),
+                EvidenceOperator.EqualsObservationPath => JsonValue.Create("same-value"),
+                EvidenceOperator.NotEqualsObservationPath => JsonValue.Create("left-value"),
+                _ => throw new ArgumentOutOfRangeException(nameof(assertion.Operator))
+            };
+
+            if (assertion.Operator != EvidenceOperator.Absent)
+                SetPath(roots[assertion.Stage], assertion.JsonPath, value);
+
+            if (assertion.Operator is EvidenceOperator.EqualsObservationPath or EvidenceOperator.NotEqualsObservationPath)
+            {
+                var reference = ParseReference(assertion.Expected);
+                SetPath(roots[reference.Stage], reference.Path,
+                    JsonValue.Create(assertion.Operator == EvidenceOperator.EqualsObservationPath ? "same-value" : "right-value"));
+            }
+        }
+
+        EvidenceObservation Observation(EvidenceStage stage)
+        {
+            using var document = JsonDocument.Parse(roots[stage].ToJsonString());
+            return CanonicalObservation("synthetic:" + contract.ScenarioId + ":" + stage, document.RootElement);
+        }
+
+        var bundle = new EvidenceBundle(Observation(EvidenceStage.Before), Observation(EvidenceStage.After),
+            Observation(EvidenceStage.Durable), Observation(EvidenceStage.Audit), Observation(EvidenceStage.Cleanup),
+            Observation(EvidenceStage.Action));
+        foreach (var assertion in contract.Plan.Assertions)
+        {
+            if (assertion.Operator == EvidenceOperator.SameCanonicalSha256AsBefore)
+                bundle = ReplaceStage(bundle, assertion.Stage, bundle.For(assertion.Stage) with { CanonicalSha256 = bundle.Before.CanonicalSha256 });
+            else if (assertion.Operator == EvidenceOperator.DifferentCanonicalSha256FromBefore &&
+                     bundle.For(assertion.Stage).CanonicalSha256 == bundle.Before.CanonicalSha256)
+                bundle = ReplaceStage(bundle, assertion.Stage, bundle.For(assertion.Stage) with { CanonicalSha256 = new string('b', 64) });
+        }
+        return bundle;
+    }
+
+    internal static EvidenceBundle TamperEvidence(EvidenceBundle pristine, EvidenceAssertion assertion)
+    {
+        if (assertion.Operator == EvidenceOperator.SameCanonicalSha256AsBefore)
+            return ReplaceStage(pristine, assertion.Stage, pristine.For(assertion.Stage) with { CanonicalSha256 = new string('c', 64) });
+        if (assertion.Operator == EvidenceOperator.DifferentCanonicalSha256FromBefore)
+            return ReplaceStage(pristine, assertion.Stage, pristine.For(assertion.Stage) with { CanonicalSha256 = pristine.Before.CanonicalSha256 });
+        if (assertion.Operator == EvidenceOperator.ExactlyOneTrue)
+        {
+            var changed = pristine;
+            foreach (var referenceText in assertion.Expected.Split('|', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var reference = ParseReference(referenceText);
+                changed = ChangePath(changed, reference.Stage, reference.Path, JsonValue.Create(true), remove: false);
+            }
+            return changed;
+        }
+
+        JsonNode? replacement = assertion.Operator switch
+        {
+            EvidenceOperator.Exists => null,
+            EvidenceOperator.Absent => JsonValue.Create("fabricated"),
+            EvidenceOperator.EqualsLiteral => JsonValue.Create("tampered:" + assertion.Expected),
+            EvidenceOperator.NotEqualsLiteral => JsonValue.Create(assertion.Expected),
+            EvidenceOperator.GreaterThanZero => JsonValue.Create(0L),
+            EvidenceOperator.Zero => JsonValue.Create(1L),
+            EvidenceOperator.ExactSha256 => JsonValue.Create("not-a-sha256"),
+            EvidenceOperator.AtMostOne => JsonValue.Create(2L),
+            EvidenceOperator.EqualsObservationPath => JsonValue.Create("tampered-cross-observation"),
+            EvidenceOperator.NotEqualsObservationPath => JsonValue.Create(ReferenceScalar(pristine, assertion.Expected)),
+            _ => throw new ArgumentOutOfRangeException(nameof(assertion.Operator))
+        };
+        return ChangePath(pristine, assertion.Stage, assertion.JsonPath, replacement,
+            remove: assertion.Operator == EvidenceOperator.Exists);
+    }
+
+    private static (EvidenceStage Stage, string Path) ParseReference(string reference)
+    {
+        var parts = reference.Split(':', 2);
+        if (parts.Length != 2 || !Enum.TryParse<EvidenceStage>(parts[0], out var stage))
+            throw new ArgumentException("Exact observation reference required.", nameof(reference));
+        return (stage, parts[1]);
+    }
+
+    private static string ReferenceScalar(EvidenceBundle bundle, string reference)
+    {
+        var parsed = ParseReference(reference);
+        var value = Resolve(bundle.For(parsed.Stage).Document.RootElement, parsed.Path)
+            ?? throw new ArgumentException("Referenced synthetic evidence path is missing.", nameof(reference));
+        return Scalar(value);
+    }
+
+    private static EvidenceBundle ChangePath(EvidenceBundle bundle, EvidenceStage stage, string path, JsonNode? value, bool remove)
+    {
+        var original = bundle.For(stage);
+        var root = JsonNode.Parse(original.Document.RootElement.GetRawText())!.AsObject();
+        if (remove) RemovePath(root, path); else SetPath(root, path, value);
+        using var document = JsonDocument.Parse(root.ToJsonString());
+        return ReplaceStage(bundle, stage, CanonicalObservation(original.ReadId, document.RootElement));
+    }
+
+    private static EvidenceBundle ReplaceStage(EvidenceBundle bundle, EvidenceStage stage, EvidenceObservation observation) => stage switch
+    {
+        EvidenceStage.Before => bundle with { Before = observation },
+        EvidenceStage.After => bundle with { After = observation },
+        EvidenceStage.Durable => bundle with { Durable = observation },
+        EvidenceStage.Audit => bundle with { Audit = observation },
+        EvidenceStage.Cleanup => bundle with { Cleanup = observation },
+        EvidenceStage.Action => bundle with { Action = observation },
+        _ => throw new ArgumentOutOfRangeException(nameof(stage))
+    };
+
+    private static void SetPath(JsonObject root, string path, JsonNode? value)
+    {
+        var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        for (var index = 0; index < parts.Length - 1; index++)
+        {
+            if (current[parts[index]] is not JsonObject child)
+            {
+                child = new JsonObject();
+                current[parts[index]] = child;
+            }
+            current = child;
+        }
+        current[parts[^1]] = value?.DeepClone();
+    }
+
+    private static void RemovePath(JsonObject root, string path)
+    {
+        var parts = path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        var current = root;
+        for (var index = 0; index < parts.Length - 1; index++)
+        {
+            if (current[parts[index]] is not JsonObject child) return;
+            current = child;
+        }
+        current.Remove(parts[^1]);
+    }
     internal static AcceptanceContract ApplyMutation(AcceptanceContract contract, SemanticMutation mutation)
     {
         var plan = mutation.Kind switch
@@ -239,6 +420,21 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
             {
                 Assertions = contract.Plan.Assertions.Append(new(contract.ScenarioId + ":cross-instance",
                     EvidenceStage.After, "targetIdentity.databaseName", EvidenceOperator.EqualsLiteral, "foreign_target")).ToArray()
+            },
+            MutationKind.CrossLeaseEvidence => contract.Plan with
+            {
+                Assertions = contract.Plan.Assertions.Append(new(contract.ScenarioId + ":cross-lease",
+                    EvidenceStage.Durable, "lease.LeaseId", EvidenceOperator.EqualsLiteral, Guid.Empty.ToString())).ToArray()
+            },
+            MutationKind.WrongVersionEvidence => contract.Plan with
+            {
+                Assertions = contract.Plan.Assertions.Append(new(contract.ScenarioId + ":wrong-version",
+                    EvidenceStage.Durable, "lease.Version", EvidenceOperator.EqualsLiteral, "-1")).ToArray()
+            },
+            MutationKind.WrongCountEvidence => contract.Plan with
+            {
+                Assertions = contract.Plan.Assertions.Append(new(contract.ScenarioId + ":wrong-count",
+                    EvidenceStage.Durable, "attemptCount", EvidenceOperator.EqualsLiteral, "-1")).ToArray()
             },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation))
         };
@@ -471,14 +667,20 @@ internal sealed class Rev869BLifecycleControllerClient : IAsyncDisposable
     internal enum EvidenceSurface { ControlLifecycle, ControlAcl, TargetCommand, TargetPurge, TargetExport, TargetAcl, ControllerAudit }
     internal enum EvidenceStage { Before, After, Durable, Audit, Cleanup, Action }
     internal enum EvidenceOperator { Exists, Absent, EqualsLiteral, NotEqualsLiteral, GreaterThanZero, Zero, ExactSha256, SameCanonicalSha256AsBefore, DifferentCanonicalSha256FromBefore, EqualsObservationPath, NotEqualsObservationPath, AtMostOne, ExactlyOneTrue }
-    internal enum MutationKind { RemoveAction, RemoveRead, RemoveAssertion, FabricateEvidence, DuplicateEvidence, SubstituteIdentity, StaleEvidence, CrossInstanceEvidence }
+    internal enum MutationKind { RemoveAction, RemoveRead, RemoveAssertion, FabricateEvidence, DuplicateEvidence, SubstituteIdentity, StaleEvidence, CrossInstanceEvidence, CrossLeaseEvidence, WrongVersionEvidence, WrongCountEvidence }
 
     internal sealed record EvidenceRead(string ReadId, EvidenceSurface Surface, string Purpose);
+    internal sealed record FormulaComponent(string ComponentId, EvidenceStage Stage, string AuthoritativeSelector,
+        EvidenceOperator Operator, string Expected, string LocalReducer);
     internal sealed record EvidenceAssertion(string AssertionId, EvidenceStage Stage, string JsonPath, EvidenceOperator Operator, string Expected);
     internal sealed record SemanticMutation(string MutationId, MutationKind Kind, string TargetReadId);
     internal sealed record ScenarioEvidencePlan(string FixtureOperationId, string ActionOperationId, string CleanupOperationId,
         EvidenceRead Before, EvidenceRead After, EvidenceRead Durable, EvidenceRead Audit, EvidenceRead Cleanup,
-        string ExactFormula, IReadOnlyList<EvidenceAssertion> Assertions, IReadOnlyList<SemanticMutation> Mutations);
+        string ExactFormula, IReadOnlyList<EvidenceAssertion> Assertions, IReadOnlyList<SemanticMutation> Mutations)
+    {
+        internal IReadOnlyList<string> RequiredComponentIds { get; init; } = Array.Empty<string>();
+        internal IReadOnlyList<FormulaComponent> FormulaComponents { get; init; } = Array.Empty<FormulaComponent>();
+    }
     internal sealed record AcceptanceDescriptor(string ScenarioId, string Setup, string Action, string ExpectedResult,
         DatabaseObjectIdentity ExpectedIdentity, ScenarioEvidencePlan Plan, IReadOnlyList<string> Subcases);
     internal sealed record AcceptanceContract(string ScenarioId, string Setup, string Action, string ExpectedResult,

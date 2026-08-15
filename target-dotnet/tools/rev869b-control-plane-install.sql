@@ -226,16 +226,25 @@ CREATE FUNCTION nexa.rev869b_read_lease(lease_id uuid) RETURNS SETOF nexa.rev869
 CREATE FUNCTION nexa.rev869b_read_nonterminal_leases(cluster_id text) RETURNS SETOF nexa.rev869b_database_leases LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$ SELECT * FROM nexa.rev869b_database_leases WHERE ClusterSystemIdentifier=$1 AND State<>'Finalized' AND session_user IN ('nexa_rev869b_lifecycle_api','nexa_rev869b_lifecycle_audit','nexa_rev869b_recovery_executor','nexa_rev869b_control_plane_verifier') $$;
 CREATE FUNCTION nexa.rev869b_read_lifecycle_evidence(lease_id uuid,attempt_id uuid,request_id uuid,decision_id uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  SELECT jsonb_build_object(
-  'lease',to_jsonb(l),
-  'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.Version,e.EventId) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=l.LeaseId),'[]'::jsonb),
-  'requestEvent',(SELECT to_jsonb(e) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=l.LeaseId AND e.RequestId=$3),
-  'attempt',(SELECT to_jsonb(a) FROM nexa.rev869b_lifecycle_attempts a WHERE a.LeaseId=l.LeaseId AND a.AttemptId=$2),
-  'outcome',(SELECT to_jsonb(o) FROM nexa.rev869b_lifecycle_outcomes o JOIN nexa.rev869b_lifecycle_attempts a ON a.AttemptId=o.AttemptId WHERE a.LeaseId=l.LeaseId AND o.AttemptId=$2),
-  'decision',(SELECT to_jsonb(d) FROM nexa.rev869b_recovery_decisions d WHERE d.LeaseId=l.LeaseId AND d.DecisionId=$4),
-  'quarantine',(SELECT to_jsonb(q) FROM nexa.rev869b_quarantine_outcomes q WHERE q.LeaseId=l.LeaseId AND q.AttemptId=$2),
-  'targetIdentitySha256',encode(digest(l.TargetDatabase::text||':'||l.ClusterSystemIdentifier||':'||l.TargetManifestSha256||':'||coalesce(l.TargetMarkerSha256,''),'sha256'),'hex'))
- FROM nexa.rev869b_database_leases l
- WHERE l.LeaseId=$1 AND $1<>'00000000-0000-0000-0000-000000000000'::uuid AND session_user='nexa_rev869b_control_plane_verifier' $$;
+  'lease',(SELECT to_jsonb(l) FROM nexa.rev869b_database_leases l WHERE l.LeaseId=$1),
+  'leaseCount',(SELECT count(*) FROM nexa.rev869b_database_leases l WHERE l.LeaseId=$1),
+  'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.Version,e.EventId) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=$1),'[]'::jsonb),
+  'eventCount',(SELECT count(*) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=$1),
+  'requestEvent',(SELECT to_jsonb(e) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=$1 AND e.RequestId=$3),
+  'requestEventCount',(SELECT count(*) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=$1 AND e.RequestId=$3),
+  'attempt',(SELECT to_jsonb(a) FROM nexa.rev869b_lifecycle_attempts a WHERE a.LeaseId=$1 AND a.AttemptId=$2),
+  'attemptCount',(SELECT count(*) FROM nexa.rev869b_lifecycle_attempts a WHERE a.LeaseId=$1 AND a.AttemptId=$2),
+  'activeAttemptCount',(SELECT count(*) FROM nexa.rev869b_lifecycle_attempts a WHERE a.LeaseId=$1 AND a.TerminalState IS NULL),
+  'outcome',(SELECT to_jsonb(o) FROM nexa.rev869b_lifecycle_outcomes o JOIN nexa.rev869b_lifecycle_attempts a ON a.AttemptId=o.AttemptId WHERE a.LeaseId=$1 AND o.AttemptId=$2),
+  'outcomeCount',(SELECT count(*) FROM nexa.rev869b_lifecycle_outcomes o JOIN nexa.rev869b_lifecycle_attempts a ON a.AttemptId=o.AttemptId WHERE a.LeaseId=$1 AND o.AttemptId=$2),
+  'decision',(SELECT to_jsonb(d) FROM nexa.rev869b_recovery_decisions d WHERE d.LeaseId=$1 AND d.DecisionId=$4),
+  'decisionCount',(SELECT count(*) FROM nexa.rev869b_recovery_decisions d WHERE d.LeaseId=$1 AND d.DecisionId=$4),
+  'quarantine',(SELECT to_jsonb(q) FROM nexa.rev869b_quarantine_outcomes q WHERE q.LeaseId=$1 AND q.AttemptId=$2),
+  'quarantineCount',(SELECT count(*) FROM nexa.rev869b_quarantine_outcomes q WHERE q.LeaseId=$1 AND q.AttemptId=$2),
+  'sameTargetOtherLeaseCount',(SELECT count(*) FROM nexa.rev869b_database_leases other JOIN nexa.rev869b_database_leases selected ON selected.LeaseId=$1 WHERE other.LeaseId<>$1 AND other.TargetDatabase=selected.TargetDatabase),
+  'targetIdentitySha256',(SELECT encode(digest(l.TargetDatabase::text||':'||l.ClusterSystemIdentifier||':'||l.TargetManifestSha256||':'||coalesce(l.TargetMarkerSha256,''),'sha256'),'hex') FROM nexa.rev869b_database_leases l WHERE l.LeaseId=$1),
+  'canonicalSha256',encode(digest(coalesce((SELECT string_agg(e.EventId::text||':'||e.RequestId::text||':'||coalesce(e.AttemptId::text,'')||':'||coalesce(e.FromState,'')||':'||e.ToState||':'||e.Version::text||':'||e.EvidenceSha256,',' ORDER BY e.Version,e.EventId) FROM nexa.rev869b_database_lease_events e WHERE e.LeaseId=$1),''),'sha256'),'hex'))
+ WHERE $1<>'00000000-0000-0000-0000-000000000000'::uuid AND $2<>'00000000-0000-0000-0000-000000000000'::uuid AND $3<>'00000000-0000-0000-0000-000000000000'::uuid AND session_user='nexa_rev869b_control_plane_verifier' $$;
 CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence() RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  WITH facts(fact) AS (
   SELECT 'database|'||current_database()||'|'||pg_get_userbyid(d.datdba)||'|'||coalesce(d.datacl::text,'') FROM pg_database d WHERE d.datname=current_database()
@@ -244,7 +253,7 @@ CREATE FUNCTION nexa.rev869b_read_control_plane_acl_evidence() RETURNS jsonb LAN
   UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='nexa'
   UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='nexa'::regnamespace
   UNION ALL SELECT 'role|'||r.rolname||'|'||r.rolcanlogin||'|'||r.rolinherit||'|'||r.rolsuper||'|'||r.rolcreatedb||'|'||r.rolcreaterole||'|'||r.rolreplication||'|'||r.rolbypassrls FROM pg_roles r WHERE r.rolname LIKE 'nexa_rev869b_%')
- SELECT jsonb_build_object('facts',jsonb_agg(fact ORDER BY fact),'count',count(*),'sha256',encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex')) FROM facts WHERE session_user='nexa_rev869b_control_plane_verifier' $$;
+ SELECT jsonb_build_object('facts',jsonb_agg(fact ORDER BY fact),'count',count(*),'sha256',encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex'),'ownerFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'database|%' OR fact LIKE 'schema|%' OR fact LIKE 'relation|%' OR fact LIKE 'function|%'),'defaultPrivilegeFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'defaultacl|%'),'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%')) FROM facts WHERE session_user='nexa_rev869b_control_plane_verifier' $$;
 CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,nexa AS $$
  WITH facts(fact) AS (
   SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='nexa'

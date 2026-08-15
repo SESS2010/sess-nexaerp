@@ -44,7 +44,16 @@ public sealed class Rev869BCorrection17PostgresScenarios
         foreach (var canonical in Rev869BAcceptanceScenarioInventory.All)
         {
             Rev869BLifecycleControllerClient.ValidateContract(canonical);
-            Assert.Equal(canonical.Plan.Assertions.Count + 11, canonical.Plan.Mutations.Count);
+            Assert.Equal(canonical.Plan.Assertions.Count + 14, canonical.Plan.Mutations.Count);
+            var pristine = Rev869BLifecycleControllerClient.BuildSyntheticEvidence(canonical);
+            Assert.All(canonical.Plan.Assertions, assertion =>
+                Assert.True(Rev869BLifecycleControllerClient.Evaluate(assertion, pristine), assertion.AssertionId));
+
+            foreach (var assertion in canonical.Plan.Assertions)
+            {
+                var tampered = Rev869BLifecycleControllerClient.TamperEvidence(pristine, assertion);
+                Assert.False(Rev869BLifecycleControllerClient.Evaluate(assertion, tampered), assertion.AssertionId);
+            }
             foreach (var mutation in canonical.Plan.Mutations)
             {
                 var changed = Rev869BLifecycleControllerClient.ApplyMutation(canonical, mutation);
