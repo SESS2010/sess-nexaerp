@@ -16,6 +16,10 @@ public sealed class ControlPlaneOptions
     public string ContractVersion { get; init; } = string.Empty;
     public string EvidenceVersion { get; init; } = string.Empty;
     public string CanonicalizationVersion { get; init; } = string.Empty;
+    public string OwnershipContractVersion { get; init; } = string.Empty;
+    public string ReadinessPolicyVersion { get; init; } = string.Empty;
+    public string DurableProviderContractVersion { get; init; } = string.Empty;
+    public string CanonicalEnvelopeVersion { get; init; } = string.Empty;
     public string RetentionPolicyReference { get; init; } = string.Empty;
     public int MaximumEvidenceObservations { get; init; }
     public int MaximumFactsPerObservation { get; init; }
@@ -46,15 +50,19 @@ public sealed class ControlPlaneOptions
             string.IsNullOrWhiteSpace(value.EvidenceVerificationKeyId) ||
             value.CommandSigningKeyId == value.EvidenceVerificationKeyId ||
             string.IsNullOrWhiteSpace(value.RetentionPolicyReference) ||
-            value.MaximumEvidenceObservations is < 3 or > 10_000 ||
-            value.MaximumFactsPerObservation is < 1 or > 1_000 ||
+            value.OwnershipContractVersion != Rev869BPhaseACompatibilityManifest.OwnershipContractVersion ||
+            value.ReadinessPolicyVersion != Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion ||
+            value.DurableProviderContractVersion != Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion ||
+            value.CanonicalEnvelopeVersion != Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion ||
+            value.MaximumEvidenceObservations is < 3 or > PhaseAContractLimits.MaximumObservations ||
+            value.MaximumFactsPerObservation is < 1 or > PhaseAContractLimits.MaximumFactsPerObservation ||
             value.MaximumReplayWindowSeconds is < 1 or > 86_400 ||
             value.MaximumLeaseSeconds is < 1 or > 86_400 ||
             value.MaximumClockSkewSeconds is < 0 or > 300 ||
-            value.MaximumEnvelopeBytes is < 1_024 or > 16_777_216 ||
-            value.MaximumSelectors is < 1 or > 1_000 ||
-            value.MaximumStringBytes is < 1 or > 65_536 ||
-            value.MaximumCumulativeFacts is < 3 or > 100_000 ||
+            value.MaximumEnvelopeBytes is < 1_024 or > PhaseAContractLimits.MaximumCommandEnvelopeBytes ||
+            value.MaximumSelectors is < 1 or > PhaseAContractLimits.MaximumSelectors ||
+            value.MaximumStringBytes is < 1 or > PhaseAContractLimits.MaximumStringBytes ||
+            value.MaximumCumulativeFacts is < 3 or > PhaseAContractLimits.MaximumCumulativeFactBytes ||
             value.AllowedTargetEnvironments.Length == 0 ||
             value.AllowedDatabaseIdentityPatterns.Length == 0 ||
             value.AllowedIssuerIds.Length == 0 ||

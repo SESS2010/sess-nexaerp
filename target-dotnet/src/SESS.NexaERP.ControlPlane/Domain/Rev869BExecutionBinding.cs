@@ -102,7 +102,10 @@ public sealed record LifecycleResourceStateV2(
     string? ActiveAuthorizationOperation = null,
     string? ActiveAuthorizerRole = null,
     DateTimeOffset? AuthorizationExpiresAt = null,
-    ExportLifecycleStateV2 ExportState = ExportLifecycleStateV2.NONE);
+    ExportLifecycleStateV2 ExportState = ExportLifecycleStateV2.NONE,
+    AuthorizationBindingV3? ActiveAuthorizationBinding = null,
+    string? EvidenceManifestSha256 = null,
+    long ControllerEpoch = 0);
 
 public interface ILeaseFenceStore
 {
@@ -185,6 +188,41 @@ public static class IdempotencyDecisionV2
                 "The authoritative idempotency outcome is non-retryable.");
         }
 
+        if (storedOutcome.ReservationState is IdempotencyReservationStateV2.RESERVED or
+            IdempotencyReservationStateV2.IN_PROGRESS)
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.IDEMPOTENCY_IN_PROGRESS,
+                "The authoritative idempotency request already has a live owner.");
+        }
+
         return storedOutcome;
+    }
+}
+
+public static class PhaseAOwnershipValidator
+{
+    public static void RequireComplete()
+    {
+        var responsibilities = Enum.GetValues<ProductionResponsibilityV3>();
+        if (PhaseAOwnershipCatalog.All.Count != responsibilities.Length ||
+            responsibilities.Any(responsibility =>
+                !PhaseAOwnershipCatalog.All.TryGetValue(responsibility, out var owner) ||
+                !owner.IsInterface))
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.DEPENDENCY_POLICY_MISMATCH,
+                "Every production responsibility must have exactly one owner interface.");
+        }
+
+        if (typeof(IControlPlaneAuthority).IsAssignableFrom(typeof(INexaErpBusinessRuntime)) ||
+            typeof(IAcceptanceVerifierAuthority).IsAssignableFrom(typeof(INexaErpBusinessRuntime)) ||
+            typeof(IPurgeAuthorizer).IsAssignableFrom(typeof(IPurgeExecutor)) ||
+            typeof(IExportAuthorizer).IsAssignableFrom(typeof(IExportDeliveryExecutor)))
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.DEPENDENCY_IDENTITY_MISMATCH,
+                "Production authority interfaces must remain separated.");
+        }
     }
 }

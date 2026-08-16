@@ -36,6 +36,27 @@ public static class Rev869BCompatibilityManifestV2
         algorithm == SignatureAlgorithm;
 }
 
+public static class Rev869BPhaseACompatibilityManifest
+{
+    public const string ContractVersion = "rev869b-phase-a-v1";
+    public const string CanonicalEnvelopeVersion = "rev869b-command-envelope-v3";
+    public const string EvidenceSchemaVersion = "rev869b-authoritative-evidence-v3";
+    public const string ReadinessPolicyVersion = "REV869B-READINESS-v1";
+    public const string DurableProviderContractVersion = "rev869b-control-transaction-v1";
+    public const string OwnershipContractVersion = "rev869b-production-ownership-v1";
+    public const string SignatureAlgorithm = "ECDSA-P256-SHA256";
+
+    public static bool IsCompatible(
+        string contractVersion,
+        string canonicalEnvelopeVersion,
+        string evidenceSchemaVersion,
+        string readinessPolicyVersion) =>
+        contractVersion == ContractVersion &&
+        canonicalEnvelopeVersion == CanonicalEnvelopeVersion &&
+        evidenceSchemaVersion == EvidenceSchemaVersion &&
+        readinessPolicyVersion == ReadinessPolicyVersion;
+}
+
 public enum SigningKeyState
 {
     Active,

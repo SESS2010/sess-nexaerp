@@ -109,7 +109,7 @@ public static class StrictEvidenceJsonV2
             RejectProhibitedFields(document.RootElement);
             return JsonSerializer.Deserialize<CanonicalEvidenceEnvelopeV2>(json, Options)
                 ?? throw new TrustFailureExceptionV2(
-                    TrustFailureCodeV2.READER_UNAUTHORIZED,
+                    TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD,
                     "Evidence JSON did not contain an envelope.");
         }
         catch (TrustFailureExceptionV2)
@@ -119,7 +119,7 @@ public static class StrictEvidenceJsonV2
         catch (JsonException)
         {
             throw new TrustFailureExceptionV2(
-                TrustFailureCodeV2.READER_UNAUTHORIZED,
+                TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD,
                 "Evidence JSON is malformed or contains unmapped fields.");
         }
     }
@@ -133,7 +133,7 @@ public static class StrictEvidenceJsonV2
                 if (ProhibitedSemanticFields.Contains(property.Name))
                 {
                     throw new TrustFailureExceptionV2(
-                        TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD,
+                        TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD,
                         "Caller-supplied verdict, expectation, or formula fields are forbidden.");
                 }
                 RejectProhibitedFields(property.Value);
@@ -303,15 +303,19 @@ public sealed class ClosedEvidenceVerifierV2(
                 evidence.OracleArtifactSha256 == manifest.ArtifactSha256,
             TrustFailureCodeV2.ORACLE_MISMATCH);
 
-        var receiptKeys = evidence.ReaderReceipts
+        var receiptKeySequence = evidence.ReaderReceipts
             .Select(static receipt => $"{receipt.ReaderId}@{receipt.ReaderVersion}")
-            .ToHashSet(StringComparer.Ordinal);
+            .ToArray();
+        Require(receiptKeySequence.Distinct(StringComparer.Ordinal).Count() == receiptKeySequence.Length,
+            TrustFailureCodeV2.READER_DUPLICATE);
+        var receiptKeys = receiptKeySequence.ToHashSet(StringComparer.Ordinal);
         var requiredKeys = manifest.AllowedReaderVersions
             .Select(static pair => $"{pair.Key}@{pair.Value}")
             .ToHashSet(StringComparer.Ordinal);
         Require(requiredKeys.SetEquals(receiptKeys), TrustFailureCodeV2.READER_MISSING);
 
         var authoritativeReceipts = new List<EvidenceReaderReceiptV2>();
+        var authoritativeObservations = new List<FactOnlyObservationV1>();
         foreach (var receipt in evidence.ReaderReceipts)
         {
             var descriptor = readerRegistry.Resolve(receipt.ReaderId, receipt.ReaderVersion);
@@ -324,20 +328,32 @@ public sealed class ClosedEvidenceVerifierV2(
             Require(facts.Receipt.ReaderId == receipt.ReaderId &&
                     facts.Receipt.ReaderVersion == receipt.ReaderVersion &&
                     facts.Receipt.ResponseDigest == receipt.ResponseDigest,
-                TrustFailureCodeV2.READER_UNAUTHORIZED);
+                TrustFailureCodeV2.EVIDENCE_TAMPERED);
+            Require(facts.Observations is { Count: > 0 }, TrustFailureCodeV2.READER_MISSING);
             authoritativeReceipts.Add(facts.Receipt);
+            authoritativeObservations.AddRange(facts.Observations!);
         }
 
-        ValidateEvidenceDimensions(evidence);
-        ValidateObservationTimes(evidence);
         var unsigned = evidence with { PayloadSha256 = string.Empty };
         var actualHash = Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(unsigned))).ToLowerInvariant();
         Require(string.Equals(evidence.PayloadSha256, actualHash, StringComparison.Ordinal),
             TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH);
 
+        var authoritativeEvidence = evidence with
+        {
+            RawFacts = authoritativeObservations,
+            ReaderReceipts = authoritativeReceipts,
+            PayloadSha256 = string.Empty
+        };
+        ValidateEvidenceDimensions(authoritativeEvidence);
+        ValidateObservationTimes(authoritativeEvidence);
+        var authoritativeHash = Convert.ToHexString(
+            SHA256.HashData(CanonicalJsonV1.Serialize(authoritativeEvidence))).ToLowerInvariant();
+        authoritativeEvidence = authoritativeEvidence with { PayloadSha256 = authoritativeHash };
+
         Require(oracle.OracleId == manifest.OracleId && oracle.Version == manifest.SemanticVersion,
             TrustFailureCodeV2.ORACLE_MISMATCH);
-        var calculated = oracle.Evaluate(evidence, manifest);
+        var calculated = oracle.Evaluate(authoritativeEvidence, manifest);
         var now = timeProvider.GetUtcNow();
         var auditEvent = new VerificationAuditEventV2(
             Guid.NewGuid().ToString("N"),
@@ -346,7 +362,7 @@ public sealed class ClosedEvidenceVerifierV2(
             request.Context.KeyId,
             evidence.RequestId,
             evidence.EvidenceEnvelopeId,
-            evidence.PayloadSha256,
+            authoritativeHash,
             evidence.Binding,
             evidence.Lease,
             manifest.OracleId,
@@ -371,6 +387,9 @@ public sealed class ClosedEvidenceVerifierV2(
         Require(evidence.RawFacts.Count is >= 3 &&
                 evidence.RawFacts.Count <= options.MaximumObservations,
             TrustFailureCodeV2.EVIDENCE_TOO_LARGE);
+        Require(evidence.RawFacts.Select(static item => item.ObservationId)
+                .Distinct(StringComparer.Ordinal).Count() == evidence.RawFacts.Count,
+            TrustFailureCodeV2.READER_DUPLICATE);
         Require(evidence.RawFacts.All(observation =>
                 observation.Facts.Count <= options.MaximumFactsPerObservation),
             TrustFailureCodeV2.EVIDENCE_TOO_LARGE);

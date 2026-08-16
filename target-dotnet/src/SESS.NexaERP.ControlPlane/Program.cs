@@ -1,4 +1,5 @@
 using SESS.NexaERP.ControlPlane.Configuration;
+using SESS.NexaERP.ControlPlane.Contracts;
 using SESS.NexaERP.ControlPlane.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,7 +9,11 @@ builder.Services
     .Validate(ControlPlaneOptions.IsValid, "Control-plane configuration is incomplete or violates the frozen trust boundary.")
     .ValidateOnStart();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IControllerReadinessProbeV2, ExternalPrerequisiteReadinessProbeV2>();
+builder.Services.AddSingleton<IReadinessAuthorityV3>(services =>
+    new PhaseAReadinessAuthority(
+        Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+        [],
+        services.GetRequiredService<TimeProvider>()));
 
 var app = builder.Build();
 app.MapControllerContractEndpointsV1();
