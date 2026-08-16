@@ -50,7 +50,29 @@ public sealed class PhaseAReadinessAuthority(
                 continue;
             }
 
-            var result = await matches[0].CheckAsync(cancellationToken);
+            DependencyReadinessV3 result;
+            try
+            {
+                result = await matches[0].CheckAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                result = DependencyReadinessV3.Unavailable(
+                    dependency,
+                    policyVersion,
+                    "DEPENDENCY_TIMEOUT",
+                    timeProvider.GetUtcNow());
+            }
+            catch (Exception)
+            {
+                result = DependencyReadinessV3.Unavailable(
+                    dependency,
+                    policyVersion,
+                    "DEPENDENCY_UNAVAILABLE",
+                    timeProvider.GetUtcNow());
+            }
+
+            var checkedAt = timeProvider.GetUtcNow();
             results.Add(result.Dependency != dependency
                 ? new(
                     dependency,
@@ -58,6 +80,12 @@ public sealed class PhaseAReadinessAuthority(
                     policyVersion,
                     result.ObservedVersion,
                     "DEPENDENCY_IDENTITY_MISMATCH")
+                : result.ValidUntil is not null && result.ValidUntil < checkedAt
+                    ? DependencyReadinessV3.Unavailable(
+                        dependency,
+                        policyVersion,
+                        "DEPENDENCY_STALE",
+                        checkedAt)
                 : string.IsNullOrWhiteSpace(result.RequiredVersion) ||
                   result.State == ReadinessDependencyStateV3.READY &&
                   !string.Equals(result.RequiredVersion, result.ObservedVersion, StringComparison.Ordinal)
@@ -795,6 +823,47 @@ public enum AuthorizationGrantStateV3
     EXPIRED
 }
 
+public enum ExportAuthorizationSubstateV3
+{
+    NONE,
+    AUTHORIZED,
+    DELIVERING,
+    DELIVERED,
+    FAILED,
+    EXPIRED
+}
+
+public enum LifecycleAuditEventV3
+{
+    PREPARE_AUTHORIZED,
+    PREPARE_STARTED,
+    PREPARE_COMPLETED,
+    PREPARE_FAILED,
+    EXECUTE_AUTHORIZED,
+    EXECUTE_STARTED,
+    EXECUTE_COMPLETED,
+    EXECUTE_FAILED,
+    VERIFICATION_ACCEPTED,
+    VERIFICATION_REJECTED,
+    RESOURCE_QUARANTINED,
+    RECOVERY_AUTHORIZED,
+    RECOVERY_STARTED,
+    RECOVERY_COMPLETED,
+    RECOVERY_FAILED,
+    DROP_AUTHORIZED,
+    DROP_COMPLETED,
+    DROP_INTERRUPTED,
+    PURGE_AUTHORIZED,
+    PURGE_STARTED,
+    PURGE_COMPLETED,
+    PURGE_FAILED,
+    EXPORT_AUTHORIZED,
+    EXPORT_STARTED,
+    EXPORT_DELIVERED,
+    AUTHORIZATION_CANCELLED,
+    AUTHORIZATION_EXPIRED
+}
+
 public enum AuditEventKindV3
 {
     REQUEST_RECEIVED,
@@ -950,7 +1019,8 @@ public sealed record LeaseFenceExpectationV3(
     long ControllerEpoch,
     long FencingToken,
     DateTimeOffset ExpiresAt,
-    string HolderSubject);
+    string HolderSubject,
+    string ResourceId = "");
 
 public sealed record EvidenceRequirementV3(
     string RequirementId,
@@ -985,7 +1055,10 @@ public sealed record VerifiedLifecycleCommandV3(
     IdempotencyIdentityV3 Idempotency,
     NonceRegistrationV3 Nonce,
     string AuditCorrelationId,
-    string CanonicalEnvelopeSha256);
+    string CanonicalEnvelopeSha256,
+    AuthorizationGrantStateV3 CurrentAuthorizationState = AuthorizationGrantStateV3.ACTIVE,
+    ExportAuthorizationSubstateV3 CurrentExportState = ExportAuthorizationSubstateV3.NONE,
+    string AttemptId = "");
 
 public sealed record LifecycleRuleV3(
     string RuleId,
@@ -997,7 +1070,14 @@ public sealed record LifecycleRuleV3(
     bool RequiresLease,
     IReadOnlyList<string> RequiredEvidenceIds,
     int MaximumSameAttemptRetries,
-    AuditEventKindV3 AuditKind);
+    AuditEventKindV3 AuditKind,
+    LifecycleAuditEventV3 LifecycleAuditEvent = LifecycleAuditEventV3.PREPARE_AUTHORIZED,
+    AuthorizationGrantStateV3 RequiredAuthorizationState = AuthorizationGrantStateV3.ACTIVE,
+    AuthorizationGrantStateV3 NextAuthorizationState = AuthorizationGrantStateV3.ACTIVE,
+    ExportAuthorizationSubstateV3 RequiredExportState = ExportAuthorizationSubstateV3.NONE,
+    ExportAuthorizationSubstateV3 NextExportState = ExportAuthorizationSubstateV3.NONE,
+    bool AppliesToAnyNonterminalState = false,
+    bool AppliesToAnyActiveAuthorization = false);
 
 public sealed record LifecycleTransitionResultV3(
     ControlTransactionOutcomeV3 TransactionOutcome,
@@ -1006,7 +1086,10 @@ public sealed record LifecycleTransitionResultV3(
     int AttemptNumber,
     string ResponseSha256,
     string AuditReference,
-    TrustFailureCodeV2 FailureCode);
+    TrustFailureCodeV2 FailureCode,
+    AuthorizationGrantStateV3 AuthorizationState = AuthorizationGrantStateV3.ACTIVE,
+    ExportAuthorizationSubstateV3 ExportState = ExportAuthorizationSubstateV3.NONE,
+    LifecycleAuditEventV3? LifecycleAuditEvent = null);
 
 public sealed record NonceRegistrationV3(
     string IssuerId,
@@ -1048,7 +1131,8 @@ public sealed record AuthoritativeReaderDescriptorV3(
     IReadOnlySet<string> AllowedResourceTypes,
     IReadOnlySet<string> AllowedFields,
     int MaximumFacts,
-    int MaximumBytes);
+    int MaximumBytes,
+    EvidenceStageV3 RequiredStage = EvidenceStageV3.DURABLE);
 
 public sealed record RawEvidenceFactV3(
     string FieldId,
@@ -1091,12 +1175,33 @@ public sealed record CanonicalEvidenceEnvelopeV3(
     IReadOnlyList<AuthoritativeFactBundleV3> AuthoritativeBundles,
     string CanonicalEnvelopeSha256);
 
+public static class PhaseAEvidenceCanonicalizer
+{
+    public static byte[] FactPayload(AuthoritativeFactBundleV3 bundle) =>
+        CanonicalJsonV1.Serialize(new
+        {
+            bundle.Binding,
+            bundle.Facts
+        });
+
+    public static string FactPayloadSha256(AuthoritativeFactBundleV3 bundle) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(FactPayload(bundle))).ToLowerInvariant();
+
+    public static string EnvelopeSha256(CanonicalEvidenceEnvelopeV3 envelope) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            CanonicalJsonV1.Serialize(envelope with { CanonicalEnvelopeSha256 = string.Empty }))).ToLowerInvariant();
+}
+
 public sealed record CalculatedVerificationV3(
     VerificationDisposition Disposition,
     IReadOnlyList<TrustFailureCodeV2> ReasonCodes,
     string AuthoritativeInputSha256,
     string OracleArtifactSha256,
     DateTimeOffset CalculatedAt);
+
+public sealed record OracleEvaluationResultV3(
+    VerificationDisposition Disposition,
+    IReadOnlyList<TrustFailureCodeV2> ReasonCodes);
 
 public sealed record SignedVerdictV3(
     string VerdictId,
@@ -1127,14 +1232,47 @@ public sealed record ImmutableAuditEventV3(
     string PolicyVersion,
     string OutcomeCode,
     string PriorEventSha256,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt,
+    ControllerLifecycleState? PriorState = null,
+    long? PriorVersion = null,
+    ControllerLifecycleState? NextState = null,
+    long? NextVersion = null,
+    string AttemptId = "",
+    string AuthorizationGrantSha256 = "",
+    string LeaseId = "",
+    long ControllerEpoch = 0,
+    long FencingToken = 0,
+    string SourceTransactionId = "",
+    string SigningKeyId = "",
+    string SigningKeyVersion = "");
 
 public sealed record DependencyReadinessV3(
     PhaseADependencyV3 Dependency,
     ReadinessDependencyStateV3 State,
     string RequiredVersion,
     string? ObservedVersion,
-    string DiagnosticCode);
+    string DiagnosticCode,
+    DateTimeOffset? CheckedAt = null,
+    DateTimeOffset? ValidUntil = null,
+    string RequiredIdentity = "",
+    string ObservedIdentity = "")
+{
+    public static DependencyReadinessV3 Unavailable(
+        PhaseADependencyV3 dependency,
+        string requiredVersion,
+        string diagnosticCode,
+        DateTimeOffset checkedAt) =>
+        new(
+            dependency,
+            ReadinessDependencyStateV3.UNAVAILABLE,
+            requiredVersion,
+            null,
+            diagnosticCode,
+            checkedAt,
+            checkedAt,
+            string.Empty,
+            string.Empty);
+}
 
 public sealed record ReadinessSnapshotV3(
     string PolicyVersion,
@@ -1188,7 +1326,10 @@ public interface IControlPlaneAuthority
 
 public interface IAcceptanceVerifierAuthority
 {
-    ValueTask<SignedVerdictV3> VerifyAsync(CanonicalEvidenceEnvelopeV3 evidence, CancellationToken cancellationToken = default);
+    ValueTask<SignedVerdictV3> VerifyRawAsync(
+        ReadOnlyMemory<byte> canonicalEvidence,
+        AuthenticatedWorkloadIdentityV3 transportIdentity,
+        CancellationToken cancellationToken = default);
 }
 
 public interface ITrustedIssuerKeyRegistryProvider
@@ -1262,6 +1403,10 @@ public interface IIdempotencyAuthority
 
 public interface ILeaseFenceAuthority
 {
+    ValueTask<LeaseFenceExpectationV3?> ReadCurrentAsync(
+        string resourceId,
+        CancellationToken cancellationToken = default);
+
     ValueTask<LeaseFenceExpectationV3> AcquireAsync(
         string resourceId,
         string holderSubject,
@@ -1315,6 +1460,10 @@ public interface ILifecycleControllerAuthority
 public interface IOracleRegistryProvider
 {
     ValueTask<OracleDescriptorV3?> ResolveAsync(string oracleId, CancellationToken cancellationToken = default);
+    ValueTask<OracleEvaluationResultV3> EvaluateAsync(
+        OracleDescriptorV3 oracle,
+        IReadOnlyList<AuthoritativeFactBundleV3> authoritativeFacts,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IAuthoritativeEvidenceReaderProvider
@@ -1331,6 +1480,9 @@ public interface IAuthoritativeEvidenceReaderProvider
 
 public interface IImmutableAuditEvidenceProvider
 {
+    ValueTask<string> ReadCurrentChainHeadSha256Async(
+        CancellationToken cancellationToken = default);
+
     ValueTask<DurableAuditAppendReceiptV2> AppendAuditAsync(
         ImmutableAuditEventV3 auditEvent,
         CancellationToken cancellationToken = default);
@@ -1521,6 +1673,46 @@ public static class PhaseAContractValidator
                 descriptor.RequiredDependencyVersions.All(static pair =>
                     IsBounded(pair.Value, PhaseAContractLimits.MaximumIdentifierBytes)),
             TrustFailureCodeV2.DEPENDENCY_VERSION_MISMATCH);
+    }
+
+    public static void RequireValid(
+        OpaquePageTokenBindingV3 actual,
+        OpaquePageTokenBindingV3 expected,
+        DateTimeOffset serverNow)
+    {
+        Require(actual == expected &&
+                actual.ExpiresAt >= serverNow &&
+                actual.PageSize is > 0 and <= PhaseAContractLimits.MaximumPageSize &&
+                IsLowerSha256(actual.PriorPageSha256) &&
+                !string.IsNullOrWhiteSpace(actual.SnapshotOrWatermark),
+            TrustFailureCodeV2.PAGINATION_TOKEN_INVALID);
+    }
+
+    public static void RequireValid(ImmutableAuditEventV3 auditEvent)
+    {
+        RequireIdentifier(auditEvent.EventId);
+        RequireIdentifier(auditEvent.CorrelationId);
+        RequireIdentifier(auditEvent.ActorIdentity);
+        RequireIdentifier(auditEvent.OrganizationId);
+        RequireIdentifier(auditEvent.DatabaseInstanceId);
+        RequireIdentifier(auditEvent.ResourceId);
+        RequireIdentifier(auditEvent.Operation);
+        Require(IsLowerSha256(auditEvent.RequestSha256) &&
+                IsLowerSha256(auditEvent.PriorEventSha256),
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        if (auditEvent.Kind == AuditEventKindV3.LIFECYCLE_COMMITTED)
+        {
+            Require(auditEvent.PriorState is not null &&
+                    auditEvent.NextState is not null &&
+                    auditEvent.PriorVersion is > 0 &&
+                    auditEvent.NextVersion == auditEvent.PriorVersion + 1 &&
+                    !string.IsNullOrWhiteSpace(auditEvent.AttemptId) &&
+                    IsLowerSha256(auditEvent.AuthorizationGrantSha256) &&
+                    !string.IsNullOrWhiteSpace(auditEvent.SourceTransactionId) &&
+                    !string.IsNullOrWhiteSpace(auditEvent.SigningKeyId) &&
+                    !string.IsNullOrWhiteSpace(auditEvent.SigningKeyVersion),
+                TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        }
     }
 
     public static TrustFailureCodeV2 FailureFor(ReadinessDependencyStateV3 state) => state switch

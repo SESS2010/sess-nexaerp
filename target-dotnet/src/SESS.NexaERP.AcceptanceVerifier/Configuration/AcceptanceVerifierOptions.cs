@@ -19,6 +19,7 @@ public sealed class AcceptanceVerifierOptions
     public string OracleId { get; init; } = string.Empty;
     public string OracleVersion { get; init; } = string.Empty;
     public string OracleArtifactSha256 { get; init; } = string.Empty;
+    public string[] AllowedCallerWorkloadIdentities { get; init; } = [];
     public string[] RequiredReaderIds { get; init; } = [];
     public string[] AllowedClusterIds { get; init; } = [];
     public string[] AllowedInstanceIds { get; init; } = [];
@@ -35,13 +36,14 @@ public sealed class AcceptanceVerifierOptions
 
     public static bool IsValid(AcceptanceVerifierOptions value) =>
         NonEmpty(value.ServiceIdentity, value.IssuerId, value.Audience, value.KeyId, value.OracleId, value.OracleVersion) &&
-        value.ContractVersion == Rev869BCompatibilityManifestV2.ContractVersion &&
-        value.EvidenceVersion == Rev869BCompatibilityManifestV2.EvidenceVersion &&
-        value.CanonicalizationVersion == Rev869BCompatibilityManifestV2.CanonicalizationVersion &&
+        value.ContractVersion == Rev869BPhaseACompatibilityManifest.ContractVersion &&
+        value.EvidenceVersion == Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion &&
+        value.CanonicalizationVersion == Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion &&
         value.OwnershipContractVersion == Rev869BPhaseACompatibilityManifest.OwnershipContractVersion &&
         value.ReadinessPolicyVersion == Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion &&
         value.EvidenceSchemaVersion == Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion &&
         IsLowerSha256(value.OracleArtifactSha256) &&
+        UniqueNonEmpty(value.AllowedCallerWorkloadIdentities) &&
         UniqueNonEmpty(value.RequiredReaderIds) &&
         UniqueNonEmpty(value.AllowedClusterIds) &&
         UniqueNonEmpty(value.AllowedInstanceIds) &&
@@ -55,7 +57,7 @@ public sealed class AcceptanceVerifierOptions
         value.MaximumStringBytes is >= 1 and <= PhaseAContractLimits.MaximumStringBytes &&
         value.MaximumCumulativeFactBytes is >= 1 and <= PhaseAContractLimits.MaximumCumulativeFactBytes &&
         value.MaximumClockSkewSeconds is >= 0 and <= 300 &&
-        value.MaximumObservationWindowSeconds is >= 1 and <= 86_400;
+        value.MaximumObservationWindowSeconds is >= 1 and <= 600;
 
     private static bool NonEmpty(params string[] values) =>
         values.All(static value => !string.IsNullOrWhiteSpace(value));

@@ -1,9 +1,9 @@
+using System.Reflection;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text;
+using System.Text.Json;
 using SESS.NexaERP.AcceptanceVerifier.Configuration;
 using SESS.NexaERP.AcceptanceVerifier.Verification;
-using SESS.NexaERP.ControlPlane.Configuration;
 using SESS.NexaERP.ControlPlane.Contracts;
 using SESS.NexaERP.ControlPlane.Domain;
 using SESS.NexaERP.ControlPlane.Security;
@@ -13,1606 +13,1376 @@ namespace SESS.NexaERP.ControlPlane.Tests;
 
 public sealed class ArchitectureFreezeContractTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Now =
+        new(2026, 8, 16, 12, 0, 0, TimeSpan.Zero);
+    private static readonly string Hash = new('a', 64);
+
+    private static readonly string[] FrozenConcepts =
+    [
+        "prepare-authorize", "prepare-start", "prepare-complete", "prepare-fail",
+        "execute-authorize", "execute-start", "execute-complete", "execute-fail",
+        "verify-accept", "verify-reject", "quarantine",
+        "recover-authorize", "recover-start", "recover-complete", "recover-fail",
+        "drop-authorize", "drop", "purge-authorize", "purge-start", "purge-complete",
+        "purge-fail", "export-authorize", "export-start", "export-complete",
+        "authorization-cancel", "authorization-expire"
+    ];
 
     [Fact]
-    public void Compatibility_manifest_is_closed_and_versioned()
+    public void A1_PublicProtectedSurfaceHasOnlyTwoRawAuthorities()
     {
-        Assert.True(Rev869BCompatibilityManifestV1.IsCompatible(
-            "rev869b-controller-v1", "rev869b-evidence-v1", "rev869b-json-v1"));
-        Assert.False(Rev869BCompatibilityManifestV1.IsCompatible(
-            "rev869b-controller-v2", "rev869b-evidence-v1", "rev869b-json-v1"));
-        Assert.Equal("ECDSA-P256-SHA256", Rev869BCompatibilityManifestV1.SignatureAlgorithm);
-    }
+        Assert.Equal(
+            ["AcceptRawCommandAsync"],
+            typeof(IControlPlaneAuthority).GetMethods().Select(static method => method.Name));
+        Assert.Equal(
+            ["VerifyRawAsync"],
+            typeof(IAcceptanceVerifierAuthority).GetMethods().Select(static method => method.Name));
 
-    [Fact]
-    public void Canonical_json_is_deterministic_and_sorts_object_keys()
-    {
-        var first = CanonicalJsonV1.SerializeToString(new Dictionary<string, int> { ["z"] = 1, ["a"] = 2 });
-        var second = CanonicalJsonV1.SerializeToString(new Dictionary<string, int> { ["a"] = 2, ["z"] = 1 });
-        Assert.Equal(first, second);
-        Assert.Equal("{\"a\":2,\"z\":1}", first);
-    }
-
-    [Fact]
-    public void State_machine_rejects_skip_and_allows_frozen_path()
-    {
-        var machine = new Rev869BControllerStateMachine();
-        Assert.True(machine.CanTransition(ControllerLifecycleState.Registered, ControllerLifecycleState.Preflight));
-        var rejection = Assert.Throws<TrustRejectionException>(() =>
-            machine.RequireTransition(ControllerLifecycleState.Registered, ControllerLifecycleState.Accepted));
-        Assert.Equal(TrustRejectionCode.IllegalTransition, rejection.Code);
-    }
-
-    [Fact]
-    public void Binding_comparison_fails_closed_on_company_instance_lease_and_subcase()
-    {
-        var expected = Binding();
-        AssertCode(TrustRejectionCode.WrongCompany, expected with { Company = new CompanyScope("C2") });
-        AssertCode(TrustRejectionCode.WrongTargetInstance, expected with { Target = expected.Target with { Value = "erp-2" } });
-        AssertCode(TrustRejectionCode.WrongLease, expected with { LeaseVersion = 2 });
-        AssertCode(TrustRejectionCode.WrongSubcase, expected with { SubcaseId = "subcase-2" });
-
-        void AssertCode(TrustRejectionCode code, Rev869BExecutionBinding actual)
+        var controlAssembly = typeof(PhaseAControlPlaneAuthority).Assembly;
+        var verifierAssembly = typeof(PhaseAAcceptanceVerifierAuthority).Assembly;
+        foreach (var forbidden in new[]
+                 {
+                     "SignedEnvelopeService", "SignedEnvelopeVerificationService", "SignedCommandServiceV2",
+                     "ClosedEvidenceVerifierV1", "ClosedEvidenceVerifierV2", "StrictEvidenceJsonV2"
+                 })
         {
-            var rejection = Assert.Throws<TrustRejectionException>(() => Rev869BExecutionBindingValidator.RequireExact(actual, expected));
-            Assert.Equal(code, rejection.Code);
-        }
-    }
-
-    [Fact]
-    public void Command_signing_and_verification_rejects_replay_and_revocation()
-    {
-        var crypto = new FakeCrypto("command-key");
-        var clock = new FixedTimeProvider(Now);
-        var signed = new SignedEnvelopeService(crypto, clock).Sign(Command());
-        var replay = new ReplayGuard();
-        var registry = new KeyRegistry(new SigningKeyDescriptor("command-key", Rev869BCompatibilityManifestV1.SignatureAlgorithm,
-            SigningKeyState.Active, Now.AddDays(-1), Now.AddDays(1), null));
-        var verifier = new SignedEnvelopeVerificationService(crypto, registry, replay, clock);
-
-        verifier.Verify(signed, TimeSpan.FromMinutes(5));
-        var repeated = Assert.Throws<TrustRejectionException>(() => verifier.Verify(signed, TimeSpan.FromMinutes(5)));
-        Assert.Equal(TrustRejectionCode.ReplayDetected, repeated.Code);
-
-        var revokedRegistry = new KeyRegistry(registry.Key with { State = SigningKeyState.Revoked, RevokedAtUtc = Now });
-        var revoked = Assert.Throws<TrustRejectionException>(() =>
-            new SignedEnvelopeVerificationService(crypto, revokedRegistry, new ReplayGuard(), clock)
-                .Verify(signed, TimeSpan.FromMinutes(5)));
-        Assert.Equal(TrustRejectionCode.RevokedKey, revoked.Code);
-    }
-
-    [Fact]
-    public void Command_verification_fails_closed_for_version_algorithm_key_tamper_and_staleness()
-    {
-        var crypto = new FakeCrypto("command-key");
-        var signed = new SignedEnvelopeService(crypto, new FixedTimeProvider(Now)).Sign(Command());
-
-        AssertVerificationCode(signed with { ContractVersion = "unknown" }, TrustRejectionCode.UnsupportedContractVersion);
-        AssertVerificationCode(signed with { Signature = signed.Signature with { Algorithm = "unknown" } },
-            TrustRejectionCode.UnsupportedSignatureAlgorithm);
-        AssertVerificationCode(signed with { Signature = signed.Signature with { KeyId = "wrong-key" } },
-            TrustRejectionCode.UnknownKey);
-        AssertVerificationCode(signed with { Command = signed.Command with { CommandId = "tampered" } },
-            TrustRejectionCode.PayloadHashMismatch);
-        AssertVerificationCode(signed with { Signature = signed.Signature with { SignedAtUtc = Now.AddHours(-1) } },
-            TrustRejectionCode.StaleEnvelope);
-
-        void AssertVerificationCode(SignedCommandEnvelopeV1 envelope, TrustRejectionCode expected)
-        {
-            var registry = new KeyRegistry(new SigningKeyDescriptor("command-key", Rev869BCompatibilityManifestV1.SignatureAlgorithm,
-                SigningKeyState.Active, Now.AddDays(-1), Now.AddDays(1), null));
-            var verifier = new SignedEnvelopeVerificationService(crypto, registry, new ReplayGuard(), new FixedTimeProvider(Now));
-            var rejection = Assert.Throws<TrustRejectionException>(() => verifier.Verify(envelope, TimeSpan.FromMinutes(5)));
-            Assert.Equal(expected, rejection.Code);
-        }
-    }
-
-    [Fact]
-    public void Command_policy_rejects_stale_lease_and_cross_role_authorization()
-    {
-        var command = Command();
-        var stale = command with { Lease = command.Lease with { LeaseVersion = 2 } };
-        var staleRejection = Assert.Throws<TrustRejectionException>(() => ControllerAuthorizationPolicyV1.RequireAuthorized(stale));
-        Assert.Equal(TrustRejectionCode.WrongLease, staleRejection.Code);
-
-        var wrongRole = command with
-        {
-            Authorization = command.Authorization with { Roles = [ControllerRole.MonitoringReader] }
-        };
-        var roleRejection = Assert.Throws<TrustRejectionException>(() => ControllerAuthorizationPolicyV1.RequireAuthorized(wrongRole));
-        Assert.Equal(TrustRejectionCode.UnauthorizedRole, roleRejection.Code);
-    }
-
-    [Fact]
-    public void Evidence_contract_has_no_caller_supplied_verdict()
-    {
-        var json = JsonSerializer.Serialize(SignedEvidence(new FakeCrypto("evidence-key")));
-        Assert.DoesNotContain("verdict", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("disposition", json, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("passed", json, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Closed_verifier_calculates_pass_and_writes_durable_audit_reference()
-    {
-        var crypto = new FakeCrypto("evidence-key");
-        var evidence = SignedEvidence(crypto);
-        var audit = new AuditSink();
-        var verifier = new ClosedEvidenceVerifierV1(
-            crypto,
-            new OracleCatalog(new PassingOracle("oracle-1")),
-            audit,
-            new FixedTimeProvider(Now));
-
-        var result = verifier.Verify(new EvidenceVerificationRequestV1(evidence, Binding(), 10, 10));
-
-        Assert.Equal(VerificationDisposition.Passed, result.Disposition);
-        Assert.Equal("audit-1", result.VerificationAuditReference);
-        Assert.NotNull(audit.Event);
-    }
-
-    [Fact]
-    public void Closed_verifier_rejects_missing_durable_stage_before_oracle_runs()
-    {
-        var crypto = new FakeCrypto("evidence-key");
-        var original = SignedEvidence(crypto);
-        var unsigned = original with
-        {
-            Observations = original.Observations.Where(item => item.Stage != ObservationStage.Durable).ToArray(),
-            Signature = EmptySignature("evidence-key")
-        };
-        var malformed = SignEvidence(unsigned, crypto);
-        var verifier = new ClosedEvidenceVerifierV1(
-            crypto,
-            new OracleCatalog(new PassingOracle("oracle-1")),
-            new AuditSink(),
-            new FixedTimeProvider(Now));
-
-        var rejection = Assert.Throws<TrustRejectionException>(() =>
-            verifier.Verify(new EvidenceVerificationRequestV1(malformed, Binding(), 10, 10)));
-        Assert.Equal(TrustRejectionCode.MissingObservationStage, rejection.Code);
-    }
-
-    [Fact]
-    public void Closed_verifier_enforces_bounded_payload_rules()
-    {
-        var crypto = new FakeCrypto("evidence-key");
-        var verifier = new ClosedEvidenceVerifierV1(
-            crypto,
-            new OracleCatalog(new PassingOracle("oracle-1")),
-            new AuditSink(),
-            new FixedTimeProvider(Now));
-
-        var rejection = Assert.Throws<TrustRejectionException>(() =>
-            verifier.Verify(new EvidenceVerificationRequestV1(SignedEvidence(crypto), Binding(), 2, 10)));
-        Assert.Equal(TrustRejectionCode.PayloadLimitExceeded, rejection.Code);
-    }
-
-    [Fact]
-    public void Options_reject_production_identity_and_accept_bounded_nonproduction_pattern()
-    {
-        var valid = Options("rev869b-control", ["^rev869b_[a-z0-9_]+$"]);
-        Assert.True(ControlPlaneOptions.IsValid(valid));
-        Assert.True(valid.IsTargetAllowed(new TargetErpInstanceIdentity("erp-1", "test", "rev869b_case_01")));
-        Assert.False(Options("production", ["^rev869b_[a-z0-9_]+$"]).Pipe(ControlPlaneOptions.IsValid));
-        Assert.False(valid.IsTargetAllowed(new TargetErpInstanceIdentity("erp-1", "test", "prod")));
-    }
-
-    [Fact]
-    public void CanonicalV2GoldenVectorIsByteExact()
-    {
-        var fixture = V2Fixture.Create();
-        var bytes = CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header);
-        var text = Encoding.UTF8.GetString(bytes);
-
-        Assert.StartsWith("SESS-REV869B-COMMAND-V2\ncontract_version=21:rev869b-controller-v2\n", text);
-        Assert.EndsWith($"canonical_payload_length={fixture.Envelope.Header.CanonicalPayloadLength.ToString().Length}:{fixture.Envelope.Header.CanonicalPayloadLength}\n", text);
-        Assert.Equal(25, text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length - 1);
-        var goldenHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        Assert.Equal("834b85f94e3e1c4ff11ed943f4428259e1a7fac753f79e3145d27d6e4a3ea4a6", goldenHash);
-        Assert.Equal(bytes, CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header));
-        Assert.Equal(fixture.Envelope.Header, CanonicalSignedHeaderCodecV2.Parse(bytes));
-    }
-
-    [Fact]
-    public async Task EveryProtectedHeaderMutationIsRejected()
-    {
-        var baseFixture = V2Fixture.Create();
-        var mutations = new (Func<CanonicalSignedHeaderV2, CanonicalSignedHeaderV2> Mutate, TrustFailureCodeV2 Code)[]
-        {
-            (h => h with { ContractVersion = "rev869b-controller-v3" }, TrustFailureCodeV2.CONTRACT_UNSUPPORTED),
-            (h => h with { CanonicalizationVersion = "rev869b-command-header-v3" }, TrustFailureCodeV2.CANONICALIZATION_UNSUPPORTED),
-            (h => h with { Algorithm = "ECDSA-P384-SHA384" }, TrustFailureCodeV2.ALGORITHM_UNSUPPORTED),
-            (h => h with { KeyId = "unknown-key" }, TrustFailureCodeV2.KEY_UNKNOWN),
-            (h => h with { Issuer = "unknown-issuer" }, TrustFailureCodeV2.ISSUER_UNKNOWN),
-            (h => h with { Audience = "other-audience" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { Subject = "other-subject" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { AuthorizedRole = "MonitoringReader" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { AuthorizedScope = "ORG:C2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { OrganizationId = "C2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { DatabaseClusterId = "cluster-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { DatabaseInstanceId = "instance-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { Operation = "AUTHORIZE_EXECUTE" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { ResourceId = "resource-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { ResourceVersion = 2 }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { LeaseId = "lease-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { FencingToken = 2 }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { RequestId = "request-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { IdempotencyKey = "idempotency-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { Nonce = V2Fixture.SecondNonce }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { IssuedAt = h.IssuedAt.AddSeconds(-1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { NotBefore = h.NotBefore.AddSeconds(1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { ExpiresAt = h.ExpiresAt.AddSeconds(1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { CanonicalPayloadSha256 = new string('a', 64) }, TrustFailureCodeV2.SIGNATURE_INVALID),
-            (h => h with { CanonicalPayloadLength = h.CanonicalPayloadLength + 1 }, TrustFailureCodeV2.SIGNATURE_INVALID)
-        };
-
-        foreach (var (mutate, code) in mutations)
-        {
-            var fixture = V2Fixture.Create();
-            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-                await fixture.VerifyAsync(
-                    fixture.Envelope with { Header = mutate(baseFixture.Envelope.Header) },
-                    fixture.Subject,
-                    fixture.Resource));
-            Assert.Equal(code, rejection.Code);
-            Assert.Equal(0, fixture.Audit.AcceptedCount);
-        }
-    }
-
-    [Fact]
-    public async Task EveryPayloadFieldMutationBreaksHash()
-    {
-        var mutations = new Func<CanonicalCommandPayloadV2, CanonicalCommandPayloadV2>[]
-        {
-            p => p with { Operation = ControllerOperationV2.AUTHORIZE_EXECUTE },
-            p => p with { ExpectedState = ControllerLifecycleState.Ready },
-            p => p with { RequestedState = ControllerLifecycleState.Quarantined },
-            p => p with { Scenario = new("scenario-2") },
-            p => p with { Subcase = new("subcase-2") },
-            p => p with { ActionId = "action-2" },
-            p => p with { ApprovedParameters = new Dictionary<string, string> { ["manifest"] = "other" } },
-            p => p with { EvidenceRequirements = ["other-evidence"] }
-        };
-
-        foreach (var mutate in mutations)
-        {
-            var fixture = V2Fixture.Create();
-            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-                await fixture.VerifyAsync(
-                    fixture.Envelope with { Payload = mutate(fixture.Envelope.Payload) },
-                    fixture.Subject,
-                    fixture.Resource));
-            Assert.Equal(TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH, rejection.Code);
-            Assert.Equal(0, fixture.Nonces.ReservationCount);
-        }
-    }
-
-    [Fact]
-    public async Task UnknownIssuerKeyAlgorithmVersionFailClosed()
-    {
-        await AssertResignedHeaderFailure(h => h with { Issuer = "unknown-issuer" }, TrustFailureCodeV2.ISSUER_UNKNOWN);
-        await AssertResignedHeaderFailure(h => h with { KeyId = "unknown-key" }, TrustFailureCodeV2.KEY_UNKNOWN);
-        await AssertResignedHeaderFailure(h => h with { Algorithm = "ECDSA-P384-SHA384" }, TrustFailureCodeV2.ALGORITHM_UNSUPPORTED);
-        await AssertResignedHeaderFailure(h => h with { ContractVersion = "rev869b-controller-v3" }, TrustFailureCodeV2.CONTRACT_UNSUPPORTED);
-    }
-
-    [Fact]
-    public async Task RequestRoleCannotGrantAuthority()
-    {
-        var fixture = V2Fixture.Create(
-            trustedRoles: new HashSet<string>(["MonitoringReader"], StringComparer.Ordinal));
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource));
-        Assert.Equal(TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN, rejection.Code);
-    }
-
-    [Fact]
-    public async Task AudienceSubjectAndScopeAreExact()
-    {
-        await AssertResignedHeaderFailure(h => h with { Audience = "other-audience" }, TrustFailureCodeV2.AUDIENCE_MISMATCH);
-        await AssertResignedHeaderFailure(h => h with { Subject = "other-subject" }, TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
-        await AssertResignedHeaderFailure(h => h with { AuthorizedScope = "ORG:C2" }, TrustFailureCodeV2.SCOPE_MISMATCH);
-    }
-
-    [Fact]
-    public async Task ClusterInstanceOperationAndVersionSubstitutionReject()
-    {
-        await AssertResignedHeaderFailure(h => h with { DatabaseClusterId = "cluster-2" }, TrustFailureCodeV2.CLUSTER_MISMATCH);
-        await AssertResignedHeaderFailure(h => h with { DatabaseInstanceId = "instance-2" }, TrustFailureCodeV2.INSTANCE_MISMATCH);
-        await AssertResignedHeaderFailure(h => h with { Operation = "AUTHORIZE_EXECUTE" }, TrustFailureCodeV2.OPERATION_MISMATCH);
-        await AssertResignedHeaderFailure(h => h with { ResourceVersion = 2 }, TrustFailureCodeV2.RESOURCE_VERSION_STALE);
-    }
-
-    [Fact]
-    public async Task TemporalWindowIsServerOwned()
-    {
-        await AssertResignedHeaderFailure(h => h with
-        {
-            IssuedAt = Now.AddMinutes(1),
-            NotBefore = Now.AddMinutes(1),
-            ExpiresAt = Now.AddMinutes(2)
-        }, TrustFailureCodeV2.NOT_YET_VALID);
-        await AssertResignedHeaderFailure(h => h with
-        {
-            IssuedAt = Now.AddMinutes(-2),
-            NotBefore = Now.AddMinutes(-2),
-            ExpiresAt = Now.AddMinutes(-1)
-        }, TrustFailureCodeV2.ENVELOPE_EXPIRED);
-        await AssertResignedHeaderFailure(h => h with { ExpiresAt = Now.AddMinutes(6) }, TrustFailureCodeV2.ENVELOPE_EXPIRED);
-    }
-
-    [Fact]
-    public async Task NonceReplayIsIndependentOfIdempotency()
-    {
-        var fixture = V2Fixture.Create();
-        await fixture.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource);
-        Assert.Equal(IdempotencyReservationStateV2.COMPLETED, fixture.Idempotency.LastOutcome?.ReservationState);
-        var replayHeader = fixture.Envelope.Header with { IdempotencyKey = "idempotency-2", RequestId = "request-2" };
-        var replay = fixture.Sign(replayHeader, fixture.Envelope.Payload);
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.VerifyAsync(replay, fixture.Subject, fixture.Resource));
-        Assert.Equal(TrustFailureCodeV2.NONCE_REPLAY, rejection.Code);
-        Assert.Equal(1, fixture.Idempotency.ReservationCount);
-    }
-
-    [Fact]
-    public async Task LeaseAcquireRenewExpireAndFenceAreMonotonic()
-    {
-        var store = new FakeLeaseStore(Now);
-        var first = await store.AcquireAsync("resource-1", "worker-1", Now.AddMinutes(1));
-        var second = await store.RenewAsync(first, Now.AddMinutes(2));
-        Assert.True(second.FencingToken > first.FencingToken);
-        Assert.False(await store.ConsumeFenceAsync(first));
-        Assert.True(await store.ConsumeFenceAsync(second));
-    }
-
-    [Fact]
-    public void EveryUnlistedStateOperationPairIsIllegal()
-    {
-        var machine = new Rev869BControllerStateMachine();
-        foreach (var state in Enum.GetValues<ControllerLifecycleState>())
-        {
-            foreach (var operation in Enum.GetValues<ControllerOperationV2>())
-            {
-                if (machine.ListedOperations.Contains((state, operation)) || operation == ControllerOperationV2.QUARANTINE)
-                {
-                    continue;
-                }
-
-                var rejection = Assert.Throws<TrustFailureExceptionV2>(() =>
-                    machine.RequireOperation(operation, state, state, "Operator", true, null));
-                Assert.Equal(TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL, rejection.Code);
-            }
-        }
-    }
-
-    [Fact]
-    public void EveryListedTransitionHasExactRoleEvidenceAndFence()
-    {
-        var machine = new Rev869BControllerStateMachine();
-        foreach (var rule in machine.ListedOperationRules)
-        {
-            Assert.Equal(rule.Next,
-                machine.RequireOperation(
-                    rule.Operation,
-                    rule.State,
-                    rule.Next,
-                    rule.Role,
-                    true,
-                    rule.RequiresLease ? V2Fixture.Lease() : null));
-            var deniedRole = Assert.Throws<TrustFailureExceptionV2>(() =>
-                machine.RequireOperation(
-                    rule.Operation,
-                    rule.State,
-                    rule.Next,
-                    "UnauthorizedRole",
-                    true,
-                    rule.RequiresLease ? V2Fixture.Lease() : null));
-            Assert.Equal(TrustFailureCodeV2.SUBJECT_UNAUTHORIZED, deniedRole.Code);
+            var type = controlAssembly.GetTypes().Concat(verifierAssembly.GetTypes())
+                .Single(candidate => candidate.Name == forbidden);
+            Assert.False(type.IsPublic);
         }
 
-        var noEvidence = Assert.Throws<TrustFailureExceptionV2>(() =>
-            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
-                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", false, null));
-        Assert.Equal(TrustFailureCodeV2.READER_MISSING, noEvidence.Code);
-        var noLease = Assert.Throws<TrustFailureExceptionV2>(() =>
-            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
-                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", true, null));
-        Assert.Equal(TrustFailureCodeV2.LEASE_REQUIRED, noLease.Code);
-        var wrongRole = Assert.Throws<TrustFailureExceptionV2>(() =>
-            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
-                ControllerLifecycleState.Provisioning, "Operator", true, V2Fixture.Lease()));
-        Assert.Equal(TrustFailureCodeV2.SUBJECT_UNAUTHORIZED, wrongRole.Code);
-        Assert.Equal(ControllerLifecycleState.Provisioning,
-            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
-                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", true, V2Fixture.Lease()));
-
-        var active = new LifecycleResourceStateV2(
-            "resource-1", 3, ControllerLifecycleState.Preflight, "audit-1",
-            ControllerAuthorizationStatusV2.ACTIVE,
-            ControllerOperationV2.AUTHORIZE_PREPARE.ToString(),
-            "Operator",
-            Now.AddMinutes(1));
-        var cancelled = machine.CreateReplacement(
-            active, ControllerOperationV2.CANCEL, active.State, "Operator", true, null,
-            Now.AddMinutes(1), Now, "audit-cancel");
-        Assert.Equal(ControllerAuthorizationStatusV2.CANCELLED, cancelled.AuthorizationStatus);
-        var expired = machine.CreateReplacement(
-            active with { AuthorizationExpiresAt = Now.AddMinutes(-1) },
-            ControllerOperationV2.EXPIRE, active.State, "ControlPlaneRuntime", true, null,
-            Now.AddMinutes(-1), Now, "audit-expire");
-        Assert.Equal(ControllerAuthorizationStatusV2.EXPIRED, expired.AuthorizationStatus);
-
-        var accepted = new LifecycleResourceStateV2(
-            "resource-1", 10, ControllerLifecycleState.Accepted, "audit-accepted");
-        var exportAuthorized = machine.CreateReplacement(
-            accepted, ControllerOperationV2.AUTHORIZE_EXPORT, accepted.State, "ExportAuthorizer", true, null,
-            Now.AddMinutes(5), Now, "audit-export-authorized");
-        Assert.Equal(ExportLifecycleStateV2.AUTHORIZED, exportAuthorized.ExportState);
-        var delivering = machine.CreateReplacement(
-            exportAuthorized, ControllerOperationV2.EXPORT, accepted.State, "ExportExecutor", true,
-            V2Fixture.Lease(), Now.AddMinutes(5), Now, "audit-export-delivering");
-        Assert.Equal(ExportLifecycleStateV2.DELIVERING, delivering.ExportState);
-        var delivered = machine.CreateReplacement(
-            delivering, ControllerOperationV2.COMPLETE_EXPORT, accepted.State, "ExportExecutor", true,
-            V2Fixture.Lease(), Now.AddMinutes(5), Now, "audit-export-delivered");
-        Assert.Equal(ExportLifecycleStateV2.DELIVERED, delivered.ExportState);
+        Assert.All(
+            typeof(IControlPlaneAuthority).GetMethods().Single().GetParameters().Take(3),
+            parameter => Assert.Contains(
+                parameter.ParameterType,
+                new[] { typeof(ReadOnlyMemory<byte>), typeof(AuthenticatedWorkloadIdentityV3) }));
+        Assert.Equal(
+            typeof(ReadOnlyMemory<byte>),
+            typeof(IAcceptanceVerifierAuthority).GetMethods().Single().GetParameters()[0].ParameterType);
     }
 
     [Fact]
-    public void IdempotencyDecisionTableIsExact()
+    public async Task A1_RawCommandCodecRejectsEveryNonCanonicalMutationBeforeAuthority()
     {
-        var binding = new IdempotencyBindingV2("issuer", "C1", "instance-1", "PREPARE", "request-1", "key-1", new string('a', 64));
-        var completed = new IdempotencyOutcomeV2(IdempotencyReservationStateV2.COMPLETED, 1, false, null, "response", "audit", Now);
-        Assert.Same(completed, IdempotencyDecisionV2.RequireReusable(binding, binding, completed));
-        var collision = Assert.Throws<TrustFailureExceptionV2>(() =>
-            IdempotencyDecisionV2.RequireReusable(binding with { CanonicalRequestDigest = new string('b', 64) }, binding, completed));
-        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH, collision.Code);
-        var nonretryable = Assert.Throws<TrustFailureExceptionV2>(() =>
-            IdempotencyDecisionV2.RequireReusable(binding, binding,
-                completed with { ReservationState = IdempotencyReservationStateV2.NONRETRYABLE_FAILURE }));
-        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_NONRETRYABLE, nonretryable.Code);
+        var fixture = CommandFixture.Create();
+        var invalid = fixture.HeaderBytes.Concat([(byte)0x20]).ToArray();
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.AcceptRawCommandAsync(
+                invalid,
+                fixture.PayloadBytes,
+                fixture.Signature,
+                fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.CANONICAL_HEADER_MALFORMED, failure.Code);
+        Assert.Equal(0, fixture.Controller.CallCount);
     }
 
     [Fact]
-    public async Task ConcurrentDuplicateHasOneAuthoritativeWinner()
-    {
-        var store = new FakeIdempotencyStore();
-        var binding = new IdempotencyBindingV2("issuer", "C1", "instance-1", "PREPARE", "request-1", "key-1", new string('a', 64));
-        var winner = await store.ReserveAsync(binding);
-        var duplicate = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await store.ReserveAsync(binding));
-        Assert.Equal(1, store.AuthoritativeRows);
-        Assert.Equal(1, winner.AttemptNumber);
-        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_IN_PROGRESS, duplicate.Code);
-    }
-
-    [Fact]
-    public async Task OracleManifestAndReadersAreServerPinned()
+    public async Task A1_RawEvidenceCodecRejectsEveryNonCanonicalMutationBeforeReaderOrOracle()
     {
         var fixture = EvidenceFixture.Create();
-        var wrongOracle = fixture.WithEvidence(
-            fixture.Request.Evidence with { OracleVersion = "9.9.9" });
-        await AssertEvidenceFailure(wrongOracle, TrustFailureCodeV2.ORACLE_MISMATCH);
-
-        var missingReader = fixture.WithEvidence(
-            EvidenceFixture.Rehash(fixture.Request.Evidence with { ReaderReceipts = [] }));
-        await AssertEvidenceFailure(missingReader, TrustFailureCodeV2.READER_MISSING);
-
-        var substituted = fixture.Request.Evidence.ReaderReceipts[0] with { ReaderArtifactSha256 = new string('d', 64) };
-        var wrongReader = fixture.WithEvidence(EvidenceFixture.Rehash(
-            fixture.Request.Evidence with { ReaderReceipts = [substituted] }));
-        await AssertEvidenceFailure(wrongReader, TrustFailureCodeV2.READER_UNAUTHORIZED);
+        var json = Encoding.UTF8.GetString(fixture.CanonicalEvidence);
+        var invalid = Encoding.UTF8.GetBytes(json.Insert(1, "\"Unknown\":1,"));
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.VerifyRawAsync(invalid, fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD, failure.Code);
+        Assert.Equal(0, fixture.Oracle.EvaluationCount);
+        Assert.Equal(0, fixture.Audit.AppendCount);
     }
 
     [Fact]
-    public void CallerVerdictAndExpectedValuesAreUnmapped()
+    public void A1_ExactlyFourteenAuthoritativeOwnersAndNoParallelPublicAuthority()
     {
-        foreach (var field in new[] { "pass", "fail", "verdict", "disposition", "expected", "formula" })
+        var expected = new Dictionary<ProductionResponsibilityV3, Type>
         {
-            var json = Encoding.UTF8.GetBytes($"{{\"{field}\":true}}");
-            var rejection = Assert.Throws<TrustFailureExceptionV2>(() => StrictEvidenceJsonV2.Deserialize(json));
-            Assert.Equal(TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD, rejection.Code);
-        }
-    }
-
-    [Fact]
-    public async Task TemporalEvidenceBindingIsExact()
-    {
-        var fixture = EvidenceFixture.Create(authoritativeMutation: observations =>
-        {
-            var future = observations[2] with
-            {
-                Provenance = observations[2].Provenance with { ObservedAtUtc = Now.AddMinutes(1) }
-            };
-            return [.. observations.Take(2), future];
-        });
-        await AssertEvidenceFailure(fixture, TrustFailureCodeV2.READER_UNAUTHORIZED);
-
-        var wrongLease = fixture.WithEvidence(EvidenceFixture.Rehash(
-            fixture.Request.Evidence with
-            {
-                Lease = fixture.Request.Evidence.Lease with { FencingToken = 2 }
-            }));
-        await AssertEvidenceFailure(wrongLease, TrustFailureCodeV2.LEASE_FENCE_STALE);
-    }
-
-    [Fact]
-    public async Task AllEvidenceDimensionsAreServerBounded()
-    {
-        var oversized = EvidenceFixture.Create(authoritativeMutation: observations =>
-        {
-            var oversizedFact = observations[0] with
-            {
-                Facts = new Dictionary<string, TypedSelectorValueV1>
-                {
-                    ["status"] = new(SelectorValueKind.String, new string('x', 33))
-                }
-            };
-            return [oversizedFact, .. observations.Skip(1)];
-        });
-        await AssertEvidenceFailure(oversized, TrustFailureCodeV2.EVIDENCE_TOO_LARGE);
-    }
-
-    [Fact]
-    public async Task CallerFactsCannotReplaceAuthoritativeReaderFacts()
-    {
-        var fixture = EvidenceFixture.Create();
-        var callerClaim = fixture.Request.Evidence.RawFacts[0] with
-        {
-            Facts = new Dictionary<string, TypedSelectorValueV1>
-            {
-                ["status"] = new(SelectorValueKind.String, "caller-controlled")
-            }
+            [ProductionResponsibilityV3.NexaErpBusinessRuntime] = typeof(INexaErpBusinessRuntime),
+            [ProductionResponsibilityV3.ControlPlane] = typeof(IControlPlaneAuthority),
+            [ProductionResponsibilityV3.AcceptanceVerifier] = typeof(IAcceptanceVerifierAuthority),
+            [ProductionResponsibilityV3.DurableControlPlanePersistence] = typeof(IDurableControlPlanePersistenceProvider),
+            [ProductionResponsibilityV3.TrustedIssuerKeyRegistry] = typeof(ITrustedIssuerKeyRegistryProvider),
+            [ProductionResponsibilityV3.KmsHsmSigning] = typeof(IKmsHsmSigningProvider),
+            [ProductionResponsibilityV3.AuthoritativeEvidenceReader] = typeof(IAuthoritativeEvidenceReaderProvider),
+            [ProductionResponsibilityV3.ImmutableAuditEvidence] = typeof(IImmutableAuditEvidenceProvider),
+            [ProductionResponsibilityV3.LifecycleController] = typeof(ILifecycleControllerAuthority),
+            [ProductionResponsibilityV3.BackupRecoveryAuthority] = typeof(IBackupRecoveryAuthority),
+            [ProductionResponsibilityV3.PurgeAuthorizer] = typeof(IPurgeAuthorizer),
+            [ProductionResponsibilityV3.PurgeExecutor] = typeof(IPurgeExecutor),
+            [ProductionResponsibilityV3.ExportAuthorizer] = typeof(IExportAuthorizer),
+            [ProductionResponsibilityV3.ExportDeliveryExecutor] = typeof(IExportDeliveryExecutor)
         };
-        var changed = fixture.WithEvidence(EvidenceFixture.Rehash(
-            fixture.Request.Evidence with { RawFacts = [callerClaim, .. fixture.Request.Evidence.RawFacts.Skip(1)] }));
-        var result = await changed.Verifier.VerifyAsync(changed.Request);
-        Assert.Equal(VerificationDisposition.Passed, result.Disposition);
-        Assert.NotEqual(changed.Request.Evidence.PayloadSha256, changed.Audit.Event!.EvidenceEnvelopeSha256);
+        Assert.Equal(expected, PhaseAOwnershipCatalog.All);
+        Assert.Equal(14, expected.Values.Distinct().Count());
+
+        var exportedNames = typeof(PhaseAControlPlaneAuthority).Assembly.ExportedTypes
+            .Concat(typeof(PhaseAAcceptanceVerifierAuthority).Assembly.ExportedTypes)
+            .Select(static type => type.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.DoesNotContain("ILeaseFenceStore", exportedNames);
+        Assert.DoesNotContain("IIdempotencyStore", exportedNames);
+        Assert.DoesNotContain("ILifecycleStateStore", exportedNames);
+        Assert.DoesNotContain("ITrustedIssuerRegistry", exportedNames);
+        Assert.DoesNotContain("IEnvelopeSigner", exportedNames);
+        Assert.DoesNotContain("IAuthoritativeEvidenceReader", exportedNames);
+        Assert.DoesNotContain("IVerificationAuditSinkV2", exportedNames);
     }
 
     [Fact]
-    public async Task SensitiveFactsNeverSerializeOrLog()
+    public async Task A1_TrustedGrantPolicyLeaseAndReaderFactsCannotBeSynthesizedFromRequest()
     {
-        const string sentinel = "secret-value-must-not-leak";
-        var fixture = EvidenceFixture.Create(authoritativeMutation: observations =>
-        {
-            var sensitive = observations[0] with
-            {
-                Facts = new Dictionary<string, TypedSelectorValueV1>
-                {
-                    ["password"] = new(SelectorValueKind.String, sentinel)
-                }
-            };
-            return [sensitive, .. observations.Skip(1)];
-        });
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.Verifier.VerifyAsync(fixture.Request));
-        Assert.Equal(TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD, rejection.Code);
-        Assert.DoesNotContain(sentinel, rejection.Message, StringComparison.Ordinal);
-        Assert.Null(fixture.Audit.Event);
+        var fixture = CommandFixture.Create(headerMutation: header => header with { AuthorizedRole = "PurgeExecutor" });
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.InvokeAsync().AsTask());
+        Assert.Equal(TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN, failure.Code);
+        Assert.Equal(0, fixture.Controller.CallCount);
     }
 
     [Fact]
-    public async Task MissingVerifierDependencyReturnsNotReady()
+    public void A1_FrozenLifecycleMatrixHasExactTwentySixConceptualRows()
     {
-        var fixture = EvidenceFixture.Create(ready: false);
-        var readiness = await fixture.Readiness.CheckAsync();
-        Assert.Equal(ReadinessStateV2.NOT_READY, readiness.State);
-        Assert.Contains("ORACLE_NOT_PINNED", readiness.DependencyCodes);
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.Verifier.VerifyAsync(fixture.Request));
-        Assert.Equal(TrustFailureCodeV2.SERVICE_NOT_READY, rejection.Code);
-    }
-
-    [Fact]
-    public async Task RuntimeIdentityCannotEscalateAcrossRoles()
-    {
-        foreach (var role in new[]
-        {
-            "ErpRuntime", "ControlPlaneRuntime", "CommandSigner", "RegistryWriter", "ProvisioningExecutor",
-            "MigrationExecutor", "AcceptanceVerifier", "AuditWriter", "RecoveryApprover", "RecoveryExecutor",
-            "DropAuthorizer", "DropExecutor", "PurgeAuthorizer", "PurgeExecutor", "ExportAuthorizer",
-            "ExportExecutor", "MonitoringReader"
-        })
-        {
-            var fixture = V2Fixture.Create(
-                new HashSet<string>([role], StringComparer.Ordinal));
-            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-                await fixture.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource));
-            Assert.Equal(TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN, rejection.Code);
-            Assert.Equal(0, fixture.Audit.AcceptedCount);
-        }
-    }
-
-    [Fact]
-    public async Task AuditAppendFailurePreventsVerdictCommit()
-    {
-        var fixture = EvidenceFixture.Create(auditSucceeds: false);
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.Verifier.VerifyAsync(fixture.Request));
-        Assert.Equal(TrustFailureCodeV2.AUDIT_APPEND_FAILED, rejection.Code);
-        Assert.Equal(1, fixture.Audit.AppendAttempts);
-    }
-
-    [Fact]
-    public void MalformedCanonicalInputHasTypedFailure()
-    {
-        var fixture = V2Fixture.Create();
-        var validBytes = CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header);
-        var validText = Encoding.UTF8.GetString(validBytes);
-        var malformedHash = fixture.Envelope.Header with { CanonicalPayloadSha256 = new string('A', 64) };
-        var invalidHash = Assert.Throws<TrustFailureExceptionV2>(() =>
-            CanonicalSignedHeaderCodecV2.Serialize(malformedHash));
-        Assert.Equal(TrustFailureCodeV2.CANONICAL_HEADER_MALFORMED, invalidHash.Code);
-
-        var malformedNonce = fixture.Envelope.Header with { Nonce = "not-base64url" };
-        var invalidNonce = Assert.Throws<TrustFailureExceptionV2>(() =>
-            CanonicalSignedHeaderCodecV2.Serialize(malformedNonce));
-        Assert.Equal(TrustFailureCodeV2.CANONICAL_HEADER_MALFORMED, invalidNonce.Code);
-
-        foreach (var malformed in new[]
-        {
-            new byte[] { 0xff, 0xfe },
-            Encoding.UTF8.GetBytes(validText.Replace("\n", "\r\n", StringComparison.Ordinal)),
-            Encoding.UTF8.GetBytes(validText + "contract_version=21:rev869b-controller-v2\n"),
-            Encoding.UTF8.GetBytes(validText.Replace(
-                "contract_version=21:rev869b-controller-v2",
-                "contract_version=20:rev869b-controller-v2",
-                StringComparison.Ordinal)),
-            Encoding.UTF8.GetBytes(validText.Replace(
-                "resource_version=1:1",
-                "resource_version=2:01",
-                StringComparison.Ordinal)),
-            Encoding.UTF8.GetBytes(validText.Replace(
-                "issued_at=28:2026-08-15T12:00:00.0000000Z",
-                "issued_at=28:2026-08-15T99:00:00.0000000Z",
-                StringComparison.Ordinal))
-        })
-        {
-            var rawFailure = Assert.Throws<TrustFailureExceptionV2>(() =>
-                CanonicalSignedHeaderCodecV2.Parse(malformed));
-            Assert.Equal(TrustFailureCodeV2.CANONICAL_HEADER_MALFORMED, rawFailure.Code);
-        }
-
-        var unmapped = Assert.Throws<TrustFailureExceptionV2>(() =>
-            StrictEvidenceJsonV2.Deserialize(Encoding.UTF8.GetBytes("{\"unknown\":1}")));
-        Assert.Equal(TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD, unmapped.Code);
-    }
-
-    [Fact]
-    public async Task TenMillionMasterContractUsesPagingOnly()
-    {
-        var reader = new FakePagedMasterReader(10_000_000, 1_000);
-        var pages = new List<PageResultV1<int>>();
-        await foreach (var page in reader.ReadAsync(3))
-        {
-            pages.Add(page);
-        }
-
-        Assert.Equal(3, pages.Count);
-        Assert.All(pages, page => Assert.InRange(page.Items.Count, 1, 1_000));
-        Assert.Equal(3, reader.ReadCount);
-        Assert.True(pages[^1].HasMore);
-    }
-
-    [Fact]
-    public void PhaseACompatibilityManifestIsExactAndClosed()
-    {
-        Assert.True(Rev869BPhaseACompatibilityManifest.IsCompatible(
-            "rev869b-phase-a-v1",
-            "rev869b-command-envelope-v3",
-            "rev869b-authoritative-evidence-v3",
-            "REV869B-READINESS-v1"));
-        Assert.Equal("rev869b-control-transaction-v1",
-            Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion);
-        Assert.Equal("rev869b-production-ownership-v1",
-            Rev869BPhaseACompatibilityManifest.OwnershipContractVersion);
-        Assert.False(Rev869BPhaseACompatibilityManifest.IsCompatible(
-            "rev869b-phase-a-v2",
-            Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion,
-            Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
-            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion));
-    }
-
-    [Fact]
-    public void EveryPhaseAProductionResponsibilityHasOneDistinctOwnerContract()
-    {
-        var responsibilities = Enum.GetValues<ProductionResponsibilityV3>();
-        Assert.Equal(14, responsibilities.Length);
-        Assert.Equal(responsibilities.Length, PhaseAOwnershipCatalog.All.Count);
-        Assert.Equal(responsibilities.Length, PhaseAOwnershipCatalog.All.Values.Distinct().Count());
-        Assert.All(responsibilities, responsibility =>
-        {
-            var owner = Assert.Contains(responsibility, PhaseAOwnershipCatalog.All);
-            Assert.True(owner.IsInterface);
-        });
-        PhaseAOwnershipValidator.RequireComplete();
-    }
-
-    [Fact]
-    public void UntrustedIntentCannotCarryRoleScopeOrPermissionAuthority()
-    {
-        var propertyNames = typeof(UntrustedBusinessIntentV3)
-            .GetProperties()
-            .Select(static property => property.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Role", propertyNames);
-        Assert.DoesNotContain("Roles", propertyNames);
-        Assert.DoesNotContain("Permission", propertyNames);
-        Assert.DoesNotContain("Permissions", propertyNames);
-        Assert.DoesNotContain("AuthorizedScope", propertyNames);
-        Assert.True(typeof(ITrustedSubjectRoleScopeResolver).IsInterface);
-        Assert.NotEqual(typeof(INexaErpBusinessRuntime), typeof(IControlPlaneAuthority));
-        Assert.NotEqual(typeof(IControlPlaneAuthority), typeof(IAcceptanceVerifierAuthority));
-    }
-
-    [Fact]
-    public void ProtectedCommandSurfaceAcceptsRawCanonicalBytesAndDelegatesOnlyToController()
-    {
-        var publicMethods = typeof(SignedCommandServiceV2)
-            .GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance |
-                        System.Reflection.BindingFlags.DeclaredOnly);
-        Assert.DoesNotContain(publicMethods, method => method.Name == "Sign");
-        var verify = Assert.Single(publicMethods, method => method.Name == "VerifyAsync");
-        var parameters = verify.GetParameters().Select(static parameter => parameter.ParameterType).ToArray();
-        Assert.Equal(typeof(ReadOnlyMemory<byte>), parameters[0]);
-        Assert.Equal(typeof(ReadOnlyMemory<byte>), parameters[1]);
-        Assert.Equal(typeof(byte[]), parameters[2]);
-        Assert.DoesNotContain(typeof(SignedCommandEnvelopeV2), parameters);
-
-        var constructorParameters = Assert.Single(typeof(SignedCommandServiceV2).GetConstructors())
-            .GetParameters().Select(static parameter => parameter.ParameterType).ToArray();
-        Assert.Contains(typeof(ILifecycleControllerAuthority), constructorParameters);
-        Assert.DoesNotContain(typeof(INonceReplayStore), constructorParameters);
-        Assert.DoesNotContain(typeof(IIdempotencyStore), constructorParameters);
-        Assert.DoesNotContain(typeof(ILeaseFenceStore), constructorParameters);
-        Assert.DoesNotContain(typeof(ILifecycleStateStore), constructorParameters);
-        Assert.DoesNotContain(typeof(ITrustAuditSinkV2), constructorParameters);
-    }
-
-    [Fact]
-    public async Task MissingPhaseADependenciesAreEnumeratedAndFailClosed()
-    {
-        var authority = new PhaseAReadinessAuthority(
-            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
-            [],
-            new FixedTimeProvider(Now));
-        var snapshot = await authority.CheckAsync();
-        Assert.False(snapshot.CanExecuteProtectedOperation);
-        Assert.Equal(Enum.GetValues<PhaseADependencyV3>().Length, snapshot.Dependencies.Count);
-        Assert.All(snapshot.Dependencies, item =>
-        {
-            Assert.Equal(ReadinessDependencyStateV3.NOT_CONFIGURED, item.State);
-            Assert.Equal("DEPENDENCY_NOT_CONFIGURED", item.DiagnosticCode);
-        });
-        Assert.Equal(ReadinessDependencyStateV3.NOT_CONFIGURED,
-            Assert.Single(snapshot.Dependencies, item => item.Dependency == PhaseADependencyV3.DurableControlPlane).State);
-        Assert.Equal(ReadinessDependencyStateV3.NOT_CONFIGURED,
-            Assert.Single(snapshot.Dependencies, item => item.Dependency == PhaseADependencyV3.KmsHsm).State);
-        Assert.Equal(ReadinessDependencyStateV3.NOT_CONFIGURED,
-            Assert.Single(snapshot.Dependencies, item => item.Dependency == PhaseADependencyV3.OracleRegistry).State);
-        Assert.Equal(ReadinessDependencyStateV3.NOT_CONFIGURED,
-            Assert.Single(snapshot.Dependencies, item => item.Dependency == PhaseADependencyV3.ImmutableAuditEvidence).State);
-    }
-
-    [Fact]
-    public async Task OnlyOneReadyProviderPerDependencyCanEnableProtectedOperations()
-    {
-        var providers = Enum.GetValues<PhaseADependencyV3>()
-            .Select(dependency => (IReadinessDependencyProvider)new FakeDependencyProvider(
-                dependency,
-                ReadinessDependencyStateV3.READY))
+        var actual = Rev869BControllerStateMachine.PhaseARuleSnapshot
+            .Select(Concept)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static value => value, StringComparer.Ordinal)
             .ToArray();
+        Assert.Equal(FrozenConcepts.OrderBy(static value => value, StringComparer.Ordinal), actual);
+    }
+
+    [Fact]
+    public void A1_EveryUnlistedLifecycleCombinationIsIllegal()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var legal = FrozenLegalPairs();
+        foreach (var state in Enum.GetValues<ControllerLifecycleState>())
+        foreach (var operation in Enum.GetValues<ControllerOperationV2>())
+        {
+            if (operation is ControllerOperationV2.QUARANTINE or ControllerOperationV2.CANCEL or ControllerOperationV2.EXPIRE ||
+                legal.Contains((state, operation)))
+            {
+                continue;
+            }
+            var failure = Assert.Throws<TrustFailureExceptionV2>(
+                () => machine.RequirePhaseACommand(
+                    Command(state, operation, "Operator", [], false),
+                    Now));
+            Assert.Equal(TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL, failure.Code);
+        }
+    }
+
+    [Fact]
+    public void A1_EveryLifecycleBindingMutationFailsWithoutStateChange()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var valid = Command(
+            ControllerLifecycleState.Preflight,
+            ControllerOperationV2.PREPARE,
+            "ProvisioningExecutor",
+            ["preflight"],
+            true);
+        Assert.Equal(ControllerLifecycleState.Provisioning, machine.RequirePhaseACommand(valid, Now).NextState);
+
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                valid with { CurrentVersion = valid.CurrentVersion + 1 },
+                Now),
+            TrustFailureCodeV2.RESOURCE_VERSION_STALE);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                valid with
+                {
+                    Authorization = valid.Authorization with
+                    {
+                        Authorization = valid.Authorization.Authorization with { TrustedRole = "Operator" }
+                    }
+                },
+                Now),
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        AssertCode(
+            () => machine.RequirePhaseACommand(valid with { RequiredEvidence = [] }, Now),
+            TrustFailureCodeV2.READER_MISSING);
+    }
+
+    [Fact]
+    public void A1_ExportSubstatesCannotBeSkippedOrReused()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var authorize = Command(
+            ControllerLifecycleState.Accepted,
+            ControllerOperationV2.AUTHORIZE_EXPORT,
+            "ExportAuthorizer",
+            ["minimized-batch-root", "privacy-approval"],
+            false,
+            exportState: ExportAuthorizationSubstateV3.NONE);
+        Assert.Equal(
+            ExportAuthorizationSubstateV3.AUTHORIZED,
+            machine.RequirePhaseACommand(authorize, Now).NextExportState);
+
+        var start = Command(
+            ControllerLifecycleState.Accepted,
+            ControllerOperationV2.EXPORT,
+            "ExportExecutor",
+            ["export-authorization"],
+            true,
+            exportState: ExportAuthorizationSubstateV3.AUTHORIZED);
+        Assert.Equal(
+            ExportAuthorizationSubstateV3.DELIVERING,
+            machine.RequirePhaseACommand(start, Now).NextExportState);
+
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                start with { CurrentExportState = ExportAuthorizationSubstateV3.NONE },
+                Now),
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+    }
+
+    [Fact]
+    public void A1_CancelAndExpireChangeOnlyAuthorizationSubstate()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var cancel = Command(
+            ControllerLifecycleState.Ready,
+            ControllerOperationV2.CANCEL,
+            "OriginalAuthorizer",
+            ["cancellation-reason"],
+            false);
+        Assert.Equal(
+            AuthorizationGrantStateV3.CANCELLED,
+            machine.RequirePhaseACommand(cancel, Now).NextAuthorizationState);
+
+        var expire = Command(
+            ControllerLifecycleState.Ready,
+            ControllerOperationV2.EXPIRE,
+            "ControlPlaneRuntime",
+            ["server-time"],
+            false);
+        expire = expire with
+        {
+            Authorization = expire.Authorization with
+            {
+                Authorization = expire.Authorization.Authorization with { ExpiresAt = Now.AddMinutes(-1) }
+            }
+        };
+        Assert.Equal(
+            AuthorizationGrantStateV3.EXPIRED,
+            machine.RequirePhaseACommand(expire, Now).NextAuthorizationState);
+    }
+
+    [Fact]
+    public void A1_QuarantineIsControllerOwnedAndPurgedIsTerminal()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var quarantine = Command(
+            ControllerLifecycleState.Ready,
+            ControllerOperationV2.QUARANTINE,
+            "ControlPlaneRuntime",
+            ["inconsistency-facts"],
+            false);
+        Assert.Equal(
+            ControllerLifecycleState.Quarantined,
+            machine.RequirePhaseACommand(quarantine, Now).NextState);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                quarantine with { CurrentState = ControllerLifecycleState.Purged },
+                Now),
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+    }
+
+    [Fact]
+    public void A1_LeaseBindsResourceHolderEpochFenceAndExpiry()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var valid = Command(
+            ControllerLifecycleState.Preflight,
+            ControllerOperationV2.PREPARE,
+            "ProvisioningExecutor",
+            ["preflight"],
+            true);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                valid with { Lease = valid.Lease! with { ResourceId = "other" } },
+                Now),
+            TrustFailureCodeV2.LEASE_FENCE_STALE);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                valid with { Lease = valid.Lease! with { ControllerEpoch = 0 } },
+                Now),
+            TrustFailureCodeV2.LEASE_FENCE_STALE);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                valid with { Lease = valid.Lease! with { ExpiresAt = Now.AddSeconds(-1) } },
+                Now),
+            TrustFailureCodeV2.LEASE_EXPIRED);
+    }
+
+    [Fact]
+    public void A1_AuthorizationIsOneTimeAndOperationBound()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        var command = Command(
+            ControllerLifecycleState.MigrationAuthorized,
+            ControllerOperationV2.EXECUTE,
+            "MigrationExecutor",
+            ["preflight"],
+            true);
+        Assert.Equal(
+            AuthorizationGrantStateV3.CONSUMED,
+            machine.RequirePhaseACommand(command, Now).NextAuthorizationState);
+        AssertCode(
+            () => machine.RequirePhaseACommand(
+                command with { CurrentAuthorizationState = AuthorizationGrantStateV3.CONSUMED },
+                Now),
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+    }
+
+    [Fact]
+    public async Task A1_ReaderBundleSignatureHashAndScopeAreRecomputed()
+    {
+        var fixture = EvidenceFixture.Create();
+        var verdict = await fixture.Authority.VerifyRawAsync(
+            fixture.CanonicalEvidence,
+            fixture.Transport);
+        Assert.Equal(VerificationDisposition.Passed, verdict.Calculation.Disposition);
+        Assert.Equal(1, fixture.Oracle.EvaluationCount);
+
+        var changed = fixture.Bundle with
+        {
+            Facts = [new("status", SelectorValueKind.String, "failed")]
+        };
+        var tampered = fixture.WithBundle(changed);
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.VerifyRawAsync(tampered, fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.EVIDENCE_TAMPERED, failure.Code);
+    }
+
+    [Fact]
+    public async Task A1_CallerFactsActionReceiptExpectedValuesAndVerdictNeverReachOracle()
+    {
+        var fixture = EvidenceFixture.Create();
+        var json = Encoding.UTF8.GetString(fixture.CanonicalEvidence);
+        foreach (var name in new[] { "Verdict", "Expected", "ActionReceipt" })
+        {
+            var invalid = Encoding.UTF8.GetBytes(json.Insert(1, $"\"{name}\":\"PASS\","));
+            var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+                () => fixture.Authority.VerifyRawAsync(invalid, fixture.Transport).AsTask());
+            Assert.Equal(TrustFailureCodeV2.EVIDENCE_UNMAPPED_FIELD, failure.Code);
+        }
+        Assert.Equal(0, fixture.Oracle.EvaluationCount);
+    }
+
+    [Fact]
+    public async Task A1_ReaderAndGlobalLimitsUseStricterServerOwnedBound()
+    {
+        var fixture = EvidenceFixture.Create(maximumFacts: 1);
+        var extra = fixture.Bundle with
+        {
+            Facts =
+            [
+                new("status", SelectorValueKind.String, "complete"),
+                new("count", SelectorValueKind.Integer, "1")
+            ]
+        };
+        extra = SignBundle(extra, fixture.Kms);
+        var invalid = fixture.WithBundle(extra);
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.VerifyRawAsync(invalid, fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.READER_UNAUTHORIZED, failure.Code);
+        Assert.Equal(0, fixture.Oracle.EvaluationCount);
+    }
+
+    [Fact]
+    public async Task A1_OracleIsPinnedMutationSensitiveAndCannotAcceptReaderVerdict()
+    {
+        var passing = EvidenceFixture.Create();
+        var pass = await passing.Authority.VerifyRawAsync(
+            passing.CanonicalEvidence,
+            passing.Transport);
+        Assert.Equal(VerificationDisposition.Passed, pass.Calculation.Disposition);
+
+        var failingBundle = passing.Bundle with
+        {
+            Facts = [new("status", SelectorValueKind.String, "failed")]
+        };
+        failingBundle = SignBundle(failingBundle, passing.Kms);
+        var failBytes = passing.WithBundle(failingBundle);
+        var fail = await passing.Authority.VerifyRawAsync(failBytes, passing.Transport);
+        Assert.Equal(VerificationDisposition.Failed, fail.Calculation.Disposition);
+    }
+
+    [Fact]
+    public async Task A1_ReadinessFailsClosedForMissingDuplicateExceptionTimeoutStaleAndMismatch()
+    {
+        var dependencies = Enum.GetValues<PhaseADependencyV3>();
+        var literalDependencies = new[]
+        {
+            PhaseADependencyV3.Configuration, PhaseADependencyV3.WorkloadIdentity,
+            PhaseADependencyV3.IssuerRegistry, PhaseADependencyV3.AudiencePolicy,
+            PhaseADependencyV3.SubjectRoleScopeResolver, PhaseADependencyV3.KeyRegistry,
+            PhaseADependencyV3.AlgorithmVersionPolicy, PhaseADependencyV3.TrustedClock,
+            PhaseADependencyV3.DurableControlPlane, PhaseADependencyV3.KmsHsm,
+            PhaseADependencyV3.LifecycleController, PhaseADependencyV3.OracleRegistry,
+            PhaseADependencyV3.EvidenceReaderRegistry, PhaseADependencyV3.ImmutableAuditEvidence,
+            PhaseADependencyV3.TargetIdentityAndAcl
+        };
+        Assert.Equal(literalDependencies, dependencies);
+
+        var providers = literalDependencies
+            .Select(dependency => (IReadinessDependencyProvider)new ReadyProvider(dependency, Now))
+            .ToList();
         var ready = await new PhaseAReadinessAuthority(
             Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
             providers,
             new FixedTimeProvider(Now)).CheckAsync();
         Assert.True(ready.CanExecuteProtectedOperation);
 
-        var duplicate = await new PhaseAReadinessAuthority(
+        var stale = providers.ToList();
+        stale[0] = new ReadyProvider(literalDependencies[0], Now.AddMinutes(-2));
+        var staleSnapshot = await new PhaseAReadinessAuthority(
             Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
-            [.. providers, new FakeDependencyProvider(PhaseADependencyV3.KmsHsm, ReadinessDependencyStateV3.READY)],
+            stale,
             new FixedTimeProvider(Now)).CheckAsync();
-        Assert.False(duplicate.CanExecuteProtectedOperation);
-        Assert.Equal(ReadinessDependencyStateV3.POLICY_MISMATCH,
-            Assert.Single(duplicate.Dependencies,
-                item => item.Dependency == PhaseADependencyV3.KmsHsm).State);
+        Assert.False(staleSnapshot.CanExecuteProtectedOperation);
+        Assert.Equal(ReadinessDependencyStateV3.UNAVAILABLE, staleSnapshot.Dependencies[0].State);
 
-        var falseReady = providers
-            .Where(provider => provider.Dependency != PhaseADependencyV3.TrustedClock)
-            .Append(new FixedDependencyProvider(new(
-                PhaseADependencyV3.TrustedClock,
-                ReadinessDependencyStateV3.READY,
-                "clock-v2",
-                "clock-v1",
-                "READY")))
-            .ToArray();
-        var versionMismatch = await new PhaseAReadinessAuthority(
+        var throwing = providers.ToList();
+        throwing[0] = new ThrowingProvider(literalDependencies[0]);
+        var unavailable = await new PhaseAReadinessAuthority(
             Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
-            falseReady,
+            throwing,
             new FixedTimeProvider(Now)).CheckAsync();
-        Assert.False(versionMismatch.CanExecuteProtectedOperation);
-        Assert.Equal(ReadinessDependencyStateV3.VERSION_MISMATCH,
-            Assert.Single(versionMismatch.Dependencies,
-                item => item.Dependency == PhaseADependencyV3.TrustedClock).State);
+        Assert.Equal(ReadinessDependencyStateV3.UNAVAILABLE, unavailable.Dependencies[0].State);
     }
 
     [Fact]
-    public void EveryReadinessStateHasAnExactTypedFailureCode()
+    public void A1_ImmutableAuditEventBindsExactStateGrantLeaseAttemptTransactionAndKey()
     {
-        var expected = new Dictionary<ReadinessDependencyStateV3, TrustFailureCodeV2>
+        var valid = new ImmutableAuditEventV3(
+            "event", AuditEventKindV3.LIFECYCLE_COMMITTED, "correlation", "actor", "C1", "instance",
+            "resource", "EXECUTE", Hash, "policy", "COMMITTED", Hash, Now,
+            ControllerLifecycleState.MigrationAuthorized, 7, ControllerLifecycleState.Migrating, 8,
+            "attempt", Hash, "lease", 4, 9, "transaction", "key", "v1");
+        PhaseAContractValidator.RequireValid(valid);
+        AssertCode(
+            () => PhaseAContractValidator.RequireValid(valid with { AttemptId = string.Empty }),
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+    }
+
+    [Fact]
+    public async Task A1_AuditAppendFailureCannotReturnProtectedSuccessOrVerdict()
+    {
+        var fixture = EvidenceFixture.Create(auditSucceeds: false);
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.VerifyRawAsync(
+                fixture.CanonicalEvidence,
+                fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.AUDIT_APPEND_FAILED, failure.Code);
+        Assert.Equal(1, fixture.Oracle.EvaluationCount);
+    }
+
+    [Fact]
+    public async Task A1_ConcurrentDuplicateThroughRawAuthorityHasOneOwnerAndOneDelegate()
+    {
+        var controller = new CoordinatedController();
+        var fixture = CommandFixture.Create(controller: controller);
+        var calls = Enumerable.Range(0, 8).Select(_ => fixture.InvokeAsync().AsTask()).ToArray();
+        var results = await Task.WhenAll(calls);
+        Assert.Equal(1, results.Count(result => result.TransactionOutcome == ControlTransactionOutcomeV3.FIRST_OWNER));
+        Assert.Equal(7, results.Count(result => result.TransactionOutcome == ControlTransactionOutcomeV3.IN_PROGRESS));
+        Assert.Equal(1, controller.BusinessExecutionCount);
+    }
+
+    [Fact]
+    public async Task A1_ChangedPayloadIdempotencyCollisionNeverReusesResult()
+    {
+        var controller = new DigestBindingController();
+        var first = CommandFixture.Create(controller: controller);
+        var initial = await first.InvokeAsync();
+        Assert.Equal(ControlTransactionOutcomeV3.FIRST_OWNER, initial.TransactionOutcome);
+
+        var changed = CommandFixture.Create(
+            controller: controller,
+            payloadMutation: payload => payload with { ActionId = "different-action" });
+        var collision = await changed.InvokeAsync();
+        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH, collision.FailureCode);
+        Assert.Equal(1, controller.BusinessExecutionCount);
+    }
+
+    [Fact]
+    public void A1_OpaquePageTokenBindsScopeSnapshotPriorDigestExpiryAndLimit()
+    {
+        var scope = new CompanyDatabaseScopeV3(
+            "C1", "cluster", "instance", MasterScopeKindV3.COMPANY_LEDGER);
+        var expected = new OpaquePageTokenBindingV3(
+            "issuer", "subject", scope, "resource", "query-v1", "snapshot", 1_000,
+            Now.AddMinutes(5), Hash);
+        PhaseAContractValidator.RequireValid(expected, expected, Now);
+        AssertCode(
+            () => PhaseAContractValidator.RequireValid(
+                expected with { Scope = scope with { OrganizationId = "C2" } },
+                expected,
+                Now),
+            TrustFailureCodeV2.PAGINATION_TOKEN_INVALID);
+        AssertCode(
+            () => PhaseAContractValidator.RequireValid(
+                expected with { PageSize = PhaseAContractLimits.MaximumPageSize + 1 },
+                expected,
+                Now),
+            TrustFailureCodeV2.PAGINATION_TOKEN_INVALID);
+    }
+
+    [Fact]
+    public async Task A1_AllForbiddenEvidenceAuditAndReadinessFieldsAreRejectedAndSanitized()
+    {
+        var fixture = EvidenceFixture.Create(sensitiveField: "password");
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => fixture.Authority.VerifyRawAsync(
+                fixture.CanonicalEvidence,
+                fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD, failure.Code);
+        Assert.DoesNotContain("secret-value", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(0, fixture.Audit.AppendCount);
+    }
+
+    [Fact]
+    public async Task A1_DecisiveSecurityMutationManifestHasZeroSurvivors()
+    {
+        var killed = new List<string>();
+
+        var command = CommandFixture.Create(headerMutation: header => header with { AuthorizedScope = "ORG:C2" });
+        var commandFailure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => command.InvokeAsync().AsTask());
+        if (commandFailure.Code == TrustFailureCodeV2.SCOPE_MISMATCH) killed.Add("command-scope");
+
+        var evidence = EvidenceFixture.Create();
+        var tampered = evidence.Bundle with { FactsSha256 = new string('f', 64) };
+        var evidenceFailure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(
+            () => evidence.Authority.VerifyRawAsync(evidence.WithBundle(tampered), evidence.Transport).AsTask());
+        if (evidenceFailure.Code == TrustFailureCodeV2.EVIDENCE_TAMPERED) killed.Add("evidence-hash");
+
+        var state = Command(
+            ControllerLifecycleState.Accepted,
+            ControllerOperationV2.COMPLETE_EXPORT,
+            "ExportExecutor",
+            ["delivery-receipt"],
+            true,
+            exportState: ExportAuthorizationSubstateV3.AUTHORIZED,
+            authorizationState: AuthorizationGrantStateV3.CONSUMED);
+        try
         {
-            [ReadinessDependencyStateV3.READY] = TrustFailureCodeV2.NONE,
-            [ReadinessDependencyStateV3.NOT_CONFIGURED] = TrustFailureCodeV2.DEPENDENCY_NOT_CONFIGURED,
-            [ReadinessDependencyStateV3.UNAVAILABLE] = TrustFailureCodeV2.DEPENDENCY_UNAVAILABLE,
-            [ReadinessDependencyStateV3.VERSION_MISMATCH] = TrustFailureCodeV2.DEPENDENCY_VERSION_MISMATCH,
-            [ReadinessDependencyStateV3.IDENTITY_MISMATCH] = TrustFailureCodeV2.DEPENDENCY_IDENTITY_MISMATCH,
-            [ReadinessDependencyStateV3.POLICY_MISMATCH] = TrustFailureCodeV2.DEPENDENCY_POLICY_MISMATCH,
-            [ReadinessDependencyStateV3.DEGRADED_NOT_SAFE] = TrustFailureCodeV2.DEPENDENCY_DEGRADED_UNSAFE
+            new Rev869BControllerStateMachine().RequirePhaseACommand(state, Now);
+        }
+        catch (TrustFailureExceptionV2 exception) when (exception.Code == TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL)
+        {
+            killed.Add("export-skip");
+        }
+
+        var providers = Enum.GetValues<PhaseADependencyV3>()
+            .Select(dependency => (IReadinessDependencyProvider)new ReadyProvider(dependency, Now))
+            .Skip(1);
+        var snapshot = await new PhaseAReadinessAuthority(
+            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+            providers,
+            new FixedTimeProvider(Now)).CheckAsync();
+        if (!snapshot.CanExecuteProtectedOperation) killed.Add("readiness-missing");
+
+        Assert.Equal(
+            ["command-scope", "evidence-hash", "export-skip", "readiness-missing"],
+            killed);
+    }
+
+    [Fact]
+    public void A1_ReviewedPhaseARangeHasNoWhitespaceOrConflictMarkerError()
+    {
+        var root = FindRoot();
+        var allowlist = new[]
+        {
+            "src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs",
+            "src/SESS.NexaERP.ControlPlane.Contracts/Rev869BCompatibilityManifestV1.cs",
+            "src/SESS.NexaERP.ControlPlane/Domain/Rev869BExecutionBinding.cs",
+            "src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs",
+            "src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs",
+            "src/SESS.NexaERP.ControlPlane/Configuration/ControlPlaneOptions.cs",
+            "src/SESS.NexaERP.ControlPlane/Program.cs",
+            "src/SESS.NexaERP.ControlPlane/Endpoints/ControllerContractEndpointsV1.cs",
+            "src/SESS.NexaERP.AcceptanceVerifier/Configuration/AcceptanceVerifierOptions.cs",
+            "src/SESS.NexaERP.AcceptanceVerifier/Program.cs",
+            "src/SESS.NexaERP.AcceptanceVerifier/Verification/ClosedEvidenceVerifierV1.cs",
+            "tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs",
+            "outputs/rev869b_external_controller_phase_a_checkpoint.md"
         };
-        Assert.Equal(Enum.GetValues<ReadinessDependencyStateV3>().Length, expected.Count);
-        Assert.All(expected, pair => Assert.Equal(pair.Value, PhaseAContractValidator.FailureFor(pair.Key)));
-        Assert.Equal(Enum.GetValues<TrustFailureCodeV2>().Length,
-            Enum.GetValues<TrustFailureCodeV2>().Distinct().Count());
-    }
-
-    [Fact]
-    public void PhaseAEvidenceAndAuditSurfacesContainNoCallerVerdictOrSecretMaterial()
-    {
-        var evidenceProperties = typeof(CanonicalEvidenceEnvelopeV3)
-            .GetProperties().Select(static property => property.Name).ToArray();
-        Assert.DoesNotContain(evidenceProperties,
-            name => name.Contains("Disposition", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Verdict", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("Expected", StringComparison.OrdinalIgnoreCase));
-
-        foreach (var type in new[]
-                 {
-                     typeof(CanonicalEvidenceEnvelopeV3),
-                     typeof(ImmutableAuditEventV3),
-                     typeof(ReadinessSnapshotV3),
-                     typeof(DeploymentIdentityDescriptorV3)
-                 })
+        Assert.Equal(13, allowlist.Length);
+        foreach (var relative in allowlist)
         {
-            Assert.DoesNotContain(type.GetProperties(), property =>
-                property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase) ||
-                property.Name.Contains("PrivateKey", StringComparison.OrdinalIgnoreCase) ||
-                property.Name.Contains("Secret", StringComparison.OrdinalIgnoreCase) ||
-                property.Name.Equals("Token", StringComparison.OrdinalIgnoreCase));
+            var lines = File.ReadAllLines(Path.Combine(root, relative));
+            Assert.DoesNotContain(lines, static line => line.EndsWith(' ') || line.EndsWith('\t'));
+            Assert.DoesNotContain(lines, static line =>
+                line.StartsWith("<<<<<<<", StringComparison.Ordinal) ||
+                line.StartsWith("=======", StringComparison.Ordinal) ||
+                line.StartsWith(">>>>>>>", StringComparison.Ordinal));
         }
     }
 
     [Fact]
-    public void PhaseAContractBoundsAreFiniteAndEnforced()
+    public void A1_PhaseBImplementationDoesNotLeakIntoCorrection()
     {
-        Assert.Equal(98_304, PhaseAContractLimits.MaximumCommandEnvelopeBytes);
-        Assert.Equal(4_194_304, PhaseAContractLimits.MaximumEvidenceEnvelopeBytes);
-        Assert.Equal(512, PhaseAContractLimits.MaximumObservations);
-        Assert.Equal(1_000, PhaseAContractLimits.MaximumPageSize);
-        Assert.Equal(3, PhaseAContractLimits.MaximumTransientRetries);
-
-        var intent = new UntrustedBusinessIntentV3(
-            "request-1",
-            "idempotency-1",
-            "AUTHORIZE_PREPARE",
-            new("C1", "cluster-1", "instance-1", MasterScopeKindV3.COMPANY_LEDGER),
-            "TARGET",
-            "resource-1",
-            1,
-            Now,
-            Now.AddMinutes(1),
-            new Dictionary<string, string> { ["oversized"] = new string('x', PhaseAContractLimits.MaximumStringBytes + 1) });
-        var rejection = Assert.Throws<TrustFailureExceptionV2>(() => PhaseAContractValidator.RequireValid(intent));
-        Assert.Equal(TrustFailureCodeV2.CONTRACT_LIMIT_EXCEEDED, rejection.Code);
+        var references = typeof(PhaseAControlPlaneAuthority).Assembly.GetReferencedAssemblies()
+            .Select(static assembly => assembly.Name)
+            .ToArray();
+        Assert.DoesNotContain("Npgsql", references);
+        Assert.DoesNotContain("Microsoft.EntityFrameworkCore", references);
+        Assert.DoesNotContain(
+            typeof(PhaseAControlPlaneAuthority).Assembly.ExportedTypes,
+            static type => type.Name.Contains("DbContext", StringComparison.Ordinal) ||
+                           type.Name.Contains("Migration", StringComparison.Ordinal));
     }
 
-    private static async Task AssertEvidenceFailure(EvidenceFixture fixture, TrustFailureCodeV2 expected)
+    private static string Concept(LifecycleRuleV3 rule) => rule.RuleId switch
     {
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.Verifier.VerifyAsync(fixture.Request));
-        Assert.Equal(expected, rejection.Code);
-    }
-
-    private static async Task AssertResignedHeaderFailure(
-        Func<CanonicalSignedHeaderV2, CanonicalSignedHeaderV2> mutate,
-        TrustFailureCodeV2 expected)
-    {
-        var fixture = V2Fixture.Create();
-        var changedHeader = mutate(fixture.Envelope.Header);
-        var resigned = expected == TrustFailureCodeV2.KEY_UNKNOWN
-            ? fixture.Envelope with { Header = changedHeader }
-            : fixture.Sign(changedHeader, fixture.Envelope.Payload);
-        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
-            await fixture.VerifyAsync(resigned, fixture.Subject, fixture.Resource));
-        Assert.Equal(expected, rejection.Code);
-    }
-
-    private static ControlPlaneOptions Options(string database, string[] patterns) => new()
-    {
-        ServiceIdentity = "sess-control-plane",
-        IssuerId = "controller-issuer",
-        Audience = "control-plane",
-        ControlPlaneDatabaseIdentity = database,
-        CommandSigningKeyId = "command-key",
-        EvidenceVerificationKeyId = "evidence-key",
-        ContractVersion = Rev869BCompatibilityManifestV2.ContractVersion,
-        EvidenceVersion = Rev869BCompatibilityManifestV2.EvidenceVersion,
-        CanonicalizationVersion = Rev869BCompatibilityManifestV2.CanonicalizationVersion,
-        OwnershipContractVersion = Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
-        ReadinessPolicyVersion = Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
-        DurableProviderContractVersion = Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion,
-        CanonicalEnvelopeVersion = Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion,
-        RetentionPolicyReference = "retention-1",
-        MaximumEvidenceObservations = 100,
-        MaximumFactsPerObservation = 100,
-        MaximumReplayWindowSeconds = 300,
-        MaximumLeaseSeconds = 300,
-        MaximumClockSkewSeconds = 30,
-        MaximumEnvelopeBytes = 98_304,
-        MaximumSelectors = 128,
-        MaximumStringBytes = 4_096,
-        MaximumCumulativeFacts = 10_000,
-        ControlPlaneEndpoint = "https://control-plane.invalid",
-        AcceptanceVerifierEndpoint = "https://acceptance-verifier.invalid",
-        AllowedTargetEnvironments = ["test"],
-        AllowedDatabaseIdentityPatterns = patterns,
-        AllowedIssuerIds = ["controller-issuer"],
-        AllowedAudiences = ["control-plane"],
-        AllowedRoles = ["Operator"],
-        AllowedScopes = ["ORG:C1"],
-        AllowedOperations = ["AUTHORIZE_PREPARE"]
+        "registered-authorize-prepare" => "prepare-authorize",
+        "preflight-prepare" => "prepare-start",
+        "provisioning-complete" => "prepare-complete",
+        "provisioning-fail" => "prepare-fail",
+        "ready-authorize-execute" => "execute-authorize",
+        "authorized-execute" => "execute-start",
+        "migrating-complete" => "execute-complete",
+        "migrating-fail" => "execute-fail",
+        "verification-accept" => "verify-accept",
+        "verification-reject" => "verify-reject",
+        "any-quarantine" => "quarantine",
+        "quarantined-authorize-recover" => "recover-authorize",
+        "authorized-recover" => "recover-start",
+        "recovering-complete" => "recover-complete",
+        "recovering-fail" => "recover-fail",
+        "accepted-authorize-drop" or "failed-authorize-drop" or "quarantined-authorize-drop" => "drop-authorize",
+        "authorized-drop" => "drop",
+        "dropped-authorize-purge" => "purge-authorize",
+        "authorized-purge" => "purge-start",
+        "purging-complete" => "purge-complete",
+        "purging-fail" => "purge-fail",
+        "accepted-authorize-export" or "accepted-reauthorize-expired-export" or
+            "accepted-reauthorize-failed-export" => "export-authorize",
+        "accepted-export" => "export-start",
+        "accepted-complete-export" => "export-complete",
+        "any-cancel-active-authorization" => "authorization-cancel",
+        "any-expire-active-authorization" => "authorization-expire",
+        _ => throw new InvalidOperationException($"Unknown frozen rule {rule.RuleId}.")
     };
 
-    private static LifecycleCommandV1 Command() => new(
-        "command-1", ControllerCommandKind.BeginPreflight, Binding(), ControllerLifecycleState.Registered,
-        ControllerLifecycleState.Preflight, new LeaseExpectation("lease-1", 1),
-        new IdempotencyReplayKey("replay-1", Now.AddMinutes(2)),
-        new CommandAuthorization("operator-1", [ControllerRole.Operator], Now), Now);
+    private static HashSet<(ControllerLifecycleState, ControllerOperationV2)> FrozenLegalPairs() =>
+    [
+        (ControllerLifecycleState.Registered, ControllerOperationV2.AUTHORIZE_PREPARE),
+        (ControllerLifecycleState.Preflight, ControllerOperationV2.PREPARE),
+        (ControllerLifecycleState.Provisioning, ControllerOperationV2.COMPLETE_PREPARE),
+        (ControllerLifecycleState.Provisioning, ControllerOperationV2.FAIL),
+        (ControllerLifecycleState.Ready, ControllerOperationV2.AUTHORIZE_EXECUTE),
+        (ControllerLifecycleState.MigrationAuthorized, ControllerOperationV2.EXECUTE),
+        (ControllerLifecycleState.Migrating, ControllerOperationV2.COMPLETE_EXECUTE),
+        (ControllerLifecycleState.Migrating, ControllerOperationV2.FAIL),
+        (ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_ACCEPT),
+        (ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_REJECT),
+        (ControllerLifecycleState.Quarantined, ControllerOperationV2.AUTHORIZE_RECOVER),
+        (ControllerLifecycleState.RecoveryAuthorized, ControllerOperationV2.RECOVER),
+        (ControllerLifecycleState.Recovering, ControllerOperationV2.COMPLETE_RECOVER),
+        (ControllerLifecycleState.Recovering, ControllerOperationV2.FAIL),
+        (ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_DROP),
+        (ControllerLifecycleState.Failed, ControllerOperationV2.AUTHORIZE_DROP),
+        (ControllerLifecycleState.Quarantined, ControllerOperationV2.AUTHORIZE_DROP),
+        (ControllerLifecycleState.DropAuthorized, ControllerOperationV2.DROP),
+        (ControllerLifecycleState.Dropped, ControllerOperationV2.AUTHORIZE_PURGE),
+        (ControllerLifecycleState.PurgeAuthorized, ControllerOperationV2.PURGE),
+        (ControllerLifecycleState.Purging, ControllerOperationV2.COMPLETE_PURGE),
+        (ControllerLifecycleState.Purging, ControllerOperationV2.FAIL),
+        (ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_EXPORT),
+        (ControllerLifecycleState.Accepted, ControllerOperationV2.EXPORT),
+        (ControllerLifecycleState.Accepted, ControllerOperationV2.COMPLETE_EXPORT)
+    ];
 
-    private static Rev869BExecutionBinding Binding() => new(
-        new CompanyScope("C1"), new ControlPlaneInstanceIdentity("cp-1"),
-        new TargetErpInstanceIdentity("erp-1", "test", "rev869b_case_01"),
-        "lease-1", 1, "operation-1", "preparation-1", "attempt-1", "execution-1",
-        "scenario-1", "subcase-1", "oracle-1", "action-1");
-
-    private static CanonicalEvidenceEnvelopeV1 SignedEvidence(FakeCrypto crypto)
+    private static VerifiedLifecycleCommandV3 Command(
+        ControllerLifecycleState state,
+        ControllerOperationV2 operation,
+        string role,
+        IReadOnlyList<string> evidenceIds,
+        bool requiresLease,
+        ExportAuthorizationSubstateV3 exportState = ExportAuthorizationSubstateV3.NONE,
+        AuthorizationGrantStateV3 authorizationState = AuthorizationGrantStateV3.ACTIVE)
     {
-        var facts = new Dictionary<string, TypedSelectorValueV1>
-        {
-            ["count"] = new(SelectorValueKind.Integer, "1")
-        };
-        var unsigned = new CanonicalEvidenceEnvelopeV1(
-            Rev869BCompatibilityManifestV1.EvidenceVersion,
-            Rev869BCompatibilityManifestV1.ContractVersion,
-            Binding(),
-            [new EvidenceSelectorV1("count", "eq", new TypedSelectorValueV1(SelectorValueKind.Integer, "1"),
-                new SelectorReaderProvenanceV1("reader-1", "facts-v1", ObservationSourceKind.TargetDatabase))],
-            [
-                new FactOnlyObservationV1("before-1", ObservationStage.Before, new(ObservationSourceKind.TargetDatabase, "db", Now), facts),
-                new FactOnlyObservationV1("after-1", ObservationStage.After, new(ObservationSourceKind.TargetDatabase, "db", Now), facts),
-                new FactOnlyObservationV1("durable-1", ObservationStage.Durable, new(ObservationSourceKind.ControllerLedger, "ledger", Now), facts)
-            ],
-            new ActionResultV1(true, 1, null, null, "object-1", "complete", 200, "evidence-1"),
-            EmptySignature(crypto.KeyId),
-            "evidence-envelope-1",
-            "oracle-v1",
-            new string('A', 64));
-        return SignEvidence(unsigned, crypto);
-    }
-
-    private static SignatureMetadataV1 EmptySignature(string keyId) => new(
-        keyId, Rev869BCompatibilityManifestV1.SignatureAlgorithm,
-        Rev869BCompatibilityManifestV1.CanonicalizationVersion, string.Empty, string.Empty, Now);
-
-    private static CanonicalEvidenceEnvelopeV1 SignEvidence(CanonicalEvidenceEnvelopeV1 unsigned, FakeCrypto crypto)
-    {
-        var canonical = CanonicalJsonV1.Serialize(unsigned);
-        return unsigned with
-        {
-            Signature = unsigned.Signature with
-            {
-                PayloadSha256 = Convert.ToHexString(SHA256.HashData(canonical)),
-                SignatureBase64 = Convert.ToBase64String(crypto.Sign(canonical))
-            }
-        };
-    }
-
-    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => now;
-    }
-
-    private sealed class FakeCrypto(string keyId) : IEnvelopeSigner, IEnvelopeSignatureVerifier, IEvidenceSignatureVerifier
-    {
-        public string KeyId { get; } = keyId;
-        public byte[] Sign(ReadOnlySpan<byte> canonicalPayload) => SHA256.HashData(canonicalPayload);
-        public bool Verify(string requestedKeyId, ReadOnlySpan<byte> canonicalPayload, ReadOnlySpan<byte> signature) =>
-            requestedKeyId == KeyId && CryptographicOperations.FixedTimeEquals(Sign(canonicalPayload), signature);
-        public SigningKeyDescriptor? FindKey(string requestedKeyId) => requestedKeyId == KeyId
-            ? new(KeyId, Rev869BCompatibilityManifestV1.SignatureAlgorithm, SigningKeyState.Active, Now.AddDays(-1), Now.AddDays(1), null)
+        var scope = new CompanyDatabaseScopeV3(
+            "C1", "cluster", "instance", MasterScopeKindV3.COMPANY_LEDGER);
+        var resolved = new ResolvedAuthorizationV3(
+            "authorization", "issuer", "subject", "workload", "audience",
+            operation.ToString(), role, "ORG:C1", "policy-v1", "row-v1", Hash,
+            Now.AddHours(-1), Now.AddHours(1));
+        var lease = requiresLease
+            ? new LeaseFenceExpectationV3(
+                "lease", 1, 9, Now.AddMinutes(5), "subject", "resource")
             : null;
+        var evidence = evidenceIds.Select(id => new EvidenceRequirementV3(
+            id,
+            id,
+            "reader-v1",
+            EvidenceStageV3.DURABLE,
+            Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+            10,
+            1_024)).ToArray();
+        var binding = new AuthorizationBindingV3(
+            resolved,
+            scope,
+            "REV869B_TARGET",
+            "resource",
+            7,
+            operation.ToString(),
+            Hash,
+            Hash,
+            lease?.LeaseId ?? "lease-none",
+            lease?.FencingToken ?? 0,
+            AuthorizationGrantStateV3.ACTIVE);
+        return new(
+            "command",
+            operation,
+            state,
+            7,
+            binding,
+            lease,
+            evidence,
+            new("issuer", "C1", "instance", operation.ToString(), "request", "idempotency", Hash),
+            new("issuer", "nonce", Now.AddHours(1), Hash),
+            "audit",
+            Hash,
+            authorizationState,
+            exportState,
+            "attempt");
     }
 
-    private sealed class KeyRegistry(SigningKeyDescriptor key) : ISigningKeyRegistry
+    private static void AssertCode(Action action, TrustFailureCodeV2 expected)
     {
-        public SigningKeyDescriptor Key { get; } = key;
-        public SigningKeyDescriptor? Find(string keyId) => keyId == Key.KeyId ? Key : null;
+        var exception = Assert.Throws<TrustFailureExceptionV2>(action);
+        Assert.Equal(expected, exception.Code);
     }
 
-    private sealed class ReplayGuard : IReplayGuard
+    private sealed class CommandFixture
     {
-        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
-        public bool TryAccept(string replayKey, DateTimeOffset expiresAtUtc) => _seen.Add(replayKey);
-    }
-
-    private sealed class PassingOracle(string oracleId) : IClosedOracleV1
-    {
-        public string OracleId { get; } = oracleId;
-        public bool Evaluate(CanonicalEvidenceEnvelopeV1 evidence) => true;
-    }
-
-    private sealed class OracleCatalog(IClosedOracleV1 oracle) : IClosedOracleCatalogV1
-    {
-        public IClosedOracleV1? Find(string oracleId) => oracleId == oracle.OracleId ? oracle : null;
-    }
-
-    private sealed class AuditSink : IVerificationAuditSinkV1
-    {
-        public VerificationAuditEventV1? Event { get; private set; }
-        public string Append(VerificationAuditEventV1 auditEvent)
+        private CommandFixture(
+            PhaseAControlPlaneAuthority authority,
+            CanonicalSignedHeaderV2 header,
+            byte[] headerBytes,
+            byte[] payloadBytes,
+            byte[] signature,
+            AuthenticatedWorkloadIdentityV3 transport,
+            CountingController controller)
         {
-            Event = auditEvent;
-            return "audit-1";
+            Authority = authority;
+            Header = header;
+            HeaderBytes = headerBytes;
+            PayloadBytes = payloadBytes;
+            Signature = signature;
+            Transport = transport;
+            Controller = controller;
         }
-    }
 
-    private sealed class V2Fixture
-    {
-        public const string Nonce = "AAECAwQFBgcICQoLDA0ODw";
-        public const string SecondNonce = "AQIDBAUGBwgJCgsMDQ4PEA";
+        public PhaseAControlPlaneAuthority Authority { get; }
+        public CanonicalSignedHeaderV2 Header { get; }
+        public byte[] HeaderBytes { get; }
+        public byte[] PayloadBytes { get; }
+        public byte[] Signature { get; }
+        public AuthenticatedWorkloadIdentityV3 Transport { get; }
+        public CountingController Controller { get; }
 
-        private V2Fixture(
-            SignedCommandServiceV2 service,
-            SignedCommandEnvelopeV2 envelope,
-            AuthenticatedSubjectV2 subject,
-            ResourceBindingV2 resource,
-            FakeNonceStore nonces,
-            FakeIdempotencyStore idempotency,
-            FakeTrustAuditSink audit,
-            FakeCrypto crypto)
+        public ValueTask<LifecycleTransitionResultV3> InvokeAsync() =>
+            Authority.AcceptRawCommandAsync(HeaderBytes, PayloadBytes, Signature, Transport);
+
+        public static CommandFixture Create(
+            Func<CanonicalSignedHeaderV2, CanonicalSignedHeaderV2>? headerMutation = null,
+            Func<CanonicalCommandPayloadV2, CanonicalCommandPayloadV2>? payloadMutation = null,
+            CountingController? controller = null)
         {
-            Service = service;
-            Envelope = envelope;
-            Subject = subject;
-            Resource = resource;
-            Nonces = nonces;
-            Idempotency = idempotency;
-            Audit = audit;
-            Crypto = crypto;
-        }
-
-        public SignedCommandServiceV2 Service { get; }
-        public SignedCommandEnvelopeV2 Envelope { get; }
-        public AuthenticatedSubjectV2 Subject { get; }
-        public ResourceBindingV2 Resource { get; }
-        public FakeNonceStore Nonces { get; }
-        public FakeIdempotencyStore Idempotency { get; }
-        public FakeTrustAuditSink Audit { get; }
-        private FakeCrypto Crypto { get; }
-
-        public static V2Fixture Create(IReadOnlySet<string>? trustedRoles = null)
-        {
-            trustedRoles ??= new HashSet<string>(["Operator"], StringComparer.Ordinal);
-            var crypto = new FakeCrypto("command-key");
-            var key = new SigningKeyDescriptor(
-                crypto.KeyId,
-                Rev869BCompatibilityManifestV2.SignatureAlgorithm,
-                SigningKeyState.Active,
-                Now.AddDays(-1),
-                Now.AddDays(1),
-                null);
-            var issuer = new TrustedIssuerDescriptorV2(
-                "controller-issuer",
-                new HashSet<string>(["control-plane"], StringComparer.Ordinal),
-                new HashSet<string>([Rev869BCompatibilityManifestV2.ContractVersion], StringComparer.Ordinal),
-                new HashSet<string>([Rev869BCompatibilityManifestV2.SignatureAlgorithm], StringComparer.Ordinal),
-                new Dictionary<string, SigningKeyDescriptor>(StringComparer.Ordinal) { [key.KeyId] = key },
-                new HashSet<string>(["operator-1"], StringComparer.Ordinal),
-                new HashSet<string>(trustedRoles, StringComparer.Ordinal),
-                new HashSet<string>(["ORG:C1"], StringComparer.Ordinal),
-                Enum.GetNames<ControllerOperationV2>().ToHashSet(StringComparer.Ordinal),
-                Now.AddDays(-1),
-                null);
-            var subject = new AuthenticatedSubjectV2(
-                issuer.IssuerId,
-                "operator-1",
-                "workload-1",
-                "control-plane",
-                new HashSet<string>(trustedRoles, StringComparer.Ordinal),
-                new HashSet<string>(["ORG:C1"], StringComparer.Ordinal));
-            var resource = new ResourceBindingV2(
-                "C1", "cluster-1", "instance-1", "TARGET", "resource-1", 1, "AUTHORIZE_PREPARE");
-            var nonces = new FakeNonceStore();
-            var idempotency = new FakeIdempotencyStore();
-            var audit = new FakeTrustAuditSink();
-            var controller = new FakeLifecycleController(nonces, idempotency, audit);
-            var service = new SignedCommandServiceV2(
-                crypto,
-                new FakeIssuerRegistry(issuer),
-                new FakeAuthorizationResolver(subject),
-                controller,
-                new FixedTimeProvider(Now),
-                TimeSpan.FromMinutes(5),
-                TimeSpan.FromSeconds(30));
+            controller ??= new CountingController();
             var payload = new CanonicalCommandPayloadV2(
                 ControllerOperationV2.AUTHORIZE_PREPARE,
                 ControllerLifecycleState.Registered,
                 ControllerLifecycleState.Preflight,
-                new ScenarioIdentityV1("scenario-1"),
-                new SubcaseIdentityV1("subcase-1"),
-                "action-1",
-                new Dictionary<string, string>(StringComparer.Ordinal) { ["manifest"] = "sha256:abc" },
+                new("scenario"),
+                new("subcase"),
+                "action",
+                new Dictionary<string, string>(StringComparer.Ordinal),
                 ["target-registration"]);
-            var emptyHeader = new CanonicalSignedHeaderV2(
+            payload = payloadMutation?.Invoke(payload) ?? payload;
+            var payloadBytes = CanonicalJsonV1.Serialize(payload);
+            var header = new CanonicalSignedHeaderV2(
                 Rev869BCompatibilityManifestV2.ContractVersion,
                 Rev869BCompatibilityManifestV2.CanonicalizationVersion,
                 Rev869BCompatibilityManifestV2.SignatureAlgorithm,
-                crypto.KeyId,
-                issuer.IssuerId,
-                "control-plane",
-                subject.SubjectId,
+                "key",
+                "issuer",
+                "audience",
+                "subject",
                 "Operator",
                 "ORG:C1",
-                resource.OrganizationId,
-                resource.DatabaseClusterId,
-                resource.DatabaseInstanceId,
-                resource.Operation,
-                resource.ResourceId,
-                resource.ExpectedResourceVersion,
+                "C1",
+                "cluster",
+                "instance",
+                payload.Operation.ToString(),
+                "resource",
+                7,
                 "lease-none",
-                1,
-                "request-1",
-                "idempotency-1",
-                Nonce,
-                Now,
-                Now,
-                Now.AddMinutes(2),
-                new string('0', 64),
-                0);
-            var fixture = new V2Fixture(
-                service,
-                new SignedCommandEnvelopeV2(emptyHeader, payload, []),
-                subject,
-                resource,
-                nonces,
-                idempotency,
-                audit,
-                crypto);
-            return fixture.WithEnvelope(fixture.Sign(emptyHeader, payload));
+                0,
+                "request",
+                "idempotency",
+                "AAAAAAAAAAAAAAAAAAAAAA",
+                Now.AddMinutes(-1),
+                Now.AddMinutes(-1),
+                Now.AddMinutes(5),
+                Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant(),
+                payloadBytes.Length);
+            header = headerMutation?.Invoke(header) ?? header;
+            var headerBytes = CanonicalSignedHeaderCodecV2.Serialize(header);
+            var kms = new FakeKms();
+            var authority = new PhaseAControlPlaneAuthority(
+                new FakeKeyRegistry(),
+                new FixedAudiencePolicy(),
+                new FixedAuthorizationResolver(),
+                new FixedAlgorithmPolicy(),
+                new FixedClockPolicy(),
+                kms,
+                new FixedLeaseAuthority(),
+                new FakeReaderRegistry(),
+                controller,
+                new FixedTimeProvider(Now));
+            return new(
+                authority,
+                header,
+                headerBytes,
+                payloadBytes,
+                SHA256.HashData(headerBytes),
+                new("issuer", "subject", "workload", "audience", Hash),
+                controller);
         }
-
-        private V2Fixture WithEnvelope(SignedCommandEnvelopeV2 envelope) =>
-            new(Service, envelope, Subject, Resource, Nonces, Idempotency, Audit, Crypto);
-
-        public SignedCommandEnvelopeV2 Sign(
-            CanonicalSignedHeaderV2 header,
-            CanonicalCommandPayloadV2 payload)
-        {
-            var payloadBytes = CanonicalJsonV1.Serialize(payload);
-            var completed = header with
-            {
-                CanonicalPayloadSha256 = Convert.ToHexString(SHA256.HashData(payloadBytes)).ToLowerInvariant(),
-                CanonicalPayloadLength = payloadBytes.Length
-            };
-            return new(completed, payload, Crypto.Sign(CanonicalSignedHeaderCodecV2.Serialize(completed)));
-        }
-
-        public ValueTask<VerifiedCommandV2> VerifyAsync(
-            SignedCommandEnvelopeV2 envelope,
-            AuthenticatedSubjectV2 subject,
-            ResourceBindingV2 resource) =>
-            Service.VerifyAsync(
-                CanonicalSignedHeaderCodecV2.Serialize(envelope.Header),
-                CanonicalJsonV1.Serialize(envelope.Payload),
-                envelope.Signature,
-                subject,
-                resource);
-
-        public static LeaseFenceV2 Lease() =>
-            new("lease-1", "resource-1", 1, Now.AddMinutes(-1), Now, Now.AddMinutes(1), "worker-1");
     }
 
-    private sealed class FakeIssuerRegistry(TrustedIssuerDescriptorV2 issuer) : ITrustedIssuerRegistry
+    private class CountingController : ILifecycleControllerAuthority
     {
-        public TrustedIssuerDescriptorV2? Resolve(string issuerId, string keyId) =>
-            issuerId == issuer.IssuerId ? issuer : null;
-    }
+        private readonly Rev869BControllerStateMachine _machine = new();
+        private int _callCount;
 
-    private sealed class FakeAuthorizationResolver(AuthenticatedSubjectV2 resolved) : IAuthorizationResolver
-    {
-        public AuthenticatedSubjectV2? Resolve(AuthenticatedSubjectV2 authenticatedSubject, ResourceBindingV2 resource) =>
-            authenticatedSubject.Issuer == resolved.Issuer &&
-            authenticatedSubject.SubjectId == resolved.SubjectId
-                ? resolved
-                : null;
-    }
+        public int CallCount => _callCount;
 
-    private sealed class FakeNonceStore : INonceReplayStore
-    {
-        private readonly HashSet<string> _nonces = new(StringComparer.Ordinal);
-        public int ReservationCount => _nonces.Count;
-
-        public ValueTask<bool> TryReserveAsync(
-            string issuer,
-            string nonce,
-            DateTimeOffset expiresAt,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(_nonces.Add($"{issuer}:{nonce}"));
-    }
-
-    private sealed class FakeLeaseStore(DateTimeOffset now) : ILeaseFenceStore
-    {
-        private LeaseFenceV2? _current;
-        private long _fence;
-
-        public ValueTask<LeaseFenceV2> AcquireAsync(
-            string resourceId,
-            string holderSubject,
-            DateTimeOffset expiresAt,
-            CancellationToken cancellationToken = default)
-        {
-            _current = new(
-                $"lease-{++_fence}", resourceId, _fence, now, now, expiresAt, holderSubject);
-            return ValueTask.FromResult(_current);
-        }
-
-        public ValueTask<LeaseFenceV2> RenewAsync(
-            LeaseFenceV2 current,
-            DateTimeOffset expiresAt,
-            CancellationToken cancellationToken = default)
-        {
-            if (_current != current)
-            {
-                throw new TrustFailureExceptionV2(TrustFailureCodeV2.LEASE_FENCE_STALE, "Stale lease.");
-            }
-
-            _current = current with { FencingToken = ++_fence, RenewedAt = now, ExpiresAt = expiresAt };
-            return ValueTask.FromResult(_current);
-        }
-
-        public ValueTask<LeaseFenceV2?> ReadCurrentAsync(
-            string resourceId,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(_current?.ResourceId == resourceId ? _current : null);
-
-        public ValueTask<bool> ConsumeFenceAsync(
-            LeaseFenceV2 expected,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(_current == expected && expected.ExpiresAt >= now);
-    }
-
-    private sealed class FakeIdempotencyStore : IIdempotencyStore
-    {
-        private readonly object _lock = new();
-        private readonly Dictionary<string, (IdempotencyBindingV2 Binding, IdempotencyOutcomeV2 Outcome)> _rows =
-            new(StringComparer.Ordinal);
-
-        public int ReservationCount { get; private set; }
-        public int AuthoritativeRows => _rows.Count;
-        public IdempotencyOutcomeV2? LastOutcome => _rows.Values.LastOrDefault().Outcome;
-
-        public ValueTask<IdempotencyOutcomeV2> ReserveAsync(
-            IdempotencyBindingV2 binding,
-            CancellationToken cancellationToken = default)
-        {
-            lock (_lock)
-            {
-                var key = Key(binding);
-                if (_rows.TryGetValue(key, out var existing))
-                {
-                    return ValueTask.FromResult(
-                        IdempotencyDecisionV2.RequireReusable(binding, existing.Binding, existing.Outcome));
-                }
-
-                var outcome = new IdempotencyOutcomeV2(
-                    IdempotencyReservationStateV2.RESERVED, 1, true, null, null, null, null);
-                _rows.Add(key, (binding, outcome));
-                ReservationCount++;
-                return ValueTask.FromResult(outcome);
-            }
-        }
-
-        public ValueTask<IdempotencyOutcomeV2?> ReadAsync(
-            IdempotencyBindingV2 binding,
-            CancellationToken cancellationToken = default)
-        {
-            lock (_lock)
-            {
-                var row = _rows.Values.SingleOrDefault(item => item.Binding == binding);
-                return ValueTask.FromResult<IdempotencyOutcomeV2?>(row.Outcome);
-            }
-        }
-
-        public ValueTask CompleteAsync(
-            IdempotencyBindingV2 binding,
-            string responseDigest,
-            string auditReference,
-            DateTimeOffset completedAt,
-            CancellationToken cancellationToken = default)
-        {
-            lock (_lock)
-            {
-                var key = Key(binding);
-                var existing = _rows[key];
-                _rows[key] = (existing.Binding, existing.Outcome with
-                {
-                    ReservationState = IdempotencyReservationStateV2.COMPLETED,
-                    Retryable = false,
-                    ResponseDigest = responseDigest,
-                    AuditReference = auditReference,
-                    CompletedAt = completedAt
-                });
-                return ValueTask.CompletedTask;
-            }
-        }
-
-        public ValueTask RecordFailureAsync(
-            IdempotencyBindingV2 binding,
-            TrustFailureCodeV2 code,
-            bool retryable,
-            string auditReference,
-            DateTimeOffset failedAt,
-            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
-
-        private static string Key(IdempotencyBindingV2 binding) =>
-            $"{binding.Issuer}:{binding.OrganizationId}:{binding.DatabaseInstanceId}:{binding.Operation}:{binding.IdempotencyKey}";
-    }
-
-    private sealed class FakeLifecycleController(
-        FakeNonceStore nonces,
-        FakeIdempotencyStore idempotency,
-        FakeTrustAuditSink audit) : ILifecycleControllerAuthority
-    {
-        private readonly Rev869BControllerStateMachine _stateMachine = new();
-
-        public async ValueTask<LifecycleTransitionResultV3> TransitionAsync(
+        public virtual ValueTask<LifecycleTransitionResultV3> TransitionAsync(
             VerifiedLifecycleCommandV3 command,
             CancellationToken cancellationToken = default)
         {
-            var rule = _stateMachine.RequirePhaseACommand(command, Now);
-            if (!await nonces.TryReserveAsync(
-                    command.Nonce.IssuerId,
-                    command.Nonce.Nonce,
-                    command.Nonce.ExpiresAt,
-                    cancellationToken))
-            {
-                throw new TrustFailureExceptionV2(TrustFailureCodeV2.NONCE_REPLAY, "Nonce already registered.");
-            }
-
-            var identity = command.Idempotency;
-            var binding = new IdempotencyBindingV2(
-                identity.IssuerId,
-                identity.OrganizationId,
-                identity.DatabaseInstanceId,
-                identity.Operation,
-                identity.RequestId,
-                identity.IdempotencyKey,
-                identity.CanonicalRequestSha256);
-            var reserved = await idempotency.ReserveAsync(binding, cancellationToken);
-            audit.RecordAccepted();
-            await idempotency.CompleteAsync(
-                binding,
-                identity.CanonicalRequestSha256,
-                command.AuditCorrelationId,
-                Now,
-                cancellationToken);
-            return new(
-                ControlTransactionOutcomeV3.COMMITTED,
+            Interlocked.Increment(ref _callCount);
+            var rule = _machine.RequirePhaseACommand(command, Now);
+            return ValueTask.FromResult(new LifecycleTransitionResultV3(
+                ControlTransactionOutcomeV3.FIRST_OWNER,
                 rule.NextState,
                 command.CurrentVersion + 1,
-                reserved.AttemptNumber,
-                identity.CanonicalRequestSha256,
+                1,
+                command.CanonicalEnvelopeSha256,
+                command.AuditCorrelationId,
+                TrustFailureCodeV2.NONE,
+                rule.NextAuthorizationState,
+                rule.NextExportState,
+                rule.LifecycleAuditEvent));
+        }
+    }
+
+    private sealed class CoordinatedController : CountingController
+    {
+        private int _owner;
+        private int _businessExecutionCount;
+
+        public int BusinessExecutionCount => _businessExecutionCount;
+
+        public override async ValueTask<LifecycleTransitionResultV3> TransitionAsync(
+            VerifiedLifecycleCommandV3 command,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            if (Interlocked.CompareExchange(ref _owner, 1, 0) == 0)
+            {
+                Interlocked.Increment(ref _businessExecutionCount);
+                var first = await base.TransitionAsync(command, cancellationToken);
+                return first with { TransactionOutcome = ControlTransactionOutcomeV3.FIRST_OWNER };
+            }
+            return new(
+                ControlTransactionOutcomeV3.IN_PROGRESS,
+                command.CurrentState,
+                command.CurrentVersion,
+                1,
+                command.CanonicalEnvelopeSha256,
+                command.AuditCorrelationId,
+                TrustFailureCodeV2.IDEMPOTENCY_IN_PROGRESS);
+        }
+    }
+
+    private sealed class DigestBindingController : CountingController
+    {
+        private string? _digest;
+        private int _businessExecutionCount;
+
+        public int BusinessExecutionCount => _businessExecutionCount;
+
+        public override async ValueTask<LifecycleTransitionResultV3> TransitionAsync(
+            VerifiedLifecycleCommandV3 command,
+            CancellationToken cancellationToken = default)
+        {
+            if (_digest is null)
+            {
+                _digest = command.Idempotency.CanonicalRequestSha256;
+                Interlocked.Increment(ref _businessExecutionCount);
+                var first = await base.TransitionAsync(command, cancellationToken);
+                return first with { TransactionOutcome = ControlTransactionOutcomeV3.FIRST_OWNER };
+            }
+            if (_digest != command.Idempotency.CanonicalRequestSha256)
+            {
+                return new(
+                    ControlTransactionOutcomeV3.CONFLICT,
+                    command.CurrentState,
+                    command.CurrentVersion,
+                    1,
+                    command.CanonicalEnvelopeSha256,
+                    command.AuditCorrelationId,
+                    TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+            }
+            return new(
+                ControlTransactionOutcomeV3.COMPLETED_REPLAY,
+                command.CurrentState,
+                command.CurrentVersion,
+                1,
+                command.CanonicalEnvelopeSha256,
                 command.AuditCorrelationId,
                 TrustFailureCodeV2.NONE);
         }
     }
 
-    private sealed class FakeLifecycleStore(LifecycleResourceStateV2 initial) : ILifecycleStateStore
+    private sealed class FakeKms : IKmsHsmSigningProvider
     {
-        private LifecycleResourceStateV2 _current = initial;
-
-        public ValueTask<LifecycleResourceStateV2> ReadAsync(
-            string resourceId,
+        public ValueTask<ReadOnlyMemory<byte>> SignAsync(
+            TrustedSigningContextV3 trustedContext,
+            ReadOnlyMemory<byte> canonicalBytes,
             CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(_current);
+            ValueTask.FromResult<ReadOnlyMemory<byte>>(SHA256.HashData(canonicalBytes.Span));
 
-        public ValueTask<bool> CompareExchangeAsync(
-            LifecycleResourceStateV2 expected,
-            LifecycleResourceStateV2 replacement,
-            CancellationToken cancellationToken = default)
+        public ValueTask<bool> VerifyAsync(
+            SigningKeyMetadataV3 key,
+            ReadOnlyMemory<byte> canonicalBytes,
+            ReadOnlyMemory<byte> signature,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(CryptographicOperations.FixedTimeEquals(
+                SHA256.HashData(canonicalBytes.Span),
+                signature.Span));
+    }
+
+    private sealed class FakeKeyRegistry : ITrustedIssuerKeyRegistryProvider
+    {
+        public ValueTask<IssuerTrustPolicyV3?> ResolveIssuerAsync(
+            string issuerId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IssuerTrustPolicyV3?>(new(
+                issuerId,
+                "policy-v1",
+                Hash,
+                new HashSet<string>(["audience"], StringComparer.Ordinal),
+                new HashSet<string>(Enum.GetNames<ControllerOperationV2>(), StringComparer.Ordinal),
+                new HashSet<string>([Rev869BCompatibilityManifestV2.SignatureAlgorithm], StringComparer.Ordinal),
+                new HashSet<string>([Rev869BCompatibilityManifestV2.ContractVersion], StringComparer.Ordinal),
+                Now.AddDays(-1),
+                Now.AddDays(1),
+                null));
+
+        public ValueTask<SigningKeyMetadataV3?> ResolveKeyAsync(
+            string issuerId,
+            string keyId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<SigningKeyMetadataV3?>(new(
+                issuerId,
+                keyId,
+                "TEST",
+                Rev869BPhaseACompatibilityManifest.SignatureAlgorithm,
+                "v1",
+                Hash,
+                Now.AddDays(-1),
+                Now.AddDays(1),
+                null));
+    }
+
+    private sealed class FixedAudiencePolicy : IAudiencePolicyProvider
+    {
+        public ValueTask<IReadOnlyList<AudienceOperationPolicyV3>> ResolveAsync(
+            string audience,
+            string operation,
+            string subjectClass,
+            CompanyDatabaseScopeV3 scope,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IReadOnlyList<AudienceOperationPolicyV3>>(
+            [
+                new(
+                    "row-v1",
+                    "policy-v1",
+                    audience,
+                    operation,
+                    subjectClass,
+                    "Operator",
+                    "ORG:C1",
+                    "REV869B_TARGET",
+                    MasterScopeKindV3.COMPANY_LEDGER)
+            ]);
+    }
+
+    private sealed class FixedAuthorizationResolver : ITrustedSubjectRoleScopeResolver
+    {
+        public ValueTask<ResolvedAuthorizationV3> ResolveAsync(
+            AuthenticatedWorkloadIdentityV3 identity,
+            UntrustedBusinessIntentV3 intent,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ResolvedAuthorizationV3(
+                "authorization",
+                identity.IssuerId,
+                identity.SubjectId,
+                identity.WorkloadIdentity,
+                identity.TransportAudience,
+                intent.Operation,
+                "Operator",
+                "ORG:C1",
+                "policy-v1",
+                "row-v1",
+                Hash,
+                Now.AddMinutes(-5),
+                Now.AddMinutes(5)));
+    }
+
+    private sealed class FixedAlgorithmPolicy : IAlgorithmVersionPolicyProvider
+    {
+        public bool IsAllowed(
+            string contractVersion,
+            string canonicalizationVersion,
+            string algorithm,
+            string purpose) =>
+            contractVersion == Rev869BCompatibilityManifestV2.ContractVersion &&
+            canonicalizationVersion == Rev869BCompatibilityManifestV2.CanonicalizationVersion &&
+            algorithm == Rev869BCompatibilityManifestV2.SignatureAlgorithm &&
+            purpose == "CONTROL_COMMAND";
+    }
+
+    private sealed class FixedClockPolicy : IClockFreshnessPolicyProvider
+    {
+        public ClockFreshnessPolicyV3 Policy { get; } = new(
+            "clock-v1",
+            TimeSpan.FromMinutes(10),
+            TimeSpan.FromSeconds(30),
+            2);
+
+        public TrustFailureCodeV2 Validate(
+            DateTimeOffset issuedAt,
+            DateTimeOffset notBefore,
+            DateTimeOffset expiresAt,
+            DateTimeOffset serverNow)
         {
-            if (_current != expected)
-            {
-                return ValueTask.FromResult(false);
-            }
-
-            _current = replacement;
-            return ValueTask.FromResult(true);
+            if (notBefore > serverNow + Policy.AllowedClockSkew) return TrustFailureCodeV2.NOT_YET_VALID;
+            if (expiresAt < serverNow - Policy.AllowedClockSkew) return TrustFailureCodeV2.ENVELOPE_EXPIRED;
+            if (expiresAt - issuedAt > Policy.MaximumEnvelopeLifetime) return TrustFailureCodeV2.ENVELOPE_EXPIRED;
+            return TrustFailureCodeV2.NONE;
         }
     }
 
-    private sealed class FakeTrustAuditSink : ITrustAuditSinkV2
+    private sealed class FixedLeaseAuthority : ILeaseFenceAuthority
     {
-        public int AcceptedCount { get; private set; }
+        public ValueTask<LeaseFenceExpectationV3?> ReadCurrentAsync(
+            string resourceId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<LeaseFenceExpectationV3?>(new(
+                "lease", 1, 9, Now.AddMinutes(5), "subject", resourceId));
 
-        public void RecordAccepted() => AcceptedCount++;
+        public ValueTask<LeaseFenceExpectationV3> AcquireAsync(
+            string resourceId,
+            string holderSubject,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new LeaseFenceExpectationV3(
+                "lease", 1, 9, expiresAt, holderSubject, resourceId));
 
-        public ValueTask<DurableAuditAppendReceiptV2?> AppendAcceptedAttemptAsync(
-            CanonicalSignedHeaderV2 header,
-            CancellationToken cancellationToken = default)
-        {
-            RecordAccepted();
-            return ValueTask.FromResult<DurableAuditAppendReceiptV2?>(
-                new("event-1", "audit-1", new string('a', 64), Now));
-        }
+        public ValueTask<LeaseFenceExpectationV3> RenewAsync(
+            LeaseFenceExpectationV3 current,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(current with
+            {
+                FencingToken = current.FencingToken + 1,
+                ExpiresAt = expiresAt
+            });
+
+        public ValueTask<TrustFailureCodeV2> ExpireAsync(
+            LeaseFenceExpectationV3 expected,
+            DateTimeOffset serverNow,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(
+                expected.ExpiresAt < serverNow
+                    ? TrustFailureCodeV2.NONE
+                    : TrustFailureCodeV2.NOT_YET_VALID);
+    }
+
+    private sealed class FakeReaderRegistry(int maximumFacts = 10) : IAuthoritativeEvidenceReaderProvider
+    {
+        public ValueTask<AuthoritativeReaderDescriptorV3?> ResolveAsync(
+            string readerId,
+            string readerVersion,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<AuthoritativeReaderDescriptorV3?>(new(
+                readerId,
+                readerVersion,
+                Hash,
+                $"reader:{readerId}",
+                "reader-role",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                new HashSet<string>(["C1"], StringComparer.Ordinal),
+                new HashSet<string>(["REV869B_TARGET"], StringComparer.Ordinal),
+                new HashSet<string>(["status", "count", "password"], StringComparer.Ordinal),
+                maximumFacts,
+                32_768,
+                EvidenceStageV3.DURABLE));
+
+        public ValueTask<AuthoritativeFactBundleV3> ReadAsync(
+            AuthoritativeReaderDescriptorV3 reader,
+            EvidenceScopeTemporalBindingV3 binding,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Raw Phase-A evidence already contains the signed reader bundle.");
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => value;
     }
 
     private sealed class EvidenceFixture
     {
         private EvidenceFixture(
-            AcceptanceVerifierOptions options,
-            FakeReadinessProbe readiness,
-            FakeVerificationAuditSinkV2 audit,
-            ClosedEvidenceVerifierV2 verifier,
-            EvidenceVerificationRequestV2 request)
+            PhaseAAcceptanceVerifierAuthority authority,
+            AuthoritativeFactBundleV3 bundle,
+            byte[] canonicalEvidence,
+            AuthenticatedWorkloadIdentityV3 transport,
+            FakeKms kms,
+            MutationSensitiveOracle oracle,
+            CapturingAudit audit,
+            CanonicalEvidenceEnvelopeV3 envelope)
         {
-            Options = options;
-            Readiness = readiness;
+            Authority = authority;
+            Bundle = bundle;
+            CanonicalEvidence = canonicalEvidence;
+            Transport = transport;
+            Kms = kms;
+            Oracle = oracle;
             Audit = audit;
-            Verifier = verifier;
-            Request = request;
+            Envelope = envelope;
         }
 
-        public AcceptanceVerifierOptions Options { get; }
-        public FakeReadinessProbe Readiness { get; }
-        public FakeVerificationAuditSinkV2 Audit { get; }
-        public ClosedEvidenceVerifierV2 Verifier { get; }
-        public EvidenceVerificationRequestV2 Request { get; }
+        public PhaseAAcceptanceVerifierAuthority Authority { get; }
+        public AuthoritativeFactBundleV3 Bundle { get; }
+        public byte[] CanonicalEvidence { get; }
+        public AuthenticatedWorkloadIdentityV3 Transport { get; }
+        public FakeKms Kms { get; }
+        public MutationSensitiveOracle Oracle { get; }
+        public CapturingAudit Audit { get; }
+        public CanonicalEvidenceEnvelopeV3 Envelope { get; }
+
+        public byte[] WithBundle(AuthoritativeFactBundleV3 bundle)
+        {
+            var envelope = Envelope with
+            {
+                AuthoritativeBundles = [bundle],
+                CanonicalEnvelopeSha256 = string.Empty
+            };
+            envelope = envelope with
+            {
+                CanonicalEnvelopeSha256 = PhaseAEvidenceCanonicalizer.EnvelopeSha256(envelope)
+            };
+            return CanonicalJsonV1.Serialize(envelope);
+        }
 
         public static EvidenceFixture Create(
-            bool ready = true,
+            int maximumFacts = 10,
             bool auditSucceeds = true,
-            Func<IReadOnlyList<FactOnlyObservationV1>, IReadOnlyList<FactOnlyObservationV1>>? authoritativeMutation = null)
+            string? sensitiveField = null)
         {
             var options = new AcceptanceVerifierOptions
             {
                 ServiceIdentity = "acceptance-verifier",
                 IssuerId = "verifier-issuer",
-                Audience = "acceptance-verifier",
+                Audience = "verifier-audience",
                 KeyId = "verifier-key",
-                ContractVersion = Rev869BCompatibilityManifestV2.ContractVersion,
-                EvidenceVersion = Rev869BCompatibilityManifestV2.EvidenceVersion,
-                CanonicalizationVersion = Rev869BCompatibilityManifestV2.CanonicalizationVersion,
+                ContractVersion = Rev869BPhaseACompatibilityManifest.ContractVersion,
+                EvidenceVersion = Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                CanonicalizationVersion = Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion,
                 OwnershipContractVersion = Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
                 ReadinessPolicyVersion = Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
                 EvidenceSchemaVersion = Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
                 OracleId = "oracle-1",
-                OracleVersion = "2.0.0",
-                OracleArtifactSha256 = new string('a', 64),
+                OracleVersion = "1.0.0",
+                OracleArtifactSha256 = Hash,
+                AllowedCallerWorkloadIdentities = ["controller-workload"],
                 RequiredReaderIds = ["reader-1"],
-                AllowedClusterIds = ["cluster-1"],
-                AllowedInstanceIds = ["instance-1"],
-                AllowedFactFields = ["count", "status"],
+                AllowedClusterIds = ["cluster"],
+                AllowedInstanceIds = ["instance"],
+                AllowedFactFields = ["status", "count"],
                 SensitiveFieldNames = ["password", "token", "private_key", "pan", "bank", "payroll"],
-                MaximumEnvelopeBytes = 4_194_304,
-                MaximumObservations = 512,
-                MaximumSelectors = 128,
-                MaximumFactsPerObservation = 256,
-                MaximumStringBytes = 32,
-                MaximumCumulativeFactBytes = 2_097_152,
+                MaximumEnvelopeBytes = PhaseAContractLimits.MaximumEvidenceEnvelopeBytes,
+                MaximumObservations = 10,
+                MaximumSelectors = 10,
+                MaximumFactsPerObservation = 10,
+                MaximumStringBytes = 1_024,
+                MaximumCumulativeFactBytes = 32_768,
                 MaximumClockSkewSeconds = 30,
                 MaximumObservationWindowSeconds = 600
             };
-            var resource = new ResourceBindingV2(
-                "C1", "cluster-1", "instance-1", "TARGET", "resource-1", 7, "VERIFY_ACCEPT");
-            var lease = new LeaseFenceV2(
-                "lease-7", resource.ResourceId, 7, Now.AddMinutes(-5), Now.AddMinutes(-1),
-                Now.AddMinutes(5), "acceptance-verifier");
-            var receipt = new EvidenceReaderReceiptV2(
-                "reader-1", "facts-v2", new string('b', 64),
-                new string('c', 64), new string('d', 64), Now.AddMinutes(-1));
-            var facts = new Dictionary<string, TypedSelectorValueV1>(StringComparer.Ordinal)
-            {
-                ["count"] = new(SelectorValueKind.Integer, "1"),
-                ["status"] = new(SelectorValueKind.String, "complete")
-            };
-            var evidence = new CanonicalEvidenceEnvelopeV2(
-                "evidence-1",
-                resource,
-                "request-1",
-                lease,
-                Now.AddMinutes(-4),
-                Now,
-                Now.AddMinutes(-2.5),
-                [
-                    new("before-1", ObservationStage.Before,
-                        new(ObservationSourceKind.TargetDatabase, "db-reader", Now.AddMinutes(-3)), facts),
-                    new("after-1", ObservationStage.After,
-                        new(ObservationSourceKind.TargetDatabase, "db-reader", Now.AddMinutes(-2)), facts),
-                    new("durable-1", ObservationStage.Durable,
-                        new(ObservationSourceKind.ControllerLedger, "ledger-reader", Now.AddMinutes(-1)), facts)
-                ],
-                [receipt],
-                new ActionResultV1(true, 1, null, null, "resource-1", "complete", 200, "action-receipt-1"),
+            var binding = new EvidenceScopeTemporalBindingV3(
+                new("C1", "cluster", "instance", MasterScopeKindV3.COMPANY_LEDGER),
+                "VERIFY_ACCEPT",
+                "request",
+                "REV869B_TARGET",
+                "resource",
+                7,
+                "attempt",
+                "lease",
+                9,
+                EvidenceStageV3.DURABLE,
+                "observation",
+                Now.AddMinutes(-1),
+                "snapshot");
+            IReadOnlyList<RawEvidenceFactV3> facts = sensitiveField is null
+                ? [new("status", SelectorValueKind.String, "complete")]
+                : [new(sensitiveField, SelectorValueKind.String, "secret-value")];
+            var bundle = new AuthoritativeFactBundleV3(
+                "reader-1",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                Hash,
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                binding,
+                facts,
                 string.Empty,
-                options.OracleId,
-                options.OracleVersion,
-                options.OracleArtifactSha256);
-            evidence = Rehash(evidence);
-            var authoritativeObservations = authoritativeMutation is null
-                ? evidence.RawFacts
-                : authoritativeMutation(evidence.RawFacts);
-            var manifest = new OracleManifestV2(
+                "reader-key",
+                Rev869BPhaseACompatibilityManifest.SignatureAlgorithm,
+                ReadOnlyMemory<byte>.Empty);
+            var kms = new FakeKms();
+            bundle = SignBundle(bundle, kms);
+            var envelope = new CanonicalEvidenceEnvelopeV3(
+                "evidence",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
                 options.OracleId,
                 options.OracleVersion,
                 options.OracleArtifactSha256,
-                options.EvidenceVersion,
-                new Dictionary<string, string>(StringComparer.Ordinal) { ["reader-1"] = "facts-v2" },
-                Now.AddDays(-1),
-                null);
-            var descriptor = new EvidenceReaderDescriptorV2(
-                "reader-1", "facts-v2", new string('b', 64), ObservationSourceKind.TargetDatabase,
-                new HashSet<string>(["C1"], StringComparer.Ordinal),
-                new HashSet<string>(["resource-1"], StringComparer.Ordinal),
-                new HashSet<string>(["count", "status"], StringComparer.Ordinal),
-                256,
-                1_048_576);
-            var readiness = new FakeReadinessProbe(ready);
-            var audit = new FakeVerificationAuditSinkV2(auditSucceeds);
-            var verifier = new ClosedEvidenceVerifierV2(
+                [bundle],
+                string.Empty);
+            envelope = envelope with
+            {
+                CanonicalEnvelopeSha256 = PhaseAEvidenceCanonicalizer.EnvelopeSha256(envelope)
+            };
+            var providers = Enum.GetValues<PhaseADependencyV3>()
+                .Select(dependency => (IReadinessDependencyProvider)new ReadyProvider(dependency, Now))
+                .ToArray();
+            var oracle = new MutationSensitiveOracle(options);
+            var audit = new CapturingAudit(auditSucceeds);
+            var authority = new PhaseAAcceptanceVerifierAuthority(
                 options,
-                readiness,
-                new FakeOracleManifestRegistry(manifest),
-                new FakeEvidenceReaderRegistry(descriptor),
-                new FakeAuthoritativeReader(new AuthoritativeEvidenceFactsV2(facts, receipt, authoritativeObservations)),
-                new FakeClosedOracleV2(options.OracleId, options.OracleVersion),
+                new PhaseAReadinessAuthority(
+                    options.ReadinessPolicyVersion,
+                    providers,
+                    new FixedTimeProvider(Now)),
+                oracle,
+                new FakeReaderRegistry(maximumFacts),
+                new FakeKeyRegistry(),
+                kms,
                 audit,
                 new FixedTimeProvider(Now));
-            var context = new EvidenceVerificationContextV2(
-                "verifier-issuer", "acceptance-verifier", "verifier-key", "request-1", resource, lease);
-            return new(options, readiness, audit, verifier, new(evidence, context));
-        }
-
-        public EvidenceFixture WithEvidence(CanonicalEvidenceEnvelopeV2 evidence) =>
-            new(Options, Readiness, Audit, Verifier, Request with { Evidence = evidence });
-
-        public static CanonicalEvidenceEnvelopeV2 Rehash(CanonicalEvidenceEnvelopeV2 evidence)
-        {
-            var unsigned = evidence with { PayloadSha256 = string.Empty };
-            return evidence with
-            {
-                PayloadSha256 = Convert.ToHexString(
-                    SHA256.HashData(CanonicalJsonV1.Serialize(unsigned))).ToLowerInvariant()
-            };
+            return new(
+                authority,
+                bundle,
+                CanonicalJsonV1.Serialize(envelope),
+                new("controller-issuer", "controller", "controller-workload", options.Audience, Hash),
+                kms,
+                oracle,
+                audit,
+                envelope);
         }
     }
 
-    private sealed class FakeReadinessProbe(bool ready) : ITrustReadinessProbe
+    private static AuthoritativeFactBundleV3 SignBundle(
+        AuthoritativeFactBundleV3 bundle,
+        FakeKms kms)
     {
-        public ValueTask<ReadinessResultV2> CheckAsync(CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(new ReadinessResultV2(
-                ready ? ReadinessStateV2.READY : ReadinessStateV2.NOT_READY,
-                ready ? [] : ["ORACLE_NOT_PINNED"],
-                Now));
+        bundle = bundle with
+        {
+            FactsSha256 = PhaseAEvidenceCanonicalizer.FactPayloadSha256(bundle),
+            Signature = ReadOnlyMemory<byte>.Empty
+        };
+        return bundle with
+        {
+            Signature = SHA256.HashData(PhaseAEvidenceCanonicalizer.FactPayload(bundle))
+        };
     }
 
-    private sealed class FakeDependencyProvider(
+    private sealed class MutationSensitiveOracle(AcceptanceVerifierOptions options) : IOracleRegistryProvider
+    {
+        public int EvaluationCount { get; private set; }
+
+        public ValueTask<OracleDescriptorV3?> ResolveAsync(
+            string oracleId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<OracleDescriptorV3?>(new(
+                options.OracleId,
+                options.OracleVersion,
+                options.OracleArtifactSha256,
+                options.EvidenceSchemaVersion,
+                options.ServiceIdentity,
+                Now.AddDays(-1),
+                null));
+
+        public ValueTask<OracleEvaluationResultV3> EvaluateAsync(
+            OracleDescriptorV3 oracle,
+            IReadOnlyList<AuthoritativeFactBundleV3> authoritativeFacts,
+            CancellationToken cancellationToken = default)
+        {
+            EvaluationCount++;
+            var passed = authoritativeFacts
+                .SelectMany(static bundle => bundle.Facts)
+                .Any(static fact =>
+                    fact.FieldId == "status" &&
+                    fact.CanonicalValue == "complete");
+            return ValueTask.FromResult(new OracleEvaluationResultV3(
+                passed ? VerificationDisposition.Passed : VerificationDisposition.Failed,
+                passed ? [] : [TrustFailureCodeV2.EVIDENCE_TAMPERED]));
+        }
+    }
+
+    private sealed class CapturingAudit(bool succeeds) : IImmutableAuditEvidenceProvider
+    {
+        public int AppendCount { get; private set; }
+        public ImmutableAuditEventV3? Event { get; private set; }
+
+        public ValueTask<string> ReadCurrentChainHeadSha256Async(
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Hash);
+
+        public ValueTask<DurableAuditAppendReceiptV2> AppendAuditAsync(
+            ImmutableAuditEventV3 auditEvent,
+            CancellationToken cancellationToken = default)
+        {
+            AppendCount++;
+            Event = auditEvent;
+            return ValueTask.FromResult(
+                succeeds
+                    ? new DurableAuditAppendReceiptV2(auditEvent.EventId, "audit", Hash, Now)
+                    : null!);
+        }
+
+        public ValueTask<DurableAuditAppendReceiptV2> AppendEvidenceAsync(
+            string evidenceId,
+            string sha256,
+            ReadOnlyMemory<byte> canonicalEvidence,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(
+                succeeds
+                    ? new DurableAuditAppendReceiptV2(evidenceId, "evidence", Hash, Now)
+                    : null!);
+    }
+
+    private sealed class ReadyProvider(
         PhaseADependencyV3 dependency,
-        ReadinessDependencyStateV3 state) : IReadinessDependencyProvider
+        DateTimeOffset checkedAt) : IReadinessDependencyProvider
     {
         public PhaseADependencyV3 Dependency { get; } = dependency;
 
@@ -1620,94 +1390,36 @@ public sealed class ArchitectureFreezeContractTests
             CancellationToken cancellationToken = default) =>
             ValueTask.FromResult(new DependencyReadinessV3(
                 Dependency,
-                state,
+                ReadinessDependencyStateV3.READY,
                 Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
-                state == ReadinessDependencyStateV3.READY
-                    ? Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion
-                    : null,
-                state.ToString()));
+                Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+                "READY",
+                checkedAt,
+                checkedAt.AddMinutes(1),
+                Dependency.ToString(),
+                Dependency.ToString()));
     }
 
-    private sealed class FixedDependencyProvider(DependencyReadinessV3 result) : IReadinessDependencyProvider
+    private sealed class ThrowingProvider(PhaseADependencyV3 dependency) : IReadinessDependencyProvider
     {
-        public PhaseADependencyV3 Dependency => result.Dependency;
+        public PhaseADependencyV3 Dependency { get; } = dependency;
 
         public ValueTask<DependencyReadinessV3> CheckAsync(
-            CancellationToken cancellationToken = default) => ValueTask.FromResult(result);
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("unavailable");
     }
 
-    private sealed class FakeOracleManifestRegistry(OracleManifestV2 manifest) : IOracleManifestRegistry
+    private static string FindRoot()
     {
-        public OracleManifestV2? Resolve(string oracleId) => oracleId == manifest.OracleId ? manifest : null;
-    }
-
-    private sealed class FakeEvidenceReaderRegistry(EvidenceReaderDescriptorV2 descriptor) : IEvidenceReaderRegistry
-    {
-        public EvidenceReaderDescriptorV2? Resolve(string readerId, string version) =>
-            readerId == descriptor.ReaderId && version == descriptor.Version ? descriptor : null;
-    }
-
-    private sealed class FakeAuthoritativeReader(AuthoritativeEvidenceFactsV2 result) : IAuthoritativeEvidenceReader
-    {
-        public ValueTask<AuthoritativeEvidenceFactsV2> ReadFactsAsync(
-            EvidenceReaderDescriptorV2 reader,
-            ResourceBindingV2 request,
-            CancellationToken cancellationToken = default) => ValueTask.FromResult(result);
-    }
-
-    private sealed class FakeClosedOracleV2(string oracleId, string version) : IClosedOracleV2
-    {
-        public string OracleId { get; } = oracleId;
-        public string Version { get; } = version;
-
-        public (VerificationDisposition Disposition, IReadOnlyList<TrustFailureCodeV2> Reasons) Evaluate(
-            CanonicalEvidenceEnvelopeV2 evidence,
-            OracleManifestV2 manifest) =>
-            (VerificationDisposition.Passed, Array.Empty<TrustFailureCodeV2>());
-    }
-
-    private sealed class FakeVerificationAuditSinkV2(bool succeeds) : IVerificationAuditSinkV2
-    {
-        public VerificationAuditEventV2? Event { get; private set; }
-        public int AppendAttempts { get; private set; }
-
-        public ValueTask<DurableAuditAppendReceiptV2?> AppendAsync(
-            VerificationAuditEventV2 auditEvent,
-            CancellationToken cancellationToken = default)
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
         {
-            AppendAttempts++;
-            Event = auditEvent;
-            return ValueTask.FromResult<DurableAuditAppendReceiptV2?>(
-                succeeds
-                    ? new(auditEvent.EventId, "durable-audit-1", new string('e', 64), Now)
-                    : null);
-        }
-    }
-
-    private sealed class FakePagedMasterReader(int totalRows, int pageSize)
-    {
-        public int ReadCount { get; private set; }
-
-        public async IAsyncEnumerable<PageResultV1<int>> ReadAsync(int maximumPages)
-        {
-            var offset = 0;
-            for (var pageNumber = 0; pageNumber < maximumPages && offset < totalRows; pageNumber++)
+            if (File.Exists(Path.Combine(directory.FullName, "SESS.NexaERP.slnx")))
             {
-                await Task.Yield();
-                var count = Math.Min(pageSize, totalRows - offset);
-                ReadCount++;
-                yield return new PageResultV1<int>(
-                    Enumerable.Range(offset, count).ToArray(),
-                    offset,
-                    count,
-                    offset + count < totalRows);
-                offset += count;
+                return directory.FullName;
             }
+            directory = directory.Parent;
         }
+        throw new DirectoryNotFoundException("target-dotnet root not found.");
     }
-}
-
-internal static class TestObjectExtensions
-{
-    public static TResult Pipe<T, TResult>(this T value, Func<T, TResult> function) => function(value);
 }

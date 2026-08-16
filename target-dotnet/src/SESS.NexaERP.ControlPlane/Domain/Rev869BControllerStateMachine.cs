@@ -44,55 +44,109 @@ public sealed class Rev869BControllerStateMachine
     private static readonly LifecycleRuleV3[] PhaseARules =
     [
         Rule("registered-authorize-prepare", ControllerLifecycleState.Registered, ControllerOperationV2.AUTHORIZE_PREPARE,
-            "Operator", ControllerLifecycleState.Preflight, ControllerLifecycleState.Registered, false, ["target-registration"]),
+            "Operator", ControllerLifecycleState.Preflight, ControllerLifecycleState.Registered, false, ["target-registration"],
+            audit: LifecycleAuditEventV3.PREPARE_AUTHORIZED),
         Rule("preflight-prepare", ControllerLifecycleState.Preflight, ControllerOperationV2.PREPARE,
-            "ProvisioningExecutor", ControllerLifecycleState.Provisioning, ControllerLifecycleState.Failed, true, ["preflight"]),
+            "ProvisioningExecutor", ControllerLifecycleState.Provisioning, ControllerLifecycleState.Failed, true, ["preflight"],
+            audit: LifecycleAuditEventV3.PREPARE_STARTED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("provisioning-complete", ControllerLifecycleState.Provisioning, ControllerOperationV2.COMPLETE_PREPARE,
-            "ProvisioningExecutor", ControllerLifecycleState.Ready, ControllerLifecycleState.Failed, true, ["action-receipt", "ready-facts"]),
+            "ProvisioningExecutor", ControllerLifecycleState.Ready, ControllerLifecycleState.Failed, true, ["action-receipt", "ready-facts"],
+            audit: LifecycleAuditEventV3.PREPARE_COMPLETED, requiredAuthorization: AuthorizationGrantStateV3.CONSUMED,
+            nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("provisioning-fail", ControllerLifecycleState.Provisioning, ControllerOperationV2.FAIL,
-            "ProvisioningExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0),
+            "ProvisioningExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0,
+            LifecycleAuditEventV3.PREPARE_FAILED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("ready-authorize-execute", ControllerLifecycleState.Ready, ControllerOperationV2.AUTHORIZE_EXECUTE,
-            "Operator", ControllerLifecycleState.MigrationAuthorized, ControllerLifecycleState.Ready, false, ["migration-plan"]),
+            "Operator", ControllerLifecycleState.MigrationAuthorized, ControllerLifecycleState.Ready, false, ["migration-plan"],
+            audit: LifecycleAuditEventV3.EXECUTE_AUTHORIZED),
         Rule("authorized-execute", ControllerLifecycleState.MigrationAuthorized, ControllerOperationV2.EXECUTE,
-            "MigrationExecutor", ControllerLifecycleState.Migrating, ControllerLifecycleState.Quarantined, true, ["preflight"]),
+            "MigrationExecutor", ControllerLifecycleState.Migrating, ControllerLifecycleState.Quarantined, true, ["preflight"],
+            audit: LifecycleAuditEventV3.EXECUTE_STARTED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("migrating-complete", ControllerLifecycleState.Migrating, ControllerOperationV2.COMPLETE_EXECUTE,
-            "MigrationExecutor", ControllerLifecycleState.VerificationPending, ControllerLifecycleState.Failed, true, ["action-receipt", "migration-ledger"]),
+            "MigrationExecutor", ControllerLifecycleState.VerificationPending, ControllerLifecycleState.Failed, true, ["action-receipt", "migration-ledger"],
+            audit: LifecycleAuditEventV3.EXECUTE_COMPLETED, requiredAuthorization: AuthorizationGrantStateV3.CONSUMED,
+            nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("migrating-fail", ControllerLifecycleState.Migrating, ControllerOperationV2.FAIL,
-            "MigrationExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0),
+            "MigrationExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0,
+            LifecycleAuditEventV3.EXECUTE_FAILED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("verification-accept", ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_ACCEPT,
-            "AcceptanceVerifier", ControllerLifecycleState.Accepted, ControllerLifecycleState.Failed, true, ["signed-verdict", "evidence-archive"], 0),
+            "AcceptanceVerifier", ControllerLifecycleState.Accepted, ControllerLifecycleState.Failed, true, ["signed-verdict", "evidence-archive"], 0,
+            LifecycleAuditEventV3.VERIFICATION_ACCEPTED),
         Rule("verification-reject", ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_REJECT,
-            "AcceptanceVerifier", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["signed-verdict", "evidence-archive"], 0),
+            "AcceptanceVerifier", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["signed-verdict", "evidence-archive"], 0,
+            LifecycleAuditEventV3.VERIFICATION_REJECTED),
+        Rule("any-quarantine", ControllerLifecycleState.Registered, ControllerOperationV2.QUARANTINE,
+            "ControlPlaneRuntime", ControllerLifecycleState.Quarantined, ControllerLifecycleState.Quarantined, false,
+            ["inconsistency-facts"], 0, LifecycleAuditEventV3.RESOURCE_QUARANTINED,
+            anyNonterminal: true),
         Rule("quarantined-authorize-recover", ControllerLifecycleState.Quarantined, ControllerOperationV2.AUTHORIZE_RECOVER,
-            "RecoveryApprover", ControllerLifecycleState.RecoveryAuthorized, ControllerLifecycleState.Quarantined, false, ["recovery-plan"]),
+            "RecoveryApprover", ControllerLifecycleState.RecoveryAuthorized, ControllerLifecycleState.Quarantined, false, ["recovery-plan"],
+            audit: LifecycleAuditEventV3.RECOVERY_AUTHORIZED),
         Rule("authorized-recover", ControllerLifecycleState.RecoveryAuthorized, ControllerOperationV2.RECOVER,
-            "RecoveryExecutor", ControllerLifecycleState.Recovering, ControllerLifecycleState.Quarantined, true, ["before-facts"]),
+            "RecoveryExecutor", ControllerLifecycleState.Recovering, ControllerLifecycleState.Quarantined, true, ["before-facts"],
+            audit: LifecycleAuditEventV3.RECOVERY_STARTED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("recovering-complete", ControllerLifecycleState.Recovering, ControllerOperationV2.COMPLETE_RECOVER,
-            "RecoveryExecutor", ControllerLifecycleState.Ready, ControllerLifecycleState.Failed, true, ["action-receipt", "ready-facts"]),
+            "RecoveryExecutor", ControllerLifecycleState.Ready, ControllerLifecycleState.Failed, true, ["action-receipt", "ready-facts"],
+            audit: LifecycleAuditEventV3.RECOVERY_COMPLETED, requiredAuthorization: AuthorizationGrantStateV3.CONSUMED,
+            nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("recovering-fail", ControllerLifecycleState.Recovering, ControllerOperationV2.FAIL,
-            "RecoveryExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0),
+            "RecoveryExecutor", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0,
+            LifecycleAuditEventV3.RECOVERY_FAILED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("accepted-authorize-drop", ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_DROP,
-            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Accepted, false, ["backup-attestation", "retention-approval"], 0),
+            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Accepted, false, ["backup-attestation", "retention-approval"], 0,
+            LifecycleAuditEventV3.DROP_AUTHORIZED),
         Rule("failed-authorize-drop", ControllerLifecycleState.Failed, ControllerOperationV2.AUTHORIZE_DROP,
-            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Failed, false, ["backup-attestation", "retention-approval"], 0),
+            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Failed, false, ["backup-attestation", "retention-approval"], 0,
+            LifecycleAuditEventV3.DROP_AUTHORIZED),
         Rule("quarantined-authorize-drop", ControllerLifecycleState.Quarantined, ControllerOperationV2.AUTHORIZE_DROP,
-            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Quarantined, false, ["backup-attestation", "retention-approval"], 0),
+            "DropAuthorizer", ControllerLifecycleState.DropAuthorized, ControllerLifecycleState.Quarantined, false, ["backup-attestation", "retention-approval"], 0,
+            LifecycleAuditEventV3.DROP_AUTHORIZED),
         Rule("authorized-drop", ControllerLifecycleState.DropAuthorized, ControllerOperationV2.DROP,
-            "DropExecutor", ControllerLifecycleState.Dropped, ControllerLifecycleState.Quarantined, true, ["drop-authorization", "target-facts"], 0),
+            "DropExecutor", ControllerLifecycleState.Dropped, ControllerLifecycleState.Quarantined, true, ["drop-authorization", "target-facts"], 0,
+            LifecycleAuditEventV3.DROP_COMPLETED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("dropped-authorize-purge", ControllerLifecycleState.Dropped, ControllerOperationV2.AUTHORIZE_PURGE,
-            "PurgeAuthorizer", ControllerLifecycleState.PurgeAuthorized, ControllerLifecycleState.Dropped, false, ["candidate-root", "legal-hold-decision"], 0),
+            "PurgeAuthorizer", ControllerLifecycleState.PurgeAuthorized, ControllerLifecycleState.Dropped, false, ["candidate-root", "legal-hold-decision"], 0,
+            LifecycleAuditEventV3.PURGE_AUTHORIZED),
         Rule("authorized-purge", ControllerLifecycleState.PurgeAuthorized, ControllerOperationV2.PURGE,
-            "PurgeExecutor", ControllerLifecycleState.Purging, ControllerLifecycleState.Dropped, true, ["candidate-root", "purge-authorization"], 0),
+            "PurgeExecutor", ControllerLifecycleState.Purging, ControllerLifecycleState.Dropped, true, ["candidate-root", "purge-authorization"], 0,
+            LifecycleAuditEventV3.PURGE_STARTED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED),
         Rule("purging-complete", ControllerLifecycleState.Purging, ControllerOperationV2.COMPLETE_PURGE,
-            "PurgeExecutor", ControllerLifecycleState.Purged, ControllerLifecycleState.Dropped, true, ["empty-candidate-proof", "batch-audit"], 0),
+            "PurgeExecutor", ControllerLifecycleState.Purged, ControllerLifecycleState.Dropped, true, ["empty-candidate-proof", "batch-audit"], 0,
+            LifecycleAuditEventV3.PURGE_COMPLETED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("purging-fail", ControllerLifecycleState.Purging, ControllerOperationV2.FAIL,
-            "PurgeExecutor", ControllerLifecycleState.Dropped, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0),
+            "PurgeExecutor", ControllerLifecycleState.Dropped, ControllerLifecycleState.Quarantined, true, ["failure-facts"], 0,
+            LifecycleAuditEventV3.PURGE_FAILED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("accepted-authorize-export", ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_EXPORT,
-            "ExportAuthorizer", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, false, ["minimized-batch-root", "privacy-approval"], 0),
+            "ExportAuthorizer", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, false, ["minimized-batch-root", "privacy-approval"], 0,
+            LifecycleAuditEventV3.EXPORT_AUTHORIZED, requiredExport: ExportAuthorizationSubstateV3.NONE,
+            nextExport: ExportAuthorizationSubstateV3.AUTHORIZED),
+        Rule("accepted-reauthorize-expired-export", ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_EXPORT,
+            "ExportAuthorizer", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, false, ["minimized-batch-root", "privacy-approval"], 0,
+            LifecycleAuditEventV3.EXPORT_AUTHORIZED, requiredExport: ExportAuthorizationSubstateV3.EXPIRED,
+            nextExport: ExportAuthorizationSubstateV3.AUTHORIZED),
+        Rule("accepted-reauthorize-failed-export", ControllerLifecycleState.Accepted, ControllerOperationV2.AUTHORIZE_EXPORT,
+            "ExportAuthorizer", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, false, ["minimized-batch-root", "privacy-approval"], 0,
+            LifecycleAuditEventV3.EXPORT_AUTHORIZED, requiredExport: ExportAuthorizationSubstateV3.FAILED,
+            nextExport: ExportAuthorizationSubstateV3.AUTHORIZED),
         Rule("accepted-export", ControllerLifecycleState.Accepted, ControllerOperationV2.EXPORT,
-            "ExportExecutor", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, true, ["export-authorization"], 3),
+            "ExportExecutor", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, true, ["export-authorization"], 3,
+            LifecycleAuditEventV3.EXPORT_STARTED, nextAuthorization: AuthorizationGrantStateV3.CONSUMED,
+            requiredExport: ExportAuthorizationSubstateV3.AUTHORIZED,
+            nextExport: ExportAuthorizationSubstateV3.DELIVERING),
         Rule("accepted-complete-export", ControllerLifecycleState.Accepted, ControllerOperationV2.COMPLETE_EXPORT,
-            "ExportExecutor", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, true, ["delivery-receipt"], 0)
+            "ExportExecutor", ControllerLifecycleState.Accepted, ControllerLifecycleState.Accepted, true, ["delivery-receipt"], 0,
+            LifecycleAuditEventV3.EXPORT_DELIVERED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED,
+            ExportAuthorizationSubstateV3.DELIVERING, ExportAuthorizationSubstateV3.DELIVERED),
+        Rule("any-cancel-active-authorization", ControllerLifecycleState.Registered, ControllerOperationV2.CANCEL,
+            "OriginalAuthorizer", ControllerLifecycleState.Registered, ControllerLifecycleState.Registered, false,
+            ["cancellation-reason"], 0, LifecycleAuditEventV3.AUTHORIZATION_CANCELLED,
+            AuthorizationGrantStateV3.ACTIVE, AuthorizationGrantStateV3.CANCELLED,
+            anyActiveAuthorization: true),
+        Rule("any-expire-active-authorization", ControllerLifecycleState.Registered, ControllerOperationV2.EXPIRE,
+            "ControlPlaneRuntime", ControllerLifecycleState.Registered, ControllerLifecycleState.Registered, false,
+            ["server-time"], 0, LifecycleAuditEventV3.AUTHORIZATION_EXPIRED,
+            AuthorizationGrantStateV3.ACTIVE, AuthorizationGrantStateV3.EXPIRED,
+            anyActiveAuthorization: true)
     ];
 
     private static readonly IReadOnlyDictionary<ControllerLifecycleState, ControllerLifecycleState[]> LegalTransitions =
@@ -178,32 +232,73 @@ public sealed class Rev869BControllerStateMachine
                 command.Idempotency.CanonicalRequestSha256 == command.Authorization.CanonicalRequestSha256,
             TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
         Require(command.Authorization.Authorization.NotBefore <= serverNow &&
-                command.Authorization.Authorization.ExpiresAt >= serverNow,
+                (command.Operation == ControllerOperationV2.EXPIRE ||
+                 command.Authorization.Authorization.ExpiresAt >= serverNow),
             TrustFailureCodeV2.ENVELOPE_EXPIRED);
 
         var rule = PhaseARules.SingleOrDefault(item =>
-            item.CurrentState == command.CurrentState && item.Operation == command.Operation);
+            item.Operation == command.Operation &&
+            (item.CurrentState == command.CurrentState ||
+             item.AppliesToAnyNonterminalState && command.CurrentState != ControllerLifecycleState.Purged ||
+             item.AppliesToAnyActiveAuthorization) &&
+            (command.Operation != ControllerOperationV2.AUTHORIZE_EXPORT ||
+             item.RequiredExportState == command.CurrentExportState));
         Require(rule is not null, TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
         Require(rule!.TrustedRole == command.Authorization.Authorization.TrustedRole,
             TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require(command.CurrentAuthorizationState == rule.RequiredAuthorizationState,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        if (command.Operation is ControllerOperationV2.AUTHORIZE_EXPORT or
+            ControllerOperationV2.EXPORT or
+            ControllerOperationV2.COMPLETE_EXPORT)
+        {
+            Require(command.CurrentExportState == rule.RequiredExportState,
+                TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+        }
+        if (rule.AppliesToAnyActiveAuthorization)
+        {
+            Require(command.CurrentAuthorizationState == AuthorizationGrantStateV3.ACTIVE,
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        }
+        if (command.Operation == ControllerOperationV2.EXPIRE)
+        {
+            Require(command.Authorization.Authorization.ExpiresAt < serverNow,
+                TrustFailureCodeV2.NOT_YET_VALID);
+        }
 
         var evidenceIds = command.RequiredEvidence
             .Select(static requirement => requirement.RequirementId)
             .ToHashSet(StringComparer.Ordinal);
         Require(evidenceIds.SetEquals(rule.RequiredEvidenceIds),
             TrustFailureCodeV2.READER_MISSING);
+        Require(command.RequiredEvidence.All(static requirement =>
+                !string.IsNullOrWhiteSpace(requirement.ReaderId) &&
+                !string.IsNullOrWhiteSpace(requirement.ReaderVersion) &&
+                requirement.SchemaVersion == Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion &&
+                requirement.MaximumFacts is > 0 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
+                requirement.MaximumBytes is > 0 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes),
+            TrustFailureCodeV2.READER_UNAUTHORIZED);
         Require(!rule.RequiresLease || command.Lease is not null,
             TrustFailureCodeV2.LEASE_REQUIRED);
         if (command.Lease is not null)
         {
             Require(command.Lease.ExpiresAt >= serverNow, TrustFailureCodeV2.LEASE_EXPIRED);
-            Require(command.Lease.LeaseId == command.Authorization.LeaseId &&
+            Require(command.Lease.ControllerEpoch > 0 &&
+                    command.Lease.ResourceId == command.Authorization.ResourceId &&
+                    command.Lease.LeaseId == command.Authorization.LeaseId &&
                     command.Lease.FencingToken == command.Authorization.FencingToken &&
                     command.Lease.HolderSubject == command.Authorization.Authorization.AuthenticatedSubject,
                 TrustFailureCodeV2.LEASE_FENCE_STALE);
         }
 
-        return rule;
+        return rule.AppliesToAnyActiveAuthorization
+            ? rule with
+            {
+                CurrentState = command.CurrentState,
+                NextState = command.CurrentState,
+                FailureState = command.CurrentState
+            }
+            : rule;
     }
 
     public static IReadOnlyList<LifecycleRuleV3> PhaseARuleSnapshot => PhaseARules;
@@ -309,7 +404,14 @@ public sealed class Rev869BControllerStateMachine
         ControllerLifecycleState failure,
         bool lease,
         IReadOnlyList<string> evidence,
-        int retries = 3) =>
+        int retries = 3,
+        LifecycleAuditEventV3 audit = LifecycleAuditEventV3.PREPARE_AUTHORIZED,
+        AuthorizationGrantStateV3 requiredAuthorization = AuthorizationGrantStateV3.ACTIVE,
+        AuthorizationGrantStateV3 nextAuthorization = AuthorizationGrantStateV3.ACTIVE,
+        ExportAuthorizationSubstateV3 requiredExport = ExportAuthorizationSubstateV3.NONE,
+        ExportAuthorizationSubstateV3 nextExport = ExportAuthorizationSubstateV3.NONE,
+        bool anyNonterminal = false,
+        bool anyActiveAuthorization = false) =>
         new(
             id,
             current,
@@ -322,7 +424,14 @@ public sealed class Rev869BControllerStateMachine
             retries,
             operation.ToString().StartsWith("AUTHORIZE_", StringComparison.Ordinal)
                 ? AuditEventKindV3.AUTHORIZATION_DECIDED
-                : AuditEventKindV3.LIFECYCLE_ATTEMPTED);
+                : AuditEventKindV3.LIFECYCLE_ATTEMPTED,
+            audit,
+            requiredAuthorization,
+            nextAuthorization,
+            requiredExport,
+            nextExport,
+            anyNonterminal,
+            anyActiveAuthorization);
 
     private static void ValidateExportSubstate(
         LifecycleResourceStateV2 current,

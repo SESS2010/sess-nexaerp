@@ -107,7 +107,7 @@ public sealed record LifecycleResourceStateV2(
     string? EvidenceManifestSha256 = null,
     long ControllerEpoch = 0);
 
-public interface ILeaseFenceStore
+internal interface ILeaseFenceStore
 {
     ValueTask<LeaseFenceV2> AcquireAsync(
         string resourceId,
@@ -129,7 +129,7 @@ public interface ILeaseFenceStore
         CancellationToken cancellationToken = default);
 }
 
-public interface IIdempotencyStore
+internal interface IIdempotencyStore
 {
     ValueTask<IdempotencyOutcomeV2> ReserveAsync(
         IdempotencyBindingV2 binding,
@@ -155,7 +155,7 @@ public interface IIdempotencyStore
         CancellationToken cancellationToken = default);
 }
 
-public interface ILifecycleStateStore
+internal interface ILifecycleStateStore
 {
     ValueTask<LifecycleResourceStateV2> ReadAsync(
         string resourceId,

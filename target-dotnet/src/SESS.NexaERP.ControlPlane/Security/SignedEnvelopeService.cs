@@ -9,7 +9,7 @@ using SESS.NexaERP.ControlPlane.Domain;
 
 namespace SESS.NexaERP.ControlPlane.Security;
 
-public interface IEnvelopeSigner
+internal interface IEnvelopeSigner
 {
     string KeyId { get; }
     byte[] Sign(ReadOnlySpan<byte> canonicalPayload);
@@ -19,46 +19,46 @@ public interface IEnvelopeSigner
             : throw new TrustFailureExceptionV2(TrustFailureCodeV2.KEY_UNKNOWN, "Signing key is unavailable.");
 }
 
-public interface IEnvelopeSignatureVerifier
+internal interface IEnvelopeSignatureVerifier
 {
     bool Verify(string keyId, ReadOnlySpan<byte> canonicalPayload, ReadOnlySpan<byte> signature);
     bool Verify(SigningKeyDescriptor key, ReadOnlySpan<byte> canonicalPayload, ReadOnlySpan<byte> signature) =>
         Verify(key.KeyId, canonicalPayload, signature);
 }
 
-public interface ISigningKeyRegistry
+internal interface ISigningKeyRegistry
 {
     SigningKeyDescriptor? Find(string keyId);
 }
 
-public interface IReplayGuard
+internal interface IReplayGuard
 {
     bool TryAccept(string replayKey, DateTimeOffset expiresAtUtc);
 }
 
-public interface ITrustedIssuerRegistry
+internal interface ITrustedIssuerRegistry
 {
     TrustedIssuerDescriptorV2? Resolve(string issuerId, string keyId);
 }
 
-public interface IAuthorizationResolver
+internal interface IAuthorizationResolver
 {
     AuthenticatedSubjectV2? Resolve(AuthenticatedSubjectV2 authenticatedSubject, ResourceBindingV2 resource);
 }
 
-public interface INonceReplayStore
+internal interface INonceReplayStore
 {
     ValueTask<bool> TryReserveAsync(string issuer, string nonce, DateTimeOffset expiresAt, CancellationToken cancellationToken = default);
 }
 
-public interface ITrustAuditSinkV2
+internal interface ITrustAuditSinkV2
 {
     ValueTask<DurableAuditAppendReceiptV2?> AppendAcceptedAttemptAsync(
         CanonicalSignedHeaderV2 header,
         CancellationToken cancellationToken = default);
 }
 
-public sealed record VerifiedCommandV2(
+internal sealed record VerifiedCommandV2(
     AuthenticatedSubjectV2 Subject,
     ResourceBindingV2 Resource,
     LeaseFenceV2 Lease,
@@ -178,7 +178,7 @@ public static partial class CanonicalSignedHeaderCodecV2
         var header = new CanonicalSignedHeaderV2(
             values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8],
             values[9], values[10], values[11], values[12], values[13],
-            ParseLong(values[14], allowZero: false), values[15], ParseLong(values[16], allowZero: false),
+            ParseLong(values[14], allowZero: false), values[15], ParseLong(values[16], allowZero: true),
             values[17], values[18], values[19], ParseUtc(values[20]), ParseUtc(values[21]), ParseUtc(values[22]),
             values[23], ParseInt(values[24], allowZero: true));
         var regenerated = Serialize(header);
@@ -214,7 +214,9 @@ public static partial class CanonicalSignedHeaderCodecV2
             value.CanonicalPayloadSha256.All(character =>
                 (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'));
         if (identifiers.Any(item => !IdentifierPattern.IsMatch(item) || Encoding.UTF8.GetByteCount(item) > 128) ||
-            value.ResourceVersion <= 0 || value.FencingToken <= 0 || value.CanonicalPayloadLength < 0 ||
+            value.ResourceVersion <= 0 ||
+            (value.LeaseId == "lease-none" ? value.FencingToken != 0 : value.FencingToken <= 0) ||
+            value.CanonicalPayloadLength < 0 ||
             !digestIsLowerHex || value.IssuedAt.Offset != TimeSpan.Zero || value.NotBefore.Offset != TimeSpan.Zero ||
             value.ExpiresAt.Offset != TimeSpan.Zero || value.IssuedAt > value.NotBefore ||
             value.NotBefore > value.ExpiresAt || !IsNonce(value.Nonce))
@@ -345,7 +347,7 @@ public static class CanonicalCommandPayloadCodecV2
         new(TrustFailureCodeV2.CANONICAL_HEADER_MALFORMED, "The command payload is not canonical.");
 }
 
-public sealed class SignedEnvelopeService(IEnvelopeSigner signer, TimeProvider timeProvider)
+internal sealed class SignedEnvelopeService(IEnvelopeSigner signer, TimeProvider timeProvider)
 {
     public SignedCommandEnvelopeV1 Sign(LifecycleCommandV1 command)
     {
@@ -366,7 +368,7 @@ public sealed class SignedEnvelopeService(IEnvelopeSigner signer, TimeProvider t
     }
 }
 
-public sealed class SignedEnvelopeVerificationService(
+internal sealed class SignedEnvelopeVerificationService(
     IEnvelopeSignatureVerifier verifier,
     ISigningKeyRegistry keyRegistry,
     IReplayGuard replayGuard,
@@ -423,7 +425,7 @@ public sealed class SignedEnvelopeVerificationService(
     }
 }
 
-public sealed class SignedCommandServiceV2(
+internal sealed class SignedCommandServiceV2(
     IEnvelopeSignatureVerifier signatureVerifier,
     ITrustedIssuerRegistry issuerRegistry,
     IAuthorizationResolver authorizationResolver,
@@ -633,4 +635,227 @@ public sealed class SignedCommandServiceV2(
             throw new TrustFailureExceptionV2(code, $"Command rejected: {code}.");
         }
     }
+}
+
+public sealed class PhaseAControlPlaneAuthority(
+    ITrustedIssuerKeyRegistryProvider issuerRegistry,
+    IAudiencePolicyProvider audiencePolicyProvider,
+    ITrustedSubjectRoleScopeResolver authorizationResolver,
+    IAlgorithmVersionPolicyProvider algorithmPolicy,
+    IClockFreshnessPolicyProvider clockPolicy,
+    IKmsHsmSigningProvider kms,
+    ILeaseFenceAuthority leaseAuthority,
+    IAuthoritativeEvidenceReaderProvider readerRegistry,
+    ILifecycleControllerAuthority lifecycleController,
+    TimeProvider timeProvider) : IControlPlaneAuthority
+{
+    public async ValueTask<LifecycleTransitionResultV3> AcceptRawCommandAsync(
+        ReadOnlyMemory<byte> canonicalHeader,
+        ReadOnlyMemory<byte> canonicalPayload,
+        ReadOnlyMemory<byte> signature,
+        AuthenticatedWorkloadIdentityV3 transportIdentity,
+        CancellationToken cancellationToken = default)
+    {
+        Require(canonicalHeader.Length + canonicalPayload.Length + signature.Length <=
+                PhaseAContractLimits.MaximumCommandEnvelopeBytes,
+            TrustFailureCodeV2.CONTRACT_LIMIT_EXCEEDED);
+
+        var header = CanonicalSignedHeaderCodecV2.Parse(canonicalHeader.Span);
+        var payload = CanonicalCommandPayloadCodecV2.Parse(canonicalPayload.Span);
+        var now = timeProvider.GetUtcNow();
+        Require(header.ContractVersion == Rev869BCompatibilityManifestV2.ContractVersion,
+            TrustFailureCodeV2.CONTRACT_UNSUPPORTED);
+        Require(header.CanonicalizationVersion == Rev869BCompatibilityManifestV2.CanonicalizationVersion,
+            TrustFailureCodeV2.CANONICALIZATION_UNSUPPORTED);
+        Require(algorithmPolicy.IsAllowed(
+                header.ContractVersion,
+                header.CanonicalizationVersion,
+                header.Algorithm,
+                "CONTROL_COMMAND"),
+            TrustFailureCodeV2.ALGORITHM_UNSUPPORTED);
+
+        var issuer = await issuerRegistry.ResolveIssuerAsync(header.Issuer, cancellationToken);
+        Require(issuer is not null &&
+                issuer.IssuerId == header.Issuer &&
+                issuer.RevokedAt is null &&
+                issuer.ActiveFrom <= now &&
+                issuer.ExpiresAt >= now &&
+                issuer.AllowedAudiences.Contains(header.Audience) &&
+                issuer.AllowedOperations.Contains(header.Operation) &&
+                issuer.AllowedAlgorithms.Contains(header.Algorithm) &&
+                issuer.AllowedContractVersions.Contains(header.ContractVersion),
+            TrustFailureCodeV2.ISSUER_UNKNOWN);
+        var key = await issuerRegistry.ResolveKeyAsync(header.Issuer, header.KeyId, cancellationToken);
+        Require(key is not null, TrustFailureCodeV2.KEY_UNKNOWN);
+        Require(key!.IssuerId == header.Issuer &&
+                key.Algorithm == header.Algorithm &&
+                key.RevokedAt is null &&
+                key.NotBefore <= now &&
+                (key.NotAfter is null || key.NotAfter >= now),
+            TrustFailureCodeV2.ISSUER_KEY_MISMATCH);
+        Require(await kms.VerifyAsync(key, canonicalHeader, signature, cancellationToken),
+            TrustFailureCodeV2.SIGNATURE_INVALID);
+
+        byte[] declaredDigest;
+        try
+        {
+            declaredDigest = Convert.FromHexString(header.CanonicalPayloadSha256);
+        }
+        catch (FormatException)
+        {
+            throw Failure(TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH);
+        }
+        Require(header.CanonicalPayloadLength == canonicalPayload.Length &&
+                CryptographicOperations.FixedTimeEquals(declaredDigest, SHA256.HashData(canonicalPayload.Span)),
+            TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH);
+        var freshness = clockPolicy.Validate(header.IssuedAt, header.NotBefore, header.ExpiresAt, now);
+        Require(freshness == TrustFailureCodeV2.NONE, freshness);
+
+        Require(transportIdentity.IssuerId == header.Issuer &&
+                transportIdentity.SubjectId == header.Subject &&
+                transportIdentity.TransportAudience == header.Audience,
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require(payload.Operation.ToString() == header.Operation,
+            TrustFailureCodeV2.OPERATION_MISMATCH);
+
+        var scope = new CompanyDatabaseScopeV3(
+            header.OrganizationId,
+            header.DatabaseClusterId,
+            header.DatabaseInstanceId,
+            MasterScopeKindV3.COMPANY_LEDGER);
+        var intent = new UntrustedBusinessIntentV3(
+            header.RequestId,
+            header.IdempotencyKey,
+            header.Operation,
+            scope,
+            "REV869B_TARGET",
+            header.ResourceId,
+            header.ResourceVersion,
+            header.IssuedAt,
+            header.ExpiresAt,
+            payload.ApprovedParameters);
+        PhaseAContractValidator.RequireValid(intent);
+        var authorization = await authorizationResolver.ResolveAsync(transportIdentity, intent, cancellationToken);
+        Require(authorization is not null &&
+                authorization.AuthenticatedSubject == transportIdentity.SubjectId &&
+                authorization.WorkloadIdentity == transportIdentity.WorkloadIdentity &&
+                authorization.Audience == header.Audience &&
+                authorization.Operation == header.Operation,
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require(authorization!.TrustedRole == header.AuthorizedRole,
+            TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN);
+        Require(authorization.TrustedScope == header.AuthorizedScope &&
+                header.AuthorizedScope == $"ORG:{header.OrganizationId}",
+            TrustFailureCodeV2.SCOPE_MISMATCH);
+
+        var policies = await audiencePolicyProvider.ResolveAsync(
+            header.Audience,
+            header.Operation,
+            transportIdentity.WorkloadIdentity,
+            scope,
+            cancellationToken);
+        Require(policies.Count == 1 &&
+                policies[0].PolicyRowId == authorization.PolicyRowId &&
+                policies[0].PolicyVersion == authorization.PolicyVersion &&
+                policies[0].TrustedRole == authorization.TrustedRole &&
+                policies[0].TrustedScope == authorization.TrustedScope,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+
+        LeaseFenceExpectationV3? lease = null;
+        if (header.LeaseId != "lease-none")
+        {
+            lease = await leaseAuthority.ReadCurrentAsync(header.ResourceId, cancellationToken);
+            Require(lease is not null &&
+                    lease.ResourceId == header.ResourceId &&
+                    lease.LeaseId == header.LeaseId &&
+                    lease.ControllerEpoch > 0 &&
+                    lease.FencingToken == header.FencingToken &&
+                    lease.HolderSubject == authorization.AuthenticatedSubject &&
+                    lease.ExpiresAt >= now,
+                TrustFailureCodeV2.LEASE_FENCE_STALE);
+        }
+        else
+        {
+            Require(header.FencingToken == 0, TrustFailureCodeV2.LEASE_FENCE_STALE);
+        }
+
+        var evidence = new List<EvidenceRequirementV3>(payload.EvidenceRequirements.Count);
+        foreach (var requirementId in payload.EvidenceRequirements)
+        {
+            var descriptor = await readerRegistry.ResolveAsync(
+                requirementId,
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                cancellationToken);
+            Require(descriptor is not null, TrustFailureCodeV2.READER_MISSING);
+            evidence.Add(new(
+                requirementId,
+                descriptor!.ReaderId,
+                descriptor.ReaderVersion,
+                EvidenceStageV3.DURABLE,
+                descriptor.SchemaVersion,
+                Math.Min(descriptor.MaximumFacts, PhaseAContractLimits.MaximumFactsPerObservation),
+                Math.Min(descriptor.MaximumBytes, PhaseAContractLimits.MaximumEvidenceEnvelopeBytes)));
+        }
+
+        var requestSha = header.CanonicalPayloadSha256.ToLowerInvariant();
+        var binding = new AuthorizationBindingV3(
+            authorization,
+            scope,
+            intent.ResourceType,
+            intent.ResourceId,
+            intent.ExpectedResourceVersion,
+            intent.Operation,
+            requestSha,
+            HashEvidenceRequirements(payload.EvidenceRequirements),
+            lease?.LeaseId ?? "lease-none",
+            lease?.FencingToken ?? 0,
+            AuthorizationGrantStateV3.ACTIVE);
+        var command = new VerifiedLifecycleCommandV3(
+            $"command:{header.RequestId}",
+            payload.Operation,
+            payload.ExpectedState,
+            header.ResourceVersion,
+            binding,
+            lease,
+            evidence,
+            new(
+                header.Issuer,
+                header.OrganizationId,
+                header.DatabaseInstanceId,
+                header.Operation,
+                header.RequestId,
+                header.IdempotencyKey,
+                requestSha),
+            new(header.Issuer, header.Nonce, header.ExpiresAt, requestSha),
+            $"audit:{header.RequestId}",
+            Convert.ToHexString(SHA256.HashData(canonicalHeader.Span)).ToLowerInvariant(),
+            CurrentAuthorizationState(payload.Operation),
+            ExportAuthorizationSubstateV3.NONE,
+            $"attempt:{header.RequestId}");
+        return await lifecycleController.TransitionAsync(command, cancellationToken);
+    }
+
+    private static AuthorizationGrantStateV3 CurrentAuthorizationState(ControllerOperationV2 operation) =>
+        operation is ControllerOperationV2.COMPLETE_PREPARE or
+            ControllerOperationV2.COMPLETE_EXECUTE or
+            ControllerOperationV2.COMPLETE_RECOVER or
+            ControllerOperationV2.COMPLETE_PURGE or
+            ControllerOperationV2.COMPLETE_EXPORT or
+            ControllerOperationV2.FAIL
+            ? AuthorizationGrantStateV3.CONSUMED
+            : AuthorizationGrantStateV3.ACTIVE;
+
+    private static string HashEvidenceRequirements(IReadOnlyList<string> requirements) =>
+        Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(requirements))).ToLowerInvariant();
+
+    private static void Require(bool condition, TrustFailureCodeV2 code)
+    {
+        if (!condition)
+        {
+            throw Failure(code);
+        }
+    }
+
+    private static TrustFailureExceptionV2 Failure(TrustFailureCodeV2 code) =>
+        new(code, $"Command rejected: {code}.");
 }
