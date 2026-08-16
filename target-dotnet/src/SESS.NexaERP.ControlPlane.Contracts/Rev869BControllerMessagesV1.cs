@@ -334,3 +334,309 @@ public static class CanonicalJsonV1
         }
     }
 }
+
+public enum TrustFailureCodeV2
+{
+    NONE,
+    CONTRACT_UNSUPPORTED,
+    CANONICALIZATION_UNSUPPORTED,
+    ALGORITHM_UNSUPPORTED,
+    KEY_UNKNOWN,
+    KEY_REVOKED,
+    ISSUER_UNKNOWN,
+    ISSUER_KEY_MISMATCH,
+    AUDIENCE_MISMATCH,
+    SUBJECT_UNAUTHORIZED,
+    REQUEST_ROLE_FORBIDDEN,
+    SIGNATURE_INVALID,
+    PAYLOAD_HASH_MISMATCH,
+    NOT_YET_VALID,
+    ENVELOPE_EXPIRED,
+    NONCE_REPLAY,
+    ORGANIZATION_MISMATCH,
+    CLUSTER_MISMATCH,
+    INSTANCE_MISMATCH,
+    OPERATION_MISMATCH,
+    RESOURCE_VERSION_STALE,
+    LEASE_REQUIRED,
+    LEASE_EXPIRED,
+    LEASE_FENCE_STALE,
+    STATE_TRANSITION_ILLEGAL,
+    IDEMPOTENCY_PAYLOAD_MISMATCH,
+    IDEMPOTENCY_NONRETRYABLE,
+    ORACLE_MISMATCH,
+    READER_MISSING,
+    READER_UNAUTHORIZED,
+    EVIDENCE_TOO_LARGE,
+    EVIDENCE_SENSITIVE_FIELD,
+    AUDIT_APPEND_FAILED,
+    SERVICE_NOT_READY
+}
+
+public sealed class TrustFailureExceptionV2(TrustFailureCodeV2 code, string message) : InvalidOperationException(message)
+{
+    public TrustFailureCodeV2 Code { get; } = code;
+}
+
+public enum IdempotencyReservationStateV2
+{
+    RESERVED,
+    IN_PROGRESS,
+    COMPLETED,
+    RETRYABLE_FAILURE,
+    NONRETRYABLE_FAILURE
+}
+
+public enum ReadinessStateV2
+{
+    READY,
+    NOT_READY
+}
+
+public enum ControllerOperationV2
+{
+    AUTHORIZE_PREPARE,
+    PREPARE,
+    COMPLETE_PREPARE,
+    FAIL,
+    AUTHORIZE_EXECUTE,
+    EXECUTE,
+    COMPLETE_EXECUTE,
+    VERIFY_ACCEPT,
+    VERIFY_REJECT,
+    QUARANTINE,
+    AUTHORIZE_RECOVER,
+    RECOVER,
+    COMPLETE_RECOVER,
+    AUTHORIZE_DROP,
+    DROP,
+    AUTHORIZE_PURGE,
+    PURGE,
+    COMPLETE_PURGE,
+    AUTHORIZE_EXPORT,
+    EXPORT,
+    COMPLETE_EXPORT,
+    CANCEL,
+    EXPIRE
+}
+
+public enum ControllerAuthorizationStatusV2
+{
+    NONE,
+    ACTIVE,
+    CONSUMED,
+    CANCELLED,
+    EXPIRED
+}
+
+public enum ExportLifecycleStateV2
+{
+    NONE,
+    AUTHORIZED,
+    DELIVERING,
+    DELIVERED,
+    EXPIRED,
+    FAILED
+}
+
+public sealed record CanonicalSignedHeaderV2(
+    string ContractVersion,
+    string CanonicalizationVersion,
+    string Algorithm,
+    string KeyId,
+    string Issuer,
+    string Audience,
+    string Subject,
+    string AuthorizedRole,
+    string AuthorizedScope,
+    string OrganizationId,
+    string DatabaseClusterId,
+    string DatabaseInstanceId,
+    string Operation,
+    string ResourceId,
+    long ResourceVersion,
+    string LeaseId,
+    long FencingToken,
+    string RequestId,
+    string IdempotencyKey,
+    string Nonce,
+    DateTimeOffset IssuedAt,
+    DateTimeOffset NotBefore,
+    DateTimeOffset ExpiresAt,
+    string CanonicalPayloadSha256,
+    int CanonicalPayloadLength);
+
+public sealed record CanonicalCommandPayloadV2(
+    ControllerOperationV2 Operation,
+    ControllerLifecycleState ExpectedState,
+    ControllerLifecycleState RequestedState,
+    ScenarioIdentityV1 Scenario,
+    SubcaseIdentityV1 Subcase,
+    string ActionId,
+    IReadOnlyDictionary<string, string> ApprovedParameters,
+    IReadOnlyList<string> EvidenceRequirements);
+
+public sealed record SignedCommandEnvelopeV2(
+    CanonicalSignedHeaderV2 Header,
+    CanonicalCommandPayloadV2 Payload,
+    byte[] Signature);
+
+public sealed record TrustedIssuerDescriptorV2(
+    string IssuerId,
+    IReadOnlySet<string> AllowedAudiences,
+    IReadOnlySet<string> ContractVersions,
+    IReadOnlySet<string> Algorithms,
+    IReadOnlyDictionary<string, SigningKeyDescriptor> Keys,
+    IReadOnlySet<string> SubjectPatterns,
+    IReadOnlySet<string> Roles,
+    IReadOnlySet<string> Scopes,
+    IReadOnlySet<string> Operations,
+    DateTimeOffset ActiveFrom,
+    DateTimeOffset? RevokedAt);
+
+public sealed record AuthenticatedSubjectV2(
+    string Issuer,
+    string SubjectId,
+    string WorkloadIdentity,
+    string Audience,
+    IReadOnlySet<string> TrustedRoles,
+    IReadOnlySet<string> TrustedScopes);
+
+public sealed record ResourceBindingV2(
+    string OrganizationId,
+    string DatabaseClusterId,
+    string DatabaseInstanceId,
+    string ResourceType,
+    string ResourceId,
+    long ExpectedResourceVersion,
+    string Operation);
+
+public sealed record LeaseFenceV2(
+    string LeaseId,
+    string ResourceId,
+    long FencingToken,
+    DateTimeOffset AcquiredAt,
+    DateTimeOffset RenewedAt,
+    DateTimeOffset ExpiresAt,
+    string HolderSubject);
+
+public sealed record TemporalAuthorizationV2(
+    string Nonce,
+    DateTimeOffset IssuedAt,
+    DateTimeOffset NotBefore,
+    DateTimeOffset ExpiresAt);
+
+public sealed record IdempotencyBindingV2(
+    string Issuer,
+    string OrganizationId,
+    string DatabaseInstanceId,
+    string Operation,
+    string RequestId,
+    string IdempotencyKey,
+    string CanonicalRequestDigest);
+
+public sealed record IdempotencyOutcomeV2(
+    IdempotencyReservationStateV2 ReservationState,
+    int AttemptNumber,
+    bool Retryable,
+    TrustFailureCodeV2? TerminalFailureCode,
+    string? ResponseDigest,
+    string? AuditReference,
+    DateTimeOffset? CompletedAt);
+
+public sealed record OracleManifestV2(
+    string OracleId,
+    string SemanticVersion,
+    string ArtifactSha256,
+    string EvidenceSchemaVersion,
+    IReadOnlyDictionary<string, string> AllowedReaderVersions,
+    DateTimeOffset ActiveFrom,
+    DateTimeOffset? RevokedAt);
+
+public sealed record EvidenceReaderDescriptorV2(
+    string ReaderId,
+    string Version,
+    string ArtifactSha256,
+    ObservationSourceKind SourceType,
+    IReadOnlySet<string> AllowedOrganizations,
+    IReadOnlySet<string> AllowedResources,
+    IReadOnlySet<string> AllowedFields,
+    int MaximumResponseFacts,
+    int MaximumResponseBytes);
+
+public sealed record EvidenceReaderReceiptV2(
+    string ReaderId,
+    string ReaderVersion,
+    string ReaderArtifactSha256,
+    string RequestDigest,
+    string ResponseDigest,
+    DateTimeOffset ObservedAt);
+
+public sealed record AuthoritativeEvidenceFactsV2(
+    IReadOnlyDictionary<string, TypedSelectorValueV1> Facts,
+    EvidenceReaderReceiptV2 Receipt);
+
+public sealed record CanonicalEvidenceEnvelopeV2(
+    string EvidenceEnvelopeId,
+    ResourceBindingV2 Binding,
+    string RequestId,
+    LeaseFenceV2 Lease,
+    DateTimeOffset ObservationWindowStart,
+    DateTimeOffset ObservationWindowEnd,
+    DateTimeOffset ActionOccurredAt,
+    IReadOnlyList<FactOnlyObservationV1> RawFacts,
+    IReadOnlyList<EvidenceReaderReceiptV2> ReaderReceipts,
+    ActionResultV1 ActionReceipt,
+    string PayloadSha256,
+    string OracleId,
+    string OracleVersion,
+    string OracleArtifactSha256);
+
+public sealed record VerificationAuditEventV2(
+    string EventId,
+    string Issuer,
+    string Subject,
+    string KeyId,
+    string RequestId,
+    string EvidenceEnvelopeId,
+    string EvidenceEnvelopeSha256,
+    ResourceBindingV2 Binding,
+    LeaseFenceV2 Lease,
+    string OracleId,
+    string OracleVersion,
+    string OracleArtifactSha256,
+    IReadOnlyList<string> ReaderReceiptDigests,
+    VerificationDisposition CalculatedDisposition,
+    IReadOnlyList<TrustFailureCodeV2> ReasonCodes,
+    DateTimeOffset OccurredAt);
+
+public sealed record DurableAuditAppendReceiptV2(
+    string EventId,
+    string DurableReference,
+    string EventSha256,
+    DateTimeOffset AppendedAt);
+
+public sealed record ReadinessResultV2(
+    ReadinessStateV2 State,
+    IReadOnlyList<string> DependencyCodes,
+    DateTimeOffset CheckedAt);
+
+public sealed record EvidenceVerificationContextV2(
+    string Issuer,
+    string Subject,
+    string KeyId,
+    string RequestId,
+    ResourceBindingV2 ExpectedBinding,
+    LeaseFenceV2 ExpectedLease);
+
+public sealed record EvidenceVerificationRequestV2(
+    CanonicalEvidenceEnvelopeV2 Evidence,
+    EvidenceVerificationContextV2 Context);
+
+public sealed record VerificationResultV2(
+    VerificationDisposition Disposition,
+    string OracleId,
+    string OracleVersion,
+    IReadOnlyList<TrustFailureCodeV2> ReasonCodes,
+    DurableAuditAppendReceiptV2 AuditReceipt,
+    DateTimeOffset VerifiedAt);

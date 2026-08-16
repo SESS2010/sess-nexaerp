@@ -7,6 +7,8 @@ builder.Services
     .Bind(builder.Configuration.GetSection(ControlPlaneOptions.SectionName))
     .Validate(ControlPlaneOptions.IsValid, "Control-plane configuration is incomplete or violates the frozen trust boundary.")
     .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IControllerReadinessProbeV2, ExternalPrerequisiteReadinessProbeV2>();
 
 var app = builder.Build();
 app.MapControllerContractEndpointsV1();

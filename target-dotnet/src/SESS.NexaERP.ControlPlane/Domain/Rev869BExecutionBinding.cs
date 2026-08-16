@@ -92,3 +92,99 @@ public static class ControllerAuthorizationPolicyV1
         }
     }
 }
+
+public sealed record LifecycleResourceStateV2(
+    string ResourceId,
+    long Version,
+    ControllerLifecycleState State,
+    string LastAuditReference,
+    ControllerAuthorizationStatusV2 AuthorizationStatus = ControllerAuthorizationStatusV2.NONE,
+    string? ActiveAuthorizationOperation = null,
+    string? ActiveAuthorizerRole = null,
+    DateTimeOffset? AuthorizationExpiresAt = null,
+    ExportLifecycleStateV2 ExportState = ExportLifecycleStateV2.NONE);
+
+public interface ILeaseFenceStore
+{
+    ValueTask<LeaseFenceV2> AcquireAsync(
+        string resourceId,
+        string holderSubject,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<LeaseFenceV2> RenewAsync(
+        LeaseFenceV2 current,
+        DateTimeOffset expiresAt,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<LeaseFenceV2?> ReadCurrentAsync(
+        string resourceId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> ConsumeFenceAsync(
+        LeaseFenceV2 expected,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IIdempotencyStore
+{
+    ValueTask<IdempotencyOutcomeV2> ReserveAsync(
+        IdempotencyBindingV2 binding,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IdempotencyOutcomeV2?> ReadAsync(
+        IdempotencyBindingV2 binding,
+        CancellationToken cancellationToken = default);
+
+    ValueTask CompleteAsync(
+        IdempotencyBindingV2 binding,
+        string responseDigest,
+        string auditReference,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken = default);
+
+    ValueTask RecordFailureAsync(
+        IdempotencyBindingV2 binding,
+        TrustFailureCodeV2 code,
+        bool retryable,
+        string auditReference,
+        DateTimeOffset failedAt,
+        CancellationToken cancellationToken = default);
+}
+
+public interface ILifecycleStateStore
+{
+    ValueTask<LifecycleResourceStateV2> ReadAsync(
+        string resourceId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> CompareExchangeAsync(
+        LifecycleResourceStateV2 expected,
+        LifecycleResourceStateV2 replacement,
+        CancellationToken cancellationToken = default);
+}
+
+public static class IdempotencyDecisionV2
+{
+    public static IdempotencyOutcomeV2 RequireReusable(
+        IdempotencyBindingV2 requested,
+        IdempotencyBindingV2 storedBinding,
+        IdempotencyOutcomeV2 storedOutcome)
+    {
+        if (!string.Equals(requested.CanonicalRequestDigest, storedBinding.CanonicalRequestDigest, StringComparison.Ordinal))
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH,
+                "The idempotency key is already bound to a different request digest.");
+        }
+
+        if (storedOutcome.ReservationState == IdempotencyReservationStateV2.NONRETRYABLE_FAILURE)
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.IDEMPOTENCY_NONRETRYABLE,
+                "The authoritative idempotency outcome is non-retryable.");
+        }
+
+        return storedOutcome;
+    }
+}

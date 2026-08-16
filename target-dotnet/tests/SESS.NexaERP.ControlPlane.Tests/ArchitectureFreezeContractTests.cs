@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text;
+using SESS.NexaERP.AcceptanceVerifier.Configuration;
 using SESS.NexaERP.AcceptanceVerifier.Verification;
 using SESS.NexaERP.ControlPlane.Configuration;
 using SESS.NexaERP.ControlPlane.Contracts;
@@ -197,24 +199,542 @@ public sealed class ArchitectureFreezeContractTests
         Assert.False(valid.IsTargetAllowed(new TargetErpInstanceIdentity("erp-1", "test", "prod")));
     }
 
+    [Fact]
+    public void CanonicalV2GoldenVectorIsByteExact()
+    {
+        var fixture = V2Fixture.Create();
+        var bytes = CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header);
+        var text = Encoding.UTF8.GetString(bytes);
+
+        Assert.StartsWith("SESS-REV869B-COMMAND-V2\ncontract_version=21:rev869b-controller-v2\n", text);
+        Assert.EndsWith($"canonical_payload_length={fixture.Envelope.Header.CanonicalPayloadLength.ToString().Length}:{fixture.Envelope.Header.CanonicalPayloadLength}\n", text);
+        Assert.Equal(25, text.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length - 1);
+        var goldenHash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        Assert.Equal("6dc374d17c11cd3b16432dae30ccb280e5cd72ecba97695773c22f28c307af0d", goldenHash);
+        Assert.Equal(bytes, CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header));
+        Assert.Equal(fixture.Envelope.Header, CanonicalSignedHeaderCodecV2.Parse(bytes));
+    }
+
+    [Fact]
+    public async Task EveryProtectedHeaderMutationIsRejected()
+    {
+        var baseFixture = V2Fixture.Create();
+        var mutations = new (Func<CanonicalSignedHeaderV2, CanonicalSignedHeaderV2> Mutate, TrustFailureCodeV2 Code)[]
+        {
+            (h => h with { ContractVersion = "rev869b-controller-v3" }, TrustFailureCodeV2.CONTRACT_UNSUPPORTED),
+            (h => h with { CanonicalizationVersion = "rev869b-command-header-v3" }, TrustFailureCodeV2.CANONICALIZATION_UNSUPPORTED),
+            (h => h with { Algorithm = "ECDSA-P384-SHA384" }, TrustFailureCodeV2.ALGORITHM_UNSUPPORTED),
+            (h => h with { KeyId = "unknown-key" }, TrustFailureCodeV2.KEY_UNKNOWN),
+            (h => h with { Issuer = "unknown-issuer" }, TrustFailureCodeV2.ISSUER_UNKNOWN),
+            (h => h with { Audience = "other-audience" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { Subject = "other-subject" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { AuthorizedRole = "MonitoringReader" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { AuthorizedScope = "ORG:C2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { OrganizationId = "C2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { DatabaseClusterId = "cluster-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { DatabaseInstanceId = "instance-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { Operation = "AUTHORIZE_EXECUTE" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { ResourceId = "resource-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { ResourceVersion = 2 }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { LeaseId = "lease-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { FencingToken = 2 }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { RequestId = "request-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { IdempotencyKey = "idempotency-2" }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { Nonce = V2Fixture.SecondNonce }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { IssuedAt = h.IssuedAt.AddSeconds(-1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { NotBefore = h.NotBefore.AddSeconds(1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { ExpiresAt = h.ExpiresAt.AddSeconds(1) }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { CanonicalPayloadSha256 = new string('a', 64) }, TrustFailureCodeV2.SIGNATURE_INVALID),
+            (h => h with { CanonicalPayloadLength = h.CanonicalPayloadLength + 1 }, TrustFailureCodeV2.SIGNATURE_INVALID)
+        };
+
+        foreach (var (mutate, code) in mutations)
+        {
+            var fixture = V2Fixture.Create();
+            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+                await fixture.Service.VerifyAsync(
+                    fixture.Envelope with { Header = mutate(baseFixture.Envelope.Header) },
+                    fixture.Subject,
+                    fixture.Resource));
+            Assert.Equal(code, rejection.Code);
+            Assert.Equal(0, fixture.Audit.AcceptedCount);
+        }
+    }
+
+    [Fact]
+    public async Task EveryPayloadFieldMutationBreaksHash()
+    {
+        var mutations = new Func<CanonicalCommandPayloadV2, CanonicalCommandPayloadV2>[]
+        {
+            p => p with { Operation = ControllerOperationV2.AUTHORIZE_EXECUTE },
+            p => p with { ExpectedState = ControllerLifecycleState.Ready },
+            p => p with { RequestedState = ControllerLifecycleState.Quarantined },
+            p => p with { Scenario = new("scenario-2") },
+            p => p with { Subcase = new("subcase-2") },
+            p => p with { ActionId = "action-2" },
+            p => p with { ApprovedParameters = new Dictionary<string, string> { ["manifest"] = "other" } },
+            p => p with { EvidenceRequirements = ["other-evidence"] }
+        };
+
+        foreach (var mutate in mutations)
+        {
+            var fixture = V2Fixture.Create();
+            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+                await fixture.Service.VerifyAsync(
+                    fixture.Envelope with { Payload = mutate(fixture.Envelope.Payload) },
+                    fixture.Subject,
+                    fixture.Resource));
+            Assert.Equal(TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH, rejection.Code);
+            Assert.Equal(0, fixture.Nonces.ReservationCount);
+        }
+    }
+
+    [Fact]
+    public async Task UnknownIssuerKeyAlgorithmVersionFailClosed()
+    {
+        await AssertResignedHeaderFailure(h => h with { Issuer = "unknown-issuer" }, TrustFailureCodeV2.ISSUER_UNKNOWN);
+        await AssertResignedHeaderFailure(h => h with { KeyId = "unknown-key" }, TrustFailureCodeV2.KEY_UNKNOWN);
+        await AssertResignedHeaderFailure(h => h with { Algorithm = "ECDSA-P384-SHA384" }, TrustFailureCodeV2.ALGORITHM_UNSUPPORTED);
+        await AssertResignedHeaderFailure(h => h with { ContractVersion = "rev869b-controller-v3" }, TrustFailureCodeV2.CONTRACT_UNSUPPORTED);
+    }
+
+    [Fact]
+    public async Task RequestRoleCannotGrantAuthority()
+    {
+        var fixture = V2Fixture.Create(
+            trustedRoles: new HashSet<string>(["MonitoringReader"], StringComparer.Ordinal));
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Service.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource));
+        Assert.Equal(TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN, rejection.Code);
+    }
+
+    [Fact]
+    public async Task AudienceSubjectAndScopeAreExact()
+    {
+        await AssertResignedHeaderFailure(h => h with { Audience = "other-audience" }, TrustFailureCodeV2.AUDIENCE_MISMATCH);
+        await AssertResignedHeaderFailure(h => h with { Subject = "other-subject" }, TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        await AssertResignedHeaderFailure(h => h with { AuthorizedScope = "ORG:C2" }, TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+    }
+
+    [Fact]
+    public async Task ClusterInstanceOperationAndVersionSubstitutionReject()
+    {
+        await AssertResignedHeaderFailure(h => h with { DatabaseClusterId = "cluster-2" }, TrustFailureCodeV2.CLUSTER_MISMATCH);
+        await AssertResignedHeaderFailure(h => h with { DatabaseInstanceId = "instance-2" }, TrustFailureCodeV2.INSTANCE_MISMATCH);
+        await AssertResignedHeaderFailure(h => h with { Operation = "AUTHORIZE_EXECUTE" }, TrustFailureCodeV2.OPERATION_MISMATCH);
+        await AssertResignedHeaderFailure(h => h with { ResourceVersion = 2 }, TrustFailureCodeV2.RESOURCE_VERSION_STALE);
+    }
+
+    [Fact]
+    public async Task TemporalWindowIsServerOwned()
+    {
+        await AssertResignedHeaderFailure(h => h with
+        {
+            IssuedAt = Now.AddMinutes(1),
+            NotBefore = Now.AddMinutes(1),
+            ExpiresAt = Now.AddMinutes(2)
+        }, TrustFailureCodeV2.NOT_YET_VALID);
+        await AssertResignedHeaderFailure(h => h with
+        {
+            IssuedAt = Now.AddMinutes(-2),
+            NotBefore = Now.AddMinutes(-2),
+            ExpiresAt = Now.AddMinutes(-1)
+        }, TrustFailureCodeV2.ENVELOPE_EXPIRED);
+        await AssertResignedHeaderFailure(h => h with { ExpiresAt = Now.AddMinutes(6) }, TrustFailureCodeV2.ENVELOPE_EXPIRED);
+    }
+
+    [Fact]
+    public async Task NonceReplayIsIndependentOfIdempotency()
+    {
+        var fixture = V2Fixture.Create();
+        await fixture.Service.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource);
+        Assert.Equal(IdempotencyReservationStateV2.COMPLETED, fixture.Idempotency.LastOutcome?.ReservationState);
+        var replayHeader = fixture.Envelope.Header with { IdempotencyKey = "idempotency-2", RequestId = "request-2" };
+        var replay = fixture.Service.Sign(replayHeader, fixture.Envelope.Payload);
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Service.VerifyAsync(replay, fixture.Subject, fixture.Resource));
+        Assert.Equal(TrustFailureCodeV2.NONCE_REPLAY, rejection.Code);
+        Assert.Equal(1, fixture.Idempotency.ReservationCount);
+    }
+
+    [Fact]
+    public async Task LeaseAcquireRenewExpireAndFenceAreMonotonic()
+    {
+        var store = new FakeLeaseStore(Now);
+        var first = await store.AcquireAsync("resource-1", "worker-1", Now.AddMinutes(1));
+        var second = await store.RenewAsync(first, Now.AddMinutes(2));
+        Assert.True(second.FencingToken > first.FencingToken);
+        Assert.False(await store.ConsumeFenceAsync(first));
+        Assert.True(await store.ConsumeFenceAsync(second));
+    }
+
+    [Fact]
+    public void EveryUnlistedStateOperationPairIsIllegal()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        foreach (var state in Enum.GetValues<ControllerLifecycleState>())
+        {
+            foreach (var operation in Enum.GetValues<ControllerOperationV2>())
+            {
+                if (machine.ListedOperations.Contains((state, operation)) || operation == ControllerOperationV2.QUARANTINE)
+                {
+                    continue;
+                }
+
+                var rejection = Assert.Throws<TrustFailureExceptionV2>(() =>
+                    machine.RequireOperation(operation, state, state, "Operator", true, null));
+                Assert.Equal(TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL, rejection.Code);
+            }
+        }
+    }
+
+    [Fact]
+    public void EveryListedTransitionHasExactRoleEvidenceAndFence()
+    {
+        var machine = new Rev869BControllerStateMachine();
+        foreach (var rule in machine.ListedOperationRules)
+        {
+            Assert.Equal(rule.Next,
+                machine.RequireOperation(
+                    rule.Operation,
+                    rule.State,
+                    rule.Next,
+                    rule.Role,
+                    true,
+                    rule.RequiresLease ? V2Fixture.Lease() : null));
+            var deniedRole = Assert.Throws<TrustFailureExceptionV2>(() =>
+                machine.RequireOperation(
+                    rule.Operation,
+                    rule.State,
+                    rule.Next,
+                    "UnauthorizedRole",
+                    true,
+                    rule.RequiresLease ? V2Fixture.Lease() : null));
+            Assert.Equal(TrustFailureCodeV2.SUBJECT_UNAUTHORIZED, deniedRole.Code);
+        }
+
+        var noEvidence = Assert.Throws<TrustFailureExceptionV2>(() =>
+            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
+                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", false, null));
+        Assert.Equal(TrustFailureCodeV2.READER_MISSING, noEvidence.Code);
+        var noLease = Assert.Throws<TrustFailureExceptionV2>(() =>
+            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
+                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", true, null));
+        Assert.Equal(TrustFailureCodeV2.LEASE_REQUIRED, noLease.Code);
+        var wrongRole = Assert.Throws<TrustFailureExceptionV2>(() =>
+            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
+                ControllerLifecycleState.Provisioning, "Operator", true, V2Fixture.Lease()));
+        Assert.Equal(TrustFailureCodeV2.SUBJECT_UNAUTHORIZED, wrongRole.Code);
+        Assert.Equal(ControllerLifecycleState.Provisioning,
+            machine.RequireOperation(ControllerOperationV2.PREPARE, ControllerLifecycleState.Preflight,
+                ControllerLifecycleState.Provisioning, "ProvisioningExecutor", true, V2Fixture.Lease()));
+
+        var active = new LifecycleResourceStateV2(
+            "resource-1", 3, ControllerLifecycleState.Preflight, "audit-1",
+            ControllerAuthorizationStatusV2.ACTIVE,
+            ControllerOperationV2.AUTHORIZE_PREPARE.ToString(),
+            "Operator",
+            Now.AddMinutes(1));
+        var cancelled = machine.CreateReplacement(
+            active, ControllerOperationV2.CANCEL, active.State, "Operator", true, null,
+            Now.AddMinutes(1), Now, "audit-cancel");
+        Assert.Equal(ControllerAuthorizationStatusV2.CANCELLED, cancelled.AuthorizationStatus);
+        var expired = machine.CreateReplacement(
+            active with { AuthorizationExpiresAt = Now.AddMinutes(-1) },
+            ControllerOperationV2.EXPIRE, active.State, "ControlPlaneRuntime", true, null,
+            Now.AddMinutes(-1), Now, "audit-expire");
+        Assert.Equal(ControllerAuthorizationStatusV2.EXPIRED, expired.AuthorizationStatus);
+
+        var accepted = new LifecycleResourceStateV2(
+            "resource-1", 10, ControllerLifecycleState.Accepted, "audit-accepted");
+        var exportAuthorized = machine.CreateReplacement(
+            accepted, ControllerOperationV2.AUTHORIZE_EXPORT, accepted.State, "ExportAuthorizer", true, null,
+            Now.AddMinutes(5), Now, "audit-export-authorized");
+        Assert.Equal(ExportLifecycleStateV2.AUTHORIZED, exportAuthorized.ExportState);
+        var delivering = machine.CreateReplacement(
+            exportAuthorized, ControllerOperationV2.EXPORT, accepted.State, "ExportExecutor", true,
+            V2Fixture.Lease(), Now.AddMinutes(5), Now, "audit-export-delivering");
+        Assert.Equal(ExportLifecycleStateV2.DELIVERING, delivering.ExportState);
+        var delivered = machine.CreateReplacement(
+            delivering, ControllerOperationV2.COMPLETE_EXPORT, accepted.State, "ExportExecutor", true,
+            V2Fixture.Lease(), Now.AddMinutes(5), Now, "audit-export-delivered");
+        Assert.Equal(ExportLifecycleStateV2.DELIVERED, delivered.ExportState);
+    }
+
+    [Fact]
+    public void IdempotencyDecisionTableIsExact()
+    {
+        var binding = new IdempotencyBindingV2("issuer", "C1", "instance-1", "PREPARE", "request-1", "key-1", new string('a', 64));
+        var completed = new IdempotencyOutcomeV2(IdempotencyReservationStateV2.COMPLETED, 1, false, null, "response", "audit", Now);
+        Assert.Same(completed, IdempotencyDecisionV2.RequireReusable(binding, binding, completed));
+        var collision = Assert.Throws<TrustFailureExceptionV2>(() =>
+            IdempotencyDecisionV2.RequireReusable(binding with { CanonicalRequestDigest = new string('b', 64) }, binding, completed));
+        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH, collision.Code);
+        var nonretryable = Assert.Throws<TrustFailureExceptionV2>(() =>
+            IdempotencyDecisionV2.RequireReusable(binding, binding,
+                completed with { ReservationState = IdempotencyReservationStateV2.NONRETRYABLE_FAILURE }));
+        Assert.Equal(TrustFailureCodeV2.IDEMPOTENCY_NONRETRYABLE, nonretryable.Code);
+    }
+
+    [Fact]
+    public async Task ConcurrentDuplicateHasOneAuthoritativeWinner()
+    {
+        var store = new FakeIdempotencyStore();
+        var binding = new IdempotencyBindingV2("issuer", "C1", "instance-1", "PREPARE", "request-1", "key-1", new string('a', 64));
+        var outcomes = await Task.WhenAll(
+            store.ReserveAsync(binding).AsTask(),
+            store.ReserveAsync(binding).AsTask());
+        Assert.Equal(1, store.AuthoritativeRows);
+        Assert.All(outcomes, item => Assert.Equal(1, item.AttemptNumber));
+    }
+
+    [Fact]
+    public async Task OracleManifestAndReadersAreServerPinned()
+    {
+        var fixture = EvidenceFixture.Create();
+        var wrongOracle = fixture.WithEvidence(
+            fixture.Request.Evidence with { OracleVersion = "9.9.9" });
+        await AssertEvidenceFailure(wrongOracle, TrustFailureCodeV2.ORACLE_MISMATCH);
+
+        var missingReader = fixture.WithEvidence(
+            EvidenceFixture.Rehash(fixture.Request.Evidence with { ReaderReceipts = [] }));
+        await AssertEvidenceFailure(missingReader, TrustFailureCodeV2.READER_MISSING);
+
+        var substituted = fixture.Request.Evidence.ReaderReceipts[0] with { ReaderArtifactSha256 = new string('d', 64) };
+        var wrongReader = fixture.WithEvidence(EvidenceFixture.Rehash(
+            fixture.Request.Evidence with { ReaderReceipts = [substituted] }));
+        await AssertEvidenceFailure(wrongReader, TrustFailureCodeV2.READER_UNAUTHORIZED);
+    }
+
+    [Fact]
+    public void CallerVerdictAndExpectedValuesAreUnmapped()
+    {
+        foreach (var field in new[] { "pass", "fail", "verdict", "disposition", "expected", "formula" })
+        {
+            var json = Encoding.UTF8.GetBytes($"{{\"{field}\":true}}");
+            var rejection = Assert.Throws<TrustFailureExceptionV2>(() => StrictEvidenceJsonV2.Deserialize(json));
+            Assert.Equal(TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD, rejection.Code);
+        }
+    }
+
+    [Fact]
+    public async Task TemporalEvidenceBindingIsExact()
+    {
+        var fixture = EvidenceFixture.Create();
+        var future = fixture.Request.Evidence.RawFacts[2] with
+        {
+            Provenance = fixture.Request.Evidence.RawFacts[2].Provenance with { ObservedAtUtc = Now.AddMinutes(1) }
+        };
+        await AssertEvidenceFailure(
+            fixture.WithEvidence(EvidenceFixture.Rehash(
+                fixture.Request.Evidence with { RawFacts = [.. fixture.Request.Evidence.RawFacts.Take(2), future] })),
+            TrustFailureCodeV2.READER_UNAUTHORIZED);
+
+        var wrongLease = fixture.WithEvidence(EvidenceFixture.Rehash(
+            fixture.Request.Evidence with
+            {
+                Lease = fixture.Request.Evidence.Lease with { FencingToken = 2 }
+            }));
+        await AssertEvidenceFailure(wrongLease, TrustFailureCodeV2.LEASE_FENCE_STALE);
+    }
+
+    [Fact]
+    public async Task AllEvidenceDimensionsAreServerBounded()
+    {
+        var fixture = EvidenceFixture.Create();
+        var oversizedFact = fixture.Request.Evidence.RawFacts[0] with
+        {
+            Facts = new Dictionary<string, TypedSelectorValueV1>
+            {
+                ["status"] = new(SelectorValueKind.String, new string('x', fixture.Options.MaximumStringBytes + 1))
+            }
+        };
+        var oversized = fixture.WithEvidence(EvidenceFixture.Rehash(
+            fixture.Request.Evidence with
+            {
+                RawFacts = [oversizedFact, .. fixture.Request.Evidence.RawFacts.Skip(1)]
+            }));
+        await AssertEvidenceFailure(oversized, TrustFailureCodeV2.EVIDENCE_TOO_LARGE);
+    }
+
+    [Fact]
+    public async Task SensitiveFactsNeverSerializeOrLog()
+    {
+        const string sentinel = "secret-value-must-not-leak";
+        var fixture = EvidenceFixture.Create();
+        var sensitive = fixture.Request.Evidence.RawFacts[0] with
+        {
+            Facts = new Dictionary<string, TypedSelectorValueV1>
+            {
+                ["password"] = new(SelectorValueKind.String, sentinel)
+            }
+        };
+        var changed = fixture.WithEvidence(EvidenceFixture.Rehash(
+            fixture.Request.Evidence with
+            {
+                RawFacts = [sensitive, .. fixture.Request.Evidence.RawFacts.Skip(1)]
+            }));
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await changed.Verifier.VerifyAsync(changed.Request));
+        Assert.Equal(TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD, rejection.Code);
+        Assert.DoesNotContain(sentinel, rejection.Message, StringComparison.Ordinal);
+        Assert.Null(changed.Audit.Event);
+    }
+
+    [Fact]
+    public async Task MissingVerifierDependencyReturnsNotReady()
+    {
+        var fixture = EvidenceFixture.Create(ready: false);
+        var readiness = await fixture.Readiness.CheckAsync();
+        Assert.Equal(ReadinessStateV2.NOT_READY, readiness.State);
+        Assert.Contains("ORACLE_NOT_PINNED", readiness.DependencyCodes);
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Verifier.VerifyAsync(fixture.Request));
+        Assert.Equal(TrustFailureCodeV2.SERVICE_NOT_READY, rejection.Code);
+    }
+
+    [Fact]
+    public async Task RuntimeIdentityCannotEscalateAcrossRoles()
+    {
+        foreach (var role in new[]
+        {
+            "ErpRuntime", "ControlPlaneRuntime", "CommandSigner", "RegistryWriter", "ProvisioningExecutor",
+            "MigrationExecutor", "AcceptanceVerifier", "AuditWriter", "RecoveryApprover", "RecoveryExecutor",
+            "DropAuthorizer", "DropExecutor", "PurgeAuthorizer", "PurgeExecutor", "ExportAuthorizer",
+            "ExportExecutor", "MonitoringReader"
+        })
+        {
+            var fixture = V2Fixture.Create(
+                new HashSet<string>([role], StringComparer.Ordinal));
+            var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+                await fixture.Service.VerifyAsync(fixture.Envelope, fixture.Subject, fixture.Resource));
+            Assert.Equal(TrustFailureCodeV2.REQUEST_ROLE_FORBIDDEN, rejection.Code);
+            Assert.Equal(0, fixture.Audit.AcceptedCount);
+        }
+    }
+
+    [Fact]
+    public async Task AuditAppendFailurePreventsVerdictCommit()
+    {
+        var fixture = EvidenceFixture.Create(auditSucceeds: false);
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Verifier.VerifyAsync(fixture.Request));
+        Assert.Equal(TrustFailureCodeV2.AUDIT_APPEND_FAILED, rejection.Code);
+        Assert.Equal(1, fixture.Audit.AppendAttempts);
+    }
+
+    [Fact]
+    public void MalformedCanonicalInputHasTypedFailure()
+    {
+        var fixture = V2Fixture.Create();
+        var validBytes = CanonicalSignedHeaderCodecV2.Serialize(fixture.Envelope.Header);
+        var validText = Encoding.UTF8.GetString(validBytes);
+        var malformedHash = fixture.Envelope.Header with { CanonicalPayloadSha256 = new string('A', 64) };
+        var invalidHash = Assert.Throws<TrustFailureExceptionV2>(() =>
+            CanonicalSignedHeaderCodecV2.Serialize(malformedHash));
+        Assert.Equal(TrustFailureCodeV2.SIGNATURE_INVALID, invalidHash.Code);
+
+        var malformedNonce = fixture.Envelope.Header with { Nonce = "not-base64url" };
+        var invalidNonce = Assert.Throws<TrustFailureExceptionV2>(() =>
+            CanonicalSignedHeaderCodecV2.Serialize(malformedNonce));
+        Assert.Equal(TrustFailureCodeV2.SIGNATURE_INVALID, invalidNonce.Code);
+
+        foreach (var malformed in new[]
+        {
+            new byte[] { 0xff, 0xfe },
+            Encoding.UTF8.GetBytes(validText.Replace("\n", "\r\n", StringComparison.Ordinal)),
+            Encoding.UTF8.GetBytes(validText + "contract_version=21:rev869b-controller-v2\n"),
+            Encoding.UTF8.GetBytes(validText.Replace(
+                "contract_version=21:rev869b-controller-v2",
+                "contract_version=20:rev869b-controller-v2",
+                StringComparison.Ordinal)),
+            Encoding.UTF8.GetBytes(validText.Replace(
+                "resource_version=1:1",
+                "resource_version=2:01",
+                StringComparison.Ordinal)),
+            Encoding.UTF8.GetBytes(validText.Replace(
+                "issued_at=28:2026-08-15T12:00:00.0000000Z",
+                "issued_at=28:2026-08-15T99:00:00.0000000Z",
+                StringComparison.Ordinal))
+        })
+        {
+            var rawFailure = Assert.Throws<TrustFailureExceptionV2>(() =>
+                CanonicalSignedHeaderCodecV2.Parse(malformed));
+            Assert.Equal(TrustFailureCodeV2.SIGNATURE_INVALID, rawFailure.Code);
+        }
+
+        var unmapped = Assert.Throws<TrustFailureExceptionV2>(() =>
+            StrictEvidenceJsonV2.Deserialize(Encoding.UTF8.GetBytes("{\"unknown\":1}")));
+        Assert.Equal(TrustFailureCodeV2.READER_UNAUTHORIZED, unmapped.Code);
+    }
+
+    [Fact]
+    public async Task TenMillionMasterContractUsesPagingOnly()
+    {
+        var reader = new FakePagedMasterReader(10_000_000, 1_000);
+        var pages = new List<PageResultV1<int>>();
+        await foreach (var page in reader.ReadAsync(3))
+        {
+            pages.Add(page);
+        }
+
+        Assert.Equal(3, pages.Count);
+        Assert.All(pages, page => Assert.InRange(page.Items.Count, 1, 1_000));
+        Assert.Equal(3, reader.ReadCount);
+        Assert.True(pages[^1].HasMore);
+    }
+
+    private static async Task AssertEvidenceFailure(EvidenceFixture fixture, TrustFailureCodeV2 expected)
+    {
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Verifier.VerifyAsync(fixture.Request));
+        Assert.Equal(expected, rejection.Code);
+    }
+
+    private static async Task AssertResignedHeaderFailure(
+        Func<CanonicalSignedHeaderV2, CanonicalSignedHeaderV2> mutate,
+        TrustFailureCodeV2 expected)
+    {
+        var fixture = V2Fixture.Create();
+        var changedHeader = mutate(fixture.Envelope.Header);
+        var resigned = expected == TrustFailureCodeV2.KEY_UNKNOWN
+            ? fixture.Envelope with { Header = changedHeader }
+            : fixture.Service.Sign(changedHeader, fixture.Envelope.Payload);
+        var rejection = await Assert.ThrowsAsync<TrustFailureExceptionV2>(async () =>
+            await fixture.Service.VerifyAsync(resigned, fixture.Subject, fixture.Resource));
+        Assert.Equal(expected, rejection.Code);
+    }
+
     private static ControlPlaneOptions Options(string database, string[] patterns) => new()
     {
         ServiceIdentity = "sess-control-plane",
+        IssuerId = "controller-issuer",
+        Audience = "control-plane",
         ControlPlaneDatabaseIdentity = database,
         CommandSigningKeyId = "command-key",
         EvidenceVerificationKeyId = "evidence-key",
-        ContractVersion = Rev869BCompatibilityManifestV1.ContractVersion,
-        EvidenceVersion = Rev869BCompatibilityManifestV1.EvidenceVersion,
-        CanonicalizationVersion = Rev869BCompatibilityManifestV1.CanonicalizationVersion,
+        ContractVersion = Rev869BCompatibilityManifestV2.ContractVersion,
+        EvidenceVersion = Rev869BCompatibilityManifestV2.EvidenceVersion,
+        CanonicalizationVersion = Rev869BCompatibilityManifestV2.CanonicalizationVersion,
         RetentionPolicyReference = "retention-1",
         MaximumEvidenceObservations = 100,
         MaximumFactsPerObservation = 100,
         MaximumReplayWindowSeconds = 300,
         MaximumLeaseSeconds = 300,
+        MaximumClockSkewSeconds = 30,
+        MaximumEnvelopeBytes = 98_304,
+        MaximumSelectors = 128,
+        MaximumStringBytes = 4_096,
+        MaximumCumulativeFacts = 10_000,
         ControlPlaneEndpoint = "https://control-plane.invalid",
         AcceptanceVerifierEndpoint = "https://acceptance-verifier.invalid",
         AllowedTargetEnvironments = ["test"],
-        AllowedDatabaseIdentityPatterns = patterns
+        AllowedDatabaseIdentityPatterns = patterns,
+        AllowedIssuerIds = ["controller-issuer"],
+        AllowedAudiences = ["control-plane"],
+        AllowedRoles = ["Operator"],
+        AllowedScopes = ["ORG:C1"],
+        AllowedOperations = ["AUTHORIZE_PREPARE"]
     };
 
     private static LifecycleCommandV1 Command() => new(
@@ -317,6 +837,522 @@ public sealed class ArchitectureFreezeContractTests
         {
             Event = auditEvent;
             return "audit-1";
+        }
+    }
+
+    private sealed class V2Fixture
+    {
+        public const string Nonce = "AAECAwQFBgcICQoLDA0ODw";
+        public const string SecondNonce = "AQIDBAUGBwgJCgsMDQ4PEA";
+
+        private V2Fixture(
+            SignedCommandServiceV2 service,
+            SignedCommandEnvelopeV2 envelope,
+            AuthenticatedSubjectV2 subject,
+            ResourceBindingV2 resource,
+            FakeNonceStore nonces,
+            FakeIdempotencyStore idempotency,
+            FakeTrustAuditSink audit)
+        {
+            Service = service;
+            Envelope = envelope;
+            Subject = subject;
+            Resource = resource;
+            Nonces = nonces;
+            Idempotency = idempotency;
+            Audit = audit;
+        }
+
+        public SignedCommandServiceV2 Service { get; }
+        public SignedCommandEnvelopeV2 Envelope { get; }
+        public AuthenticatedSubjectV2 Subject { get; }
+        public ResourceBindingV2 Resource { get; }
+        public FakeNonceStore Nonces { get; }
+        public FakeIdempotencyStore Idempotency { get; }
+        public FakeTrustAuditSink Audit { get; }
+
+        public static V2Fixture Create(IReadOnlySet<string>? trustedRoles = null)
+        {
+            trustedRoles ??= new HashSet<string>(["Operator"], StringComparer.Ordinal);
+            var crypto = new FakeCrypto("command-key");
+            var key = new SigningKeyDescriptor(
+                crypto.KeyId,
+                Rev869BCompatibilityManifestV2.SignatureAlgorithm,
+                SigningKeyState.Active,
+                Now.AddDays(-1),
+                Now.AddDays(1),
+                null);
+            var issuer = new TrustedIssuerDescriptorV2(
+                "controller-issuer",
+                new HashSet<string>(["control-plane"], StringComparer.Ordinal),
+                new HashSet<string>([Rev869BCompatibilityManifestV2.ContractVersion], StringComparer.Ordinal),
+                new HashSet<string>([Rev869BCompatibilityManifestV2.SignatureAlgorithm], StringComparer.Ordinal),
+                new Dictionary<string, SigningKeyDescriptor>(StringComparer.Ordinal) { [key.KeyId] = key },
+                new HashSet<string>(["operator-1"], StringComparer.Ordinal),
+                new HashSet<string>(trustedRoles, StringComparer.Ordinal),
+                new HashSet<string>(["ORG:C1"], StringComparer.Ordinal),
+                Enum.GetNames<ControllerOperationV2>().ToHashSet(StringComparer.Ordinal),
+                Now.AddDays(-1),
+                null);
+            var subject = new AuthenticatedSubjectV2(
+                issuer.IssuerId,
+                "operator-1",
+                "workload-1",
+                "control-plane",
+                new HashSet<string>(trustedRoles, StringComparer.Ordinal),
+                new HashSet<string>(["ORG:C1"], StringComparer.Ordinal));
+            var resource = new ResourceBindingV2(
+                "C1", "cluster-1", "instance-1", "TARGET", "resource-1", 1, "AUTHORIZE_PREPARE");
+            var nonces = new FakeNonceStore();
+            var idempotency = new FakeIdempotencyStore();
+            var audit = new FakeTrustAuditSink();
+            var service = new SignedCommandServiceV2(
+                crypto,
+                crypto,
+                new FakeIssuerRegistry(issuer),
+                new FakeAuthorizationResolver(subject),
+                nonces,
+                new FakeLeaseStore(Now),
+                idempotency,
+                new FakeLifecycleStore(new("resource-1", 1, ControllerLifecycleState.Registered, "audit-0")),
+                audit,
+                new FixedTimeProvider(Now),
+                new Rev869BControllerStateMachine(),
+                TimeSpan.FromMinutes(5),
+                TimeSpan.FromSeconds(30));
+            var payload = new CanonicalCommandPayloadV2(
+                ControllerOperationV2.AUTHORIZE_PREPARE,
+                ControllerLifecycleState.Registered,
+                ControllerLifecycleState.Preflight,
+                new ScenarioIdentityV1("scenario-1"),
+                new SubcaseIdentityV1("subcase-1"),
+                "action-1",
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["manifest"] = "sha256:abc" },
+                ["approved-target-manifest"]);
+            var emptyHeader = new CanonicalSignedHeaderV2(
+                Rev869BCompatibilityManifestV2.ContractVersion,
+                Rev869BCompatibilityManifestV2.CanonicalizationVersion,
+                Rev869BCompatibilityManifestV2.SignatureAlgorithm,
+                crypto.KeyId,
+                issuer.IssuerId,
+                "control-plane",
+                subject.SubjectId,
+                "Operator",
+                "ORG:C1",
+                resource.OrganizationId,
+                resource.DatabaseClusterId,
+                resource.DatabaseInstanceId,
+                resource.Operation,
+                resource.ResourceId,
+                resource.ExpectedResourceVersion,
+                "lease-none",
+                1,
+                "request-1",
+                "idempotency-1",
+                Nonce,
+                Now,
+                Now,
+                Now.AddMinutes(2),
+                new string('0', 64),
+                0);
+            return new(service, service.Sign(emptyHeader, payload), subject, resource, nonces, idempotency, audit);
+        }
+
+        public static LeaseFenceV2 Lease() =>
+            new("lease-1", "resource-1", 1, Now.AddMinutes(-1), Now, Now.AddMinutes(1), "worker-1");
+    }
+
+    private sealed class FakeIssuerRegistry(TrustedIssuerDescriptorV2 issuer) : ITrustedIssuerRegistry
+    {
+        public TrustedIssuerDescriptorV2? Resolve(string issuerId, string keyId) =>
+            issuerId == issuer.IssuerId ? issuer : null;
+    }
+
+    private sealed class FakeAuthorizationResolver(AuthenticatedSubjectV2 resolved) : IAuthorizationResolver
+    {
+        public AuthenticatedSubjectV2? Resolve(AuthenticatedSubjectV2 authenticatedSubject, ResourceBindingV2 resource) =>
+            authenticatedSubject.Issuer == resolved.Issuer &&
+            authenticatedSubject.SubjectId == resolved.SubjectId
+                ? resolved
+                : null;
+    }
+
+    private sealed class FakeNonceStore : INonceReplayStore
+    {
+        private readonly HashSet<string> _nonces = new(StringComparer.Ordinal);
+        public int ReservationCount => _nonces.Count;
+
+        public ValueTask<bool> TryReserveAsync(
+            string issuer,
+            string nonce,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_nonces.Add($"{issuer}:{nonce}"));
+    }
+
+    private sealed class FakeLeaseStore(DateTimeOffset now) : ILeaseFenceStore
+    {
+        private LeaseFenceV2? _current;
+        private long _fence;
+
+        public ValueTask<LeaseFenceV2> AcquireAsync(
+            string resourceId,
+            string holderSubject,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default)
+        {
+            _current = new(
+                $"lease-{++_fence}", resourceId, _fence, now, now, expiresAt, holderSubject);
+            return ValueTask.FromResult(_current);
+        }
+
+        public ValueTask<LeaseFenceV2> RenewAsync(
+            LeaseFenceV2 current,
+            DateTimeOffset expiresAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (_current != current)
+            {
+                throw new TrustFailureExceptionV2(TrustFailureCodeV2.LEASE_FENCE_STALE, "Stale lease.");
+            }
+
+            _current = current with { FencingToken = ++_fence, RenewedAt = now, ExpiresAt = expiresAt };
+            return ValueTask.FromResult(_current);
+        }
+
+        public ValueTask<LeaseFenceV2?> ReadCurrentAsync(
+            string resourceId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_current?.ResourceId == resourceId ? _current : null);
+
+        public ValueTask<bool> ConsumeFenceAsync(
+            LeaseFenceV2 expected,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_current == expected && expected.ExpiresAt >= now);
+    }
+
+    private sealed class FakeIdempotencyStore : IIdempotencyStore
+    {
+        private readonly object _lock = new();
+        private readonly Dictionary<string, (IdempotencyBindingV2 Binding, IdempotencyOutcomeV2 Outcome)> _rows =
+            new(StringComparer.Ordinal);
+
+        public int ReservationCount { get; private set; }
+        public int AuthoritativeRows => _rows.Count;
+        public IdempotencyOutcomeV2? LastOutcome => _rows.Values.LastOrDefault().Outcome;
+
+        public ValueTask<IdempotencyOutcomeV2> ReserveAsync(
+            IdempotencyBindingV2 binding,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_lock)
+            {
+                var key = Key(binding);
+                if (_rows.TryGetValue(key, out var existing))
+                {
+                    return ValueTask.FromResult(
+                        IdempotencyDecisionV2.RequireReusable(binding, existing.Binding, existing.Outcome));
+                }
+
+                var outcome = new IdempotencyOutcomeV2(
+                    IdempotencyReservationStateV2.RESERVED, 1, true, null, null, null, null);
+                _rows.Add(key, (binding, outcome));
+                ReservationCount++;
+                return ValueTask.FromResult(outcome);
+            }
+        }
+
+        public ValueTask<IdempotencyOutcomeV2?> ReadAsync(
+            IdempotencyBindingV2 binding,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_lock)
+            {
+                var row = _rows.Values.SingleOrDefault(item => item.Binding == binding);
+                return ValueTask.FromResult<IdempotencyOutcomeV2?>(row.Outcome);
+            }
+        }
+
+        public ValueTask CompleteAsync(
+            IdempotencyBindingV2 binding,
+            string responseDigest,
+            string auditReference,
+            DateTimeOffset completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            lock (_lock)
+            {
+                var key = Key(binding);
+                var existing = _rows[key];
+                _rows[key] = (existing.Binding, existing.Outcome with
+                {
+                    ReservationState = IdempotencyReservationStateV2.COMPLETED,
+                    Retryable = false,
+                    ResponseDigest = responseDigest,
+                    AuditReference = auditReference,
+                    CompletedAt = completedAt
+                });
+                return ValueTask.CompletedTask;
+            }
+        }
+
+        public ValueTask RecordFailureAsync(
+            IdempotencyBindingV2 binding,
+            TrustFailureCodeV2 code,
+            bool retryable,
+            string auditReference,
+            DateTimeOffset failedAt,
+            CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        private static string Key(IdempotencyBindingV2 binding) =>
+            $"{binding.Issuer}:{binding.OrganizationId}:{binding.DatabaseInstanceId}:{binding.Operation}:{binding.IdempotencyKey}";
+    }
+
+    private sealed class FakeLifecycleStore(LifecycleResourceStateV2 initial) : ILifecycleStateStore
+    {
+        private LifecycleResourceStateV2 _current = initial;
+
+        public ValueTask<LifecycleResourceStateV2> ReadAsync(
+            string resourceId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_current);
+
+        public ValueTask<bool> CompareExchangeAsync(
+            LifecycleResourceStateV2 expected,
+            LifecycleResourceStateV2 replacement,
+            CancellationToken cancellationToken = default)
+        {
+            if (_current != expected)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            _current = replacement;
+            return ValueTask.FromResult(true);
+        }
+    }
+
+    private sealed class FakeTrustAuditSink : ITrustAuditSinkV2
+    {
+        public int AcceptedCount { get; private set; }
+
+        public ValueTask<DurableAuditAppendReceiptV2?> AppendAcceptedAttemptAsync(
+            CanonicalSignedHeaderV2 header,
+            CancellationToken cancellationToken = default)
+        {
+            AcceptedCount++;
+            return ValueTask.FromResult<DurableAuditAppendReceiptV2?>(
+                new("event-1", "audit-1", new string('a', 64), Now));
+        }
+    }
+
+    private sealed class EvidenceFixture
+    {
+        private EvidenceFixture(
+            AcceptanceVerifierOptions options,
+            FakeReadinessProbe readiness,
+            FakeVerificationAuditSinkV2 audit,
+            ClosedEvidenceVerifierV2 verifier,
+            EvidenceVerificationRequestV2 request)
+        {
+            Options = options;
+            Readiness = readiness;
+            Audit = audit;
+            Verifier = verifier;
+            Request = request;
+        }
+
+        public AcceptanceVerifierOptions Options { get; }
+        public FakeReadinessProbe Readiness { get; }
+        public FakeVerificationAuditSinkV2 Audit { get; }
+        public ClosedEvidenceVerifierV2 Verifier { get; }
+        public EvidenceVerificationRequestV2 Request { get; }
+
+        public static EvidenceFixture Create(bool ready = true, bool auditSucceeds = true)
+        {
+            var options = new AcceptanceVerifierOptions
+            {
+                ServiceIdentity = "acceptance-verifier",
+                IssuerId = "verifier-issuer",
+                Audience = "acceptance-verifier",
+                KeyId = "verifier-key",
+                ContractVersion = Rev869BCompatibilityManifestV2.ContractVersion,
+                EvidenceVersion = Rev869BCompatibilityManifestV2.EvidenceVersion,
+                CanonicalizationVersion = Rev869BCompatibilityManifestV2.CanonicalizationVersion,
+                OracleId = "oracle-1",
+                OracleVersion = "2.0.0",
+                OracleArtifactSha256 = new string('a', 64),
+                RequiredReaderIds = ["reader-1"],
+                AllowedClusterIds = ["cluster-1"],
+                AllowedInstanceIds = ["instance-1"],
+                AllowedFactFields = ["count", "status"],
+                SensitiveFieldNames = ["password", "token", "private_key", "pan", "bank", "payroll"],
+                MaximumEnvelopeBytes = 4_194_304,
+                MaximumObservations = 512,
+                MaximumSelectors = 128,
+                MaximumFactsPerObservation = 256,
+                MaximumStringBytes = 32,
+                MaximumCumulativeFactBytes = 2_097_152,
+                MaximumClockSkewSeconds = 30,
+                MaximumObservationWindowSeconds = 600
+            };
+            var resource = new ResourceBindingV2(
+                "C1", "cluster-1", "instance-1", "TARGET", "resource-1", 7, "VERIFY_ACCEPT");
+            var lease = new LeaseFenceV2(
+                "lease-7", resource.ResourceId, 7, Now.AddMinutes(-5), Now.AddMinutes(-1),
+                Now.AddMinutes(5), "acceptance-verifier");
+            var receipt = new EvidenceReaderReceiptV2(
+                "reader-1", "facts-v2", new string('b', 64),
+                new string('c', 64), new string('d', 64), Now.AddMinutes(-1));
+            var facts = new Dictionary<string, TypedSelectorValueV1>(StringComparer.Ordinal)
+            {
+                ["count"] = new(SelectorValueKind.Integer, "1"),
+                ["status"] = new(SelectorValueKind.String, "complete")
+            };
+            var evidence = new CanonicalEvidenceEnvelopeV2(
+                "evidence-1",
+                resource,
+                "request-1",
+                lease,
+                Now.AddMinutes(-4),
+                Now,
+                Now.AddMinutes(-2.5),
+                [
+                    new("before-1", ObservationStage.Before,
+                        new(ObservationSourceKind.TargetDatabase, "db-reader", Now.AddMinutes(-3)), facts),
+                    new("after-1", ObservationStage.After,
+                        new(ObservationSourceKind.TargetDatabase, "db-reader", Now.AddMinutes(-2)), facts),
+                    new("durable-1", ObservationStage.Durable,
+                        new(ObservationSourceKind.ControllerLedger, "ledger-reader", Now.AddMinutes(-1)), facts)
+                ],
+                [receipt],
+                new ActionResultV1(true, 1, null, null, "resource-1", "complete", 200, "action-receipt-1"),
+                string.Empty,
+                options.OracleId,
+                options.OracleVersion,
+                options.OracleArtifactSha256);
+            evidence = Rehash(evidence);
+            var manifest = new OracleManifestV2(
+                options.OracleId,
+                options.OracleVersion,
+                options.OracleArtifactSha256,
+                options.EvidenceVersion,
+                new Dictionary<string, string>(StringComparer.Ordinal) { ["reader-1"] = "facts-v2" },
+                Now.AddDays(-1),
+                null);
+            var descriptor = new EvidenceReaderDescriptorV2(
+                "reader-1", "facts-v2", new string('b', 64), ObservationSourceKind.TargetDatabase,
+                new HashSet<string>(["C1"], StringComparer.Ordinal),
+                new HashSet<string>(["resource-1"], StringComparer.Ordinal),
+                new HashSet<string>(["count", "status"], StringComparer.Ordinal),
+                256,
+                1_048_576);
+            var readiness = new FakeReadinessProbe(ready);
+            var audit = new FakeVerificationAuditSinkV2(auditSucceeds);
+            var verifier = new ClosedEvidenceVerifierV2(
+                options,
+                readiness,
+                new FakeOracleManifestRegistry(manifest),
+                new FakeEvidenceReaderRegistry(descriptor),
+                new FakeAuthoritativeReader(new AuthoritativeEvidenceFactsV2(facts, receipt)),
+                new FakeClosedOracleV2(options.OracleId, options.OracleVersion),
+                audit,
+                new FixedTimeProvider(Now));
+            var context = new EvidenceVerificationContextV2(
+                "verifier-issuer", "acceptance-verifier", "verifier-key", "request-1", resource, lease);
+            return new(options, readiness, audit, verifier, new(evidence, context));
+        }
+
+        public EvidenceFixture WithEvidence(CanonicalEvidenceEnvelopeV2 evidence) =>
+            new(Options, Readiness, Audit, Verifier, Request with { Evidence = evidence });
+
+        public static CanonicalEvidenceEnvelopeV2 Rehash(CanonicalEvidenceEnvelopeV2 evidence)
+        {
+            var unsigned = evidence with { PayloadSha256 = string.Empty };
+            return evidence with
+            {
+                PayloadSha256 = Convert.ToHexString(
+                    SHA256.HashData(CanonicalJsonV1.Serialize(unsigned))).ToLowerInvariant()
+            };
+        }
+    }
+
+    private sealed class FakeReadinessProbe(bool ready) : ITrustReadinessProbe
+    {
+        public ValueTask<ReadinessResultV2> CheckAsync(CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(new ReadinessResultV2(
+                ready ? ReadinessStateV2.READY : ReadinessStateV2.NOT_READY,
+                ready ? [] : ["ORACLE_NOT_PINNED"],
+                Now));
+    }
+
+    private sealed class FakeOracleManifestRegistry(OracleManifestV2 manifest) : IOracleManifestRegistry
+    {
+        public OracleManifestV2? Resolve(string oracleId) => oracleId == manifest.OracleId ? manifest : null;
+    }
+
+    private sealed class FakeEvidenceReaderRegistry(EvidenceReaderDescriptorV2 descriptor) : IEvidenceReaderRegistry
+    {
+        public EvidenceReaderDescriptorV2? Resolve(string readerId, string version) =>
+            readerId == descriptor.ReaderId && version == descriptor.Version ? descriptor : null;
+    }
+
+    private sealed class FakeAuthoritativeReader(AuthoritativeEvidenceFactsV2 result) : IAuthoritativeEvidenceReader
+    {
+        public ValueTask<AuthoritativeEvidenceFactsV2> ReadFactsAsync(
+            EvidenceReaderDescriptorV2 reader,
+            ResourceBindingV2 request,
+            CancellationToken cancellationToken = default) => ValueTask.FromResult(result);
+    }
+
+    private sealed class FakeClosedOracleV2(string oracleId, string version) : IClosedOracleV2
+    {
+        public string OracleId { get; } = oracleId;
+        public string Version { get; } = version;
+
+        public (VerificationDisposition Disposition, IReadOnlyList<TrustFailureCodeV2> Reasons) Evaluate(
+            CanonicalEvidenceEnvelopeV2 evidence,
+            OracleManifestV2 manifest) =>
+            (VerificationDisposition.Passed, Array.Empty<TrustFailureCodeV2>());
+    }
+
+    private sealed class FakeVerificationAuditSinkV2(bool succeeds) : IVerificationAuditSinkV2
+    {
+        public VerificationAuditEventV2? Event { get; private set; }
+        public int AppendAttempts { get; private set; }
+
+        public ValueTask<DurableAuditAppendReceiptV2?> AppendAsync(
+            VerificationAuditEventV2 auditEvent,
+            CancellationToken cancellationToken = default)
+        {
+            AppendAttempts++;
+            Event = auditEvent;
+            return ValueTask.FromResult<DurableAuditAppendReceiptV2?>(
+                succeeds
+                    ? new(auditEvent.EventId, "durable-audit-1", new string('e', 64), Now)
+                    : null);
+        }
+    }
+
+    private sealed class FakePagedMasterReader(int totalRows, int pageSize)
+    {
+        public int ReadCount { get; private set; }
+
+        public async IAsyncEnumerable<PageResultV1<int>> ReadAsync(int maximumPages)
+        {
+            var offset = 0;
+            for (var pageNumber = 0; pageNumber < maximumPages && offset < totalRows; pageNumber++)
+            {
+                await Task.Yield();
+                var count = Math.Min(pageSize, totalRows - offset);
+                ReadCount++;
+                yield return new PageResultV1<int>(
+                    Enumerable.Range(offset, count).ToArray(),
+                    offset,
+                    count,
+                    offset + count < totalRows);
+                offset += count;
+            }
         }
     }
 }
