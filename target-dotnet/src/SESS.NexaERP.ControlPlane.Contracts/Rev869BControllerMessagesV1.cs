@@ -80,7 +80,11 @@ public sealed class PhaseAReadinessAuthority(
                     policyVersion,
                     result.ObservedVersion,
                     "DEPENDENCY_IDENTITY_MISMATCH")
-                : result.ValidUntil is not null && result.ValidUntil < checkedAt
+                : result.CheckedAt is null ||
+                  result.ValidUntil is null ||
+                  result.CheckedAt > checkedAt ||
+                  result.ValidUntil < checkedAt ||
+                  result.CheckedAt > result.ValidUntil
                     ? DependencyReadinessV3.Unavailable(
                         dependency,
                         policyVersion,
@@ -95,6 +99,19 @@ public sealed class PhaseAReadinessAuthority(
                         result.RequiredVersion,
                         result.ObservedVersion,
                         "DEPENDENCY_VERSION_MISMATCH")
+                : result.State == ReadinessDependencyStateV3.READY &&
+                  (string.IsNullOrWhiteSpace(result.RequiredIdentity) ||
+                   !string.Equals(result.RequiredIdentity, result.ObservedIdentity, StringComparison.Ordinal))
+                    ? new(
+                        dependency,
+                        ReadinessDependencyStateV3.IDENTITY_MISMATCH,
+                        result.RequiredVersion,
+                        result.ObservedVersion,
+                        "DEPENDENCY_IDENTITY_MISMATCH",
+                        checkedAt,
+                        checkedAt,
+                        result.RequiredIdentity,
+                        result.ObservedIdentity)
                     : result);
         }
 
@@ -817,6 +834,7 @@ public enum ControlTransactionOutcomeV3
 
 public enum AuthorizationGrantStateV3
 {
+    NONE,
     ACTIVE,
     CONSUMED,
     CANCELLED,
@@ -1044,6 +1062,22 @@ public sealed record AuthorizationBindingV3(
     long FencingToken,
     AuthorizationGrantStateV3 State);
 
+public sealed record AuthoritativeControlPlaneSnapshotV3(
+    string ProviderIdentity,
+    string ProviderVersion,
+    CompanyDatabaseScopeV3 Scope,
+    string ResourceType,
+    string ResourceId,
+    long ResourceVersion,
+    ControllerLifecycleState LifecycleState,
+    AuthorizationGrantStateV3 AuthorizationState,
+    AuthorizationBindingV3? CurrentAuthorization,
+    ExportAuthorizationSubstateV3 ExportState,
+    LeaseFenceExpectationV3? Lease,
+    string AttemptId,
+    int AttemptNumber,
+    string LastAuditReference);
+
 public sealed record VerifiedLifecycleCommandV3(
     string CommandId,
     ControllerOperationV2 Operation,
@@ -1058,7 +1092,8 @@ public sealed record VerifiedLifecycleCommandV3(
     string CanonicalEnvelopeSha256,
     AuthorizationGrantStateV3 CurrentAuthorizationState = AuthorizationGrantStateV3.ACTIVE,
     ExportAuthorizationSubstateV3 CurrentExportState = ExportAuthorizationSubstateV3.NONE,
-    string AttemptId = "");
+    string AttemptId = "",
+    AuthoritativeControlPlaneSnapshotV3? AuthoritativeSnapshot = null);
 
 public sealed record LifecycleRuleV3(
     string RuleId,
@@ -1101,7 +1136,8 @@ public sealed record ControlPlaneTransactionRequestV3(
     VerifiedLifecycleCommandV3 Command,
     NonceRegistrationV3 Nonce,
     DateTimeOffset ServerNow,
-    string ExpectedProviderVersion);
+    string ExpectedProviderVersion,
+    LifecycleTransitionResultV3 ProposedTransition);
 
 public sealed record ControlPlaneTransactionResultV3(
     ControlTransactionOutcomeV3 Outcome,
@@ -1153,6 +1189,21 @@ public sealed record EvidenceScopeTemporalBindingV3(
     string ObservationId,
     DateTimeOffset ObservedAt,
     string SnapshotOrWatermark);
+
+public sealed record EvidenceVerificationExpectationV3(
+    string EvidenceEnvelopeId,
+    CompanyDatabaseScopeV3 Scope,
+    string Operation,
+    string RequestId,
+    string ResourceType,
+    string ResourceId,
+    long ResourceVersion,
+    string AttemptId,
+    string LeaseId,
+    long FencingToken,
+    EvidenceStageV3 Stage,
+    string SnapshotOrWatermark,
+    string PolicyVersion);
 
 public sealed record AuthoritativeFactBundleV3(
     string ReaderId,
@@ -1280,10 +1331,34 @@ public sealed record ReadinessSnapshotV3(
     DateTimeOffset CheckedAt)
 {
     public bool CanExecuteProtectedOperation =>
+        PolicyVersion == Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion &&
         Dependencies.Count == Enum.GetValues<PhaseADependencyV3>().Length &&
         Dependencies.Select(static item => item.Dependency).ToHashSet()
             .SetEquals(Enum.GetValues<PhaseADependencyV3>()) &&
-        Dependencies.All(static item => item.State == ReadinessDependencyStateV3.READY);
+        Dependencies.All(item =>
+            item.State == ReadinessDependencyStateV3.READY &&
+            item.CheckedAt is not null &&
+            item.ValidUntil is not null &&
+            item.CheckedAt <= CheckedAt &&
+            item.CheckedAt <= item.ValidUntil &&
+            item.ValidUntil >= CheckedAt &&
+            !string.IsNullOrWhiteSpace(item.RequiredVersion) &&
+            string.Equals(item.RequiredVersion, item.ObservedVersion, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(item.RequiredIdentity) &&
+            string.Equals(item.RequiredIdentity, item.ObservedIdentity, StringComparison.Ordinal));
+}
+
+public sealed record ReadinessRouteDecisionV3(
+    ReadinessSnapshotV3 Snapshot,
+    bool ProtectedHandlerAllowed,
+    int HttpStatusCode);
+
+public static class PhaseAReadinessRouteGuardV3
+{
+    public static ReadinessRouteDecisionV3 Evaluate(ReadinessSnapshotV3 snapshot) =>
+        snapshot.CanExecuteProtectedOperation
+            ? new(snapshot, true, 200)
+            : new(snapshot, false, 503);
 }
 
 public sealed record DeploymentIdentityDescriptorV3(
@@ -1444,7 +1519,11 @@ public interface IDurableControlPlanePersistenceProvider :
     IExportStateAuthority,
     IPurgeStateAuthority
 {
+    string ProviderIdentity { get; }
     string ProviderVersion { get; }
+    ValueTask<AuthoritativeControlPlaneSnapshotV3?> ReadAuthoritativeSnapshotAsync(
+        string resourceId,
+        CancellationToken cancellationToken = default);
     ValueTask<ControlPlaneTransactionResultV3> ExecuteAtomicallyAsync(
         ControlPlaneTransactionRequestV3 request,
         CancellationToken cancellationToken = default);
@@ -1468,13 +1547,22 @@ public interface IOracleRegistryProvider
 
 public interface IAuthoritativeEvidenceReaderProvider
 {
+    ValueTask<EvidenceVerificationExpectationV3?> ResolveExpectationAsync(
+        string evidenceEnvelopeId,
+        AuthenticatedWorkloadIdentityV3 callerIdentity,
+        CancellationToken cancellationToken = default);
     ValueTask<AuthoritativeReaderDescriptorV3?> ResolveAsync(
         string readerId,
         string readerVersion,
         CancellationToken cancellationToken = default);
+    ValueTask<EvidenceRequirementV3?> ResolveRequirementAsync(
+        string requirementId,
+        string operation,
+        CompanyDatabaseScopeV3 scope,
+        CancellationToken cancellationToken = default);
     ValueTask<AuthoritativeFactBundleV3> ReadAsync(
         AuthoritativeReaderDescriptorV3 reader,
-        EvidenceScopeTemporalBindingV3 binding,
+        EvidenceVerificationExpectationV3 expectation,
         CancellationToken cancellationToken = default);
 }
 

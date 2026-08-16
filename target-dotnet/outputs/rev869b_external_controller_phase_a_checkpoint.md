@@ -1,245 +1,186 @@
-# REV869B Option-A Phase-A Correction A1 Checkpoint
+# REV869B Option-A Phase-A Correction A2 checkpoint
 
 Date: 2026-08-16
-Checkpoint type: source-only Correction A1 implementation handoff
-Starting commit: `7051b8fa93b1605e35b98394f21479e820c8f18c`
-Required starting parent: `ba37f6ac746bfd6eccaae571a0676f4b1f28b9ee`
-Ending commit: the single commit containing this checkpoint; its exact immutable hash is obtained after commit creation and is part of the independent-review handoff.
-Failure reconciliation: `outputs/rev869b_external_controller_phase_a_failure_reconciliation.md`
-Failure reconciliation SHA-256: `C310E9F23985AD70AB64B6231DB5FF46199D0AE1321E3A05913DB0D5E6AC4234`
-Authorized decision: `PHASE_A_CORRECTION_A1_GO`
+Checkpoint type: source-only implementation handoff pending independent review
+Authorization: `PHASE_A_CORRECTION_A2_SOURCE_ONLY_GATE=APPROVED`
+Starting HEAD: `12cff947a3928717e50e5357fa41c4f1c62aaf0d`
+Starting parent: `82e1d7052576f8715ff76ccecab13540eea47bff`
+Ending commit: the single Correction-A2 commit containing this checkpoint. A commit cannot contain its own SHA-1 without changing that SHA-1; the exact authoritative identifier is the post-commit `git rev-parse HEAD` reported in the final handoff.
+Authoritative reconciliation: `outputs/rev869b_external_controller_phase_a_correction_a1_failure_reconciliation.md`
+Reconciliation SHA-256: `B108365830F6CE2AE1ED97835980601484A7C1AE749048AFC4535457DCC360A3`
+Architecture-freeze SHA-256: `3F0BC461865D69E3D9827D763D7C403E3BD4E82ECF488AE4FDF3E48D9722DDB8`
 
-The ending hash cannot be embedded in the commit that it hashes. This checkpoint therefore identifies the ending commit unambiguously as its own containing commit. No amend, rebase, reset, or other history rewrite is permitted to manufacture a self-reference.
+## Verdict and scope
 
-## Scope and exact boundary
+`PHASE_A_CORRECTION_A2_SOURCE_IMPLEMENTATION=COMPLETE_PENDING_INDEPENDENT_REVIEW`
 
-The exhaustive authorized allowlist is exactly:
+F02-F07 were corrected within the approved frozen Phase-A architecture. F01 raw-only ingress controls remain intact. No Phase B, Correction 2, PostgreSQL execution, migration application, provisioning, deployment, production access, real key/credential use, or lifecycle/recovery/purge/export operation was performed.
+
+The checkpoint records source implementation evidence only. It does not declare Phase-A management acceptance or production readiness.
+
+## Exact changed-file boundary
+
+Exactly these ten allowlisted files belong to Correction A2:
 
 1. `src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs`
-2. `src/SESS.NexaERP.ControlPlane.Contracts/Rev869BCompatibilityManifestV1.cs`
-3. `src/SESS.NexaERP.ControlPlane/Domain/Rev869BExecutionBinding.cs`
-4. `src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs`
-5. `src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs`
-6. `src/SESS.NexaERP.ControlPlane/Configuration/ControlPlaneOptions.cs`
-7. `src/SESS.NexaERP.ControlPlane/Program.cs`
-8. `src/SESS.NexaERP.ControlPlane/Endpoints/ControllerContractEndpointsV1.cs`
-9. `src/SESS.NexaERP.AcceptanceVerifier/Configuration/AcceptanceVerifierOptions.cs`
-10. `src/SESS.NexaERP.AcceptanceVerifier/Program.cs`
-11. `src/SESS.NexaERP.AcceptanceVerifier/Verification/ClosedEvidenceVerifierV1.cs`
-12. `tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs`
-13. `outputs/rev869b_external_controller_phase_a_checkpoint.md`
+2. `src/SESS.NexaERP.ControlPlane/Domain/Rev869BExecutionBinding.cs`
+3. `src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs`
+4. `src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs`
+5. `src/SESS.NexaERP.AcceptanceVerifier/Configuration/AcceptanceVerifierOptions.cs`
+6. `src/SESS.NexaERP.AcceptanceVerifier/Verification/ClosedEvidenceVerifierV1.cs`
+7. `src/SESS.NexaERP.ControlPlane/Endpoints/ControllerContractEndpointsV1.cs`
+8. `src/SESS.NexaERP.AcceptanceVerifier/Program.cs`
+9. `tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs`
+10. `outputs/rev869b_external_controller_phase_a_checkpoint.md`
 
-The changed subset is eight files: 1, 3, 4, 5, 9, 11, 12, and 13. Files 2, 6, 7, 8, and 10 required no artificial edit because their frozen versions/composition already satisfy A1. Boundary verification reported `allowlist_count=13`, `changed_subset_count=8`, and `outside_allowlist_count=0`.
+No file outside this list was created, modified, staged, or committed. The A1 independent-review and failure-reconciliation reports remain byte-for-byte immutable.
 
-The Git index-only boundary check continued to identify `../legacy-reference/` as untracked; its contents were not enumerated, read, copied, staged, or modified.
+## Finding implementation map
 
-## Seven-finding correction map
-
-| Finding | Corrected paths | Correction outcome |
+| Finding | Result | Production correction and enforcement |
 |---|---|---|
-| F-01 public typed ingress bypasses remain | 1, 5, 11, 12 | The only public protected command/verifier authorities accept raw canonical bytes plus authenticated transport identity. V1/V2 typed compatibility services and alternate verifier paths are internal. |
-| F-02 fourteen responsibilities do not have exact owners | 1, 3, 5, 11, 12 | The exact 14-entry ownership catalog is authoritative; legacy parallel store, signer, registry, reader, and audit interfaces are non-public. |
-| F-03 lifecycle transition and authorization contracts are incomplete | 1, 3, 4, 5, 12 | Exact operation/state/role/evidence/lease/resource/version rules, one-time authorization state, cancel/expire, quarantine, and export substates are enforced by the lifecycle-controller path. |
-| F-04 verifier accepts caller-shaped or insufficiently bound evidence | 1, 5, 9, 11, 12 | Raw strict evidence, signed reader bundles, pinned reader/oracle metadata, scope/time/attempt/stage/watermark, hashes, limits, sensitive-field rejection, and immutable audit receipt are mandatory. |
-| F-05 audit and readiness contracts are incomplete | 1, 9, 11, 12 | Readiness includes freshness and identity/version/policy facts, fails closed on missing/duplicate/stale/error/timeout/mismatch, and the shared V3 authority keeps both existing health routes at HTTP 503 unless ready. Audit binds before/after state/version, attempt, grant, lease/fence, transaction, key/version, and chain hash. |
-| F-06 tests are not independently decisive | 12 | Twenty-seven independent A1 tests exercise production paths, exact failures/state outcomes, concurrency, four decisive mutants with zero survivors, ownership, raw-only ingress, evidence/oracle closure, readiness, audit, paging, whitespace, and Phase-B leakage. |
-| F-07 checkpoint validation discrepancy | 13 | Historical trailing whitespace was removed; the original failure is disclosed below; incremental and cumulative tree checks pass without Git configuration suppression. |
+| F02 authoritative ownership/provenance | PASS pending independent review | One composite `IDurableControlPlanePersistenceProvider` supplies the authoritative lifecycle/version/grant/export/attempt/lease snapshot and owns the atomic outcome. The runtime constructor rejects separately injectable durable facets. See contracts lines 1065, 1524; raw authority lines 764-888; ownership validator lines 229-242. |
+| F03 lifecycle/authorization/lease/atomicity | PASS pending independent review | Raw claims are comparison-only. The state machine binds snapshot identity, state, version, grant operation/state, original cancellation subject and role, export substate, attempt, evidence, lease/epoch/fence/holder/expiry. Only `FIRST_OWNER` and `COMPLETED_REPLAY` exact composite results can return. See state machine lines 224-392 and raw authority lines 847-888. |
+| F04 reader/oracle closure | PASS pending independent review | The verifier resolves a server-owned expectation, enforces exact-one reader cardinality, calls each authoritative reader exactly once, byte-compares caller transport to the returned signed bundle, binds snapshot/watermark and all scope/operation/attempt fields, applies stricter configured/descriptor/global limits, and sends only verified reader facts to the oracle. See verifier lines 515-653 and 791-830. |
+| F05 readiness/audit/privacy | PASS pending independent review | READY requires the frozen policy, exact unique dependency set, matching version/identity, and non-null ordered fresh timestamps. Both hosts use one 200/503 guard. Evidence and audit receipts are exact and precede verdict success; atomic lifecycle output must include audit outbox success and exact proposed receipt fields. See contracts lines 23-120 and 1332-1360; verifier lines 670-725; raw authority lines 867-888. |
+| F06 independent assurance | PASS pending independent review | A literal assurance-owned 26-concept/30-concrete-row oracle replaces production-derived lifecycle expectations. Fifty Phase-A tests traverse raw production authorities and instrumented owner boundaries. Four actual production gate-bypass mutants compiled and were killed by their intended assertions. |
+| F07 checkpoint integrity | PASS pending independent review | This checkpoint replaces the stale A1 checkpoint, uses executable command text, separates invocation events from unique tests, records exact hashes/results, and passes whitespace/conflict-marker and exact-range checks. Historical review reports and commits were not edited. |
 
-No finding required Phase B, Correction 2, PostgreSQL behavior, external provisioning, deployment, live credentials, or production execution.
+## F01 preservation
 
-## Exact 14-owner matrix
+- Public protected authority methods remain only `IControlPlaneAuthority.AcceptRawCommandAsync` and `IAcceptanceVerifierAuthority.VerifyRawAsync`.
+- Former typed verification/command services remain non-public.
+- Canonical header, payload, evidence, signature, issuer, audience, subject, role, scope, nonce, freshness, idempotency, tenant, database, resource, version, attempt, lease and fence checks remain fail closed.
+- No public mutating HTTP endpoint was added. Both hosts retain health/version-only route surfaces.
+- The literal 14-owner catalog remains exact and the effective Control Plane constructor has one composite durable owner.
 
-| Production responsibility | Sole authoritative owner |
+## Test inventory and counting basis
+
+Formal final validation invocations:
+
+| Invocation | Passed | Failed | Skipped | Counting role |
+|---|---:|---:|---:|---|
+| A2-named Phase-A tests | 31 | 0 | 0 | A2 subset |
+| Complete Phase-A contract-test project | 50 | 0 | 0 | unique Phase-A assembly |
+| Focused REV869B non-PostgreSQL ERP tests | 76 | 0 | 0 | focused subset of ERP assembly |
+| Complete ERP non-PostgreSQL suite | 450 | 0 | 0 | unique ERP assembly |
+| Model/snapshot/offline-SQL focused rerun | 3 | 0 | 0 | subset of the 450 ERP tests |
+
+Counting methodology:
+
+- Raw passed test events across the five formal invocations: `31 + 50 + 76 + 450 + 3 = 610`.
+- Unique Phase-A tests: `50`.
+- Unique A2 tests: `31`, all contained in the 50 Phase-A tests.
+- Unique ERP non-PostgreSQL tests: `450`.
+- Unique tests across both distinct test assemblies: `50 + 450 = 500`.
+- Focused REV869B tests: `76`, contained in the 450 ERP tests.
+- The three parity/SQL tests are contained in the 450 ERP tests.
+- Therefore focused and parity reruns are not added to unique totals.
+
+The historical A1 review's `556` aggregate is not authoritative. Its corrected A1 raw-event sum was `583`, but that historical figure does not include A2. The earlier reconciliation called `450` the overall unique total while separately listing a distinct 27-test Phase-A assembly; this checkpoint resolves that ambiguity by reporting per-assembly unique counts and the cross-assembly total.
+
+## Decisive production mutants
+
+Each designated mutant was a temporary patch to an allowlisted production enforcement point. Each compiled with zero warnings/errors, failed its named test for the intended assertion, and was reversed. The final 50-test Phase-A run passed after cleanup.
+
+| ID | Patch SHA-256 | Production gate | Build | Intended killer and result |
+|---|---|---|---|---|
+| A2-M01-REQUEST-AS-AUTHORITY | `CE4AFCE751F951666DF5CAC2247DBE3A0854CF518968A6E5C606C49A55E5F6AF` | Raw authority snapshot state/version acquisition around lines 764-846 | exit 0 | `A2_CallerStateVersionGrantExportAttemptAndEpochCannotBecomeTrustedFacts`; exit 1, expected trust rejection but no exception was thrown |
+| A2-M02-LIFECYCLE-GATE-BYPASS | `4D8B434E8EEAD40E381D0AEB7F58BD02798602B27422F7097A820351383E3C64` | State-machine authoritative/current version conjunctions around lines 237-249 | exit 0 | `A2_EveryRowRejectsWrongStateVersionRoleScopeGrantEvidenceLeaseFenceEpochAttemptAndAudit`; exit 1, expected trust rejection but no exception was thrown |
+| A2-M03-READER-CLOSURE-BYPASS | `F92C460B4BCADEC5BAC61896BEA25DFDB711A3D601A3AEE118606D84BBEFF68D` | Exact-one reader cardinality around verifier lines 522-531 | exit 0 | `A2_DuplicateMissingUnknownOrExtraReaderFailsBeforeOracle`; exit 1, expected `READER_DUPLICATE`, actual `EVIDENCE_TAMPERED` |
+| A2-M04-READINESS-AUDIT-BYPASS | `3DF82969490E5F8E960A240AD3CA03FAC56B64F4773784DB11C668C7F278124B` | Readiness normalization and executable predicate around contract lines 83-92 and 1337-1347 | exit 0 | `A2_NullExpiredFutureOrInvertedFreshnessReturns503OnBothRoutes`; exit 1, expected HTTP 503, actual 200 |
+
+M04 required removal of both normalization and predicate enforcement to constitute the specified effective bypass. Removing only explicit null checks did not bypass nullable comparison behavior and was not counted as a decisive mutant. Final decisive mutants: 4 compiled, 4 killed by intended assertions, 0 survived, 0 left in the tree.
+
+## Offline validation evidence
+
+| Validation | Result |
 |---|---|
-| NexaERP business runtime | `INexaErpBusinessRuntime` |
-| Control Plane | `IControlPlaneAuthority` |
-| Acceptance Verifier | `IAcceptanceVerifierAuthority` |
-| Durable Control Plane persistence | `IDurableControlPlanePersistenceProvider` |
-| Trusted issuer/key registry | `ITrustedIssuerKeyRegistryProvider` |
-| KMS/HSM signing | `IKmsHsmSigningProvider` |
-| Authoritative evidence reader | `IAuthoritativeEvidenceReaderProvider` |
-| Immutable audit/evidence | `IImmutableAuditEvidenceProvider` |
-| Lifecycle controller | `ILifecycleControllerAuthority` |
-| Backup/recovery authority | `IBackupRecoveryAuthority` |
-| Purge authorizer | `IPurgeAuthorizer` |
-| Purge executor | `IPurgeExecutor` |
-| Export authorizer | `IExportAuthorizer` |
-| Export delivery executor | `IExportDeliveryExecutor` |
+| Affected Phase-A project warning-as-error build | exit 0; 4 projects; 0 warnings; 0 errors |
+| Complete solution warning-as-error build | exit 0; 5 projects; 0 warnings; 0 errors |
+| A2 tests | 31 passed; 0 failed; 0 skipped |
+| Complete Phase-A suite | 50 passed; 0 failed; 0 skipped |
+| Focused REV869B non-PostgreSQL | 76 passed; 0 failed; 0 skipped |
+| Complete ERP non-PostgreSQL | 450 passed; 0 failed; 0 skipped |
+| PostgreSQL-named discovery only | 87 discovered; 87 unique; 0 executed |
+| PowerShell 5.1 AST | version 5.1.19041.6456; 24 scripts; 0 parse errors; 0 executed |
+| EF migration discovery | exit 0; `--no-connect`; inert `127.0.0.1:1`; 13 migrations; applied state unknown |
+| REV869A/REV869B uniqueness/order | one REV869A and one REV869B; ordinals 12 and 13 of 13; adjacent |
+| Model/snapshot and generated SQL contracts | 3 passed; 0 failed; 0 skipped |
+| Offline REV869B Up SQL | 326,596 UTF-8 bytes; SHA-256 `1F043EC09F391970C111EFBBBF8C1C8A750DBC11DC4E776015841FC258A6FC21` |
+| Offline REV869B Down SQL | 11,759 UTF-8 bytes; SHA-256 `18F834FDFE50270F0C7E7C01744176755CF7FC9F7BB1E6896E70604CF695EBF8` |
+| Added production-line security scans | 435 added lines; 0 hard-coded credential, private-key, database/migration-action, process/network-client, sensitive-logging, Phase-B, public typed-command, or mutating-endpoint hits |
+| Incremental and cumulative diff checks | required final commands below; both must be exit 0 before and after commit |
+| PostgreSQL execution | exactly 0 |
 
-The owner test proves 14 distinct interface types and confirms that the former lease/idempotency/lifecycle stores, legacy issuer/signer, legacy reader, and V2 verification-audit interfaces are absent from exported production types.
-
-## Frozen lifecycle effects
-
-The exact 26 conceptual transition groups are:
-
-1. prepare-authorize
-2. prepare-start
-3. prepare-complete
-4. prepare-fail
-5. execute-authorize
-6. execute-start
-7. execute-complete
-8. execute-fail
-9. verify-accept
-10. verify-reject
-11. quarantine
-12. recover-authorize
-13. recover-start
-14. recover-complete
-15. recover-fail
-16. drop-authorize
-17. drop
-18. purge-authorize
-19. purge-start
-20. purge-complete
-21. purge-fail
-22. export-authorize
-23. export-start
-24. export-complete
-25. authorization-cancel
-26. authorization-expire
-
-Every listed transition binds its exact trusted role, current/next/failure state, evidence set, authorization state, export substate, resource version, tenant/database/resource identity, and lease/fence when required. Unlisted combinations fail `STATE_TRANSITION_ILLEGAL`. Grants become `CONSUMED`, `CANCELLED`, or `EXPIRED` and cannot be reused. Cancel and expire change only authorization state. Quarantine is controller-owned, has no automatic exit, and cannot act on Purged. Export cannot skip or reuse `NONE/EXPIRED/FAILED -> AUTHORIZED -> DELIVERING -> DELIVERED`.
-
-## A1 test and mutation inventory
-
-The 27-test `ArchitectureFreezeContractTests` inventory covers:
-
-- two public raw-only authorities and no typed protected bypass;
-- non-canonical command and evidence mutations rejected before privileged delegates;
-- exact 14 owners and no parallel public authority;
-- trusted grant/policy/lease/reader facts not synthesized from requests;
-- exact 26 conceptual lifecycle groups and all unlisted combinations illegal;
-- every lifecycle binding dimension with unchanged state on rejection;
-- export substate ordering/reuse, cancel/expire isolation, quarantine and Purged terminality;
-- resource/holder/epoch/fence/expiry lease binding and one-time operation-bound grants;
-- reader bundle signature/hash/scope recomputation;
-- caller fact/action receipt/expected/PASS isolation;
-- reader/global bounds using the stricter server-owned limit;
-- pinned mutation-sensitive oracle with no reader-supplied verdict;
-- missing, duplicate, exception, timeout, stale, version, identity, policy, and degraded readiness failures;
-- exact immutable audit bindings and audit-failure suppression of success/verdict;
-- concurrent duplicate ownership and changed-payload idempotency collision;
-- opaque page-token scope/snapshot/prior-digest/expiry/limit binding;
-- forbidden evidence/audit/readiness fields and sanitized diagnostics;
-- deterministic decisive mutation manifest;
-- reviewed-range whitespace/conflict-marker rejection;
-- Phase-B implementation leakage rejection.
-
-The decisive mutation manifest killed exactly four independent mutants: command scope substitution, evidence hash substitution, export-substate skip, and missing-readiness dependency. Survivors: exactly zero.
-
-## Validation evidence
-
-All commands were offline, used the restored dependency graph, and executed no helper, PostgreSQL scenario, migration operation, provisioning, network request, or production action.
-
-| Validation | Exit/result |
-|---|---|
-| Phase-A test project warning-as-error build | exit 0; 4 projects; 0 warnings; 0 errors |
-| Full solution warning-as-error build | exit 0; 5 projects; 0 warnings; 0 errors |
-| Correction-A1 focused tests | exit 0; 27 passed, 0 failed, 0 skipped |
-| All Phase-A tests | exit 0; 27 passed, 0 failed, 0 skipped |
-| Focused REV869B non-PostgreSQL tests | exit 0; 76 passed, 0 failed, 0 skipped |
-| Complete non-PostgreSQL suite | exit 0; 450 passed, 0 failed, 0 skipped |
-| PostgreSQL scenario discovery only | exit 0; 34 discovered, 34 unique, 0 executed |
-| Windows PowerShell 5.1 AST | exit 0; version 5.1.19041.6456; 24 scripts; 0 parse errors; 0 executed |
-| EF migration discovery | exit 0; `--no-connect`; inert `127.0.0.1:1`; 13 listed; applied state unknown |
-| REV869A/REV869B uniqueness and adjacency | exit 0; one each; ordinals 12 and 13; adjacent |
-| Model/snapshot and offline SQL/hash contracts | exit 0; 3 passed, 0 failed, 0 skipped |
-| Added-line safety scans | exit 0; 1,955 added lines; 0 hard-coded credential, private-key, database-action, process/network-client, protected-mutation-endpoint, or sensitive-logging hits |
-| Exact 13-file boundary | exit 0; 13 allowed, 8 changed, 0 outside |
-| Incremental working-tree diff check from starting commit | exit 0; no output |
-| Cumulative working-tree diff check from `51476760...` | exit 0; no output |
-
-The exact focused commands were:
+Exact principal validation commands:
 
 ```powershell
-dotnet build .	estsSESS.NexaERP.ControlPlane.TestsSESS.NexaERP.ControlPlane.Tests.csproj --no-restore -warnaserror
-dotnet test .	estsSESS.NexaERP.ControlPlane.TestsSESS.NexaERP.ControlPlane.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName~ArchitectureFreezeContractTests" --logger "console;verbosity=minimal"
-dotnet test .	estsSESS.NexaERP.TestsSESS.NexaERP.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName~Rev869B&FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
-dotnet test .	estsSESS.NexaERP.TestsSESS.NexaERP.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
+dotnet build tests/SESS.NexaERP.ControlPlane.Tests/SESS.NexaERP.ControlPlane.Tests.csproj --no-restore -warnaserror
+dotnet build SESS.NexaERP.slnx --no-restore -warnaserror
+dotnet test tests/SESS.NexaERP.ControlPlane.Tests/SESS.NexaERP.ControlPlane.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName~ArchitectureFreezeContractTests.A2_&FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
+dotnet test tests/SESS.NexaERP.ControlPlane.Tests/SESS.NexaERP.ControlPlane.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
+dotnet test tests/SESS.NexaERP.Tests/SESS.NexaERP.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName~Rev869B&FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
+dotnet test tests/SESS.NexaERP.Tests/SESS.NexaERP.Tests.csproj --no-build --no-restore --filter "FullyQualifiedName!~Postgres" --logger "console;verbosity=minimal"
+dotnet test tests/SESS.NexaERP.Tests/SESS.NexaERP.Tests.csproj --no-build --no-restore --list-tests --filter "FullyQualifiedName~Postgres" --logger "console;verbosity=minimal"
 ```
 
-### Historical and corrected diff-check evidence
+EF discovery used `dotnet ef migrations list --no-connect` with an inert loopback connection string and matching inert expected-database name. Up and Down SQL were generated in memory with `dotnet ef migrations script`, hashed, and discarded. No database connection or migration application occurred.
 
-Historical command:
+Final immutable-range checks:
 
 ```powershell
-git diff --check 51476760adcea9ed7babbc04d642e53e371c6941..18a6458cbddf50e8cd45c9f789be2bdd2e859b08 -- .
+git diff --check 12cff947a3928717e50e5357fa41c4f1c62aaf0d -- <exact-ten-file-allowlist>
+git diff --check 51476760adcea9ed7babbc04d642e53e371c6941 -- <exact-ten-file-allowlist>
+git diff --check HEAD^..HEAD -- <exact-ten-file-allowlist>
+git diff --check 51476760adcea9ed7babbc04d642e53e371c6941..HEAD -- <exact-ten-file-allowlist>
 ```
 
-Historical exit code: `2`.
-
-Exact historical output, with each pair of trailing spaces rendered visibly as `␠␠`:
-
-```text
-target-dotnet/outputs/rev869b_external_controller_phase_a_checkpoint.md:3: trailing whitespace.
-+Date: 2026-08-16␠␠
-target-dotnet/outputs/rev869b_external_controller_phase_a_checkpoint.md:4: trailing whitespace.
-+Checkpoint type: report-only handoff for the authorized source-only Phase A implementation␠␠
-target-dotnet/outputs/rev869b_external_controller_phase_a_checkpoint.md:5: trailing whitespace.
-+Architecture specification: `outputs/rev869b_external_controller_phase1_architecture_freeze_specification.md`␠␠
-target-dotnet/outputs/rev869b_external_controller_phase_a_checkpoint.md:6: trailing whitespace.
-+Architecture specification SHA-256: `3F0BC461865D69E3D9827D763D7C403E3BD4E82ECF488AE4FDF3E48D9722DDB8`␠␠
-target-dotnet/outputs/rev869b_external_controller_phase_a_checkpoint.md:7: trailing whitespace.
-+Entry HEAD: `51476760adcea9ed7babbc04d642e53e371c6941`␠␠
-```
-
-Root cause: the historical checkpoint was written after, or not included in, the earlier successful pre-check; its final Markdown hard-break spaces were never validated by the claimed exact-range command. The evidence only proves the final command was not enforced, not which process error caused it.
-
-Corrected path: `outputs/rev869b_external_controller_phase_a_checkpoint.md`, historical lines 3-7.
-
-Precommit equivalent commands over the exact final tree:
-
-```powershell
-git diff --check 7051b8fa93b1605e35b98394f21479e820c8f18c -- .
-git diff --check 51476760adcea9ed7babbc04d642e53e371c6941 -- .
-```
-
-Both exited `0` with no diff-check output. After the single A1 commit, the mandatory immutable-range forms are `git diff --check HEAD^..HEAD -- .` and `git diff --check 51476760adcea9ed7babbc04d642e53e371c6941..HEAD -- .`; both must exit 0 before handoff.
-
-## Source/test artifact SHA-256
+## Source/test artifact SHA-256 before checkpoint commit
 
 | File | SHA-256 |
 |---|---|
-| `Rev869BControllerMessagesV1.cs` | `724954026987C92BD0AD3ABBF8D88542A2487F9EDB67C94BD2C641EA910A0EAC` |
-| `Rev869BCompatibilityManifestV1.cs` | `8EC77B0642EE84B5F8EE0EB869A3C1B866DF3394FD910CC1B23693A83CA0FE42` |
-| `Rev869BExecutionBinding.cs` | `0CC3019DEC10E82F0A952FE0CA931B5CA7C270138FC7090BA81C03D5112875A4` |
-| `Rev869BControllerStateMachine.cs` | `1F745C3B5147FE2E7C98F583D64EAA70ECFB3B30A93AB7959C3BD287CC8DC131` |
-| `SignedEnvelopeService.cs` | `45049A40D5946A794292DF0EC74F9F1CF6D5E4D44B0556E80E5A278B28795737` |
-| `ControlPlaneOptions.cs` | `AF068630FB585E925223A8927DB9D06F5204BC97184F2FB5CF78EEC31EBDCA37` |
-| `ControlPlane/Program.cs` | `782F4EA9394D4373DCBBCA9799DE57D454C6485A3EC7BF3DAABDDBB0A82C1777` |
-| `ControllerContractEndpointsV1.cs` | `24AE2963F76E3CD2202585E53ABEAA3CDC0E3655A57CFF0B22EF320EEF88EB53` |
-| `AcceptanceVerifierOptions.cs` | `90688F42AD2E0CF6ECBF061B096B0661626B6BE197D5B287F9A1FB8B6C9FE33D` |
-| `AcceptanceVerifier/Program.cs` | `39C98D2B5938EB2CB7268A01AD7FCD58ED9A03386AC3985B96163B6762ACFECB` |
-| `ClosedEvidenceVerifierV1.cs` | `822A2B43801668DE5DD38E3827CFB7FC02304EEEBF02E1EA498ADE8AA00261BB` |
-| `ArchitectureFreezeContractTests.cs` | `ABAD99F4F5D2DBBFC4BD7DF55C102C53BA76AECC7F0AC76ED50D3C58AF62546F` |
+| `Rev869BControllerMessagesV1.cs` | `0807E5D103B96FCFCFEC15FD47688D3345158EC8763BF6F15FB505E7A1441CE7` |
+| `Rev869BExecutionBinding.cs` | `51B8E996DBBFC8F448DB999A3FAEA2E737549DD4BA969E38031B2A20A464F7AC` |
+| `Rev869BControllerStateMachine.cs` | `FCCDF6A5279AD150D4DB7D4061C3AA55BA08D3AD72C4313792437E7A400C04DD` |
+| `SignedEnvelopeService.cs` | `BEAD1BB7937A2FF2013AEAE6C7E62AA08ADE9095A5E83FE3D5E1812693E98587` |
+| `AcceptanceVerifierOptions.cs` | `9A222C06C2BBE08278041C01D29D8271C4D94BAD0B2E1A413892A2005894548C` |
+| `ClosedEvidenceVerifierV1.cs` | `903C6AA520AB09F12976062101698BF5F47A426DA9E5801F4490E30E17BC4DBF` |
+| `ControllerContractEndpointsV1.cs` | `10CCFCB1C611B62DF2B167B5E2223531BE0FF3937B0ACA43D2DA1A2E87A2376F` |
+| `AcceptanceVerifier/Program.cs` | `8A534C9F7F5566ECD72B9463C074036A3A36BE96AEAF4C6CD3FA0951B2B41BA9` |
+| `ArchitectureFreezeContractTests.cs` | `36F16991930C53E9013A3CE124AC4DE44D771E13232A60D48DD731690C482309` |
 
-## Architecture preservation and exclusions
+## Integrity and prohibited-operation confirmation
 
-The frozen Option-A split remains intact: NexaERP business runtime does not own lifecycle authority; the Control Plane owns raw command acceptance and delegates lifecycle changes only to `ILifecycleControllerAuthority`; the Acceptance Verifier owns raw evidence verification but cannot mutate lifecycle state. Trusted issuer/key, KMS, durable transaction, reader, oracle, immutable audit, recovery, purge, and export boundaries remain interfaces with deterministic offline fakes only.
+- Independent-review report remains SHA-256 `9320CAD73798099548C8DB1ABA503870AAC2E11D852AA2AD0DCD28709A60A0AD`.
+- Reconciliation remains SHA-256 `B108365830F6CE2AE1ED97835980601484A7C1AE749048AFC4535457DCC360A3`.
+- Historical report formatting/count defects remain immutable and are disclosed rather than rewritten.
+- No PostgreSQL scenario was executed.
+- No migration was applied.
+- No production, provisioning, deployment, network, external infrastructure, real credential, key, trust root, lifecycle, recovery, purge, or export operation was accessed or performed.
+- `../legacy-reference/` was not accessed or modified.
+- Phase B and Correction 2 remain out of scope and `NO_GO`.
 
-No durable atomic implementation, PostgreSQL behavior, migration operation, database connection/action, external reader, real KMS/HSM, provisioning, deployment, production credential, network call, lifecycle/quarantine/recovery/drop/purge/export execution, Phase B, Correction 2, or Correction 29 was introduced or performed.
+## Remaining external prerequisites and risks
 
-External prerequisites remain blocking: separately deployed Control Plane and Acceptance Verifier; HA durable control storage and transactional outbox; real workload identity/IAM/private network; independent issuer/policy stores; non-exportable KMS/HSM keys and rotation/revocation; authoritative least-privilege readers; pinned oracle artifacts; WORM audit/evidence storage; isolated PostgreSQL behavioral/concurrency/rollback/restart/PITR evidence; backup/restore/DR; scale/load/chaos qualification; monitoring, runbooks, training, and production approval.
+Source correction does not supply deployed durable persistence, real workload identity/IAM, private networking, issuer/policy stores, non-exportable KMS/HSM keys, authoritative least-privilege evidence readers, pinned production oracle artifacts, WORM audit/evidence storage, HA/failover, PostgreSQL behavioral/concurrency/rollback/restart/PITR evidence, backup/restore/DR, scale/load/chaos evidence, monitoring, runbooks, training, or production approval.
 
-## Canonical stop states
+Primary review risks are provider implementations that violate the new composite contract, deployment identity/version drift, readers returning caller-influenced facts, audit stores returning non-exact receipts, and future tests deriving expected rows from production. Acceleration should retain the literal fixtures and fast A2 subset during development, then run one complete final non-PostgreSQL gate; overlapping invocations must never be summed as unique coverage.
 
-`phase_a_correction_a1_source_implementation_state=COMPLETE_PENDING_INDEPENDENT_REVIEW_OR_BLOCKED`
+## Retained states and exact next gate
 
-`phase_a_management_acceptance_state=NOT_APPROVED_PENDING_REVIEW`
+`phase_a_correction_a2_source_implementation_state=COMPLETE_PENDING_INDEPENDENT_REVIEW`
 
-`phase_b_source_only_gate=NO_GO`
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
 
-`phase1_correction2_source_only_gate=NO_GO`
+`phase_b_state=NO_GO`
 
-`rev869b_source_safety_state=FAIL`
-
-`rev869b_execution_helper_readiness_state=FAIL`
-
-`external_provisioning_state=NOT_STARTED`
+`correction_2_state=NO_GO`
 
 `postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
 
+`external_provisioning_state=NOT_STARTED`
+
 `production_readiness_state=NOT_READY`
 
-The sole next gate is a fresh independent source-only architecture and security review of the exact A1 commit. Do not automatically reconcile or correct any new finding.
+Exact single next gate: a fresh independent report-only source architecture and security review of the committed Correction-A2 diff. That review must be separate from this implementation.

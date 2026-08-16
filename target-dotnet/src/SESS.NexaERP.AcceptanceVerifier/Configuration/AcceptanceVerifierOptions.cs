@@ -52,9 +52,11 @@ public sealed class AcceptanceVerifierOptions
         !value.AllowedFactFields.Intersect(value.SensitiveFieldNames, StringComparer.OrdinalIgnoreCase).Any() &&
         value.MaximumEnvelopeBytes is >= 1_024 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes &&
         value.MaximumObservations is >= 3 and <= PhaseAContractLimits.MaximumObservations &&
+        value.RequiredReaderIds.Length <= value.MaximumObservations &&
         value.MaximumSelectors is >= 1 and <= PhaseAContractLimits.MaximumSelectors &&
+        value.AllowedFactFields.Length <= value.MaximumSelectors &&
         value.MaximumFactsPerObservation is >= 1 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
-        value.MaximumStringBytes is >= 1 and <= PhaseAContractLimits.MaximumStringBytes &&
+        value.MaximumStringBytes is >= 64 and <= PhaseAContractLimits.MaximumStringBytes &&
         value.MaximumCumulativeFactBytes is >= 1 and <= PhaseAContractLimits.MaximumCumulativeFactBytes &&
         value.MaximumClockSkewSeconds is >= 0 and <= 300 &&
         value.MaximumObservationWindowSeconds is >= 1 and <= 600;

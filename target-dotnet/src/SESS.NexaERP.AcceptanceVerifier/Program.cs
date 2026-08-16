@@ -22,9 +22,8 @@ app.MapGet("/health/ready", static async (
     CancellationToken cancellationToken) =>
 {
     var readiness = await readinessAuthority.CheckAsync(cancellationToken);
-    return readiness.CanExecuteProtectedOperation
-        ? Results.Ok(readiness)
-        : Results.Json(readiness, statusCode: StatusCodes.Status503ServiceUnavailable);
+    var decision = PhaseAReadinessRouteGuardV3.Evaluate(readiness);
+    return Results.Json(decision.Snapshot, statusCode: decision.HttpStatusCode);
 });
 app.MapGet("/version", static () => Results.Ok(new
 {

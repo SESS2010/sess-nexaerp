@@ -512,10 +512,42 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         Require(reserialized.Length == canonicalEvidence.Length &&
                 CryptographicOperations.FixedTimeEquals(reserialized, canonicalEvidence.Span),
             TrustFailureCodeV2.EVIDENCE_TAMPERED);
-        PhaseAContractValidator.RequireValid(evidence);
         Require(evidence.EvidenceSchemaVersion == options.EvidenceSchemaVersion &&
                 evidence.CanonicalEnvelopeSha256 == PhaseAEvidenceCanonicalizer.EnvelopeSha256(evidence),
             TrustFailureCodeV2.EVIDENCE_TAMPERED);
+        Require(evidence.AuthoritativeBundles.Count <= options.MaximumObservations &&
+                EvidenceStringsAreBounded(evidence, options.MaximumStringBytes),
+            TrustFailureCodeV2.EVIDENCE_TOO_LARGE);
+        var requiredReaders = options.RequiredReaderIds.ToHashSet(StringComparer.Ordinal);
+        var readerGroups = evidence.AuthoritativeBundles
+            .GroupBy(static bundle => bundle.ReaderId, StringComparer.Ordinal)
+            .ToArray();
+        var actualReaders = readerGroups.Select(static group => group.Key).ToHashSet(StringComparer.Ordinal);
+        Require(evidence.AuthoritativeBundles.Count == options.RequiredReaderIds.Length &&
+                readerGroups.All(static group => group.Count() == 1) &&
+                requiredReaders.SetEquals(actualReaders),
+            readerGroups.Any(static group => group.Count() != 1)
+                ? TrustFailureCodeV2.READER_DUPLICATE
+                : TrustFailureCodeV2.READER_MISSING);
+        PhaseAContractValidator.RequireValid(evidence);
+
+        var expectation = await readerRegistry.ResolveExpectationAsync(
+            evidence.EvidenceEnvelopeId,
+            transportIdentity,
+            cancellationToken);
+        Require(expectation is not null &&
+                expectation.EvidenceEnvelopeId == evidence.EvidenceEnvelopeId &&
+                expectation.PolicyVersion == options.ReadinessPolicyVersion &&
+                expectation.ResourceVersion > 0 &&
+                !string.IsNullOrWhiteSpace(expectation.RequestId) &&
+                !string.IsNullOrWhiteSpace(expectation.ResourceType) &&
+                !string.IsNullOrWhiteSpace(expectation.ResourceId) &&
+                !string.IsNullOrWhiteSpace(expectation.AttemptId) &&
+                !string.IsNullOrWhiteSpace(expectation.LeaseId) &&
+                options.AllowedClusterIds.Contains(expectation.Scope.DatabaseClusterId, StringComparer.Ordinal) &&
+                options.AllowedInstanceIds.Contains(expectation.Scope.DatabaseInstanceId, StringComparer.Ordinal),
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        var trustedExpectation = expectation!;
 
         var oracle = await oracleRegistry.ResolveAsync(evidence.OracleId, cancellationToken);
         Require(oracle is not null &&
@@ -527,29 +559,46 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
                 oracle.ActiveFrom <= timeProvider.GetUtcNow(),
             TrustFailureCodeV2.ORACLE_MISMATCH);
 
-        var requiredReaders = options.RequiredReaderIds.ToHashSet(StringComparer.Ordinal);
-        var actualReaders = evidence.AuthoritativeBundles
-            .Select(static bundle => bundle.ReaderId)
-            .ToHashSet(StringComparer.Ordinal);
-        Require(requiredReaders.SetEquals(actualReaders), TrustFailureCodeV2.READER_MISSING);
-
         EvidenceScopeTemporalBindingV3? commonBinding = null;
         var now = timeProvider.GetUtcNow();
         var maximumAge = TimeSpan.FromSeconds(options.MaximumObservationWindowSeconds);
         var clockSkew = TimeSpan.FromSeconds(options.MaximumClockSkewSeconds);
         var cumulativeBytes = 0;
-        foreach (var bundle in evidence.AuthoritativeBundles)
+        var verifiedBundles = new List<AuthoritativeFactBundleV3>(evidence.AuthoritativeBundles.Count);
+        foreach (var declaredBundle in evidence.AuthoritativeBundles)
         {
             var descriptor = await readerRegistry.ResolveAsync(
-                bundle.ReaderId,
-                bundle.ReaderVersion,
+                declaredBundle.ReaderId,
+                declaredBundle.ReaderVersion,
                 cancellationToken);
             Require(descriptor is not null, TrustFailureCodeV2.READER_MISSING);
+            AuthoritativeFactBundleV3 bundle;
+            try
+            {
+                bundle = await readerRegistry.ReadAsync(
+                    descriptor!,
+                    trustedExpectation,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw Failure(TrustFailureCodeV2.READER_UNAUTHORIZED);
+            }
+            catch (Exception)
+            {
+                throw Failure(TrustFailureCodeV2.READER_UNAUTHORIZED);
+            }
+            var declaredBytes = CanonicalJsonV1.Serialize(declaredBundle);
+            var authoritativeBytes = CanonicalJsonV1.Serialize(bundle);
+            Require(declaredBytes.Length == authoritativeBytes.Length &&
+                    CryptographicOperations.FixedTimeEquals(declaredBytes, authoritativeBytes),
+                TrustFailureCodeV2.EVIDENCE_TAMPERED);
             Require(descriptor!.ReaderId == bundle.ReaderId &&
                     descriptor.ReaderVersion == bundle.ReaderVersion &&
                     descriptor.ArtifactSha256 == bundle.ReaderArtifactSha256 &&
                     descriptor.SchemaVersion == bundle.SchemaVersion &&
                     descriptor.RequiredStage == bundle.Binding.Stage &&
+                    BindingMatchesExpectation(bundle.Binding, trustedExpectation) &&
                     descriptor.AllowedOrganizations.Contains(bundle.Binding.Scope.OrganizationId) &&
                     descriptor.AllowedResourceTypes.Contains(bundle.Binding.ResourceType),
                 TrustFailureCodeV2.READER_UNAUTHORIZED);
@@ -601,15 +650,16 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
                 TrustFailureCodeV2.READER_UNAUTHORIZED);
             Require(await kms.VerifyAsync(readerKey!, factBytes, bundle.Signature, cancellationToken),
                 TrustFailureCodeV2.EVIDENCE_TAMPERED);
+            verifiedBundles.Add(bundle);
         }
 
         var pinnedOracle = oracle!;
         var evaluation = await oracleRegistry.EvaluateAsync(
             pinnedOracle,
-            evidence.AuthoritativeBundles,
+            verifiedBundles,
             cancellationToken);
         var authoritativeInputSha = Convert.ToHexString(
-            SHA256.HashData(CanonicalJsonV1.Serialize(evidence.AuthoritativeBundles))).ToLowerInvariant();
+            SHA256.HashData(CanonicalJsonV1.Serialize(verifiedBundles))).ToLowerInvariant();
         var calculation = new CalculatedVerificationV3(
             evaluation.Disposition,
             evaluation.ReasonCodes,
@@ -624,11 +674,18 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
             cancellationToken);
         var durableEvidenceReceipt = evidenceReceipt ??
             throw Failure(TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        Require(durableEvidenceReceipt.EventId == evidence.EvidenceEnvelopeId &&
+                !string.IsNullOrWhiteSpace(durableEvidenceReceipt.DurableReference) &&
+                durableEvidenceReceipt.EventSha256 == evidence.CanonicalEnvelopeSha256 &&
+                durableEvidenceReceipt.AppendedAt <= now,
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
         var prior = await audit.ReadCurrentChainHeadSha256Async(cancellationToken);
         Require(IsSha256(prior), TrustFailureCodeV2.AUDIT_APPEND_FAILED);
         var binding = commonBinding!;
         var signingKey = await keyRegistry.ResolveKeyAsync(options.IssuerId, options.KeyId, cancellationToken);
         Require(signingKey is not null &&
+                signingKey.IssuerId == options.IssuerId &&
+                signingKey.Algorithm == Rev869BCompatibilityManifestV2.SignatureAlgorithm &&
                 signingKey.RevokedAt is null &&
                 signingKey.NotBefore <= now &&
                 (signingKey.NotAfter is null || signingKey.NotAfter >= now),
@@ -657,6 +714,13 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         var auditReceipt = await audit.AppendAuditAsync(auditEvent, cancellationToken);
         var durableAuditReceipt = auditReceipt ??
             throw Failure(TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var expectedAuditSha256 = Convert.ToHexString(
+            SHA256.HashData(CanonicalJsonV1.Serialize(auditEvent))).ToLowerInvariant();
+        Require(durableAuditReceipt.EventId == auditEvent.EventId &&
+                !string.IsNullOrWhiteSpace(durableAuditReceipt.DurableReference) &&
+                durableAuditReceipt.EventSha256 == expectedAuditSha256 &&
+                durableAuditReceipt.AppendedAt <= now,
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
 
         var serverAuthorization = new ResolvedAuthorizationV3(
             $"verifier:{evidence.EvidenceEnvelopeId}",
@@ -719,7 +783,51 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         left.ResourceVersion == right.ResourceVersion &&
         left.AttemptId == right.AttemptId &&
         left.LeaseId == right.LeaseId &&
-        left.FencingToken == right.FencingToken;
+        left.FencingToken == right.FencingToken &&
+        left.Stage == right.Stage;
+
+    private static bool BindingMatchesExpectation(
+        EvidenceScopeTemporalBindingV3 binding,
+        EvidenceVerificationExpectationV3 expectation) =>
+        binding.Scope == expectation.Scope &&
+        binding.Operation == expectation.Operation &&
+        binding.RequestId == expectation.RequestId &&
+        binding.ResourceType == expectation.ResourceType &&
+        binding.ResourceId == expectation.ResourceId &&
+        binding.ResourceVersion == expectation.ResourceVersion &&
+        binding.AttemptId == expectation.AttemptId &&
+        binding.LeaseId == expectation.LeaseId &&
+        binding.FencingToken == expectation.FencingToken &&
+        binding.Stage == expectation.Stage &&
+        binding.SnapshotOrWatermark == expectation.SnapshotOrWatermark;
+
+    private static bool EvidenceStringsAreBounded(
+        CanonicalEvidenceEnvelopeV3 evidence,
+        int maximumBytes) =>
+        Bounded(evidence.EvidenceEnvelopeId, maximumBytes) &&
+        Bounded(evidence.EvidenceSchemaVersion, maximumBytes) &&
+        Bounded(evidence.OracleId, maximumBytes) &&
+        Bounded(evidence.OracleVersion, maximumBytes) &&
+        evidence.AuthoritativeBundles.All(bundle =>
+            Bounded(bundle.ReaderId, maximumBytes) &&
+            Bounded(bundle.ReaderVersion, maximumBytes) &&
+            Bounded(bundle.ReaderArtifactSha256, maximumBytes) &&
+            Bounded(bundle.SchemaVersion, maximumBytes) &&
+            Bounded(bundle.Binding.Operation, maximumBytes) &&
+            Bounded(bundle.Binding.RequestId, maximumBytes) &&
+            Bounded(bundle.Binding.ResourceType, maximumBytes) &&
+            Bounded(bundle.Binding.ResourceId, maximumBytes) &&
+            Bounded(bundle.Binding.AttemptId, maximumBytes) &&
+            Bounded(bundle.Binding.LeaseId, maximumBytes) &&
+            Bounded(bundle.Binding.ObservationId, maximumBytes) &&
+            Bounded(bundle.Binding.SnapshotOrWatermark, maximumBytes) &&
+            bundle.Facts.All(fact =>
+                Bounded(fact.FieldId, maximumBytes) &&
+                (fact.CanonicalValue is null || Bounded(fact.CanonicalValue, maximumBytes))));
+
+    private static bool Bounded(string value, int maximumBytes) =>
+        !string.IsNullOrWhiteSpace(value) &&
+        Encoding.UTF8.GetByteCount(value) <= maximumBytes;
 
     private static bool IsSha256(string value) =>
         value.Length == 64 &&

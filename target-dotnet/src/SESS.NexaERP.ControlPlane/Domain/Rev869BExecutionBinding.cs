@@ -1,4 +1,5 @@
 using SESS.NexaERP.ControlPlane.Contracts;
+using SESS.NexaERP.ControlPlane.Security;
 
 namespace SESS.NexaERP.ControlPlane.Domain;
 
@@ -223,6 +224,21 @@ public static class PhaseAOwnershipValidator
             throw new TrustFailureExceptionV2(
                 TrustFailureCodeV2.DEPENDENCY_IDENTITY_MISMATCH,
                 "Production authority interfaces must remain separated.");
+        }
+
+        var constructor = typeof(PhaseAControlPlaneAuthority).GetConstructors().SingleOrDefault();
+        var parameters = constructor?.GetParameters() ?? [];
+        if (constructor is null ||
+            parameters.Count(parameter => parameter.ParameterType == typeof(IDurableControlPlanePersistenceProvider)) != 1 ||
+            parameters.Any(parameter =>
+                parameter.ParameterType == typeof(ILeaseFenceAuthority) ||
+                parameter.ParameterType == typeof(ILifecycleStateAuthority) ||
+                parameter.ParameterType == typeof(IIdempotencyAuthority) ||
+                parameter.ParameterType == typeof(INonceRegistrationAuthority)))
+        {
+            throw new TrustFailureExceptionV2(
+                TrustFailureCodeV2.DEPENDENCY_POLICY_MISMATCH,
+                "The Control Plane must consume exactly one composite durable owner and no separately injectable durable facets.");
         }
     }
 }

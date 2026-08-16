@@ -71,10 +71,12 @@ public sealed class Rev869BControllerStateMachine
             LifecycleAuditEventV3.EXECUTE_FAILED, AuthorizationGrantStateV3.CONSUMED, AuthorizationGrantStateV3.CONSUMED),
         Rule("verification-accept", ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_ACCEPT,
             "AcceptanceVerifier", ControllerLifecycleState.Accepted, ControllerLifecycleState.Failed, true, ["signed-verdict", "evidence-archive"], 0,
-            LifecycleAuditEventV3.VERIFICATION_ACCEPTED),
+            LifecycleAuditEventV3.VERIFICATION_ACCEPTED, AuthorizationGrantStateV3.CONSUMED,
+            AuthorizationGrantStateV3.CONSUMED),
         Rule("verification-reject", ControllerLifecycleState.VerificationPending, ControllerOperationV2.VERIFY_REJECT,
             "AcceptanceVerifier", ControllerLifecycleState.Failed, ControllerLifecycleState.Quarantined, true, ["signed-verdict", "evidence-archive"], 0,
-            LifecycleAuditEventV3.VERIFICATION_REJECTED),
+            LifecycleAuditEventV3.VERIFICATION_REJECTED, AuthorizationGrantStateV3.CONSUMED,
+            AuthorizationGrantStateV3.CONSUMED),
         Rule("any-quarantine", ControllerLifecycleState.Registered, ControllerOperationV2.QUARANTINE,
             "ControlPlaneRuntime", ControllerLifecycleState.Quarantined, ControllerLifecycleState.Quarantined, false,
             ["inconsistency-facts"], 0, LifecycleAuditEventV3.RESOURCE_QUARANTINED,
@@ -221,6 +223,27 @@ public sealed class Rev869BControllerStateMachine
 
     public LifecycleRuleV3 RequirePhaseACommand(VerifiedLifecycleCommandV3 command, DateTimeOffset serverNow)
     {
+        var snapshot = command.AuthoritativeSnapshot;
+        Require(snapshot is not null &&
+                !string.IsNullOrWhiteSpace(snapshot.ProviderIdentity) &&
+                !string.IsNullOrWhiteSpace(snapshot.ProviderVersion) &&
+                snapshot.Scope == command.Authorization.Scope &&
+                snapshot.ResourceType == command.Authorization.ResourceType &&
+                snapshot.ResourceId == command.Authorization.ResourceId &&
+                snapshot.AttemptId == command.AttemptId &&
+                snapshot.AttemptNumber >= 0,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        var authoritativeSnapshot = snapshot!;
+        Require(authoritativeSnapshot.ResourceVersion == command.CurrentVersion,
+            TrustFailureCodeV2.RESOURCE_VERSION_STALE);
+        Require(authoritativeSnapshot.LifecycleState == command.CurrentState,
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+        Require(authoritativeSnapshot.AuthorizationState == command.CurrentAuthorizationState,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        Require(authoritativeSnapshot.ExportState == command.CurrentExportState,
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+        Require(Equals(authoritativeSnapshot.Lease, command.Lease),
+            TrustFailureCodeV2.LEASE_FENCE_STALE);
         PhaseAContractValidator.RequireValid(command.Authorization);
         Require(command.CurrentVersion == command.Authorization.ResourceVersion,
             TrustFailureCodeV2.RESOURCE_VERSION_STALE);
@@ -244,32 +267,70 @@ public sealed class Rev869BControllerStateMachine
             (command.Operation != ControllerOperationV2.AUTHORIZE_EXPORT ||
              item.RequiredExportState == command.CurrentExportState));
         Require(rule is not null, TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
-        Require(rule!.TrustedRole == command.Authorization.Authorization.TrustedRole,
-            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
-        Require(command.CurrentAuthorizationState == rule.RequiredAuthorizationState,
-            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        var matchedRule = rule!;
+        if (command.Operation == ControllerOperationV2.CANCEL)
+        {
+            Require(matchedRule.TrustedRole == command.Authorization.Authorization.TrustedRole &&
+                    snapshot!.CurrentAuthorization is not null &&
+                    snapshot.CurrentAuthorization.State == AuthorizationGrantStateV3.ACTIVE &&
+                    snapshot.CurrentAuthorization.Authorization.AuthenticatedSubject ==
+                        command.Authorization.Authorization.AuthenticatedSubject,
+                TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        }
+        else
+        {
+            Require(matchedRule.TrustedRole == command.Authorization.Authorization.TrustedRole,
+                TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        }
+        if (IsAuthorizationCreation(command.Operation))
+        {
+            Require(command.CurrentAuthorizationState != AuthorizationGrantStateV3.ACTIVE,
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        }
+        else if (command.Operation != ControllerOperationV2.QUARANTINE)
+        {
+            Require(command.CurrentAuthorizationState == matchedRule.RequiredAuthorizationState,
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        }
         if (command.Operation is ControllerOperationV2.AUTHORIZE_EXPORT or
             ControllerOperationV2.EXPORT or
             ControllerOperationV2.COMPLETE_EXPORT)
         {
-            Require(command.CurrentExportState == rule.RequiredExportState,
+            Require(command.CurrentExportState == matchedRule.RequiredExportState,
                 TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
         }
-        if (rule.AppliesToAnyActiveAuthorization)
+        if (matchedRule.AppliesToAnyActiveAuthorization)
         {
             Require(command.CurrentAuthorizationState == AuthorizationGrantStateV3.ACTIVE,
                 TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
         }
+        var expectedGrantOperation = ExpectedGrantOperation(command);
+        if (expectedGrantOperation is not null)
+        {
+            var grant = snapshot!.CurrentAuthorization;
+            Require(grant is not null &&
+                    grant.State == command.CurrentAuthorizationState &&
+                    grant.Scope == snapshot.Scope &&
+                    grant.ResourceType == snapshot.ResourceType &&
+                    grant.ResourceId == snapshot.ResourceId &&
+                    grant.Operation == expectedGrantOperation &&
+                    grant.Authorization.Operation == expectedGrantOperation &&
+                    grant.Authorization.NotBefore <= serverNow &&
+                    (command.Operation == ControllerOperationV2.EXPIRE ||
+                     grant.Authorization.ExpiresAt >= serverNow),
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        }
         if (command.Operation == ControllerOperationV2.EXPIRE)
         {
-            Require(command.Authorization.Authorization.ExpiresAt < serverNow,
+            Require(snapshot!.CurrentAuthorization is not null &&
+                    snapshot.CurrentAuthorization.Authorization.ExpiresAt < serverNow,
                 TrustFailureCodeV2.NOT_YET_VALID);
         }
 
         var evidenceIds = command.RequiredEvidence
             .Select(static requirement => requirement.RequirementId)
             .ToHashSet(StringComparer.Ordinal);
-        Require(evidenceIds.SetEquals(rule.RequiredEvidenceIds),
+        Require(evidenceIds.SetEquals(matchedRule.RequiredEvidenceIds),
             TrustFailureCodeV2.READER_MISSING);
         Require(command.RequiredEvidence.All(static requirement =>
                 !string.IsNullOrWhiteSpace(requirement.ReaderId) &&
@@ -278,7 +339,7 @@ public sealed class Rev869BControllerStateMachine
                 requirement.MaximumFacts is > 0 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
                 requirement.MaximumBytes is > 0 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes),
             TrustFailureCodeV2.READER_UNAUTHORIZED);
-        Require(!rule.RequiresLease || command.Lease is not null,
+        Require(!matchedRule.RequiresLease || command.Lease is not null,
             TrustFailureCodeV2.LEASE_REQUIRED);
         if (command.Lease is not null)
         {
@@ -291,15 +352,46 @@ public sealed class Rev869BControllerStateMachine
                 TrustFailureCodeV2.LEASE_FENCE_STALE);
         }
 
-        return rule.AppliesToAnyActiveAuthorization
-            ? rule with
+        return matchedRule.AppliesToAnyActiveAuthorization
+            ? matchedRule with
             {
                 CurrentState = command.CurrentState,
                 NextState = command.CurrentState,
                 FailureState = command.CurrentState
             }
-            : rule;
+            : matchedRule;
     }
+
+    private static bool IsAuthorizationCreation(ControllerOperationV2 operation) =>
+        operation.ToString().StartsWith("AUTHORIZE_", StringComparison.Ordinal);
+
+    private static string? ExpectedGrantOperation(VerifiedLifecycleCommandV3 command) =>
+        command.Operation switch
+        {
+            ControllerOperationV2.PREPARE or ControllerOperationV2.COMPLETE_PREPARE =>
+                ControllerOperationV2.AUTHORIZE_PREPARE.ToString(),
+            ControllerOperationV2.EXECUTE or ControllerOperationV2.COMPLETE_EXECUTE or
+                ControllerOperationV2.VERIFY_ACCEPT or ControllerOperationV2.VERIFY_REJECT =>
+                ControllerOperationV2.AUTHORIZE_EXECUTE.ToString(),
+            ControllerOperationV2.RECOVER or ControllerOperationV2.COMPLETE_RECOVER =>
+                ControllerOperationV2.AUTHORIZE_RECOVER.ToString(),
+            ControllerOperationV2.DROP => ControllerOperationV2.AUTHORIZE_DROP.ToString(),
+            ControllerOperationV2.PURGE or ControllerOperationV2.COMPLETE_PURGE =>
+                ControllerOperationV2.AUTHORIZE_PURGE.ToString(),
+            ControllerOperationV2.EXPORT or ControllerOperationV2.COMPLETE_EXPORT =>
+                ControllerOperationV2.AUTHORIZE_EXPORT.ToString(),
+            ControllerOperationV2.FAIL when command.CurrentState == ControllerLifecycleState.Provisioning =>
+                ControllerOperationV2.AUTHORIZE_PREPARE.ToString(),
+            ControllerOperationV2.FAIL when command.CurrentState == ControllerLifecycleState.Migrating =>
+                ControllerOperationV2.AUTHORIZE_EXECUTE.ToString(),
+            ControllerOperationV2.FAIL when command.CurrentState == ControllerLifecycleState.Recovering =>
+                ControllerOperationV2.AUTHORIZE_RECOVER.ToString(),
+            ControllerOperationV2.FAIL when command.CurrentState == ControllerLifecycleState.Purging =>
+                ControllerOperationV2.AUTHORIZE_PURGE.ToString(),
+            ControllerOperationV2.CANCEL or ControllerOperationV2.EXPIRE =>
+                command.AuthoritativeSnapshot?.CurrentAuthorization?.Operation,
+            _ => null
+        };
 
     public static IReadOnlyList<LifecycleRuleV3> PhaseARuleSnapshot => PhaseARules;
 

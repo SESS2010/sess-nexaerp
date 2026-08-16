@@ -644,7 +644,7 @@ public sealed class PhaseAControlPlaneAuthority(
     IAlgorithmVersionPolicyProvider algorithmPolicy,
     IClockFreshnessPolicyProvider clockPolicy,
     IKmsHsmSigningProvider kms,
-    ILeaseFenceAuthority leaseAuthority,
+    IDurableControlPlanePersistenceProvider durableProvider,
     IAuthoritativeEvidenceReaderProvider readerRegistry,
     ILifecycleControllerAuthority lifecycleController,
     TimeProvider timeProvider) : IControlPlaneAuthority
@@ -761,40 +761,51 @@ public sealed class PhaseAControlPlaneAuthority(
                 policies[0].TrustedScope == authorization.TrustedScope,
             TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
 
-        LeaseFenceExpectationV3? lease = null;
-        if (header.LeaseId != "lease-none")
-        {
-            lease = await leaseAuthority.ReadCurrentAsync(header.ResourceId, cancellationToken);
-            Require(lease is not null &&
-                    lease.ResourceId == header.ResourceId &&
-                    lease.LeaseId == header.LeaseId &&
-                    lease.ControllerEpoch > 0 &&
-                    lease.FencingToken == header.FencingToken &&
-                    lease.HolderSubject == authorization.AuthenticatedSubject &&
-                    lease.ExpiresAt >= now,
-                TrustFailureCodeV2.LEASE_FENCE_STALE);
-        }
-        else
-        {
-            Require(header.FencingToken == 0, TrustFailureCodeV2.LEASE_FENCE_STALE);
-        }
+        var snapshot = await durableProvider.ReadAuthoritativeSnapshotAsync(
+            header.ResourceId,
+            cancellationToken);
+        Require(snapshot is not null &&
+                !string.IsNullOrWhiteSpace(durableProvider.ProviderIdentity) &&
+                !string.IsNullOrWhiteSpace(durableProvider.ProviderVersion) &&
+                snapshot.ProviderIdentity == durableProvider.ProviderIdentity &&
+                snapshot.ProviderVersion == durableProvider.ProviderVersion &&
+                snapshot.Scope == scope &&
+                snapshot.ResourceType == intent.ResourceType &&
+                snapshot.ResourceId == header.ResourceId &&
+                snapshot.ResourceVersion == header.ResourceVersion &&
+                snapshot.LifecycleState == payload.ExpectedState &&
+                snapshot.AttemptNumber >= 0 &&
+                !string.IsNullOrWhiteSpace(snapshot.AttemptId),
+            TrustFailureCodeV2.RESOURCE_VERSION_STALE);
+        var authoritativeSnapshot = snapshot!;
+        var lease = authoritativeSnapshot.Lease;
+        Require(lease is null
+                ? header.LeaseId == "lease-none" && header.FencingToken == 0
+                : lease.ResourceId == header.ResourceId &&
+                  lease.LeaseId == header.LeaseId &&
+                  lease.ControllerEpoch > 0 &&
+                  lease.FencingToken == header.FencingToken &&
+                  lease.HolderSubject == authorization.AuthenticatedSubject &&
+                  lease.ExpiresAt >= now,
+            TrustFailureCodeV2.LEASE_FENCE_STALE);
 
         var evidence = new List<EvidenceRequirementV3>(payload.EvidenceRequirements.Count);
         foreach (var requirementId in payload.EvidenceRequirements)
         {
-            var descriptor = await readerRegistry.ResolveAsync(
+            var requirement = await readerRegistry.ResolveRequirementAsync(
                 requirementId,
-                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                header.Operation,
+                scope,
                 cancellationToken);
-            Require(descriptor is not null, TrustFailureCodeV2.READER_MISSING);
-            evidence.Add(new(
-                requirementId,
-                descriptor!.ReaderId,
-                descriptor.ReaderVersion,
-                EvidenceStageV3.DURABLE,
-                descriptor.SchemaVersion,
-                Math.Min(descriptor.MaximumFacts, PhaseAContractLimits.MaximumFactsPerObservation),
-                Math.Min(descriptor.MaximumBytes, PhaseAContractLimits.MaximumEvidenceEnvelopeBytes)));
+            Require(requirement is not null &&
+                    requirement.RequirementId == requirementId &&
+                    !string.IsNullOrWhiteSpace(requirement.ReaderId) &&
+                    !string.IsNullOrWhiteSpace(requirement.ReaderVersion) &&
+                    requirement.SchemaVersion == Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion &&
+                    requirement.MaximumFacts is > 0 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
+                    requirement.MaximumBytes is > 0 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes,
+                TrustFailureCodeV2.READER_MISSING);
+            evidence.Add(requirement!);
         }
 
         var requestSha = header.CanonicalPayloadSha256.ToLowerInvariant();
@@ -803,18 +814,18 @@ public sealed class PhaseAControlPlaneAuthority(
             scope,
             intent.ResourceType,
             intent.ResourceId,
-            intent.ExpectedResourceVersion,
+            authoritativeSnapshot.ResourceVersion,
             intent.Operation,
             requestSha,
             HashEvidenceRequirements(payload.EvidenceRequirements),
-            lease?.LeaseId ?? "lease-none",
-            lease?.FencingToken ?? 0,
+            authoritativeSnapshot.Lease?.LeaseId ?? "lease-none",
+            authoritativeSnapshot.Lease?.FencingToken ?? 0,
             AuthorizationGrantStateV3.ACTIVE);
         var command = new VerifiedLifecycleCommandV3(
             $"command:{header.RequestId}",
             payload.Operation,
-            payload.ExpectedState,
-            header.ResourceVersion,
+            authoritativeSnapshot.LifecycleState,
+            authoritativeSnapshot.ResourceVersion,
             binding,
             lease,
             evidence,
@@ -829,21 +840,54 @@ public sealed class PhaseAControlPlaneAuthority(
             new(header.Issuer, header.Nonce, header.ExpiresAt, requestSha),
             $"audit:{header.RequestId}",
             Convert.ToHexString(SHA256.HashData(canonicalHeader.Span)).ToLowerInvariant(),
-            CurrentAuthorizationState(payload.Operation),
-            ExportAuthorizationSubstateV3.NONE,
-            $"attempt:{header.RequestId}");
-        return await lifecycleController.TransitionAsync(command, cancellationToken);
+            authoritativeSnapshot.AuthorizationState,
+            authoritativeSnapshot.ExportState,
+            authoritativeSnapshot.AttemptId,
+            authoritativeSnapshot);
+        var proposed = await lifecycleController.TransitionAsync(command, cancellationToken);
+        var sameStateIsExpected = proposed.LifecycleAuditEvent is
+            LifecycleAuditEventV3.AUTHORIZATION_CANCELLED or
+            LifecycleAuditEventV3.AUTHORIZATION_EXPIRED or
+            LifecycleAuditEventV3.EXPORT_AUTHORIZED or
+            LifecycleAuditEventV3.EXPORT_STARTED or
+            LifecycleAuditEventV3.EXPORT_DELIVERED;
+        Require(proposed.FailureCode == TrustFailureCodeV2.NONE &&
+                proposed.Version == authoritativeSnapshot.ResourceVersion + 1 &&
+                !string.IsNullOrWhiteSpace(proposed.AuditReference) &&
+                (proposed.State != authoritativeSnapshot.LifecycleState || sameStateIsExpected),
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+        var transaction = await durableProvider.ExecuteAtomicallyAsync(
+            new(
+                command,
+                command.Nonce,
+                now,
+                durableProvider.ProviderVersion,
+                proposed),
+            cancellationToken);
+        Require(transaction.Outcome is ControlTransactionOutcomeV3.FIRST_OWNER or
+                    ControlTransactionOutcomeV3.COMPLETED_REPLAY &&
+                transaction.Outcome == transaction.Transition.TransactionOutcome &&
+                transaction.NonceRegistered &&
+                transaction.AuditOutboxCommitted &&
+                transaction.Transition.FailureCode == TrustFailureCodeV2.NONE &&
+                transaction.Transition.State == proposed.State &&
+                transaction.Transition.Version == proposed.Version &&
+                transaction.Transition.AttemptNumber == proposed.AttemptNumber &&
+                transaction.Transition.ResponseSha256 == proposed.ResponseSha256 &&
+                transaction.Transition.AuditReference == proposed.AuditReference &&
+                transaction.Transition.AuthorizationState == proposed.AuthorizationState &&
+                transaction.Transition.ExportState == proposed.ExportState &&
+                transaction.Transition.LifecycleAuditEvent == proposed.LifecycleAuditEvent &&
+                transaction.AuthorizationConsumed ==
+                    (transaction.Outcome != ControlTransactionOutcomeV3.COMPLETED_REPLAY &&
+                     authoritativeSnapshot.AuthorizationState == AuthorizationGrantStateV3.ACTIVE &&
+                     proposed.AuthorizationState == AuthorizationGrantStateV3.CONSUMED) &&
+                transaction.FenceConsumed ==
+                    (transaction.Outcome != ControlTransactionOutcomeV3.COMPLETED_REPLAY &&
+                     authoritativeSnapshot.Lease is not null),
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        return transaction.Transition;
     }
-
-    private static AuthorizationGrantStateV3 CurrentAuthorizationState(ControllerOperationV2 operation) =>
-        operation is ControllerOperationV2.COMPLETE_PREPARE or
-            ControllerOperationV2.COMPLETE_EXECUTE or
-            ControllerOperationV2.COMPLETE_RECOVER or
-            ControllerOperationV2.COMPLETE_PURGE or
-            ControllerOperationV2.COMPLETE_EXPORT or
-            ControllerOperationV2.FAIL
-            ? AuthorizationGrantStateV3.CONSUMED
-            : AuthorizationGrantStateV3.ACTIVE;
 
     private static string HashEvidenceRequirements(IReadOnlyList<string> requirements) =>
         Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(requirements))).ToLowerInvariant();
