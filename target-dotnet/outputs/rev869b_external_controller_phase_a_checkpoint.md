@@ -1,3 +1,120 @@
+# REV869B Option-A Phase-A Correction A4 architecture blocker checkpoint
+
+Date: 2026-08-17
+
+Checkpoint type: `A4_SOURCE_IMPLEMENTATION_BLOCKED_BEFORE_EDIT`
+
+Starting HEAD: `cb4e90852947f2c9fdada3ea60a3110660d5cec8`
+
+Expected parent: `ba99fc90a06d387d98396cbe80a23323f8f0baf0`
+
+Authorization: one bounded source-only A4 correction against the eight-file allowlist.
+
+Decision: `PHASE_A_CORRECTION_A4_SOURCE_ONLY_GATE=NO_GO_ARCHITECTURE_FREEZE_REQUIRED`
+
+No A4 production source, test, project, migration or helper edit was made. This checkpoint is the only changed file.
+
+## Stage-0 result
+
+| Gate | Result |
+|---|---|
+| HEAD / parent | Exact: `cb4e90852947f2c9fdada3ea60a3110660d5cec8` / `ba99fc90a06d387d98396cbe80a23323f8f0baf0` |
+| Subject / branch | `REV869B Phase-A Correction A3 failure reconciliation` / `master` |
+| HEAD content | Exactly one reconciliation report |
+| Reconciliation path | `outputs/rev869b_external_controller_phase_a_correction_a3_failure_reconciliation.md` |
+| Reconciliation SHA-256 | Exact: `438F99CE1E5AB2F13C305AB5418452798D9A2DB4B49CEA68FA36A6105AA3AEEF` |
+| Target status | Clean before this blocker checkpoint |
+| Legacy boundary | `../legacy-reference/` remained untracked; no legacy content was opened, read, modified or used |
+| Mandatory reading | Architecture freeze, A2 review/reconciliation, A3 checkpoint/review/reconciliation and all eight authorized files were read before the boundary decision |
+
+Stage 0 passed. The stop condition arose from the required production design, not from lineage or worktree mismatch.
+
+## Blocking architecture contradiction
+
+The authorized A4 outcome simultaneously requires:
+
+1. authorization approval with no lease;
+2. an exact durable grant;
+3. a later executor lease request and authoritative lease acquisition;
+4. exact grant, plan, executor, lease and fence validation before lifecycle evaluation or persistence mutation;
+5. no partial persistence mutation API;
+6. one composite atomic execution operation; and
+7. preservation of the frozen Phase-A lifecycle table.
+
+The current frozen contract has no operation or transaction phase that can produce the authoritative lease between authorization and execution:
+
+- `ControllerOperationV2` in `src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs:527-553` contains no lease-acquisition operation.
+- Frozen authorization rules in `src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs:26-95` require no lease.
+- Frozen execution rules require a lease and fence already to exist.
+- `IDurableControlPlanePersistenceProvider` in `src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs:1502-1511` intentionally exposes only one authoritative snapshot read and one composite atomic mutation; F02 prohibits adding an independently callable lease mutation.
+- `PhaseAControlPlaneAuthority` in `src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs:775-919` reads the snapshot, validates an already-existing lease, calls the lifecycle controller, and only then calls `ExecuteAtomicallyAsync`.
+
+Therefore:
+
+- If execution begins with no lease and the existing atomic call acquires it, lifecycle evaluation necessarily occurs before authoritative lease/fence acquisition and validation. That violates the required order.
+- If the durable provider acquires a lease in an earlier call, that adds a separately callable mutation capability prohibited by retained F02 unless a new grant-bound composite transaction and lifecycle contract are frozen.
+- If `ACQUIRE_LEASE` or an equivalent operation is added, the exhaustive frozen lifecycle table, legal state/operation matrix, authorization consumption semantics, idempotency/replay rules and audit event model change. That is an architecture-freeze change, not an implementation detail.
+- If lease acquisition occurs outside the control-plane durable owner, authoritative ownership becomes ambiguous and violates retained F02.
+
+No implementation within the authorized eight-file correction may silently choose among these materially different architectures.
+
+## Exact architecture-freeze questions
+
+Management must freeze one design before source implementation:
+
+1. Is lease acquisition a distinct grant-bound control-plane command, or an internal phase of the execution transaction?
+2. If distinct, what exact operation name, legal source/target state, authorized executor, evidence set, retry limit and audit event apply?
+3. Does the lease-acquisition transaction change lifecycle state/version or only lease/epoch/fence state?
+4. Does grant consumption occur at lease acquisition or at business execution start?
+5. How is an acquired but never-used lease expired/released without exposing partial mutation APIs?
+6. If acquisition is internal to execution, which owner performs lifecycle validation after the newly generated fence while preserving the separate lifecycle-controller owner?
+7. What exact atomic boundary includes nonce, idempotency, grant state, lease/fence, lifecycle, attempt, outcome and audit outbox for acquisition and execution?
+8. What is the exact completed-replay result for lease acquisition, execution and a crash between them?
+9. Which request digest and idempotency identity bind the lease request versus the execution request?
+10. May one authorization grant authorize both lease acquisition and execution, and how is one-time use represented without premature consumption?
+11. What denial audit receipt is required for failed acquisition, stale fence, substituted executor and abandoned lease?
+12. Does the chosen design require a durable-provider implementation or other file outside the current eight-file source-only allowlist?
+
+## Reconciliation impact
+
+F03 remains unresolved because the required lifecycle sequence cannot be represented without answering the freeze questions.
+
+F04 remains eligible for an implementation after the architecture decision, but the authorization permits only one bounded A4 commit and forbids partial implementation when a required correction is blocked.
+
+F06 cannot be completed because the exact lease-order test and M03 lease-order mutant lack a frozen production enforcement point.
+
+F07 remains eligible after the architecture decision, but must not be implemented alone under this all-or-nothing A4 authorization.
+
+F01, F02 and F05 remain preserved. In particular, no partial lease API was introduced to work around the contradiction.
+
+## Validation and prohibited operations
+
+Because the stop condition fired before implementation, the 17-test matrix, six A4 mutants, retained mutants and post-change validation were not run or claimed. The previously independently measured baseline remains informational only: A3 `16`, Phase-A `63`, focused ERP `79`, ERP non-PostgreSQL `453`, unique `516`, raw `611`, PostgreSQL `87` discovered / `0` executed.
+
+This turn performed no PostgreSQL connection/test, migration application/rollback, lifecycle, recovery, purge, export, provisioning, deployment, production access, Phase B or Correction 2 operation. Measured operations performed in this turn: PostgreSQL connections `0`; migration applications attempted `0`; migration applications completed `0`.
+
+## Retained states and next gate
+
+`phase_a_correction_a4_source_implementation_state=BLOCKED_ARCHITECTURE_FREEZE_REQUIRED`
+
+`phase_a_management_acceptance_state=FAIL`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
+Exact single next management gate: a separate report-only Phase-A architecture-freeze decision answering the twelve lease-acquisition and atomic-boundary questions above and issuing a revised exhaustive A4 allowlist. Do not begin A4 implementation before that decision.
+
+---
+
+The prior A3 checkpoint is retained below as historical evidence only. It is superseded as the current implementation-state header by this A4 blocker checkpoint.
+
 # REV869B Option-A Phase-A Correction A3 checkpoint
 
 Date: 2026-08-17
