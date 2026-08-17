@@ -104,7 +104,7 @@ public sealed record LifecycleResourceStateV2(
     string? ActiveAuthorizerRole = null,
     DateTimeOffset? AuthorizationExpiresAt = null,
     ExportLifecycleStateV2 ExportState = ExportLifecycleStateV2.NONE,
-    AuthorizationBindingV3? ActiveAuthorizationBinding = null,
+    ExecutionAuthorizationV3? ActiveAuthorizationBinding = null,
     string? EvidenceManifestSha256 = null,
     long ControllerEpoch = 0);
 
@@ -228,13 +228,17 @@ public static class PhaseAOwnershipValidator
 
         var constructor = typeof(PhaseAControlPlaneAuthority).GetConstructors().SingleOrDefault();
         var parameters = constructor?.GetParameters() ?? [];
+        var durableMethods = typeof(IDurableControlPlanePersistenceProvider).GetMethods();
+        var mutationMethods = durableMethods
+            .Where(static method => method.Name != nameof(IDurableControlPlanePersistenceProvider.ReadAuthoritativeSnapshotAsync) &&
+                                    !method.IsSpecialName)
+            .ToArray();
         if (constructor is null ||
             parameters.Count(parameter => parameter.ParameterType == typeof(IDurableControlPlanePersistenceProvider)) != 1 ||
-            parameters.Any(parameter =>
-                parameter.ParameterType == typeof(ILeaseFenceAuthority) ||
-                parameter.ParameterType == typeof(ILifecycleStateAuthority) ||
-                parameter.ParameterType == typeof(IIdempotencyAuthority) ||
-                parameter.ParameterType == typeof(INonceRegistrationAuthority)))
+            parameters.Count(parameter => parameter.ParameterType == typeof(ILifecycleControllerAuthority)) != 1 ||
+            mutationMethods.Length != 1 ||
+            mutationMethods[0].Name != nameof(IDurableControlPlanePersistenceProvider.ExecuteAtomicallyAsync) ||
+            typeof(IDurableControlPlanePersistenceProvider).GetInterfaces().Length != 0)
         {
             throw new TrustFailureExceptionV2(
                 TrustFailureCodeV2.DEPENDENCY_POLICY_MISMATCH,

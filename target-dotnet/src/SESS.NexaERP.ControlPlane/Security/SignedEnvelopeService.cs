@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
+using SESS.NexaERP.ControlPlane.Configuration;
 using SESS.NexaERP.ControlPlane.Contracts;
 using SESS.NexaERP.ControlPlane.Domain;
 
@@ -529,7 +531,7 @@ internal sealed class SignedCommandServiceV2(
             requestDigest,
             header.NotBefore,
             header.ExpiresAt);
-        var authorizationBinding = new AuthorizationBindingV3(
+        var authorizationBinding = new ExecutionAuthorizationV3(
             authorization,
             scope,
             expectedResource.ResourceType,
@@ -574,6 +576,7 @@ internal sealed class SignedCommandServiceV2(
             envelope.Payload.ExpectedState,
             header.ResourceVersion,
             authorizationBinding,
+            null,
             lease,
             requirements,
             idempotency,
@@ -647,7 +650,8 @@ public sealed class PhaseAControlPlaneAuthority(
     IDurableControlPlanePersistenceProvider durableProvider,
     IAuthoritativeEvidenceReaderProvider readerRegistry,
     ILifecycleControllerAuthority lifecycleController,
-    TimeProvider timeProvider) : IControlPlaneAuthority
+    TimeProvider timeProvider,
+    IOptions<ControlPlaneOptions> configuredOptions) : IControlPlaneAuthority
 {
     public async ValueTask<LifecycleTransitionResultV3> AcceptRawCommandAsync(
         ReadOnlyMemory<byte> canonicalHeader,
@@ -663,6 +667,13 @@ public sealed class PhaseAControlPlaneAuthority(
         var header = CanonicalSignedHeaderCodecV2.Parse(canonicalHeader.Span);
         var payload = CanonicalCommandPayloadCodecV2.Parse(canonicalPayload.Span);
         var now = timeProvider.GetUtcNow();
+        var options = configuredOptions.Value;
+        Require(ControlPlaneOptions.IsValid(options), TrustFailureCodeV2.SERVICE_NOT_READY);
+        var expectedProvider = options.DurableProviderDescriptor();
+        var expectedLifecycleController = options.LifecycleControllerDescriptor();
+        Require(durableProvider.Descriptor == expectedProvider &&
+                lifecycleController.Descriptor == expectedLifecycleController,
+            TrustFailureCodeV2.DEPENDENCY_IDENTITY_MISMATCH);
         Require(header.ContractVersion == Rev869BCompatibilityManifestV2.ContractVersion,
             TrustFailureCodeV2.CONTRACT_UNSUPPORTED);
         Require(header.CanonicalizationVersion == Rev869BCompatibilityManifestV2.CanonicalizationVersion,
@@ -765,10 +776,10 @@ public sealed class PhaseAControlPlaneAuthority(
             header.ResourceId,
             cancellationToken);
         Require(snapshot is not null &&
-                !string.IsNullOrWhiteSpace(durableProvider.ProviderIdentity) &&
-                !string.IsNullOrWhiteSpace(durableProvider.ProviderVersion) &&
-                snapshot.ProviderIdentity == durableProvider.ProviderIdentity &&
-                snapshot.ProviderVersion == durableProvider.ProviderVersion &&
+                snapshot.ProviderIdentity == expectedProvider.Identity &&
+                snapshot.ProviderVersion == expectedProvider.SemanticContractVersion &&
+                snapshot.ProviderArtifactSha256 == expectedProvider.ArtifactSha256 &&
+                snapshot.ReadinessPolicyVersion == expectedProvider.ReadinessPolicyVersion &&
                 snapshot.Scope == scope &&
                 snapshot.ResourceType == intent.ResourceType &&
                 snapshot.ResourceId == header.ResourceId &&
@@ -809,7 +820,55 @@ public sealed class PhaseAControlPlaneAuthority(
         }
 
         var requestSha = header.CanonicalPayloadSha256.ToLowerInvariant();
-        var binding = new AuthorizationBindingV3(
+        var evidenceManifestSha256 = HashEvidenceRequirements(payload.EvidenceRequirements);
+        var approvedIntentSha256 = HashApprovedIntent(payload.ApprovedParameters);
+        var authorizationCreation = payload.Operation.ToString().StartsWith("AUTHORIZE_", StringComparison.Ordinal);
+        StoredAuthorizationGrantV3 storedGrant;
+        if (authorizationCreation)
+        {
+            Require(payload.StoredGrantClaim is null &&
+                    (authoritativeSnapshot.CurrentAuthorization is null &&
+                     authoritativeSnapshot.CurrentAuthorizationMatchCount == 0 ||
+                     authoritativeSnapshot.CurrentAuthorization is not null &&
+                     authoritativeSnapshot.CurrentAuthorizationMatchCount == 1 &&
+                     authoritativeSnapshot.CurrentAuthorization.State != AuthorizationGrantStateV3.ACTIVE),
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+            storedGrant = new(
+                authorization,
+                header.KeyId,
+                header.ContractVersion,
+                Convert.ToHexString(SHA256.HashData(signature.Span)).ToLowerInvariant(),
+                scope,
+                intent.ResourceType,
+                intent.ResourceId,
+                authoritativeSnapshot.ResourceVersion,
+                intent.Operation,
+                transportIdentity.WorkloadIdentity,
+                approvedIntentSha256,
+                evidenceManifestSha256,
+                authoritativeSnapshot.Lease?.LeaseId ?? "lease-none",
+                authoritativeSnapshot.Lease?.ControllerEpoch ?? 0,
+                authoritativeSnapshot.Lease?.FencingToken ?? 0,
+                options.AuthorizationPolicyArtifactSha256,
+                AuthorizationGrantStateV3.ACTIVE,
+                null);
+        }
+        else
+        {
+            Require(payload.StoredGrantClaim is not null &&
+                    authoritativeSnapshot.CurrentAuthorizationMatchCount == 1 &&
+                    authoritativeSnapshot.CurrentAuthorization == payload.StoredGrantClaim &&
+                    payload.StoredGrantClaim.ApprovedIntentSha256 == approvedIntentSha256 &&
+                    payload.StoredGrantClaim.Scope == scope &&
+                    payload.StoredGrantClaim.ResourceType == intent.ResourceType &&
+                    payload.StoredGrantClaim.ResourceId == intent.ResourceId &&
+                    payload.StoredGrantClaim.ResourceVersion == authoritativeSnapshot.ResourceVersion &&
+                    payload.StoredGrantClaim.ExecutorClass == transportIdentity.WorkloadIdentity &&
+                    payload.StoredGrantClaim.PolicyArtifactSha256 == options.AuthorizationPolicyArtifactSha256,
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+            storedGrant = payload.StoredGrantClaim!;
+        }
+        var binding = new ExecutionAuthorizationV3(
             authorization,
             scope,
             intent.ResourceType,
@@ -817,7 +876,7 @@ public sealed class PhaseAControlPlaneAuthority(
             authoritativeSnapshot.ResourceVersion,
             intent.Operation,
             requestSha,
-            HashEvidenceRequirements(payload.EvidenceRequirements),
+            storedGrant.EvidenceManifestSha256,
             authoritativeSnapshot.Lease?.LeaseId ?? "lease-none",
             authoritativeSnapshot.Lease?.FencingToken ?? 0,
             AuthorizationGrantStateV3.ACTIVE);
@@ -827,6 +886,7 @@ public sealed class PhaseAControlPlaneAuthority(
             authoritativeSnapshot.LifecycleState,
             authoritativeSnapshot.ResourceVersion,
             binding,
+            storedGrant,
             lease,
             evidence,
             new(
@@ -861,7 +921,8 @@ public sealed class PhaseAControlPlaneAuthority(
                 command,
                 command.Nonce,
                 now,
-                durableProvider.ProviderVersion,
+                expectedProvider,
+                expectedLifecycleController,
                 proposed),
             cancellationToken);
         Require(transaction.Outcome is ControlTransactionOutcomeV3.FIRST_OWNER or
@@ -869,6 +930,8 @@ public sealed class PhaseAControlPlaneAuthority(
                 transaction.Outcome == transaction.Transition.TransactionOutcome &&
                 transaction.NonceRegistered &&
                 transaction.AuditOutboxCommitted &&
+                transaction.CommittedGrantSha256 == storedGrant.GrantAuthorization.GrantSha256 &&
+                transaction.CommittedApprovedIntentSha256 == storedGrant.ApprovedIntentSha256 &&
                 transaction.Transition.FailureCode == TrustFailureCodeV2.NONE &&
                 transaction.Transition.State == proposed.State &&
                 transaction.Transition.Version == proposed.Version &&
@@ -891,6 +954,9 @@ public sealed class PhaseAControlPlaneAuthority(
 
     private static string HashEvidenceRequirements(IReadOnlyList<string> requirements) =>
         Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(requirements))).ToLowerInvariant();
+
+    private static string HashApprovedIntent(IReadOnlyDictionary<string, string> approvedParameters) =>
+        Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(approvedParameters))).ToLowerInvariant();
 
     private static void Require(bool condition, TrustFailureCodeV2 code)
     {

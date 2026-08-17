@@ -605,7 +605,8 @@ public sealed record CanonicalCommandPayloadV2(
     SubcaseIdentityV1 Subcase,
     string ActionId,
     IReadOnlyDictionary<string, string> ApprovedParameters,
-    IReadOnlyList<string> EvidenceRequirements);
+    IReadOnlyList<string> EvidenceRequirements,
+    StoredAuthorizationGrantV3? StoredGrantClaim = null);
 
 public sealed record SignedCommandEnvelopeV2(
     CanonicalSignedHeaderV2 Header,
@@ -1049,7 +1050,7 @@ public sealed record EvidenceRequirementV3(
     int MaximumFacts,
     int MaximumBytes);
 
-public sealed record AuthorizationBindingV3(
+public sealed record ExecutionAuthorizationV3(
     ResolvedAuthorizationV3 Authorization,
     CompanyDatabaseScopeV3 Scope,
     string ResourceType,
@@ -1062,28 +1063,58 @@ public sealed record AuthorizationBindingV3(
     long FencingToken,
     AuthorizationGrantStateV3 State);
 
+public sealed record TrustedComponentDescriptorV3(
+    string Identity,
+    string SemanticContractVersion,
+    string ArtifactSha256,
+    string ReadinessPolicyVersion);
+
+public sealed record StoredAuthorizationGrantV3(
+    ResolvedAuthorizationV3 GrantAuthorization,
+    string GrantKeyId,
+    string GrantContractVersion,
+    string GrantSignatureSha256,
+    CompanyDatabaseScopeV3 Scope,
+    string ResourceType,
+    string ResourceId,
+    long ResourceVersion,
+    string AuthorizedOperation,
+    string ExecutorClass,
+    string ApprovedIntentSha256,
+    string EvidenceManifestSha256,
+    string LeaseId,
+    long ControllerEpoch,
+    long FencingToken,
+    string PolicyArtifactSha256,
+    AuthorizationGrantStateV3 State,
+    DateTimeOffset? ConsumedAt);
+
 public sealed record AuthoritativeControlPlaneSnapshotV3(
     string ProviderIdentity,
     string ProviderVersion,
+    string ProviderArtifactSha256,
+    string ReadinessPolicyVersion,
     CompanyDatabaseScopeV3 Scope,
     string ResourceType,
     string ResourceId,
     long ResourceVersion,
     ControllerLifecycleState LifecycleState,
     AuthorizationGrantStateV3 AuthorizationState,
-    AuthorizationBindingV3? CurrentAuthorization,
+    StoredAuthorizationGrantV3? CurrentAuthorization,
     ExportAuthorizationSubstateV3 ExportState,
     LeaseFenceExpectationV3? Lease,
     string AttemptId,
     int AttemptNumber,
-    string LastAuditReference);
+    string LastAuditReference,
+    int CurrentAuthorizationMatchCount = 1);
 
 public sealed record VerifiedLifecycleCommandV3(
     string CommandId,
     ControllerOperationV2 Operation,
     ControllerLifecycleState CurrentState,
     long CurrentVersion,
-    AuthorizationBindingV3 Authorization,
+    ExecutionAuthorizationV3 Authorization,
+    StoredAuthorizationGrantV3? StoredGrantClaim,
     LeaseFenceExpectationV3? Lease,
     IReadOnlyList<EvidenceRequirementV3> RequiredEvidence,
     IdempotencyIdentityV3 Idempotency,
@@ -1136,7 +1167,8 @@ public sealed record ControlPlaneTransactionRequestV3(
     VerifiedLifecycleCommandV3 Command,
     NonceRegistrationV3 Nonce,
     DateTimeOffset ServerNow,
-    string ExpectedProviderVersion,
+    TrustedComponentDescriptorV3 ExpectedProvider,
+    TrustedComponentDescriptorV3 ExpectedLifecycleController,
     LifecycleTransitionResultV3 ProposedTransition);
 
 public sealed record ControlPlaneTransactionResultV3(
@@ -1145,7 +1177,9 @@ public sealed record ControlPlaneTransactionResultV3(
     bool NonceRegistered,
     bool AuthorizationConsumed,
     bool FenceConsumed,
-    bool AuditOutboxCommitted);
+    bool AuditOutboxCommitted,
+    string CommittedGrantSha256,
+    string CommittedApprovedIntentSha256);
 
 public sealed record OracleDescriptorV3(
     string OracleId,
@@ -1168,7 +1202,11 @@ public sealed record AuthoritativeReaderDescriptorV3(
     IReadOnlySet<string> AllowedFields,
     int MaximumFacts,
     int MaximumBytes,
-    EvidenceStageV3 RequiredStage = EvidenceStageV3.DURABLE);
+    string SourceIdentity,
+    string CompatibilityFloor,
+    string DowngradePolicyVersion,
+    EvidenceStageV3 RequiredStage = EvidenceStageV3.DURABLE,
+    DateTimeOffset? RevokedAt = null);
 
 public sealed record RawEvidenceFactV3(
     string FieldId,
@@ -1203,7 +1241,9 @@ public sealed record EvidenceVerificationExpectationV3(
     long FencingToken,
     EvidenceStageV3 Stage,
     string SnapshotOrWatermark,
-    string PolicyVersion);
+    string PolicyVersion,
+    string ReaderPolicyVersion,
+    IReadOnlyList<AuthoritativeReaderDescriptorV3>? RequiredReaders = null);
 
 public sealed record AuthoritativeFactBundleV3(
     string ReaderId,
@@ -1459,68 +1499,9 @@ public interface IKmsHsmSigningProvider
         CancellationToken cancellationToken = default);
 }
 
-public interface INonceRegistrationAuthority
+public interface IDurableControlPlanePersistenceProvider
 {
-    ValueTask<ControlTransactionOutcomeV3> RegisterNonceAsync(
-        NonceRegistrationV3 nonce,
-        CancellationToken cancellationToken = default);
-}
-
-public interface IIdempotencyAuthority
-{
-    ValueTask<ControlTransactionOutcomeV3> ClaimAsync(
-        IdempotencyIdentityV3 identity,
-        CancellationToken cancellationToken = default);
-    ValueTask<LifecycleTransitionResultV3?> ReadCommittedResultAsync(
-        IdempotencyIdentityV3 identity,
-        CancellationToken cancellationToken = default);
-}
-
-public interface ILeaseFenceAuthority
-{
-    ValueTask<LeaseFenceExpectationV3?> ReadCurrentAsync(
-        string resourceId,
-        CancellationToken cancellationToken = default);
-
-    ValueTask<LeaseFenceExpectationV3> AcquireAsync(
-        string resourceId,
-        string holderSubject,
-        DateTimeOffset expiresAt,
-        CancellationToken cancellationToken = default);
-    ValueTask<LeaseFenceExpectationV3> RenewAsync(
-        LeaseFenceExpectationV3 current,
-        DateTimeOffset expiresAt,
-        CancellationToken cancellationToken = default);
-    ValueTask<TrustFailureCodeV2> ExpireAsync(
-        LeaseFenceExpectationV3 expected,
-        DateTimeOffset serverNow,
-        CancellationToken cancellationToken = default);
-}
-
-public interface ILifecycleStateAuthority
-{
-    ValueTask<LifecycleTransitionResultV3?> ReadAsync(string resourceId, CancellationToken cancellationToken = default);
-}
-
-public interface IAuthorizationStateAuthority { }
-public interface IExecutionAttemptAuthority { }
-public interface IRecoveryQuarantineAuthority { }
-public interface IExportStateAuthority { }
-public interface IPurgeStateAuthority { }
-
-public interface IDurableControlPlanePersistenceProvider :
-    INonceRegistrationAuthority,
-    IIdempotencyAuthority,
-    ILeaseFenceAuthority,
-    ILifecycleStateAuthority,
-    IAuthorizationStateAuthority,
-    IExecutionAttemptAuthority,
-    IRecoveryQuarantineAuthority,
-    IExportStateAuthority,
-    IPurgeStateAuthority
-{
-    string ProviderIdentity { get; }
-    string ProviderVersion { get; }
+    TrustedComponentDescriptorV3 Descriptor { get; }
     ValueTask<AuthoritativeControlPlaneSnapshotV3?> ReadAuthoritativeSnapshotAsync(
         string resourceId,
         CancellationToken cancellationToken = default);
@@ -1531,6 +1512,7 @@ public interface IDurableControlPlanePersistenceProvider :
 
 public interface ILifecycleControllerAuthority
 {
+    TrustedComponentDescriptorV3 Descriptor { get; }
     ValueTask<LifecycleTransitionResultV3> TransitionAsync(
         VerifiedLifecycleCommandV3 command,
         CancellationToken cancellationToken = default);
@@ -1693,7 +1675,7 @@ public static class PhaseAContractValidator
             TrustFailureCodeV2.CONTRACT_LIMIT_EXCEEDED);
     }
 
-    public static void RequireValid(AuthorizationBindingV3 binding)
+    public static void RequireValid(ExecutionAuthorizationV3 binding)
     {
         Require(binding.State == AuthorizationGrantStateV3.ACTIVE,
             TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);

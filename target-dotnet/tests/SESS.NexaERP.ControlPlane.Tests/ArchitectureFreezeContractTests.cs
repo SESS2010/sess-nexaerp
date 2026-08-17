@@ -2,8 +2,10 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 using SESS.NexaERP.AcceptanceVerifier.Configuration;
 using SESS.NexaERP.AcceptanceVerifier.Verification;
+using SESS.NexaERP.ControlPlane.Configuration;
 using SESS.NexaERP.ControlPlane.Contracts;
 using SESS.NexaERP.ControlPlane.Domain;
 using SESS.NexaERP.ControlPlane.Security;
@@ -100,10 +102,10 @@ public sealed class ArchitectureFreezeContractTests
     {
         var fixture = CommandFixture.Create();
         Assert.Equal(
-            "5520e544a2b0238e6d4a31024b2904f4b35474591b633396fb72eff84a6caf5d",
+            "84e86d1a6998f21997a3515829e50f27ea148250cc90eb7b423794b99f43ac45",
             Convert.ToHexString(SHA256.HashData(fixture.PayloadBytes)).ToLowerInvariant());
         Assert.Equal(
-            "4ea3a4abff80c6617a909ab719d32f5ac736bfb21cb3dccadc34c612fd6377e6",
+            "a40b13ef8ff4044991e7f8ec771d2858fc389203e5527421c9fb9179358599ba",
             Convert.ToHexString(SHA256.HashData(fixture.HeaderBytes)).ToLowerInvariant());
         Assert.Equal(SHA256.HashData(fixture.HeaderBytes), fixture.Signature);
     }
@@ -198,11 +200,10 @@ public sealed class ArchitectureFreezeContractTests
         var dependencies = typeof(PhaseAControlPlaneAuthority).GetConstructors().Single().GetParameters();
         Assert.Equal(1, dependencies.Count(parameter =>
             parameter.ParameterType == typeof(IDurableControlPlanePersistenceProvider)));
-        Assert.DoesNotContain(dependencies, parameter => parameter.ParameterType is { } type &&
-            (type == typeof(ILeaseFenceAuthority) ||
-             type == typeof(ILifecycleStateAuthority) ||
-             type == typeof(IIdempotencyAuthority) ||
-             type == typeof(INonceRegistrationAuthority)));
+        Assert.Empty(typeof(IDurableControlPlanePersistenceProvider).GetInterfaces());
+        Assert.Equal(
+            ["get_Descriptor", "ReadAuthoritativeSnapshotAsync", "ExecuteAtomicallyAsync"],
+            typeof(IDurableControlPlanePersistenceProvider).GetMethods().Select(static method => method.Name));
     }
 
     [Fact]
@@ -221,8 +222,8 @@ public sealed class ArchitectureFreezeContractTests
             fixture.DurableProvider.Snapshot,
             fixture.DurableProvider.LastTransactionRequest!.Command.AuthoritativeSnapshot);
         Assert.Equal(
-            fixture.DurableProvider.ProviderVersion,
-            fixture.DurableProvider.LastTransactionRequest.ExpectedProviderVersion);
+            fixture.DurableProvider.Descriptor,
+            fixture.DurableProvider.LastTransactionRequest.ExpectedProvider);
     }
 
     [Fact]
@@ -612,7 +613,7 @@ public sealed class ArchitectureFreezeContractTests
         {
             CurrentAuthorization = cancel.AuthoritativeSnapshot.CurrentAuthorization! with
             {
-                Authorization = cancel.AuthoritativeSnapshot.CurrentAuthorization.Authorization with
+                GrantAuthorization = cancel.AuthoritativeSnapshot.CurrentAuthorization.GrantAuthorization with
                 {
                     AuthenticatedSubject = "other-subject"
                 }
@@ -630,7 +631,7 @@ public sealed class ArchitectureFreezeContractTests
             false);
         var futureGrant = expire.AuthoritativeSnapshot!.CurrentAuthorization! with
         {
-            Authorization = expire.AuthoritativeSnapshot.CurrentAuthorization.Authorization with
+            GrantAuthorization = expire.AuthoritativeSnapshot.CurrentAuthorization.GrantAuthorization with
             {
                 ExpiresAt = Now.AddMinutes(1)
             }
@@ -642,7 +643,8 @@ public sealed class ArchitectureFreezeContractTests
                     AuthoritativeSnapshot = expire.AuthoritativeSnapshot with
                     {
                         CurrentAuthorization = futureGrant
-                    }
+                    },
+                    StoredGrantClaim = futureGrant
                 }, Now),
             TrustFailureCodeV2.NOT_YET_VALID);
     }
@@ -1324,6 +1326,329 @@ public sealed class ArchitectureFreezeContractTests
                            type.Name.Contains("Migration", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void A3_CompositeProviderHasOnePinnedOwnerAndOneAtomicMutationCapability()
+    {
+        var methods = typeof(IDurableControlPlanePersistenceProvider).GetMethods();
+        Assert.Empty(typeof(IDurableControlPlanePersistenceProvider).GetInterfaces());
+        Assert.Equal(1, methods.Count(static method =>
+            method.Name == nameof(IDurableControlPlanePersistenceProvider.ExecuteAtomicallyAsync)));
+        Assert.Equal(1, methods.Count(static method =>
+            method.Name == nameof(IDurableControlPlanePersistenceProvider.ReadAuthoritativeSnapshotAsync)));
+        var options = ValidControlPlaneOptions();
+        Assert.True(ControlPlaneOptions.IsValid(options));
+        Assert.Equal("phase-a-durable-owner", options.DurableProviderDescriptor().Identity);
+        Assert.Equal(Hash, options.DurableProviderDescriptor().ArtifactSha256);
+    }
+
+    [Fact]
+    public void A3_ExportedOrInjectablePartialNonceIdempotencyLeaseAndStateMutationIsImpossible()
+    {
+        var forbidden = new HashSet<string>(
+            ["RegisterNonceAsync", "ClaimAsync", "AcquireAsync", "RenewAsync", "ExpireAsync", "WriteAsync"],
+            StringComparer.Ordinal);
+        Assert.DoesNotContain(
+            typeof(IDurableControlPlanePersistenceProvider).GetMethods(),
+            method => forbidden.Contains(method.Name));
+        Assert.DoesNotContain(
+            typeof(IDurableControlPlanePersistenceProvider).Assembly.ExportedTypes,
+            type => type.Name is "INonceRegistrationAuthority" or "IIdempotencyAuthority" or
+                "ILeaseFenceAuthority" or "ILifecycleStateAuthority" or
+                "IAuthorizationStateAuthority" or "IExecutionAttemptAuthority" or
+                "IRecoveryQuarantineAuthority" or "IExportStateAuthority" or "IPurgeStateAuthority");
+        Assert.Single(typeof(PhaseAControlPlaneAuthority).GetConstructors().Single().GetParameters(),
+            parameter => parameter.ParameterType == typeof(IDurableControlPlanePersistenceProvider));
+    }
+
+    [Fact]
+    public async Task A3_SelfAttestedProviderOrLifecycleIdentityVersionArtifactIsRejectedBeforeSnapshotUse()
+    {
+        var providerFixture = CommandFixture.Create();
+        providerFixture.DurableProvider.Descriptor = providerFixture.DurableProvider.Descriptor with
+        {
+            ArtifactSha256 = new('b', 64)
+        };
+        await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => providerFixture.InvokeAsync().AsTask());
+        Assert.Equal(0, providerFixture.DurableProvider.SnapshotReadCount);
+        Assert.Equal(0, providerFixture.Controller.CallCount);
+
+        var controller = new CountingController
+        {
+            Descriptor = new(
+                "phase-a-lifecycle-controller",
+                Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
+                new('b', 64),
+                Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion)
+        };
+        var controllerFixture = CommandFixture.Create(controller: controller);
+        await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => controllerFixture.InvokeAsync().AsTask());
+        Assert.Equal(0, controllerFixture.DurableProvider.SnapshotReadCount);
+        Assert.Equal(0, controller.CallCount);
+    }
+
+    [Fact]
+    public void A3_All14ResponsibilitiesHaveOneCatalogOwnerAndOneEffectiveOwner()
+    {
+        Assert.Equal(14, PhaseAOwnershipCatalog.All.Count);
+        Assert.Equal(14, PhaseAOwnershipCatalog.All.Values.Distinct().Count());
+        PhaseAOwnershipValidator.RequireComplete();
+        Assert.Single(typeof(PhaseAControlPlaneAuthority).GetConstructors().Single().GetParameters(),
+            parameter => parameter.ParameterType == typeof(ILifecycleControllerAuthority));
+        Assert.Single(typeof(PhaseAAcceptanceVerifierAuthority).GetConstructors().Single().GetParameters(),
+            parameter => parameter.ParameterType == typeof(IAuthoritativeEvidenceReaderProvider));
+    }
+
+    [Fact]
+    public async Task A3_AuthorizeThenConsumeExactGrantAndApprovedPlanThroughRawProductionPath()
+    {
+        var authorize = CommandFixture.Create(requiresLease: true);
+        var authorized = await authorize.InvokeAsync();
+        var grant = authorize.DurableProvider.LastTransactionRequest!.Command.StoredGrantClaim!;
+        Assert.Equal(ControllerLifecycleState.Preflight, authorized.State);
+        Assert.Equal(Hash, grant.GrantAuthorization.GrantSha256);
+
+        var consume = CommandFixture.Create(
+            state: ControllerLifecycleState.Preflight,
+            operation: ControllerOperationV2.PREPARE,
+            requestedState: ControllerLifecycleState.Provisioning,
+            role: "ProvisioningExecutor",
+            evidenceIds: ["preflight"],
+            requiresLease: true,
+            authoritativeMutation: snapshot => snapshot with
+            {
+                AuthorizationState = AuthorizationGrantStateV3.ACTIVE,
+                CurrentAuthorization = grant,
+                CurrentAuthorizationMatchCount = 1
+            });
+        var consumed = await consume.InvokeAsync();
+        Assert.Equal(ControllerLifecycleState.Provisioning, consumed.State);
+        Assert.Equal(AuthorizationGrantStateV3.CONSUMED, consumed.AuthorizationState);
+        Assert.Equal(grant.GrantAuthorization.GrantSha256,
+            consume.DurableProvider.LastTransactionRequest!.Command.StoredGrantClaim!.GrantAuthorization.GrantSha256);
+    }
+
+    [Fact]
+    public async Task A3_ExactCompletedReplayReturnsOnlyOriginalGrantBoundOutcome()
+    {
+        var fixture = CommandFixture.Create();
+        var first = await fixture.InvokeAsync();
+        var replay = await fixture.InvokeAsync();
+        Assert.Equal(ControlTransactionOutcomeV3.FIRST_OWNER, first.TransactionOutcome);
+        Assert.Equal(ControlTransactionOutcomeV3.COMPLETED_REPLAY, replay.TransactionOutcome);
+        Assert.Equal(first.State, replay.State);
+        Assert.Equal(first.Version, replay.Version);
+        Assert.Equal(first.ResponseSha256, replay.ResponseSha256);
+        Assert.Equal(1, fixture.DurableProvider.BusinessCommitCount);
+    }
+
+    [Fact]
+    public async Task A3_EveryStoredGrantIssuerActorPolicyTenantPlanVersionEvidenceLeaseFenceAndExpirySubstitutionFailsBeforeLifecycle()
+    {
+        var mutations = new Func<StoredAuthorizationGrantV3, StoredAuthorizationGrantV3>[]
+        {
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { AuthorizationId = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { GrantIssuer = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { AuthenticatedSubject = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { WorkloadIdentity = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { Audience = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { Operation = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { TrustedRole = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { TrustedScope = "ORG:C2" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { PolicyVersion = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { PolicyRowId = "other" } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { GrantSha256 = new('b', 64) } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { NotBefore = Now.AddMinutes(1) } },
+            grant => grant with { GrantAuthorization = grant.GrantAuthorization with { ExpiresAt = Now.AddMinutes(-1) } },
+            grant => grant with { GrantKeyId = "other" },
+            grant => grant with { GrantContractVersion = "other" },
+            grant => grant with { GrantSignatureSha256 = new('b', 64) },
+            grant => grant with { Scope = grant.Scope with { OrganizationId = "C2" } },
+            grant => grant with { Scope = grant.Scope with { DatabaseInstanceId = "other" } },
+            grant => grant with { ResourceType = "other" },
+            grant => grant with { ResourceId = "other" },
+            grant => grant with { ResourceVersion = grant.ResourceVersion + 1 },
+            grant => grant with { AuthorizedOperation = "other" },
+            grant => grant with { ExecutorClass = "other" },
+            grant => grant with { ApprovedIntentSha256 = new('b', 64) },
+            grant => grant with { EvidenceManifestSha256 = new('b', 64) },
+            grant => grant with { LeaseId = "other" },
+            grant => grant with { ControllerEpoch = grant.ControllerEpoch + 1 },
+            grant => grant with { FencingToken = grant.FencingToken + 1 },
+            grant => grant with { PolicyArtifactSha256 = new('b', 64) }
+        };
+
+        foreach (var mutate in mutations)
+        {
+            var fixture = CommandFixture.Create(
+                state: ControllerLifecycleState.Preflight,
+                operation: ControllerOperationV2.PREPARE,
+                requestedState: ControllerLifecycleState.Provisioning,
+                role: "ProvisioningExecutor",
+                evidenceIds: ["preflight"],
+                requiresLease: true);
+            var original = fixture.DurableProvider.Snapshot.CurrentAuthorization!;
+            fixture.DurableProvider.Snapshot = fixture.DurableProvider.Snapshot with
+            {
+                CurrentAuthorization = mutate(original)
+            };
+            await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => fixture.InvokeAsync().AsTask());
+            Assert.Equal(0, fixture.Controller.CallCount);
+            Assert.Equal(0, fixture.DurableProvider.AtomicExecuteCount);
+        }
+    }
+
+    [Fact]
+    public async Task A3_MissingDuplicateConsumedStaleOrAmbiguousGrantFailsClosedWithoutAtomicCall()
+    {
+        var mutations = new Func<AuthoritativeControlPlaneSnapshotV3, AuthoritativeControlPlaneSnapshotV3>[]
+        {
+            snapshot => snapshot with { CurrentAuthorization = null, CurrentAuthorizationMatchCount = 0 },
+            snapshot => snapshot with { CurrentAuthorizationMatchCount = 2 },
+            snapshot => snapshot with
+            {
+                CurrentAuthorization = snapshot.CurrentAuthorization! with
+                {
+                    State = AuthorizationGrantStateV3.CONSUMED,
+                    ConsumedAt = Now
+                }
+            },
+            snapshot => snapshot with
+            {
+                CurrentAuthorization = snapshot.CurrentAuthorization! with
+                {
+                    GrantAuthorization = snapshot.CurrentAuthorization.GrantAuthorization with
+                    {
+                        ExpiresAt = Now.AddMinutes(-1)
+                    }
+                }
+            }
+        };
+        foreach (var mutate in mutations)
+        {
+            var fixture = CommandFixture.Create(
+                state: ControllerLifecycleState.Preflight,
+                operation: ControllerOperationV2.PREPARE,
+                requestedState: ControllerLifecycleState.Provisioning,
+                role: "ProvisioningExecutor",
+                evidenceIds: ["preflight"],
+                requiresLease: true);
+            fixture.DurableProvider.Snapshot = mutate(fixture.DurableProvider.Snapshot);
+            await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => fixture.InvokeAsync().AsTask());
+            Assert.Equal(0, fixture.Controller.CallCount);
+            Assert.Equal(0, fixture.DurableProvider.AtomicExecuteCount);
+        }
+    }
+
+    [Fact]
+    public async Task A3_CallerSnapshotGrantAndApprovedPlanClaimsRemainComparisonOnly()
+    {
+        var fixture = CommandFixture.Create(
+            payloadMutation: payload => payload with
+            {
+                StoredGrantClaim = payload.StoredGrantClaim! with
+                {
+                    ApprovedIntentSha256 = new('b', 64)
+                }
+            },
+            state: ControllerLifecycleState.Preflight,
+            operation: ControllerOperationV2.PREPARE,
+            requestedState: ControllerLifecycleState.Provisioning,
+            role: "ProvisioningExecutor",
+            evidenceIds: ["preflight"],
+            requiresLease: true);
+        await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => fixture.InvokeAsync().AsTask());
+        Assert.Equal(1, fixture.DurableProvider.SnapshotReadCount);
+        Assert.Equal(0, fixture.Controller.CallCount);
+        Assert.Equal(0, fixture.DurableProvider.AtomicExecuteCount);
+    }
+
+    [Fact]
+    public async Task A3_ServerPinnedReaderIdentityVersionArtifactSetSelectsEveryReaderExactlyOnce()
+    {
+        var fixture = EvidenceFixture.Create();
+        var verdict = await fixture.Authority.VerifyRawAsync(fixture.CanonicalEvidence, fixture.Transport);
+        Assert.Equal(VerificationDisposition.Passed, verdict.Calculation.Disposition);
+        Assert.Equal(1, fixture.ReaderRegistry.ReadCount);
+        Assert.Equal(
+            [("reader-1", Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion)],
+            fixture.ReaderRegistry.DescriptorRequests);
+    }
+
+    [Fact]
+    public async Task A3_OracleReceivesOnlyFactsFromServerSelectedReaders()
+    {
+        var fixture = EvidenceFixture.Create();
+        await fixture.Authority.VerifyRawAsync(fixture.CanonicalEvidence, fixture.Transport);
+        var facts = Assert.Single(fixture.Oracle.LastAuthoritativeFacts!);
+        Assert.Equal(fixture.Bundle, facts);
+        Assert.Equal(1, fixture.ReaderRegistry.ReadCount);
+        Assert.Equal(1, fixture.Oracle.EvaluationCount);
+    }
+
+    [Fact]
+    public async Task A3_CallerSelectedReaderVersionUpgradeDowngradeArtifactOrSchemaNeverSelectsReader()
+    {
+        var substitutions = new Func<AuthoritativeFactBundleV3, AuthoritativeFactBundleV3>[]
+        {
+            bundle => bundle with { ReaderVersion = "0.9.0" },
+            bundle => bundle with { ReaderVersion = "99.0.0" },
+            bundle => bundle with { ReaderArtifactSha256 = new('b', 64) },
+            bundle => bundle with { SchemaVersion = "other-schema" }
+        };
+        foreach (var substitute in substitutions)
+        {
+            var fixture = EvidenceFixture.Create();
+            var declared = substitute(fixture.Bundle);
+            await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+                fixture.Authority.VerifyRawAsync(fixture.WithBundle(declared), fixture.Transport).AsTask());
+            Assert.Equal(
+                ("reader-1", Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion),
+                Assert.Single(fixture.ReaderRegistry.DescriptorRequests));
+            Assert.Equal(1, fixture.ReaderRegistry.ReadCount);
+            Assert.Equal(0, fixture.Oracle.EvaluationCount);
+        }
+    }
+
+    [Fact]
+    public async Task A3_MissingDuplicateUnexpectedRevokedOrStalePinnedReaderFailsBeforeReadAndOracle()
+    {
+        var ordinary = new[]
+        {
+            EvidenceFixture.Create(),
+            EvidenceFixture.Create(),
+            EvidenceFixture.Create()
+        };
+        var inputs = new[]
+        {
+            ordinary[0].WithBundles([]),
+            ordinary[1].WithBundles([ordinary[1].Bundle, ordinary[1].Bundle with
+            {
+                Binding = ordinary[1].Bundle.Binding with { ObservationId = "other" }
+            }]),
+            ordinary[2].WithBundle(ordinary[2].Bundle with { ReaderId = "unexpected-reader" })
+        };
+        for (var index = 0; index < ordinary.Length; index++)
+        {
+            await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+                ordinary[index].Authority.VerifyRawAsync(inputs[index], ordinary[index].Transport).AsTask());
+            Assert.Equal(0, ordinary[index].ReaderRegistry.ReadCount);
+            Assert.Equal(0, ordinary[index].Oracle.EvaluationCount);
+        }
+
+        var invalidPins = new[]
+        {
+            EvidenceFixture.Create(pinnedReaderMutation: reader => reader with { RevokedAt = Now }),
+            EvidenceFixture.Create(pinnedReaderMutation: reader => reader with { DowngradePolicyVersion = "stale" })
+        };
+        foreach (var fixture in invalidPins)
+        {
+            await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+                fixture.Authority.VerifyRawAsync(fixture.CanonicalEvidence, fixture.Transport).AsTask());
+            Assert.Equal(0, fixture.ReaderRegistry.ReadCount);
+            Assert.Equal(0, fixture.Oracle.EvaluationCount);
+        }
+    }
+
     private static string Concept(LifecycleRuleV3 rule) => rule.RuleId switch
     {
         "registered-authorize-prepare" => "prepare-authorize",
@@ -1428,7 +1753,7 @@ public sealed class ArchitectureFreezeContractTests
             Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
             10,
             1_024)).ToArray();
-        var binding = new AuthorizationBindingV3(
+        var binding = new ExecutionAuthorizationV3(
             resolved,
             scope,
             "REV869B_TARGET",
@@ -1464,7 +1789,7 @@ public sealed class ArchitectureFreezeContractTests
                 ControllerOperationV2.AUTHORIZE_PURGE,
             _ => ControllerOperationV2.AUTHORIZE_PREPARE
         };
-        AuthorizationBindingV3? currentAuthorization = authorizationState == AuthorizationGrantStateV3.NONE
+        StoredAuthorizationGrantV3? currentAuthorization = authorizationState == AuthorizationGrantStateV3.NONE
             ? null
             : new(
                 new(
@@ -1472,19 +1797,28 @@ public sealed class ArchitectureFreezeContractTests
                     grantOperation.ToString(), "OriginalAuthorizer", "ORG:C1", "policy-v1", "row-v1", Hash,
                     Now.AddHours(-1),
                     operation == ControllerOperationV2.EXPIRE ? Now.AddMinutes(-1) : Now.AddHours(1)),
+                "key",
+                Rev869BCompatibilityManifestV2.ContractVersion,
+                Hash,
                 scope,
                 "REV869B_TARGET",
                 "resource",
                 7,
                 grantOperation.ToString(),
+                "workload",
                 Hash,
                 Hash,
                 lease?.LeaseId ?? "lease-none",
+                lease?.ControllerEpoch ?? 0,
                 lease?.FencingToken ?? 0,
-                authorizationState);
+                Hash,
+                authorizationState,
+                authorizationState == AuthorizationGrantStateV3.CONSUMED ? Now : null);
         var snapshot = new AuthoritativeControlPlaneSnapshotV3(
             "phase-a-durable-owner",
             Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion,
+            Hash,
+            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
             scope,
             "REV869B_TARGET",
             "resource",
@@ -1496,13 +1830,15 @@ public sealed class ArchitectureFreezeContractTests
             lease,
             "attempt",
             1,
-            "prior-audit");
+            "prior-audit",
+            currentAuthorization is null ? 0 : 1);
         return new(
             "command",
             operation,
             state,
             7,
             binding,
+            currentAuthorization,
             lease,
             evidence,
             new("issuer", "C1", "instance", operation.ToString(), "request", "idempotency", Hash),
@@ -1595,10 +1931,38 @@ public sealed class ArchitectureFreezeContractTests
             IReadOnlyList<string>? evidenceIds = null,
             bool requiresLease = false,
             ExportAuthorizationSubstateV3 exportState = ExportAuthorizationSubstateV3.NONE,
-            AuthorizationGrantStateV3 authorizationState = AuthorizationGrantStateV3.ACTIVE)
+            AuthorizationGrantStateV3 authorizationState = AuthorizationGrantStateV3.ACTIVE,
+            Func<AuthoritativeControlPlaneSnapshotV3, AuthoritativeControlPlaneSnapshotV3>? authoritativeMutation = null)
         {
             controller ??= new CountingController();
             evidenceIds ??= ["target-registration"];
+            var authoritative = Command(
+                state,
+                operation,
+                role,
+                evidenceIds,
+                requiresLease,
+                exportState,
+                authorizationState).AuthoritativeSnapshot! with
+                {
+                    AttemptId = "attempt:request",
+                    AttemptNumber = 0,
+                    LastAuditReference = "audit:prior"
+                };
+            if (authoritative.CurrentAuthorization is not null)
+            {
+                authoritative = authoritative with
+                {
+                    CurrentAuthorization = authoritative.CurrentAuthorization with
+                    {
+                        ApprovedIntentSha256 = Convert.ToHexString(SHA256.HashData(
+                            CanonicalJsonV1.Serialize(new Dictionary<string, string>(StringComparer.Ordinal)))).ToLowerInvariant(),
+                        EvidenceManifestSha256 = Convert.ToHexString(SHA256.HashData(
+                            CanonicalJsonV1.Serialize(evidenceIds))).ToLowerInvariant()
+                    }
+                };
+            }
+            authoritative = authoritativeMutation?.Invoke(authoritative) ?? authoritative;
             var payload = new CanonicalCommandPayloadV2(
                 operation,
                 state,
@@ -1607,7 +1971,10 @@ public sealed class ArchitectureFreezeContractTests
                 new("subcase"),
                 "action",
                 new Dictionary<string, string>(StringComparer.Ordinal),
-                evidenceIds);
+                evidenceIds,
+                operation.ToString().StartsWith("AUTHORIZE_", StringComparison.Ordinal)
+                    ? null
+                    : authoritative.CurrentAuthorization);
             payload = payloadMutation?.Invoke(payload) ?? payload;
             var payloadBytes = CanonicalJsonV1.Serialize(payload);
             var header = new CanonicalSignedHeaderV2(
@@ -1639,19 +2006,6 @@ public sealed class ArchitectureFreezeContractTests
             header = headerMutation?.Invoke(header) ?? header;
             var headerBytes = CanonicalSignedHeaderCodecV2.Serialize(header);
             var kms = new FakeKms();
-            var authoritative = Command(
-                state,
-                operation,
-                role,
-                evidenceIds,
-                requiresLease,
-                exportState,
-                authorizationState).AuthoritativeSnapshot! with
-                {
-                    AttemptId = "attempt:request",
-                    AttemptNumber = 0,
-                    LastAuditReference = "audit:prior"
-                };
             durableProvider ??= new FakeDurableProvider(authoritative);
             var authority = new PhaseAControlPlaneAuthority(
                 new FakeKeyRegistry(),
@@ -1663,7 +2017,8 @@ public sealed class ArchitectureFreezeContractTests
                 durableProvider,
                 new FakeReaderRegistry(),
                 controller,
-                new FixedTimeProvider(Now));
+                new FixedTimeProvider(Now),
+                Options.Create(ValidControlPlaneOptions()));
             return new(
                 authority,
                 header,
@@ -1676,12 +2031,59 @@ public sealed class ArchitectureFreezeContractTests
         }
     }
 
+    private static ControlPlaneOptions ValidControlPlaneOptions() => new()
+    {
+        ServiceIdentity = "control-plane",
+        IssuerId = "issuer",
+        Audience = "audience",
+        ControlPlaneDatabaseIdentity = "isolated-control-db",
+        CommandSigningKeyId = "command-key",
+        EvidenceVerificationKeyId = "evidence-key",
+        ContractVersion = Rev869BCompatibilityManifestV2.ContractVersion,
+        EvidenceVersion = Rev869BCompatibilityManifestV2.EvidenceVersion,
+        CanonicalizationVersion = Rev869BCompatibilityManifestV2.CanonicalizationVersion,
+        OwnershipContractVersion = Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
+        ReadinessPolicyVersion = Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+        DurableProviderContractVersion = Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion,
+        DurableProviderIdentity = "phase-a-durable-owner",
+        DurableProviderArtifactSha256 = Hash,
+        LifecycleControllerIdentity = "phase-a-lifecycle-controller",
+        LifecycleControllerContractVersion = Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
+        LifecycleControllerArtifactSha256 = Hash,
+        AuthorizationPolicyArtifactSha256 = Hash,
+        CanonicalEnvelopeVersion = Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion,
+        RetentionPolicyReference = "phase-a-retention",
+        MaximumEvidenceObservations = 10,
+        MaximumFactsPerObservation = 10,
+        MaximumReplayWindowSeconds = 300,
+        MaximumLeaseSeconds = 300,
+        MaximumClockSkewSeconds = 30,
+        MaximumEnvelopeBytes = PhaseAContractLimits.MaximumCommandEnvelopeBytes,
+        MaximumSelectors = 10,
+        MaximumStringBytes = 1_024,
+        MaximumCumulativeFacts = 32_768,
+        ControlPlaneEndpoint = "https://control-plane.invalid",
+        AcceptanceVerifierEndpoint = "https://acceptance-verifier.invalid",
+        AllowedTargetEnvironments = ["isolated"],
+        AllowedDatabaseIdentityPatterns = ["^isolated-.*$"],
+        AllowedIssuerIds = ["issuer"],
+        AllowedAudiences = ["audience"],
+        AllowedRoles = ["Operator", "ProvisioningExecutor"],
+        AllowedScopes = ["ORG:C1"],
+        AllowedOperations = Enum.GetNames<ControllerOperationV2>()
+    };
+
     private class CountingController : ILifecycleControllerAuthority
     {
         private readonly Rev869BControllerStateMachine _machine = new();
         private int _callCount;
 
         public int CallCount => _callCount;
+        public TrustedComponentDescriptorV3 Descriptor { get; set; } = new(
+            "phase-a-lifecycle-controller",
+            Rev869BPhaseACompatibilityManifest.OwnershipContractVersion,
+            Hash,
+            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion);
 
         public virtual ValueTask<LifecycleTransitionResultV3> TransitionAsync(
             VerifiedLifecycleCommandV3 command,
@@ -1836,8 +2238,11 @@ public sealed class ArchitectureFreezeContractTests
     private sealed class FakeDurableProvider(
         AuthoritativeControlPlaneSnapshotV3 snapshot) : IDurableControlPlanePersistenceProvider
     {
-        public string ProviderIdentity => "phase-a-durable-owner";
-        public string ProviderVersion => Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion;
+        public TrustedComponentDescriptorV3 Descriptor { get; set; } = new(
+            "phase-a-durable-owner",
+            Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion,
+            Hash,
+            Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion);
         public AuthoritativeControlPlaneSnapshotV3 Snapshot { get; set; } = snapshot;
         public int SnapshotReadCount { get; private set; }
         public int AtomicExecuteCount { get; private set; }
@@ -1884,7 +2289,9 @@ public sealed class ArchitectureFreezeContractTests
                         true,
                         false,
                         false,
-                        true);
+                        true,
+                        request.Command.StoredGrantClaim!.GrantAuthorization.GrantSha256,
+                        request.Command.StoredGrantClaim.ApprovedIntentSha256);
                     return ValueTask.FromResult(ResultMutation?.Invoke(replayResult) ?? replayResult);
                 }
 
@@ -1903,7 +2310,9 @@ public sealed class ArchitectureFreezeContractTests
                     true,
                     consumesAuthorization,
                     Snapshot.Lease is not null,
-                    true);
+                    true,
+                    request.Command.StoredGrantClaim!.GrantAuthorization.GrantSha256,
+                    request.Command.StoredGrantClaim.ApprovedIntentSha256);
                 return ValueTask.FromResult(ResultMutation?.Invoke(result) ?? result);
             }
         }
@@ -1985,6 +2394,7 @@ public sealed class ArchitectureFreezeContractTests
 
         public int ReadCount { get; private set; }
         public int ExpectationResolveCount { get; private set; }
+        public List<(string ReaderId, string ReaderVersion)> DescriptorRequests { get; } = [];
 
         public ValueTask<EvidenceVerificationExpectationV3?> ResolveExpectationAsync(
             string evidenceEnvelopeId,
@@ -2001,10 +2411,12 @@ public sealed class ArchitectureFreezeContractTests
         public ValueTask<AuthoritativeReaderDescriptorV3?> ResolveAsync(
             string readerId,
             string readerVersion,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult<AuthoritativeReaderDescriptorV3?>(new(
+            CancellationToken cancellationToken = default)
+        {
+            DescriptorRequests.Add((readerId, readerVersion));
+            return ValueTask.FromResult<AuthoritativeReaderDescriptorV3?>(new(
                 readerId,
-                readerVersion,
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
                 Hash,
                 $"reader:{readerId}",
                 "reader-role",
@@ -2014,7 +2426,11 @@ public sealed class ArchitectureFreezeContractTests
                 new HashSet<string>(["status", "count", "password"], StringComparer.Ordinal),
                 _maximumFacts,
                 _maximumBytes,
+                $"source:{readerId}",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
                 EvidenceStageV3.DURABLE));
+        }
 
         public ValueTask<EvidenceRequirementV3?> ResolveRequirementAsync(
             string requirementId,
@@ -2114,8 +2530,26 @@ public sealed class ArchitectureFreezeContractTests
             Func<EvidenceScopeTemporalBindingV3, EvidenceScopeTemporalBindingV3>? authoritativeBindingMutation = null,
             bool readerFails = false,
             bool auditWrongReceipt = false,
-            bool auditInvalidChain = false)
+            bool auditInvalidChain = false,
+            Func<AuthoritativeReaderDescriptorV3, AuthoritativeReaderDescriptorV3>? pinnedReaderMutation = null)
         {
+            var pinnedReader = new AuthoritativeReaderDescriptorV3(
+                "reader-1",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                Hash,
+                "reader:reader-1",
+                "reader-role",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                new HashSet<string>(["C1"], StringComparer.Ordinal),
+                new HashSet<string>(["REV869B_TARGET"], StringComparer.Ordinal),
+                new HashSet<string>(["status", "count", "password"], StringComparer.Ordinal),
+                maximumFacts,
+                readerMaximumBytes,
+                "source:reader-1",
+                Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
+                Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+                EvidenceStageV3.DURABLE);
+            pinnedReader = pinnedReaderMutation?.Invoke(pinnedReader) ?? pinnedReader;
             var options = new AcceptanceVerifierOptions
             {
                 ServiceIdentity = "acceptance-verifier",
@@ -2132,7 +2566,8 @@ public sealed class ArchitectureFreezeContractTests
                 OracleVersion = "1.0.0",
                 OracleArtifactSha256 = Hash,
                 AllowedCallerWorkloadIdentities = ["controller-workload"],
-                RequiredReaderIds = ["reader-1"],
+                ReaderSelectionPolicyVersion = Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion,
+                RequiredReaders = [pinnedReader],
                 AllowedClusterIds = ["cluster"],
                 AllowedInstanceIds = ["instance"],
                 AllowedFactFields = ["status", "count"],
@@ -2194,7 +2629,9 @@ public sealed class ArchitectureFreezeContractTests
                 expectedBinding.FencingToken,
                 expectedBinding.Stage,
                 expectedBinding.SnapshotOrWatermark,
-                options.ReadinessPolicyVersion);
+                options.ReadinessPolicyVersion,
+                options.ReaderSelectionPolicyVersion,
+                [pinnedReader]);
             var envelope = new CanonicalEvidenceEnvelopeV3(
                 "evidence",
                 Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion,
@@ -2261,6 +2698,7 @@ public sealed class ArchitectureFreezeContractTests
     private sealed class MutationSensitiveOracle(AcceptanceVerifierOptions options) : IOracleRegistryProvider
     {
         public int EvaluationCount { get; private set; }
+        public IReadOnlyList<AuthoritativeFactBundleV3>? LastAuthoritativeFacts { get; private set; }
 
         public ValueTask<OracleDescriptorV3?> ResolveAsync(
             string oracleId,
@@ -2280,6 +2718,7 @@ public sealed class ArchitectureFreezeContractTests
             CancellationToken cancellationToken = default)
         {
             EvaluationCount++;
+            LastAuthoritativeFacts = authoritativeFacts;
             var passed = authoritativeFacts
                 .SelectMany(static bundle => bundle.Facts)
                 .Any(static fact =>

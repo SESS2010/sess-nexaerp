@@ -1,7 +1,13 @@
+using System.Data.Common;
+using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -12,6 +18,8 @@ public sealed class Rev869BCorrection17SourceContractTests
 {
     private static readonly string Sql = Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs");
     private static readonly string Authorizer = Source("src/SESS.NexaERP.Infrastructure/Persistence/Rev869BCommandContextAuthorizer.cs");
+    private static readonly Lazy<(CanonicalSqlEvidence Run1, CanonicalSqlEvidence Run2)> CanonicalSqlRuns =
+        new(RunCanonicalSqlWorkerTwice);
 
     [Fact]
     public void CommandRequestKeyAttemptOrdinalActiveAttemptAndReceiptAreDatabaseEnforced()
@@ -445,25 +453,57 @@ public sealed class Rev869BCorrection17SourceContractTests
     [Fact]
     public void Correction28OfflineUpDownSqlIsGeneratedWithoutConnectingAndHasPinnedHashes()
     {
-        const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
-        const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
-        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql("Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect;Timeout=1;Pooling=false")
-            .Options;
-        using var db = new NexaErpDbContext(options);
-        var migrator = db.GetService<IMigrator>();
-        var up = migrator.GenerateScript(rev869A, rev869B);
-        var down = migrator.GenerateScript(rev869B, rev869A);
-        var upBytes = Encoding.UTF8.GetBytes(up);
-        var downBytes = Encoding.UTF8.GetBytes(down);
-        var upSha256 = Convert.ToHexString(SHA256.HashData(upBytes));
-        var downSha256 = Convert.ToHexString(SHA256.HashData(downBytes));
-        Assert.Equal(324914, upBytes.Length);
-        Assert.Equal(2635, up.Count(x => x == '\n') + 1);
-        Assert.Equal("39B067351894AB5732B6DF9C6348B04D708780AFAA18E073F8E6594D07FAF213", upSha256);
-        Assert.Equal(11720, downBytes.Length);
-        Assert.Equal(231, down.Count(x => x == '\n') + 1);
-        Assert.Equal("FC4BCB671501D601041FCED25D6053545BE9F38CF1D9982006953F47229E0AE4", downSha256);
+        var evidence = CaptureCanonicalSqlEvidence();
+        Assert.Equal(0, evidence.ConnectionOpenCount);
+        Assert.Equal(0, evidence.MigrationApplyCount);
+        var output = Environment.GetEnvironmentVariable("REV869B_A3_SQL_EVIDENCE_PATH");
+        if (!string.IsNullOrWhiteSpace(output))
+            File.WriteAllText(output, JsonSerializer.Serialize(evidence), new UTF8Encoding(false));
+        Assert.Equal(evidence.Up.ByteCount, Convert.FromBase64String(evidence.Up.CanonicalBytesBase64).Length);
+        Assert.Equal(evidence.Down.ByteCount, Convert.FromBase64String(evidence.Down.CanonicalBytesBase64).Length);
+    }
+
+    [Fact]
+    public void A3_CanonicalOfflineSqlGenerationIsStableAcrossTwoFreshProcesses()
+    {
+        var (run1, run2) = CanonicalSqlRuns.Value;
+        AssertCanonicalEvidence(run1, run2);
+        Assert.Equal(run1.Up.CanonicalBytesBase64, run2.Up.CanonicalBytesBase64);
+        Assert.Equal(run1.Down.CanonicalBytesBase64, run2.Down.CanonicalBytesBase64);
+        Assert.Equal(0, run1.ConnectionOpenCount + run2.ConnectionOpenCount);
+        Assert.Equal(0, run1.MigrationApplyCount + run2.MigrationApplyCount);
+    }
+
+    [Fact]
+    public void A3_CheckpointSqlEvidenceMatchesMachineCapturedCanonicalResultExactly()
+    {
+        var evidence = CanonicalSqlRuns.Value.Run1;
+        var checkpoint = Source("outputs/rev869b_external_controller_phase_a_checkpoint.md");
+        const string begin = "A3_CANONICAL_SQL_EVIDENCE_JSON_BEGIN";
+        const string end = "A3_CANONICAL_SQL_EVIDENCE_JSON_END";
+        var start = checkpoint.IndexOf(begin, StringComparison.Ordinal);
+        var finish = checkpoint.IndexOf(end, StringComparison.Ordinal);
+        Assert.True(start >= 0 && finish > start);
+        var actual = checkpoint[(start + begin.Length)..finish].Trim();
+        Assert.Equal(JsonSerializer.Serialize(CheckpointProjection(evidence)), actual);
+    }
+
+    [Fact]
+    public void A3_WrongMigrationEndpointOptionInputHashNewlineEncodingSizeOrSqlHashFailsEvidenceGate()
+    {
+        var evidence = CanonicalSqlRuns.Value.Run1;
+        var mutations = new Func<CanonicalSqlEvidence, CanonicalSqlEvidence>[]
+        {
+            value => value with { UpFrom = "wrong" },
+            value => value with { GenerationOptions = "IdempotentScript" },
+            value => value with { SourceHashes = value.SourceHashes.ToDictionary(pair => pair.Key, pair => new string('0', 64), StringComparer.Ordinal) },
+            value => value with { NewlineRule = "trim-and-lf" },
+            value => value with { EncodingRule = "UTF-16" },
+            value => value with { Up = value.Up with { ByteCount = value.Up.ByteCount + 1 } },
+            value => value with { Down = value.Down with { Sha256 = new string('0', 64) } }
+        };
+        foreach (var mutate in mutations)
+            Assert.Throws<InvalidDataException>(() => AssertCanonicalEvidence(mutate(evidence), evidence));
     }
     [Fact]
     public void Correction24EvidenceReadersAreVerifierOnlyMinimalAndAclClosed()
@@ -484,6 +524,271 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("recomputedBatchSha256", Sql);
         Assert.Contains("fieldKeys", Sql);
     }
+    private static CanonicalSqlEvidence CaptureCanonicalSqlEvidence()
+    {
+        const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
+        const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
+        const string connectionString = "Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect;Timeout=1;Pooling=false";
+        var connectionCounter = new ConnectionOpenCounter();
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql(connectionString)
+            .AddInterceptors(connectionCounter)
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var generationOptions = MigrationsSqlGenerationOptions.Default;
+        var up = CanonicalizeSql(migrator.GenerateScript(rev869A, rev869B, generationOptions));
+        var down = CanonicalizeSql(migrator.GenerateScript(rev869B, rev869A, generationOptions));
+        var encoding = new UTF8Encoding(false, true);
+        var root = FindRoot();
+        var inputs = new[]
+        {
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260810120000_Rev869AIdentityMasterScopeFoundation.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260810120000_Rev869AIdentityMasterScopeFoundation.Designer.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.Designer.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869A.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869B.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/NexaErpDbContextModelSnapshot.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs"
+        };
+        var sourceHashes = inputs.ToDictionary(
+            static path => path,
+            path => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(Path.Combine(
+                root,
+                path.Replace('/', Path.DirectorySeparatorChar))))),
+            StringComparer.Ordinal);
+        var npgsqlAssembly = AppDomain.CurrentDomain.GetAssemblies().Single(assembly =>
+            assembly.GetName().Name == "Npgsql.EntityFrameworkCore.PostgreSQL");
+        return new(
+            Environment.GetEnvironmentVariable("REV869B_A3_SOURCE_COMMIT") ??
+                "8c78f6a480fcbf86afbf9f5460598ece5b8d6732",
+            RunCommand(root, "dotnet", "--version"),
+            RuntimeInformation.FrameworkDescription,
+            RunCommand(root, "dotnet", "ef", "--version"),
+            typeof(DbContext).Assembly.GetName().Version!.ToString(),
+            npgsqlAssembly.GetName().Version!.ToString(),
+            RuntimeInformation.OSDescription,
+            CultureInfo.CurrentCulture.Name,
+            connectionString,
+            rev869A,
+            rev869B,
+            rev869B,
+            rev869A,
+            generationOptions.ToString(),
+            "CRLF and lone CR to LF only; no trim, format, rewrite, or execute",
+            "UTF-8 without BOM",
+            sourceHashes,
+            SqlOutput(up, encoding),
+            SqlOutput(down, encoding),
+            connectionCounter.OpenCount,
+            0);
+    }
+
+    private static (CanonicalSqlEvidence Run1, CanonicalSqlEvidence Run2) RunCanonicalSqlWorkerTwice()
+    {
+        var root = FindRoot();
+        var project = Path.Combine(root, "tests", "SESS.NexaERP.Tests", "SESS.NexaERP.Tests.csproj");
+        var paths = new[]
+        {
+            Path.Combine(Path.GetTempPath(), $"rev869b-a3-sql-{Guid.NewGuid():N}-1.json"),
+            Path.Combine(Path.GetTempPath(), $"rev869b-a3-sql-{Guid.NewGuid():N}-2.json")
+        };
+        try
+        {
+            foreach (var path in paths)
+            {
+                var start = new ProcessStartInfo("dotnet")
+                {
+                    WorkingDirectory = root,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                };
+                foreach (var argument in new[]
+                {
+                    "test", project, "--no-build", "--no-restore", "--filter",
+                    "FullyQualifiedName~Correction28OfflineUpDownSqlIsGeneratedWithoutConnectingAndHasPinnedHashes",
+                    "--logger", "console;verbosity=minimal"
+                }) start.ArgumentList.Add(argument);
+                start.Environment["REV869B_A3_SQL_EVIDENCE_PATH"] = path;
+                using var process = Process.Start(start) ?? throw new InvalidOperationException("SQL evidence worker did not start.");
+                var stdout = process.StandardOutput.ReadToEndAsync();
+                var stderr = process.StandardError.ReadToEndAsync();
+                process.WaitForExit();
+                Task.WaitAll(stdout, stderr);
+                if (process.ExitCode != 0 || !File.Exists(path))
+                    throw new InvalidOperationException($"SQL evidence worker failed: {stdout.Result}{stderr.Result}");
+            }
+            return (
+                JsonSerializer.Deserialize<CanonicalSqlEvidence>(File.ReadAllText(paths[0]))!,
+                JsonSerializer.Deserialize<CanonicalSqlEvidence>(File.ReadAllText(paths[1]))!);
+        }
+        finally
+        {
+            foreach (var path in paths)
+                if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    private static void AssertCanonicalEvidence(CanonicalSqlEvidence actual, CanonicalSqlEvidence expected)
+    {
+        if (actual.Commit != expected.Commit ||
+            actual.SdkVersion != expected.SdkVersion ||
+            actual.RuntimeVersion != expected.RuntimeVersion ||
+            actual.EfCliVersion != expected.EfCliVersion ||
+            actual.EfCoreVersion != expected.EfCoreVersion ||
+            actual.NpgsqlVersion != expected.NpgsqlVersion ||
+            actual.OperatingSystem != expected.OperatingSystem ||
+            actual.Culture != expected.Culture ||
+            actual.ConnectionString != expected.ConnectionString ||
+            actual.UpFrom != expected.UpFrom || actual.UpTo != expected.UpTo ||
+            actual.DownFrom != expected.DownFrom || actual.DownTo != expected.DownTo ||
+            actual.GenerationOptions != expected.GenerationOptions ||
+            actual.NewlineRule != expected.NewlineRule ||
+            actual.EncodingRule != expected.EncodingRule ||
+            JsonSerializer.Serialize(actual.SourceHashes) != JsonSerializer.Serialize(expected.SourceHashes) ||
+            actual.Up != expected.Up || actual.Down != expected.Down ||
+            actual.ConnectionOpenCount != 0 || actual.MigrationApplyCount != 0)
+            throw new InvalidDataException("Canonical SQL evidence differs from the trusted machine result.");
+    }
+
+    private static CanonicalSqlCheckpointProjection CheckpointProjection(CanonicalSqlEvidence evidence) => new(
+        evidence.Commit,
+        evidence.SdkVersion,
+        evidence.RuntimeVersion,
+        evidence.EfCliVersion,
+        evidence.EfCoreVersion,
+        evidence.NpgsqlVersion,
+        evidence.OperatingSystem,
+        evidence.Culture,
+        evidence.ConnectionString,
+        evidence.UpFrom,
+        evidence.UpTo,
+        evidence.DownFrom,
+        evidence.DownTo,
+        evidence.GenerationOptions,
+        evidence.NewlineRule,
+        evidence.EncodingRule,
+        evidence.SourceHashes,
+        evidence.Up.ByteCount,
+        evidence.Up.LfCount,
+        evidence.Up.Sha256,
+        evidence.Down.ByteCount,
+        evidence.Down.LfCount,
+        evidence.Down.Sha256,
+        evidence.ConnectionOpenCount,
+        evidence.MigrationApplyCount);
+
+    private static CanonicalSqlOutput SqlOutput(string sql, Encoding encoding)
+    {
+        var bytes = encoding.GetBytes(sql);
+        return new(bytes.Length, sql.Count(static character => character == '\n'),
+            Convert.ToHexString(SHA256.HashData(bytes)), Convert.ToBase64String(bytes));
+    }
+
+    private static string CanonicalizeSql(string sql) =>
+        sql.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
+    private static string RunCommand(string workingDirectory, string fileName, params string[] arguments)
+    {
+        var start = new ProcessStartInfo(fileName)
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new InvalidOperationException($"Could not start {fileName}.");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0) throw new InvalidOperationException($"{fileName} failed: {stderr}");
+        return stdout.Trim();
+    }
+
+    private sealed class ConnectionOpenCounter : DbConnectionInterceptor
+    {
+        public int OpenCount { get; private set; }
+
+        public override InterceptionResult ConnectionOpening(
+            DbConnection connection,
+            ConnectionEventData eventData,
+            InterceptionResult result)
+        {
+            OpenCount++;
+            return result;
+        }
+
+        public override ValueTask<InterceptionResult> ConnectionOpeningAsync(
+            DbConnection connection,
+            ConnectionEventData eventData,
+            InterceptionResult result,
+            CancellationToken cancellationToken = default)
+        {
+            OpenCount++;
+            return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed record CanonicalSqlOutput(
+        int ByteCount,
+        int LfCount,
+        string Sha256,
+        string CanonicalBytesBase64);
+
+    private sealed record CanonicalSqlEvidence(
+        string Commit,
+        string SdkVersion,
+        string RuntimeVersion,
+        string EfCliVersion,
+        string EfCoreVersion,
+        string NpgsqlVersion,
+        string OperatingSystem,
+        string Culture,
+        string ConnectionString,
+        string UpFrom,
+        string UpTo,
+        string DownFrom,
+        string DownTo,
+        string GenerationOptions,
+        string NewlineRule,
+        string EncodingRule,
+        Dictionary<string, string> SourceHashes,
+        CanonicalSqlOutput Up,
+        CanonicalSqlOutput Down,
+        int ConnectionOpenCount,
+        int MigrationApplyCount);
+
+    private sealed record CanonicalSqlCheckpointProjection(
+        string Commit,
+        string SdkVersion,
+        string RuntimeVersion,
+        string EfCliVersion,
+        string EfCoreVersion,
+        string NpgsqlVersion,
+        string OperatingSystem,
+        string Culture,
+        string ConnectionString,
+        string UpFrom,
+        string UpTo,
+        string DownFrom,
+        string DownTo,
+        string GenerationOptions,
+        string NewlineRule,
+        string EncodingRule,
+        Dictionary<string, string> SourceHashes,
+        int UpByteCount,
+        int UpLfCount,
+        string UpSha256,
+        int DownByteCount,
+        int DownLfCount,
+        string DownSha256,
+        int ConnectionOpenCount,
+        int MigrationApplyCount);
+
     private static HashSet<string> TableColumns(string sql, string table)
     {
         var definition = Slice(sql, "CREATE TABLE nexa." + table + "(", ");");

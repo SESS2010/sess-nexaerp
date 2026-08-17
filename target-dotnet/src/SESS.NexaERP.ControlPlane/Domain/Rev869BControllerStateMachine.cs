@@ -273,7 +273,7 @@ public sealed class Rev869BControllerStateMachine
             Require(matchedRule.TrustedRole == command.Authorization.Authorization.TrustedRole &&
                     snapshot!.CurrentAuthorization is not null &&
                     snapshot.CurrentAuthorization.State == AuthorizationGrantStateV3.ACTIVE &&
-                    snapshot.CurrentAuthorization.Authorization.AuthenticatedSubject ==
+                    snapshot.CurrentAuthorization.GrantAuthorization.AuthenticatedSubject ==
                         command.Authorization.Authorization.AuthenticatedSubject,
                 TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
         }
@@ -307,23 +307,12 @@ public sealed class Rev869BControllerStateMachine
         var expectedGrantOperation = ExpectedGrantOperation(command);
         if (expectedGrantOperation is not null)
         {
-            var grant = snapshot!.CurrentAuthorization;
-            Require(grant is not null &&
-                    grant.State == command.CurrentAuthorizationState &&
-                    grant.Scope == snapshot.Scope &&
-                    grant.ResourceType == snapshot.ResourceType &&
-                    grant.ResourceId == snapshot.ResourceId &&
-                    grant.Operation == expectedGrantOperation &&
-                    grant.Authorization.Operation == expectedGrantOperation &&
-                    grant.Authorization.NotBefore <= serverNow &&
-                    (command.Operation == ControllerOperationV2.EXPIRE ||
-                     grant.Authorization.ExpiresAt >= serverNow),
-                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+            RequireExactStoredGrant(command, expectedGrantOperation, serverNow);
         }
         if (command.Operation == ControllerOperationV2.EXPIRE)
         {
             Require(snapshot!.CurrentAuthorization is not null &&
-                    snapshot.CurrentAuthorization.Authorization.ExpiresAt < serverNow,
+                    snapshot.CurrentAuthorization.GrantAuthorization.ExpiresAt < serverNow,
                 TrustFailureCodeV2.NOT_YET_VALID);
         }
 
@@ -389,9 +378,39 @@ public sealed class Rev869BControllerStateMachine
             ControllerOperationV2.FAIL when command.CurrentState == ControllerLifecycleState.Purging =>
                 ControllerOperationV2.AUTHORIZE_PURGE.ToString(),
             ControllerOperationV2.CANCEL or ControllerOperationV2.EXPIRE =>
-                command.AuthoritativeSnapshot?.CurrentAuthorization?.Operation,
+                command.AuthoritativeSnapshot?.CurrentAuthorization?.AuthorizedOperation,
             _ => null
         };
+
+    private static void RequireExactStoredGrant(
+        VerifiedLifecycleCommandV3 command,
+        string expectedGrantOperation,
+        DateTimeOffset serverNow)
+    {
+        var snapshot = command.AuthoritativeSnapshot!;
+        var grant = snapshot.CurrentAuthorization;
+        var claim = command.StoredGrantClaim;
+        Require(snapshot.CurrentAuthorizationMatchCount == 1 &&
+                grant is not null &&
+                claim is not null &&
+                grant == claim &&
+                grant.State == command.CurrentAuthorizationState &&
+                grant.Scope == snapshot.Scope &&
+                grant.ResourceType == snapshot.ResourceType &&
+                grant.ResourceId == snapshot.ResourceId &&
+                grant.ResourceVersion == snapshot.ResourceVersion &&
+                grant.AuthorizedOperation == expectedGrantOperation &&
+                grant.GrantAuthorization.Operation == expectedGrantOperation &&
+                grant.EvidenceManifestSha256 == command.Authorization.EvidenceManifestSha256 &&
+                grant.LeaseId == command.Authorization.LeaseId &&
+                grant.FencingToken == command.Authorization.FencingToken &&
+                grant.ControllerEpoch == (command.Lease?.ControllerEpoch ?? 0) &&
+                grant.GrantAuthorization.NotBefore <= serverNow &&
+                (command.Operation == ControllerOperationV2.EXPIRE ||
+                 grant.GrantAuthorization.ExpiresAt >= serverNow) &&
+                (grant.State == AuthorizationGrantStateV3.CONSUMED) == (grant.ConsumedAt is not null),
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+    }
 
     public static IReadOnlyList<LifecycleRuleV3> PhaseARuleSnapshot => PhaseARules;
 

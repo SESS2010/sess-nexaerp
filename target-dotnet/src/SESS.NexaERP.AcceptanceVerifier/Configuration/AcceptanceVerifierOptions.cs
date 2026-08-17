@@ -20,7 +20,8 @@ public sealed class AcceptanceVerifierOptions
     public string OracleVersion { get; init; } = string.Empty;
     public string OracleArtifactSha256 { get; init; } = string.Empty;
     public string[] AllowedCallerWorkloadIdentities { get; init; } = [];
-    public string[] RequiredReaderIds { get; init; } = [];
+    public string ReaderSelectionPolicyVersion { get; init; } = string.Empty;
+    public AuthoritativeReaderDescriptorV3[] RequiredReaders { get; init; } = [];
     public string[] AllowedClusterIds { get; init; } = [];
     public string[] AllowedInstanceIds { get; init; } = [];
     public string[] AllowedFactFields { get; init; } = [];
@@ -44,7 +45,8 @@ public sealed class AcceptanceVerifierOptions
         value.EvidenceSchemaVersion == Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion &&
         IsLowerSha256(value.OracleArtifactSha256) &&
         UniqueNonEmpty(value.AllowedCallerWorkloadIdentities) &&
-        UniqueNonEmpty(value.RequiredReaderIds) &&
+        value.ReaderSelectionPolicyVersion == value.ReadinessPolicyVersion &&
+        ValidRequiredReaders(value.RequiredReaders, value.EvidenceSchemaVersion, value.ReadinessPolicyVersion) &&
         UniqueNonEmpty(value.AllowedClusterIds) &&
         UniqueNonEmpty(value.AllowedInstanceIds) &&
         UniqueNonEmpty(value.AllowedFactFields) &&
@@ -52,7 +54,7 @@ public sealed class AcceptanceVerifierOptions
         !value.AllowedFactFields.Intersect(value.SensitiveFieldNames, StringComparer.OrdinalIgnoreCase).Any() &&
         value.MaximumEnvelopeBytes is >= 1_024 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes &&
         value.MaximumObservations is >= 3 and <= PhaseAContractLimits.MaximumObservations &&
-        value.RequiredReaderIds.Length <= value.MaximumObservations &&
+        value.RequiredReaders.Length <= value.MaximumObservations &&
         value.MaximumSelectors is >= 1 and <= PhaseAContractLimits.MaximumSelectors &&
         value.AllowedFactFields.Length <= value.MaximumSelectors &&
         value.MaximumFactsPerObservation is >= 1 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
@@ -73,4 +75,26 @@ public sealed class AcceptanceVerifierOptions
         value.Length == 64 &&
         value.All(character =>
             (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'));
+
+    private static bool ValidRequiredReaders(
+        AuthoritativeReaderDescriptorV3[] readers,
+        string evidenceSchemaVersion,
+        string policyVersion) =>
+        readers.Length > 0 &&
+        readers.Select(static reader => reader.ReaderId).Distinct(StringComparer.Ordinal).Count() == readers.Length &&
+        readers.All(reader =>
+            NonEmpty(
+                reader.ReaderId,
+                reader.ReaderVersion,
+                reader.ServiceIdentity,
+                reader.SourceIdentity,
+                reader.CompatibilityFloor,
+                reader.DowngradePolicyVersion) &&
+            IsLowerSha256(reader.ArtifactSha256) &&
+            reader.SchemaVersion == evidenceSchemaVersion &&
+            reader.DowngradePolicyVersion == policyVersion &&
+            reader.RequiredStage == EvidenceStageV3.DURABLE &&
+            reader.RevokedAt is null &&
+            reader.MaximumFacts is > 0 and <= PhaseAContractLimits.MaximumFactsPerObservation &&
+            reader.MaximumBytes is > 0 and <= PhaseAContractLimits.MaximumEvidenceEnvelopeBytes);
 }

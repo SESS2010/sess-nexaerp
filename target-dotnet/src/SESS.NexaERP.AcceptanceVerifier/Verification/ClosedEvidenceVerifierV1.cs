@@ -518,12 +518,14 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         Require(evidence.AuthoritativeBundles.Count <= options.MaximumObservations &&
                 EvidenceStringsAreBounded(evidence, options.MaximumStringBytes),
             TrustFailureCodeV2.EVIDENCE_TOO_LARGE);
-        var requiredReaders = options.RequiredReaderIds.ToHashSet(StringComparer.Ordinal);
+        var requiredReaders = options.RequiredReaders
+            .Select(static reader => reader.ReaderId)
+            .ToHashSet(StringComparer.Ordinal);
         var readerGroups = evidence.AuthoritativeBundles
             .GroupBy(static bundle => bundle.ReaderId, StringComparer.Ordinal)
             .ToArray();
         var actualReaders = readerGroups.Select(static group => group.Key).ToHashSet(StringComparer.Ordinal);
-        Require(evidence.AuthoritativeBundles.Count == options.RequiredReaderIds.Length &&
+        Require(evidence.AuthoritativeBundles.Count == options.RequiredReaders.Length &&
                 readerGroups.All(static group => group.Count() == 1) &&
                 requiredReaders.SetEquals(actualReaders),
             readerGroups.Any(static group => group.Count() != 1)
@@ -544,10 +546,27 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
                 !string.IsNullOrWhiteSpace(expectation.ResourceId) &&
                 !string.IsNullOrWhiteSpace(expectation.AttemptId) &&
                 !string.IsNullOrWhiteSpace(expectation.LeaseId) &&
+                expectation.RequiredReaders is not null &&
+                expectation.ReaderPolicyVersion == options.ReaderSelectionPolicyVersion &&
+                RequiredReaderSetsMatch(expectation.RequiredReaders, options.RequiredReaders) &&
                 options.AllowedClusterIds.Contains(expectation.Scope.DatabaseClusterId, StringComparer.Ordinal) &&
                 options.AllowedInstanceIds.Contains(expectation.Scope.DatabaseInstanceId, StringComparer.Ordinal),
             TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
         var trustedExpectation = expectation!;
+
+        var selectedReaders = new List<AuthoritativeReaderDescriptorV3>(options.RequiredReaders.Length);
+        foreach (var expectedReader in trustedExpectation.RequiredReaders!)
+        {
+            var selected = await readerRegistry.ResolveAsync(
+                expectedReader.ReaderId,
+                expectedReader.ReaderVersion,
+                cancellationToken);
+            Require(selected is not null &&
+                    ReaderDescriptorMatches(selected, expectedReader) &&
+                    selected.RevokedAt is null,
+                TrustFailureCodeV2.READER_UNAUTHORIZED);
+            selectedReaders.Add(selected!);
+        }
 
         var oracle = await oracleRegistry.ResolveAsync(evidence.OracleId, cancellationToken);
         Require(oracle is not null &&
@@ -565,18 +584,15 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         var clockSkew = TimeSpan.FromSeconds(options.MaximumClockSkewSeconds);
         var cumulativeBytes = 0;
         var verifiedBundles = new List<AuthoritativeFactBundleV3>(evidence.AuthoritativeBundles.Count);
-        foreach (var declaredBundle in evidence.AuthoritativeBundles)
+        foreach (var descriptor in selectedReaders)
         {
-            var descriptor = await readerRegistry.ResolveAsync(
-                declaredBundle.ReaderId,
-                declaredBundle.ReaderVersion,
-                cancellationToken);
-            Require(descriptor is not null, TrustFailureCodeV2.READER_MISSING);
+            var declaredBundle = evidence.AuthoritativeBundles.Single(bundle =>
+                bundle.ReaderId == descriptor.ReaderId);
             AuthoritativeFactBundleV3 bundle;
             try
             {
                 bundle = await readerRegistry.ReadAsync(
-                    descriptor!,
+                    descriptor,
                     trustedExpectation,
                     cancellationToken);
             }
@@ -593,7 +609,7 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
             Require(declaredBytes.Length == authoritativeBytes.Length &&
                     CryptographicOperations.FixedTimeEquals(declaredBytes, authoritativeBytes),
                 TrustFailureCodeV2.EVIDENCE_TAMPERED);
-            Require(descriptor!.ReaderId == bundle.ReaderId &&
+            Require(descriptor.ReaderId == bundle.ReaderId &&
                     descriptor.ReaderVersion == bundle.ReaderVersion &&
                     descriptor.ArtifactSha256 == bundle.ReaderArtifactSha256 &&
                     descriptor.SchemaVersion == bundle.SchemaVersion &&
@@ -800,6 +816,33 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
         binding.FencingToken == expectation.FencingToken &&
         binding.Stage == expectation.Stage &&
         binding.SnapshotOrWatermark == expectation.SnapshotOrWatermark;
+
+    private static bool RequiredReaderSetsMatch(
+        IReadOnlyList<AuthoritativeReaderDescriptorV3> expectationReaders,
+        IReadOnlyList<AuthoritativeReaderDescriptorV3> configuredReaders) =>
+        expectationReaders.Count == configuredReaders.Count &&
+        expectationReaders.All(expected => configuredReaders.Count(configured =>
+            ReaderDescriptorMatches(expected, configured)) == 1);
+
+    private static bool ReaderDescriptorMatches(
+        AuthoritativeReaderDescriptorV3 left,
+        AuthoritativeReaderDescriptorV3 right) =>
+        left.ReaderId == right.ReaderId &&
+        left.ReaderVersion == right.ReaderVersion &&
+        left.ArtifactSha256 == right.ArtifactSha256 &&
+        left.ServiceIdentity == right.ServiceIdentity &&
+        left.SourceIdentity == right.SourceIdentity &&
+        left.DatabaseRole == right.DatabaseRole &&
+        left.SchemaVersion == right.SchemaVersion &&
+        left.RequiredStage == right.RequiredStage &&
+        left.CompatibilityFloor == right.CompatibilityFloor &&
+        left.DowngradePolicyVersion == right.DowngradePolicyVersion &&
+        left.RevokedAt == right.RevokedAt &&
+        left.MaximumFacts == right.MaximumFacts &&
+        left.MaximumBytes == right.MaximumBytes &&
+        left.AllowedOrganizations.SetEquals(right.AllowedOrganizations) &&
+        left.AllowedResourceTypes.SetEquals(right.AllowedResourceTypes) &&
+        left.AllowedFields.SetEquals(right.AllowedFields);
 
     private static bool EvidenceStringsAreBounded(
         CanonicalEvidenceEnvelopeV3 evidence,

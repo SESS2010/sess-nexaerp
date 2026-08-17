@@ -19,6 +19,12 @@ public sealed class ControlPlaneOptions
     public string OwnershipContractVersion { get; init; } = string.Empty;
     public string ReadinessPolicyVersion { get; init; } = string.Empty;
     public string DurableProviderContractVersion { get; init; } = string.Empty;
+    public string DurableProviderIdentity { get; init; } = string.Empty;
+    public string DurableProviderArtifactSha256 { get; init; } = string.Empty;
+    public string LifecycleControllerIdentity { get; init; } = string.Empty;
+    public string LifecycleControllerContractVersion { get; init; } = string.Empty;
+    public string LifecycleControllerArtifactSha256 { get; init; } = string.Empty;
+    public string AuthorizationPolicyArtifactSha256 { get; init; } = string.Empty;
     public string CanonicalEnvelopeVersion { get; init; } = string.Empty;
     public string RetentionPolicyReference { get; init; } = string.Empty;
     public int MaximumEvidenceObservations { get; init; }
@@ -53,6 +59,12 @@ public sealed class ControlPlaneOptions
             value.OwnershipContractVersion != Rev869BPhaseACompatibilityManifest.OwnershipContractVersion ||
             value.ReadinessPolicyVersion != Rev869BPhaseACompatibilityManifest.ReadinessPolicyVersion ||
             value.DurableProviderContractVersion != Rev869BPhaseACompatibilityManifest.DurableProviderContractVersion ||
+            string.IsNullOrWhiteSpace(value.DurableProviderIdentity) ||
+            !IsLowerSha256(value.DurableProviderArtifactSha256) ||
+            string.IsNullOrWhiteSpace(value.LifecycleControllerIdentity) ||
+            value.LifecycleControllerContractVersion != Rev869BPhaseACompatibilityManifest.OwnershipContractVersion ||
+            !IsLowerSha256(value.LifecycleControllerArtifactSha256) ||
+            !IsLowerSha256(value.AuthorizationPolicyArtifactSha256) ||
             value.CanonicalEnvelopeVersion != Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion ||
             value.MaximumEvidenceObservations is < 3 or > PhaseAContractLimits.MaximumObservations ||
             value.MaximumFactsPerObservation is < 1 or > PhaseAContractLimits.MaximumFactsPerObservation ||
@@ -115,6 +127,18 @@ public sealed class ControlPlaneOptions
             Regex.IsMatch(target.DatabaseIdentity, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)));
     }
 
+    public TrustedComponentDescriptorV3 DurableProviderDescriptor() => new(
+        DurableProviderIdentity,
+        DurableProviderContractVersion,
+        DurableProviderArtifactSha256,
+        ReadinessPolicyVersion);
+
+    public TrustedComponentDescriptorV3 LifecycleControllerDescriptor() => new(
+        LifecycleControllerIdentity,
+        LifecycleControllerContractVersion,
+        LifecycleControllerArtifactSha256,
+        ReadinessPolicyVersion);
+
     private static bool ContainsProhibitedProductionIdentity(string value) =>
         Regex.IsMatch(value, "(^|[^a-z0-9])(prod(uction)?|main|rev861)([^a-z0-9]|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static bool IsSafePattern(string pattern)
@@ -127,6 +151,10 @@ public sealed class ControlPlaneOptions
         _ = new Regex(pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
         return true;
     }
+
+    private static bool IsLowerSha256(string value) =>
+        value.Length == 64 &&
+        value.All(static character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static bool IsPlaceholderHttpsEndpoint(string value) =>
         Uri.TryCreate(value, UriKind.Absolute, out var endpoint) &&
