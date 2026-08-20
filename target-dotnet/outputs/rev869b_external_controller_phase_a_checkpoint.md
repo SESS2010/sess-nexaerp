@@ -1,4 +1,198 @@
-# REV869B Option-A Phase-A Correction A4 architecture blocker checkpoint
+# REV869B Option-A Phase-A Correction A4 source implementation checkpoint
+
+Date: 2026-08-20
+
+Checkpoint type: `A4_SOURCE_IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW`
+
+Entry HEAD: `a126de9d2ab9efe90490d6a1734aac320bab5f04`
+
+Entry parent: `21ab39c1e6e4658be892bfc06fc8a18b768c4d32`
+
+Architecture freeze: `outputs/rev869b_external_controller_phase_a_a4_lease_atomic_boundary_architecture_freeze.md`
+
+Architecture SHA-256: `2DBC7293840F6BC2613EB3A3D473D28D848E7A8364F3BBA8361BAEF7C37A56C5`
+
+Decision: `PHASE_A_CORRECTION_A4_REVISED_SOURCE_ONLY_GATE=GO_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW`
+
+Option L1 is implemented within the exact eight-file allowlist. Authorization creates an exact plan/executor-bound `ACTIVE` grant and no lease. `AcquireExecutionLease` is the only high-level lease authority and atomically reserves the grant, advances the fence, stores the immutable receipt, lifecycle, audit and outbox. Begin-execution requires the committed lease and retains `RESERVED`. Target execution is target-local, fenced and idempotent. Reconciliation consumes the grant and terminalizes from an immutable target result without invoking business mutation.
+
+## Stage-0 and boundary result
+
+| Gate | Result |
+|---|---|
+| HEAD / parent | Exact: `a126de9d2ab9efe90490d6a1734aac320bab5f04` / `21ab39c1e6e4658be892bfc06fc8a18b768c4d32` |
+| Subject / branch | `REV869B Phase-A A4 lease atomic boundary freeze` / `master` |
+| Entry HEAD content | Exactly the A4 architecture-freeze report |
+| Report hash | Exact: `2DBC7293840F6BC2613EB3A3D473D28D848E7A8364F3BBA8361BAEF7C37A56C5` |
+| Target status | Clean before implementation |
+| Legacy boundary | `../legacy-reference/` remained untracked; no legacy content was opened, read, modified or used |
+| Changed boundary | Exactly the seven implementation/test files plus this checkpoint; no ninth file |
+
+## Implementation result
+
+- Contracts add the exact A4 lifecycle and grant vocabularies, high-level acquire/begin/reconcile operations, immutable plan/grant/lease/job/result/reconciliation records, composite transaction discrimination and high-level target result interfaces.
+- Options pin distinct management authorizer, lease issuer, executor, target execution and reconciliation identities and reject forbidden overlaps.
+- `Rev869BL1BoundaryStateMachine` owns grant-only authorization, one-winner acquisition/replay, same-fence renewal, proof-bound expiry, greater-fence reacquisition, lease-before-dispatch, stale-fence denial and result-only reconciliation.
+- Raw protected ingress remains `AcceptRawCommandAsync`; it constructs typed high-level A4 composite requests from server-resolved identities and never acquires a lease inside execution.
+- Reader identity/version/artifact/schema/stage/binding/cardinality preflight now completes before oracle resolution and `ReadAsync`.
+- The architecture suite contains exactly 23 unique literal `A4_` facts. Fixtures inject faults only; production code owns every decision.
+
+## F01-F07 implementation result
+
+| Finding | Source-only result | Evidence |
+|---|---|---|
+| F01 raw ingress/canonical trust | COMPLETE | Protected authority remains raw-only; canonical/header/payload/signature regressions pass and denial has zero lifecycle/atomic calls. |
+| F02 composite ownership | COMPLETE | One durable provider retains one snapshot read and one composite atomic mutation; no partial lease/fence/grant setter is exported or injectable. |
+| F03 lease/atomic boundary | COMPLETE | Option L1 exact grant, separate lease acquisition, reserved grant, lease-before-dispatch, target-local transaction and result-only reconciliation implemented. |
+| F04 reader preflight | COMPLETE | Complete declared metadata, binding and cardinality mismatch is rejected before oracle resolution and `ReadAsync`. |
+| F05 readiness/audit/privacy | COMPLETE | Fail-closed readiness, local atomic audit/outbox and sensitive-field denial regressions pass. |
+| F06 independent assurance | COMPLETE_PENDING_REVIEW | Exactly 23 A4 tests, 10/10 A4 mutants and 8/8 retained mutants pass their implementation gates; independent review is still required. |
+| F07 evidence/arithmetic | COMPLETE_PENDING_REVIEW | Unique/raw arithmetic, executable/source/SQL hashes, no-connect counters, scans, diffs and Git boundary are recorded; independent review is still required. |
+
+Ownership result: the control-plane database alone owns canonical lifecycle, grant, lease, fence allocation, dispatch and reconciliation facts. The target ERP boundary alone owns fenced business mutation, business/history rows, target audit/outbox, target fencing watermark and immutable target terminal result. No distributed ACID claim or duplicate lifecycle owner was introduced.
+
+Lifecycle result: canonical A4 statuses are exactly `Draft`, `Rejected`, `Authorized`, `LeaseActive`, `Executing`, `Succeeded`, `Failed`, `Expired`, `Revoked`, `Cancelled`, `Quarantined`; grant states are exactly `ACTIVE`, `RESERVED`, `CONSUMED`, `REVOKED`, `EXPIRED`, `REJECTED`. Authorization creates no lease; lease acquisition reserves; begin retains reservation; reconciliation consumes exactly once.
+
+## Validation and arithmetic
+
+| Gate | Result |
+|---|---|
+| Affected control-plane warning-as-error build | 0 warnings; 0 errors |
+| Full solution warning-as-error build | 0 warnings; 0 errors |
+| Exact A4 literal subset | 23 passed; 0 failed; 0 skipped |
+| A4 individual invocations | 23 of 23 passed; each literal method invoked separately |
+| Complete Phase-A control assembly | 86 passed; 0 failed; 0 skipped |
+| Focused REV869B non-PostgreSQL subset | 81 passed; 0 failed; 0 skipped |
+| Complete ERP non-PostgreSQL assembly | 455 passed; 0 failed; 0 skipped |
+| Canonical SQL/source subset | 3 passed; 0 failed; 0 skipped; two fresh workers byte-identical |
+| Model/snapshot/source parity | 2 passed; 0 failed; 0 skipped |
+| PostgreSQL discovery/execution | 87 discovered; 0 executed |
+| EF no-connect discovery | 13 migrations; applied status intentionally unknown; connection opens 0 |
+| PowerShell AST | 24 files; 0 parse errors; scripts executed 0 |
+| Production mutants | 10 compiled; 10 killed; 0 survived; 0 invalid |
+
+`A4_unique=23`
+
+`PhaseA_unique=86`
+
+`ERP_unique=455`
+
+`Combined_unique=541`
+
+`Raw_pass_events=790`
+
+`PostgreSQL_discovered=87`
+
+`PostgreSQL_executed=0`
+
+Raw pass events include the first A4 diagnostic run (`22` pass, `1` fixture-timestamp failure), corrected A4 run `23`, 23 separate A4 method invocations, complete control `86`, A4 source evidence `2`, complete ERP `455`, canonical subset `3`, focused REV869B `81`, parity `2`, final checkpoint-sensitive control `86`, final checkpoint evidence `1`, four passing assertions from mixed A4-mutant invocations, and two preliminary retained-mutant diagnostic passes. The preliminary M06 diagnostic removed only one of two target fence guards and passed because the second guard remained; the defined complete M06 removed both comparisons, compiled and was killed. The preliminary retained A2 cardinality and freshness diagnostics likewise removed only one of multiple enforcement points; their complete defined bypasses compiled and were killed. No invocation is silently omitted.
+
+## Production mutant evidence
+
+| ID | Production mutation | Intended killer | Result |
+|---|---|---|---|
+| A4-M01 | Authorization populates a lease | Test 1 | compiled; killed |
+| A4-M02 | Grant executor comparison accepts substitution | Tests 2 and 4 | compiled; killed by both |
+| A4-M03 | Acquisition compares plan ID but omits version/hash | Test 3 | compiled; killed |
+| A4-M04 | Exported `ILeaseSetter` partial mutation facet | Test 22 | compiled; killed |
+| A4-M05 | Begin execution accepts caller job without authoritative lease | Test 8 | compiled; killed |
+| A4-M06 | Both target fence/watermark comparisons removed | Test 10 | compiled; killed |
+| A4-M07 | Reconciliation remains `Executing` instead of terminalizing discovered result | Tests 14 and 15 | compiled; killed by Test 15 |
+| A4-M08 | Acquisition and execution replay digest comparisons bypassed | Tests 6 and 17 | compiled; killed by both |
+| A4-M09 | Authorization audit/outbox failure no longer rolls back | Tests 13 and 18 | compiled; killed by Test 18 |
+| A4-M10 | Reader version mismatch allowed past pre-read preflight | Tests 19 and 20 | compiled; killed by Test 19 |
+
+Every defined mutant changed production code in `C:\Users\User\AppData\Local\Temp\rev869b-a4-mutants-20260820`, built with warnings as errors and ran only its named killer subset. Source equality was SHA-256 verified after restoration, then the entire temporary directory was removed. No mutant artifact remains.
+
+Retained regression campaign:
+
+| ID | Retained production mutation | Intended killer | Result |
+|---|---|---|---|
+| A3-M01 | Partial composite nonce mutation API exposed | `A3_ExportedOrInjectablePartialNonceIdempotencyLeaseAndStateMutationIsImpossible` | compiled; killed |
+| A3-M02 | Caller stored grant substitutes authoritative provider grant | `A3_EveryStoredGrantIssuerActorPolicyTenantPlanVersionEvidenceLeaseFenceAndExpirySubstitutionFailsBeforeLifecycle` | compiled; killed |
+| A3-M03 | Caller reader version controls descriptor selection | `A3_CallerSelectedReaderVersionUpgradeDowngradeArtifactOrSchemaNeverSelectsReader` | compiled; killed |
+| A3-M04 | Offline SQL input production source drifts | `A3_CheckpointSqlEvidenceMatchesMachineCapturedCanonicalResultExactly` | compiled; killed |
+| A2-M01 | Request/provider identity becomes authority | `A2_CallerStateVersionGrantExportAttemptAndEpochCannotBecomeTrustedFacts` | compiled; killed |
+| A2-M02 | Both lifecycle version comparisons bypassed | `A2_EveryRowRejectsWrongStateVersionRoleScopeGrantEvidenceLeaseFenceEpochAttemptAndAudit` | compiled; killed |
+| A2-M03 | Complete exact reader-cardinality gate bypassed | `A2_DuplicateMissingUnknownOrExtraReaderFailsBeforeOracle` | compiled; killed |
+| A2-M04 | Both readiness freshness enforcement points bypassed | `A2_NullExpiredFutureOrInvertedFreshnessReturns503OnBothRoutes` | compiled; killed |
+
+`retained_mutants_valid=8`
+
+`retained_mutants_compiled=8`
+
+`retained_mutants_killed=8`
+
+`retained_mutants_survived=0`
+
+`retained_mutants_invalid=0`
+
+The retained campaign used `C:\Users\User\AppData\Local\Temp\rev869b-a4-retained-mutants-20260820`; source equality was verified after every restore and the complete directory was removed.
+
+## Implementation source evidence
+
+| File | Lines | Bytes | Uppercase SHA-256 |
+|---|---:|---:|---|
+| `src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs` | 1994 | 65330 | `B39F178AC58B76221B85FC1A32A5639D5599712F42CE7A45C10C869919CD9D0C` |
+| `src/SESS.NexaERP.ControlPlane/Configuration/ControlPlaneOptions.cs` | 202 | 10741 | `5BEFE3F342E6BC8B5F928C038C85EDCDD38B642D58FF4BEEF7B6A86FE85B020D` |
+| `src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs` | 821 | 52017 | `2F6BDFD77EFACE2442884C683182F6B81CF20AB9A3AA7C68B01EA9A631E76264` |
+| `src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs` | 1056 | 50108 | `58D21C840ABD797A5CA9C041B424AA900B605BCA4977466C82492BEFB11EEAF4` |
+| `src/SESS.NexaERP.AcceptanceVerifier/Verification/ClosedEvidenceVerifierV1.cs` | 906 | 46273 | `C2462EF3F95BE484BAA8B281344C0EEA851C0D92D4EEF1B0CF3BC94B2401F672` |
+| `tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs` | 3268 | 157165 | `1EA332D33342C735E6865CE9EFFEEFA3E3B8BBC930005A32124EB937F088D55B` |
+| `tests/SESS.NexaERP.Tests/Rev869BCorrection17SourceContractTests.cs` | 858 | 52637 | `5A21AF4DF6B92B1E871430AD44EED2F213E09E5345B29A4D835E898DE2D17DB7` |
+
+The checkpoint's own final hash is intentionally supplied after the one commit; embedding it here would be self-referential. Canonical SQL input hashes and byte/LF/hash evidence remain the unchanged A3 block below and were revalidated in two fresh processes.
+
+## Executable and environment evidence
+
+| Tool | Resolved absolute path | File version | Bytes | Uppercase SHA-256 |
+|---|---|---|---:|---|
+| dotnet | `C:\Program Files\dotnet\dotnet.exe` | `10,0,1126,37416 @Commit: e2f47b0110ed922f21a1522da67279133ce28f32` | 167208 | `AB1B71FD3DD71062E074C9FAB8312081A81B7F2B3E0327C48C4D249C8D1A3135` |
+| git | `C:\Users\User\.cache\codex-runtimes\codex-primary-runtime\dependencies\native\git\cmd\git.exe` | `2.53.0.windows.3` | 46464 | `C53279919FDEA03474BB23B465B3A82287157491F1BD69A5EB82DD9831582333` |
+| rg | `C:\Users\User\.vscode\extensions\openai.chatgpt-26.810.52044-win32-x64\bin\windows-x86_64\rg.exe` | file version unavailable | 4218880 | `14231169855EC5205CF5A1B6F1DB358FF4AED4247C86B69CE8AAE647C77F6680` |
+| robocopy | `C:\WINDOWS\system32\Robocopy.exe` | `10.0.19041.1` | 172544 | `42B03B12BD26D23BCE6192991E37ABE55E5B12E38AA95B2CF1CD46F33EB58716` |
+| Windows PowerShell | `C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe` | `10.0.19041.1` | 455680 | `9785001B0DCF755EDDB8AF294A373C0B87B2498660F724E76C4D53F9C217C7A3` |
+| apply-patch engine | `C:\Users\User\.vscode\extensions\openai.chatgpt-26.810.52044-win32-x64\bin\windows-x86_64\codex.exe` | file version unavailable | 295151920 | `88AA986D1405D41DCC9C2F777D7B028DE07EDC33B6468A8DD8DB6A0CC62C315F` |
+
+Environment: SDK `10.0.303`; runtime `.NET 10.0.11`; EF CLI `10.0.10`; OS `Microsoft Windows 10.0.19045`; culture `en-US`; encoding for checkpoint/source evidence UTF-8; repository line endings validated by `git diff --check`.
+
+Principal validation commands were warning-as-error `dotnet build` for both affected test projects and `SESS.NexaERP.slnx`; `dotnet test --no-build --no-restore` for A4, complete control, focused REV869B, complete ERP non-PostgreSQL, canonical evidence and parity subsets; `dotnet test --list-tests` for PostgreSQL discovery only; `dotnet ef migrations list --no-connect --no-build` with inert `127.0.0.1:1`, pooling disabled; PowerShell parser API calls only; Git boundary/diff checks; and source/security scans. No PowerShell script was invoked.
+
+Observed operational counters:
+
+`database_connection_open_count=0`
+
+`migration_application_attempt_count=0`
+
+`migration_application_completed_count=0`
+
+`postgresql_test_execution_count=0`
+
+`powershell_script_execution_count=0`
+
+## Prohibited operations and retained states
+
+No PostgreSQL connection/test, migration application or rollback, installed ERP operation, D-drive or external-disk access, lifecycle/recovery/purge/export operation, external provisioning, deployment, production access, credential/key use, Phase B, Correction 2, or legacy-reference access occurred. No `Program`, endpoint, project, solution, migration, model, snapshot, SQL, script, helper, execution-binding or ninth implementation path changed.
+
+`phase_a_correction_a4_source_implementation_state=COMPLETE_PENDING_INDEPENDENT_REVIEW`
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
+Exact single next gate: one fresh independent report-only REV869B Option-A Phase-A Correction A4 source architecture/security review of the final one-commit eight-file diff. No source edit, PostgreSQL, Phase B, Correction 2, provisioning, deployment or production action is included in that gate.
+
+---
+
+# Historical superseded A4 architecture blocker checkpoint
 
 Date: 2026-08-17
 

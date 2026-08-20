@@ -575,3 +575,247 @@ public sealed class Rev869BControllerStateMachine
         }
     }
 }
+
+public sealed class Rev869BL1BoundaryStateMachine
+{
+    public A4CompositeOperationResultV1 ReconcileTerminalResult(
+        A4ControlStateV1 current, A4ReconciliationRequestV1 request,
+        string expectedReconciler, bool auditOutboxCommitted)
+    {
+        if (current.TerminalResult is not null)
+        {
+            Require(current.ReconciliationRequestId == request.ReconciliationId &&
+                    current.ReconciliationRequestSha256 == request.ReconciliationRequestSha256 &&
+                    current.TerminalResult == request.TargetResult,
+                TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+            return new(ControlTransactionOutcomeV3.COMPLETED_REPLAY, current, true,
+                current.Lease, current.TerminalResult);
+        }
+        var grant = Grant(current);
+        var lease = current.Lease;
+        var dispatch = current.Dispatch;
+        Require(request.ReconcilerWorkloadIdentity == expectedReconciler,
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require((current.LifecycleStatus == A4ControllerLifecycleStatusV1.Executing ||
+                 current.LifecycleStatus == A4ControllerLifecycleStatusV1.Quarantined) &&
+                request.ExpectedLifecycleVersion == current.LifecycleVersion &&
+                lease is not null && dispatch is not null &&
+                request.TargetResult.ExecutionId == dispatch.ExecutionId &&
+                request.TargetResult.ExecutionRequestSha256 == dispatch.ExecutionRequestSha256 &&
+                request.TargetResult.GrantId == grant.GrantId &&
+                request.TargetResult.GrantVersion == grant.GrantVersion &&
+                request.TargetResult.LeaseId == lease.LeaseId &&
+                request.TargetResult.FencingToken == lease.FencingToken &&
+                request.TargetResult.Plan == grant.Plan,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var next = current with
+        {
+            LifecycleStatus = request.TargetResult.Succeeded
+                ? A4ControllerLifecycleStatusV1.Succeeded
+                : A4ControllerLifecycleStatusV1.Failed,
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Grant = grant with
+            {
+                State = A4AuthorizationGrantStateV1.CONSUMED,
+                ConsumedAt = request.TargetResult.CommittedAt
+            },
+            Lease = lease! with { Closed = true, LeaseVersion = lease.LeaseVersion + 1 },
+            TerminalResult = request.TargetResult,
+            ReconciliationRequestId = request.ReconciliationId,
+            ReconciliationRequestSha256 = request.ReconciliationRequestSha256,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true, next.Lease, request.TargetResult);
+    }
+
+    public A4CompositeOperationResultV1 BeginExecuteAuthorizedPlan(
+        A4ControlStateV1 current, A4TargetExecutionJobV1 job,
+        DateTimeOffset now, bool auditOutboxCommitted)
+    {
+        var lease = Lease(current, now);
+        var grant = Grant(current);
+        Require(current.LifecycleStatus == A4ControllerLifecycleStatusV1.LeaseActive &&
+                grant.State == A4AuthorizationGrantStateV1.RESERVED &&
+                job.Grant == grant && job.Lease == lease && job.Lease.Plan == grant.Plan &&
+                job.Lease.ExecutorWorkloadIdentity == grant.Plan.ExecutorWorkloadIdentity,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var next = current with
+        {
+            LifecycleStatus = A4ControllerLifecycleStatusV1.Executing,
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Dispatch = job,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true);
+    }
+
+    public static A4TargetTerminalResultV1? RequireTargetExecution(
+        A4TargetExecutionJobV1 job, long targetFencingWatermark,
+        DateTimeOffset now, A4TargetTerminalResultV1? existingResult)
+    {
+        Require(job.Grant.State == A4AuthorizationGrantStateV1.RESERVED &&
+                job.Grant.ReservedLeaseId == job.Lease.LeaseId &&
+                job.Grant.Plan == job.Lease.Plan &&
+                job.Lease.ExecutorWorkloadIdentity == job.Grant.Plan.ExecutorWorkloadIdentity,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        Require(!job.Lease.Closed && job.Lease.ExpiresAt >= now, TrustFailureCodeV2.LEASE_EXPIRED);
+        Require(job.Lease.FencingToken >= targetFencingWatermark, TrustFailureCodeV2.LEASE_FENCE_STALE);
+        if (existingResult is null)
+        {
+            Require(job.Lease.FencingToken > targetFencingWatermark, TrustFailureCodeV2.LEASE_FENCE_STALE);
+            return null;
+        }
+        Require(existingResult.ExecutionId == job.ExecutionId &&
+                existingResult.ExecutionRequestSha256 == job.ExecutionRequestSha256 &&
+                existingResult.GrantId == job.Grant.GrantId && existingResult.LeaseId == job.Lease.LeaseId &&
+                existingResult.FencingToken == job.Lease.FencingToken && existingResult.Plan == job.Grant.Plan,
+            TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+        return existingResult;
+    }
+
+    public A4CompositeOperationResultV1 RenewExecutionLease(
+        A4ControlStateV1 current, A4LeaseAcquisitionRequestV1 request,
+        DateTimeOffset now, bool auditOutboxCommitted)
+    {
+        var lease = Lease(current, now);
+        var grant = Grant(current);
+        Require(current.LifecycleStatus == A4ControllerLifecycleStatusV1.LeaseActive &&
+                grant.State == A4AuthorizationGrantStateV1.RESERVED &&
+                request.GrantId == lease.GrantId && request.GrantVersion == lease.GrantVersion &&
+                request.Plan == lease.Plan && request.ExecutorWorkloadIdentity == lease.ExecutorWorkloadIdentity &&
+                request.LeaseIssuerWorkloadIdentity == lease.LeaseIssuerWorkloadIdentity &&
+                request.RequestedExpiresAt > lease.ExpiresAt,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var renewed = lease with
+        {
+            LeaseVersion = lease.LeaseVersion + 1,
+            ExpiresAt = request.RequestedExpiresAt,
+            LifecycleVersion = current.LifecycleVersion + 1
+        };
+        var next = current with
+        {
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Lease = renewed,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true, renewed);
+    }
+
+    public A4CompositeOperationResultV1 ExpireUnusedLease(
+        A4ControlStateV1 current, DateTimeOffset now,
+        bool noTargetResultProof, bool auditOutboxCommitted)
+    {
+        var grant = Grant(current);
+        Require(current.LifecycleStatus == A4ControllerLifecycleStatusV1.LeaseActive &&
+                current.Lease is not null && current.Lease.ExpiresAt < now &&
+                noTargetResultProof && current.TerminalResult is null && current.Dispatch is null,
+            TrustFailureCodeV2.LEASE_EXPIRED);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var closed = current.Lease! with { Closed = true, LeaseVersion = current.Lease.LeaseVersion + 1 };
+        var next = current with
+        {
+            LifecycleStatus = A4ControllerLifecycleStatusV1.Authorized,
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Grant = grant with { State = A4AuthorizationGrantStateV1.ACTIVE, ReservedLeaseId = null },
+            Lease = closed,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true, closed);
+    }
+
+    public A4CompositeOperationResultV1 AcquireExecutionLease(
+        A4ControlStateV1 current, A4LeaseAcquisitionRequestV1 request,
+        string expectedLeaseIssuer, DateTimeOffset now, string leaseId,
+        long controllerEpoch, long fencingToken, bool auditOutboxCommitted)
+    {
+        var grant = Grant(current);
+        Require(request.ExecutorWorkloadIdentity == grant.Plan.ExecutorWorkloadIdentity &&
+                request.LeaseIssuerWorkloadIdentity == expectedLeaseIssuer &&
+                request.LeaseIssuerWorkloadIdentity != request.ExecutorWorkloadIdentity &&
+                request.LeaseIssuerWorkloadIdentity != grant.AuthorizerWorkloadIdentity,
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require(request.GrantId == grant.GrantId && request.GrantVersion == grant.GrantVersion &&
+                request.Plan == grant.Plan, TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        if (current.LifecycleStatus == A4ControllerLifecycleStatusV1.LeaseActive && current.Lease is not null)
+        {
+            Require(current.Lease.AcquisitionRequestId == request.AcquisitionRequestId &&
+                    current.Lease.AcquisitionRequestSha256 == request.AcquisitionRequestSha256,
+                TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+            return new(ControlTransactionOutcomeV3.COMPLETED_REPLAY, current, true, current.Lease);
+        }
+        Require(request.ExpectedLifecycleVersion == current.LifecycleVersion &&
+                current.LifecycleStatus == A4ControllerLifecycleStatusV1.Authorized &&
+                grant.State == A4AuthorizationGrantStateV1.ACTIVE && current.TerminalResult is null &&
+                request.RequestedExpiresAt > now && fencingToken > (current.Lease?.FencingToken ?? 0),
+            TrustFailureCodeV2.LEASE_REQUIRED);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var lease = new A4ExecutionLeaseReceiptV1(leaseId, 1, grant.GrantId, grant.GrantVersion,
+            request.AcquisitionRequestId, request.AcquisitionRequestSha256, grant.Plan,
+            request.ExecutorWorkloadIdentity, request.LeaseIssuerWorkloadIdentity, now,
+            request.RequestedExpiresAt, controllerEpoch, fencingToken, current.LifecycleVersion + 1);
+        var next = current with
+        {
+            LifecycleStatus = A4ControllerLifecycleStatusV1.LeaseActive,
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Grant = grant with { State = A4AuthorizationGrantStateV1.RESERVED, ReservedLeaseId = lease.LeaseId },
+            Lease = lease,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true, lease);
+    }
+
+    public A4CompositeOperationResultV1 Authorize(
+        A4ControlStateV1 current,
+        A4AuthorizationGrantV1 grant,
+        string authenticatedAuthorizer,
+        bool auditOutboxCommitted)
+    {
+        Require(grant.AuthorizerWorkloadIdentity == authenticatedAuthorizer &&
+                grant.AuthorizerWorkloadIdentity != grant.Plan.ExecutorWorkloadIdentity,
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        Require(grant.State == A4AuthorizationGrantStateV1.ACTIVE &&
+                grant.ReservedLeaseId is null,
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        if (current.LifecycleStatus == A4ControllerLifecycleStatusV1.Authorized && current.Grant is not null)
+        {
+            Require(current.Grant.AuthorizationRequestId == grant.AuthorizationRequestId &&
+                    current.Grant.AuthorizationRequestSha256 == grant.AuthorizationRequestSha256,
+                TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+            return new(ControlTransactionOutcomeV3.COMPLETED_REPLAY, current, true);
+        }
+        Require(current.LifecycleStatus == A4ControllerLifecycleStatusV1.Draft &&
+                current.Grant is null && current.Lease is null,
+            TrustFailureCodeV2.STATE_TRANSITION_ILLEGAL);
+        Require(auditOutboxCommitted, TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var next = current with
+        {
+            LifecycleStatus = A4ControllerLifecycleStatusV1.Authorized,
+            LifecycleVersion = current.LifecycleVersion + 1,
+            Grant = grant,
+            Lease = null,
+            AuditOutboxCommitted = true
+        };
+        return new(ControlTransactionOutcomeV3.FIRST_OWNER, next, true);
+    }
+
+    private static A4AuthorizationGrantV1 Grant(A4ControlStateV1 state)
+    {
+        Require(state.Grant is not null, TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        return state.Grant!;
+    }
+
+    private static A4ExecutionLeaseReceiptV1 Lease(A4ControlStateV1 state, DateTimeOffset now)
+    {
+        Require(state.Lease is not null, TrustFailureCodeV2.LEASE_REQUIRED);
+        Require(!state.Lease!.Closed && state.Lease.ExpiresAt >= now, TrustFailureCodeV2.LEASE_EXPIRED);
+        return state.Lease;
+    }
+
+    private static void Require(bool condition, TrustFailureCodeV2 code)
+    {
+        if (!condition) throw new TrustFailureExceptionV2(code, code.ToString());
+    }
+}

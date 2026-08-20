@@ -18,6 +18,7 @@ public sealed class ArchitectureFreezeContractTests
     private static readonly DateTimeOffset Now =
         new(2026, 8, 16, 12, 0, 0, TimeSpan.Zero);
     private static readonly string Hash = new('a', 64);
+    private static readonly Rev869BL1BoundaryStateMachine A4Machine = new();
 
     private static readonly string[] FrozenConcepts =
     [
@@ -879,7 +880,7 @@ public sealed class ArchitectureFreezeContractTests
             var fixture = EvidenceFixture.Create(authoritativeBindingMutation: mutation);
             await Assert.ThrowsAsync<TrustFailureExceptionV2>(
                 () => fixture.Authority.VerifyRawAsync(fixture.CanonicalEvidence, fixture.Transport).AsTask());
-            Assert.Equal(1, fixture.ReaderRegistry.ReadCount);
+            Assert.Equal(0, fixture.ReaderRegistry.ReadCount);
             Assert.Equal(0, fixture.Oracle.EvaluationCount);
             Assert.Equal(0, fixture.Audit.AppendCount);
         }
@@ -1604,7 +1605,7 @@ public sealed class ArchitectureFreezeContractTests
             Assert.Equal(
                 ("reader-1", Rev869BPhaseACompatibilityManifest.EvidenceSchemaVersion),
                 Assert.Single(fixture.ReaderRegistry.DescriptorRequests));
-            Assert.Equal(1, fixture.ReaderRegistry.ReadCount);
+            Assert.Equal(0, fixture.ReaderRegistry.ReadCount);
             Assert.Equal(0, fixture.Oracle.EvaluationCount);
         }
     }
@@ -1647,6 +1648,380 @@ public sealed class ArchitectureFreezeContractTests
             Assert.Equal(0, fixture.ReaderRegistry.ReadCount);
             Assert.Equal(0, fixture.Oracle.EvaluationCount);
         }
+    }
+
+    [Fact]
+    public void A4_AuthorizationCreatesExactPlanExecutorGrantAndNoLease()
+    {
+        var result = A4Authorize();
+        Assert.Equal(A4ControllerLifecycleStatusV1.Authorized, result.State.LifecycleStatus);
+        Assert.Equal(A4AuthorizationGrantStateV1.ACTIVE, result.State.Grant!.State);
+        Assert.Equal(A4Plan(), result.State.Grant.Plan);
+        Assert.Equal("executor", result.State.Grant.Plan.ExecutorWorkloadIdentity);
+        Assert.Null(result.State.Lease);
+    }
+
+    [Fact]
+    public void A4_OnlyGrantBoundExecutorCanAcquireExecutionLease()
+    {
+        var authorized = A4Authorize().State;
+        var request = A4LeaseRequest(authorized) with { ExecutorWorkloadIdentity = "other" };
+        AssertA4Code(() => A4Machine.AcquireExecutionLease(
+            authorized, request, "lease-issuer", Now, "lease", 1, 1, true),
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+    }
+
+    [Fact]
+    public void A4_PlanIdVersionHashSubstitutionFailsBeforeLeaseOrLifecycle()
+    {
+        var authorized = A4Authorize().State;
+        var plans = new[]
+        {
+            A4Plan() with { PlanId = "other" },
+            A4Plan() with { PlanVersion = 2 },
+            A4Plan() with { PlanSha256 = new('b', 64) }
+        };
+        foreach (var plan in plans)
+        {
+            var request = A4LeaseRequest(authorized) with { Plan = plan };
+            AssertA4Code(() => A4Machine.AcquireExecutionLease(
+                authorized, request, "lease-issuer", Now, "lease", 1, 1, true),
+                TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+        }
+    }
+
+    [Fact]
+    public void A4_AuthorizerExecutorOrLeaseIssuerSubstitutionFailsClosed()
+    {
+        AssertA4Code(() => A4Machine.Authorize(A4Draft(), A4Grant(), "other", true),
+            TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+        var authorized = A4Authorize().State;
+        foreach (var request in new[]
+                 {
+                     A4LeaseRequest(authorized) with { ExecutorWorkloadIdentity = "authorizer" },
+                     A4LeaseRequest(authorized) with { LeaseIssuerWorkloadIdentity = "executor" }
+                 })
+            AssertA4Code(() => A4Machine.AcquireExecutionLease(
+                authorized, request, "lease-issuer", Now, "lease", 1, 1, true),
+                TrustFailureCodeV2.SUBJECT_UNAUTHORIZED);
+    }
+
+    [Fact]
+    public void A4_ExactLeaseAcquisitionReplayReturnsOriginalReceipt()
+    {
+        var first = A4Acquire();
+        var replay = A4Machine.AcquireExecutionLease(first.State, A4LeaseRequest(first.State),
+            "lease-issuer", Now, "different", 2, 99, true);
+        Assert.Equal(ControlTransactionOutcomeV3.COMPLETED_REPLAY, replay.Outcome);
+        Assert.Equal(first.LeaseReceipt, replay.LeaseReceipt);
+    }
+
+    [Fact]
+    public void A4_ConflictingLeaseAcquisitionReplayIsDenied()
+    {
+        var first = A4Acquire();
+        var changed = A4LeaseRequest(first.State) with { AcquisitionRequestSha256 = new('b', 64) };
+        AssertA4Code(() => A4Machine.AcquireExecutionLease(
+            first.State, changed, "lease-issuer", Now, "lease-2", 1, 2, true),
+            TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+    }
+
+    [Fact]
+    public async Task A4_ConcurrentLeaseAcquisitionHasExactlyOneWinner()
+    {
+        var store = new LockedA4Store(A4Authorize().State);
+        var calls = Enumerable.Range(0, 8).Select(_ => Task.Run(store.Acquire)).ToArray();
+        var results = await Task.WhenAll(calls);
+        Assert.Equal(1, results.Count(x => x.Outcome == ControlTransactionOutcomeV3.FIRST_OWNER));
+        Assert.Equal(7, results.Count(x => x.Outcome == ControlTransactionOutcomeV3.COMPLETED_REPLAY));
+        Assert.Single(results.Select(x => x.LeaseReceipt).Distinct());
+    }
+
+    [Fact]
+    public void A4_ExecutionBeforeAuthoritativeLeaseIsDenied()
+    {
+        var authorized = A4Authorize().State;
+        AssertA4Code(() => A4Machine.BeginExecuteAuthorizedPlan(
+            authorized, A4Job(A4Acquire().State), Now, true), TrustFailureCodeV2.LEASE_REQUIRED);
+    }
+
+    [Fact]
+    public void A4_StaleOrExpiredLeaseIsDeniedBeforeTargetMutation()
+    {
+        var job = A4Job(A4Acquire().State);
+        AssertA4Code(() => Rev869BL1BoundaryStateMachine.RequireTargetExecution(
+            job with { Lease = job.Lease with { ExpiresAt = Now.AddSeconds(-1) } }, 0, Now, null),
+            TrustFailureCodeV2.LEASE_EXPIRED);
+    }
+
+    [Fact]
+    public void A4_StaleFenceCannotCommitAtTarget()
+    {
+        var job = A4Job(A4Acquire().State);
+        AssertA4Code(() => Rev869BL1BoundaryStateMachine.RequireTargetExecution(
+            job, job.Lease.FencingToken + 1, Now, null), TrustFailureCodeV2.LEASE_FENCE_STALE);
+    }
+
+    [Fact]
+    public void A4_RenewalRetainsFenceAndExtendsOnlySameBinding()
+    {
+        var acquired = A4Acquire();
+        var renewed = A4Machine.RenewExecutionLease(acquired.State,
+            A4LeaseRequest(acquired.State) with { RequestedExpiresAt = Now.AddMinutes(10) }, Now, true);
+        Assert.Equal(acquired.LeaseReceipt!.FencingToken, renewed.LeaseReceipt!.FencingToken);
+        Assert.True(renewed.LeaseReceipt.ExpiresAt > acquired.LeaseReceipt.ExpiresAt);
+        AssertA4Code(() => A4Machine.RenewExecutionLease(acquired.State,
+            A4LeaseRequest(acquired.State) with { Plan = A4Plan() with { PlanVersion = 2 } }, Now, true),
+            TrustFailureCodeV2.AUTHORIZATION_BINDING_MISMATCH);
+    }
+
+    [Fact]
+    public void A4_ReacquisitionRequiresNoResultProofAndGreaterFence()
+    {
+        var acquired = A4Acquire();
+        var later = Now.AddMinutes(6);
+        AssertA4Code(() => A4Machine.ExpireUnusedLease(acquired.State, later, false, true),
+            TrustFailureCodeV2.LEASE_EXPIRED);
+        var expired = A4Machine.ExpireUnusedLease(acquired.State, later, true, true);
+        AssertA4Code(() => A4Machine.AcquireExecutionLease(expired.State,
+            A4LeaseRequest(expired.State, later.AddMinutes(5)), "lease-issuer", later, "lease-2", 1, 1, true),
+            TrustFailureCodeV2.LEASE_REQUIRED);
+        var reacquired = A4Machine.AcquireExecutionLease(expired.State,
+            A4LeaseRequest(expired.State, later.AddMinutes(5)), "lease-issuer", later, "lease-2", 1, 2, true);
+        Assert.True(reacquired.LeaseReceipt!.FencingToken > acquired.LeaseReceipt!.FencingToken);
+    }
+
+    [Fact]
+    public void A4_TargetRollbackLeavesNoPartialBusinessResultAuditOrOutbox()
+    {
+        var target = new AtomicA4Target();
+        Assert.Throws<InvalidOperationException>(() => target.Execute(A4Job(A4Acquire().State), false));
+        Assert.Equal(0, target.BusinessRows + target.AuditRows + target.OutboxRows + target.ResultRows);
+    }
+
+    [Fact]
+    public void A4_CommittedTargetResultSurvivesLostAcknowledgement()
+    {
+        var target = new AtomicA4Target();
+        var job = A4Job(A4Acquire().State);
+        Assert.Throws<IOException>(() => target.Execute(job, true, loseAcknowledgement: true));
+        Assert.Equal(A4TargetResult(job), target.Read(job.ExecutionId));
+    }
+
+    [Fact]
+    public void A4_ReconciliationNeverReexecutesBusinessMutation()
+    {
+        var executing = A4Execute();
+        var target = new AtomicA4Target();
+        var result = target.Execute(executing.State.Dispatch!, true);
+        var count = target.ExecutionCount;
+        var reconciled = A4Machine.ReconcileTerminalResult(
+            executing.State, A4Reconciliation(executing.State, result), "reconciler", true);
+        Assert.Equal(A4ControllerLifecycleStatusV1.Succeeded, reconciled.State.LifecycleStatus);
+        Assert.Equal(count, target.ExecutionCount);
+    }
+
+    [Fact]
+    public void A4_ExactExecutionReplayReturnsOriginalTargetAndControlResult()
+    {
+        var executing = A4Execute();
+        var target = new AtomicA4Target();
+        var first = target.Execute(executing.State.Dispatch!, true);
+        var replay = target.Execute(executing.State.Dispatch!, true);
+        Assert.Equal(first, replay);
+        Assert.Equal(1, target.ExecutionCount);
+        var request = A4Reconciliation(executing.State, first);
+        var control = A4Machine.ReconcileTerminalResult(executing.State, request, "reconciler", true);
+        var controlReplay = A4Machine.ReconcileTerminalResult(control.State, request, "reconciler", true);
+        Assert.Equal(ControlTransactionOutcomeV3.COMPLETED_REPLAY, controlReplay.Outcome);
+        Assert.Equal(control.TargetResult, controlReplay.TargetResult);
+    }
+
+    [Fact]
+    public void A4_ConflictingExecutionReplayIsDenied()
+    {
+        var executing = A4Execute();
+        var target = new AtomicA4Target();
+        target.Execute(executing.State.Dispatch!, true);
+        var changed = executing.State.Dispatch! with { ExecutionRequestSha256 = new('b', 64) };
+        AssertA4Code(() => target.Execute(changed, true), TrustFailureCodeV2.IDEMPOTENCY_PAYLOAD_MISMATCH);
+    }
+
+    [Fact]
+    public void A4_AuditOrOutboxFailureRollsBackItsLocalOperation()
+    {
+        AssertA4Code(() => A4Machine.Authorize(A4Draft(), A4Grant(), "authorizer", false),
+            TrustFailureCodeV2.AUDIT_APPEND_FAILED);
+        var target = new AtomicA4Target();
+        Assert.Throws<InvalidOperationException>(() => target.Execute(A4Job(A4Acquire().State), false));
+        Assert.Equal(0, target.BusinessRows);
+    }
+
+    [Fact]
+    public async Task A4_ReaderMismatchIsRejectedBeforeReadAsync()
+    {
+        var fixture = EvidenceFixture.Create();
+        var declared = fixture.Bundle with { ReaderVersion = "other" };
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+            fixture.Authority.VerifyRawAsync(fixture.WithBundle(declared), fixture.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.READER_UNAUTHORIZED, failure.Code);
+        Assert.Equal(0, fixture.ReaderRegistry.ReadCount);
+        Assert.Equal(0, fixture.Oracle.EvaluationCount);
+    }
+
+    [Fact]
+    public async Task A4_PreflightMismatchHasZeroReaderOracleLifecycleAndAtomicCalls()
+    {
+        var evidence = EvidenceFixture.Create();
+        var declared = evidence.Bundle with { ReaderArtifactSha256 = new('b', 64) };
+        await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+            evidence.Authority.VerifyRawAsync(evidence.WithBundle(declared), evidence.Transport).AsTask());
+        Assert.Equal(0, evidence.ReaderRegistry.ReadCount);
+        Assert.Equal(0, evidence.Oracle.EvaluationCount);
+
+        var command = CommandFixture.Create(headerMutation: h => h with { AuthorizedScope = "ORG:C2" });
+        await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => command.InvokeAsync().AsTask());
+        Assert.Equal(0, command.Controller.CallCount);
+        Assert.Equal(0, command.DurableProvider.AtomicExecuteCount);
+    }
+
+    [Fact]
+    public async Task A4_F01RawIngressAndCanonicalTrustRegressionIsPreserved()
+    {
+        var fixture = CommandFixture.Create(headerMutation: h => h with
+        {
+            CanonicalPayloadSha256 = new('b', 64)
+        });
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(() => fixture.InvokeAsync().AsTask());
+        Assert.Equal(TrustFailureCodeV2.PAYLOAD_HASH_MISMATCH, failure.Code);
+        Assert.Equal(0, fixture.Controller.CallCount);
+        Assert.Equal(0, fixture.DurableProvider.AtomicExecuteCount);
+    }
+
+    [Fact]
+    public void A4_F02CompositeProviderHasNoPartialMutationCapability()
+    {
+        var names = typeof(IDurableControlPlanePersistenceProvider).GetMethods()
+            .Select(x => x.Name).ToArray();
+        Assert.Equal(["get_Descriptor", "ReadAuthoritativeSnapshotAsync", "ExecuteAtomicallyAsync"], names);
+        Assert.DoesNotContain(typeof(IDurableControlPlanePersistenceProvider).Assembly.ExportedTypes,
+            type => type.Name is "ILeaseSetter" or "IFenceSetter" or "IGrantStateSetter");
+        Assert.Contains(typeof(ControlPlaneTransactionRequestV3).GetProperties(),
+            property => property.Name == "A4Operation");
+    }
+
+    [Fact]
+    public async Task A4_F05ReadinessAuditPrivacyAndEvidenceRegressionIsPreserved()
+    {
+        var sensitive = EvidenceFixture.Create(sensitiveField: "password");
+        var failure = await Assert.ThrowsAsync<TrustFailureExceptionV2>(() =>
+            sensitive.Authority.VerifyRawAsync(sensitive.CanonicalEvidence, sensitive.Transport).AsTask());
+        Assert.Equal(TrustFailureCodeV2.EVIDENCE_SENSITIVE_FIELD, failure.Code);
+        Assert.Equal(0, sensitive.Audit.AppendCount);
+        Assert.DoesNotContain("secret-value", failure.Message, StringComparison.Ordinal);
+        var snapshot = await ReadinessSnapshotAsync(ReadyProviders().Skip(1).ToArray());
+        Assert.False(snapshot.CanExecuteProtectedOperation);
+    }
+
+    private static A4ExecutionPlanBindingV1 A4Plan() => new(
+        "plan", 1, Hash, "C1", "target", "purchase", "executor", Hash);
+
+    private static A4AuthorizationGrantV1 A4Grant() => new(
+        "grant", 1, A4Plan(), "authorizer", "authorize-request", Hash, Hash,
+        Now.AddMinutes(-1), Now.AddHours(1), A4AuthorizationGrantStateV1.ACTIVE);
+
+    private static A4ControlStateV1 A4Draft() => new(
+        A4ControllerLifecycleStatusV1.Draft, 0, null, null, null, null, null, null, false);
+
+    private static A4CompositeOperationResultV1 A4Authorize() =>
+        A4Machine.Authorize(A4Draft(), A4Grant(), "authorizer", true);
+
+    private static A4LeaseAcquisitionRequestV1 A4LeaseRequest(
+        A4ControlStateV1 state, DateTimeOffset? expiresAt = null) => new(
+            "acquire-request", Hash, state.Grant!.GrantId, state.Grant.GrantVersion,
+            state.Grant.Plan, "executor", "lease-issuer", expiresAt ?? Now.AddMinutes(5),
+            state.LifecycleVersion);
+
+    private static A4CompositeOperationResultV1 A4Acquire(DateTimeOffset? expiresAt = null)
+    {
+        var authorized = A4Authorize().State;
+        return A4Machine.AcquireExecutionLease(authorized,
+            A4LeaseRequest(authorized, expiresAt), "lease-issuer", Now,
+            "lease", 1, 1, true);
+    }
+
+    private static A4TargetExecutionJobV1 A4Job(A4ControlStateV1 leased) => new(
+        "execution", Hash, leased.Grant!, leased.Lease!, Now);
+
+    private static A4CompositeOperationResultV1 A4Execute()
+    {
+        var acquired = A4Acquire().State;
+        return A4Machine.BeginExecuteAuthorizedPlan(acquired, A4Job(acquired), Now, true);
+    }
+
+    private static A4TargetTerminalResultV1 A4TargetResult(A4TargetExecutionJobV1 job) => new(
+        job.ExecutionId, job.ExecutionRequestSha256, job.Grant.GrantId,
+        job.Grant.GrantVersion, job.Lease.LeaseId, job.Lease.FencingToken,
+        job.Grant.Plan, true, Hash, "target-transaction", "target-audit", "target-outbox", Now);
+
+    private static A4ReconciliationRequestV1 A4Reconciliation(
+        A4ControlStateV1 executing, A4TargetTerminalResultV1 result) => new(
+            "reconcile", Hash, result, executing.LifecycleVersion, "reconciler");
+
+    private static void AssertA4Code(Action action, TrustFailureCodeV2 code)
+    {
+        var failure = Assert.Throws<TrustFailureExceptionV2>(action);
+        Assert.Equal(code, failure.Code);
+    }
+
+    private sealed class LockedA4Store(A4ControlStateV1 initial)
+    {
+        private readonly object _gate = new();
+        private A4ControlStateV1 _state = initial;
+
+        public A4CompositeOperationResultV1 Acquire()
+        {
+            lock (_gate)
+            {
+                var result = A4Machine.AcquireExecutionLease(_state, A4LeaseRequest(_state),
+                    "lease-issuer", Now, "lease", 1, 1, true);
+                _state = result.State;
+                return result;
+            }
+        }
+    }
+
+    private sealed class AtomicA4Target
+    {
+        private A4TargetTerminalResultV1? _result;
+        private long _watermark;
+        public int ExecutionCount { get; private set; }
+        public int BusinessRows { get; private set; }
+        public int AuditRows { get; private set; }
+        public int OutboxRows { get; private set; }
+        public int ResultRows { get; private set; }
+
+        public A4TargetTerminalResultV1 Execute(
+            A4TargetExecutionJobV1 job, bool auditOutboxSucceeds,
+            bool loseAcknowledgement = false)
+        {
+            var replay = Rev869BL1BoundaryStateMachine.RequireTargetExecution(
+                job, _watermark, Now, _result);
+            if (replay is not null) return replay;
+            if (!auditOutboxSucceeds) throw new InvalidOperationException();
+            _result = A4TargetResult(job);
+            _watermark = job.Lease.FencingToken;
+            ExecutionCount++;
+            BusinessRows++;
+            AuditRows++;
+            OutboxRows++;
+            ResultRows++;
+            if (loseAcknowledgement) throw new IOException();
+            return _result;
+        }
+
+        public A4TargetTerminalResultV1? Read(string executionId) =>
+            _result?.ExecutionId == executionId ? _result : null;
     }
 
     private static string Concept(LifecycleRuleV3 rule) => rule.RuleId switch

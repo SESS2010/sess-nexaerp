@@ -625,6 +625,88 @@ internal sealed class SignedCommandServiceV2(
             expectedResource,
             cancellationToken);
 
+    internal static A4CompositeOperationRequestV1? BuildA4Operation(
+        CanonicalCommandPayloadV2 payload,
+        CanonicalSignedHeaderV2 header,
+        StoredAuthorizationGrantV3 storedGrant,
+        AuthoritativeControlPlaneSnapshotV3 snapshot,
+        ControlPlaneOptions options,
+        string approvedIntentSha256,
+        string evidenceManifestSha256,
+        AuthenticatedWorkloadIdentityV3 transport,
+        DateTimeOffset now)
+    {
+        var plan = new A4ExecutionPlanBindingV1(
+            payload.ActionId,
+            snapshot.ResourceVersion,
+            approvedIntentSha256,
+            header.OrganizationId,
+            header.DatabaseInstanceId,
+            payload.Operation.ToString(),
+            options.ExecutorWorkloadClass,
+            evidenceManifestSha256);
+        var grant = new A4AuthorizationGrantV1(
+            storedGrant.GrantAuthorization.AuthorizationId,
+            storedGrant.ResourceVersion,
+            plan,
+            transport.WorkloadIdentity,
+            header.RequestId,
+            header.CanonicalPayloadSha256,
+            options.AuthorizationPolicyArtifactSha256,
+            storedGrant.GrantAuthorization.NotBefore,
+            storedGrant.GrantAuthorization.ExpiresAt,
+            A4AuthorizationGrantStateV1.ACTIVE);
+        if (payload.Operation.ToString().StartsWith("AUTHORIZE_", StringComparison.Ordinal))
+        {
+            return new(A4CompositeOperationKindV1.Authorize, header.CanonicalPayloadSha256,
+                Authorization: grant);
+        }
+        if (payload.Operation == ControllerOperationV2.ACQUIRE_EXECUTION_LEASE)
+        {
+            return new(A4CompositeOperationKindV1.AcquireExecutionLease, header.CanonicalPayloadSha256,
+                LeaseAcquisition: new(header.RequestId, header.CanonicalPayloadSha256,
+                    grant.GrantId, grant.GrantVersion, plan, transport.WorkloadIdentity,
+                    options.LeaseIssuerIdentity, header.ExpiresAt, snapshot.ResourceVersion));
+        }
+        return BuildA4ExecutionOrReconciliation(payload, header, snapshot, options, grant, plan, now);
+    }
+
+    private static A4CompositeOperationRequestV1? BuildA4ExecutionOrReconciliation(
+        CanonicalCommandPayloadV2 payload,
+        CanonicalSignedHeaderV2 header,
+        AuthoritativeControlPlaneSnapshotV3 snapshot,
+        ControlPlaneOptions options,
+        A4AuthorizationGrantV1 grant,
+        A4ExecutionPlanBindingV1 plan,
+        DateTimeOffset now)
+    {
+        if (payload.Operation == ControllerOperationV2.RECONCILE_TERMINAL_RESULT)
+        {
+            return new(A4CompositeOperationKindV1.ReconcileTerminalResult,
+                header.CanonicalPayloadSha256);
+        }
+        if (payload.Operation != ControllerOperationV2.BEGIN_EXECUTE_AUTHORIZED_PLAN || snapshot.Lease is null)
+        {
+            return null;
+        }
+        var source = snapshot.Lease;
+        var lease = new A4ExecutionLeaseReceiptV1(
+            source.LeaseId, 1, grant.GrantId, grant.GrantVersion,
+            source.LeaseId, grant.AuthorizationRequestSha256, plan,
+            plan.ExecutorWorkloadIdentity, options.LeaseIssuerIdentity,
+            now, source.ExpiresAt, source.ControllerEpoch, source.FencingToken,
+            snapshot.ResourceVersion);
+        var reserved = grant with
+        {
+            State = A4AuthorizationGrantStateV1.RESERVED,
+            ReservedLeaseId = lease.LeaseId
+        };
+        var job = new A4TargetExecutionJobV1(
+            header.RequestId, header.CanonicalPayloadSha256, reserved, lease, now);
+        return new(A4CompositeOperationKindV1.BeginExecuteAuthorizedPlan,
+            header.CanonicalPayloadSha256, ExecutionJob: job);
+    }
+
     private static string HashEvidenceRequirements(IReadOnlyList<string> requirements) =>
         Convert.ToHexString(SHA256.HashData(CanonicalJsonV1.Serialize(requirements))).ToLowerInvariant();
 
@@ -923,7 +1005,10 @@ public sealed class PhaseAControlPlaneAuthority(
                 now,
                 expectedProvider,
                 expectedLifecycleController,
-                proposed),
+                proposed,
+                SignedCommandServiceV2.BuildA4Operation(
+                    payload, header, storedGrant, authoritativeSnapshot, options,
+                    approvedIntentSha256, evidenceManifestSha256, transportIdentity, now)),
             cancellationToken);
         Require(transaction.Outcome is ControlTransactionOutcomeV3.FIRST_OWNER or
                     ControlTransactionOutcomeV3.COMPLETED_REPLAY &&

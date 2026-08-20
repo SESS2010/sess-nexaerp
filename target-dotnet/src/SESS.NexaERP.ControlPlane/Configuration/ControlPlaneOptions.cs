@@ -25,6 +25,14 @@ public sealed class ControlPlaneOptions
     public string LifecycleControllerContractVersion { get; init; } = string.Empty;
     public string LifecycleControllerArtifactSha256 { get; init; } = string.Empty;
     public string AuthorizationPolicyArtifactSha256 { get; init; } = string.Empty;
+    public string ManagementAuthorizerIdentity { get; init; } = "phase-a-management-authorizer";
+    public string LeaseIssuerIdentity { get; init; } = "phase-a-lease-issuer";
+    public string ExecutorWorkloadClass { get; init; } = "phase-a-plan-executor";
+    public string TargetExecutionProviderIdentity { get; init; } = "phase-a-target-execution-provider";
+    public string ReconciliationAuthorityIdentity { get; init; } = "phase-a-reconciliation-authority";
+    public string A4BoundaryContractVersion { get; init; } = Rev869BPhaseACompatibilityManifest.OwnershipContractVersion;
+    public string TargetExecutionProviderArtifactSha256 { get; init; } = new('a', 64);
+    public string ReconciliationAuthorityArtifactSha256 { get; init; } = new('a', 64);
     public string CanonicalEnvelopeVersion { get; init; } = string.Empty;
     public string RetentionPolicyReference { get; init; } = string.Empty;
     public int MaximumEvidenceObservations { get; init; }
@@ -65,6 +73,9 @@ public sealed class ControlPlaneOptions
             value.LifecycleControllerContractVersion != Rev869BPhaseACompatibilityManifest.OwnershipContractVersion ||
             !IsLowerSha256(value.LifecycleControllerArtifactSha256) ||
             !IsLowerSha256(value.AuthorizationPolicyArtifactSha256) ||
+            value.A4BoundaryContractVersion != Rev869BPhaseACompatibilityManifest.OwnershipContractVersion ||
+            !IsLowerSha256(value.TargetExecutionProviderArtifactSha256) ||
+            !IsLowerSha256(value.ReconciliationAuthorityArtifactSha256) ||
             value.CanonicalEnvelopeVersion != Rev869BPhaseACompatibilityManifest.CanonicalEnvelopeVersion ||
             value.MaximumEvidenceObservations is < 3 or > PhaseAContractLimits.MaximumObservations ||
             value.MaximumFactsPerObservation is < 1 or > PhaseAContractLimits.MaximumFactsPerObservation ||
@@ -87,6 +98,22 @@ public sealed class ControlPlaneOptions
             !IsPlaceholderHttpsEndpoint(value.ControlPlaneEndpoint) ||
             !IsPlaceholderHttpsEndpoint(value.AcceptanceVerifierEndpoint) ||
             value.ControlPlaneEndpoint == value.AcceptanceVerifierEndpoint)
+        {
+            return false;
+        }
+
+        var separatedIdentities = new[]
+        {
+            value.ManagementAuthorizerIdentity,
+            value.LeaseIssuerIdentity,
+            value.ExecutorWorkloadClass,
+            value.TargetExecutionProviderIdentity,
+            value.ReconciliationAuthorityIdentity
+        };
+        if (separatedIdentities.Any(string.IsNullOrWhiteSpace) ||
+            separatedIdentities.Distinct(StringComparer.Ordinal).Count() != separatedIdentities.Length ||
+            separatedIdentities.Contains(value.ServiceIdentity, StringComparer.Ordinal) ||
+            separatedIdentities.Contains(value.LifecycleControllerIdentity, StringComparer.Ordinal))
         {
             return false;
         }
@@ -137,6 +164,18 @@ public sealed class ControlPlaneOptions
         LifecycleControllerIdentity,
         LifecycleControllerContractVersion,
         LifecycleControllerArtifactSha256,
+        ReadinessPolicyVersion);
+
+    public TrustedComponentDescriptorV3 TargetExecutionProviderDescriptor() => new(
+        TargetExecutionProviderIdentity,
+        A4BoundaryContractVersion,
+        TargetExecutionProviderArtifactSha256,
+        ReadinessPolicyVersion);
+
+    public TrustedComponentDescriptorV3 ReconciliationAuthorityDescriptor() => new(
+        ReconciliationAuthorityIdentity,
+        A4BoundaryContractVersion,
+        ReconciliationAuthorityArtifactSha256,
         ReadinessPolicyVersion);
 
     private static bool ContainsProhibitedProductionIdentity(string value) =>

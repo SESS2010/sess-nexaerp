@@ -548,7 +548,10 @@ public enum ControllerOperationV2
     EXPORT,
     COMPLETE_EXPORT,
     CANCEL,
-    EXPIRE
+    EXPIRE,
+    ACQUIRE_EXECUTION_LEASE,
+    BEGIN_EXECUTE_AUTHORIZED_PLAN,
+    RECONCILE_TERMINAL_RESULT
 }
 
 public enum ControllerAuthorizationStatusV2
@@ -842,6 +845,39 @@ public enum AuthorizationGrantStateV3
     EXPIRED
 }
 
+public enum A4ControllerLifecycleStatusV1
+{
+    Draft,
+    Rejected,
+    Authorized,
+    LeaseActive,
+    Executing,
+    Succeeded,
+    Failed,
+    Expired,
+    Revoked,
+    Cancelled,
+    Quarantined
+}
+
+public enum A4AuthorizationGrantStateV1
+{
+    ACTIVE,
+    RESERVED,
+    CONSUMED,
+    REVOKED,
+    EXPIRED,
+    REJECTED
+}
+
+public enum A4CompositeOperationKindV1
+{
+    Authorize,
+    AcquireExecutionLease,
+    BeginExecuteAuthorizedPlan,
+    ReconcileTerminalResult
+}
+
 public enum ExportAuthorizationSubstateV3
 {
     NONE,
@@ -1069,6 +1105,113 @@ public sealed record TrustedComponentDescriptorV3(
     string ArtifactSha256,
     string ReadinessPolicyVersion);
 
+public sealed record A4ExecutionPlanBindingV1(
+    string PlanId,
+    long PlanVersion,
+    string PlanSha256,
+    string OrganizationId,
+    string TargetIdentity,
+    string Operation,
+    string ExecutorWorkloadIdentity,
+    string EvidenceManifestSha256);
+
+public sealed record A4AuthorizationGrantV1(
+    string GrantId,
+    long GrantVersion,
+    A4ExecutionPlanBindingV1 Plan,
+    string AuthorizerWorkloadIdentity,
+    string AuthorizationRequestId,
+    string AuthorizationRequestSha256,
+    string PolicyArtifactSha256,
+    DateTimeOffset NotBefore,
+    DateTimeOffset ExpiresAt,
+    A4AuthorizationGrantStateV1 State,
+    string? ReservedLeaseId = null,
+    DateTimeOffset? ConsumedAt = null);
+
+public sealed record A4LeaseAcquisitionRequestV1(
+    string AcquisitionRequestId,
+    string AcquisitionRequestSha256,
+    string GrantId,
+    long GrantVersion,
+    A4ExecutionPlanBindingV1 Plan,
+    string ExecutorWorkloadIdentity,
+    string LeaseIssuerWorkloadIdentity,
+    DateTimeOffset RequestedExpiresAt,
+    long ExpectedLifecycleVersion);
+
+public sealed record A4ExecutionLeaseReceiptV1(
+    string LeaseId,
+    long LeaseVersion,
+    string GrantId,
+    long GrantVersion,
+    string AcquisitionRequestId,
+    string AcquisitionRequestSha256,
+    A4ExecutionPlanBindingV1 Plan,
+    string ExecutorWorkloadIdentity,
+    string LeaseIssuerWorkloadIdentity,
+    DateTimeOffset IssuedAt,
+    DateTimeOffset ExpiresAt,
+    long ControllerEpoch,
+    long FencingToken,
+    long LifecycleVersion,
+    bool Closed = false);
+
+public sealed record A4TargetExecutionJobV1(
+    string ExecutionId,
+    string ExecutionRequestSha256,
+    A4AuthorizationGrantV1 Grant,
+    A4ExecutionLeaseReceiptV1 Lease,
+    DateTimeOffset DispatchedAt);
+
+public sealed record A4TargetTerminalResultV1(
+    string ExecutionId,
+    string ExecutionRequestSha256,
+    string GrantId,
+    long GrantVersion,
+    string LeaseId,
+    long FencingToken,
+    A4ExecutionPlanBindingV1 Plan,
+    bool Succeeded,
+    string BusinessResultSha256,
+    string TargetTransactionId,
+    string TargetAuditReceipt,
+    string TargetOutboxReceipt,
+    DateTimeOffset CommittedAt);
+
+public sealed record A4ReconciliationRequestV1(
+    string ReconciliationId,
+    string ReconciliationRequestSha256,
+    A4TargetTerminalResultV1 TargetResult,
+    long ExpectedLifecycleVersion,
+    string ReconcilerWorkloadIdentity);
+
+public sealed record A4ControlStateV1(
+    A4ControllerLifecycleStatusV1 LifecycleStatus,
+    long LifecycleVersion,
+    A4AuthorizationGrantV1? Grant,
+    A4ExecutionLeaseReceiptV1? Lease,
+    A4TargetExecutionJobV1? Dispatch,
+    A4TargetTerminalResultV1? TerminalResult,
+    string? ReconciliationRequestId,
+    string? ReconciliationRequestSha256,
+    bool AuditOutboxCommitted);
+
+public sealed record A4CompositeOperationRequestV1(
+    A4CompositeOperationKindV1 Kind,
+    string CanonicalRequestSha256,
+    A4AuthorizationGrantV1? Authorization = null,
+    A4LeaseAcquisitionRequestV1? LeaseAcquisition = null,
+    A4TargetExecutionJobV1? ExecutionJob = null,
+    A4ReconciliationRequestV1? Reconciliation = null);
+
+public sealed record A4CompositeOperationResultV1(
+    ControlTransactionOutcomeV3 Outcome,
+    A4ControlStateV1 State,
+    bool AuditOutboxCommitted,
+    A4ExecutionLeaseReceiptV1? LeaseReceipt = null,
+    A4TargetTerminalResultV1? TargetResult = null);
+
 public sealed record StoredAuthorizationGrantV3(
     ResolvedAuthorizationV3 GrantAuthorization,
     string GrantKeyId,
@@ -1169,7 +1312,8 @@ public sealed record ControlPlaneTransactionRequestV3(
     DateTimeOffset ServerNow,
     TrustedComponentDescriptorV3 ExpectedProvider,
     TrustedComponentDescriptorV3 ExpectedLifecycleController,
-    LifecycleTransitionResultV3 ProposedTransition);
+    LifecycleTransitionResultV3 ProposedTransition,
+    A4CompositeOperationRequestV1? A4Operation = null);
 
 public sealed record ControlPlaneTransactionResultV3(
     ControlTransactionOutcomeV3 Outcome,
@@ -1179,7 +1323,8 @@ public sealed record ControlPlaneTransactionResultV3(
     bool FenceConsumed,
     bool AuditOutboxCommitted,
     string CommittedGrantSha256,
-    string CommittedApprovedIntentSha256);
+    string CommittedApprovedIntentSha256,
+    A4CompositeOperationResultV1? A4Result = null);
 
 public sealed record OracleDescriptorV3(
     string OracleId,
@@ -1507,6 +1652,22 @@ public interface IDurableControlPlanePersistenceProvider
         CancellationToken cancellationToken = default);
     ValueTask<ControlPlaneTransactionResultV3> ExecuteAtomicallyAsync(
         ControlPlaneTransactionRequestV3 request,
+        CancellationToken cancellationToken = default);
+}
+
+public interface ITargetAuthorizedPlanExecutionProvider
+{
+    TrustedComponentDescriptorV3 Descriptor { get; }
+    ValueTask<A4TargetTerminalResultV1> ExecuteAuthorizedPlanAtomicallyAsync(
+        A4TargetExecutionJobV1 job,
+        CancellationToken cancellationToken = default);
+}
+
+public interface IAuthoritativeTargetResultProvider
+{
+    TrustedComponentDescriptorV3 Descriptor { get; }
+    ValueTask<A4TargetTerminalResultV1?> ReadTerminalResultAsync(
+        string executionId,
         CancellationToken cancellationToken = default);
 }
 

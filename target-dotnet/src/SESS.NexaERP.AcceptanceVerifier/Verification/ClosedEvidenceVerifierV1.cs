@@ -568,6 +568,23 @@ public sealed class PhaseAAcceptanceVerifierAuthority(
             selectedReaders.Add(selected!);
         }
 
+        foreach (var descriptor in selectedReaders)
+        {
+            var declared = evidence.AuthoritativeBundles.Single(bundle =>
+                bundle.ReaderId == descriptor.ReaderId);
+            Require(descriptor.ReaderVersion == declared.ReaderVersion &&
+                    descriptor.ArtifactSha256 == declared.ReaderArtifactSha256 &&
+                    descriptor.SchemaVersion == declared.SchemaVersion &&
+                    descriptor.RequiredStage == declared.Binding.Stage &&
+                    BindingMatchesExpectation(declared.Binding, trustedExpectation) &&
+                    descriptor.AllowedOrganizations.Contains(declared.Binding.Scope.OrganizationId) &&
+                    descriptor.AllowedResourceTypes.Contains(declared.Binding.ResourceType) &&
+                    options.AllowedClusterIds.Contains(declared.Binding.Scope.DatabaseClusterId, StringComparer.Ordinal) &&
+                    options.AllowedInstanceIds.Contains(declared.Binding.Scope.DatabaseInstanceId, StringComparer.Ordinal) &&
+                    declared.Facts.Count <= Math.Min(descriptor.MaximumFacts, options.MaximumFactsPerObservation),
+                TrustFailureCodeV2.READER_UNAUTHORIZED);
+        }
+
         var oracle = await oracleRegistry.ResolveAsync(evidence.OracleId, cancellationToken);
         Require(oracle is not null &&
                 oracle.OracleId == options.OracleId &&

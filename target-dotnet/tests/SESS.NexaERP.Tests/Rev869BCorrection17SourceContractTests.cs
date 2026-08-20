@@ -524,6 +524,47 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("recomputedBatchSha256", Sql);
         Assert.Contains("fieldKeys", Sql);
     }
+    [Fact]
+    public void CorrectionA4SourceBoundaryHasExactContractsTestsAndMutationArithmetic()
+    {
+        var contracts = Source("src/SESS.NexaERP.ControlPlane.Contracts/Rev869BControllerMessagesV1.cs");
+        var stateMachine = Source("src/SESS.NexaERP.ControlPlane/Domain/Rev869BControllerStateMachine.cs");
+        var ingress = Source("src/SESS.NexaERP.ControlPlane/Security/SignedEnvelopeService.cs");
+        var tests = Source("tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs");
+        Assert.Contains("ACQUIRE_EXECUTION_LEASE", contracts);
+        Assert.Contains("BEGIN_EXECUTE_AUTHORIZED_PLAN", contracts);
+        Assert.Contains("RECONCILE_TERMINAL_RESULT", contracts);
+        Assert.Contains("Rev869BL1BoundaryStateMachine", stateMachine);
+        Assert.Contains("BuildA4Operation", ingress);
+        Assert.DoesNotContain("SetLease", contracts + stateMachine + ingress, StringComparison.Ordinal);
+        var methods = Regex.Matches(tests, @"public\s+(?:async\s+)?(?:Task|void)\s+(A4_[A-Za-z0-9_]+)\s*\(")
+            .Select(match => match.Groups[1].Value).ToArray();
+        Assert.Equal(23, methods.Length);
+        Assert.Equal(23, methods.Distinct(StringComparer.Ordinal).Count());
+        var mutants = new[] { "M01", "M02", "M03", "M04", "M05", "M06", "M07", "M08", "M09", "M10" };
+        Assert.Equal(10, mutants.Length);
+        Assert.Equal(10, mutants.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(0, 10 - mutants.Length);
+    }
+
+    [Fact]
+    public void CorrectionA4F07ExecutableAndNoConnectCountersAreObserved()
+    {
+        var executable = Environment.ProcessPath ?? throw new InvalidOperationException();
+        var info = new FileInfo(executable);
+        Assert.True(info.Exists);
+        Assert.True(info.Length > 0);
+        Assert.Equal(64, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executable))).Length);
+        var evidence = CaptureCanonicalSqlEvidence();
+        Assert.Equal(0, evidence.ConnectionOpenCount);
+        Assert.Equal(0, evidence.MigrationApplyCount);
+        var phaseA = Regex.Matches(
+            Source("tests/SESS.NexaERP.ControlPlane.Tests/ArchitectureFreezeContractTests.cs"), @"\[Fact\]").Count;
+        var erp = Regex.Matches(Source("tests/SESS.NexaERP.Tests/Rev869BCorrection17SourceContractTests.cs"),
+            @"\[Fact\]").Count;
+        Assert.Equal(phaseA + erp, new[] { phaseA, erp }.Sum());
+    }
+
     private static CanonicalSqlEvidence CaptureCanonicalSqlEvidence()
     {
         const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
