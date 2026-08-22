@@ -131,7 +131,107 @@ Retained gates:
 
 ---
 
-## Latest controlling blocker: package-lock reproducibility from `141b316`
+## ERP Infrastructure project-aware lock drift from `fadcdd4`
+
+Date: 2026-08-22
+
+This section records the management-re-authorized attempt from exact HEAD
+`fadcdd48731dee78fc1b50354af85982fba337b4`, parent
+`7e015878dc5e36f8a7f908e6b544be88279c7550`, branch `master`. It supersedes every earlier next-gate statement in
+this retained blocker report.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+### Exact blocker
+
+The latest reconciliation corrected the Control Plane Persistence lock for its real Contracts project-reference
+graph, but it did not reconcile the second required project-local lock for the real ERP Infrastructure graph.
+The frozen official package-verification evidence gives the ERP package-only lock as:
+
+```text
+packages.lock.json_sha256=CF17917E57148E4E35D6C483CEF990615C11405EFD97DE3AB562FD98759E004E
+nuget_package_nodes=41
+project_reference_nodes=0
+```
+
+The authorized production graph requires ERP Infrastructure to reference Application, Domain and
+Control Plane Contracts. Before any implementation edit, an isolated disposable copy of those exact committed
+projects was created. The sole future graph changes in that copy were the already-frozen
+`Infrastructure -> ControlPlane.Contracts` edge and `RestorePackagesWithLockFile=true`. A restore used only the
+previously verified local 41-archive source, an isolated packages directory, `--no-cache`,
+`--force-evaluate` and `NuGetAudit=false`. It succeeded with zero warnings and zero errors and generated:
+
+```text
+packages.lock.json_bytes=16501
+packages.lock.json_sha256=06DF9719F8A02E344C4F565DBB538DD5E39F5D49B600081291FC940EF1E1F953
+nuget_package_nodes=41
+project_reference_nodes=3
+total_lock_nodes=44
+project_nodes=sess.nexaerp.application,sess.nexaerp.controlplane.contracts,sess.nexaerp.domain
+```
+
+The 41 NuGet package count remains exact; the additional entries are structural `Project` nodes and are not NuGet
+packages. Nevertheless, the required real-project lock bytes and SHA-256 differ from the frozen ERP lock. The latest
+project-aware reconciliation froze only the Control Plane Persistence lock
+`4D99C6E0124356EB289FCB231E89A6534A6BB1FAE1F42A5A01BCFE0D60F89DEB`; it supplied no authoritative replacement
+for the ERP Infrastructure lock. Committing `06DF...` would therefore violate the binding no-lock-drift rule, while
+committing `CF179...` would not represent the required real Infrastructure project graph.
+
+This is a reproducible lock-evidence boundary defect, not a package-content, Purchase source, migration, test or
+runtime defect. It triggers the explicit mandatory stop conditions: “package or lock identity drifts” and
+“project-aware lock differs.”
+
+### Stop evidence
+
+The stop occurred before source, test, project, solution, migration, lock or checkpoint edits in the target
+worktree. Consequently no implementation rollback operation was necessary. The only retained target change is this
+authorized blocker report.
+
+```text
+implementation_files_edited=0
+implementation_checkpoint_created=0
+production_mutants_executed=0/40
+network_package_sources=0
+package_downloads=0
+postgresql_connection_attempts=0
+postgresql_connections=0
+migration_creations=0
+migration_applications=0
+migration_removals=0
+service_starts=0
+deployments=0
+production_access=0
+phase_b_work=0
+correction_2_work=0
+```
+
+The target-scoped status was clean immediately before this report edit. The external legacy sibling was not
+accessed, enumerated, hashed or modified.
+
+### Required next decision
+
+A separate report-only package-lock reconciliation must reproduce and freeze the ERP Infrastructure lock from its
+complete real project graph, including all three project-reference nodes, and must state its exact bytes, SHA-256,
+node arithmetic and offline locked-replay evidence. It must explicitly supersede the package-only
+`CF17917E...` lock for the real Infrastructure project. No source implementation resumes automatically.
+
+Retained gates:
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
+---
+
+## Earlier controlling blocker: package-lock reproducibility from `141b316`
 
 Date: 2026-08-22
 
@@ -230,6 +330,15 @@ Retained gates:
 
 ---
 
+## Chronology note
+
+The ERP Infrastructure project-aware lock drift recorded for the `fadcdd4` attempt is the latest controlling
+blocker and supersedes the chronologically earlier stopped-attempt sections retained after it.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+---
+
 ## Superseding stopped implementation attempt from `d0261c7`
 
 Date: 2026-08-22
@@ -305,3 +414,13 @@ Retained gates:
 `external_provisioning_state=NOT_STARTED`
 
 `production_readiness_state=NOT_READY`
+
+---
+
+## Current controlling decision
+
+The ERP Infrastructure project-aware lock drift recorded for the `fadcdd4` attempt is the latest controlling
+blocker. It supersedes every next-gate statement in all chronologically earlier stopped-attempt sections retained in
+this report.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
