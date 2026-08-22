@@ -131,6 +131,105 @@ Retained gates:
 
 ---
 
+## Latest controlling blocker: package-lock reproducibility from `141b316`
+
+Date: 2026-08-22
+
+This latest controlling section records the management-re-authorized, strict target-only attempt from exact HEAD
+`141b316245475ddbd861c7dfc4aa0838c4067d11`, parent
+`d0261c7ae178d1596786090fe9d2bc8dc5005048`, branch `master`. It supersedes every next-gate statement in the retained
+earlier stopped-attempt records, including the chronologically earlier `d0261c7` record preserved below.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+### Exact blocker
+
+The frozen Control Plane lock and the frozen required production project graph cannot both pass NuGet locked-mode
+restore.
+
+Using only the previously verified local 41-archive source, a package-only Control Plane Persistence restore produced
+the frozen lock exactly:
+
+```text
+package_identity_count=35
+packages.lock.json_bytes=13361
+packages.lock.json_sha256=64DC53ED03457021DFCBC985D9C8C5C0468B82BB102BC8382C3D920827137AA6
+```
+
+After restoring the mandatory production edge
+`SESS.NexaERP.ControlPlane.Persistence -> SESS.NexaERP.ControlPlane.Contracts`, the exact offline locked-mode restore
+failed with `NU1004`:
+
+```text
+A new project reference to SESS.NexaERP.ControlPlane.Contracts was found for net10.0 target framework.
+The packages lock file is inconsistent with the project dependencies so restore can't be run in locked mode.
+```
+
+Regenerating the lock with that required edge retained the same 35 package identities but added NuGet's required
+`sess.nexaerp.controlplane.contracts` entry of type `Project`. The resulting real-project lock was 13,446 bytes with
+SHA-256 `4D99C6E0124356EB289FCB231E89A6534A6BB1FAE1F42A5A01BCFE0D60F89DEB`. Its dependency table had 36 entries: 35
+packages and one project reference. That byte identity differs from the frozen `64DC...` lock and therefore cannot be
+committed under the no-lock-drift acceptance rule.
+
+The local restore also transiently materialized
+`src/SESS.NexaERP.ControlPlane.Contracts/packages.lock.json` because `--use-lock-file` applied to the referenced
+project. That path is not in the 39-path allowlist. It was removed during rollback and is not retained.
+
+This is reproducible package-lock/graph evidence, not a package artifact, source, migration, Purchase-rule or test
+defect. No package version or package content hash changed. The frozen lock evidence was generated from a package-only
+probe, while the authorized implementation requires a project reference that NuGet represents in the real project
+lock.
+
+### Stop and rollback evidence
+
+The mandatory stop was taken before migration generation, test creation, mutant execution or checkpoint creation.
+All tracked implementation changes were restored from exact HEAD `141b316245475ddbd861c7dfc4aa0838c4067d11`.
+All untracked implementation artifacts, including the transient Contracts lock, were removed by exact
+workspace-validated paths. Before this report-only edit, target-scoped status, tracked diff and untracked-file output
+were empty.
+
+```text
+warning_as_error_infrastructure_builds=1/1 PASS
+control_plane_locked_restore=FAIL NU1004
+production_mutants_executed=0/40
+network_package_sources=0
+package_downloads=0
+postgresql_connection_attempts=0
+postgresql_connections=0
+migration_creations=0
+migration_applications=0
+migration_removals=0
+service_starts=0
+deployments=0
+production_access=0
+phase_b_work=0
+correction_2_work=0
+implementation_checkpoint_created=0
+```
+
+### Required next decision
+
+A separate report-only architecture/package reconciliation must freeze a lock protocol for the real
+Control Plane Persistence project graph. It must either authorize the real-project lock including the required
+Contracts project entry and its exact hash, or define and justify a different reproducible locked-restore mechanism
+that does not contradict the required project edge. No source implementation resumes automatically.
+
+Retained gates:
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
+---
+
 ## Superseding stopped implementation attempt from `d0261c7`
 
 Date: 2026-08-22
