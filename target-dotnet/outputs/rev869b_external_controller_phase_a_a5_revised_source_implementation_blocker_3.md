@@ -142,6 +142,101 @@ this retained blocker report.
 
 `A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
 
+---
+
+## Superseding stopped implementation attempt from `65aff803`
+
+Date: 2026-08-22
+
+This section records the management-re-authorized implementation attempt from exact HEAD
+`65aff8032551c00b24e5898056a0c2336c569e36`, parent
+`6b72ba8766281bab8e7bb2dffde8a1b9671de81e`, branch `master`. It supersedes the earlier controlling-decision and
+next-gate statements in this retained blocker report.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+### Exact mandatory stop
+
+The authorization required immediate rollback if **any** build or test failed. During candidate development, the
+first exact 30-test A5 invocation returned `29/30`: the failed test was
+`A5_EachActionInvokesExactlyItsExistingPurchaseMethodWithDerivedIdempotencyAndNoDirectBusinessDml`. Its original
+source assertion looked only for a method token immediately followed by `(` and did not accommodate the production
+call formatting. The assertion was corrected and the exact A5 rerun subsequently passed `30/30`, but the later pass
+does not erase the explicit "any build/test fails" stop condition. An earlier retained-A4 diagnostic invocation had
+also failed before the candidate's provenance and required-option handling was completed; its corrected rerun passed
+`23/23`.
+
+This is a failed-gate-history blocker. It is not evidence of an unresolved Purchase production-source defect, a
+package-identity defect, lock drift, a migration defect or PostgreSQL behavior. Because the stop rule is absolute,
+the complete test assemblies, EF/model/SQL acceptance and all 40 production mutants were not run after recognizing
+the controlling failure history. No partial evidence is promoted to A5 acceptance.
+
+### Entry and partial diagnostic evidence
+
+- starting lineage and branch: exact;
+- ERP project-aware lock report SHA-256:
+  `3B51F719B747EF490CA002C4F1171AD5072A2EE2BDBE233A7714C337F7C13406`;
+- Control Plane project-aware lock report SHA-256:
+  `336F45F661BA1194762EE2CEDD6EA980E66E0896CCE328ACAE5F4A3ECF262A95`;
+- regenerated ERP Infrastructure lock SHA-256:
+  `06DF9719F8A02E344C4F565DBB538DD5E39F5D49B600081291FC940EF1E1F953`, with `41` NuGet package nodes,
+  `3` project-reference nodes and `44` total nodes;
+- regenerated Control Plane Persistence lock SHA-256:
+  `4D99C6E0124356EB289FCB231E89A6534A6BB1FAE1F42A5A01BCFE0D60F89DEB`, with `35` NuGet package nodes,
+  `1` Contracts project-reference node and `36` total nodes;
+- verified offline warning-free candidate builds: Control Plane Persistence and ERP API graphs;
+- corrected diagnostic test results: A5 `30/30`, retained A4 `23/23`, unique total `53`;
+- disposable EF migration generation: Control Plane initial `1`, ERP A5 target `1`;
+- package downloads and HTTP package sources: `0`;
+- PostgreSQL connection attempts/connections: `0/0`;
+- migration applications/removals: `0/0`;
+- production mutants executed/reused: `0/40` and `0`.
+
+The generated migrations and every source, test, project, solution, snapshot and lock change were diagnostic
+candidate artifacts only and have been rolled back. The diagnostic results above are not an acceptance checkpoint.
+
+### Rollback proof
+
+Every tracked implementation path was restored from the authorized starting commit. Every untracked implementation
+path was removed by exact, workspace-validated path. The isolated migration worktree under the system temporary
+directory was removed after its absolute path was validated. Before this report edit, target-scoped status was empty.
+
+```text
+retained_implementation_paths=0
+implementation_checkpoint_created=0
+blocker_report_paths_changed=1
+network_downloads=0
+postgresql_connection_attempts=0
+postgresql_connections=0
+migration_applications=0
+migration_removals=0
+service_starts=0
+deployments=0
+production_access=0
+phase_b_work=0
+correction_2_work=0
+```
+
+### Required next gate
+
+The exact next gate is a fresh management decision on this blocker-only commit. A future implementation attempt
+requires new bounded reauthorization and must start from that new exact report-only HEAD; no source implementation,
+test execution or mutant campaign resumes automatically.
+
+Retained gates:
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
 ### Exact blocker
 
 The latest reconciliation corrected the Control Plane Persistence lock for its real Contracts project-reference
@@ -422,5 +517,16 @@ Retained gates:
 The ERP Infrastructure project-aware lock drift recorded for the `fadcdd4` attempt is the latest controlling
 blocker. It supersedes every next-gate statement in all chronologically earlier stopped-attempt sections retained in
 this report.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+---
+
+## Current controlling decision from `65aff803`
+
+The failed-gate-history blocker recorded above for the attempt from
+`65aff8032551c00b24e5898056a0c2336c569e36` is the latest controlling decision. It supersedes every earlier
+controlling-decision and next-gate statement retained in this report. The implementation remains fully rolled back;
+the exact next gate is a fresh management decision on this blocker-only commit.
 
 `A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
