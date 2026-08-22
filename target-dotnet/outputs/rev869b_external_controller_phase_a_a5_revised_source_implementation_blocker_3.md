@@ -144,6 +144,121 @@ this retained blocker report.
 
 ---
 
+## Superseding fresh-attempt protocol-integrity blocker from `2a4320a`
+
+Date: 2026-08-22
+
+This section records the fresh bounded attempt authorized from exact target HEAD
+`2a4320a6e5f69ec9d7df3bfae36977ab798880d0`. It supersedes every earlier controlling-decision and next-gate
+statement retained in this report.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+### Exact mandatory stop
+
+Formal acceptance stopped after command 6 because the candidate-freeze precondition was not valid for the final
+corrected test blob. The required individual historical-oracle and negative-substitution development checks ran from
+`2026-08-22T18:13:38.1664322+05:30` through `2026-08-22T18:13:55.8338539+05:30`. The final
+`tests/SESS.NexaERP.Tests/Rev869BCorrection17SourceContractTests.cs` was subsequently written at
+`2026-08-22T18:22:45+05:30`, before freeze. Its frozen SHA-256 is
+`9C500CEBDD4A4939AC8370864ABB294FF4C024D8BC53D02859B70769E6F88C22` and Git blob is
+`82433f7960784e1ffe6c0908dfd4f4564d389947`.
+
+The final source compiled successfully at `2026-08-22T18:24:38+05:30`, and the formal ERP suite exercised that
+compiled source. However, the mandatory pre-freeze negative checks for substituted commit, path, expected hash and
+removed current invariant were not rerun against that final blob. Formal execution cannot retrospectively replace
+missing development evidence. After `FORMAL_ACCEPTANCE_GATE_STARTED`, the protocol prohibited modification or
+retry. This is an acceptance-evidence sequencing defect, not evidence of a Purchase production-source, A3 historical,
+package, migration or PostgreSQL defect.
+
+Decisive read-only timestamp/hash output:
+
+```text
+source LastWriteTime : 8/22/2026 6:22:45 PM
+source Length        : 65211
+test DLL LastWriteTime : 8/22/2026 6:24:38 PM
+test DLL Length        : 1463296
+source SHA-256          : 9C500CEBDD4A4939AC8370864ABB294FF4C024D8BC53D02859B70769E6F88C22
+candidate Git blob      : 82433f7960784e1ffe6c0908dfd4f4564d389947
+```
+
+The final candidate retained the positive historical Git-blob oracle and current semantic invariant. The blocker is
+solely that its exact final bytes did not receive the required pre-freeze negative-substitution execution sequence.
+
+### Candidate and formal evidence
+
+```text
+candidate_commit=f509d76516779d6f7cbfd0d27d6b7b500dc48ef8
+candidate_parent=2a4320a6e5f69ec9d7df3bfae36977ab798880d0
+candidate_tree=320e32eaefa1f84f883670f4a4d7de3bab05720a
+candidate_changed_paths=33
+candidate_manifest_sha256=0A470C3AB6D61EB0390D87C886650EE85011B3F2AFD45B79730B5D132DE09680
+unauthorized_candidate_paths=0
+candidate_status_at_freeze=clean
+target_status_at_freeze=clean
+control_lock_sha256=4D99C6E0124356EB289FCB231E89A6534A6BB1FAE1F42A5A01BCFE0D60F89DEB
+erp_lock_sha256=06DF9719F8A02E344C4F565DBB538DD5E39F5D49B600081291FC940EF1E1F953
+```
+
+Formal results before stop were: A5 first process `30/30 PASS`; A5 second process `30/30 PASS`; retained A4
+`23/23 PASS`; complete Phase-A Control Plane `116/116 PASS`; focused REV869B non-PostgreSQL `81/81 PASS`;
+and complete ERP non-PostgreSQL `455/455 PASS`. All exited `0`.
+
+No later formal command ran. PowerShell AST validation, EF discovery, migration/model/SQL evidence, formal locked
+restores, final scans, formal diff checks and all 40 mutants were not executed after the stop. No partial PASS is
+promoted to acceptance.
+
+### Development feedback and rollback proof
+
+Before freeze, the final solution warning-as-error build passed with zero warnings/errors; A5 passed `30/30`;
+retained A4 passed `23/23`; Control Plane passed `116/116`; and the complete ERP non-PostgreSQL suite passed.
+The authoritative unstable A5 action-dispatch test passed in ten fresh processes. These remain
+`DEVELOPMENT_FEEDBACK_ONLY` and do not cure the sequencing blocker.
+
+The real target never received candidate implementation files and remained at exact HEAD
+`2a4320a6e5f69ec9d7df3bfae36977ab798880d0`. No target implementation blob required restoration. This blocker
+report is the only retained target change; no implementation checkpoint was created.
+
+```text
+target_implementation_paths=0
+implementation_checkpoint_created=0
+blocker_report_paths_changed=1
+formal_mutants_executed=0/40
+mutant_results_reused=0
+network_package_sources=0
+package_downloads=0
+postgresql_connection_attempts=0
+postgresql_connections=0
+postgresql_tests_executed=0
+migration_applications=0
+migration_removals=0
+service_starts=0
+deployments=0
+production_access=0
+phase_b_work=0
+correction_2_work=0
+```
+
+### Required next gate
+
+The exact next gate is a fresh management decision on this blocker-only commit. Any later implementation must start
+from a newly authorized exact HEAD in a fresh isolated candidate and rerun the complete development, freeze, formal
+and 40-mutant protocol without reusing this attempt's evidence.
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
+
+---
+
 ## Superseding stopped implementation attempt from `65aff803`
 
 Date: 2026-08-22
@@ -528,5 +643,15 @@ The failed-gate-history blocker recorded above for the attempt from
 `65aff8032551c00b24e5898056a0c2336c569e36` is the latest controlling decision. It supersedes every earlier
 controlling-decision and next-gate statement retained in this report. The implementation remains fully rolled back;
 the exact next gate is a fresh management decision on this blocker-only commit.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+---
+
+## Current controlling decision from `2a4320a`
+
+The fresh-attempt protocol-integrity blocker recorded above for exact starting HEAD
+`2a4320a6e5f69ec9d7df3bfae36977ab798880d0` is the latest controlling decision. It supersedes every earlier
+controlling-decision and next-gate statement retained in this report.
 
 `A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
