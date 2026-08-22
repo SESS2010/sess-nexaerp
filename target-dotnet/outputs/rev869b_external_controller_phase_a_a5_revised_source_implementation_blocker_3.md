@@ -128,3 +128,81 @@ Retained gates:
 `external_provisioning_state=NOT_STARTED`
 
 `production_readiness_state=NOT_READY`
+
+---
+
+## Superseding stopped implementation attempt from `d0261c7`
+
+Date: 2026-08-22
+
+This section records the separately authorized implementation attempt that started from exact HEAD
+`d0261c7ae178d1596786090fe9d2bc8dc5005048`. It supersedes only this report's earlier “Required next decision”
+section. The Option-T1 tooling contradiction documented above had already been resolved by the committed tooling
+reconciliation at the authorized starting HEAD.
+
+`A5_REVISED_SOURCE_IMPLEMENTATION_GATE=STOPPED_ROLLED_BACK`
+
+### Exact blocker
+
+During target-scope accounting, one diagnostic command used
+`git status --short --untracked-files=all`. Git consequently enumerated two child path names beneath the prohibited
+external sibling `../legacy-reference/`. No sibling file was opened, read, hashed, copied, written, deleted or
+otherwise modified, and no file contents or metadata beyond those emitted path names were inspected. Nevertheless,
+the authorization prohibited access to that sibling, and enumeration itself exceeded the permitted evidence
+boundary. The discrepancy was disclosed immediately and treated as a mandatory stop.
+
+### Work reached before the stop
+
+- exact entry lineage, report hashes, branch, one-file HEAD boundary and clean target scope passed;
+- local-only package locks were generated from the previously verified 41-archive source;
+- warning-as-error offline builds passed;
+- A5 aggregate: `30/30 PASS`;
+- retained A4: `23/23 PASS`;
+- complete Control Plane suite: `116/116 PASS`;
+- complete non-PostgreSQL ERP suite: `455/455 PASS`;
+- PostgreSQL tests were discovered by name only and were not executed;
+- EF no-connect discovery enumerated exactly 14 ERP migrations and one Control Plane migration;
+- two disposable model-parity probes each generated zero operations;
+- repeated disposable SQL generation was byte-identical for ERP Up/Down and Control Plane Up/Down;
+- production mutants executed: `0/40`; no mutant result is claimed.
+
+These partial observations cannot establish A5 acceptance because the evidence-boundary violation stopped the run
+before the 40-mutant gate.
+
+### Rollback and prohibited-operation counters
+
+All tracked implementation changes were restored from the authorized starting commit. Every untracked implementation
+path was removed using an exact workspace-validated path. The three exact disposable A5 temp directories were removed
+after verifying that each resolved beneath the system temp root. No implementation checkpoint exists.
+
+```text
+target_tracked_implementation_changes=0
+target_untracked_implementation_paths=0
+network_downloads=0
+postgresql_connection_attempts=0
+postgresql_connections=0
+migration_applications=0
+migration_removals=0
+service_starts=0
+deployments=0
+production_access=0
+phase_b_work=0
+correction_2_work=0
+```
+
+The exact next gate is fresh management direction that either authorizes another bounded A5 implementation attempt
+from the new report-only commit or closes A5. No source implementation resumes automatically.
+
+Retained gates:
+
+`phase_a_management_acceptance_state=FAIL_PENDING_INDEPENDENT_REVIEW`
+
+`phase_b_state=NO_GO`
+
+`correction_2_state=NO_GO`
+
+`postgresql_execution_state=NOT_AUTHORIZED_NOT_RUN`
+
+`external_provisioning_state=NOT_STARTED`
+
+`production_readiness_state=NOT_READY`
