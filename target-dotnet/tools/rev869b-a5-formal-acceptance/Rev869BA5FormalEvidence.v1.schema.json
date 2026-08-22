@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sess-nexaerp:rev869b:a5:formal-evidence:v1",
+  "title": "REV869B A5 formal evidence event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "sequence", "eventType", "mode", "purpose",
+    "timestampUtc", "timestampLocal", "timezoneId", "utcOffsetMinutes",
+    "monotonicTicks", "monotonicFrequency", "candidate", "command", "tool",
+    "timing", "result", "stdout", "stderr", "trx", "mutant", "counters",
+    "previousEventSha256", "currentEventSha256"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "rev869b.a5.formal-evidence/1" },
+    "runId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "eventType": {
+      "enum": [
+        "RUN_CREATED", "PREFLIGHT_CHECKED", "FORMAL_ACCEPTANCE_GATE_STARTED",
+        "COMMAND_STARTED", "COMMAND_COMPLETED", "MUTANT_STARTED",
+        "MUTANT_COMPLETED", "COUNTERS_OBSERVED",
+        "FORMAL_ACCEPTANCE_FAILED", "FORMAL_EXECUTION_COMPLETED"
+      ]
+    },
+    "mode": { "enum": [ "DEVELOPMENT_FEEDBACK_ONLY", "FORMAL_ACCEPTANCE" ] },
+    "purpose": { "enum": [ "A5_ACCEPTANCE", "HARNESS_VALIDATION" ] },
+    "timestampUtc": { "type": "string", "format": "date-time" },
+    "timestampLocal": { "type": "string", "format": "date-time" },
+    "timezoneId": { "type": "string", "minLength": 1 },
+    "utcOffsetMinutes": { "type": "integer", "minimum": -840, "maximum": 840 },
+    "monotonicTicks": { "type": "integer", "minimum": 0 },
+    "monotonicFrequency": { "type": "integer", "minimum": 1 },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "command": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/command" } ] },
+    "tool": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/tool" } ] },
+    "timing": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/timing" } ] },
+    "result": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/result" } ] },
+    "stdout": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/evidenceFile" } ] },
+    "stderr": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/evidenceFile" } ] },
+    "trx": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/evidenceFile" } ] },
+    "mutant": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/mutant" } ] },
+    "counters": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/counters" } ] },
+    "previousEventSha256": { "$ref": "#/$defs/sha256" },
+    "currentEventSha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9A-F]{64}$" },
+    "gitObject": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "authorizedStartingCommit", "commit", "parent", "tree", "targetBranch", "detached", "manifestSha256", "harnessSourceSha256" ],
+      "properties": {
+        "authorizedStartingCommit": { "$ref": "#/$defs/gitObject" },
+        "commit": { "$ref": "#/$defs/gitObject" },
+        "parent": { "$ref": "#/$defs/gitObject" },
+        "tree": { "$ref": "#/$defs/gitObject" },
+        "targetBranch": { "type": "string", "minLength": 1 },
+        "detached": { "type": "boolean" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" },
+        "harnessSourceSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "planId", "stage", "subordinal", "executable", "arguments", "display", "workingDirectory" ],
+      "properties": {
+        "planId": { "type": "string", "minLength": 1 },
+        "stage": { "type": "integer", "minimum": 1 },
+        "subordinal": { "type": "integer", "minimum": 1 },
+        "executable": { "type": "string", "minLength": 1 },
+        "arguments": { "type": "array", "items": { "type": "string" } },
+        "display": { "type": "string", "minLength": 1 },
+        "workingDirectory": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "path", "productVersion", "fileVersion", "size", "sha256" ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "productVersion": { "type": [ "string", "null" ] },
+        "fileVersion": { "type": [ "string", "null" ] },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "startUtc", "startLocal", "startTicks", "endUtc", "endLocal", "endTicks", "durationTicks" ],
+      "properties": {
+        "startUtc": { "type": "string", "format": "date-time" },
+        "startLocal": { "type": "string", "format": "date-time" },
+        "startTicks": { "type": "integer", "minimum": 0 },
+        "endUtc": { "type": [ "string", "null" ], "format": "date-time" },
+        "endLocal": { "type": [ "string", "null" ], "format": "date-time" },
+        "endTicks": { "type": [ "integer", "null" ], "minimum": 0 },
+        "durationTicks": { "type": [ "integer", "null" ], "minimum": 0 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "exitCode", "discovered", "selected", "passed", "failed", "skipped", "total", "expected" ],
+      "properties": {
+        "exitCode": { "type": [ "integer", "null" ] },
+        "discovered": { "type": [ "integer", "null" ], "minimum": 0 },
+        "selected": { "type": [ "integer", "null" ], "minimum": 0 },
+        "passed": { "type": [ "integer", "null" ], "minimum": 0 },
+        "failed": { "type": [ "integer", "null" ], "minimum": 0 },
+        "skipped": { "type": [ "integer", "null" ], "minimum": 0 },
+        "total": { "type": [ "integer", "null" ], "minimum": 0 },
+        "expected": { "type": [ "integer", "null" ], "minimum": 0 }
+      }
+    },
+    "evidenceFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "path", "size", "sha256" ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "mutant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "enforcementLocation", "originalBlob", "originalSha256", "mutatedBlob", "mutatedSha256", "compiled", "killed", "restoredBlob", "restoredSha256", "restorationEquality" ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^(A4|A5)-M[0-9]{2}$" },
+        "enforcementLocation": { "type": "string", "minLength": 1 },
+        "originalBlob": { "$ref": "#/$defs/gitObject" },
+        "originalSha256": { "$ref": "#/$defs/sha256" },
+        "mutatedBlob": { "$ref": "#/$defs/gitObject" },
+        "mutatedSha256": { "$ref": "#/$defs/sha256" },
+        "compiled": { "type": "boolean" },
+        "killed": { "type": "boolean" },
+        "restoredBlob": { "$ref": "#/$defs/gitObject" },
+        "restoredSha256": { "$ref": "#/$defs/sha256" },
+        "restorationEquality": { "type": "boolean" }
+      }
+    },
+    "counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "postgresqlConnections", "postgresqlTestsExecuted", "migrationApplications", "migrationRemovals", "serviceStarts", "productionAccess", "externalDeployments", "networkRequests", "evidenceSha256" ],
+      "properties": {
+        "postgresqlConnections": { "type": "integer", "minimum": 0 },
+        "postgresqlTestsExecuted": { "type": "integer", "minimum": 0 },
+        "migrationApplications": { "type": "integer", "minimum": 0 },
+        "migrationRemovals": { "type": "integer", "minimum": 0 },
+        "serviceStarts": { "type": "integer", "minimum": 0 },
+        "productionAccess": { "type": "integer", "minimum": 0 },
+        "externalDeployments": { "type": "integer", "minimum": 0 },
+        "networkRequests": { "type": "integer", "minimum": 0 },
+        "evidenceSha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
