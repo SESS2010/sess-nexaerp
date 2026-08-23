@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -9,6 +10,15 @@ namespace SESS.NexaERP.Application.Purchase.A5;
 public static class A5PurchaseCanonicalSerializer
 {
     public const int AttachmentObjectKeyMaxLength = 500;
+    public const int CanonicalMaxDepth = 32;
+
+    // Canonical form v1 is a versioned wire contract. Changing encoding, escaping,
+    // naming, ordering, or formatting requires a canonical-form version bump.
+    // UnsafeRelaxedJsonEscaping is intentional: these bytes are signed data and are
+    // never embedded in HTML. Canonical strings use its fixed JSON policy: quotation
+    // marks, reverse solidus, controls, invalid scalars, and supplementary-plane
+    // scalars are escaped; permitted BMP non-ASCII characters are emitted as UTF-8.
+    internal static JavaScriptEncoder WireEncoder { get; } = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
 
     private static readonly JsonSerializerOptions Options = CreateOptions();
 
@@ -54,10 +64,30 @@ public static class A5PurchaseCanonicalSerializer
 
         var options = new JsonSerializerOptions
         {
+            AllowDuplicateProperties = false,
+            AllowOutOfOrderMetadataProperties = false,
+            AllowTrailingCommas = false,
+            DefaultBufferSize = 16 * 1024,
+            DictionaryKeyPolicy = null,
+            Encoder = WireEncoder,
+            IgnoreReadOnlyFields = false,
+            IgnoreReadOnlyProperties = false,
+            IncludeFields = false,
+            IndentCharacter = ' ',
+            IndentSize = 2,
+            MaxDepth = CanonicalMaxDepth,
+            NewLine = "\n",
+            NumberHandling = JsonNumberHandling.Strict,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             PropertyNameCaseInsensitive = false,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+            PreferredObjectCreationHandling = JsonObjectCreationHandling.Replace,
+            ReadCommentHandling = JsonCommentHandling.Disallow,
+            ReferenceHandler = null,
+            RespectNullableAnnotations = true,
+            RespectRequiredConstructorParameters = true,
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+            UnknownTypeHandling = JsonUnknownTypeHandling.JsonElement,
             TypeInfoResolver = resolver,
             WriteIndented = false
         };

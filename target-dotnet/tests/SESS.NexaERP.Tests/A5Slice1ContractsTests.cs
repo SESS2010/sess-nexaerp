@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Purchase.A5;
 using SESS.NexaERP.Domain.Masters;
@@ -276,6 +277,63 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Canonical_parser_rejects_duplicate_properties()
+    {
+        var json = CanonicalApprovalJson();
+        var duplicate = Encoding.UTF8.GetBytes(
+            json[..^1] + "," + JsonSerializer.Serialize("version") + ":4}");
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, duplicate));
+    }
+
+    [Fact]
+    public void Canonical_parser_rejects_comments()
+    {
+        var commented = Encoding.UTF8.GetBytes("/*comment*/" + CanonicalApprovalJson());
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, commented));
+    }
+
+    [Fact]
+    public void Canonical_parser_rejects_trailing_commas()
+    {
+        var json = CanonicalApprovalJson();
+        var trailing = Encoding.UTF8.GetBytes(json[..^1] + ",}");
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, trailing));
+    }
+
+    [Fact]
+    public void Canonical_parser_rejects_missing_required_members()
+    {
+        var value = JsonNode.Parse(CanonicalApprovalJson())!.AsObject();
+        Assert.True(value.Remove("remarks"));
+        var missing = Encoding.UTF8.GetBytes(value.ToJsonString());
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, missing));
+    }
+
+    [Fact]
+    public void Canonical_parser_rejects_null_non_nullable_collections()
+    {
+        var value = JsonNode.Parse(A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation()))!.AsObject();
+        value["lines"] = null;
+        var nullLines = Encoding.UTF8.GetBytes(value.ToJsonString());
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, nullLines));
+    }
+
+    [Fact]
+    public void Canonical_parser_rejects_input_beyond_the_depth_limit()
+    {
+        var depth = A5PurchaseCanonicalSerializer.CanonicalMaxDepth + 1;
+        var deeplyNested = Encoding.UTF8.GetBytes(new string('[', depth) + "0" + new string(']', depth));
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, deeplyNested));
+    }
+
+    [Fact]
     public void Uint_canonical_form_emits_zero_and_rejects_leading_zero_or_signs()
     {
         var parameters = new A5ComparisonApprovalParameters("CMP-1", "remarks", 0, "idem");
@@ -396,6 +454,40 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Non_ascii_golden_vector_matches_exact_bytes_and_hash_under_every_culture()
+    {
+        const string expectedJson = """{"attachmentObjectKey":"purchase/quotes/vq-001.pdf","attachmentSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currencyCode":"INR","deliveryTerms":"درجة الحرارة 25°","headerDiscountValue":9.9,"idempotencyKey":"idem-quotation-001","invitationId":"10000000-0000-0000-0000-000000000001","invitationVersion":7,"lateAuthorizationRemarks":"مراجعة مطلوبة – தமிழ் \uD83D\uDE00","lines":[{"discountValue":3,"freight":5,"hsnSacCode":"8471","insurance":6.6,"otherCharges":7.7,"packingForwarding":4.04,"placeOfSupplyStateCode":"TN","promisedDeliveryDate":"2026-09-30","quantity":1.5,"requestForQuotationLineId":"20000000-0000-0000-0000-000000000002","roundOff":8.8,"supplierStateCode":"KA","unitRate":2.5,"vendorRegistrationType":"REGULAR"}],"paymentTerms":"Zahlung 30 Tage – Grüße","previousQuotationVersion":null,"receivedAt":"2026-08-23T01:38:09.0000000Z","requestLateAuthorization":true,"submissionSource":"EMAIL_RECEIVED","vendorAttestation":"أُقِرّ بالشروط °","vendorQuoteReference":"விலை-Ä-\uD83D\uDE00","warrantyTerms":"உத்தரவாதம் இரண்டு ஆண்டு"}""";
+        const string expectedSha256 = "f64b00c4cf756c6ed09a64ab412625827d681023c2ac6cac0abd977a7802a074";
+        var expectedBytes = Encoding.UTF8.GetBytes(expectedJson);
+        var cultures = new[]
+        {
+            new CultureInfo("en-US"), new CultureInfo("de-DE"), new CultureInfo("fr-FR"),
+            new CultureInfo("ar-SA"), new CultureInfo("tr-TR"), new CultureInfo("hi-IN"),
+            CultureInfo.InvariantCulture
+        };
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            foreach (var culture in cultures)
+            {
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = culture;
+                var actual = A5PurchaseCanonicalSerializer.Serialize(
+                    A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, GoldenNonAsciiQuotation());
+                Assert.Equal(expectedBytes, actual);
+                Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(actual)).ToLowerInvariant());
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    [Fact]
     public void A5_source_excludes_forbidden_runtime_dispatch_apis_and_endpoint_uses_shared_allowlist()
     {
         var root = FindRepositoryRoot();
@@ -432,6 +524,11 @@ public sealed class A5Slice1ContractsTests
             else Assert.Equal(JsonValueKind.Null, property.ValueKind);
         }
     }
+
+    private static string CanonicalApprovalJson() => Encoding.UTF8.GetString(
+        A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.COMPARISON_APPROVE,
+            new A5ComparisonApprovalParameters("CMP-1", "remarks", 4, "idem")));
 
     private static A5QuotationRevisionSubmitParameters WithAllQuotationDecimals(decimal value)
     {
@@ -495,6 +592,17 @@ public sealed class A5Slice1ContractsTests
             new DateOnly(2026, 9, 30),
             "8471", "KA", "TN", VendorRegistrationType.REGULAR, 8.80000m)],
         9.9000m);
+
+    private static A5QuotationRevisionSubmitParameters GoldenNonAsciiQuotation() => SampleQuotation() with
+    {
+        VendorQuoteReference = "விலை-Ä-😀",
+        PaymentTerms = "Zahlung 30 Tage – Grüße",
+        DeliveryTerms = "درجة الحرارة 25°",
+        WarrantyTerms = "உத்தரவாதம் இரண்டு ஆண்டு",
+        RequestLateAuthorization = true,
+        LateAuthorizationRemarks = "مراجعة مطلوبة – தமிழ் 😀",
+        VendorAttestation = "أُقِرّ بالشروط °"
+    };
 
     private static string FindRepositoryRoot()
     {

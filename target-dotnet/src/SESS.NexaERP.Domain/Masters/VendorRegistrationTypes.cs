@@ -14,15 +14,7 @@ public enum VendorRegistrationType
 public static class VendorRegistrationTypes
 {
     private static readonly VendorRegistrationType[] SupportedValues =
-    [
-        VendorRegistrationType.REGULAR,
-        VendorRegistrationType.COMPOSITION,
-        VendorRegistrationType.UNREGISTERED,
-        VendorRegistrationType.SEZ,
-        VendorRegistrationType.OVERSEAS,
-        VendorRegistrationType.DEEMED_EXPORT,
-        VendorRegistrationType.UIN
-    ];
+        Enum.GetValues<VendorRegistrationType>();
 
     public static IReadOnlyList<VendorRegistrationType> All { get; } = Array.AsReadOnly(SupportedValues);
 

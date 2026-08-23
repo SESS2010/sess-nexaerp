@@ -63,7 +63,13 @@ public sealed record A5UnsignedPurchasePlan
         string target)
     {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+        {
+            Encoder = A5PurchaseCanonicalSerializer.WireEncoder,
+            Indented = false,
+            MaxDepth = A5PurchaseCanonicalSerializer.CanonicalMaxDepth,
+            SkipValidation = false
+        }))
         {
             writer.WriteStartObject();
             writer.WriteString("actionId", actionId.ToString());
