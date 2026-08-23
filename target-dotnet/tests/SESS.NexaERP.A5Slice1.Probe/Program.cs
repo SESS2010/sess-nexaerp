@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using SESS.NexaERP.Application.Purchase.A5;
 using SESS.NexaERP.Domain.Masters;
 
@@ -25,7 +27,41 @@ var parameters = new A5QuotationRevisionSubmitParameters(
         "8471", "KA", "TN", VendorRegistrationType.REGULAR, 8.80000m)],
     9.9000m);
 
-var bytes = A5PurchaseCanonicalSerializer.Serialize(
-    A5PurchaseActionId.QUOTATION_REVISION_SUBMIT,
-    parameters);
-Console.Write(Convert.ToBase64String(bytes));
+var cultures = new[]
+{
+    new CultureInfo("en-US"),
+    new CultureInfo("de-DE"),
+    new CultureInfo("fr-FR"),
+    new CultureInfo("ar-SA"),
+    new CultureInfo("tr-TR"),
+    new CultureInfo("hi-IN"),
+    CultureInfo.InvariantCulture
+};
+var originalCulture = CultureInfo.CurrentCulture;
+var originalUiCulture = CultureInfo.CurrentUICulture;
+var outputs = new List<byte[]>();
+
+try
+{
+    foreach (var culture in cultures)
+    {
+        CultureInfo.CurrentCulture = culture;
+        CultureInfo.CurrentUICulture = culture;
+        var bytes = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT,
+            parameters);
+        outputs.Add(bytes);
+        var name = culture.Equals(CultureInfo.InvariantCulture) ? "InvariantCulture" : culture.Name;
+        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        Console.WriteLine($"{name} length={bytes.Length} sha256={hash}");
+    }
+}
+finally
+{
+    CultureInfo.CurrentCulture = originalCulture;
+    CultureInfo.CurrentUICulture = originalUiCulture;
+}
+
+var identical = outputs.Skip(1).All(bytes => bytes.SequenceEqual(outputs[0]));
+Console.WriteLine($"ALL_CULTURES_BYTE_IDENTICAL={identical.ToString().ToLowerInvariant()}");
+if (!identical) Environment.ExitCode = 1;

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -353,6 +354,45 @@ public sealed class A5Slice1ContractsTests
         var first = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation());
         var second = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation());
         Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Same_parameters_have_byte_identical_output_across_explicit_cultures()
+    {
+        var cultures = new[]
+        {
+            new CultureInfo("en-US"),
+            new CultureInfo("de-DE"),
+            new CultureInfo("fr-FR"),
+            new CultureInfo("ar-SA"),
+            new CultureInfo("tr-TR"),
+            new CultureInfo("hi-IN"),
+            CultureInfo.InvariantCulture
+        };
+        var parameters = SampleQuotation();
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        byte[]? baseline = null;
+
+        try
+        {
+            foreach (var culture in cultures)
+            {
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = culture;
+                var bytes = A5PurchaseCanonicalSerializer.Serialize(
+                    A5PurchaseActionId.QUOTATION_REVISION_SUBMIT,
+                    parameters);
+                baseline ??= bytes;
+                Assert.True(baseline.SequenceEqual(bytes),
+                    $"Canonical bytes differ under {(culture.Equals(CultureInfo.InvariantCulture) ? "InvariantCulture" : culture.Name)}.");
+            }
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]
