@@ -95,6 +95,47 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Closed_enum_deserialization_rejects_unknown_and_case_variant_tokens()
+    {
+        var followUp = new A5MaterialFollowUpTransitionParameters(
+            Guid.Parse("50000000-0000-0000-0000-000000000005"),
+            A5MaterialFollowUpTargetStatus.InProgress,
+            "received",
+            9,
+            "idem-follow-up");
+        var inProgress = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.MATERIAL_FOLLOW_UP_TRANSITION, followUp);
+        using (var document = JsonDocument.Parse(inProgress))
+            Assert.Equal("InProgress", document.RootElement.GetProperty("toStatus").GetString());
+        var completed = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.MATERIAL_FOLLOW_UP_TRANSITION,
+            followUp with { ToStatus = A5MaterialFollowUpTargetStatus.Completed });
+        using (var document = JsonDocument.Parse(completed))
+            Assert.Equal("Completed", document.RootElement.GetProperty("toStatus").GetString());
+
+        var followUpJson = Encoding.UTF8.GetString(inProgress);
+        foreach (var invalid in new[] { "Unknown", "inprogress", "INPROGRESS", "Inprogress" })
+        {
+            var bytes = Encoding.UTF8.GetBytes(followUpJson.Replace("InProgress", invalid, StringComparison.Ordinal));
+            Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+                A5PurchaseActionId.MATERIAL_FOLLOW_UP_TRANSITION, bytes));
+        }
+
+        var quotation = Encoding.UTF8.GetString(A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation()));
+        foreach (var invalidVendor in new[] { "Regular", "regular" })
+        {
+            var bytes = Encoding.UTF8.GetBytes(quotation.Replace("REGULAR", invalidVendor, StringComparison.Ordinal));
+            Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+                A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, bytes));
+        }
+        var invalidSource = Encoding.UTF8.GetBytes(
+            quotation.Replace("EMAIL_RECEIVED", "Email_Received", StringComparison.Ordinal));
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, invalidSource));
+    }
+
+    [Fact]
     public void Every_quotation_decimal_uses_minimum_plain_invariant_form()
     {
         using var document = SerializeQuotation(SampleQuotation());
@@ -111,6 +152,36 @@ public sealed class A5Slice1ContractsTests
         Assert.Equal("9.9", root.GetProperty("headerDiscountValue").GetRawText());
         Assert.Equal("0", A5PurchaseCanonicalSerializer.NormalizeDecimal(decimal.Negate(decimal.Zero)));
         Assert.Equal(A5PurchaseCanonicalSerializer.NormalizeDecimal(1.50m), A5PurchaseCanonicalSerializer.NormalizeDecimal(1.5m));
+    }
+
+    [Fact]
+    public void All_nine_decimals_use_plain_notation_and_normalize_scale_and_zero()
+    {
+        const decimal verySmall = 0.0000000000000000000000000001m;
+        const decimal veryLarge = 79228162514264337593543950335m;
+
+        Assert.All(QuotationDecimalTexts(WithAllQuotationDecimals(verySmall)), text =>
+        {
+            Assert.Equal("0.0000000000000000000000000001", text);
+            Assert.DoesNotContain("e", text, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(QuotationDecimalTexts(WithAllQuotationDecimals(veryLarge)), text =>
+        {
+            Assert.Equal("79228162514264337593543950335", text);
+            Assert.DoesNotContain("e", text, StringComparison.OrdinalIgnoreCase);
+        });
+
+        var scaled = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, WithAllQuotationDecimals(1.50m));
+        var minimal = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, WithAllQuotationDecimals(1.5m));
+        Assert.Equal(scaled, minimal);
+
+        Assert.All(QuotationDecimalTexts(WithAllQuotationDecimals(decimal.Negate(decimal.Zero))), text =>
+        {
+            Assert.Equal("0", text);
+            Assert.NotEqual("-0", text);
+        });
     }
 
     [Fact]
@@ -140,6 +211,55 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Every_action_emits_exactly_its_complete_version_contract()
+    {
+        AssertVersions(A5PurchaseActionId.RFQ_CREATE,
+            new A5RfqCreateParameters(DateTimeOffset.UnixEpoch, "INR", false, null, "i", []));
+        AssertVersions(A5PurchaseActionId.RFQ_VENDOR_INVITE,
+            new A5RfqVendorInviteParameters("R", Guid.NewGuid(), "r", 11, "i"), ("rfqVersion", 11));
+        AssertVersions(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation(),
+            ("invitationVersion", 7), ("previousQuotationVersion", null));
+        AssertVersions(A5PurchaseActionId.QUOTATION_TECHNICAL_VERIFY,
+            new A5QuotationTechnicalVerifyParameters("Q", Guid.NewGuid(), true, "{}", "r", 12, "i"),
+            ("quotationVersion", 12));
+        AssertVersions(A5PurchaseActionId.COMPARISON_CREATE,
+            new A5ComparisonCreateParameters("R", 13, "i"), ("rfqVersion", 13));
+        AssertVersions(A5PurchaseActionId.COMPARISON_RECOMMEND,
+            new A5ComparisonRecommendParameters("C", Guid.NewGuid(), "r", null, 14, "i"), ("version", 14));
+
+        var approval = new A5ComparisonApprovalParameters("C", "r", 15, "i");
+        AssertVersions(A5PurchaseActionId.COMPARISON_APPROVE, approval, ("version", 15));
+        AssertVersions(A5PurchaseActionId.COMPARISON_REJECT, approval, ("version", 15));
+        AssertVersions(A5PurchaseActionId.COMPARISON_REVISION_REQUEST, approval, ("version", 15));
+        AssertVersions(A5PurchaseActionId.COMPARISON_RESUBMIT, approval, ("version", 15));
+        AssertVersions(A5PurchaseActionId.PO_CREATE,
+            new A5PurchaseOrderCreateParameters("C", 16, "i"), ("comparisonVersion", 16));
+        AssertVersions(A5PurchaseActionId.PO_SUBMIT,
+            new A5PurchaseOrderSubmitParameters("P", "r", 17, "i"), ("version", 17));
+        AssertVersions(A5PurchaseActionId.PO_ISSUE,
+            new A5PurchaseOrderIssueParameters("P", "r", 18, "i"), ("version", 18));
+        AssertVersions(A5PurchaseActionId.PO_AMEND,
+            new A5PurchaseOrderAmendParameters("P", "r", "p", "d", "w", 19, "i"), ("version", 19));
+        AssertVersions(A5PurchaseActionId.PO_REVISE_REJECTED,
+            new A5PurchaseOrderReviseRejectedParameters("P", "r", "p", "d", "w", 20, "i"),
+            ("rejectedVersion", 20));
+
+        var poApproval = new A5PurchaseOrderApprovalParameters("P", "r", 21, 20, "i");
+        AssertVersions(A5PurchaseActionId.PO_APPROVE, poApproval,
+            ("version", 21), ("expectedCurrentVersion", 20));
+        AssertVersions(A5PurchaseActionId.PO_REJECT, poApproval,
+            ("version", 21), ("expectedCurrentVersion", 20));
+        AssertVersions(A5PurchaseActionId.PO_CANCEL,
+            new A5PurchaseOrderCancelParameters("P", "r", 22, "i"), ("version", 22));
+        AssertVersions(A5PurchaseActionId.MATERIAL_FOLLOW_UP_TRANSITION,
+            new A5MaterialFollowUpTransitionParameters(Guid.NewGuid(), A5MaterialFollowUpTargetStatus.InProgress, "r", 23, "i"),
+            ("version", 23));
+
+        using var previousVersion = SerializeQuotation(SampleQuotation() with { PreviousQuotationVersion = 6 });
+        Assert.Equal(6u, previousVersion.RootElement.GetProperty("previousQuotationVersion").GetUInt32());
+    }
+
+    [Fact]
     public void Noncanonical_or_extra_json_and_wrong_enum_case_are_rejected()
     {
         var bytes = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation());
@@ -152,6 +272,24 @@ public sealed class A5Slice1ContractsTests
 
         var spaced = Encoding.UTF8.GetBytes(" " + json);
         Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, spaced));
+    }
+
+    [Fact]
+    public void Uint_canonical_form_emits_zero_and_rejects_leading_zero_or_signs()
+    {
+        var parameters = new A5ComparisonApprovalParameters("CMP-1", "remarks", 0, "idem");
+        var canonical = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.COMPARISON_APPROVE, parameters);
+        using (var document = JsonDocument.Parse(canonical))
+            Assert.Equal("0", document.RootElement.GetProperty("version").GetRawText());
+
+        var json = Encoding.UTF8.GetString(canonical);
+        var marker = JsonSerializer.Serialize("version") + ":0";
+        foreach (var invalidNumber in new[] { "00", "+0", "-0", "+1", "-1" })
+        {
+            var bytes = Encoding.UTF8.GetBytes(json.Replace(marker, JsonSerializer.Serialize("version") + ":" + invalidNumber, StringComparison.Ordinal));
+            Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+                A5PurchaseActionId.COMPARISON_APPROVE, bytes));
+        }
     }
 
     [Theory]
@@ -181,6 +319,12 @@ public sealed class A5Slice1ContractsTests
         var shortHash = SampleQuotation() with { AttachmentSha256 = new string('a', 63) };
         Assert.Throws<ArgumentException>(() =>
             A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, shortHash));
+        var longHash = SampleQuotation() with { AttachmentSha256 = new string('a', 65) };
+        Assert.Throws<ArgumentException>(() =>
+            A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, longHash));
+        var nonHexHash = SampleQuotation() with { AttachmentSha256 = new string('a', 63) + "g" };
+        Assert.Throws<ArgumentException>(() =>
+            A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, nonHexHash));
     }
 
     [Fact]
@@ -227,6 +371,62 @@ public sealed class A5Slice1ContractsTests
         var endpoint = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs"));
         Assert.Contains("VendorRegistrationTypes.TryParseCanonical(request.VendorRegistrationType", endpoint, StringComparison.Ordinal);
         Assert.DoesNotContain("NormalizeCode(request.VendorRegistrationType)", endpoint, StringComparison.Ordinal);
+    }
+
+    private static void AssertVersions(
+        A5PurchaseActionId actionId,
+        IA5PurchaseActionParameters parameters,
+        params (string Property, uint? Value)[] expected)
+    {
+        using var document = JsonDocument.Parse(A5PurchaseCanonicalSerializer.Serialize(actionId, parameters));
+        var actualNames = document.RootElement.EnumerateObject()
+            .Select(x => x.Name)
+            .Where(x => x == "version" || x.EndsWith("Version", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(expected.Select(x => x.Property).Order(StringComparer.Ordinal), actualNames);
+        foreach (var item in expected)
+        {
+            var property = document.RootElement.GetProperty(item.Property);
+            if (item.Value.HasValue) Assert.Equal(item.Value.Value, property.GetUInt32());
+            else Assert.Equal(JsonValueKind.Null, property.ValueKind);
+        }
+    }
+
+    private static A5QuotationRevisionSubmitParameters WithAllQuotationDecimals(decimal value)
+    {
+        var sample = SampleQuotation();
+        var line = sample.Lines[0] with
+        {
+            Quantity = value,
+            UnitRate = value,
+            DiscountValue = value,
+            PackingForwarding = value,
+            Freight = value,
+            Insurance = value,
+            OtherCharges = value,
+            RoundOff = value
+        };
+        return sample with { Lines = [line], HeaderDiscountValue = value };
+    }
+
+    private static string[] QuotationDecimalTexts(A5QuotationRevisionSubmitParameters parameters)
+    {
+        using var document = SerializeQuotation(parameters);
+        var root = document.RootElement;
+        var line = root.GetProperty("lines")[0];
+        return
+        [
+            line.GetProperty("quantity").GetRawText(),
+            line.GetProperty("unitRate").GetRawText(),
+            line.GetProperty("discountValue").GetRawText(),
+            line.GetProperty("packingForwarding").GetRawText(),
+            line.GetProperty("freight").GetRawText(),
+            line.GetProperty("insurance").GetRawText(),
+            line.GetProperty("otherCharges").GetRawText(),
+            line.GetProperty("roundOff").GetRawText(),
+            root.GetProperty("headerDiscountValue").GetRawText()
+        ];
     }
 
     private static JsonDocument SerializeQuotation(A5QuotationRevisionSubmitParameters parameters) =>
