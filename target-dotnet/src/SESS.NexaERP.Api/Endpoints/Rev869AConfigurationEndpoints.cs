@@ -119,7 +119,9 @@ public static class Rev869AConfigurationEndpoints
         var hsn = MasterEndpointHelpers.NormalizeCode(request.HsnSacCode);
         var supplierState = MasterEndpointHelpers.NormalizeCode(request.SupplierStateCode);
         var placeOfSupplyState = MasterEndpointHelpers.NormalizeCode(request.PlaceOfSupplyStateCode);
-        var registration = MasterEndpointHelpers.NormalizeCode(request.VendorRegistrationType);
+        if (!VendorRegistrationTypes.TryParseCanonical(request.VendorRegistrationType, out var registrationType))
+            return Results.BadRequest(new { message = "Vendor registration type must be one of the exact supported values." });
+        var registration = registrationType.ToCanonicalValue();
         var supply = TaxGstSetting.ResolveSupplyType(supplierState, placeOfSupplyState);
         var candidate = new TaxGstSetting { OrganizationId = organization, JurisdictionCode = jurisdiction, HsnSacCode = hsn, SupplierStateCode = supplierState, PlaceOfSupplyStateCode = placeOfSupplyState, SupplyType = supply, VendorRegistrationType = registration, GstRate = request.GstRate, CgstRate = request.CgstRate, SgstRate = request.SgstRate, IgstRate = request.IgstRate, CessRate = request.CessRate, IsExempt = request.IsExempt, IsReverseCharge = request.IsReverseCharge, CurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant(), RoundingScale = request.RoundingScale, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         if (!rates.All(TaxGstSetting.IsValidRate) || !TaxGstSetting.IsValidRange(request.EffectiveFrom, request.EffectiveTo) || request.RoundingScale is < 0 or > 6 || candidate.CurrencyCode.Length != 3 || string.IsNullOrWhiteSpace(supplierState) || string.IsNullOrWhiteSpace(placeOfSupplyState) || !candidate.HasValidIndiaComponentSplit()) return Results.BadRequest(new { message = "Invalid tax rate, state-based GST component split, effective range, ISO currency code or rounding scale." });
