@@ -16,8 +16,10 @@ public static class A5PurchaseCanonicalSerializer
     // naming, ordering, or formatting requires a canonical-form version bump.
     // UnsafeRelaxedJsonEscaping is intentional: these bytes are signed data and are
     // never embedded in HTML. Canonical strings use its fixed JSON policy: quotation
-    // marks, reverse solidus, controls, invalid scalars, and supplementary-plane
-    // scalars are escaped; permitted BMP non-ASCII characters are emitted as UTF-8.
+    // marks, reverse solidus, controls, and supplementary-plane scalars are escaped;
+    // lone UTF-16 surrogates are replaced with escaped U+FFFD; permitted BMP
+    // non-ASCII characters are emitted as UTF-8. HTML-sensitive characters are
+    // not escaped, so these bytes must never be embedded directly into HTML.
     internal static JavaScriptEncoder WireEncoder { get; } = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
 
     private static readonly JsonSerializerOptions Options = CreateOptions();

@@ -3,6 +3,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Purchase.A5;
 using SESS.NexaERP.Domain.Masters;
@@ -395,12 +398,12 @@ public sealed class A5Slice1ContractsTests
             SampleQuotation(),
             "ORG-1",
             "VQ-001");
-        var unsigned = plan.GetUnsignedCanonicalBytesForFutureSigning();
+        var unsigned = plan.GetUnsignedPlanBytesForCryptographicUse();
         Assert.Equal(Convert.ToHexString(SHA256.HashData(unsigned)).ToLowerInvariant(), plan.PlanHash);
         Assert.DoesNotContain("expectedResourceVersion", Encoding.UTF8.GetString(unsigned), StringComparison.Ordinal);
-        var first = plan.CanonicalParameters;
+        var first = plan.GetCanonicalParameterBytesForCryptographicUse();
         first[0] ^= 0xff;
-        Assert.NotEqual(first, plan.CanonicalParameters);
+        Assert.NotEqual(first, plan.GetCanonicalParameterBytesForCryptographicUse());
         Assert.Throws<ArgumentException>(() => A5UnsignedPurchasePlan.Create(
             Guid.NewGuid(), A5PurchaseActionId.PO_CREATE, SampleQuotation(), "ORG-1", "VQ-001"));
         Assert.Throws<ArgumentOutOfRangeException>(() => A5PurchaseActionRegistry.GetBinding((A5PurchaseActionId)999));
@@ -488,21 +491,65 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
-    public void A5_source_excludes_forbidden_runtime_dispatch_apis_and_endpoint_uses_shared_allowlist()
+    public void Relaxed_escaping_golden_vector_matches_controls_html_and_lone_surrogate()
+    {
+        const string expectedJson = """{"comparisonNumber":"C<>&'\"","idempotencyKey":"idem","remarks":"controls:\b\t\n\f\r\u0000\u001F lone:\uFFFD","version":4}""";
+        const string expectedSha256 = "a3b0da9514a1e8abc4e767d238f90fb60013516fc411d8258b876fecc7129ac3";
+        var parameters = new A5ComparisonApprovalParameters(
+            "C<>&'\"",
+            "controls:\b\t\n\f\r\0\u001f lone:" + "\ud800",
+            4,
+            "idem");
+
+        var actual = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.COMPARISON_APPROVE, parameters);
+
+        Assert.Equal(Encoding.UTF8.GetBytes(expectedJson), actual);
+        Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(actual)).ToLowerInvariant());
+    }
+
+    [Fact]
+    public void Unsigned_plan_golden_vector_matches_non_ascii_organization_and_target()
+    {
+        const string expectedJson = "{\"actionId\":\"COMPARISON_APPROVE\",\"organization\":\"\u0b85\u0bae\u0bc8\u0baa\u0bcd\u0baa\u0bc1 <&\",\"parameters\":{\"comparisonNumber\":\"CMP-1\",\"idempotencyKey\":\"idem\",\"remarks\":\"Gr\u00fc\u00dfe\",\"version\":4},\"planId\":\"40000000-0000-0000-0000-000000000004\",\"target\":\"\u0647\u062f\u0641 \\uD83D\\uDE00\"}";
+        const string expectedSha256 = "2e52d3bd59894c82d8fc9941ae8743608b2a6dc0c14ec0e0c3b57f38c1816410";
+        var plan = A5UnsignedPurchasePlan.Create(
+            Guid.Parse("40000000-0000-0000-0000-000000000004"),
+            A5PurchaseActionId.COMPARISON_APPROVE,
+            new A5ComparisonApprovalParameters("CMP-1", "Gr\u00fc\u00dfe", 4, "idem"),
+            "\u0b85\u0bae\u0bc8\u0baa\u0bcd\u0baa\u0bc1 <&",
+            "\u0647\u062f\u0641 \U0001f600");
+
+        var actual = plan.GetUnsignedPlanBytesForCryptographicUse();
+
+        Assert.Equal(Encoding.UTF8.GetBytes(expectedJson), actual);
+        Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(actual)).ToLowerInvariant());
+        Assert.Equal(expectedSha256, plan.PlanHash);
+    }
+
+    [Fact]
+    public void A5_syntax_trees_exclude_forbidden_runtime_dispatch_apis_and_endpoint_uses_shared_allowlist()
     {
         var root = FindRepositoryRoot();
         var a5Root = Path.Combine(root, "src", "SESS.NexaERP.Application", "Purchase", "A5");
-        var source = string.Join('\n', Directory.GetFiles(a5Root, "*.cs").Select(File.ReadAllText));
-        foreach (var forbidden in new[]
-        {
-            "System.Reflection", "Type.GetType", "Activator.CreateInstance", "MethodInfo.Invoke",
-            "dynamic", "Expression.Compile", "Assembly.Load"
-        })
-            Assert.DoesNotContain(forbidden, source, StringComparison.Ordinal);
+        foreach (var path in Directory.GetFiles(a5Root, "*.cs"))
+            Assert.Empty(FindForbiddenSyntax(File.ReadAllText(path)));
 
         var endpoint = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs"));
         Assert.Contains("VendorRegistrationTypes.TryParseCanonical(request.VendorRegistrationType", endpoint, StringComparison.Ordinal);
         Assert.DoesNotContain("NormalizeCode(request.VendorRegistrationType)", endpoint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("using R = System.Reflection; class C { R.Assembly? Value; }")]
+    [InlineData("class C { void M() { global::System.Type.GetType(\"C\"); } }")]
+    [InlineData("class C { void M() { System.Activator\n.CreateInstance(typeof(C)); } }")]
+    [InlineData("class C { dynamic Value = 1; }")]
+    [InlineData("class C { void M(System.Reflection.MethodInfo m) { m.Invoke(this, null); } }")]
+    [InlineData("class C { void M(System.Linq.Expressions.LambdaExpression e) { e.Compile(); } }")]
+    [InlineData("class C { void M() { System.Reflection.Assembly.Load(Array.Empty<byte>()); } }")]
+    public void Forbidden_dispatch_syntax_guard_rejects_aliases_qualification_and_line_breaks(string source)
+    {
+        Assert.NotEmpty(FindForbiddenSyntax(source));
     }
 
     private static void AssertVersions(
@@ -603,6 +650,94 @@ public sealed class A5Slice1ContractsTests
         LateAuthorizationRemarks = "مراجعة مطلوبة – தமிழ் 😀",
         VendorAttestation = "أُقِرّ بالشروط °"
     };
+
+    private static IReadOnlyList<string> FindForbiddenSyntax(string source)
+    {
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var root = tree.GetRoot();
+        var findings = tree.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Select(diagnostic => "parse-error:" + diagnostic)
+            .ToList();
+        var aliases = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
+            .Where(usingDirective => usingDirective.Alias is not null)
+            .ToDictionary(
+                usingDirective => usingDirective.Alias!.Name.Identifier.ValueText,
+                usingDirective => Compact(usingDirective.Name!),
+                StringComparer.Ordinal);
+        var importedNamespaces = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
+            .Where(usingDirective => usingDirective.Alias is null && !usingDirective.StaticKeyword.IsKind(SyntaxKind.StaticKeyword))
+            .Select(usingDirective => Compact(usingDirective.Name!))
+            .ToArray();
+
+        string Expand(string value)
+        {
+            value = value.Replace("global::", string.Empty, StringComparison.Ordinal);
+            var separator = value.IndexOf('.', StringComparison.Ordinal);
+            var first = separator < 0 ? value : value[..separator];
+            return aliases.TryGetValue(first, out var replacement)
+                ? replacement + (separator < 0 ? string.Empty : value[separator..])
+                : value;
+        }
+
+        string ResolveType(TypeSyntax type)
+        {
+            var value = Expand(Compact(type));
+            if (value.Contains('.', StringComparison.Ordinal)) return value;
+            var imported = importedNamespaces.FirstOrDefault(candidate =>
+                candidate == "System" && value is "Type" or "Activator" ||
+                candidate == "System.Reflection" && value is "Assembly" or "MethodInfo" ||
+                candidate == "System.Linq.Expressions" && value.EndsWith("Expression", StringComparison.Ordinal));
+            return imported is null ? value : imported + "." + value;
+        }
+
+        foreach (var name in root.DescendantNodes().OfType<NameSyntax>())
+        {
+            if (Expand(Compact(name)).StartsWith("System.Reflection", StringComparison.Ordinal))
+                findings.Add("System.Reflection:" + name.GetLocation().GetLineSpan().StartLinePosition);
+        }
+
+        foreach (var dynamicName in root.DescendantNodes().OfType<IdentifierNameSyntax>()
+                     .Where(name => name.Identifier.ValueText == "dynamic"))
+            findings.Add("dynamic:" + dynamicName.GetLocation().GetLineSpan().StartLinePosition);
+
+        var declaredTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameter in root.DescendantNodes().OfType<ParameterSyntax>().Where(parameter => parameter.Type is not null))
+            declaredTypes[parameter.Identifier.ValueText] = ResolveType(parameter.Type!);
+        foreach (var declaration in root.DescendantNodes().OfType<VariableDeclarationSyntax>())
+        {
+            var type = ResolveType(declaration.Type);
+            foreach (var variable in declaration.Variables)
+                declaredTypes[variable.Identifier.ValueText] = type;
+        }
+
+        foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+        {
+            if (invocation.Expression is not MemberAccessExpressionSyntax member) continue;
+            var method = member.Name.Identifier.ValueText;
+            var receiver = Expand(Compact(member.Expression));
+            if (member.Expression is IdentifierNameSyntax identifier &&
+                declaredTypes.TryGetValue(identifier.Identifier.ValueText, out var declaredType))
+                receiver = declaredType;
+            var simpleReceiver = receiver[(receiver.LastIndexOf(".", StringComparison.Ordinal) + 1)..];
+            var forbidden = method switch
+            {
+                "GetType" => simpleReceiver == "Type",
+                "CreateInstance" => simpleReceiver == "Activator",
+                "Invoke" => simpleReceiver == "MethodInfo",
+                "Compile" => simpleReceiver.EndsWith("Expression", StringComparison.Ordinal),
+                "Load" => simpleReceiver == "Assembly",
+                _ => false
+            };
+            if (forbidden)
+                findings.Add(simpleReceiver + "." + method + ":" + invocation.GetLocation().GetLineSpan().StartLinePosition);
+        }
+
+        return findings;
+    }
+
+    private static string Compact(SyntaxNode node) =>
+        string.Concat(node.DescendantTokens().Select(token => token.Text));
 
     private static string FindRepositoryRoot()
     {

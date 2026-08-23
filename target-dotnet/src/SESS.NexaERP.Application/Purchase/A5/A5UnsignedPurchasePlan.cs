@@ -32,7 +32,13 @@ public sealed record A5UnsignedPurchasePlan
     public string Organization { get; }
     public string Target { get; }
     public string PlanHash { get; }
-    public byte[] CanonicalParameters => canonicalParameters.ToArray();
+    /// <summary>
+    /// Returns a defensive copy of the relaxed-escaped canonical parameter JSON for
+    /// cryptographic hashing, signing, verification, or application/json transport only.
+    /// The returned bytes must be context-encoded before use in HTML, web-page markup,
+    /// HTML log viewers, or HTML email bodies.
+    /// </summary>
+    public byte[] GetCanonicalParameterBytesForCryptographicUse() => canonicalParameters.ToArray();
 
     public static A5UnsignedPurchasePlan Create(
         Guid planId,
@@ -52,8 +58,13 @@ public sealed record A5UnsignedPurchasePlan
         return new A5UnsignedPurchasePlan(planId, actionId, canonicalParameters, organization, target, unsignedBytes, hash);
     }
 
-    // A5-2 may sign these bytes; A5-1 intentionally provides no signer or verifier.
-    public byte[] GetUnsignedCanonicalBytesForFutureSigning() => unsignedCanonicalBytes.ToArray();
+    /// <summary>
+    /// Returns a defensive copy of the relaxed-escaped unsigned plan JSON for future
+    /// cryptographic signing or application/json transport only. A5-1 provides no signer
+    /// or verifier. The returned bytes must be context-encoded before use in HTML,
+    /// web-page markup, HTML log viewers, or HTML email bodies.
+    /// </summary>
+    public byte[] GetUnsignedPlanBytesForCryptographicUse() => unsignedCanonicalBytes.ToArray();
 
     private static byte[] BuildUnsignedCanonicalBytes(
         Guid planId,
