@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -9,18 +10,18 @@ namespace SESS.NexaERP.Application.Purchase.A5;
 
 public static class A5PurchaseCanonicalSerializer
 {
+    public const uint CanonicalFormVersion = 2;
     public const int AttachmentObjectKeyMaxLength = 500;
     public const int CanonicalMaxDepth = 32;
 
-    // Canonical form v1 is a versioned wire contract. Changing encoding, escaping,
+    // Canonical form v2 is a versioned wire contract. Changing encoding, escaping,
     // naming, ordering, or formatting requires a canonical-form version bump.
-    // UnsafeRelaxedJsonEscaping is intentional: these bytes are signed data and are
-    // never embedded in HTML. Canonical strings use its fixed JSON policy: quotation
-    // marks, reverse solidus, controls, and supplementary-plane scalars are escaped;
-    // lone UTF-16 surrogates are replaced with escaped U+FFFD; permitted BMP
-    // non-ASCII characters are emitted as UTF-8. HTML-sensitive characters are
-    // not escaped, so these bytes must never be embedded directly into HTML.
-    internal static JavaScriptEncoder WireEncoder { get; } = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+    // Scalar bytes are produced by the converters below, not JavaScriptEncoder.
+    // Strings reject lone UTF-16 surrogates; escape JSON controls, quotation marks,
+    // reverse solidus, and supplementary-plane scalars; and emit other valid BMP
+    // characters as UTF-8. HTML-sensitive characters are intentionally not escaped,
+    // so canonical bytes must never be embedded directly into HTML.
+    internal static JavaScriptEncoder StructuralEncoder { get; } = JavaScriptEncoder.Default;
 
     private static readonly JsonSerializerOptions Options = CreateOptions();
 
@@ -53,13 +54,159 @@ public static class A5PurchaseCanonicalSerializer
         return text == "-0" ? "0" : text;
     }
 
+    internal static void WriteCanonicalStringValue(Utf8JsonWriter writer, string value)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var output = new ArrayBufferWriter<byte>(Math.Max(16, value.Length + 2));
+        AppendByte(output, (byte)'"');
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            switch (character)
+            {
+                case '"':
+                    AppendAscii(output, "\\\"");
+                    break;
+                case '\\':
+                    AppendAscii(output, "\\\\");
+                    break;
+                case '\b':
+                    AppendAscii(output, "\\b");
+                    break;
+                case '\t':
+                    AppendAscii(output, "\\t");
+                    break;
+                case '\n':
+                    AppendAscii(output, "\\n");
+                    break;
+                case '\f':
+                    AppendAscii(output, "\\f");
+                    break;
+                case '\r':
+                    AppendAscii(output, "\\r");
+                    break;
+                default:
+                    if (character < 0x20)
+                    {
+                        AppendUnicodeEscape(output, character);
+                    }
+                    else if (char.IsHighSurrogate(character))
+                    {
+                        if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
+                            throw new JsonException("Canonical strings reject lone UTF-16 high surrogates.");
+                        AppendUnicodeEscape(output, character);
+                        AppendUnicodeEscape(output, value[++index]);
+                    }
+                    else if (char.IsLowSurrogate(character))
+                    {
+                        throw new JsonException("Canonical strings reject lone UTF-16 low surrogates.");
+                    }
+                    else if (character <= 0x7f)
+                    {
+                        AppendByte(output, (byte)character);
+                    }
+                    else
+                    {
+                        AppendBmpUtf8(output, character);
+                    }
+                    break;
+            }
+        }
+        AppendByte(output, (byte)'"');
+        writer.WriteRawValue(output.WrittenSpan, skipInputValidation: false);
+    }
+
+    internal static void WriteCanonicalUInt32Value(Utf8JsonWriter writer, uint value)
+    {
+        Span<byte> digits = stackalloc byte[10];
+        var cursor = digits.Length;
+        do
+        {
+            digits[--cursor] = (byte)('0' + value % 10);
+            value /= 10;
+        } while (value != 0);
+        writer.WriteRawValue(digits[cursor..], skipInputValidation: false);
+    }
+
+    internal static void WriteCanonicalDecimalValue(Utf8JsonWriter writer, decimal value) =>
+        writer.WriteRawValue(NormalizeDecimal(value), skipInputValidation: false);
+
+    internal static void WriteCanonicalJsonValue(Utf8JsonWriter writer, ReadOnlySpan<byte> canonicalJson) =>
+        writer.WriteRawValue(canonicalJson, skipInputValidation: false);
+
+    private static string ReadCanonicalStringValue(ref Utf8JsonReader reader)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("A canonical string is required.");
+        var value = reader.GetString() ?? throw new JsonException("A canonical string cannot be null.");
+        ValidateWellFormedUtf16(value);
+        return value;
+    }
+
+    private static void ValidateWellFormedUtf16(string value)
+    {
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (char.IsHighSurrogate(character))
+            {
+                if (index + 1 >= value.Length || !char.IsLowSurrogate(value[index + 1]))
+                    throw new JsonException("Canonical strings reject lone UTF-16 high surrogates.");
+                index++;
+            }
+            else if (char.IsLowSurrogate(character))
+            {
+                throw new JsonException("Canonical strings reject lone UTF-16 low surrogates.");
+            }
+        }
+    }
+
+    private static void AppendBmpUtf8(ArrayBufferWriter<byte> output, char character)
+    {
+        if (character <= 0x7ff)
+        {
+            AppendByte(output, (byte)(0xc0 | character >> 6));
+            AppendByte(output, (byte)(0x80 | character & 0x3f));
+            return;
+        }
+
+        AppendByte(output, (byte)(0xe0 | character >> 12));
+        AppendByte(output, (byte)(0x80 | character >> 6 & 0x3f));
+        AppendByte(output, (byte)(0x80 | character & 0x3f));
+    }
+
+    private static void AppendUnicodeEscape(ArrayBufferWriter<byte> output, char character)
+    {
+        const string hex = "0123456789ABCDEF";
+        AppendAscii(output, "\\u");
+        AppendByte(output, (byte)hex[character >> 12 & 0xf]);
+        AppendByte(output, (byte)hex[character >> 8 & 0xf]);
+        AppendByte(output, (byte)hex[character >> 4 & 0xf]);
+        AppendByte(output, (byte)hex[character & 0xf]);
+    }
+
+    private static void AppendAscii(ArrayBufferWriter<byte> output, string value)
+    {
+        foreach (var character in value)
+            AppendByte(output, checked((byte)character));
+    }
+
+    private static void AppendByte(ArrayBufferWriter<byte> output, byte value)
+    {
+        var destination = output.GetSpan(1);
+        destination[0] = value;
+        output.Advance(1);
+    }
+
     private static JsonSerializerOptions CreateOptions()
     {
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(typeInfo =>
         {
             if (typeInfo.Kind != JsonTypeInfoKind.Object) return;
-            var ordered = typeInfo.Properties.OrderBy(x => x.Name, StringComparer.Ordinal).ToArray();
+            var ordered = typeInfo.Properties.OrderBy(property => property.Name, StringComparer.Ordinal).ToArray();
             typeInfo.Properties.Clear();
             foreach (var property in ordered) typeInfo.Properties.Add(property);
         });
@@ -71,7 +218,7 @@ public static class A5PurchaseCanonicalSerializer
             AllowTrailingCommas = false,
             DefaultBufferSize = 16 * 1024,
             DictionaryKeyPolicy = null,
-            Encoder = WireEncoder,
+            Encoder = StructuralEncoder,
             IgnoreReadOnlyFields = false,
             IgnoreReadOnlyProperties = false,
             IncludeFields = false,
@@ -80,7 +227,7 @@ public static class A5PurchaseCanonicalSerializer
             MaxDepth = CanonicalMaxDepth,
             NewLine = "\n",
             NumberHandling = JsonNumberHandling.Strict,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNamingPolicy = null,
             PropertyNameCaseInsensitive = false,
             DefaultIgnoreCondition = JsonIgnoreCondition.Never,
             PreferredObjectCreationHandling = JsonObjectCreationHandling.Replace,
@@ -93,6 +240,9 @@ public static class A5PurchaseCanonicalSerializer
             TypeInfoResolver = resolver,
             WriteIndented = false
         };
+        options.Converters.Add(new CanonicalStringConverter());
+        options.Converters.Add(new CanonicalGuidConverter());
+        options.Converters.Add(new CanonicalUInt32Converter());
         options.Converters.Add(new CanonicalDecimalConverter());
         options.Converters.Add(new CanonicalDateTimeOffsetConverter());
         options.Converters.Add(new CanonicalDateOnlyConverter());
@@ -132,6 +282,57 @@ public static class A5PurchaseCanonicalSerializer
             throw new ArgumentException("Attachment SHA-256 must be exactly 64 lowercase hexadecimal characters.", nameof(value));
     }
 
+    private sealed class CanonicalStringConverter : JsonConverter<string>
+    {
+        public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            ReadCanonicalStringValue(ref reader);
+
+        public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
+            WriteCanonicalStringValue(writer, value);
+    }
+
+    private sealed class CanonicalGuidConverter : JsonConverter<Guid>
+    {
+        public override Guid Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var text = ReadCanonicalStringValue(ref reader);
+            if (!Guid.TryParseExact(text, "D", out var value) ||
+                !string.Equals(text, value.ToString("D", CultureInfo.InvariantCulture), StringComparison.Ordinal))
+                throw new JsonException("A lowercase canonical D-format GUID is required.");
+            return value;
+        }
+
+        public override void Write(Utf8JsonWriter writer, Guid value, JsonSerializerOptions options) =>
+            WriteCanonicalStringValue(writer, value.ToString("D", CultureInfo.InvariantCulture));
+    }
+
+    private sealed class CanonicalUInt32Converter : JsonConverter<uint>
+    {
+        public override uint Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.Number)
+                throw new JsonException("A canonical unsigned integer is required.");
+            var bytes = reader.HasValueSequence ? reader.ValueSequence.ToArray() : reader.ValueSpan.ToArray();
+            if (bytes.Length is 0 or > 10 || bytes.Length > 1 && bytes[0] == (byte)'0')
+                throw new JsonException("Unsigned integers cannot contain signs or leading zeros.");
+
+            uint value = 0;
+            foreach (var digit in bytes)
+            {
+                if (digit is < (byte)'0' or > (byte)'9')
+                    throw new JsonException("Unsigned integers require base-10 digits.");
+                var numeric = (uint)(digit - (byte)'0');
+                if (value > (uint.MaxValue - numeric) / 10)
+                    throw new JsonException("Unsigned integer exceeds UInt32.");
+                value = value * 10 + numeric;
+            }
+            return value;
+        }
+
+        public override void Write(Utf8JsonWriter writer, uint value, JsonSerializerOptions options) =>
+            WriteCanonicalUInt32Value(writer, value);
+    }
+
     private sealed class CanonicalDecimalConverter : JsonConverter<decimal>
     {
         public override decimal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -142,7 +343,7 @@ public static class A5PurchaseCanonicalSerializer
         }
 
         public override void Write(Utf8JsonWriter writer, decimal value, JsonSerializerOptions options) =>
-            writer.WriteRawValue(NormalizeDecimal(value), skipInputValidation: false);
+            WriteCanonicalDecimalValue(writer, value);
     }
 
     private sealed class CanonicalDateTimeOffsetConverter : JsonConverter<DateTimeOffset>
@@ -151,7 +352,7 @@ public static class A5PurchaseCanonicalSerializer
 
         public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            var text = reader.GetString() ?? throw new JsonException("A UTC timestamp is required.");
+            var text = ReadCanonicalStringValue(ref reader);
             if (!DateTimeOffset.TryParseExact(text, Format, CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var value))
                 throw new JsonException("Timestamp is not in canonical UTC format.");
@@ -159,7 +360,7 @@ public static class A5PurchaseCanonicalSerializer
         }
 
         public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.ToUniversalTime().ToString(Format, CultureInfo.InvariantCulture));
+            WriteCanonicalStringValue(writer, value.ToUniversalTime().ToString(Format, CultureInfo.InvariantCulture));
     }
 
     private sealed class CanonicalDateOnlyConverter : JsonConverter<DateOnly>
@@ -168,21 +369,21 @@ public static class A5PurchaseCanonicalSerializer
 
         public override DateOnly Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            var text = reader.GetString() ?? throw new JsonException("A date is required.");
+            var text = ReadCanonicalStringValue(ref reader);
             if (!DateOnly.TryParseExact(text, Format, CultureInfo.InvariantCulture, DateTimeStyles.None, out var value))
                 throw new JsonException("Date is not in canonical format.");
             return value;
         }
 
         public override void Write(Utf8JsonWriter writer, DateOnly value, JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.ToString(Format, CultureInfo.InvariantCulture));
+            WriteCanonicalStringValue(writer, value.ToString(Format, CultureInfo.InvariantCulture));
     }
 
     private sealed class ClosedEnumConverter<TEnum> : JsonConverter<TEnum> where TEnum : struct, Enum
     {
         public override TEnum Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            var text = reader.GetString() ?? throw new JsonException("A closed enum token is required.");
+            var text = ReadCanonicalStringValue(ref reader);
             if (!Enum.TryParse<TEnum>(text, ignoreCase: false, out var value) || !Enum.IsDefined(value) ||
                 !string.Equals(text, value.ToString(), StringComparison.Ordinal))
                 throw new JsonException($"'{text}' is not a permitted {typeof(TEnum).Name} token.");
@@ -192,7 +393,7 @@ public static class A5PurchaseCanonicalSerializer
         public override void Write(Utf8JsonWriter writer, TEnum value, JsonSerializerOptions options)
         {
             if (!Enum.IsDefined(value)) throw new JsonException($"Undefined {typeof(TEnum).Name} value.");
-            writer.WriteStringValue(value.ToString());
+            WriteCanonicalStringValue(writer, value.ToString());
         }
     }
 }

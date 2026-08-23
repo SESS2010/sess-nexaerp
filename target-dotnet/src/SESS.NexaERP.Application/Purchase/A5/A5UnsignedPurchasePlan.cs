@@ -29,11 +29,12 @@ public sealed record A5UnsignedPurchasePlan
 
     public Guid PlanId { get; }
     public A5PurchaseActionId ActionId { get; }
+    public uint CanonicalFormVersion => A5PurchaseCanonicalSerializer.CanonicalFormVersion;
     public string Organization { get; }
     public string Target { get; }
     public string PlanHash { get; }
     /// <summary>
-    /// Returns a defensive copy of the relaxed-escaped canonical parameter JSON for
+    /// Returns a defensive copy of the canonical-v2 escaped parameter JSON for
     /// cryptographic hashing, signing, verification, or application/json transport only.
     /// The returned bytes must be context-encoded before use in HTML, web-page markup,
     /// HTML log viewers, or HTML email bodies.
@@ -59,7 +60,7 @@ public sealed record A5UnsignedPurchasePlan
     }
 
     /// <summary>
-    /// Returns a defensive copy of the relaxed-escaped unsigned plan JSON for future
+    /// Returns a defensive copy of the canonical-v2 escaped unsigned plan JSON for future
     /// cryptographic signing or application/json transport only. A5-1 provides no signer
     /// or verifier. The returned bytes must be context-encoded before use in HTML,
     /// web-page markup, HTML log viewers, or HTML email bodies.
@@ -76,19 +77,25 @@ public sealed record A5UnsignedPurchasePlan
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
         {
-            Encoder = A5PurchaseCanonicalSerializer.WireEncoder,
+            Encoder = A5PurchaseCanonicalSerializer.StructuralEncoder,
             Indented = false,
             MaxDepth = A5PurchaseCanonicalSerializer.CanonicalMaxDepth,
             SkipValidation = false
         }))
         {
             writer.WriteStartObject();
-            writer.WriteString("actionId", actionId.ToString());
-            writer.WriteString("organization", organization);
+            writer.WritePropertyName("actionId");
+            A5PurchaseCanonicalSerializer.WriteCanonicalStringValue(writer, actionId.ToString());
+            writer.WritePropertyName("canonicalFormVersion");
+            A5PurchaseCanonicalSerializer.WriteCanonicalUInt32Value(writer, A5PurchaseCanonicalSerializer.CanonicalFormVersion);
+            writer.WritePropertyName("organization");
+            A5PurchaseCanonicalSerializer.WriteCanonicalStringValue(writer, organization);
             writer.WritePropertyName("parameters");
-            writer.WriteRawValue(parameters, skipInputValidation: false);
-            writer.WriteString("planId", planId.ToString("D"));
-            writer.WriteString("target", target);
+            A5PurchaseCanonicalSerializer.WriteCanonicalJsonValue(writer, parameters);
+            writer.WritePropertyName("planId");
+            A5PurchaseCanonicalSerializer.WriteCanonicalStringValue(writer, planId.ToString("D"));
+            writer.WritePropertyName("target");
+            A5PurchaseCanonicalSerializer.WriteCanonicalStringValue(writer, target);
             writer.WriteEndObject();
         }
         return stream.ToArray();

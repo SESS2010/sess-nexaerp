@@ -1,8 +1,10 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -352,6 +354,34 @@ public sealed class A5Slice1ContractsTests
             Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
                 A5PurchaseActionId.COMPARISON_APPROVE, bytes));
         }
+
+        var maximum = parameters with { Version = uint.MaxValue };
+        var maximumBytes = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.COMPARISON_APPROVE, maximum);
+        using (var document = JsonDocument.Parse(maximumBytes))
+            Assert.Equal("4294967295", document.RootElement.GetProperty("version").GetRawText());
+        var overflow = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(maximumBytes)
+            .Replace("4294967295", "4294967296", StringComparison.Ordinal));
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.COMPARISON_APPROVE, overflow));
+    }
+
+    [Fact]
+    public void Guid_canonical_form_is_lowercase_D_and_rejects_other_representations()
+    {
+        var parameters = new A5RfqVendorInviteParameters(
+            "RFQ-1", Guid.Parse("ABCDEFAB-CDEF-ABCD-EFAB-CDEFABCDEFAB"), "remarks", 1, "idem");
+        var canonical = A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.RFQ_VENDOR_INVITE, parameters);
+        using (var document = JsonDocument.Parse(canonical))
+            Assert.Equal("abcdefab-cdef-abcd-efab-cdefabcdefab", document.RootElement.GetProperty("vendorId").GetString());
+
+        var uppercase = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(canonical)
+            .Replace("abcdefab-cdef-abcd-efab-cdefabcdefab", "ABCDEFAB-CDEF-ABCD-EFAB-CDEFABCDEFAB", StringComparison.Ordinal));
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.RFQ_VENDOR_INVITE, uppercase));
+        var braces = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(canonical)
+            .Replace("abcdefab-cdef-abcd-efab-cdefabcdefab", "{abcdefab-cdef-abcd-efab-cdefabcdefab}", StringComparison.Ordinal));
+        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+            A5PurchaseActionId.RFQ_VENDOR_INVITE, braces));
     }
 
     [Theory]
@@ -459,8 +489,8 @@ public sealed class A5Slice1ContractsTests
     [Fact]
     public void Non_ascii_golden_vector_matches_exact_bytes_and_hash_under_every_culture()
     {
-        const string expectedJson = """{"attachmentObjectKey":"purchase/quotes/vq-001.pdf","attachmentSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currencyCode":"INR","deliveryTerms":"درجة الحرارة 25°","headerDiscountValue":9.9,"idempotencyKey":"idem-quotation-001","invitationId":"10000000-0000-0000-0000-000000000001","invitationVersion":7,"lateAuthorizationRemarks":"مراجعة مطلوبة – தமிழ் \uD83D\uDE00","lines":[{"discountValue":3,"freight":5,"hsnSacCode":"8471","insurance":6.6,"otherCharges":7.7,"packingForwarding":4.04,"placeOfSupplyStateCode":"TN","promisedDeliveryDate":"2026-09-30","quantity":1.5,"requestForQuotationLineId":"20000000-0000-0000-0000-000000000002","roundOff":8.8,"supplierStateCode":"KA","unitRate":2.5,"vendorRegistrationType":"REGULAR"}],"paymentTerms":"Zahlung 30 Tage – Grüße","previousQuotationVersion":null,"receivedAt":"2026-08-23T01:38:09.0000000Z","requestLateAuthorization":true,"submissionSource":"EMAIL_RECEIVED","vendorAttestation":"أُقِرّ بالشروط °","vendorQuoteReference":"விலை-Ä-\uD83D\uDE00","warrantyTerms":"உத்தரவாதம் இரண்டு ஆண்டு"}""";
-        const string expectedSha256 = "f64b00c4cf756c6ed09a64ab412625827d681023c2ac6cac0abd977a7802a074";
+        const string expectedJson = """{"attachmentObjectKey":"purchase/quotes/vq-001.pdf","attachmentSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","canonicalFormVersion":2,"currencyCode":"INR","deliveryTerms":"درجة الحرارة 25°","headerDiscountValue":9.9,"idempotencyKey":"idem-quotation-001","invitationId":"10000000-0000-0000-0000-000000000001","invitationVersion":7,"lateAuthorizationRemarks":"مراجعة مطلوبة – தமிழ் \uD83D\uDE00","lines":[{"discountValue":3,"freight":5,"hsnSacCode":"8471","insurance":6.6,"otherCharges":7.7,"packingForwarding":4.04,"placeOfSupplyStateCode":"TN","promisedDeliveryDate":"2026-09-30","quantity":1.5,"requestForQuotationLineId":"20000000-0000-0000-0000-000000000002","roundOff":8.8,"supplierStateCode":"KA","unitRate":2.5,"vendorRegistrationType":"REGULAR"}],"paymentTerms":"Zahlung 30 Tage – Grüße","previousQuotationVersion":null,"receivedAt":"2026-08-23T01:38:09.0000000Z","requestLateAuthorization":true,"submissionSource":"EMAIL_RECEIVED","vendorAttestation":"أُقِرّ بالشروط °","vendorQuoteReference":"விலை-Ä-\uD83D\uDE00","warrantyTerms":"உத்தரவாதம் இரண்டு ஆண்டு"}""";
+        const string expectedSha256 = "0c532f732feb509eac889f1a5d5fb95af847884971d1e28b6706f6eb2331418b";
         var expectedBytes = Encoding.UTF8.GetBytes(expectedJson);
         var cultures = new[]
         {
@@ -491,13 +521,13 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
-    public void Relaxed_escaping_golden_vector_matches_controls_html_and_lone_surrogate()
+    public void Canonical_escaping_golden_vector_matches_controls_html_and_replacement_character()
     {
-        const string expectedJson = """{"comparisonNumber":"C<>&'\"","idempotencyKey":"idem","remarks":"controls:\b\t\n\f\r\u0000\u001F lone:\uFFFD","version":4}""";
-        const string expectedSha256 = "a3b0da9514a1e8abc4e767d238f90fb60013516fc411d8258b876fecc7129ac3";
+        const string expectedJson = """{"canonicalFormVersion":2,"comparisonNumber":"C<>&'\"","idempotencyKey":"idem","remarks":"controls:\b\t\n\f\r\u0000\u001F value:�","version":4}""";
+        const string expectedSha256 = "a1d903e9ac8e48c274ae97c680a566d7dd84e7f8c33891bcddb1ee54876118da";
         var parameters = new A5ComparisonApprovalParameters(
             "C<>&'\"",
-            "controls:\b\t\n\f\r\0\u001f lone:" + "\ud800",
+            "controls:\b\t\n\f\r\0\u001f value:\ufffd",
             4,
             "idem");
 
@@ -510,8 +540,8 @@ public sealed class A5Slice1ContractsTests
     [Fact]
     public void Unsigned_plan_golden_vector_matches_non_ascii_organization_and_target()
     {
-        const string expectedJson = "{\"actionId\":\"COMPARISON_APPROVE\",\"organization\":\"\u0b85\u0bae\u0bc8\u0baa\u0bcd\u0baa\u0bc1 <&\",\"parameters\":{\"comparisonNumber\":\"CMP-1\",\"idempotencyKey\":\"idem\",\"remarks\":\"Gr\u00fc\u00dfe\",\"version\":4},\"planId\":\"40000000-0000-0000-0000-000000000004\",\"target\":\"\u0647\u062f\u0641 \\uD83D\\uDE00\"}";
-        const string expectedSha256 = "2e52d3bd59894c82d8fc9941ae8743608b2a6dc0c14ec0e0c3b57f38c1816410";
+        const string expectedJson = "{\"actionId\":\"COMPARISON_APPROVE\",\"canonicalFormVersion\":2,\"organization\":\"\u0b85\u0bae\u0bc8\u0baa\u0bcd\u0baa\u0bc1 <&\",\"parameters\":{\"canonicalFormVersion\":2,\"comparisonNumber\":\"CMP-1\",\"idempotencyKey\":\"idem\",\"remarks\":\"Gr\u00fc\u00dfe\",\"version\":4},\"planId\":\"40000000-0000-0000-0000-000000000004\",\"target\":\"\u0647\u062f\u0641 \\uD83D\\uDE00\"}";
+        const string expectedSha256 = "a6679ee927f82459f8fd5e2b96c6f9aa295d950cbab8d4c8e8643963325db81e";
         var plan = A5UnsignedPurchasePlan.Create(
             Guid.Parse("40000000-0000-0000-0000-000000000004"),
             A5PurchaseActionId.COMPARISON_APPROVE,
@@ -524,6 +554,115 @@ public sealed class A5Slice1ContractsTests
         Assert.Equal(Encoding.UTF8.GetBytes(expectedJson), actual);
         Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(actual)).ToLowerInvariant());
         Assert.Equal(expectedSha256, plan.PlanHash);
+    }
+
+    [Fact]
+    public void Canonical_strings_reject_lone_surrogates_before_signable_bytes_exist()
+    {
+        foreach (var malformed in new[] { "\ud800", "\udc00", "prefix\ud800", "\udc00suffix" })
+        {
+            var parameters = new A5ComparisonApprovalParameters("CMP-1", malformed, 4, "idem");
+            Assert.Throws<JsonException>(() =>
+                A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.COMPARISON_APPROVE, parameters));
+            Assert.Throws<JsonException>(() => A5UnsignedPurchasePlan.Create(
+                Guid.NewGuid(), A5PurchaseActionId.COMPARISON_APPROVE,
+                new A5ComparisonApprovalParameters("CMP-1", "remarks", 4, "idem"),
+                malformed, "target"));
+            Assert.Throws<JsonException>(() => A5UnsignedPurchasePlan.Create(
+                Guid.NewGuid(), A5PurchaseActionId.COMPARISON_APPROVE,
+                new A5ComparisonApprovalParameters("CMP-1", "remarks", 4, "idem"),
+                "organization", malformed));
+        }
+
+        var canonical = Encoding.UTF8.GetString(A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.COMPARISON_APPROVE,
+            new A5ComparisonApprovalParameters("CMP-1", "\ufffd", 4, "idem")));
+        foreach (var malformedEscape in new[] { "\\uD800", "\\uDC00" })
+        {
+            var malformedBytes = Encoding.UTF8.GetBytes(
+                canonical.Replace("\ufffd", malformedEscape, StringComparison.Ordinal));
+            Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
+                A5PurchaseActionId.COMPARISON_APPROVE, malformedBytes));
+        }
+    }
+
+    [Fact]
+    public void Canonical_contract_metadata_and_writer_syntax_have_no_scalar_bypass()
+    {
+        var optionsField = typeof(A5PurchaseCanonicalSerializer)
+            .GetField("Options", BindingFlags.NonPublic | BindingFlags.Static);
+        var options = Assert.IsType<JsonSerializerOptions>(optionsField?.GetValue(null));
+        Assert.Null(options.PropertyNamingPolicy);
+
+        var visited = new HashSet<Type>();
+        foreach (var actionId in A5PurchaseActionRegistry.ActionIds)
+            Visit(A5PurchaseActionRegistry.GetBinding(actionId).ParameterType);
+
+        Assert.Contains(typeof(A5RfqSourceLineParameters), visited);
+        Assert.Contains(typeof(A5QuotationLineParameters), visited);
+
+        var root = FindRepositoryRoot();
+        var a5Root = Path.Combine(root, "src", "SESS.NexaERP.Application", "Purchase", "A5");
+        var rawValueOwners = new[]
+        {
+            "WriteCanonicalStringValue", "WriteCanonicalUInt32Value",
+            "WriteCanonicalDecimalValue", "WriteCanonicalJsonValue"
+        };
+        foreach (var path in Directory.GetFiles(a5Root, "*.cs"))
+        {
+            var syntaxRoot = CSharpSyntaxTree.ParseText(File.ReadAllText(path)).GetRoot();
+            foreach (var invocation in syntaxRoot.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (invocation.Expression is not MemberAccessExpressionSyntax member) continue;
+                var method = member.Name.Identifier.ValueText;
+                Assert.DoesNotContain(method, new[]
+                {
+                    "WriteString", "WriteStringValue", "WriteNumber", "WriteNumberValue"
+                });
+                if (method == "WriteRawValue")
+                {
+                    var owner = invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault()?.Identifier.ValueText;
+                    Assert.Contains(owner, rawValueOwners);
+                }
+            }
+        }
+
+        void Visit(Type type)
+        {
+            type = Nullable.GetUnderlyingType(type) ?? type;
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>))
+            {
+                Visit(type.GetGenericArguments()[0]);
+                return;
+            }
+
+            if (type == typeof(bool)) return;
+            var converterName = type == typeof(string) ? "CanonicalStringConverter" :
+                type == typeof(Guid) ? "CanonicalGuidConverter" :
+                type == typeof(uint) ? "CanonicalUInt32Converter" :
+                type == typeof(decimal) ? "CanonicalDecimalConverter" :
+                type == typeof(DateTimeOffset) ? "CanonicalDateTimeOffsetConverter" :
+                type == typeof(DateOnly) ? "CanonicalDateOnlyConverter" :
+                type.IsEnum ? "ClosedEnumConverter" :
+                null;
+            if (converterName is not null)
+            {
+                Assert.Contains(converterName, options.GetConverter(type).GetType().Name, StringComparison.Ordinal);
+                return;
+            }
+
+            Assert.Equal(typeof(A5PurchaseActionParameters).Namespace, type.Namespace);
+            if (!visited.Add(type)) return;
+            var wireNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in type.GetProperties(BindingFlags.Instance | BindingFlags.Public))
+            {
+                var attribute = property.GetCustomAttribute<JsonPropertyNameAttribute>();
+                Assert.NotNull(attribute);
+                Assert.False(string.IsNullOrEmpty(attribute.Name));
+                Assert.True(wireNames.Add(attribute.Name), $"Duplicate wire name {attribute.Name} on {type.Name}.");
+                Visit(property.PropertyType);
+            }
+        }
     }
 
     [Fact]
@@ -560,7 +699,8 @@ public sealed class A5Slice1ContractsTests
         using var document = JsonDocument.Parse(A5PurchaseCanonicalSerializer.Serialize(actionId, parameters));
         var actualNames = document.RootElement.EnumerateObject()
             .Select(x => x.Name)
-            .Where(x => x == "version" || x.EndsWith("Version", StringComparison.Ordinal))
+            .Where(x => x != "canonicalFormVersion" &&
+                (x == "version" || x.EndsWith("Version", StringComparison.Ordinal)))
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.Equal(expected.Select(x => x.Property).Order(StringComparer.Ordinal), actualNames);
