@@ -14,10 +14,14 @@ The canonical form version is the unsigned integer `2`. Every canonical paramete
 - Object properties use fixed literal wire names matching `[a-z][A-Za-z0-9]*`.
 - The first character is an ASCII lowercase letter. Every remaining character is an ASCII
   letter or digit. Underscore, hyphen, dot, punctuation and non-ASCII are forbidden.
-- Emit property names as literal ASCII bytes without `\u` escaping. Letters and digits
-  require no JSON, JavaScript or HTML safety escaping, so a conforming encoder choice cannot
-  affect their bytes. Contract and manual plan names are statically checked against this
-  grammar, and a golden vector rejects any encoder that nevertheless escapes them.
+- Emit property names as literal ASCII bytes without `\u` escaping. Production uses a
+  code-owned encoder whose allowlist is exactly `a-z`, `A-Z` and `0-9`; it does not use
+  a runtime-default encoder. The same encoder instance governs parameter serialization and
+  unsigned-plan writing. Contract and manual plan names are statically checked against the
+  grammar, and a golden vector rejects any encoder that escapes a permitted character.
+- Values do not consult the property-name encoder. All string, enum, identifier, number,
+  date and nested canonical-JSON values use the canonical raw-value routines in sections 4
+  through 7. Boolean and null tokens contain no encoder-controlled content.
 - Sort object properties in ascending ordinal order by property name. For the current ASCII names, this is ascending unsigned UTF-8 byte order.
 - Preserve array element order exactly as supplied. Do not sort arrays.
 - Emit every nullable property. Emit JSON `null` when it has no value.
@@ -48,7 +52,8 @@ The tables below are normative and complete for canonical form v2:
 - Every root parameter record contains `canonicalFormVersion` with the unsigned integer value `2`.
 - `string` means the canonical string form in section 4. Values are not trimmed, case-folded or rewritten.
 - `Guid`, `uint`, `decimal`, `DateTimeOffset`, `DateOnly` and enum types use sections 5 through 7.
-- `array<T>` is a required JSON array whose element order is caller order. Elements are canonical `T` objects.
+- `array<T>` is a required JSON array whose element order is caller order. Elements are
+  non-null canonical `T` objects; reject a null element before serialization and after parsing.
 - Every `idempotencyKey` is a required string preserved byte-for-byte as logical string content.
 - Other than the constraints stated below, A5-1 applies no business validation to free-text strings,
   decimal values, dates, identifiers or array cardinality.

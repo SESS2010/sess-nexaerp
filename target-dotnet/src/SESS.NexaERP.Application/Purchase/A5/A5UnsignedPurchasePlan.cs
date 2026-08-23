@@ -77,7 +77,7 @@ public sealed record A5UnsignedPurchasePlan
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
         {
-            Encoder = A5PurchaseCanonicalSerializer.StructuralEncoder,
+            Encoder = A5PurchaseCanonicalSerializer.PropertyNameEncoder,
             Indented = false,
             MaxDepth = A5PurchaseCanonicalSerializer.CanonicalMaxDepth,
             SkipValidation = false

@@ -2,12 +2,14 @@ using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Purchase.A5;
 using SESS.NexaERP.Domain.Masters;
@@ -580,6 +582,53 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Property_name_encoder_is_code_owned_and_allows_exactly_ascii_letters_and_digits()
+    {
+        var encoderProperty = typeof(A5PurchaseCanonicalSerializer)
+            .GetProperty("PropertyNameEncoder", BindingFlags.NonPublic | BindingFlags.Static);
+        var encoder = Assert.IsAssignableFrom<JavaScriptEncoder>(encoderProperty?.GetValue(null));
+        var optionsField = typeof(A5PurchaseCanonicalSerializer)
+            .GetField("Options", BindingFlags.NonPublic | BindingFlags.Static);
+        var options = Assert.IsType<JsonSerializerOptions>(optionsField?.GetValue(null));
+
+        Assert.Same(encoder, options.Encoder);
+        for (var scalar = 0; scalar <= 0x10ffff; scalar++)
+        {
+            if (scalar is >= 0xd800 and <= 0xdfff) continue;
+            var shouldBeLiteral = scalar is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9';
+            Assert.Equal(!shouldBeLiteral, encoder.WillEncode(scalar));
+        }
+    }
+
+    [Fact]
+    public void Canonical_collections_reject_null_elements_before_serialization_and_after_deserialization()
+    {
+        var rfq = new A5RfqCreateParameters(
+            DateTimeOffset.UnixEpoch, "INR", false, null, "idem", [null!]);
+        var quotation = SampleQuotation() with { Lines = [null!] };
+
+        Assert.Throws<ArgumentException>(() =>
+            A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.RFQ_CREATE, rfq));
+        Assert.Throws<ArgumentException>(() =>
+            A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, quotation));
+
+        var validRfq = new A5RfqCreateParameters(
+            DateTimeOffset.UnixEpoch,
+            "INR",
+            false,
+            null,
+            "idem",
+            [new A5RfqSourceLineParameters(Guid.Parse("50000000-0000-0000-0000-000000000005"), 1m)]);
+        AssertReceivedNullElementIsRejected(
+            A5PurchaseActionId.RFQ_CREATE,
+            A5PurchaseCanonicalSerializer.Serialize(A5PurchaseActionId.RFQ_CREATE, validRfq));
+        AssertReceivedNullElementIsRejected(
+            A5PurchaseActionId.QUOTATION_REVISION_SUBMIT,
+            A5PurchaseCanonicalSerializer.Serialize(
+                A5PurchaseActionId.QUOTATION_REVISION_SUBMIT, SampleQuotation()));
+    }
+
+    [Fact]
     public void Canonical_strings_reject_lone_surrogates_before_signable_bytes_exist()
     {
         foreach (var malformed in new[] { "\ud800", "\udc00", "prefix\ud800", "\udc00suffix" })
@@ -656,13 +705,21 @@ public sealed class A5Slice1ContractsTests
                         $"WriteRawValue is not authorized in {ownerSymbol?.ToDisplayString()}.");
                 }
 
-                if (method.Name == "WritePropertyName")
+                var propertyNameParameter = method.Parameters.SingleOrDefault(IsPropertyNameParameter);
+                if (propertyNameParameter is not null)
                 {
-                    var argument = Assert.Single(invocation.ArgumentList.Arguments);
+                    var operation = Assert.IsAssignableFrom<IInvocationOperation>(
+                        semanticModel.GetOperation(invocation));
+                    var boundArgument = Assert.Single(operation.Arguments, argument =>
+                        SymbolEqualityComparer.Default.Equals(argument.Parameter, propertyNameParameter));
+                    var argument = Assert.IsType<ArgumentSyntax>(boundArgument.Syntax);
+                    Assert.True(argument.Expression.IsKind(SyntaxKind.StringLiteralExpression),
+                        $"{method.ToDisplayString()} must use a string literal property name.");
                     var constant = semanticModel.GetConstantValue(argument.Expression);
                     var propertyName = Assert.IsType<string>(constant.HasValue ? constant.Value : null);
                     AssertCanonicalPropertyName(propertyName);
-                    if (Path.GetFileName(path) == "A5UnsignedPurchasePlan.cs")
+                    if (Path.GetFileName(path) == "A5UnsignedPurchasePlan.cs" &&
+                        method.Name == "WritePropertyName")
                         Assert.True(manualPlanNames.Add(propertyName), $"Duplicate manual plan property {propertyName}.");
                 }
             }
@@ -708,6 +765,25 @@ public sealed class A5Slice1ContractsTests
                 Visit(property.PropertyType);
             }
         }
+    }
+
+    [Fact]
+    public void Semantic_writer_guard_recognizes_every_property_name_bearing_overload()
+    {
+        var propertyBearingMethods = typeof(Utf8JsonWriter)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(method => method.GetParameters().Any(parameter =>
+                IsPropertyNameParameterName(parameter.Name)))
+            .ToArray();
+
+        Assert.NotEmpty(propertyBearingMethods);
+        Assert.Contains(propertyBearingMethods, method => method.Name == "WriteStartObject");
+        Assert.Contains(propertyBearingMethods, method => method.Name == "WriteStartArray");
+        Assert.Contains(propertyBearingMethods, method => method.Name == "WriteBoolean");
+        Assert.Contains(propertyBearingMethods, method => method.Name == "WriteNull");
+        Assert.All(propertyBearingMethods, method =>
+            Assert.Single(method.GetParameters(), parameter =>
+                IsPropertyNameParameterName(parameter.Name)));
     }
 
     [Fact]
@@ -955,6 +1031,13 @@ public sealed class A5Slice1ContractsTests
         };
     }
 
+    private static bool IsPropertyNameParameter(IParameterSymbol parameter) =>
+        IsPropertyNameParameterName(parameter.Name);
+
+    private static bool IsPropertyNameParameterName(string? parameterName) =>
+        string.Equals(parameterName, "propertyName", StringComparison.Ordinal) ||
+        parameterName?.EndsWith("PropertyName", StringComparison.Ordinal) == true;
+
     private static void AssertCanonicalPropertyName(string propertyName)
     {
         Assert.True(propertyName.Length > 0 && propertyName[0] is >= 'a' and <= 'z',
@@ -962,6 +1045,19 @@ public sealed class A5Slice1ContractsTests
         Assert.All(propertyName, character => Assert.True(
             character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9',
             $"Property name '{propertyName}' contains a character outside ASCII letters and digits."));
+    }
+
+    private static void AssertReceivedNullElementIsRejected(
+        A5PurchaseActionId actionId,
+        byte[] canonicalBytes)
+    {
+        var text = Encoding.UTF8.GetString(canonicalBytes);
+        var withNullElement = Encoding.UTF8.GetBytes(
+            text.Replace("\"lines\":[{", "\"lines\":[null,{", StringComparison.Ordinal));
+        Assert.NotEqual(canonicalBytes, withNullElement);
+        var exception = Record.Exception(() =>
+            A5PurchaseCanonicalSerializer.DeserializeCanonical(actionId, withNullElement));
+        Assert.IsType<ArgumentException>(exception);
     }
 
     private static string FindRepositoryRoot()

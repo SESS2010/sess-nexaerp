@@ -21,7 +21,10 @@ public static class A5PurchaseCanonicalSerializer
     // reverse solidus, and supplementary-plane scalars; and emit other valid BMP
     // characters as UTF-8. HTML-sensitive characters are intentionally not escaped,
     // so canonical bytes must never be embedded directly into HTML.
-    internal static JavaScriptEncoder StructuralEncoder { get; } = JavaScriptEncoder.Default;
+    // Property names use this code-owned encoder with the exact canonical-name
+    // alphabet. Textual and numeric values bypass it through canonical raw-value
+    // routines; boolean and null tokens contain no encoder-controlled content.
+    internal static JavaScriptEncoder PropertyNameEncoder { get; } = CreatePropertyNameEncoder();
 
     private static readonly JsonSerializerOptions Options = CreateOptions();
 
@@ -218,7 +221,7 @@ public static class A5PurchaseCanonicalSerializer
             AllowTrailingCommas = false,
             DefaultBufferSize = 16 * 1024,
             DictionaryKeyPolicy = null,
-            Encoder = StructuralEncoder,
+            Encoder = PropertyNameEncoder,
             IgnoreReadOnlyFields = false,
             IgnoreReadOnlyProperties = false,
             IncludeFields = false,
@@ -254,9 +257,33 @@ public static class A5PurchaseCanonicalSerializer
 
     private static void Validate(IA5PurchaseActionParameters parameters)
     {
-        if (parameters is not A5QuotationRevisionSubmitParameters quotation) return;
-        ValidateAttachmentObjectKey(quotation.AttachmentObjectKey);
-        ValidateAttachmentSha256(quotation.AttachmentSha256);
+        switch (parameters)
+        {
+            case A5RfqCreateParameters rfq:
+                ValidateCollectionElements(rfq.Lines, nameof(rfq.Lines));
+                break;
+            case A5QuotationRevisionSubmitParameters quotation:
+                ValidateCollectionElements(quotation.Lines, nameof(quotation.Lines));
+                ValidateAttachmentObjectKey(quotation.AttachmentObjectKey);
+                ValidateAttachmentSha256(quotation.AttachmentSha256);
+                break;
+        }
+    }
+
+    private static JavaScriptEncoder CreatePropertyNameEncoder()
+    {
+        var settings = new TextEncoderSettings();
+        settings.AllowCharacters(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".ToCharArray());
+        return JavaScriptEncoder.Create(settings);
+    }
+
+    private static void ValidateCollectionElements<T>(IReadOnlyList<T> values, string parameterName)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        if (values.Any(static value => value is null))
+            throw new ArgumentException("Canonical collections cannot contain null elements.", parameterName);
     }
 
     private static void ValidateAttachmentObjectKey(string value)
