@@ -332,10 +332,20 @@ public sealed class A5Slice1ContractsTests
     [Fact]
     public void Canonical_parser_rejects_input_beyond_the_depth_limit()
     {
+        var optionsField = typeof(A5PurchaseCanonicalSerializer)
+            .GetField("Options", BindingFlags.NonPublic | BindingFlags.Static);
+        var options = Assert.IsType<JsonSerializerOptions>(optionsField?.GetValue(null));
+        Assert.Equal(A5PurchaseCanonicalSerializer.CanonicalMaxDepth, options.MaxDepth);
+
         var depth = A5PurchaseCanonicalSerializer.CanonicalMaxDepth + 1;
-        var deeplyNested = Encoding.UTF8.GetBytes(new string('[', depth) + "0" + new string(']', depth));
-        Assert.Throws<JsonException>(() => A5PurchaseCanonicalSerializer.DeserializeCanonical(
-            A5PurchaseActionId.COMPARISON_APPROVE, deeplyNested));
+        var deeplyNested = Encoding.UTF8.GetBytes(
+            string.Concat(Enumerable.Repeat("{\"child\":", depth)) + "0" + new string('}', depth));
+        var exception = Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<JsonElement>(deeplyNested, options));
+        Assert.Contains(
+            $"maximum configured depth of {A5PurchaseCanonicalSerializer.CanonicalMaxDepth}",
+            exception.Message,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -557,6 +567,19 @@ public sealed class A5Slice1ContractsTests
     }
 
     [Fact]
+    public void Property_name_golden_vector_emits_permitted_names_as_literal_ascii()
+    {
+        const string expectedJson = "{\"canonicalFormVersion\":2,\"comparisonNumber\":\"CMP1\",\"idempotencyKey\":\"idem\",\"remarks\":\"r\",\"version\":0}";
+        const string expectedSha256 = "4341c54feb9a80dff51f435249b3bb903be8b5b1f1cd9b2f4bf748c2044e09ea";
+        var actual = A5PurchaseCanonicalSerializer.Serialize(
+            A5PurchaseActionId.COMPARISON_APPROVE,
+            new A5ComparisonApprovalParameters("CMP1", "r", 0, "idem"));
+
+        Assert.Equal(Encoding.ASCII.GetBytes(expectedJson), actual);
+        Assert.Equal(expectedSha256, Convert.ToHexString(SHA256.HashData(actual)).ToLowerInvariant());
+    }
+
+    [Fact]
     public void Canonical_strings_reject_lone_surrogates_before_signable_bytes_exist()
     {
         foreach (var malformed in new[] { "\ud800", "\udc00", "prefix\ud800", "\udc00suffix" })
@@ -603,29 +626,50 @@ public sealed class A5Slice1ContractsTests
 
         var root = FindRepositoryRoot();
         var a5Root = Path.Combine(root, "src", "SESS.NexaERP.Application", "Purchase", "A5");
-        var rawValueOwners = new[]
+        var paths = Directory.GetFiles(a5Root, "*.cs", SearchOption.AllDirectories);
+        var trees = paths.ToDictionary(
+            path => path,
+            path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path));
+        var purchaseContracts = Path.Combine(root, "src", "SESS.NexaERP.Application", "Purchase", "Rev869BPurchaseContracts.cs");
+        var compilation = CreateSemanticCompilation(trees.Values.Append(
+            CSharpSyntaxTree.ParseText(File.ReadAllText(purchaseContracts), path: purchaseContracts)));
+        var manualPlanNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (path, tree) in trees)
         {
-            "WriteCanonicalStringValue", "WriteCanonicalUInt32Value",
-            "WriteCanonicalDecimalValue", "WriteCanonicalJsonValue"
-        };
-        foreach (var path in Directory.GetFiles(a5Root, "*.cs"))
-        {
-            var syntaxRoot = CSharpSyntaxTree.ParseText(File.ReadAllText(path)).GetRoot();
+            var syntaxRoot = tree.GetRoot();
+            var semanticModel = compilation.GetSemanticModel(tree, ignoreAccessibility: true);
             foreach (var invocation in syntaxRoot.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                if (invocation.Expression is not MemberAccessExpressionSyntax member) continue;
-                var method = member.Name.Identifier.ValueText;
-                Assert.DoesNotContain(method, new[]
+                var method = ResolveMethodSymbol(semanticModel, invocation);
+                if (method?.ContainingType.ToDisplayString() != "System.Text.Json.Utf8JsonWriter") continue;
+
+                Assert.DoesNotContain(method.Name, new[]
                 {
                     "WriteString", "WriteStringValue", "WriteNumber", "WriteNumberValue"
                 });
-                if (method == "WriteRawValue")
+                if (method.Name == "WriteRawValue")
                 {
-                    var owner = invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault()?.Identifier.ValueText;
-                    Assert.Contains(owner, rawValueOwners);
+                    var declaration = invocation.Ancestors().OfType<MethodDeclarationSyntax>().FirstOrDefault();
+                    var ownerSymbol = declaration is null ? null : semanticModel.GetDeclaredSymbol(declaration);
+                    Assert.True(IsAuthorizedRawValueOwner(ownerSymbol),
+                        $"WriteRawValue is not authorized in {ownerSymbol?.ToDisplayString()}.");
+                }
+
+                if (method.Name == "WritePropertyName")
+                {
+                    var argument = Assert.Single(invocation.ArgumentList.Arguments);
+                    var constant = semanticModel.GetConstantValue(argument.Expression);
+                    var propertyName = Assert.IsType<string>(constant.HasValue ? constant.Value : null);
+                    AssertCanonicalPropertyName(propertyName);
+                    if (Path.GetFileName(path) == "A5UnsignedPurchasePlan.cs")
+                        Assert.True(manualPlanNames.Add(propertyName), $"Duplicate manual plan property {propertyName}.");
                 }
             }
         }
+        Assert.Equal(
+            new[] { "actionId", "canonicalFormVersion", "organization", "parameters", "planId", "target" },
+            manualPlanNames.Order(StringComparer.Ordinal));
 
         void Visit(Type type)
         {
@@ -659,6 +703,7 @@ public sealed class A5Slice1ContractsTests
                 var attribute = property.GetCustomAttribute<JsonPropertyNameAttribute>();
                 Assert.NotNull(attribute);
                 Assert.False(string.IsNullOrEmpty(attribute.Name));
+                AssertCanonicalPropertyName(attribute.Name);
                 Assert.True(wireNames.Add(attribute.Name), $"Duplicate wire name {attribute.Name} on {type.Name}.");
                 Visit(property.PropertyType);
             }
@@ -670,7 +715,7 @@ public sealed class A5Slice1ContractsTests
     {
         var root = FindRepositoryRoot();
         var a5Root = Path.Combine(root, "src", "SESS.NexaERP.Application", "Purchase", "A5");
-        foreach (var path in Directory.GetFiles(a5Root, "*.cs"))
+        foreach (var path in Directory.GetFiles(a5Root, "*.cs", SearchOption.AllDirectories))
             Assert.Empty(FindForbiddenSyntax(File.ReadAllText(path)));
 
         var endpoint = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs"));
@@ -686,6 +731,8 @@ public sealed class A5Slice1ContractsTests
     [InlineData("class C { void M(System.Reflection.MethodInfo m) { m.Invoke(this, null); } }")]
     [InlineData("class C { void M(System.Linq.Expressions.LambdaExpression e) { e.Compile(); } }")]
     [InlineData("class C { void M() { System.Reflection.Assembly.Load(Array.Empty<byte>()); } }")]
+    [InlineData("using static System.Type; class C { void M() { GetType(\"C\"); } }")]
+    [InlineData("using static System.Activator; class C { void M() { CreateInstance(typeof(C)); } }")]
     public void Forbidden_dispatch_syntax_guard_rejects_aliases_qualification_and_line_breaks(string source)
     {
         Assert.NotEmpty(FindForbiddenSyntax(source));
@@ -795,45 +842,25 @@ public sealed class A5Slice1ContractsTests
     {
         var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
         var root = tree.GetRoot();
+        var compilation = CreateSemanticCompilation([tree]);
+        var semanticModel = compilation.GetSemanticModel(tree, ignoreAccessibility: true);
         var findings = tree.GetDiagnostics()
             .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .Select(diagnostic => "parse-error:" + diagnostic)
             .ToList();
-        var aliases = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
-            .Where(usingDirective => usingDirective.Alias is not null)
-            .ToDictionary(
-                usingDirective => usingDirective.Alias!.Name.Identifier.ValueText,
-                usingDirective => Compact(usingDirective.Name!),
-                StringComparer.Ordinal);
-        var importedNamespaces = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
-            .Where(usingDirective => usingDirective.Alias is null && !usingDirective.StaticKeyword.IsKind(SyntaxKind.StaticKeyword))
-            .Select(usingDirective => Compact(usingDirective.Name!))
-            .ToArray();
-
-        string Expand(string value)
-        {
-            value = value.Replace("global::", string.Empty, StringComparison.Ordinal);
-            var separator = value.IndexOf('.', StringComparison.Ordinal);
-            var first = separator < 0 ? value : value[..separator];
-            return aliases.TryGetValue(first, out var replacement)
-                ? replacement + (separator < 0 ? string.Empty : value[separator..])
-                : value;
-        }
-
-        string ResolveType(TypeSyntax type)
-        {
-            var value = Expand(Compact(type));
-            if (value.Contains('.', StringComparison.Ordinal)) return value;
-            var imported = importedNamespaces.FirstOrDefault(candidate =>
-                candidate == "System" && value is "Type" or "Activator" ||
-                candidate == "System.Reflection" && value is "Assembly" or "MethodInfo" ||
-                candidate == "System.Linq.Expressions" && value.EndsWith("Expression", StringComparison.Ordinal));
-            return imported is null ? value : imported + "." + value;
-        }
 
         foreach (var name in root.DescendantNodes().OfType<NameSyntax>())
         {
-            if (Expand(Compact(name)).StartsWith("System.Reflection", StringComparison.Ordinal))
+            var symbols = semanticModel.GetSymbolInfo(name).CandidateSymbols;
+            var symbol = semanticModel.GetSymbolInfo(name).Symbol ?? symbols.FirstOrDefault();
+            var resolvedName = symbol switch
+            {
+                INamespaceSymbol namespaceSymbol => namespaceSymbol.ToDisplayString(),
+                INamedTypeSymbol typeSymbol => typeSymbol.ToDisplayString(),
+                _ => string.Empty
+            };
+            if (resolvedName == "System.Reflection" ||
+                resolvedName.StartsWith("System.Reflection.", StringComparison.Ordinal))
                 findings.Add("System.Reflection:" + name.GetLocation().GetLineSpan().StartLinePosition);
         }
 
@@ -841,43 +868,101 @@ public sealed class A5Slice1ContractsTests
                      .Where(name => name.Identifier.ValueText == "dynamic"))
             findings.Add("dynamic:" + dynamicName.GetLocation().GetLineSpan().StartLinePosition);
 
-        var declaredTypes = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var parameter in root.DescendantNodes().OfType<ParameterSyntax>().Where(parameter => parameter.Type is not null))
-            declaredTypes[parameter.Identifier.ValueText] = ResolveType(parameter.Type!);
-        foreach (var declaration in root.DescendantNodes().OfType<VariableDeclarationSyntax>())
+        foreach (var staticImport in root.DescendantNodes().OfType<UsingDirectiveSyntax>()
+                     .Where(usingDirective => usingDirective.StaticKeyword.IsKind(SyntaxKind.StaticKeyword)))
         {
-            var type = ResolveType(declaration.Type);
-            foreach (var variable in declaration.Variables)
-                declaredTypes[variable.Identifier.ValueText] = type;
+            var importedType = semanticModel.GetSymbolInfo(staticImport.Name!).Symbol as INamedTypeSymbol;
+            var importedName = importedType?.ToDisplayString();
+            if (importedName is "System.Type" or "System.Activator" or "System.Reflection.Assembly")
+                findings.Add("forbidden-static-import:" + importedName);
         }
 
         foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
         {
-            if (invocation.Expression is not MemberAccessExpressionSyntax member) continue;
-            var method = member.Name.Identifier.ValueText;
-            var receiver = Expand(Compact(member.Expression));
-            if (member.Expression is IdentifierNameSyntax identifier &&
-                declaredTypes.TryGetValue(identifier.Identifier.ValueText, out var declaredType))
-                receiver = declaredType;
-            var simpleReceiver = receiver[(receiver.LastIndexOf(".", StringComparison.Ordinal) + 1)..];
-            var forbidden = method switch
+            var method = ResolveMethodSymbol(semanticModel, invocation);
+            if (method is null) continue;
+            var containingType = method.ContainingType?.ToDisplayString() ?? string.Empty;
+            var forbidden = method.Name switch
             {
-                "GetType" => simpleReceiver == "Type",
-                "CreateInstance" => simpleReceiver == "Activator",
-                "Invoke" => simpleReceiver == "MethodInfo",
-                "Compile" => simpleReceiver.EndsWith("Expression", StringComparison.Ordinal),
-                "Load" => simpleReceiver == "Assembly",
+                "GetType" => containingType == "System.Type",
+                "CreateInstance" => containingType == "System.Activator",
+                "Invoke" => containingType is "System.Reflection.MethodInfo" or "System.Reflection.MethodBase",
+                "Compile" => method.ContainingNamespace.ToDisplayString() == "System.Linq.Expressions",
+                "Load" => containingType == "System.Reflection.Assembly",
                 _ => false
             };
             if (forbidden)
-                findings.Add(simpleReceiver + "." + method + ":" + invocation.GetLocation().GetLineSpan().StartLinePosition);
+                findings.Add(containingType + "." + method.Name + ":" + invocation.GetLocation().GetLineSpan().StartLinePosition);
         }
 
         return findings;
     }
 
-    private static string Compact(SyntaxNode node) =>
-        string.Concat(node.DescendantTokens().Select(token => token.Text));
+    private static CSharpCompilation CreateSemanticCompilation(IEnumerable<SyntaxTree> trees)
+    {
+        var sourceTrees = trees.ToArray();
+        var parseOptions = Assert.IsType<CSharpParseOptions>(sourceTrees[0].Options);
+        var implicitUsings = CSharpSyntaxTree.ParseText(
+            "global using System; global using System.Collections.Generic; global using System.IO; " +
+            "global using System.Linq; global using System.Threading; global using System.Threading.Tasks;",
+            parseOptions);
+        var trustedAssemblies = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        var references = trustedAssemblies
+            .Append(typeof(VendorRegistrationType).Assembly.Location)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(path => MetadataReference.CreateFromFile(path));
+        return CSharpCompilation.Create(
+            "A5GuardAnalysis",
+            sourceTrees.Prepend(implicitUsings),
+            references,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+    }
+
+    private static IMethodSymbol? ResolveMethodSymbol(
+        SemanticModel semanticModel,
+        InvocationExpressionSyntax invocation)
+    {
+        var symbolInfo = semanticModel.GetSymbolInfo(invocation);
+        return symbolInfo.Symbol as IMethodSymbol ??
+            symbolInfo.CandidateSymbols.OfType<IMethodSymbol>().FirstOrDefault();
+    }
+
+    private static bool IsAuthorizedRawValueOwner(IMethodSymbol? method)
+    {
+        if (method is null || !method.IsStatic ||
+            method.ContainingType.ToDisplayString() !=
+            "SESS.NexaERP.Application.Purchase.A5.A5PurchaseCanonicalSerializer" ||
+            method.Parameters.Length != 2 ||
+            method.Parameters[0].Type.ToDisplayString() != "System.Text.Json.Utf8JsonWriter")
+            return false;
+
+        var valueType = method.Parameters[1].Type;
+        return method.Name switch
+        {
+            "WriteCanonicalStringValue" => valueType.SpecialType == SpecialType.System_String,
+            "WriteCanonicalUInt32Value" => valueType.SpecialType == SpecialType.System_UInt32,
+            "WriteCanonicalDecimalValue" => valueType.SpecialType == SpecialType.System_Decimal,
+            "WriteCanonicalJsonValue" =>
+                valueType is INamedTypeSymbol
+                {
+                    Name: "ReadOnlySpan",
+                    ContainingNamespace.Name: "System",
+                    TypeArguments.Length: 1
+                } span &&
+                span.TypeArguments[0].SpecialType == SpecialType.System_Byte,
+            _ => false
+        };
+    }
+
+    private static void AssertCanonicalPropertyName(string propertyName)
+    {
+        Assert.True(propertyName.Length > 0 && propertyName[0] is >= 'a' and <= 'z',
+            $"Property name '{propertyName}' must start with an ASCII lowercase letter.");
+        Assert.All(propertyName, character => Assert.True(
+            character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9',
+            $"Property name '{propertyName}' contains a character outside ASCII letters and digits."));
+    }
 
     private static string FindRepositoryRoot()
     {
