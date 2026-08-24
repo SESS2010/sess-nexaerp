@@ -911,7 +911,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         modelBuilder.Entity<Role>().HasData(FoundationSeedData.Roles);
         modelBuilder.Entity<PageDefinition>().HasData(FoundationSeedData.Pages);
         modelBuilder.Entity<Role>().HasData(Rev866SeedData.AdditionalEmployeeRoles);
-        modelBuilder.Entity<RolePagePermission>().HasData(Rev866SeedData.RolePagePermissions);
+        modelBuilder.Entity<Role>().HasData(AdvanceSeedData.DepartmentManagerRole);
+        modelBuilder.Entity<RolePagePermission>().HasData(AdvanceSeedData.RolePagePermissions);
         modelBuilder.Entity<Department>().HasData(Rev866SeedData.Departments);
         modelBuilder.Entity<Skill>().HasData(Rev866SeedData.Skills);
         modelBuilder.Entity<Designation>().HasData(Rev866SeedData.Designations);

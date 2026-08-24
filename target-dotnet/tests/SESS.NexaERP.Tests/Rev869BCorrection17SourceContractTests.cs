@@ -602,7 +602,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             assembly.GetName().Name == "Npgsql.EntityFrameworkCore.PostgreSQL");
         return new(
             Environment.GetEnvironmentVariable("REV869B_A3_SOURCE_COMMIT") ??
-                "9e0f606493b86d355e63eeea0c0cca2f315d16e7",
+                "16dcf5a61956350d690ceeb81bd27012d456e256",
             RunCommand(root, "dotnet", "--version"),
             RuntimeInformation.FrameworkDescription,
             RunCommand(root, "dotnet", "ef", "--version"),

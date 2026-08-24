@@ -37,23 +37,6 @@ internal static class AdvanceDatabaseContractSql
         """;
 
     private const string InstallRev869BTemplate = """
-                DO $rev869b$
-                DECLARE department_manager_role_id uuid;
-                BEGIN
-                    SELECT "Id" INTO department_manager_role_id FROM __advance_schema__.roles WHERE upper(trim("Code")) = 'DEPARTMENT_MANAGER' AND "IsActive" = TRUE;
-                    IF department_manager_role_id IS NULL THEN RAISE EXCEPTION 'REV869B requires the existing active DEPARTMENT_MANAGER role.'; END IF;
-                    IF (SELECT count(*) FROM __advance_schema__.page_definitions WHERE "PageKey" IN ('purchase.rfq','purchase.commercial-comparisons','purchase.po') AND "IsActive" = TRUE) <> 3 THEN RAISE EXCEPTION 'REV869B Department Manager pages are missing or ambiguous.'; END IF;
-                    INSERT INTO __advance_schema__.role_page_permissions
-                    ("Id","RoleId","PageDefinitionId","CanView","CanCreate","CanUpdate","CanSubmit","CanVerify","CanApprove","CanReject","CanRequestClarification","CanRequestRevision","CanResubmit","CanCancel","CanDeactivate","CanPrint","CanDownload","CanExport","CanUploadAttachment","CanReplaceAttachment","CanViewCommercialValues","CanViewAuditHistory","HasFullControl","CreatedAt","CreatedBy","Version")
-                    SELECT permission_id,department_manager_role_id,p."Id",TRUE,FALSE,FALSE,FALSE,FALSE,
-                           p."PageKey" = 'purchase.po',p."PageKey" = 'purchase.po',TRUE,p."PageKey" = 'purchase.po',FALSE,FALSE,FALSE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,TRUE,FALSE,
-                           TIMESTAMPTZ '1970-01-01 00:00:00+00','migration-rev869b',0
-                    FROM (VALUES
-                        ('918d0634-ff61-c756-98f4-a17290d04110'::uuid,'purchase.rfq'),
-                        ('062fd69d-1356-6930-ecdb-1c13ae5a01d5'::uuid,'purchase.commercial-comparisons'),
-                        ('c9ec48cd-024d-128e-697f-389458e12c97'::uuid,'purchase.po')
-                    ) expected(permission_id,page_key) JOIN __advance_schema__.page_definitions p ON p."PageKey" = expected.page_key;
-                END $rev869b$;
 
                 CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_reject_immutable_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, __advance_schema__ AS $rev869b$
                 BEGIN RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='__advance_schema__',TABLE=TG_TABLE_NAME,

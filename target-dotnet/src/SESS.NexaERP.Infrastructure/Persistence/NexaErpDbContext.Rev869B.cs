@@ -186,7 +186,6 @@ public sealed partial class NexaErpDbContext
         });
 
         modelBuilder.Entity<PageDefinition>().HasData(Rev869BSeedData.Pages);
-        modelBuilder.Entity<RolePagePermission>().HasData(Rev869BSeedData.RolePagePermissions);
         modelBuilder.Entity<PurchaseTransactionApprovalPolicy>().HasData(Rev869BSeedData.ApprovalPolicies);
     }
 
