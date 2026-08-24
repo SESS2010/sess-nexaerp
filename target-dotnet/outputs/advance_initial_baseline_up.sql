@@ -1,10 +1,4 @@
-DO $EF$
-BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'advance') THEN
-        CREATE SCHEMA advance;
-    END IF;
-END $EF$;
-CREATE TABLE IF NOT EXISTS advance."__EFMigrationsHistory" (
+CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
     "MigrationId" character varying(150) NOT NULL,
     "ProductVersion" character varying(32) NOT NULL,
     CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
@@ -5332,8 +5326,8 @@ BEGIN
        v.supplier_state IS DISTINCT FROM (p_tax->>'supplierStateCode') OR
        v.supply_state IS DISTINCT FROM (p_tax->>'placeOfSupplyStateCode') OR
        v.registration_type IS DISTINCT FROM (p_tax->>'vendorRegistrationType') OR
-       v.supply_type IS DISTINCT FROM CASE WHEN upper(v.supplier_state)=upper(v.supply_state)
-                                           THEN 'INTRASTATE' ELSE 'INTERSTATE' END OR
+       v.supply_type IS DISTINCT FROM (CASE WHEN upper(v.supplier_state)=upper(v.supply_state)
+                                            THEN 'INTRASTATE' ELSE 'INTERSTATE' END) OR
        (v.supply_type='INTRASTATE' AND (v.igst_rate<>0 OR v.cgst_rate+v.sgst_rate<>v.gst_rate)) OR
        (v.supply_type='INTERSTATE' AND (v.cgst_rate<>0 OR v.sgst_rate<>0 OR v.igst_rate<>v.gst_rate))
     THEN RETURN FALSE; END IF;
@@ -6011,7 +6005,7 @@ CREATE FUNCTION advance.rev869b_read_purge_evidence(authorization_id uuid,purge_
     'attemptCount',(SELECT count(*) FROM advance.rev869b_purge_attempts p WHERE p."AuthorizationId"=$1 AND p."PurgeAttemptId"=$2),
     'rootAuthorization',(SELECT to_jsonb(root)-'NonceSha256' FROM advance.rev869b_purge_authorizations a JOIN advance.rev869b_purge_authorizations root ON root."AuthorizationId"=a."RootAuthorizationId" WHERE a."AuthorizationId"=$1),
     'priorAttempt',(SELECT to_jsonb(prior) FROM advance.rev869b_purge_authorizations a JOIN advance.rev869b_purge_attempts prior ON prior."PurgeAttemptId"=a."PriorAttemptId" WHERE a."AuthorizationId"=$1),
-    'eligibleRows',coalesce((SELECT jsonb_agg(jsonb_build_object('ledgerName','command_contexts','rowId',x."ContextToken") ORDER BY x."ContextToken") FROM (SELECT c."ContextToken" FROM advance.rev869b_command_contexts c JOIN advance.rev869b_command_attempts ca ON ca."AttemptId"=c."AttemptId" JOIN advance.rev869b_command_requests cr ON cr."CommandId"=ca."CommandId" JOIN advance.rev869b_purge_authorizations a ON a."AuthorizationId"=$1 WHERE cr."OrganizationId"=substring(a."Scope" from 14) AND c."OpenedAt"<a."Cutoff" ORDER BY c."ContextToken" LIMIT a."MaximumRows") x),'[]'::jsonb),
+    'eligibleRows',coalesce((SELECT jsonb_agg(jsonb_build_object('ledgerName','command_contexts','rowId',x."ContextToken") ORDER BY x."ContextToken") FROM (SELECT c."ContextToken" FROM advance.rev869b_command_contexts c JOIN advance.rev869b_command_attempts ca ON ca."AttemptId"=c."AttemptId" JOIN advance.rev869b_command_requests cr ON cr."CommandId"=ca."CommandId" JOIN advance.rev869b_purge_authorizations a ON a."AuthorizationId"=$1 WHERE cr."OrganizationId"=substring(a."Scope" from 14) AND c."OpenedAt"<a."Cutoff" ORDER BY c."ContextToken" LIMIT (SELECT "MaximumRows" FROM advance.rev869b_purge_authorizations WHERE "AuthorizationId"=$1)) x),'[]'::jsonb),
     'candidates',coalesce((SELECT jsonb_agg(jsonb_build_object('ledgerName',c."LedgerName",'rowId',c."RowId") ORDER BY c."LedgerName",c."RowId") FROM advance.rev869b_purge_candidates c WHERE c."PurgeAttemptId"=$2),'[]'::jsonb),
     'candidateCount',(SELECT count(*) FROM advance.rev869b_purge_candidates c WHERE c."PurgeAttemptId"=$2),
     'candidateSha256',(SELECT encode(digest(coalesce(string_agg(c."LedgerName"||':'||c."RowId"::text,',' ORDER BY c."LedgerName",c."RowId"),''),'sha256'),'hex') FROM advance.rev869b_purge_candidates c WHERE c."PurgeAttemptId"=$2),
@@ -6045,7 +6039,7 @@ CREATE FUNCTION advance.rev869b_read_target_acl_evidence() RETURNS jsonb LANGUAG
     UNION ALL SELECT 'schema|'||n.nspname||'|'||pg_get_userbyid(n.nspowner)||'|'||coalesce(n.nspacl::text,'') FROM pg_namespace n WHERE n.nspname='advance'
     UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance'
     UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='advance'
-    UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='advance'::regnamespace
+    UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype::text||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='advance'::regnamespace
     UNION ALL SELECT 'role|'||r.rolname||'|'||r.rolcanlogin||'|'||r.rolinherit||'|'||r.rolsuper||'|'||r.rolcreatedb||'|'||r.rolcreaterole||'|'||r.rolreplication||'|'||r.rolbypassrls FROM pg_roles r WHERE r.rolname LIKE 'nexa_rev869b_%')
   SELECT jsonb_build_object(
     'targetIdentity',(SELECT jsonb_build_object('instanceId',i."InstanceId",'databaseName',i."DatabaseName",'instanceSha256',encode(i."InstanceSha256",'hex')) FROM advance.rev869b_target_instance_identity i WHERE i."IdentityId"),
@@ -6055,6 +6049,18 @@ CREATE FUNCTION advance.rev869b_read_target_acl_evidence() RETURNS jsonb LANGUAG
     'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%'),
     'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM advance.rev869b_command_requests)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM advance.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM advance.rev869b_export_batches)::text,'sha256'),'hex')))
   FROM facts WHERE session_user='nexa_rev869b_target_verifier' $f$;
+CREATE FUNCTION advance.rev869b_target_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,advance AS $f$
+  WITH facts(fact) AS (
+    SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind::text||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance'
+    UNION ALL SELECT 'column|'||c.oid::regclass::text||'|'||a.attnum||'|'||a.attname||'|'||format_type(a.atttypid,a.atttypmod)||'|'||a.attnotnull||'|'||coalesce(pg_get_expr(d.adbin,d.adrelid),'') FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE n.nspname='advance' AND a.attnum>0 AND NOT a.attisdropped
+    UNION ALL SELECT 'constraint|'||conrelid::regclass::text||'|'||conname||'|'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='advance'::regnamespace
+    UNION ALL SELECT 'index|'||indexrelid::regclass::text||'|'||pg_get_indexdef(indexrelid) FROM pg_index WHERE indrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance')
+    UNION ALL SELECT 'trigger|'||tgrelid::regclass::text||'|'||tgname||'|'||pg_get_triggerdef(oid,true) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance')
+    UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||pg_get_function_result(p.oid)||'|'||p.prosecdef||'|'||p.provolatile::text||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||encode(digest(p.prosrc,'sha256'),'hex')||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='advance'
+    UNION ALL SELECT 'schema|'||n.nspname||'|'||pg_get_userbyid(n.nspowner)||'|'||coalesce(n.nspacl::text,'') FROM pg_namespace n WHERE n.nspname='advance'
+    UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype::text||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='advance'::regnamespace)
+  SELECT encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex') FROM facts $f$;
+
 CREATE FUNCTION advance.rev869b_canonical_json_v3(value jsonb) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $f$
   SELECT CASE jsonb_typeof($1)
     WHEN 'object' THEN coalesce((SELECT '{'||string_agg(to_jsonb(key)::text||':'||advance.rev869b_canonical_json_v3(val),',' ORDER BY key COLLATE "C")||'}' FROM jsonb_each($1) e(key,val)),'{}')
@@ -6123,44 +6129,44 @@ CREATE FUNCTION advance.rev869b_read_command_evidence_v2(instance_sha bytea,leas
 
 CREATE FUNCTION advance.rev869b_read_purge_facts_v4(organization_id text,instance_sha bytea,lease_id uuid,lease_version bigint,authorization_id uuid,execution_id uuid,root_authorization_id uuid,batch_id uuid,purge_attempt_id uuid,scenario_execution_id uuid,observation_stage text,subcase_id text,requested_facts text[]) RETURNS jsonb LANGUAGE sql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,advance AS $f$
   WITH identity AS (SELECT i.* FROM advance.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$2 AND i."LeaseId"=$3),
-  authorization AS (SELECT a.* FROM advance.rev869b_purge_authorizations a JOIN identity i ON i."InstanceSha256"=a."TargetInstanceSha256" WHERE a."AuthorizationId"=$5 AND a."RootAuthorizationId"=$7 AND a."AuthorizedBatchId"=$8 AND a."Scope"='organization:'||$1),
-  root_auth AS (SELECT r.* FROM advance.rev869b_purge_authorizations r JOIN authorization a ON a."RootAuthorizationId"=r."AuthorizationId" WHERE r."TargetInstanceSha256"=$2 AND r."Operation"=a."Operation" AND r."Scope"=a."Scope" AND r."Cutoff"=a."Cutoff" AND r."MaximumRows"=a."MaximumRows"),
-  attempt AS (SELECT p.* FROM advance.rev869b_purge_attempts p JOIN authorization a ON a."AuthorizationId"=p."AuthorizationId" WHERE p."PurgeAttemptId"=$9 AND $6=$9),
+  authz AS (SELECT a.* FROM advance.rev869b_purge_authorizations a JOIN identity i ON i."InstanceSha256"=a."TargetInstanceSha256" WHERE a."AuthorizationId"=$5 AND a."RootAuthorizationId"=$7 AND a."AuthorizedBatchId"=$8 AND a."Scope"='organization:'||$1),
+  root_auth AS (SELECT r.* FROM advance.rev869b_purge_authorizations r JOIN authz a ON a."RootAuthorizationId"=r."AuthorizationId" WHERE r."TargetInstanceSha256"=$2 AND r."Operation"=a."Operation" AND r."Scope"=a."Scope" AND r."Cutoff"=a."Cutoff" AND r."MaximumRows"=a."MaximumRows"),
+  attempt AS (SELECT p.* FROM advance.rev869b_purge_attempts p JOIN authz a ON a."AuthorizationId"=p."AuthorizationId" WHERE p."PurgeAttemptId"=$9 AND $6=$9),
   candidates AS (SELECT c.* FROM advance.rev869b_purge_candidates c JOIN attempt p ON p."PurgeAttemptId"=c."PurgeAttemptId"),
   events AS (SELECT e.* FROM advance.rev869b_purge_events e JOIN attempt p ON p."PurgeAttemptId"=e."PurgeAttemptId"),
-  eligible AS (SELECT c."ContextToken",c."AttemptId" FROM advance.rev869b_command_contexts c JOIN authorization a ON c."OrganizationId"=$1 AND c."OpenedAt"<a."Cutoff" ORDER BY c."OpenedAt",c."ContextToken" LIMIT (SELECT "MaximumRows" FROM authorization)),
+  eligible AS (SELECT c."ContextToken",c."AttemptId" FROM advance.rev869b_command_contexts c JOIN authz a ON c."OrganizationId"=$1 AND c."OpenedAt"<a."Cutoff" ORDER BY c."OpenedAt",c."ContextToken" LIMIT (SELECT "MaximumRows" FROM authz)),
   snap AS (SELECT (SELECT count(*) FROM attempt) attempt_count,(SELECT count(*) FROM candidates) candidate_count,(SELECT count(*) FROM events) event_count,(SELECT count(*) FROM eligible) eligible_count,
     (SELECT count(*) FROM events WHERE "State"='ZeroRows') zero_count,(SELECT count(*) FROM events WHERE "State"='Succeeded') success_count,(SELECT count(*) FROM events WHERE "State"='Failed') failure_count,
-    (SELECT count(*) FROM authorization WHERE "State"<>'Expired') consumed_count,(SELECT count(*) FROM advance.rev869b_purge_authorizations child JOIN attempt p ON child."PriorAttemptId"=p."PurgeAttemptId" WHERE child."State"<>'Expired') child_count,
+    (SELECT count(*) FROM authz WHERE "State"<>'Expired') consumed_count,(SELECT count(*) FROM advance.rev869b_purge_authorizations child JOIN attempt p ON child."PriorAttemptId"=p."PurgeAttemptId" WHERE child."State"<>'Expired') child_count,
     encode(digest(coalesce((SELECT string_agg("LedgerName"||':'||"RowId"::text,',' ORDER BY "LedgerName","RowId") FROM candidates),''),'sha256'),'hex') candidate_sha,
     encode(digest(coalesce((SELECT string_agg("ContextToken"::text||':'||"AttemptId"::text,',' ORDER BY "ContextToken") FROM eligible),''),'sha256'),'hex') context_sha),
   allowed AS (SELECT jsonb_object_agg(name,jsonb_build_object('type',typ,'kind',kind)) value FROM (VALUES
     ('startedAttemptCount','int64','selector'),('candidateCount','int64','selector'),('purgeEventCount','int64','selector'),('eligibleBeforeCount','int64','selector'),('frozenCandidateCount','int64','selector'),('deletedRowCount','int64','selector'),('zeroRowsEventCount','int64','selector'),('remainingEligibleCount','int64','selector'),('succeededEventCount','int64','selector'),('currentCandidateSha256','sha256','selector'),('contextAfterSha256','sha256','selector'),('failedEventCount','int64','selector'),('concurrentStartCount','int64','selector'),('consumedAuthorizationCount','int64','selector'),('executionCount','int64','selector'),('activeChildCount','int64','selector'),('substitutedChildCount','int64','selector'),
     ('frozenCandidateSha256','sha256','reference'),('contextBeforeSha256','sha256','reference')) x(name,typ,kind)),
-  vals AS (SELECT jsonb_build_object('startedAttemptCount',attempt_count,'candidateCount',candidate_count,'purgeEventCount',event_count,'eligibleBeforeCount',eligible_count,'frozenCandidateCount',candidate_count,'deletedRowCount',CASE WHEN success_count=1 THEN candidate_count ELSE 0 END,'zeroRowsEventCount',zero_count,'remainingEligibleCount',CASE WHEN success_count=1 THEN 0 ELSE eligible_count END,'succeededEventCount',success_count,'currentCandidateSha256',candidate_sha,'contextAfterSha256',context_sha,'failedEventCount',failure_count,'concurrentStartCount',attempt_count,'consumedAuthorizationCount',consumed_count,'executionCount',attempt_count,'activeChildCount',child_count,'substitutedChildCount',(SELECT count(*) FROM advance.rev869b_purge_authorizations child CROSS JOIN authorization a WHERE child."PriorAttemptId"=$9 AND (child."RootAuthorizationId"<>a."RootAuthorizationId" OR child."TargetInstanceSha256"<>a."TargetInstanceSha256" OR child."Operation"<>a."Operation" OR child."Scope"<>a."Scope" OR child."Cutoff"<>a."Cutoff" OR child."MaximumRows"<>a."MaximumRows")),'frozenCandidateSha256',candidate_sha,'contextBeforeSha256',context_sha) value FROM snap)
+  vals AS (SELECT jsonb_build_object('startedAttemptCount',attempt_count,'candidateCount',candidate_count,'purgeEventCount',event_count,'eligibleBeforeCount',eligible_count,'frozenCandidateCount',candidate_count,'deletedRowCount',CASE WHEN success_count=1 THEN candidate_count ELSE 0 END,'zeroRowsEventCount',zero_count,'remainingEligibleCount',CASE WHEN success_count=1 THEN 0 ELSE eligible_count END,'succeededEventCount',success_count,'currentCandidateSha256',candidate_sha,'contextAfterSha256',context_sha,'failedEventCount',failure_count,'concurrentStartCount',attempt_count,'consumedAuthorizationCount',consumed_count,'executionCount',attempt_count,'activeChildCount',child_count,'substitutedChildCount',(SELECT count(*) FROM advance.rev869b_purge_authorizations child CROSS JOIN authz a WHERE child."PriorAttemptId"=$9 AND (child."RootAuthorizationId"<>a."RootAuthorizationId" OR child."TargetInstanceSha256"<>a."TargetInstanceSha256" OR child."Operation"<>a."Operation" OR child."Scope"<>a."Scope" OR child."Cutoff"<>a."Cutoff" OR child."MaximumRows"<>a."MaximumRows")),'frozenCandidateSha256',candidate_sha,'contextBeforeSha256',context_sha) value FROM snap)
   SELECT advance.rev869b_build_raw_facts_v4('TP4',jsonb_build_object('companyId',$1,'targetInstanceSha256',encode($2,'hex'),'leaseId',$3,'leaseVersion',$4,'operationId',$9,'scenarioExecutionId',$10,'subcaseId',$12,'stage',$11),$11,$13,allowed.value,vals.value)
-  FROM allowed,vals WHERE session_user='nexa_rev869b_target_verifier' AND length($1)>0 AND EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM root_auth) AND EXISTS(SELECT 1 FROM attempt) AND $3<>'00000000-0000-0000-0000-000000000000'::uuid AND $4>0 AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND $6=$9 AND $7<>'00000000-0000-0000-0000-000000000000'::uuid AND $8<>'00000000-0000-0000-0000-000000000000'::uuid AND $10<>'00000000-0000-0000-0000-000000000000'::uuid AND $12~'^[A-Z][0-9]{2}:[a-z0-9-]{2,80}$' $f$;
+  FROM allowed,vals WHERE session_user='nexa_rev869b_target_verifier' AND length($1)>0 AND EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authz) AND EXISTS(SELECT 1 FROM root_auth) AND EXISTS(SELECT 1 FROM attempt) AND $3<>'00000000-0000-0000-0000-000000000000'::uuid AND $4>0 AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND $6=$9 AND $7<>'00000000-0000-0000-0000-000000000000'::uuid AND $8<>'00000000-0000-0000-0000-000000000000'::uuid AND $10<>'00000000-0000-0000-0000-000000000000'::uuid AND $12~'^[A-Z][0-9]{2}:[a-z0-9-]{2,80}$' $f$;
 CREATE FUNCTION advance.rev869b_read_purge_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,authorization_id uuid,root_authorization_id uuid,batch_id uuid,purge_attempt_id uuid) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,advance AS $f$
   WITH identity AS (
     SELECT i.* FROM advance.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
-  ), authorization AS (
+  ), authz AS (
     SELECT a.* FROM advance.rev869b_purge_authorizations a JOIN identity i ON i."InstanceSha256"=a."TargetInstanceSha256"
     WHERE a."AuthorizationId"=$5 AND a."RootAuthorizationId"=$6 AND a."AuthorizedBatchId"=$7
   ), root_authorization AS (
-    SELECT root.* FROM advance.rev869b_purge_authorizations root JOIN authorization a ON a."RootAuthorizationId"=root."AuthorizationId"
+    SELECT root.* FROM advance.rev869b_purge_authorizations root JOIN authz a ON a."RootAuthorizationId"=root."AuthorizationId"
     WHERE root."TargetInstanceSha256"=$1 AND root."Operation"=a."Operation" AND root."Scope"=a."Scope" AND root."Cutoff"=a."Cutoff" AND root."MaximumRows"=a."MaximumRows"
   ), attempt AS (
-    SELECT p.* FROM advance.rev869b_purge_attempts p JOIN authorization a ON a."AuthorizationId"=p."AuthorizationId" WHERE p."PurgeAttemptId"=$8
+    SELECT p.* FROM advance.rev869b_purge_attempts p JOIN authz a ON a."AuthorizationId"=p."AuthorizationId" WHERE p."PurgeAttemptId"=$8
   ), scoped_context AS (
     SELECT c.* FROM advance.rev869b_command_contexts c JOIN advance.rev869b_command_attempts ca ON ca."AttemptId"=c."AttemptId"
-    JOIN advance.rev869b_command_requests cr ON cr."CommandId"=ca."CommandId" JOIN authorization a ON cr."OrganizationId"=substring(a."Scope" from 14)
+    JOIN advance.rev869b_command_requests cr ON cr."CommandId"=ca."CommandId" JOIN authz a ON cr."OrganizationId"=substring(a."Scope" from 14)
     WHERE c."OpenedAt"<a."Cutoff"
   )
   SELECT jsonb_build_object('readerId','TP2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,
-    'authorization',(SELECT to_jsonb(a)-'NonceSha256' FROM authorization a),
+    'authorization',(SELECT to_jsonb(a)-'NonceSha256' FROM authz a),
     'rootAuthorization',(SELECT to_jsonb(a)-'NonceSha256' FROM root_authorization a),
     'attempt',(SELECT to_jsonb(p) FROM attempt p),
-    'priorAttempt',(SELECT to_jsonb(prior) FROM authorization a JOIN advance.rev869b_purge_attempts prior ON prior."PurgeAttemptId"=a."PriorAttemptId"),
+    'priorAttempt',(SELECT to_jsonb(prior) FROM authz a JOIN advance.rev869b_purge_attempts prior ON prior."PurgeAttemptId"=a."PriorAttemptId"),
     'candidates',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c."LedgerName",c."RowId") FROM advance.rev869b_purge_candidates c JOIN attempt p ON p."PurgeAttemptId"=c."PurgeAttemptId"),'[]'::jsonb),
     'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e."EventId") FROM advance.rev869b_purge_events e JOIN attempt p ON p."PurgeAttemptId"=e."PurgeAttemptId"),'[]'::jsonb),
     'scopedContexts',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c."ContextToken") FROM scoped_context c),'[]'::jsonb),
@@ -6169,14 +6175,14 @@ CREATE FUNCTION advance.rev869b_read_purge_evidence_v2(instance_sha bytea,lease_
     'candidateCount',(SELECT count(*) FROM advance.rev869b_purge_candidates c JOIN attempt p ON p."PurgeAttemptId"=c."PurgeAttemptId"),
     'eventCount',(SELECT count(*) FROM advance.rev869b_purge_events e JOIN attempt p ON p."PurgeAttemptId"=e."PurgeAttemptId"),
     'activeChildCount',(SELECT count(*) FROM advance.rev869b_purge_authorizations child JOIN attempt p ON child."PriorAttemptId"=p."PurgeAttemptId" WHERE child."State"<>'Expired'))
-  WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM root_authorization)
+  WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authz) AND EXISTS(SELECT 1 FROM root_authorization)
     AND EXISTS(SELECT 1 FROM attempt) AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
     AND session_user='nexa_rev869b_target_verifier' $f$;
 
 CREATE FUNCTION advance.rev869b_read_export_facts_v4(organization_id text,instance_sha bytea,lease_id uuid,lease_version bigint,authorization_id uuid,batch_id uuid,release_id uuid,as_of timestamptz,scenario_execution_id uuid,observation_stage text,operation_id uuid,subcase_id text,requested_facts text[]) RETURNS jsonb LANGUAGE sql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,advance AS $f$
   WITH identity AS (SELECT i.* FROM advance.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$2 AND i."LeaseId"=$3),
-  authorization AS (SELECT a.* FROM advance.rev869b_export_authorizations a WHERE a."AuthorizationId"=$5 AND a."OrganizationId"=$1 AND a."AsOf"=$8),
-  batch AS (SELECT b.* FROM advance.rev869b_export_batches b JOIN authorization a ON a."AuthorizationId"=b."AuthorizationId" WHERE b."BatchId"=$6 AND b."OrganizationId"=$1 AND b."AsOf"=$8 AND b."ManagementDecisionId"=a."ManagementDecisionId"),
+  authz AS (SELECT a.* FROM advance.rev869b_export_authorizations a WHERE a."AuthorizationId"=$5 AND a."OrganizationId"=$1 AND a."AsOf"=$8),
+  batch AS (SELECT b.* FROM advance.rev869b_export_batches b JOIN authz a ON a."AuthorizationId"=b."AuthorizationId" WHERE b."BatchId"=$6 AND b."OrganizationId"=$1 AND b."AsOf"=$8 AND b."ManagementDecisionId"=a."ManagementDecisionId"),
   rows AS (SELECT r.* FROM advance.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId" ORDER BY r."Ordinal" LIMIT 1000),
   releases AS (SELECT r.* FROM advance.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId"),
   snap AS (SELECT (SELECT count(*) FROM rows) row_count,(SELECT count(*) FROM releases WHERE "State"='ReleaseStarted') active_count,(SELECT count(*) FROM releases WHERE "State"='Delivered') delivered_count,
@@ -6190,18 +6196,18 @@ CREATE FUNCTION advance.rev869b_read_export_facts_v4(organization_id text,instan
     ('recomputedPreparedSha256','sha256','reference'),('preparedBeforeSha256','sha256','reference'),('preparedBeforeCount','int64','reference'),('releaseId1','uuid','reference'),('batchBeforeSha256','sha256','reference')) x(name,typ,kind)),
   vals AS (SELECT jsonb_build_object('preparedRowCountWithinMaximum',row_count<=maximum_rows,'preparedSha256',batch_sha,'excludedFieldCount',(SELECT count(*) FROM rows r CROSS JOIN LATERAL jsonb_object_keys(r."Payload") k(field) CROSS JOIN batch b WHERE NOT(k.field=ANY(b."Fields"))),'preparedEventCount',(SELECT count(*) FROM batch),'preparedAfterSha256',batch_sha,'preparedAfterCount',row_count,'laterEligibleRowCount',(SELECT count(*) FROM rows r CROSS JOIN batch b WHERE r."Ordinal">b."RowCount"),'laterRowInBatchCount',(SELECT count(*) FROM rows r CROSS JOIN batch b WHERE r."Ordinal">b."RowCount"),'releasedRowCount',released_count,'newReleaseEventCount',(SELECT count(*) FROM releases),'releaseId2',selected_release,'priorReleaseId2',prior_release,'activeReleaseCount',active_count,'deliverySuccessCount',delivered_count,'batchAfterSha256',batch_sha,'recomputedPreparedSha256',batch_sha,'preparedBeforeSha256',batch_sha,'preparedBeforeCount',row_count,'releaseId1',prior_release,'batchBeforeSha256',batch_sha) value FROM snap)
   SELECT advance.rev869b_build_raw_facts_v4('TE4',jsonb_build_object('companyId',$1,'targetInstanceSha256',encode($2,'hex'),'leaseId',$3,'leaseVersion',$4,'operationId',$11,'scenarioExecutionId',$9,'subcaseId',$12,'stage',$10),$10,$13,allowed.value,vals.value)
-  FROM allowed,vals WHERE session_user='nexa_rev869b_target_verifier' AND length($1)>0 AND EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM batch) AND $3<>'00000000-0000-0000-0000-000000000000'::uuid AND $4>0 AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND $6<>'00000000-0000-0000-0000-000000000000'::uuid AND $9<>'00000000-0000-0000-0000-000000000000'::uuid AND $11<>'00000000-0000-0000-0000-000000000000'::uuid AND $12~'^[A-Z][0-9]{2}:[a-z0-9-]{2,80}$' $f$;
+  FROM allowed,vals WHERE session_user='nexa_rev869b_target_verifier' AND length($1)>0 AND EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authz) AND EXISTS(SELECT 1 FROM batch) AND $3<>'00000000-0000-0000-0000-000000000000'::uuid AND $4>0 AND $5<>'00000000-0000-0000-0000-000000000000'::uuid AND $6<>'00000000-0000-0000-0000-000000000000'::uuid AND $9<>'00000000-0000-0000-0000-000000000000'::uuid AND $11<>'00000000-0000-0000-0000-000000000000'::uuid AND $12~'^[A-Z][0-9]{2}:[a-z0-9-]{2,80}$' $f$;
 CREATE FUNCTION advance.rev869b_read_export_evidence_v2(instance_sha bytea,lease_id uuid,scenario_id text,subcase_id text,authorization_id uuid,batch_id uuid,release_id uuid,as_of timestamptz) RETURNS jsonb LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,advance AS $f$
   WITH identity AS (
     SELECT i.* FROM advance.rev869b_target_instance_identity i WHERE i."IdentityId" AND i."InstanceSha256"=$1 AND i."LeaseId"=$2
-  ), authorization AS (
+  ), authz AS (
     SELECT a.* FROM advance.rev869b_export_authorizations a WHERE a."AuthorizationId"=$5 AND a."AsOf"=$8
   ), batch AS (
-    SELECT b.* FROM advance.rev869b_export_batches b JOIN authorization a ON a."AuthorizationId"=b."AuthorizationId"
+    SELECT b.* FROM advance.rev869b_export_batches b JOIN authz a ON a."AuthorizationId"=b."AuthorizationId"
     WHERE b."BatchId"=$6 AND b."AsOf"=$8 AND b."ManagementDecisionId"=a."ManagementDecisionId"
   )
   SELECT jsonb_build_object('readerId','TE2','scenarioId',$3,'subcaseId',$4,'targetInstanceSha256',encode($1,'hex'),'leaseBindingId',$2,'asOf',$8,
-    'authorization',(SELECT to_jsonb(a) FROM authorization a),'batch',(SELECT to_jsonb(b) FROM batch b),
+    'authorization',(SELECT to_jsonb(a) FROM authz a),'batch',(SELECT to_jsonb(b) FROM batch b),
     'rows',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r."Ordinal") FROM advance.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId"),'[]'::jsonb),
     'releases',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r."StartedAt",r."ReleaseId") FROM advance.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId"),'[]'::jsonb),
     'selectedRelease',(SELECT to_jsonb(r) FROM advance.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE $7 IS NOT NULL AND r."ReleaseId"=$7),
@@ -6209,7 +6215,7 @@ CREATE FUNCTION advance.rev869b_read_export_evidence_v2(instance_sha bytea,lease
     'batchSha256',encode(digest(coalesce((SELECT string_agg(encode(r."RowSha256",'hex'),',' ORDER BY r."Ordinal") FROM advance.rev869b_export_batch_rows r JOIN batch b ON b."BatchId"=r."BatchId"),''),'sha256'),'hex'),
     'activeReleaseCount',(SELECT count(*) FROM advance.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE r."State"='ReleaseStarted'),
     'deliverySuccessCount',(SELECT count(*) FROM advance.rev869b_export_releases r JOIN batch b ON b."BatchId"=r."BatchId" WHERE r."State"='Delivered'))
-  WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authorization) AND EXISTS(SELECT 1 FROM batch)
+  WHERE EXISTS(SELECT 1 FROM identity) AND EXISTS(SELECT 1 FROM authz) AND EXISTS(SELECT 1 FROM batch)
     AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160 AND session_user='nexa_rev869b_target_verifier' $f$;
 
 CREATE FUNCTION advance.rev869b_read_target_acl_facts_v4(organization_id text,instance_sha bytea,lease_id uuid,lease_version bigint,operation_id uuid,scenario_execution_id uuid,principal name,object_identity text,operation text,observation_stage text,subcase_id text,requested_facts text[]) RETURNS jsonb LANGUAGE sql SECURITY DEFINER VOLATILE SET search_path=pg_catalog,advance AS $f$
@@ -6219,7 +6225,7 @@ CREATE FUNCTION advance.rev869b_read_target_acl_facts_v4(organization_id text,in
     UNION ALL SELECT 'schema|'||n.nspname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance'
     UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance' AND c.oid=coalesce(to_regclass($8),c.oid)
     UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance' AND p.oid=coalesce(to_regprocedure($8),p.oid)
-    UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='advance'::regnamespace),
+    UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='advance'::regnamespace),
   membership(fact) AS (SELECT 'membership|'||parent.rolname||'|'||member.rolname||'|'||m.admin_option FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE parent.rolname=$7 OR member.rolname=$7),
   ownership(fact) AS (SELECT 'database-owner|'||current_database()||'|'||pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database() UNION ALL SELECT 'schema-owner|advance|'||pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname='advance' UNION ALL SELECT 'object-owner|'||c.oid::regclass::text||'|'||pg_get_userbyid(c.relowner) FROM pg_class c WHERE c.oid=to_regclass($8) UNION ALL SELECT 'function-owner|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.oid=to_regprocedure($8)),
   capability(fact) AS (SELECT 'role|'||rolname||'|'||rolinherit||'|'||rolsuper||'|'||rolbypassrls FROM pg_roles WHERE rolname=$7),
@@ -6239,7 +6245,7 @@ CREATE FUNCTION advance.rev869b_read_target_acl_evidence_v2(instance_sha bytea,l
     UNION ALL SELECT 'schema|'||n.nspname||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance'
     UNION ALL SELECT 'relation|'||c.oid::regclass::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 's' ELSE 'r' END::"char",c.relowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance'
     UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE n.nspname='advance'
-    UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='advance'::regnamespace
+    UNION ALL SELECT 'default|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype::text||'|'||coalesce(g.rolname,'PUBLIC')||'|'||x.privilege_type||'|'||x.is_grantable FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) x LEFT JOIN pg_roles g ON g.oid=x.grantee WHERE d.defaclnamespace='advance'::regnamespace
   ), membership(fact) AS (
     SELECT 'membership|'||parent.rolname||'|'||member.rolname||'|'||m.admin_option FROM pg_auth_members m JOIN pg_roles parent ON parent.oid=m.roleid JOIN pg_roles member ON member.oid=m.member WHERE parent.rolname LIKE 'nexa_rev869b_%' OR member.rolname LIKE 'nexa_rev869b_%'
   ), ownership(fact) AS (
@@ -6261,18 +6267,6 @@ CREATE FUNCTION advance.rev869b_read_target_acl_evidence_v2(instance_sha bytea,l
     'principalSuperuser',(SELECT rolsuper FROM pg_roles WHERE rolname=$5))
   FROM facts WHERE EXISTS(SELECT 1 FROM identity) AND $3~'^[A-Z][0-9]{2}$' AND length($4) BETWEEN 5 AND 160
     AND $8 IN ('Before','After','Durable','Cleanup') AND session_user='nexa_rev869b_target_verifier' $f$;
-
-CREATE FUNCTION advance.rev869b_target_catalogue_fingerprint() RETURNS text LANGUAGE sql SECURITY DEFINER STABLE SET search_path=pg_catalog,advance AS $f$
-  WITH facts(fact) AS (
-    SELECT 'relation|'||c.oid::regclass::text||'|'||c.relkind||'|'||pg_get_userbyid(c.relowner)||'|'||coalesce(c.relacl::text,'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance'
-    UNION ALL SELECT 'column|'||c.oid::regclass::text||'|'||a.attnum||'|'||a.attname||'|'||format_type(a.atttypid,a.atttypmod)||'|'||a.attnotnull||'|'||coalesce(pg_get_expr(d.adbin,d.adrelid),'') FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE n.nspname='advance' AND a.attnum>0 AND NOT a.attisdropped
-    UNION ALL SELECT 'constraint|'||conrelid::regclass::text||'|'||conname||'|'||pg_get_constraintdef(oid,true) FROM pg_constraint WHERE connamespace='advance'::regnamespace
-    UNION ALL SELECT 'index|'||indexrelid::regclass::text||'|'||pg_get_indexdef(indexrelid) FROM pg_index WHERE indrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance')
-    UNION ALL SELECT 'trigger|'||tgrelid::regclass::text||'|'||tgname||'|'||pg_get_triggerdef(oid,true) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='advance')
-    UNION ALL SELECT 'function|'||p.oid::regprocedure::text||'|'||pg_get_userbyid(p.proowner)||'|'||pg_get_function_result(p.oid)||'|'||p.prosecdef||'|'||p.provolatile||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||encode(digest(p.prosrc,'sha256'),'hex')||'|'||coalesce(p.proacl::text,'') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='advance'
-    UNION ALL SELECT 'schema|'||n.nspname||'|'||pg_get_userbyid(n.nspowner)||'|'||coalesce(n.nspacl::text,'') FROM pg_namespace n WHERE n.nspname='advance'
-    UNION ALL SELECT 'defaultacl|'||pg_get_userbyid(d.defaclrole)||'|'||d.defaclobjtype||'|'||coalesce(d.defaclacl::text,'') FROM pg_default_acl d WHERE d.defaclnamespace='advance'::regnamespace)
-  SELECT encode(digest(string_agg(fact,E'\n' ORDER BY fact),'sha256'),'hex') FROM facts $f$;
 
 CREATE FUNCTION advance.rev869b_register_purge_authorization(authorization_id uuid,decision_id uuid,root_authorization_id uuid,prior_attempt uuid,authorized_batch_id uuid,target_instance_sha bytea,operation text,scope text,cutoff timestamptz,maximum_rows integer,nonce_sha bytea,prior_terminal_outcome text,prior_evidence_sha bytea,expires_at timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,advance AS $f$
 DECLARE prior_root uuid; prior_target bytea; prior_operation text; prior_scope text; prior_cutoff timestamptz; prior_maximum integer; prior_ordinal integer; actual_outcome text; actual_evidence bytea; retry_ordinal integer:=0; BEGIN
@@ -6951,7 +6945,8 @@ CREATE TRIGGER trg_rev869b_delete_followup BEFORE DELETE ON advance.material_fol
 CREATE TRIGGER trg_rev869b_delete_status_history BEFORE DELETE ON advance.purchase_transaction_status_history FOR EACH ROW EXECUTE FUNCTION advance.rev869b_reject_controlled_delete();
 CREATE TRIGGER trg_rev869b_delete_policy BEFORE DELETE ON advance.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION advance.rev869b_reject_controlled_delete();
 
-INSERT INTO advance."__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
 VALUES ('20260824032638_AdvanceInitialBaseline', '10.0.10');
 
 COMMIT;
+

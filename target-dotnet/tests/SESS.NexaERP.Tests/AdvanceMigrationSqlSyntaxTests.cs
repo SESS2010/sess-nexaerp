@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -8,164 +11,169 @@ namespace SESS.NexaERP.Tests;
 public sealed class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
-    public void GeneratedBaselineScriptsHaveBalancedPostgreSqlSyntax()
+    public void GeneratedBaselineScriptsAreAcceptedByDisposablePostgreSql()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql("Host=127.0.0.1;Port=1;Database=advance_sql_syntax_no_connect;Username=no_connect")
-            .Options;
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
-        var baselineMigration = Assert.Single(db.Database.GetMigrations());
-        AssertBalanced("Up", migrator.GenerateScript("0", baselineMigration));
-        AssertBalanced("Down", migrator.GenerateScript(baselineMigration, "0"));
+        var migration = Assert.Single(db.Database.GetMigrations());
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("external-role-prerequisites.sql", ExternalRolePrerequisites);
+        server.Execute("advance-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("advance-down.sql", migrator.GenerateScript(migration, "0"));
     }
 
     [Theory]
-    [InlineData("CHECK (\"unterminated)")]
-    [InlineData("SELECT 'unterminated")]
-    [InlineData("SELECT (1")]
-    [InlineData("DO $body$ BEGIN PERFORM (1; END $body$;")]
-    [InlineData("DO $body$ BEGIN END;")]
-    public void ValidatorRejectsEachUnbalancedPostgreSqlDelimiter(string sql) =>
-        Assert.NotEmpty(PostgreSqlBalanceValidator.Validate(sql));
-
-    private static void AssertBalanced(string direction, string sql)
+    [InlineData("CREATE TABLE broken (\"Id integer);")]
+    [InlineData("SELECT 'unterminated;")]
+    [InlineData("SELECT (1;")]
+    [InlineData("CREATE FUNCTION broken() RETURNS void LANGUAGE plpgsql AS $b$ BEGIN PERFORM (1; END $b$;")]
+    [InlineData("CREATE FUNCTION broken() RETURNS void LANGUAGE plpgsql AS $b$ BEGIN RETURN;")]
+    public void PostgreSqlRejectsEachMalformedRegression(string sql)
     {
-        var errors = PostgreSqlBalanceValidator.Validate(sql);
-        Assert.True(errors.Count == 0,
-            $"Generated {direction} SQL contains unbalanced PostgreSQL syntax:{Environment.NewLine}{string.Join(Environment.NewLine, errors)}");
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.AssertRejected("malformed-regression.sql", sql);
     }
 
-    private static class PostgreSqlBalanceValidator
+    private const string ExternalRolePrerequisites = """
+        CREATE EXTENSION pgcrypto;
+        CREATE FUNCTION pg_catalog.digest(bytea,text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+          AS 'SELECT public.digest($1,$2)';
+        CREATE FUNCTION pg_catalog.digest(text,text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+          AS 'SELECT public.digest($1,$2)';
+        ALTER DATABASE postgres SET advance.rev869b_lease_id = '11111111-1111-1111-1111-111111111111';
+        CREATE ROLE nexa_rev869b_security_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_lifecycle_administrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_app_runtime LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_command_audit LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_management_writer LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_purge_worker LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_purge_audit LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_export_service LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_rev869b_target_verifier LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        GRANT nexa_rev869b_security_owner TO nexa_rev869b_lifecycle_administrator;
+        """;
+
+    private static string FindPostgreSqlBin()
     {
-        public static IReadOnlyList<string> Validate(string sql)
+        var configured = Environment.GetEnvironmentVariable("ADVANCE_POSTGRES_BIN");
+        var root = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PostgreSQL")
+            : "/usr/lib/postgresql";
+        var candidates = string.IsNullOrWhiteSpace(configured) ? Array.Empty<string>() : new[] { configured };
+        if (Directory.Exists(root)) candidates = candidates.Concat(Directory.GetDirectories(root)
+            .OrderDescending().Select(path => Path.Combine(path, "bin"))).ToArray();
+        var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+        return candidates.FirstOrDefault(path => new[] { "initdb", "pg_ctl", "psql" }
+                   .All(name => File.Exists(Path.Combine(path, name + suffix))))
+               ?? throw new InvalidOperationException("Set ADVANCE_POSTGRES_BIN to a real PostgreSQL bin directory.");
+    }
+
+    private sealed class DisposablePostgreSql : IDisposable
+    {
+        private readonly string _bin;
+        private readonly string _root;
+        private readonly string _data;
+        private readonly int _port;
+        private bool _started;
+
+        private DisposablePostgreSql(string bin)
         {
-            var errors = new List<string>();
-            ValidateRegion(sql, 0, sql.Length, errors);
-            return errors;
+            _bin = bin;
+            _root = Path.Combine(Path.GetTempPath(), $"advance-postgresql-parser-{Guid.NewGuid():N}");
+            _data = Path.Combine(_root, "data");
+            _port = ReservePort();
+            Directory.CreateDirectory(_root);
         }
 
-        private static void ValidateRegion(string sql, int start, int end, List<string> errors)
+        public static DisposablePostgreSql Start(string bin)
         {
-            var parentheses = new Stack<int>();
-            var index = start;
-            while (index < end)
+            var server = new DisposablePostgreSql(bin);
+            try
             {
-                if (StartsWith(sql, index, end, "--"))
-                {
-                    index += 2;
-                    while (index < end && sql[index] != '\n') index++;
-                    continue;
-                }
-                if (StartsWith(sql, index, end, "/*"))
-                {
-                    var opening = index;
-                    index += 2;
-                    var depth = 1;
-                    while (index < end && depth > 0)
-                    {
-                        if (StartsWith(sql, index, end, "/*")) { depth++; index += 2; }
-                        else if (StartsWith(sql, index, end, "*/")) { depth--; index += 2; }
-                        else index++;
-                    }
-                    if (depth > 0) errors.Add(At(sql, opening, "unterminated block comment"));
-                    continue;
-                }
-                if (sql[index] == '\'')
-                {
-                    var opening = index;
-                    var escapeString = index > start && (sql[index - 1] is 'E' or 'e') &&
-                        (index - 1 == start || !IsIdentifierPart(sql[index - 2]));
-                    index++;
-                    var closed = false;
-                    while (index < end)
-                    {
-                        if (escapeString && sql[index] == '\\' && index + 1 < end) { index += 2; continue; }
-                        if (sql[index] != '\'') { index++; continue; }
-                        if (index + 1 < end && sql[index + 1] == '\'') { index += 2; continue; }
-                        index++;
-                        closed = true;
-                        break;
-                    }
-                    if (!closed) errors.Add(At(sql, opening, "unterminated single-quoted string"));
-                    continue;
-                }
-                if (sql[index] == '"')
-                {
-                    var opening = index++;
-                    var closed = false;
-                    while (index < end)
-                    {
-                        if (sql[index] != '"') { index++; continue; }
-                        if (index + 1 < end && sql[index + 1] == '"') { index += 2; continue; }
-                        index++;
-                        closed = true;
-                        break;
-                    }
-                    if (!closed) errors.Add(At(sql, opening, "unterminated double-quoted identifier"));
-                    continue;
-                }
-                if (sql[index] == '$' && TryReadDollarDelimiter(sql, index, end, out var delimiter))
-                {
-                    var bodyStart = index + delimiter.Length;
-                    var close = sql.IndexOf(delimiter, bodyStart, end - bodyStart, StringComparison.Ordinal);
-                    if (close < 0)
-                    {
-                        errors.Add(At(sql, index, $"unterminated dollar-quoted body {delimiter}"));
-                        index = end;
-                        continue;
-                    }
-                    ValidateRegion(sql, bodyStart, close, errors);
-                    index = close + delimiter.Length;
-                    continue;
-                }
-                if (sql[index] == '(') parentheses.Push(index);
-                else if (sql[index] == ')')
-                {
-                    if (parentheses.Count == 0) errors.Add(At(sql, index, "unmatched closing parenthesis"));
-                    else parentheses.Pop();
-                }
-                index++;
+                server.Require(server.Run("initdb", "-D", server._data, "--username=postgres", "--auth=trust",
+                    "--encoding=UTF8", "--no-locale"), "initdb");
+                server.Require(server.Run("pg_ctl", "-D", server._data, "-l", Path.Combine(server._root, "postgres.log"),
+                    "-o", $"-h 127.0.0.1 -p {server._port} -c fsync=off -c synchronous_commit=off",
+                    "-w", "start"), "pg_ctl start");
+                server._started = true;
+                return server;
             }
-            foreach (var opening in parentheses.Reverse()) errors.Add(At(sql, opening, "unmatched opening parenthesis"));
+            catch
+            {
+                server.Dispose();
+                throw;
+            }
         }
 
-        private static bool TryReadDollarDelimiter(string sql, int start, int end, out string delimiter)
+        public void AssertRejected(string name, string sql)
         {
-            var index = start + 1;
-            if (index < end && sql[index] == '$') { delimiter = "$$"; return true; }
-            if (index >= end || !(char.IsAsciiLetter(sql[index]) || sql[index] == '_'))
-            {
-                delimiter = string.Empty;
-                return false;
-            }
-            index++;
-            while (index < end && IsIdentifierPart(sql[index])) index++;
-            if (index >= end || sql[index] != '$')
-            {
-                delimiter = string.Empty;
-                return false;
-            }
-            delimiter = sql[start..(index + 1)];
-            return true;
+            var result = Psql(name, sql);
+            Assert.NotEqual(0, result.Code);
+            Assert.Contains("ERROR:", result.Output, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool StartsWith(string sql, int index, int end, string value) =>
-            index + value.Length <= end && sql.AsSpan(index, value.Length).SequenceEqual(value);
-        private static bool IsIdentifierPart(char value) => char.IsAsciiLetterOrDigit(value) || value == '_';
-        private static string At(string sql, int index, string message)
+        public void Execute(string name, string sql) => Require(Psql(name, sql), name);
+
+        private Result Psql(string name, string sql)
         {
-            var line = 1;
-            var column = 1;
-            for (var offset = 0; offset < index; offset++)
-            {
-                if (sql[offset] == '\n') { line++; column = 1; }
-                else column++;
-            }
-            var lineStart = sql.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
-            var lineEnd = sql.IndexOf('\n', index);
-            if (lineEnd < 0) lineEnd = sql.Length;
-            return $"line {line}, column {column}: {message}: {sql[lineStart..lineEnd].Trim()}";
+            var file = Path.Combine(_root, name);
+            File.WriteAllText(file, sql);
+            return Run("psql", "-X", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
+                _port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
+                "--dbname", "postgres", "--file", file);
         }
+
+        public void Dispose()
+        {
+            if (_started) Run("pg_ctl", "-D", _data, "-m", "immediate", "-w", "stop");
+            var root = Path.GetFullPath(_root);
+            var temp = Path.GetFullPath(Path.GetTempPath());
+            if (root.StartsWith(temp, StringComparison.OrdinalIgnoreCase) &&
+                Path.GetFileName(root).StartsWith("advance-postgresql-parser-", StringComparison.Ordinal) &&
+                Directory.Exists(root)) Directory.Delete(root, true);
+        }
+
+        private Result Run(string executable, params string[] arguments)
+        {
+            var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
+            var capture = executable != "pg_ctl" || !arguments.Contains("start", StringComparer.Ordinal);
+            var info = new ProcessStartInfo(Path.Combine(_bin, executable + suffix))
+            {
+                RedirectStandardOutput = capture,
+                RedirectStandardError = capture,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (var argument in arguments) info.ArgumentList.Add(argument);
+            using var process = Process.Start(info) ?? throw new InvalidOperationException($"Cannot start {executable}.");
+            var output = capture ? process.StandardOutput.ReadToEndAsync() : Task.FromResult(string.Empty);
+            var error = capture ? process.StandardError.ReadToEndAsync() : Task.FromResult(string.Empty);
+            if (!process.WaitForExit(TimeSpan.FromMinutes(3)))
+            {
+                process.Kill(true);
+                throw new TimeoutException($"{executable} timed out.");
+            }
+            Task.WaitAll(output, error);
+            return new Result(process.ExitCode, output.Result + error.Result);
+        }
+
+        private void Require(Result result, string operation) =>
+            Assert.True(result.Code == 0,
+                $"PostgreSQL rejected {operation}:{Environment.NewLine}{Tail(result.Output)}");
+
+        private static string Tail(string value) => value.Length <= 12000 ? value : value[^12000..];
+
+        private static int ReservePort()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
+        }
+
+        private sealed record Result(int Code, string Output);
     }
 }

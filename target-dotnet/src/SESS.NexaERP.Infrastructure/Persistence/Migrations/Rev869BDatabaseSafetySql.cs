@@ -59,8 +59,8 @@ internal static class Rev869BDatabaseSafetySql
                v.supplier_state IS DISTINCT FROM (p_tax->>'supplierStateCode') OR
                v.supply_state IS DISTINCT FROM (p_tax->>'placeOfSupplyStateCode') OR
                v.registration_type IS DISTINCT FROM (p_tax->>'vendorRegistrationType') OR
-               v.supply_type IS DISTINCT FROM CASE WHEN upper(v.supplier_state)=upper(v.supply_state)
-                                                   THEN 'INTRASTATE' ELSE 'INTERSTATE' END OR
+               v.supply_type IS DISTINCT FROM (CASE WHEN upper(v.supplier_state)=upper(v.supply_state)
+                                                    THEN 'INTRASTATE' ELSE 'INTERSTATE' END) OR
                (v.supply_type='INTRASTATE' AND (v.igst_rate<>0 OR v.cgst_rate+v.sgst_rate<>v.gst_rate)) OR
                (v.supply_type='INTERSTATE' AND (v.cgst_rate<>0 OR v.sgst_rate<>0 OR v.igst_rate<>v.gst_rate))
             THEN RETURN FALSE; END IF;
