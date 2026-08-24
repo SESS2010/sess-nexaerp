@@ -2317,7 +2317,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_request_for_quotation_lines", x => x.Id);
-                    table.CheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot");
+                    table.CheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot\"");
                     table.ForeignKey(
                         name: "FK_request_for_quotation_lines_items_ItemId",
                         column: x => x.ItemId,

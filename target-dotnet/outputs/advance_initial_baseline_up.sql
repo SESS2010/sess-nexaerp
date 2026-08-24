@@ -1394,7 +1394,7 @@ CREATE TABLE advance.request_for_quotation_lines (
     "UpdatedBy" text,
     "Version" bigint NOT NULL,
     CONSTRAINT "PK_request_for_quotation_lines" PRIMARY KEY ("Id"),
-    CONSTRAINT "CK_rfq_lines_quantities" CHECK ("ApprovedQuantitySnapshot" > 0 AND "AlreadyOrderedQuantitySnapshot" >= 0 AND "OutstandingQuantitySnapshot" >= 0 AND "RfqQuantity" > 0 AND "RfqQuantity" <= "OutstandingQuantitySnapshot),
+    CONSTRAINT "CK_rfq_lines_quantities" CHECK ("ApprovedQuantitySnapshot" > 0 AND "AlreadyOrderedQuantitySnapshot" >= 0 AND "OutstandingQuantitySnapshot" >= 0 AND "RfqQuantity" > 0 AND "RfqQuantity" <= "OutstandingQuantitySnapshot"),
     CONSTRAINT "FK_request_for_quotation_lines_items_ItemId" FOREIGN KEY ("ItemId") REFERENCES advance.items ("Id") ON DELETE RESTRICT,
     CONSTRAINT "FK_request_for_quotation_lines_purchase_requirement_handoffs_P~" FOREIGN KEY ("PurchaseRequirementHandoffId") REFERENCES advance.purchase_requirement_handoffs ("Id") ON DELETE RESTRICT,
     CONSTRAINT "FK_request_for_quotation_lines_purchase_requisition_lines_Purc~" FOREIGN KEY ("PurchaseRequisitionLineId") REFERENCES advance.purchase_requisition_lines ("Id") ON DELETE RESTRICT,
@@ -6062,7 +6062,7 @@ CREATE FUNCTION advance.rev869b_read_target_acl_evidence() RETURNS jsonb LANGUAG
     'ownerFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'database|%' OR fact LIKE 'schema|%' OR fact LIKE 'relation|%' OR fact LIKE 'function|%'),
     'defaultPrivilegeFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'defaultacl|%'),
     'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%'),
-    'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM advance.rev869b_command_requests)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM advance.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM advance.rev869b_export_batches)::text,'sha256'),'hex'))
+    'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM advance.rev869b_command_requests)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM advance.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM advance.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM advance.rev869b_export_batches)::text,'sha256'),'hex')))
   FROM facts WHERE session_user='nexa_rev869b_target_verifier' $f$;
 CREATE FUNCTION advance.rev869b_canonical_json_v3(value jsonb) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $f$
   SELECT CASE jsonb_typeof($1)
@@ -6961,6 +6961,6 @@ CREATE TRIGGER trg_rev869b_delete_status_history BEFORE DELETE ON advance.purcha
 CREATE TRIGGER trg_rev869b_delete_policy BEFORE DELETE ON advance.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION advance.rev869b_reject_controlled_delete();
 
 INSERT INTO advance."__EFMigrationsHistory" ("MigrationId", "ProductVersion")
-VALUES ('20260824025355_AdvanceInitialBaseline', '10.0.10');
+VALUES ('20260824032638_AdvanceInitialBaseline', '10.0.10');
 
 COMMIT;

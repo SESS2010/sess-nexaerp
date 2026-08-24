@@ -41762,7 +41762,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.ToTable("request_for_quotation_lines", "advance", t =>
                         {
-                            t.HasCheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot");
+                            t.HasCheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot\"");
                         });
                 });
 

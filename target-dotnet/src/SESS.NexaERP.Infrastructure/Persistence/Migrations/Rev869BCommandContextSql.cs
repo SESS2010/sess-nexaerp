@@ -233,7 +233,7 @@ internal static class Rev869BCommandContextSql
             'ownerFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'database|%' OR fact LIKE 'schema|%' OR fact LIKE 'relation|%' OR fact LIKE 'function|%'),
             'defaultPrivilegeFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'defaultacl|%'),
             'roleFacts',jsonb_agg(fact ORDER BY fact) FILTER(WHERE fact LIKE 'role|%'),
-            'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM __advance_schema__.rev869b_command_requests)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_export_batches)::text,'sha256'),'hex'))
+            'protectedStateSha256',(SELECT encode(digest((SELECT count(*) FROM __advance_schema__.rev869b_command_requests)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_command_attempts)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_command_attempt_outcomes)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_purge_authorizations)::text||':'||(SELECT count(*) FROM __advance_schema__.rev869b_export_batches)::text,'sha256'),'hex')))
           FROM facts WHERE session_user='nexa_rev869b_target_verifier' $f$;
         CREATE FUNCTION __advance_schema__.rev869b_canonical_json_v3(value jsonb) RETURNS text LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $f$
           SELECT CASE jsonb_typeof($1)

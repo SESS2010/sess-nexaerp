@@ -49,7 +49,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<RequestForQuotationLine>(entity =>
         {
-            entity.ToTable("request_for_quotation_lines", table => table.HasCheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot"));
+            entity.ToTable("request_for_quotation_lines", table => table.HasCheckConstraint("CK_rfq_lines_quantities", "\"ApprovedQuantitySnapshot\" > 0 AND \"AlreadyOrderedQuantitySnapshot\" >= 0 AND \"OutstandingQuantitySnapshot\" >= 0 AND \"RfqQuantity\" > 0 AND \"RfqQuantity\" <= \"OutstandingQuantitySnapshot\""));
             entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.RequestForQuotationId, x.LineNumber }).IsUnique(); entity.HasIndex(x => new { x.RequestForQuotationId, x.PurchaseRequirementHandoffId }).IsUnique();
             Text(entity.Property(x => x.PrNumberSnapshot), 64); Text(entity.Property(x => x.ItemCodeSnapshot), 100); Text(entity.Property(x => x.ItemNameSnapshot), 300); Text(entity.Property(x => x.UomSnapshot), 30); entity.Property(x => x.SpecificationSnapshot).HasMaxLength(2000);
             Money(entity.Property(x => x.ApprovedQuantitySnapshot)); Money(entity.Property(x => x.AlreadyOrderedQuantitySnapshot)); Money(entity.Property(x => x.OutstandingQuantitySnapshot)); Money(entity.Property(x => x.RfqQuantity)); entity.Property(x => x.Version).IsConcurrencyToken();
