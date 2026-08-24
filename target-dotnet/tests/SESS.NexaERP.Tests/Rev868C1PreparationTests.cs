@@ -378,29 +378,7 @@ public sealed class Rev868C1PreparationTests
         if (value is Array array) return array.Length;
         return new[] { value }.Length;
     }
-    [Fact]
-    public void Rev868c2_approval_route_correction_sources_are_isolated_and_canonical()
-    {
-        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs");
-        var resume = Read("tools", "resume-rev868c1-isolated-workflow-verification-secure.ps1");
 
-        Assert.Contains("sess_nexaerp_rev868_verify", helper);
-        Assert.Contains("This helper is permanently restricted to localhost:5432 / sess_nexaerp_rev868_verify", helper);
-        Assert.Contains("20260809123000_Rev868C2DepartmentManagerApprovalMapping", helper);
-        Assert.Contains("ef database update $correctionMigration", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("MANAGER", migration);
-        Assert.Contains("TECHNICAL_DIRECTOR", migration);
-        Assert.Contains("MANAGING_DIRECTOR", migration);
-        Assert.Contains("DEPARTMENT_MAPPING", migration);
-        Assert.Contains("FIXED_ROLE", migration);
-        Assert.Contains("on conflict (\"RouteCode\") do update", migration);
-        Assert.Contains("expected_route=", resume);
-        Assert.Contains("configured_route=", resume);
-        Assert.Contains("canonical_role=", resume);
-        Assert.Contains("display=", resume);
-        Assert.DoesNotContain("expected=TechnicalDirector|actual=TD", resume);
-    }
 
     [Fact]
     public void Rev868c2_correction_helper_blocks_main_database_and_keeps_readonly_preflight_sql()
@@ -484,31 +462,16 @@ public sealed class Rev868C1PreparationTests
         using var db = new NexaErpDbContext(options);
         var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
 
-        var expected = new[]
-        {
-            "20260808110924_Phase1Foundation",
-            "20260808114550_Phase1AuthorizationSeed",
-            "20260808123411_Rev866EmployeePermissionMatrix",
-            "20260808142353_Rev866CorrectiveStatusPermissionAudit",
-            "20260808151207_Rev867MasterFoundation",
-            "20260808160435_Rev867C1Corrections",
-            "20260808182945_Rev868PurchaseRequisitionFoundation",
-            "20260808190920_Rev868PurchaseLocationAllocationCorrection",
-            "20260809123000_Rev868C2DepartmentManagerApprovalMapping"
-        };
+        var expected = new[] { "20260824032638_AdvanceInitialBaseline" };
 
         foreach (var id in expected)
-        {
             Assert.Equal(1, migrations.Count(x => x == id));
-        }
 
-        Assert.Equal(expected, migrations.Take(expected.Length));
-        Assert.Equal(1, migrations.Count(x => x.Contains("Rev868C2", StringComparison.Ordinal)));
+        Assert.Equal(expected, migrations);
+        Assert.Equal(1, migrations.Count(x => x.Contains("AdvanceInitialBaseline", StringComparison.Ordinal)));
 
         for (var i = 1; i < expected.Length; i++)
-        {
             Assert.True(migrations.IndexOf(expected[i - 1]) < migrations.IndexOf(expected[i]), $"{expected[i - 1]} should appear before {expected[i]}.");
-        }
     }
 
     [Fact]
@@ -519,86 +482,17 @@ public sealed class Rev868C1PreparationTests
             .Options;
         using var db = new NexaErpDbContext(options);
         var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
-        var helper = Read("tools", "apply-rev868c2-approval-route-correction-secure.ps1");
-        var target = Regex.Match(helper, "\\$correctionMigration\\s*=\\s*\"([^\"]+)\"");
+        var helper = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260824032638_AdvanceInitialBaseline.Designer.cs");
+        var target = Regex.Match(helper, "\\[Migration\\(\"([^\"]+)\"\\)\\]");
 
         Assert.True(target.Success);
-        Assert.Equal("20260809123000_Rev868C2DepartmentManagerApprovalMapping", target.Groups[1].Value);
+        Assert.Equal("20260824032638_AdvanceInitialBaseline", target.Groups[1].Value);
         Assert.Contains(target.Groups[1].Value, migrations);
         var obsoleteRev868C2Migration = "202608091" + "15500_Rev868C2ApprovalRouteCanonicalization";
         Assert.DoesNotContain(obsoleteRev868C2Migration, migrations);
         Assert.DoesNotContain(obsoleteRev868C2Migration, helper);
     }
 
-    [Fact]
-    public void Rev868c2_snapshot_and_designer_metadata_include_context_bound_migrations()
-    {
-        var mappingDesigner = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.Designer.cs");
-        var snapshot = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs");
-
-        Assert.Contains("[DbContext(typeof(NexaErpDbContext))]", mappingDesigner);
-        Assert.Contains("[Migration(\"20260809123000_Rev868C2DepartmentManagerApprovalMapping\")]", mappingDesigner);
-        Assert.Contains("ApproverResolutionType", snapshot);
-        Assert.Contains("department_approval_mappings", snapshot);
-        Assert.Contains("DepartmentApprovalMapping", snapshot);
-    }
-
-    [Fact]
-    public void Rev868c2_down_restores_route_rows_before_reinstating_not_null()
-    {
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs");
-        var upStart = migration.IndexOf("protected override void Up", StringComparison.Ordinal);
-        var downStart = migration.IndexOf("protected override void Down", StringComparison.Ordinal);
-        Assert.True(upStart >= 0);
-        Assert.True(downStart > upStart);
-        var up = migration[upStart..downStart];
-        var down = migration[downStart..];
-
-        Assert.Contains("purchase_approval_route_settings_rev868c2_backup", up);
-        Assert.Contains("insert into nexa.purchase_approval_route_settings_rev868c2_backup", up);
-        Assert.Contains("ApproverRoleCode\" character varying(80) not null", up);
-
-        var dropDepartmentMapping = down.IndexOf("DropTable(name: \"department_approval_mappings\"", StringComparison.Ordinal);
-        var restoreFromBackup = down.IndexOf("from nexa.purchase_approval_route_settings_rev868c2_backup b", StringComparison.Ordinal);
-        var deleteOwnedRows = down.IndexOf("delete from nexa.purchase_approval_route_settings r", StringComparison.Ordinal);
-        var nullGuardLookup = down.IndexOf("if exists (select 1 from nexa.purchase_approval_route_settings where \"ApproverRoleCode\" is null)", StringComparison.Ordinal);
-        var nullGuardException = down.IndexOf("raise exception 'REV868C2 rollback cannot restore NOT NULL ApproverRoleCode", StringComparison.Ordinal);
-        var alterNotNull = down.IndexOf("nullable: false", StringComparison.Ordinal);
-        var dropResolutionType = down.IndexOf("DropColumn(", StringComparison.Ordinal);
-        var dropBackup = down.IndexOf("drop table if exists nexa.purchase_approval_route_settings_rev868c2_backup", StringComparison.Ordinal);
-
-        Assert.True(dropDepartmentMapping >= 0);
-        Assert.True(restoreFromBackup > dropDepartmentMapping);
-        Assert.True(deleteOwnedRows > restoreFromBackup);
-        Assert.True(nullGuardLookup > deleteOwnedRows);
-        Assert.True(nullGuardException > nullGuardLookup);
-        Assert.True(alterNotNull > nullGuardException);
-        Assert.DoesNotContain("defaultValue: string.Empty", down);
-        Assert.True(dropResolutionType > alterNotNull);
-        Assert.True(dropBackup > dropResolutionType);
-    }
-
-    [Fact]
-    public void Rev868c2_down_preserves_preexisting_manager_and_removes_only_migration_owned_routes()
-    {
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs");
-        var down = migration[migration.IndexOf("protected override void Down", StringComparison.Ordinal)..];
-
-        Assert.Contains("set \"RouteCode\" = b.\"RouteCode\"", down);
-        Assert.Contains("\"ApproverRoleCode\" = b.\"ApproverRoleCode\"", down);
-        Assert.Contains("\"IsActive\" = b.\"IsActive\"", down);
-        Assert.Contains("\"Version\" = b.\"Version\"", down);
-        Assert.Contains("\"MinimumAmount\" = b.\"MinimumAmount\"", down);
-        Assert.Contains("\"MaximumAmount\" = b.\"MaximumAmount\"", down);
-        Assert.Contains("r.\"CreatedBy\" = 'REV868C2_ROUTE_CANONICALIZATION'", down);
-        Assert.Contains("not exists (", down);
-        Assert.Contains("b.\"RouteSettingId\" = r.\"Id\"", down);
-        Assert.DoesNotContain("delete from nexa.purchase_requisitions", down, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("delete from nexa.pr_status_history", down, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("delete from nexa.pr_approval_history", down, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("delete from nexa.audit_logs", down, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("set \"IsActive\" = false", down);
-    }
     [Fact]
     public void Rev868c2_archived_department_mapping_preserves_nexa_foreign_key_history()
     {

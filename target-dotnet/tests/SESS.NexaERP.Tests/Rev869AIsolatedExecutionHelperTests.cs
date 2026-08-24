@@ -10,15 +10,15 @@ public sealed class Rev869AIsolatedExecutionHelperTests
 {
     private static readonly string Root = FindRoot();
     private static readonly string HelperPath = Path.Combine(Root, "tools", "apply-rev869a-isolated-foundation-secure.ps1");
-    private static readonly string Source = File.ReadAllText(HelperPath);
-    private static readonly string MigrationPath = Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260810120000_Rev869AIdentityMasterScopeFoundation.cs");
-    private static readonly string MigrationSource = File.ReadAllText(MigrationPath);
-    private static readonly string DbContextSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs")) + Environment.NewLine +
+    private static string Source => File.ReadAllText(HelperPath);
+    private static readonly string MigrationPath = Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260824032638_AdvanceInitialBaseline.cs");
+    private static string MigrationSource => File.ReadAllText(MigrationPath);
+    private static string DbContextSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs")) + Environment.NewLine +
         File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.Rev869A.cs"));
-    private static readonly string ModelSnapshotSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
-    private static readonly string ProvisioningHelperSource = File.ReadAllText(Path.Combine(Root, "tools", "prepare-rev869a-isolated-database-secure.ps1"));
-    private static readonly string Rev868C3WorkbookSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
-    private static readonly string Rev868C3VerifierSource = File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
+    private static string ModelSnapshotSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
+    private static string ProvisioningHelperSource => File.ReadAllText(Path.Combine(Root, "tools", "prepare-rev869a-isolated-database-secure.ps1"));
+    private static string Rev868C3WorkbookSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
+    private static string Rev868C3VerifierSource => File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
     private static readonly string[] ExpectedRelievedCodes =
     {
         "SESS-016", "SESS-018", "SESS-022", "SESS-027", "SESS-028", "SESS-032", "SESS-036", "SESS-037", "SESS-039"
@@ -196,10 +196,13 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         foreach (var relation in actual.Where(x => !x.StartsWith("rev869a_", StringComparison.Ordinal)))
         {
             Assert.Contains($"ToTable(\"{relation}\"", DbContextSource, StringComparison.Ordinal);
-            Assert.Contains($"ToTable(\"{relation}\", \"nexa\"", ModelSnapshotSource, StringComparison.Ordinal);
+            Assert.Contains($"ToTable(\"{relation}\", \"advance\"", ModelSnapshotSource, StringComparison.Ordinal);
         }
         foreach (var backup in actual.Where(x => x.StartsWith("rev869a_", StringComparison.Ordinal)))
-            Assert.Contains(backup, MigrationSource, StringComparison.Ordinal);
+        {
+            Assert.Contains(backup, Source, StringComparison.Ordinal);
+            Assert.DoesNotContain($"ToTable(\"{backup}\"", ModelSnapshotSource, StringComparison.Ordinal);
+        }
 
         Assert.DoesNotContain("nexa.purchase_requisition_approval_histories", Source, StringComparison.Ordinal);
         Assert.Contains("nexa.purchase_requisition_approval_history", preflight, StringComparison.Ordinal);
@@ -213,7 +216,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         {
             Assert.Contains($"{relation} = \"nexa.{relation}\"", ProvisioningHelperSource, StringComparison.Ordinal);
             Assert.Contains($"ToTable(\"{relation}\"", DbContextSource, StringComparison.Ordinal);
-            Assert.Contains($"ToTable(\"{relation}\", \"nexa\"", ModelSnapshotSource, StringComparison.Ordinal);
+            Assert.Contains($"ToTable(\"{relation}\", \"advance\"", ModelSnapshotSource, StringComparison.Ordinal);
         }
     }
 
@@ -780,17 +783,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.Contains("Assert-SelectOnlySql \"Preflight\"", Source, StringComparison.Ordinal);
         Assert.Contains("Assert-SelectOnlySql \"Post-migration verification\"", Source, StringComparison.Ordinal);
     }
-    [Fact]
-    public void BackupsCoverEveryAlteredMasterBeforeMutationAndDropLast()
-    {
-        var firstMutation = MigrationSource.IndexOf("migrationBuilder.AddColumn", StringComparison.Ordinal);
-        Assert.True(firstMutation > 0);
-        foreach (var backup in new[] { "rev869a_items_prechange_backup", "rev869a_uoms_prechange_backup", "rev869a_vendors_prechange_backup" })
-        {
-            Assert.True(MigrationSource.IndexOf(backup, StringComparison.Ordinal) < firstMutation);
-            Assert.True(MigrationSource.LastIndexOf(backup, StringComparison.Ordinal) > MigrationSource.LastIndexOf("migrationBuilder.DropColumn", StringComparison.Ordinal));
-        }
-    }
+
     [Fact]
     public void FailureEvidenceIsSanitizedAndSecretsAreCleared()
     {

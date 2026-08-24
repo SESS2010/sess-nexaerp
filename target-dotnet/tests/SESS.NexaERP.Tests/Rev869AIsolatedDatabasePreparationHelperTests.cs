@@ -6,13 +6,13 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
 {
     private static readonly string Root = FindRoot();
     private static readonly string HelperPath = Path.Combine(Root, "tools", "prepare-rev869a-isolated-database-secure.ps1");
-    private static readonly string Source = File.ReadAllText(HelperPath);
-    private static readonly string DbContextSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs"));
-    private static readonly string SnapshotSource = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
-    private static readonly string Rev868C2Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809123000_Rev868C2DepartmentManagerApprovalMapping.cs"));
-    private static readonly string Rev868C3Migration = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation.cs"));
-    private static readonly string Rev868C3WorkbookData = File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
-    private static readonly string Rev868C3Verifier = File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
+    private static string Source => File.ReadAllText(HelperPath);
+    private static string DbContextSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs"));
+    private static string SnapshotSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "NexaErpDbContextModelSnapshot.cs"));
+    private static string Rev868C2Migration => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260824032638_AdvanceInitialBaseline.cs"));
+    private static string Rev868C3Migration => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260824032638_AdvanceInitialBaseline.cs"));
+    private static string Rev868C3WorkbookData => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Rev868C3EmployeeWorkbookData.cs"));
+    private static string Rev868C3Verifier => File.ReadAllText(Path.Combine(Root, "tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
     private static readonly string[] ExpectedRelievedEmployeeCodes =
     {
         "SESS-016", "SESS-018", "SESS-022", "SESS-027", "SESS-028", "SESS-032", "SESS-036", "SESS-037", "SESS-039"
@@ -227,7 +227,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
     public void EveryHelperRelationAndDirectColumnMatchesCurrentSnapshot()
     {
         foreach (var relation in RequiredPreservation())
-            Assert.Contains($"b.ToTable(\"{relation}\", \"nexa\"", SnapshotSource, StringComparison.Ordinal);
+            Assert.Contains($"b.ToTable(\"{relation}\", \"advance\"", SnapshotSource, StringComparison.Ordinal);
 
         var expectedColumns = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
@@ -413,17 +413,6 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
             Assert.Contains($"Relieved(\"{code}\"", Rev868C3WorkbookData, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void RelievedStatusNormalizationMatchesCommittedRev868C3Sources()
-    {
-        Assert.Contains("@('left / resigned','left/resigned','resigned','inactive')", Source, StringComparison.Ordinal);
-        Assert.Contains("lower(\"Status\") as normalized_status", Source, StringComparison.Ordinal);
-        Assert.Contains("lower(\"Status\") in ('left / resigned','left/resigned','resigned','inactive')", Rev868C3Verifier, StringComparison.Ordinal);
-        Assert.Contains("set \"Status\" = 'Left / Resigned'", Rev868C3Migration, StringComparison.Ordinal);
-        Assert.Contains("new(code, name, \"LEFT / RESIGNED\"", Rev868C3WorkbookData, StringComparison.Ordinal);
-        Assert.True(RelievedSetPass(ExpectedRelievedEmployeeCodes.Select((code, index) =>
-            new EmployeeStatusRow(code, new[] { "Left / Resigned", "LEFT/RESIGNED", "Resigned", "Inactive" }[index % 4]))));
-    }
 
     [Fact]
     public void MissingExpectedRelievedEmployeeFailsClosed()
@@ -800,7 +789,7 @@ public sealed class Rev869AIsolatedDatabasePreparationHelperTests
 
     private static string SnapshotBlock(string table)
     {
-        var tableAt = SnapshotSource.IndexOf($"b.ToTable(\"{table}\", \"nexa\"", StringComparison.Ordinal);
+        var tableAt = SnapshotSource.IndexOf($"b.ToTable(\"{table}\", \"advance\"", StringComparison.Ordinal);
         var start = SnapshotSource.LastIndexOf("modelBuilder.Entity(", tableAt, StringComparison.Ordinal);
         var end = SnapshotSource.IndexOf("modelBuilder.Entity(", tableAt + 1, StringComparison.Ordinal);
         Assert.True(tableAt >= 0 && start >= 0);

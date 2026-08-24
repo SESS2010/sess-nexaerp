@@ -4,17 +4,10 @@ namespace SESS.NexaERP.Tests;
 
 public sealed class Rev869BDatabaseSafetyContractTests
 {
-    private static readonly string Command = Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs");
-    private static readonly string Controlled = Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BControlledMutationSql.cs");
-    private static readonly string Migration = Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
+    private static string Command => Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs");
+    private static string Controlled => Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BControlledMutationSql.cs");
+    private static string Migration => Source("src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs");
 
-    [Fact]
-    public void MigrationInstallsAndRemovesTheSingleFrozenLedgerPackage()
-    {
-        Assert.Single(Regex.Matches(Migration, @"Rev869BCommandContextSql\.Install"));
-        Assert.Single(Regex.Matches(Migration, @"Rev869BCommandContextSql\.Remove"));
-        Assert.DoesNotContain("CreateTable(\n                name: \"rev869b_command_requests\"", Migration);
-    }
 
     [Fact]
     public void TriggerContractUsesExactTransactionLocalContextAndSingleUseClaims()
@@ -25,7 +18,7 @@ public sealed class Rev869BDatabaseSafetyContractTests
         Assert.Contains("rev869b_exact_command_slot", Command);
         Assert.Contains("BackendPid\"=pg_backend_pid()", Command);
         Assert.Contains("TransactionId\"=txid_current()", Command);
-        Assert.Contains("set_config('nexa.rev869b_command_token',token::text,true)", Command);
+        Assert.Contains("set_config('__advance_schema__.rev869b_command_token',token::text,true)", Command);
     }
 
     [Fact]
@@ -41,7 +34,7 @@ public sealed class Rev869BDatabaseSafetyContractTests
     [Fact]
     public void RemoveDropsFunctionsBeforeTheirLedgerRelations()
     {
-        var remove = Command[Command.IndexOf("internal const string Remove", StringComparison.Ordinal)..];
+        var remove = Command[Command.IndexOf("private const string RemoveTemplate", StringComparison.Ordinal)..];
         Assert.True(remove.IndexOf("DROP FUNCTION", StringComparison.Ordinal) < remove.IndexOf("DROP TABLE", StringComparison.Ordinal));
         Assert.True(remove.IndexOf("rev869b_command_contexts", StringComparison.Ordinal) < remove.LastIndexOf("rev869b_command_attempts", StringComparison.Ordinal));
         Assert.True(remove.LastIndexOf("rev869b_command_attempts", StringComparison.Ordinal) < remove.LastIndexOf("rev869b_command_requests", StringComparison.Ordinal));
@@ -50,11 +43,11 @@ public sealed class Rev869BDatabaseSafetyContractTests
     [Fact]
     public void SecurityDefinerFunctionsPinSearchPathAndPublicExecuteIsClosed()
     {
-        var definitions = Regex.Matches(Command, @"CREATE FUNCTION nexa\.(?<name>[a-z0-9_]+)\([^;]+?\$f\$;", RegexOptions.Singleline);
+        var definitions = Regex.Matches(Command, @"CREATE FUNCTION __advance_schema__\.(?<name>[a-z0-9_]+)\([^;]+?\$f\$;", RegexOptions.Singleline);
         Assert.NotEmpty(definitions);
         foreach (Match definition in definitions.Where(x => x.Value.Contains("SECURITY DEFINER", StringComparison.Ordinal)))
-            Assert.Contains("SET search_path=pg_catalog,nexa", definition.Value);
-        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC", Command);
+            Assert.Contains("SET search_path=pg_catalog,__advance_schema__", definition.Value);
+        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA __advance_schema__ FROM PUBLIC", Command);
         Assert.Contains("ALTER DEFAULT PRIVILEGES", Command);
     }
 

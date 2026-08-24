@@ -1,4 +1,7 @@
 using System.Reflection;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Inventory;
@@ -127,20 +130,27 @@ public sealed class Rev869AFoundationTests
     {
         var migrations = typeof(NexaErpDbContext).Assembly.GetTypes()
             .Select(type => (Type: type, Attribute: type.GetCustomAttribute<MigrationAttribute>()))
-            .Where(x => x.Attribute?.Id.Contains("Rev869AIdentityMasterScopeFoundation", StringComparison.Ordinal) == true)
+            .Where(x => x.Attribute is not null)
             .ToArray();
         var migration = Assert.Single(migrations);
-        Assert.Equal("20260810120000_Rev869AIdentityMasterScopeFoundation", migration.Attribute!.Id);
+        Assert.Equal("20260824032638_AdvanceInitialBaseline", migration.Attribute!.Id);
 
         var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", migration.Attribute.Id + ".cs"));
         Assert.Contains("employee_identity_mappings", source, StringComparison.Ordinal);
         Assert.Contains("uom_conversions", source, StringComparison.Ordinal);
         Assert.Contains("tax_gst_settings", source, StringComparison.Ordinal);
         Assert.Contains("controlled_configuration_histories", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("SESS-001", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("SESS-002", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("employee_department_history", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("UpdateData(", source, StringComparison.Ordinal);
+
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=advance_no_connect;Username=no_connect")
+            .Options;
+        using var db = new NexaErpDbContext(options);
+        var snapshotType = typeof(NexaErpDbContext).Assembly.GetType("SESS.NexaERP.Infrastructure.Persistence.Migrations.NexaErpDbContextModelSnapshot", throwOnError: true)!;
+        var snapshot = (ModelSnapshot)Activator.CreateInstance(snapshotType, nonPublic: true)!;
+        var current = db.GetService<IDesignTimeModel>().Model;
+        var differ = db.GetService<IMigrationsModelDiffer>();
+        var initializedSnapshot = db.GetService<IModelRuntimeInitializer>().Initialize(snapshot.Model, designTime: true);
+        Assert.Empty(differ.GetDifferences(initializedSnapshot.GetRelationalModel(), current.GetRelationalModel()));
     }
 
     [Fact]

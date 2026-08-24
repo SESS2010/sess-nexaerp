@@ -53,7 +53,7 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("REV869B_COMMAND_AUDIT_CONNECTION", Authorizer);
         Assert.Contains("Rejected\" or \"RolledBack\" or \"Abandoned", Authorizer);
         Assert.DoesNotContain("StageCommittedOutcomeAsync", service + Authorizer);
-        var terminal = Slice(Sql, "CREATE FUNCTION nexa.rev869b_record_noncommit_outcome", "CREATE FUNCTION nexa.rev869b_reconcile_command_attempt");
+        var terminal = Slice(Sql, "CREATE FUNCTION __advance_schema__.rev869b_record_noncommit_outcome", "CREATE FUNCTION __advance_schema__.rev869b_reconcile_command_attempt");
         foreach (var binding in new[] { "ExecutionInstanceId", "ServiceInstanceSha256", "OwnershipLeaseSha256", "pg_try_advisory_xact_lock", "rev869b_transaction_still_active", "rev869b_noncommit_replay_mismatch", "rev869b_noncommit_terminalizer_binding" })
             Assert.Contains(binding, terminal);
         Assert.DoesNotContain("ON CONFLICT(", terminal, StringComparison.Ordinal);
@@ -64,7 +64,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     [Fact]
     public void Correction22RollbackProofUsesDurableAttemptIdentityWithoutRequiringRolledBackContext()
     {
-        var terminal = Slice(Sql, "CREATE FUNCTION nexa.rev869b_record_noncommit_outcome", "CREATE FUNCTION nexa.rev869b_reconcile_command_attempt");
+        var terminal = Slice(Sql, "CREATE FUNCTION __advance_schema__.rev869b_record_noncommit_outcome", "CREATE FUNCTION __advance_schema__.rev869b_reconcile_command_attempt");
         var rolledBack = Slice(terminal, "terminal_state='RolledBack'", "terminal_state='Abandoned'");
         var quote = Convert.ToChar(34);
         Assert.Contains("a." + quote + "TargetBackendPid" + quote, rolledBack);
@@ -88,7 +88,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     [Fact]
     public void Correction22TargetIdentityAndUnresolvedPurgeChainAreAuthoritative()
     {
-        Assert.Contains("CREATE TABLE nexa.rev869b_target_instance_identity", Sql);
+        Assert.Contains("CREATE TABLE __advance_schema__.rev869b_target_instance_identity", Sql);
         Assert.Contains("TR_rev869b_target_instance_identity_immutable", Sql);
         Assert.Contains("target_instance_sha256 text", Sql);
         var quote = Convert.ToChar(34);
@@ -115,8 +115,8 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("rev869b_begin_quarantine_attempt", control);
         foreach (var binding in new[] { "ExecutionInstanceId", "ActorId", "ActorIssuer", "Operation", "RegistrationRequestId", "AuthorityEvidenceSha256", "SourceLeaseVersion" }) Assert.Contains(binding, control);
         Assert.Contains("replay.SourceLeaseVersion<>expected_version", control);
-        Assert.Contains("n.nspname='nexa' AND pg_get_userbyid(p.proowner)<>'nexa_rev869b_security_owner'", Sql);
-        Assert.Contains("d.defaclnamespace='nexa'::regnamespace AND (x.grantee=0 OR x.grantee<>d.defaclrole)", Sql);
+        Assert.Contains("n.nspname='__advance_schema__' AND pg_get_userbyid(p.proowner)<>'nexa_rev869b_security_owner'", Sql);
+        Assert.Contains("d.defaclnamespace='__advance_schema__'::regnamespace AND (x.grantee=0 OR x.grantee<>d.defaclrole)", Sql);
         Assert.Contains("d.defaclnamespace='nexa'::regnamespace AND (x.grantee=0 OR x.grantee<>d.defaclrole)", verify);
         Assert.Contains("rolname!~'^pg_'", Sql);
         Assert.Contains("rolname!~'^pg_'", verify);
@@ -133,7 +133,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     {
         var attempts = TableColumns(Sql, "rev869b_command_attempts");
         var contexts = TableColumns(Sql, "rev869b_command_contexts");
-        var terminal = Slice(Sql, "CREATE FUNCTION nexa.rev869b_record_noncommit_outcome", "CREATE FUNCTION nexa.rev869b_reconcile_command_attempt");
+        var terminal = Slice(Sql, "CREATE FUNCTION __advance_schema__.rev869b_record_noncommit_outcome", "CREATE FUNCTION __advance_schema__.rev869b_reconcile_command_attempt");
         AssertAliasColumnsExist(terminal, "a", attempts);
         AssertAliasColumnsExist(terminal, "c", contexts);
         var quoted = Convert.ToChar(34).ToString();
@@ -166,7 +166,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     public void PurgeFreezesCandidatesAndBindsAOneWayMonotonicRetryChain()
     {
         foreach (var relation in new[] { "rev869b_purge_authorizations", "rev869b_purge_attempts", "rev869b_purge_candidates", "rev869b_purge_events" })
-            Assert.Contains("CREATE TABLE nexa." + relation, Sql);
+            Assert.Contains("CREATE TABLE __advance_schema__." + relation, Sql);
         Assert.Contains("CandidateSha256", Sql);
         Assert.Contains("rev869b_purge_candidate_drift", Sql);
         Assert.Contains("deleted<>expected", Sql);
@@ -185,16 +185,16 @@ public sealed class Rev869BCorrection17SourceContractTests
         Assert.Contains("\AuthorizedBatchId\=purge_attempt_id", Sql);
         */
         Assert.Contains("rev869b_purge_batch_binding", Sql);
-        var grants = Slice(Sql, "GRANT EXECUTE ON FUNCTION nexa.rev869b_start_purge", "GRANT EXECUTE ON FUNCTION nexa.rev869b_prepare_export_batch");
+        var grants = Slice(Sql, "GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_start_purge", "GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_prepare_export_batch");
         Assert.DoesNotContain("rev869b_record_purge_failure(uuid,text,text,bytea) TO nexa_rev869b_purge_worker", grants);
-        Assert.Contains("rev869b_record_purge_failure(uuid,text,text,bytea),nexa.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_audit", grants);
+        Assert.Contains("rev869b_record_purge_failure(uuid,text,text,bytea),__advance_schema__.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_audit", grants);
     }
 
     [Fact]
     public void ExportMaterializesImmutableRowsBeforeAuditedRelease()
     {
         foreach (var relation in new[] { "rev869b_export_authorizations", "rev869b_export_batches", "rev869b_export_batch_rows", "rev869b_export_releases" })
-            Assert.Contains("CREATE TABLE nexa." + relation, Sql);
+            Assert.Contains("CREATE TABLE __advance_schema__." + relation, Sql);
         Assert.Contains("rev869b_register_export_authorization", Sql);
         Assert.Contains("session_user<>'nexa_rev869b_management_writer'", Sql);
         Assert.Contains("TR_rev869b_export_rows_immutable", Sql);
@@ -219,9 +219,9 @@ public sealed class Rev869BCorrection17SourceContractTests
     {
         var roles = new[] { "nexa_rev869b_app_runtime", "nexa_rev869b_command_audit", "nexa_rev869b_management_writer", "nexa_rev869b_purge_worker", "nexa_rev869b_purge_audit", "nexa_rev869b_export_service", "nexa_rev869b_target_verifier" };
         Assert.All(roles, role => Assert.Contains(role, Sql));
-        Assert.Contains("REVOKE ALL ON ALL TABLES IN SCHEMA nexa FROM PUBLIC", Sql);
-        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC", Sql);
-        Assert.Contains("REVOKE ALL ON ALL SEQUENCES IN SCHEMA nexa FROM PUBLIC", Sql);
+        Assert.Contains("REVOKE ALL ON ALL TABLES IN SCHEMA __advance_schema__ FROM PUBLIC", Sql);
+        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA __advance_schema__ FROM PUBLIC", Sql);
+        Assert.Contains("REVOKE ALL ON ALL SEQUENCES IN SCHEMA __advance_schema__ FROM PUBLIC", Sql);
         Assert.Contains("ALTER DEFAULT PRIVILEGES FOR ROLE nexa_rev869b_security_owner", Sql);
         foreach (var closure in new[] { "read_relation", "write_relation", "checked_privilege", "Target relation ACL mismatch", "Target sequence ACL mismatch", "Target object ownership mismatch", "Target default ACL mismatch", "Target role membership mismatch", "Target role capability mismatch" })
             Assert.Contains(closure, Sql);
@@ -237,7 +237,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             Assert.DoesNotContain("nexa_rev869b_export_service", grantees);
             Assert.DoesNotContain("nexa_rev869b_target_verifier", grantees);
             if (grantees.Contains("nexa_rev869b_app_runtime", StringComparison.Ordinal))
-                Assert.DoesNotContain("nexa.rev869b_", grant.Value);
+                Assert.DoesNotContain("__advance_schema__.rev869b_", grant.Value);
         }
     }
 
@@ -333,13 +333,13 @@ public sealed class Rev869BCorrection17SourceContractTests
             Assert.Contains(required, controlSql);
         foreach (var required in new[] { "rev869b_read_command_facts_v4", "rev869b_read_purge_facts_v4",
             "rev869b_read_export_facts_v4", "rev869b_read_target_acl_facts_v4", "REV869B-FACTS-v4",
-            @"""LeaseId"" uuid NOT NULL UNIQUE", "current_setting('nexa.rev869b_lease_id')",
+            @"""LeaseId"" uuid NOT NULL UNIQUE", "current_setting('__advance_schema__.rev869b_lease_id')",
             "RootAuthorizationId", "AuthorizedBatchId", "aclexplode", "pg_auth_members",
             "has_table_privilege", "has_function_privilege", "rolbypassrls", "PUBLIC",
             "rev869b_build_raw_facts_v4", "rev869b_canonical_json_v3" })
             Assert.Contains(required, Sql);
-        var purgeV3 = Sql[Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_purge_facts_v4", StringComparison.Ordinal)
-            ..Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_purge_evidence_v2", StringComparison.Ordinal)];
+        var purgeV3 = Sql[Sql.IndexOf("CREATE FUNCTION __advance_schema__.rev869b_read_purge_facts_v4", StringComparison.Ordinal)
+            ..Sql.IndexOf("CREATE FUNCTION __advance_schema__.rev869b_read_purge_evidence_v2", StringComparison.Ordinal)];
         Assert.DoesNotContain("'contextRows'", purgeV3);
         Assert.DoesNotContain("scopedContexts", purgeV3);
         Assert.Contains(@"c.""OrganizationId""=$1", purgeV3);
@@ -354,8 +354,8 @@ public sealed class Rev869BCorrection17SourceContractTests
             var v3Control = controlSql[controlSql.IndexOf("CREATE FUNCTION nexa.rev869b_read_lifecycle_facts_v4", StringComparison.Ordinal)
                 ..controlSql.IndexOf("CREATE FUNCTION nexa.rev869b_control_plane_catalogue_fingerprint", StringComparison.Ordinal)];
             Assert.DoesNotContain(forbidden, v3Control, StringComparison.OrdinalIgnoreCase);
-            var v3Target = Sql[Sql.IndexOf("CREATE FUNCTION nexa.rev869b_canonical_json_v3", StringComparison.Ordinal)
-                ..Sql.IndexOf("CREATE FUNCTION nexa.rev869b_read_target_acl_evidence_v2", StringComparison.Ordinal)];
+            var v3Target = Sql[Sql.IndexOf("CREATE FUNCTION __advance_schema__.rev869b_canonical_json_v3", StringComparison.Ordinal)
+                ..Sql.IndexOf("CREATE FUNCTION __advance_schema__.rev869b_read_target_acl_evidence_v2", StringComparison.Ordinal)];
             Assert.DoesNotContain(forbidden, v3Target, StringComparison.OrdinalIgnoreCase);
         }
         foreach (var contract in Rev869BAcceptanceScenarioInventory.All)
@@ -510,16 +510,16 @@ public sealed class Rev869BCorrection17SourceContractTests
     {
         foreach (var function in new[] { "rev869b_read_command_evidence", "rev869b_read_purge_evidence",
             "rev869b_read_export_evidence", "rev869b_read_target_acl_evidence" })
-            Assert.Contains("CREATE FUNCTION nexa." + function, Sql);
+            Assert.Contains("CREATE FUNCTION __advance_schema__." + function, Sql);
         Assert.Contains("session_user='nexa_rev869b_target_verifier'", Sql);
-        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA nexa FROM PUBLIC", Sql);
-        Assert.Contains("GRANT EXECUTE ON FUNCTION nexa.rev869b_reconcile_command_attempt(uuid),nexa.rev869b_reconcile_purge(uuid),nexa.rev869b_read_target_security_state(),nexa.rev869b_read_command_evidence", Sql);
-        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_command_evidence(uuid,uuid)", Sql);
-        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_purge_evidence(uuid,uuid)", Sql);
-        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_export_evidence(uuid,uuid,uuid)", Sql);
-        Assert.Contains("DROP FUNCTION IF EXISTS nexa.rev869b_read_target_acl_evidence()", Sql);
-        Assert.DoesNotContain("GRANT SELECT ON nexa.rev869b_", Sql);
-        Assert.DoesNotContain("EXECUTE format", Slice(Sql, "CREATE FUNCTION nexa.rev869b_read_command_evidence", "CREATE FUNCTION nexa.rev869b_target_catalogue_fingerprint"), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA __advance_schema__ FROM PUBLIC", Sql);
+        Assert.Contains("GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_reconcile_command_attempt(uuid),__advance_schema__.rev869b_reconcile_purge(uuid),__advance_schema__.rev869b_read_target_security_state(),__advance_schema__.rev869b_read_command_evidence", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS __advance_schema__.rev869b_read_command_evidence(uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS __advance_schema__.rev869b_read_purge_evidence(uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS __advance_schema__.rev869b_read_export_evidence(uuid,uuid,uuid)", Sql);
+        Assert.Contains("DROP FUNCTION IF EXISTS __advance_schema__.rev869b_read_target_acl_evidence()", Sql);
+        Assert.DoesNotContain("GRANT SELECT ON __advance_schema__.rev869b_", Sql);
+        Assert.DoesNotContain("EXECUTE format", Slice(Sql, "CREATE FUNCTION __advance_schema__.rev869b_read_command_evidence", "CREATE FUNCTION __advance_schema__.rev869b_target_catalogue_fingerprint"), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("recomputedSha256", Sql);
         Assert.Contains("recomputedBatchSha256", Sql);
         Assert.Contains("fieldKeys", Sql);
@@ -567,8 +567,8 @@ public sealed class Rev869BCorrection17SourceContractTests
 
     private static CanonicalSqlEvidence CaptureCanonicalSqlEvidence()
     {
-        const string rev869A = "20260810120000_Rev869AIdentityMasterScopeFoundation";
-        const string rev869B = "20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation";
+        var rev869A = Migration.InitialDatabase;
+        const string rev869B = "20260824032638_AdvanceInitialBaseline";
         const string connectionString = "Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect;Timeout=1;Pooling=false";
         var connectionCounter = new ConnectionOpenCounter();
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
@@ -584,10 +584,8 @@ public sealed class Rev869BCorrection17SourceContractTests
         var root = FindRoot();
         var inputs = new[]
         {
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260810120000_Rev869AIdentityMasterScopeFoundation.cs",
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260810120000_Rev869AIdentityMasterScopeFoundation.Designer.cs",
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs",
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260811025827_Rev869BRfqQuotationComparisonPurchaseOrderFoundation.Designer.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260824032638_AdvanceInitialBaseline.cs",
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/20260824032638_AdvanceInitialBaseline.Designer.cs",
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.cs",
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869A.cs",
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869B.cs",
@@ -604,7 +602,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             assembly.GetName().Name == "Npgsql.EntityFrameworkCore.PostgreSQL");
         return new(
             Environment.GetEnvironmentVariable("REV869B_A3_SOURCE_COMMIT") ??
-                "8c78f6a480fcbf86afbf9f5460598ece5b8d6732",
+                "9e0f606493b86d355e63eeea0c0cca2f315d16e7",
             RunCommand(root, "dotnet", "--version"),
             RuntimeInformation.FrameworkDescription,
             RunCommand(root, "dotnet", "ef", "--version"),
@@ -832,7 +830,7 @@ public sealed class Rev869BCorrection17SourceContractTests
 
     private static HashSet<string> TableColumns(string sql, string table)
     {
-        var definition = Slice(sql, "CREATE TABLE nexa." + table + "(", ");");
+        var definition = Slice(sql, "CREATE TABLE __advance_schema__." + table + "(", ");");
         return Regex.Matches(definition, Convert.ToChar(34) + "(?<name>[A-Za-z][A-Za-z0-9]*)" + Convert.ToChar(34))
             .Select(match => match.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
         /* Correction 20 malformed literal retained only inside this compile-time comment.

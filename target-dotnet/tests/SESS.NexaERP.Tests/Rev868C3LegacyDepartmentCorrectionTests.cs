@@ -25,149 +25,11 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
             .Options;
         using var db = new NexaErpDbContext(options);
         var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
+        const string advanceBaseline = "20260824032638_AdvanceInitialBaseline";
 
-        Assert.Equal(1, migrations.Count(x => x == MigrationId));
-        Assert.True(migrations.IndexOf("20260809143000_Rev868C3EmployeeDepartmentManagerReconciliation") < migrations.IndexOf(MigrationId));
-        Assert.Contains(MigrationId, Read("tools", "verify-rev868c3-postrun-readonly-secure.ps1"));
-    }
-
-    [Fact]
-    public void Corrective_migration_deactivates_only_four_legacy_departments_and_preserves_exact_rollback_values()
-    {
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", MigrationId + ".cs");
-        var up = Section(migration, "protected override void Up", "protected override void Down");
-        var down = migration[migration.IndexOf("protected override void Down", StringComparison.Ordinal)..];
-
-        foreach (var code in LegacyDepartments)
-        {
-            Assert.Contains(code, up);
-        }
-        Assert.Contains("rev868c3_legacy_department_deactivation_backup", up);
-        Assert.Contains("\"IsActive\"", up);
-        Assert.Contains("\"CreatedAt\"", up);
-        Assert.Contains("\"CreatedBy\"", up);
-        Assert.Contains("\"UpdatedAt\"", up);
-        Assert.Contains("\"UpdatedBy\"", up);
-        Assert.Contains("\"Version\"", up);
-        Assert.Contains("get diagnostics affected_count = row_count", up);
-        Assert.Contains("affected_count <> 4", up);
-
-        Assert.Contains("set \"IsActive\" = b.\"IsActive\"", down);
-        Assert.Contains("\"CreatedAt\" = b.\"CreatedAt\"", down);
-        Assert.Contains("\"CreatedBy\" = b.\"CreatedBy\"", down);
-        Assert.Contains("\"UpdatedAt\" = b.\"UpdatedAt\"", down);
-        Assert.Contains("\"UpdatedBy\" = b.\"UpdatedBy\"", down);
-        Assert.Contains("\"Version\" = b.\"Version\"", down);
-        Assert.Contains("exact four-row restore was not proven", down);
-    }
-
-    [Fact]
-    public void Corrective_migration_contains_no_destructive_delete_or_unrelated_record_rewrite()
-    {
-        var migration = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", MigrationId + ".cs");
-
-        Assert.DoesNotContain("delete from", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("update nexa.employees", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("employee_status_history", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("employee_department_history", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("purchase_requisitions", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("department_approval_mappings", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("audit_logs", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(2, CountOccurrences(migration, "update nexa.departments"));
-    }
-
-    [Fact]
-    public void Corrective_helper_is_isolated_recovery_aware_and_fail_closed()
-    {
-        var helper = Read("tools", "apply-rev868c3-legacy-department-correction-secure.ps1");
-
-        Assert.Contains("GeneratePlanOnly", helper);
-        Assert.Contains("PreflightOnly", helper);
-        Assert.Contains("sess_nexaerp_rev868_verify", helper);
-        Assert.Contains("Protected database rejected", helper);
-        Assert.Contains("sess_nexaerp", helper);
-        Assert.Contains("REV861", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("backup_relation_count", helper);
-        Assert.Contains("migration_owned_department_count", helper);
-        Assert.Contains("safe_retry_state", helper);
-        Assert.Contains("prerequisite_expected_count=10", helper);
-        Assert.Contains("prerequisite_actual_matched_count=10", helper);
-        Assert.Contains("prerequisite_missing_count=0", helper);
-        Assert.Contains("prerequisite_unexpected_count=0", helper);
-        Assert.Contains("prerequisite_duplicate_count=0", helper);
-        Assert.Contains("target_correction_migration_count=0", helper);
-        Assert.Contains("legacy_department_missing_count", helper);
-        Assert.Contains("legacy_department_count=4", helper);
-        Assert.Contains("active_legacy_department_count=4", helper);
-        Assert.Contains("active_employee_legacy_department_reference_count=0", helper);
-        Assert.Contains("active_manager_mapping_legacy_department_reference_count=0", helper);
-        Assert.Contains("total_active_sess_employee_count=42", helper);
-        Assert.Contains("\"EmployeeCode\" like 'SESS-%'", helper);
-        Assert.Contains("total_active_manager_mapping_count=14", helper);
-        Assert.Contains("active_open_pr_legacy_department_reference_count=0", helper);
-        Assert.Contains("historical_pr_legacy_department_reference_count", helper);
-        Assert.Contains("active_clean_department_count=12", helper);
-        Assert.Contains("missing_clean_department_count=0", helper);
-        Assert.Contains("unexpected_active_department_count=0", helper);
-        Assert.Contains("active_legacy_department_count=0", helper);
-        Assert.Contains("inactive_legacy_department_count=4", helper);
-        Assert.Contains("database_acceptance_state=PASS", helper);
-        Assert.Contains("Expected host: $HostName", helper);
-        Assert.Contains("Expected port: $Port", helper);
-        Assert.Contains("Isolated target database: $ExpectedDatabase", helper);
-        Assert.Contains("Protected databases:", helper);
-        Assert.Contains("No main-DB, database create/drop, backup, restore, or database cleanup operation", helper);
-        Assert.Contains("Historical PR legacy-department references (read-only; retained)", helper);
-        Assert.Contains("-v ON_ERROR_STOP=1", helper);
-        Assert.Contains("-f $script:tempSqlFile", helper);
-        Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("dropdb", helper, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("active_legacy_department_count")]
-    [InlineData("active_employee_legacy_department_reference_count")]
-    [InlineData("active_manager_mapping_legacy_department_reference_count")]
-    [InlineData("active_open_pr_legacy_department_reference_count")]
-    public void Legacy_reference_negative_states_fail_preflight_and_post_verification(string defect)
-    {
-        var preActiveLegacy = 4;
-        var postActiveLegacy = 0;
-        var postInactiveLegacy = 4;
-        var employeeReferences = 0;
-        var managerReferences = 0;
-        var activeOpenPrReferences = 0;
-        switch (defect)
-        {
-            case "active_legacy_department_count": preActiveLegacy = 3; postActiveLegacy = 1; break;
-            case "active_employee_legacy_department_reference_count": employeeReferences = 1; break;
-            case "active_manager_mapping_legacy_department_reference_count": managerReferences = 1; break;
-            case "active_open_pr_legacy_department_reference_count": activeOpenPrReferences = 1; break;
-            default: throw new ArgumentOutOfRangeException(nameof(defect));
-        }
-
-        Assert.False(PreflightLegacyReferenceAcceptance(preActiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
-        Assert.False(PostLegacyReferenceAcceptance(postActiveLegacy, postInactiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
-    }
-
-    [Theory]
-    [InlineData("legacy_active")]
-    [InlineData("unexpected_active")]
-    [InlineData("missing_clean")]
-    public void Department_post_verification_negative_states_fail_closed(string defect)
-    {
-        var actual = CleanDepartments.ToList();
-        switch (defect)
-        {
-            case "legacy_active": actual.Add(LegacyDepartments[0]); break;
-            case "unexpected_active": actual.Add("UNEXPECTED_DEPARTMENT"); break;
-            case "missing_clean": actual.Remove(CleanDepartments[0]); break;
-            default: throw new ArgumentOutOfRangeException(nameof(defect));
-        }
-
-        Assert.False(DepartmentAcceptance(actual));
+        Assert.Equal(1, migrations.Count(x => x == advanceBaseline));
+        Assert.Equal(advanceBaseline, migrations[0]);
+        Assert.Single(migrations);
     }
 
     [Fact]
@@ -234,4 +96,98 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
     }
 
     private sealed record WorkflowRow(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, int StepNumber, string ResolutionType, string? EmployeeCode, string? RoleCode);
+
+    [Fact]
+    public void Corrective_helper_is_isolated_recovery_aware_and_fail_closed()
+    {
+        var helper = Read("tools", "apply-rev868c3-legacy-department-correction-secure.ps1");
+
+        Assert.Contains("GeneratePlanOnly", helper);
+        Assert.Contains("PreflightOnly", helper);
+        Assert.Contains("sess_nexaerp_rev868_verify", helper);
+        Assert.Contains("Protected database rejected", helper);
+        Assert.Contains("sess_nexaerp", helper);
+        Assert.Contains("REV861", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("backup_relation_count", helper);
+        Assert.Contains("migration_owned_department_count", helper);
+        Assert.Contains("safe_retry_state", helper);
+        Assert.Contains("prerequisite_expected_count=10", helper);
+        Assert.Contains("prerequisite_actual_matched_count=10", helper);
+        Assert.Contains("prerequisite_missing_count=0", helper);
+        Assert.Contains("prerequisite_unexpected_count=0", helper);
+        Assert.Contains("prerequisite_duplicate_count=0", helper);
+        Assert.Contains("target_correction_migration_count=0", helper);
+        Assert.Contains("legacy_department_missing_count", helper);
+        Assert.Contains("legacy_department_count=4", helper);
+        Assert.Contains("active_legacy_department_count=4", helper);
+        Assert.Contains("active_employee_legacy_department_reference_count=0", helper);
+        Assert.Contains("active_manager_mapping_legacy_department_reference_count=0", helper);
+        Assert.Contains("total_active_sess_employee_count=42", helper);
+        Assert.Contains("\"EmployeeCode\" like 'SESS-%'", helper);
+        Assert.Contains("total_active_manager_mapping_count=14", helper);
+        Assert.Contains("active_open_pr_legacy_department_reference_count=0", helper);
+        Assert.Contains("historical_pr_legacy_department_reference_count", helper);
+        Assert.Contains("active_clean_department_count=12", helper);
+        Assert.Contains("missing_clean_department_count=0", helper);
+        Assert.Contains("unexpected_active_department_count=0", helper);
+        Assert.Contains("active_legacy_department_count=0", helper);
+        Assert.Contains("inactive_legacy_department_count=4", helper);
+        Assert.Contains("database_acceptance_state=PASS", helper);
+        Assert.Contains("Expected host: $HostName", helper);
+        Assert.Contains("Expected port: $Port", helper);
+        Assert.Contains("Isolated target database: $ExpectedDatabase", helper);
+        Assert.Contains("Protected databases:", helper);
+        Assert.Contains("No main-DB, database create/drop, backup, restore, or database cleanup operation", helper);
+        Assert.Contains("Historical PR legacy-department references (read-only; retained)", helper);
+        Assert.Contains("-v ON_ERROR_STOP=1", helper);
+        Assert.Contains("-f $script:tempSqlFile", helper);
+        Assert.DoesNotContain(" -c ", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_dump", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pg_restore", helper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("dropdb", helper, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("legacy_active")]
+    [InlineData("unexpected_active")]
+    [InlineData("missing_clean")]
+    public void Department_post_verification_negative_states_fail_closed(string defect)
+    {
+        var actual = CleanDepartments.ToList();
+        switch (defect)
+        {
+            case "legacy_active": actual.Add(LegacyDepartments[0]); break;
+            case "unexpected_active": actual.Add("UNEXPECTED_DEPARTMENT"); break;
+            case "missing_clean": actual.Remove(CleanDepartments[0]); break;
+            default: throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+
+        Assert.False(DepartmentAcceptance(actual));
+    }
+
+    [Theory]
+    [InlineData("active_legacy_department_count")]
+    [InlineData("active_employee_legacy_department_reference_count")]
+    [InlineData("active_manager_mapping_legacy_department_reference_count")]
+    [InlineData("active_open_pr_legacy_department_reference_count")]
+    public void Legacy_reference_negative_states_fail_preflight_and_post_verification(string defect)
+    {
+        var preActiveLegacy = 4;
+        var postActiveLegacy = 0;
+        var postInactiveLegacy = 4;
+        var employeeReferences = 0;
+        var managerReferences = 0;
+        var activeOpenPrReferences = 0;
+        switch (defect)
+        {
+            case "active_legacy_department_count": preActiveLegacy = 3; postActiveLegacy = 1; break;
+            case "active_employee_legacy_department_reference_count": employeeReferences = 1; break;
+            case "active_manager_mapping_legacy_department_reference_count": managerReferences = 1; break;
+            case "active_open_pr_legacy_department_reference_count": activeOpenPrReferences = 1; break;
+            default: throw new ArgumentOutOfRangeException(nameof(defect));
+        }
+
+        Assert.False(PreflightLegacyReferenceAcceptance(preActiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
+        Assert.False(PostLegacyReferenceAcceptance(postActiveLegacy, postInactiveLegacy, employeeReferences, managerReferences, activeOpenPrReferences));
+    }
 }
