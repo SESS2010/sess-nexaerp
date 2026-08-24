@@ -589,8 +589,7 @@ public sealed class Rev869BCorrection17SourceContractTests
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.cs",
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869A.cs",
             "src/SESS.NexaERP.Infrastructure/Persistence/NexaErpDbContext.Rev869B.cs",
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/NexaErpDbContextModelSnapshot.cs",
-            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BCommandContextSql.cs"
+            "src/SESS.NexaERP.Infrastructure/Persistence/Migrations/NexaErpDbContextModelSnapshot.cs"
         };
         var sourceHashes = inputs.ToDictionary(
             static path => path,

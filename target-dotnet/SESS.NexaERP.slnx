@@ -4,6 +4,7 @@
     <Project Path="src/SESS.NexaERP.Application/SESS.NexaERP.Application.csproj" />
     <Project Path="src/SESS.NexaERP.Domain/SESS.NexaERP.Domain.csproj" />
     <Project Path="src/SESS.NexaERP.Infrastructure/SESS.NexaERP.Infrastructure.csproj" />
+    <Project Path="src/SESS.NexaERP.SecurityMigrations/SESS.NexaERP.SecurityMigrations.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SESS.NexaERP.Tests/SESS.NexaERP.Tests.csproj" />

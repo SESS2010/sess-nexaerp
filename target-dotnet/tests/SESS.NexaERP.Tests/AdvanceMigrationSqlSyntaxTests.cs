@@ -5,13 +5,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
 public sealed class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
-    public void GeneratedBaselineScriptsAreAcceptedByDisposablePostgreSql()
+    public void GeneratedBusinessBaselineScriptsAreAcceptedByDisposablePostgreSql()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -19,9 +20,37 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var migrator = db.GetService<IMigrator>();
         var migration = Assert.Single(db.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
+    }
+
+    [Fact]
+    public void GeneratedSecurityPackageScriptsAreAcceptedByDisposablePostgreSql()
+    {
+        var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
+        var businessOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql(connection).Options;
+        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
+            .UseNpgsql(
+                connection,
+                npgsql =>
+                {
+                    npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
+                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
+                })
+            .Options;
+        using var business = new NexaErpDbContext(businessOptions);
+        using var security = new Rev869BSecurityDbContext(securityOptions);
+        var businessMigrator = business.GetService<IMigrator>();
+        var securityMigrator = security.GetService<IMigrator>();
+        var businessMigration = Assert.Single(business.Database.GetMigrations());
+        var securityMigration = Assert.Single(security.Database.GetMigrations());
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
         server.Execute("external-role-prerequisites.sql", ExternalRolePrerequisites);
-        server.Execute("advance-up.sql", migrator.GenerateScript("0", migration));
-        server.Execute("advance-down.sql", migrator.GenerateScript(migration, "0"));
+        server.Execute("security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
+        server.Execute("security-down.sql", securityMigrator.GenerateScript(securityMigration, "0"));
+        server.Execute("business-down.sql", businessMigrator.GenerateScript(businessMigration, "0"));
     }
 
     [Theory]

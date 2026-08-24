@@ -5855,15 +5855,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql(AdvanceDatabaseContractSql.InstallRev869B);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Install);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Install);
-            migrationBuilder.Sql(Rev869BCommandContextSql.Install);
-            migrationBuilder.Sql(Rev869BControlledMutationSql.Install);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql(Rev869BControlledMutationSql.Remove);
-            migrationBuilder.Sql(Rev869BCommandContextSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseLifecycleSql.Remove);
             migrationBuilder.Sql(Rev869BDatabaseSafetySql.Remove);
             migrationBuilder.Sql(AdvanceDatabaseContractSql.RemoveRev869B);

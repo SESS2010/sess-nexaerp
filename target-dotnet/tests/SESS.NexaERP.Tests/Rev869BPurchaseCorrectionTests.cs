@@ -9,6 +9,7 @@ using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -132,8 +133,25 @@ public sealed class Rev869BPurchaseCorrectionTests
             .Options;
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
-        var up = migrator.GenerateScript(rev869A, rev869B);
-        var down = migrator.GenerateScript(rev869B, rev869A);
+        var businessUp = migrator.GenerateScript(rev869A, rev869B);
+        var businessDown = migrator.GenerateScript(rev869B, rev869A);
+        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
+            .UseNpgsql(
+                "Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect",
+                npgsql =>
+                {
+                    npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
+                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
+                })
+            .Options;
+        using var security = new Rev869BSecurityDbContext(securityOptions);
+        var securityMigrator = security.GetService<IMigrator>();
+        var securityMigration = Assert.Single(security.Database.GetMigrations());
+        var up = businessUp + securityMigrator.GenerateScript(rev869A, securityMigration);
+        var down = securityMigrator.GenerateScript(securityMigration, rev869A) + businessDown;
+
+        Assert.DoesNotContain("rev869b_command_requests", businessUp);
+        Assert.DoesNotContain("nexa_rev869b_security_owner", businessUp);
 
         Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
         Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
