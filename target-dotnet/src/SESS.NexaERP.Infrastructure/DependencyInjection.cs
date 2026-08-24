@@ -23,7 +23,9 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("NexaErp")
             ?? throw new InvalidOperationException("Connection string 'NexaErp' must be supplied by environment variable or secret store.");
 
-        services.AddDbContext<NexaErpDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<NexaErpDbContext>(options => options.UseNpgsql(
+            connectionString,
+            npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Advance)));
         services.AddHealthChecks().AddDbContextCheck<NexaErpDbContext>("postgresql", tags: ["db"]);
         services.AddSingleton<IDateTimeProvider, SystemClock>();
         services.AddScoped<IAuditWriter, EfAuditWriter>();

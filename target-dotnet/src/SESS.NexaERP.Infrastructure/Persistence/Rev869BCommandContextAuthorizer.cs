@@ -1,4 +1,5 @@
 using System.Data;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -15,6 +16,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 public static class Rev869BCommandContextAuthorizer
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string RegisterCommandRequestSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_register_command_request(@org,@operation,@key,@request,@actor,@issuer,@subject,@role)";
+    private const string StartCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_start_command_attempt(@command,@execution,@service,@ownership,@runtime,@backend,@transaction)";
+    private const string OpenCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_open_command_attempt({0},{1},{2},{3},{4},{5},{6},{7}::jsonb)";
+    private const string CommitCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_commit_command_attempt({0},{1},{2}::jsonb,{3})";
+    private const string RecordNoncommitOutcomeSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_record_noncommit_outcome(@attempt,@execution,@service,@ownership,@state,@category,@outcome)";
 
     public sealed record CommandEnvelope(string Operation, string IdempotencyKey, string RequestFingerprint)
     {
@@ -69,7 +75,7 @@ public static class Rev869BCommandContextAuthorizer
         await using (var audit = new NpgsqlConnection(auditBuilder.ConnectionString))
         {
             await audit.OpenAsync(ct);
-            await using var register = new NpgsqlCommand("SELECT nexa.rev869b_register_command_request(@org,@operation,@key,@request,@actor,@issuer,@subject,@role)", audit);
+            await using var register = new NpgsqlCommand(RegisterCommandRequestSql, audit);
             register.Parameters.AddWithValue("org", organization);
             register.Parameters.AddWithValue("operation", envelope.Operation);
             register.Parameters.AddWithValue("key", idempotencyFingerprint);
@@ -84,7 +90,7 @@ public static class Rev869BCommandContextAuthorizer
                 throw new InvalidOperationException("A non-empty REV869B execution-instance ID is required.");
             var serviceFingerprint = ExactFingerprint("REV869B_SERVICE_INSTANCE_FINGERPRINT");
             var ownershipFingerprint = ExactFingerprint("REV869B_OWNERSHIP_LEASE_FINGERPRINT");
-            await using var start = new NpgsqlCommand("SELECT nexa.rev869b_start_command_attempt(@command,@execution,@service,@ownership,@runtime,@backend,@transaction)", audit);
+            await using var start = new NpgsqlCommand(StartCommandAttemptSql, audit);
             start.Parameters.AddWithValue("command", commandId);
             start.Parameters.AddWithValue("execution", executionId);
             start.Parameters.AddWithValue("service", serviceFingerprint);
@@ -103,8 +109,10 @@ public static class Rev869BCommandContextAuthorizer
 
         try
         {
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT nexa.rev869b_open_command_attempt({attemptId},{user.EmployeeId.Value},{user.IdentityIssuer},{user.IdentitySubject},{user.RoleCode},{organization},{businessFingerprint},{slotsJson}::jsonb)", ct);
+            await db.Database.ExecuteSqlInterpolatedAsync(FormattableStringFactory.Create(
+                OpenCommandAttemptSql,
+                attemptId, user.EmployeeId.Value, user.IdentityIssuer, user.IdentitySubject,
+                user.RoleCode, organization, businessFingerprint, slotsJson), ct);
         }
         catch
         {
@@ -121,8 +129,9 @@ public static class Rev869BCommandContextAuthorizer
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("A committed receipt must be staged in the exact business transaction.");
         var response = JsonSerializer.Serialize(new { attempt.CommandId, attempt.AttemptId });
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT nexa.rev869b_commit_command_attempt({attempt.AttemptId},{attempt.BusinessFingerprint},{response}::jsonb,{Guid.NewGuid()})", ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(FormattableStringFactory.Create(
+            CommitCommandAttemptSql,
+            attempt.AttemptId, attempt.BusinessFingerprint, response, Guid.NewGuid()), ct);
     }
 
     public static async Task RecordNoncommitOutcomeAsync(
@@ -133,7 +142,7 @@ public static class Rev869BCommandContextAuthorizer
         var auditBuilder = RequireIndependentAuditConnection(runtimeConnection.ConnectionString);
         await using var audit = new NpgsqlConnection(auditBuilder.ConnectionString);
         await audit.OpenAsync(ct);
-        await using var command = new NpgsqlCommand("SELECT nexa.rev869b_record_noncommit_outcome(@attempt,@execution,@service,@ownership,@state,@category,@outcome)", audit);
+        await using var command = new NpgsqlCommand(RecordNoncommitOutcomeSql, audit);
         command.Parameters.AddWithValue("attempt", attempt.AttemptId);
         command.Parameters.AddWithValue("execution", attempt.ExecutionInstanceId);
         command.Parameters.AddWithValue("service", attempt.ServiceInstanceFingerprint);

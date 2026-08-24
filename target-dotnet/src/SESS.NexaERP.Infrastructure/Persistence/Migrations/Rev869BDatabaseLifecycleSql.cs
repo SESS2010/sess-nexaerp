@@ -2,19 +2,20 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 internal static class Rev869BDatabaseLifecycleSql
 {
-    public const string Install = """
-        ALTER TABLE nexa.vendor_quotations DROP CONSTRAINT "CK_vendor_quotation_status";
-        ALTER TABLE nexa.vendor_quotations ADD CONSTRAINT "CK_vendor_quotation_status"
+    public static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
+    private const string InstallTemplate = """
+        ALTER TABLE __advance_schema__.vendor_quotations DROP CONSTRAINT "CK_vendor_quotation_status";
+        ALTER TABLE __advance_schema__.vendor_quotations ADD CONSTRAINT "CK_vendor_quotation_status"
             CHECK ("Status" IN ('Draft','Submitted','TechnicallyCompliant','TechnicallyRejected','Superseded','Withdrawn','Rejected'));
 
-        DROP TRIGGER IF EXISTS trg_rev869b_quotation_transition_guard ON nexa.vendor_quotations;
-        CREATE OR REPLACE FUNCTION nexa.rev869b_enforce_quotation_transition()
-        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, nexa AS $rev869b$
+        DROP TRIGGER IF EXISTS trg_rev869b_quotation_transition_guard ON __advance_schema__.vendor_quotations;
+        CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_enforce_quotation_transition()
+        RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, __advance_schema__ AS $rev869b$
         DECLARE allowed boolean := false; expected_count bigint; matched_count bigint;
         BEGIN
             IF TG_OP='INSERT' THEN
                 IF NEW."Status" IS DISTINCT FROM 'Draft' OR NEW."Version"<>0 OR NOT NEW."IsCurrentRevision" THEN
-                    RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='nexa',TABLE=TG_TABLE_NAME,
+                    RAISE EXCEPTION USING ERRCODE='P0001',SCHEMA='__advance_schema__',TABLE=TG_TABLE_NAME,
                       CONSTRAINT='rev869b_enforce_quotation_transition',
                       MESSAGE='Quotation must be inserted as current Draft version zero.';
                 END IF;
@@ -34,15 +35,15 @@ internal static class Rev869BDatabaseLifecycleSql
             IF NOT allowed THEN RAISE EXCEPTION 'Illegal REV869B quotation transition: % to %.',OLD."Status",NEW."Status"; END IF;
             IF OLD."Status"='Draft' AND NEW."Status"='Submitted' THEN
                 SELECT count(*) INTO expected_count
-                  FROM nexa.request_for_quotation_lines rl
-                  JOIN nexa.rfq_vendor_invitations i ON i."RequestForQuotationId"=rl."RequestForQuotationId"
+                  FROM __advance_schema__.request_for_quotation_lines rl
+                  JOIN __advance_schema__.rfq_vendor_invitations i ON i."RequestForQuotationId"=rl."RequestForQuotationId"
                  WHERE i."Id"=NEW."RfqVendorInvitationId";
                 SELECT count(*) INTO matched_count
-                  FROM nexa.vendor_quotation_lines ql
-                  JOIN nexa.request_for_quotation_lines rl ON rl."Id"=ql."RequestForQuotationLineId"
-                  JOIN nexa.rfq_vendor_invitations i ON i."Id"=NEW."RfqVendorInvitationId" AND i."RequestForQuotationId"=rl."RequestForQuotationId"
+                  FROM __advance_schema__.vendor_quotation_lines ql
+                  JOIN __advance_schema__.request_for_quotation_lines rl ON rl."Id"=ql."RequestForQuotationLineId"
+                  JOIN __advance_schema__.rfq_vendor_invitations i ON i."Id"=NEW."RfqVendorInvitationId" AND i."RequestForQuotationId"=rl."RequestForQuotationId"
                  WHERE ql."VendorQuotationId"=NEW."Id" AND ql."Quantity"<=rl."RfqQuantity" AND
-                       nexa.rev869b_commercial_snapshot_reconciles(
+                       __advance_schema__.rev869b_commercial_snapshot_reconciles(
                            ql."Id",
                            jsonb_build_object(
                                'input',jsonb_build_object('quantity',ql."Quantity",'unitRate',ql."UnitRate",
@@ -63,8 +64,8 @@ internal static class Rev869BDatabaseLifecycleSql
                                    'currencyCode',NEW."CurrencyCode",'exchangeRate',1)),
                            ql."TaxRuleSnapshotJson") IS TRUE;
                 IF expected_count=0 OR matched_count<>expected_count OR
-                   NEW."TotalPayableValue" IS DISTINCT FROM (SELECT sum(ql."TotalPayableValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id") OR
-                   NEW."HeaderDiscountValue" IS DISTINCT FROM (SELECT sum(ql."HeaderDiscountValue") FROM nexa.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id")
+                   NEW."TotalPayableValue" IS DISTINCT FROM (SELECT sum(ql."TotalPayableValue") FROM __advance_schema__.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id") OR
+                   NEW."HeaderDiscountValue" IS DISTINCT FROM (SELECT sum(ql."HeaderDiscountValue") FROM __advance_schema__.vendor_quotation_lines ql WHERE ql."VendorQuotationId"=NEW."Id")
                 THEN RAISE EXCEPTION 'Quotation exact set and authoritative commercial values do not reconcile.'; END IF;
             END IF;
             RETURN NEW;
@@ -72,11 +73,12 @@ internal static class Rev869BDatabaseLifecycleSql
             RAISE EXCEPTION 'Quotation contains malformed typed snapshot evidence.';
         END $rev869b$;
         CREATE TRIGGER trg_rev869b_quotation_transition_guard
-            BEFORE INSERT OR UPDATE ON nexa.vendor_quotations
-            FOR EACH ROW EXECUTE FUNCTION nexa.rev869b_enforce_quotation_transition();
+            BEFORE INSERT OR UPDATE ON __advance_schema__.vendor_quotations
+            FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_enforce_quotation_transition();
         """;
 
-    public const string Remove = """
-        DROP FUNCTION IF EXISTS nexa.rev869b_enforce_quotation_transition() CASCADE;
+    public static string Remove => AdvanceSchemaSql.Expand(RemoveTemplate);
+    private const string RemoveTemplate = """
+        DROP FUNCTION IF EXISTS __advance_schema__.rev869b_enforce_quotation_transition() CASCADE;
         """;
 }

@@ -62,7 +62,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasDefaultSchema("nexa");
+        modelBuilder.HasDefaultSchema(DatabaseSchemas.Advance);
         ConfigureIdentity(modelBuilder);
         ConfigureMasters(modelBuilder);
         ConfigureInventory(modelBuilder);

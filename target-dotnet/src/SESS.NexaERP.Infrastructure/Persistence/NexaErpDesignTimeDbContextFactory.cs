@@ -19,7 +19,9 @@ public sealed class NexaErpDesignTimeDbContextFactory : IDesignTimeDbContextFact
         }
 
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(
+                connectionString,
+                npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Advance))
             .Options;
 
         return new NexaErpDbContext(options);

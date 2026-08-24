@@ -71,7 +71,7 @@ app.MapGet("/api/v1/purchase-stores/workflow-stages", () => Results.Ok(new
 
 app.MapGet("/api/v1/system/database-model", (NexaErpDbContext dbContext) => Results.Ok(new
 {
-    schema = "nexa",
+    schema = DatabaseSchemas.Advance,
     provider = dbContext.Database.ProviderName,
     entities = dbContext.Model.GetEntityTypes()
         .Select(entityType => new
