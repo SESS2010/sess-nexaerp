@@ -132,7 +132,8 @@ public sealed class Rev869AFoundationTests
             .Select(type => (Type: type, Attribute: type.GetCustomAttribute<MigrationAttribute>()))
             .Where(x => x.Attribute is not null)
             .ToArray();
-        var migration = Assert.Single(migrations);
+        var migration = Assert.Single(migrations, migration =>
+            migration.Attribute!.Id == migrations.Min(x => x.Attribute!.Id));
         Assert.Equal("20260824032638_AdvanceInitialBaseline", migration.Attribute!.Id);
 
         var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", migration.Attribute.Id + ".cs"));

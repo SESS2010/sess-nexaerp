@@ -26,15 +26,15 @@ public sealed class Rev869BPurchaseFoundationTests
     [InlineData(500000.000001, "MANAGING_DIRECTOR")]
     public void ApprovalBoundariesAreExact(decimal value, string route)
     {
-        Assert.Equal(route, Rev869BApprovalRoutes.Resolve(value, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS"));
+        Assert.Equal(route, Rev869BApprovalRoutes.Resolve(value, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS_PVT_LTD"));
     }
 
     [Fact]
     public void MissingOrAmbiguousApprovalPolicyFailsClosed()
     {
-        Assert.Throws<InvalidOperationException>(() => Rev869BApprovalRoutes.Resolve(1m, Array.Empty<PurchaseTransactionApprovalPolicy>(), new DateOnly(2026, 8, 11), "SESS"));
+        Assert.Throws<InvalidOperationException>(() => Rev869BApprovalRoutes.Resolve(1m, Array.Empty<PurchaseTransactionApprovalPolicy>(), new DateOnly(2026, 8, 11), "SESS_PVT_LTD"));
         var duplicate = Rev869BSeedData.ApprovalPolicies.Concat(Rev869BSeedData.ApprovalPolicies.Take(1));
-        Assert.Throws<InvalidOperationException>(() => Rev869BApprovalRoutes.Resolve(1m, duplicate, new DateOnly(2026, 8, 11), "SESS"));
+        Assert.Throws<InvalidOperationException>(() => Rev869BApprovalRoutes.Resolve(1m, duplicate, new DateOnly(2026, 8, 11), "SESS_PVT_LTD"));
     }
 
     [Fact]

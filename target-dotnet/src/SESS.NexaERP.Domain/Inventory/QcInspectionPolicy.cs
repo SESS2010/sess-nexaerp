@@ -3,7 +3,7 @@ using SESS.NexaERP.Domain.Masters;
 
 namespace SESS.NexaERP.Domain.Inventory;
 
-public sealed class QcInspectionPolicy : AuditableEntity
+public sealed class QcInspectionPolicy : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public Guid? ItemId { get; set; }

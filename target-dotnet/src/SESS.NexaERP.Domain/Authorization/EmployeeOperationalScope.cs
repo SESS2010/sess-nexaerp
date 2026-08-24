@@ -4,7 +4,7 @@ using SESS.NexaERP.Domain.Inventory;
 
 namespace SESS.NexaERP.Domain.Authorization;
 
-public sealed class EmployeeOperationalScope : AuditableEntity
+public sealed class EmployeeOperationalScope : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public Guid EmployeeId { get; set; }

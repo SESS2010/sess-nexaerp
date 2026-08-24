@@ -9,7 +9,7 @@ public static class IdentityTypes
     public const string Service = "SERVICE";
 }
 
-public sealed class EmployeeIdentityMapping : AuditableEntity
+public sealed class EmployeeIdentityMapping : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string Issuer { get; set; } = string.Empty;

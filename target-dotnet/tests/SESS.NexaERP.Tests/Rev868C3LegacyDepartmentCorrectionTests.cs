@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -28,8 +29,11 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
         const string advanceBaseline = "20260824032638_AdvanceInitialBaseline";
 
         Assert.Equal(1, migrations.Count(x => x == advanceBaseline));
-        Assert.Equal(advanceBaseline, migrations[0]);
-        Assert.Single(migrations);
+        Assert.Equal(new[]
+        {
+            advanceBaseline,
+            string.Concat(20260824135450L, (char)95, nameof(MultiCompanySharedIdentityFoundation))
+        }, migrations);
     }
 
     [Fact]

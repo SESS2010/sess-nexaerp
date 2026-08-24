@@ -15,7 +15,7 @@ public static class InventoryConditionCodes
     public static bool CanReserveOrIssue(string? conditionCode) => string.Equals(conditionCode, Available, StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed class WarehouseConditionLocation : AuditableEntity
+public sealed class WarehouseConditionLocation : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public Guid WarehouseId { get; set; }

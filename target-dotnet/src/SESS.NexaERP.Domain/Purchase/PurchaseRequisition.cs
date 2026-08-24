@@ -73,7 +73,7 @@ public static class PurchaseRequisitionApprovalRoutes
     };
 }
 
-public sealed class PurchaseRequisition : AuditableEntity
+public sealed class PurchaseRequisition : CompanyScopedAuditableEntity
 {
     public string PrNumber { get; set; } = string.Empty;
     public string FinancialYear { get; set; } = string.Empty;
@@ -107,7 +107,7 @@ public sealed class PurchaseRequisition : AuditableEntity
     public List<PurchaseRequisitionLine> Lines { get; set; } = [];
 }
 
-public sealed class PurchaseRequisitionLine : AuditableEntity
+public sealed class PurchaseRequisitionLine : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -126,6 +126,7 @@ public sealed class PurchaseRequisitionLine : AuditableEntity
     public Warehouse? PreferredWarehouse { get; set; }
     public string? ProjectReference { get; set; }
     public string? MachineReference { get; set; }
+    public Guid? AssetId { get; set; }
     public string? ServiceReference { get; set; }
     public decimal OnHandSnapshot { get; set; }
     public decimal ActiveReservedSnapshot { get; set; }
@@ -138,7 +139,7 @@ public sealed class PurchaseRequisitionLine : AuditableEntity
     public string LineStatus { get; set; } = PurchaseRequisitionLineStatuses.Draft;
 }
 
-public sealed class PurchaseRequisitionStatusHistory : AuditableEntity
+public sealed class PurchaseRequisitionStatusHistory : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -151,7 +152,7 @@ public sealed class PurchaseRequisitionStatusHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseRequisitionApprovalHistory : AuditableEntity
+public sealed class PurchaseRequisitionApprovalHistory : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -166,7 +167,7 @@ public sealed class PurchaseRequisitionApprovalHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseRequisitionAttachment : AuditableEntity
+public sealed class PurchaseRequisitionAttachment : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -177,7 +178,7 @@ public sealed class PurchaseRequisitionAttachment : AuditableEntity
     public string UploadedBy { get; set; } = string.Empty;
 }
 
-public sealed class StockAvailabilityCheck : AuditableEntity
+public sealed class StockAvailabilityCheck : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -190,7 +191,7 @@ public sealed class StockAvailabilityCheck : AuditableEntity
     public List<StockAvailabilityCheckLine> Lines { get; set; } = [];
 }
 
-public sealed class StockAvailabilityCheckLine : AuditableEntity
+public sealed class StockAvailabilityCheckLine : CompanyScopedAuditableEntity
 {
     public Guid StockAvailabilityCheckId { get; set; }
     public StockAvailabilityCheck? StockAvailabilityCheck { get; set; }
@@ -213,7 +214,7 @@ public sealed class StockAvailabilityCheckLine : AuditableEntity
     public string LineResultStatus { get; set; } = string.Empty;
 }
 
-public sealed class StockReservation : AuditableEntity
+public sealed class StockReservation : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -233,7 +234,7 @@ public sealed class StockReservation : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class StockReservationHistory : AuditableEntity
+public sealed class StockReservationHistory : CompanyScopedAuditableEntity
 {
     public Guid StockReservationId { get; set; }
     public StockReservation? StockReservation { get; set; }
@@ -245,7 +246,7 @@ public sealed class StockReservationHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseRequirementHandoff : AuditableEntity
+public sealed class PurchaseRequirementHandoff : CompanyScopedAuditableEntity
 {
     public Guid PurchaseRequisitionId { get; set; }
     public PurchaseRequisition? PurchaseRequisition { get; set; }
@@ -265,7 +266,7 @@ public sealed class PurchaseRequirementHandoff : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseApprovalRouteSetting : AuditableEntity
+public sealed class PurchaseApprovalRouteSetting : CompanyScopedAuditableEntity
 {
     public string RouteCode { get; set; } = string.Empty;
     public decimal MinimumAmount { get; set; }
@@ -275,7 +276,7 @@ public sealed class PurchaseApprovalRouteSetting : AuditableEntity
     public bool IsActive { get; set; } = true;
 }
 
-public sealed class DepartmentApprovalMapping : AuditableEntity
+public sealed class DepartmentApprovalMapping : CompanyScopedAuditableEntity
 {
     public Guid DepartmentId { get; set; }
     public Department? Department { get; set; }
@@ -290,7 +291,7 @@ public sealed class DepartmentApprovalMapping : AuditableEntity
     public bool IsActive { get; set; } = true;
     public string Remarks { get; set; } = string.Empty;
 }
-public sealed class PurchaseNumberSequence : AuditableEntity
+public sealed class PurchaseNumberSequence : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string FinancialYear { get; set; } = string.Empty;
@@ -300,7 +301,7 @@ public sealed class PurchaseNumberSequence : AuditableEntity
 }
 
 
-public sealed class PurchaseApprovalWorkflowStep : AuditableEntity
+public sealed class PurchaseApprovalWorkflowStep : CompanyScopedAuditableEntity
 {
     public string RouteCode { get; set; } = string.Empty;
     public decimal MinimumAmount { get; set; }

@@ -96,7 +96,8 @@ public static class Rev869BSeedData
 
     private static PurchaseTransactionApprovalPolicy Policy(string route, decimal min, decimal? max, string role) => new()
     {
-        Id = Id("rev869b-approval-policy", "SESS", route), OrganizationId = "SESS", RouteCode = route,
+        Id = Id("rev869b-approval-policy", "SESS", route), CompanyId = MultiCompanyFoundationSeedData.SessPvtLtdId,
+        OrganizationId = "SESS_PVT_LTD", RouteCode = route,
         MinimumAmount = min, MaximumAmount = max, ApproverRoleCode = role, EffectiveFrom = EffectiveFrom,
         IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869b"
     };

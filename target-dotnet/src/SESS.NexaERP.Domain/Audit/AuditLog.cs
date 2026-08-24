@@ -4,6 +4,8 @@ namespace SESS.NexaERP.Domain.Audit;
 
 public sealed class AuditLog : AuditableEntity
 {
+    public Guid? CompanyId { get; set; }
+    public string Scope { get; set; } = "GLOBAL";
     public string Module { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
     public string EntityName { get; set; } = string.Empty;

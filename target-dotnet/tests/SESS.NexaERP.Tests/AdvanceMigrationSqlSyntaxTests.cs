@@ -18,10 +18,41 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
-        var migration = Assert.Single(db.Database.GetMigrations());
+        var migrations = db.Database.GetMigrations().ToArray();
+        Assert.Equal(2, migrations.Length);
+        var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
         server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
+    }
+
+    [Fact]
+    public void MultiCompanyFoundationCatalogueAndRejectionContractsHold()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("foundation-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("foundation-catalogue-assertions.sql", FoundationCatalogueAssertions);
+
+        server.AssertRejected("reject-duplicate-company.sql",
+            """INSERT INTO advance.companies ("Id","Code","LegalName","EntityType","Status","IsActive","CreatedAt","CreatedBy","Version") VALUES(gen_random_uuid(),'SESS_PVT_LTD','Duplicate','PRIVATE_LIMITED','ACTIVE',true,clock_timestamp(),'test',0);""");
+        server.AssertRejected("reject-invalid-principal.sql",
+            """INSERT INTO advance.user_accounts ("Id","LoginId","DisplayName","PasswordHash","UserType","PrincipalType","RoleId","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),'invalid-principal','Invalid','x','Internal','EMPLOYEE',r."Id",true,clock_timestamp(),'test',0 FROM advance.roles r LIMIT 1;""");
+        server.AssertRejected("reject-second-payroll.sql",
+            """INSERT INTO advance.employee_company_assignments ("Id","CompanyId","EmployeeId","AssignmentType","EmployeeCode","EmploymentType","EffectiveFrom","Status","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),"CompanyId","EmployeeId",'PAYROLL',"EmployeeCode"||'-DUP',"EmploymentType","EffectiveFrom",'ACTIVE',true,clock_timestamp(),'test',0 FROM advance.employee_company_assignments LIMIT 1;""");
+        server.AssertRejected("reject-second-primary-department.sql",
+            """INSERT INTO advance.employee_department_assignments ("Id","CompanyId","EmployeeCompanyAssignmentId","DepartmentId","DesignationId","AssignmentType","EffectiveFrom","IsPrimary","Status","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),a."CompanyId",a."EmployeeCompanyAssignmentId",d."Id",a."DesignationId",'PRIMARY',a."EffectiveFrom",true,'ACTIVE',true,clock_timestamp(),'test',0 FROM advance.employee_department_assignments a CROSS JOIN LATERAL (SELECT "Id" FROM advance.departments WHERE "Id"<>a."DepartmentId" LIMIT 1) d WHERE a."IsPrimary" LIMIT 1;""");
+        server.AssertRejected("reject-company-code-mismatch.sql",
+            """UPDATE advance.organization_policies SET "CompanyId"='70000000-0000-0000-0000-000000000002' WHERE "Id"='50000000-0000-0000-0000-000000000001';""");
+        server.AssertRejected("reject-invalid-gstin.sql",
+            """INSERT INTO advance.company_gst_registrations ("Id","CompanyId","Gstin","RegisteredLegalName","StateCode","RegistrationType","EffectiveFrom","IsPrimary","IsActive","CreatedAt","CreatedBy","Version") VALUES(gen_random_uuid(),'70000000-0000-0000-0000-000000000001','BAD','Bad GST','33','PRIVATE_LIMITED',DATE '2026-08-24',false,true,clock_timestamp(),'test',0);""");
+        server.AssertRejected("reject-invalid-audit-scope.sql",
+            """INSERT INTO advance.audit_logs ("Id","CompanyId","Scope","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","CreatedAt","CreatedBy","Version") VALUES(gen_random_uuid(),NULL,'COMPANY','Test','Test','Test','1','test','Success','test',clock_timestamp(),'test',0);""");
+        server.Execute("foundation-down.sql", migrator.GenerateScript(migration, "0"));
     }
 
     [Fact]
@@ -43,7 +74,9 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var security = new Rev869BSecurityDbContext(securityOptions);
         var businessMigrator = business.GetService<IMigrator>();
         var securityMigrator = security.GetService<IMigrator>();
-        var businessMigration = Assert.Single(business.Database.GetMigrations());
+        var businessMigrations = business.Database.GetMigrations().ToArray();
+        Assert.Equal(2, businessMigrations.Length);
+        var businessMigration = businessMigrations[^1];
         var securityMigration = Assert.Single(security.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
@@ -82,6 +115,72 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_rev869b_export_service LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_rev869b_target_verifier LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         GRANT nexa_rev869b_security_owner TO nexa_rev869b_lifecycle_administrator;
+        """;
+
+    private const string FoundationCatalogueAssertions = """
+        DO $assert$
+        DECLARE value_count integer;
+        BEGIN
+          SELECT count(*) INTO value_count FROM pg_catalog.pg_tables WHERE schemaname='advance';
+          IF value_count<>93 THEN RAISE EXCEPTION 'expected 93 advance tables, found %',value_count; END IF;
+
+          SELECT count(*) INTO value_count FROM advance.companies
+           WHERE ("Code","LegalName","EntityType") IN
+             (('SESS_PROPRIETORSHIP','Sri Easwari Scientific Solution','PROPRIETORSHIP'),
+              ('SESS_PVT_LTD','Sri Easwari Scientific Solution Private Limited','PRIVATE_LIMITED'));
+          IF value_count<>2 THEN RAISE EXCEPTION 'company seed mismatch'; END IF;
+
+          SELECT count(*) INTO value_count FROM advance.company_gst_registrations
+           WHERE ("Gstin","StateCode") IN (('33APRPA5532K1ZU','33'),('33ABACS5491H1ZA','33'));
+          IF value_count<>2 THEN RAISE EXCEPTION 'GST seed mismatch'; END IF;
+
+          SELECT count(*) INTO value_count FROM advance.departments WHERE "IsActive";
+          IF value_count<>20 THEN RAISE EXCEPTION 'expected 20 active departments, found %',value_count; END IF;
+          SELECT count(*) INTO value_count FROM advance.departments WHERE "IsActive" AND "ParentDepartmentId" IS NULL;
+          IF value_count<>16 THEN RAISE EXCEPTION 'expected 16 top-level departments, found %',value_count; END IF;
+
+          SELECT count(*) INTO value_count FROM advance.employee_company_assignments WHERE "AssignmentType"='PAYROLL' AND "IsActive";
+          IF value_count<>39 THEN RAISE EXCEPTION 'expected 39 PAYROLL assignments, found %',value_count; END IF;
+          SELECT count(*) INTO value_count FROM advance.employee_company_assignments WHERE "AssignmentType"='WORK';
+          IF value_count<>0 THEN RAISE EXCEPTION 'migration must not seed WORK assignments'; END IF;
+          SELECT count(*) INTO value_count FROM advance.employee_department_assignments;
+          IF value_count<>184 THEN RAISE EXCEPTION 'expected 184 department assignments, found %',value_count; END IF;
+          SELECT count(*) INTO value_count FROM advance.employee_department_assignments WHERE "IsPrimary";
+          IF value_count<>39 THEN RAISE EXCEPTION 'expected 39 primary department assignments, found %',value_count; END IF;
+
+          SELECT count(*) INTO value_count FROM advance.organization_policies
+           WHERE "CompanyId"='70000000-0000-0000-0000-000000000001' AND "OrganizationId"='SESS_PVT_LTD';
+          IF value_count<>2 THEN RAISE EXCEPTION 'organization policy mapping mismatch'; END IF;
+          SELECT count(*) INTO value_count FROM advance.purchase_transaction_approval_policies
+           WHERE "CompanyId"='70000000-0000-0000-0000-000000000001' AND "OrganizationId"='SESS_PVT_LTD';
+          IF value_count<>3 THEN RAISE EXCEPTION 'approval policy mapping mismatch'; END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_constraint c
+            JOIN pg_catalog.pg_class t ON t.oid=c.conrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='advance' AND t.relname='purchase_orders' AND c.contype='f'
+              AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY ("CompanyId", "OrganizationId")%')
+          THEN RAISE EXCEPTION 'purchase_orders composite company/code FK missing'; END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_constraint c
+            JOIN pg_catalog.pg_class t ON t.oid=c.conrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='advance' AND t.relname='purchase_requisition_lines' AND c.contype='f'
+              AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY ("AssetId")%')
+          THEN RAISE EXCEPTION 'MachineReference AssetId FK missing'; END IF;
+
+          IF EXISTS (
+            SELECT 1 FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class t ON t.oid=a.attrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='advance' AND a.attname='CompanyId' AND a.attnotnull
+              AND NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_index i
+                WHERE i.indrelid=t.oid AND (i.indkey::smallint[])[0]=a.attnum))
+          THEN RAISE EXCEPTION 'required company scope lacks a CompanyId-leading index'; END IF;
+        END $assert$;
         """;
 
     private static string FindPostgreSqlBin()
@@ -149,7 +248,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         {
             var file = Path.Combine(_root, name);
             File.WriteAllText(file, sql);
-            return Run("psql", "-X", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
+            return Run("psql", "-X", "--quiet", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
                 _port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
                 "--dbname", "postgres", "--file", file);
         }

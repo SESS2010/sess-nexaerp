@@ -36,9 +36,10 @@ public sealed class AdvanceBaselineSeedConstraintTests
     {
         using var db = CreateContext();
         var migrations = db.GetService<IMigrationsAssembly>();
-        var migration = migrations.CreateMigration(Assert.Single(migrations.Migrations).Value, db.Database.ProviderName!);
-        var rowsByEntity = Model.GetEntityTypes().ToDictionary(entity => entity, _ => new List<IDictionary<string, object?>>());
-        var entitiesByTable = Model.GetEntityTypes().Where(entity => entity.GetTableName() is not null)
+        var migration = migrations.CreateMigration(migrations.Migrations.First().Value, db.Database.ProviderName!);
+        var migrationModel = migration.TargetModel;
+        var rowsByEntity = migrationModel.GetEntityTypes().ToDictionary(entity => entity, _ => new List<IDictionary<string, object?>>());
+        var entitiesByTable = migrationModel.GetEntityTypes().Where(entity => entity.GetTableName() is not null)
             .ToDictionary(entity => (Schema: entity.GetSchema(), Table: entity.GetTableName()!));
 
         foreach (var insert in migration.UpOperations.OfType<InsertDataOperation>())
@@ -55,7 +56,7 @@ public sealed class AdvanceBaselineSeedConstraintTests
             }
         }
 
-        foreach (var entity in Model.GetEntityTypes())
+        foreach (var entity in migrationModel.GetEntityTypes())
         {
             var rows = rowsByEntity[entity];
             Assert.Equal(entity.GetSeedData().Count(), rows.Count);
@@ -74,6 +75,43 @@ public sealed class AdvanceBaselineSeedConstraintTests
     {
         var validators = new Dictionary<(string Table, string Name), CheckValidator>
         {
+            [("audit_logs", "CK_audit_logs_scope")] = new(
+                @"(""Scope"" = 'GLOBAL' AND ""CompanyId"" IS NULL) OR (""Scope"" = 'COMPANY' AND ""CompanyId"" IS NOT NULL)",
+                row => StringValue(row, "Scope") == "GLOBAL" ? Value(row, "CompanyId") is null :
+                    StringValue(row, "Scope") == "COMPANY" && Value(row, "CompanyId") is not null),
+            [("companies", "CK_companies_entity_type")] = new(
+                @"""EntityType"" IN ('PROPRIETORSHIP','PRIVATE_LIMITED')",
+                row => StringValue(row, "EntityType") is "PROPRIETORSHIP" or "PRIVATE_LIMITED"),
+            [("companies", "CK_companies_status")] = new(
+                @"""Status"" IN ('ACTIVE','INACTIVE')",
+                row => StringValue(row, "Status") is "ACTIVE" or "INACTIVE"),
+            [("company_gst_registrations", "CK_company_gst_registration_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("company_gst_registrations", "CK_company_gst_registrations_gstin")] = new(
+                @"char_length(""Gstin"") = 15",
+                row => StringValue(row, "Gstin").Length == 15),
+            [("currencies", "CK_currencies_code")] = new(
+                @"char_length(""Code"") = 3",
+                row => StringValue(row, "Code").Length == 3),
+            [("currencies", "CK_currencies_minor_units")] = new(
+                @"""MinorUnitDigits"" BETWEEN 0 AND 6",
+                row => Convert.ToInt32(Value(row, "MinorUnitDigits"), CultureInfo.InvariantCulture) is >= 0 and <= 6),
+            [("employee_company_assignments", "CK_employee_company_assignment_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("employee_company_assignments", "CK_employee_company_assignment_type")] = new(
+                @"""AssignmentType"" IN ('PAYROLL','WORK')",
+                row => StringValue(row, "AssignmentType") is "PAYROLL" or "WORK"),
+            [("employee_department_assignments", "CK_employee_department_assignment_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("employee_department_assignments", "CK_employee_department_assignment_primary")] = new(
+                @"(""AssignmentType"" = 'PRIMARY') = ""IsPrimary""",
+                row => (StringValue(row, "AssignmentType") == "PRIMARY") == Convert.ToBoolean(Value(row, "IsPrimary"), CultureInfo.InvariantCulture)),
+            [("employee_department_assignments", "CK_employee_department_assignment_type")] = new(
+                @"""AssignmentType"" IN ('PRIMARY','SECONDARY')",
+                row => StringValue(row, "AssignmentType") is "PRIMARY" or "SECONDARY"),
             [("organization_policies", "CK_organization_policy_dates")] = new(
                 "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"",
                 row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
@@ -227,6 +265,14 @@ public sealed class AdvanceBaselineSeedConstraintTests
         var store = StoreObjectIdentifier.Table(entity.GetTableName()!, entity.GetSchema());
         foreach (var clause in filter.Split(" AND ", StringSplitOptions.None))
         {
+            var bareBoolean = Regex.Match(clause, "^\"(?<column>[^\"]+)\"$", RegexOptions.CultureInvariant);
+            if (bareBoolean.Success)
+            {
+                var booleanProperty = entity.GetProperties().Single(candidate =>
+                    candidate.GetColumnName(store) == bareBoolean.Groups["column"].Value);
+                if (Value(row, booleanProperty.Name) is not true) return false;
+                continue;
+            }
             var match = Regex.Match(clause,
                 "^\\\"(?<column>[^\\\"]+)\\\" (?:(?<notNull>IS NOT NULL)|= (?<boolean>TRUE|FALSE)|= '(?<text>[^']*)')$",
                 RegexOptions.CultureInvariant);
@@ -248,6 +294,9 @@ public sealed class AdvanceBaselineSeedConstraintTests
 
     private static decimal DecimalValue(IDictionary<string, object?> row, string name) =>
         Convert.ToDecimal(Value(row, name), CultureInfo.InvariantCulture);
+
+    private static string StringValue(IDictionary<string, object?> row, string name) =>
+        Convert.ToString(Value(row, name), CultureInfo.InvariantCulture) ?? string.Empty;
 
     private static object? Value(IDictionary<string, object?> row, string name) =>
         row.TryGetValue(name, out var value) ? value : throw new InvalidDataException($"Seed property {name} is missing.");

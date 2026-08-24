@@ -2,7 +2,7 @@ using SESS.NexaERP.Domain.Common;
 
 namespace SESS.NexaERP.Domain.Inventory;
 
-public sealed class StockMovement : AuditableEntity
+public sealed class StockMovement : CompanyScopedAuditableEntity
 {
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }

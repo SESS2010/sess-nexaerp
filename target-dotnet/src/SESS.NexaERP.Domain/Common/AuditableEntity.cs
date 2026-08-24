@@ -9,3 +9,8 @@ public abstract class AuditableEntity
     public string? UpdatedBy { get; set; }
     public uint Version { get; set; }
 }
+
+public abstract class CompanyScopedAuditableEntity : AuditableEntity
+{
+    public Guid CompanyId { get; set; }
+}

@@ -15,7 +15,7 @@ public static class InventoryValuationMethods
     public const string Fifo = "FIFO";
 }
 
-public sealed class OrganizationPolicy : AuditableEntity
+public sealed class OrganizationPolicy : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string PolicyCode { get; set; } = string.Empty;
@@ -25,7 +25,7 @@ public sealed class OrganizationPolicy : AuditableEntity
     public bool IsActive { get; set; } = true;
 }
 
-public sealed class VendorQualification : AuditableEntity
+public sealed class VendorQualification : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public Guid VendorId { get; set; }
@@ -51,7 +51,7 @@ public sealed class VendorQualification : AuditableEntity
         vendor.EffectiveFrom <= onDate && (!vendor.EffectiveTo.HasValue || vendor.EffectiveTo.Value >= onDate);
 }
 
-public sealed class ControlledConfigurationHistory : AuditableEntity
+public sealed class ControlledConfigurationHistory : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string EntityType { get; set; } = string.Empty;

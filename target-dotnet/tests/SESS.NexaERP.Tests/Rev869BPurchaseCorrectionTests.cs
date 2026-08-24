@@ -55,7 +55,7 @@ public sealed class Rev869BPurchaseCorrectionTests
     public void CommercialBoundariesAndMaximumAreDeterministic()
     {
         foreach (var pair in new[] { (0m, "MANAGER"), (49999.999999m, "MANAGER"), (50000m, "MANAGER"), (50000.000001m, "TECHNICAL_DIRECTOR"), (499999.999999m, "TECHNICAL_DIRECTOR"), (500000m, "TECHNICAL_DIRECTOR"), (500000.000001m, "MANAGING_DIRECTOR") })
-            Assert.Equal(pair.Item2, Rev869BApprovalRoutes.Resolve(pair.Item1, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS"));
+            Assert.Equal(pair.Item2, Rev869BApprovalRoutes.Resolve(pair.Item1, Rev869BSeedData.ApprovalPolicies, new DateOnly(2026, 8, 11), "SESS_PVT_LTD"));
         var maximum = Rev869BCommercialCalculator.Calculate(new(1m, Rev869BCommercialCalculator.MaximumSupportedValue, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6));
         Assert.Equal(Rev869BCommercialCalculator.MaximumSupportedValue, maximum.TotalPayableValue);
         Assert.Throws<InvalidOperationException>(() => Rev869BCommercialCalculator.Calculate(new(1m, Rev869BCommercialCalculator.MaximumSupportedValue + 1m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 0m, 6)));

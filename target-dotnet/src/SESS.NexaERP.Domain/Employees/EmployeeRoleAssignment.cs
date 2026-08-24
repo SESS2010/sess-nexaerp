@@ -3,7 +3,7 @@ using SESS.NexaERP.Domain.Identity;
 
 namespace SESS.NexaERP.Domain.Employees;
 
-public sealed class EmployeeRoleAssignment : AuditableEntity
+public sealed class EmployeeRoleAssignment : CompanyScopedAuditableEntity
 {
     public Guid EmployeeId { get; set; }
     public Employee? Employee { get; set; }

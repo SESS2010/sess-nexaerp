@@ -41,8 +41,8 @@ public static class Rev869ASeedData
 
     public static readonly OrganizationPolicy[] OrganizationPolicies =
     [
-        Policy("50000000-0000-0000-0000-000000000001", "SESS", Rev869APolicyCodes.VendorFinalApprover, Rev869ARoleCodes.ManagingDirector),
-        Policy("50000000-0000-0000-0000-000000000002", "SESS", Rev869APolicyCodes.InventoryValuationMethod, InventoryValuationMethods.WeightedAverage)
+        Policy("50000000-0000-0000-0000-000000000001", "SESS_PVT_LTD", Rev869APolicyCodes.VendorFinalApprover, Rev869ARoleCodes.ManagingDirector),
+        Policy("50000000-0000-0000-0000-000000000002", "SESS_PVT_LTD", Rev869APolicyCodes.InventoryValuationMethod, InventoryValuationMethods.WeightedAverage)
     ];
 
     public static IReadOnlyList<RolePagePermission> RolePagePermissions
@@ -102,7 +102,7 @@ public static class Rev869ASeedData
 
     private static Role Role(string id, string code, string name, bool privileged) => new() { Id = Guid.Parse(id), Code = code, Name = name, IsPrivileged = privileged, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };
     private static PageDefinition Page(string id, string key, string module, string title, string route) => new() { Id = Guid.Parse(id), PageKey = key, Module = module, Title = title, Route = route, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };
-    private static OrganizationPolicy Policy(string id, string organization, string code, string value) => new() { Id = Guid.Parse(id), OrganizationId = organization, PolicyCode = code, PolicyValue = value, EffectiveFrom = EffectiveFrom, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };
+    private static OrganizationPolicy Policy(string id, string organization, string code, string value) => new() { Id = Guid.Parse(id), CompanyId = MultiCompanyFoundationSeedData.SessPvtLtdId, OrganizationId = organization, PolicyCode = code, PolicyValue = value, EffectiveFrom = EffectiveFrom, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };
     private static Guid Id(params string[] parts)
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('|', parts)));

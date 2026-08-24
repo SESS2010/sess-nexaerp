@@ -25,7 +25,11 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains(advanceBaseline, migrations);
         Assert.Equal(advanceBaseline, migrations[0]);
         Assert.Equal(1, migrations.Count(x => x == advanceBaseline));
-        Assert.Single(migrations);
+        Assert.Equal(new[]
+        {
+            advanceBaseline,
+            "20260824135450_MultiCompanySharedIdentityFoundation"
+        }, migrations);
     }
 
     [Fact]

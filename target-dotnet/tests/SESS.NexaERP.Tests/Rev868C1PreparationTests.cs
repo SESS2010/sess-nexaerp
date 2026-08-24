@@ -462,7 +462,11 @@ public sealed class Rev868C1PreparationTests
         using var db = new NexaErpDbContext(options);
         var migrations = db.GetService<IMigrationsAssembly>().Migrations.Keys.ToList();
 
-        var expected = new[] { "20260824032638_AdvanceInitialBaseline" };
+        var expected = new[]
+        {
+            "20260824032638_AdvanceInitialBaseline",
+            "20260824135450_MultiCompanySharedIdentityFoundation"
+        };
 
         foreach (var id in expected)
             Assert.Equal(1, migrations.Count(x => x == id));

@@ -9,6 +9,7 @@ public sealed class UserAccount : AuditableEntity
     public string Email { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public string UserType { get; set; } = string.Empty;
+    public string PrincipalType { get; set; } = "INTERNAL";
     public bool MfaRequired { get; set; }
     public bool IsActive { get; set; } = true;
     public Guid RoleId { get; set; }

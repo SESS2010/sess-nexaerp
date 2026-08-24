@@ -2,7 +2,7 @@
 
 namespace SESS.NexaERP.Domain.Employees;
 
-public sealed class EmployeeDepartmentHistory : AuditableEntity
+public sealed class EmployeeDepartmentHistory : CompanyScopedAuditableEntity
 {
     public Guid EmployeeId { get; set; }
     public Employee? Employee { get; set; }

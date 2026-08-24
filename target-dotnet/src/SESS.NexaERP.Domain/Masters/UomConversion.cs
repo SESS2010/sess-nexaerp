@@ -4,6 +4,7 @@ namespace SESS.NexaERP.Domain.Masters;
 
 public sealed class UomConversion : AuditableEntity
 {
+    // Legacy API compatibility only; UOM conversions are shared foundation data.
     public string OrganizationId { get; set; } = string.Empty;
     public Guid FromUomId { get; set; }
     public Uom? FromUom { get; set; }

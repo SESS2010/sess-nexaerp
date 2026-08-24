@@ -303,7 +303,7 @@ public static class Rev869BIdempotencyFingerprint
     private static string Required(string value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new InvalidOperationException($"{name} is required for idempotency.");
 }
 
-public sealed class RequestForQuotation : AuditableEntity
+public sealed class RequestForQuotation : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string RfqNumber { get; set; } = string.Empty;
@@ -330,7 +330,7 @@ public sealed class RequestForQuotation : AuditableEntity
     public List<RfqVendorInvitation> Invitations { get; set; } = [];
 }
 
-public sealed class RequestForQuotationLine : AuditableEntity
+public sealed class RequestForQuotationLine : CompanyScopedAuditableEntity
 {
     public Guid RequestForQuotationId { get; set; }
     public RequestForQuotation? RequestForQuotation { get; set; }
@@ -354,7 +354,7 @@ public sealed class RequestForQuotationLine : AuditableEntity
     public DateOnly RequiredDateSnapshot { get; set; }
 }
 
-public sealed class RfqVendorInvitation : AuditableEntity
+public sealed class RfqVendorInvitation : CompanyScopedAuditableEntity
 {
     public Guid RequestForQuotationId { get; set; }
     public RequestForQuotation? RequestForQuotation { get; set; }
@@ -368,7 +368,7 @@ public sealed class RfqVendorInvitation : AuditableEntity
     public string TransitionCorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class VendorQuotation : AuditableEntity
+public sealed class VendorQuotation : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string QuotationNumber { get; set; } = string.Empty;
@@ -406,7 +406,7 @@ public sealed class VendorQuotation : AuditableEntity
     public List<VendorQuotationLine> Lines { get; set; } = [];
 }
 
-public sealed class VendorQuotationLine : AuditableEntity
+public sealed class VendorQuotationLine : CompanyScopedAuditableEntity
 {
     public Guid VendorQuotationId { get; set; }
     public VendorQuotation? VendorQuotation { get; set; }
@@ -438,7 +438,7 @@ public sealed class VendorQuotationLine : AuditableEntity
     public DateOnly PromisedDeliveryDate { get; set; }
 }
 
-public sealed class QuotationTechnicalVerification : AuditableEntity
+public sealed class QuotationTechnicalVerification : CompanyScopedAuditableEntity
 {
     public Guid VendorQuotationLineId { get; set; }
     public VendorQuotationLine? VendorQuotationLine { get; set; }
@@ -451,7 +451,7 @@ public sealed class QuotationTechnicalVerification : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class CommercialComparison : AuditableEntity
+public sealed class CommercialComparison : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string ComparisonNumber { get; set; } = string.Empty;
@@ -477,7 +477,7 @@ public sealed class CommercialComparison : AuditableEntity
     public List<CommercialComparisonLine> Lines { get; set; } = [];
 }
 
-public sealed class CommercialComparisonLine : AuditableEntity
+public sealed class CommercialComparisonLine : CompanyScopedAuditableEntity
 {
     public Guid CommercialComparisonId { get; set; }
     public CommercialComparison? CommercialComparison { get; set; }
@@ -495,7 +495,7 @@ public sealed class CommercialComparisonLine : AuditableEntity
     public string? RecommendationReason { get; set; }
 }
 
-public sealed class PurchaseTransactionApprovalHistory : AuditableEntity
+public sealed class PurchaseTransactionApprovalHistory : CompanyScopedAuditableEntity
 {
     public Guid CommercialComparisonId { get; set; }
     public CommercialComparison? CommercialComparison { get; set; }
@@ -511,7 +511,7 @@ public sealed class PurchaseTransactionApprovalHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseOrder : AuditableEntity
+public sealed class PurchaseOrder : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string PoNumber { get; set; } = string.Empty;
@@ -558,7 +558,7 @@ public sealed class PurchaseOrder : AuditableEntity
     public List<PurchaseOrderLine> Lines { get; set; } = [];
 }
 
-public sealed class PurchaseOrderLine : AuditableEntity
+public sealed class PurchaseOrderLine : CompanyScopedAuditableEntity
 {
     public Guid PurchaseOrderId { get; set; }
     public PurchaseOrder? PurchaseOrder { get; set; }
@@ -647,7 +647,7 @@ public static class Rev869BPurchaseOrderSnapshot
     }
 }
 
-public sealed class PurchaseOrderHistory : AuditableEntity
+public sealed class PurchaseOrderHistory : CompanyScopedAuditableEntity
 {
     public Guid PurchaseOrderId { get; set; }
     public PurchaseOrder? PurchaseOrder { get; set; }
@@ -663,7 +663,7 @@ public sealed class PurchaseOrderHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class MaterialFollowUpHandoff : AuditableEntity
+public sealed class MaterialFollowUpHandoff : CompanyScopedAuditableEntity
 {
     public Guid PurchaseOrderId { get; set; }
     public PurchaseOrder? PurchaseOrder { get; set; }
@@ -676,7 +676,7 @@ public sealed class MaterialFollowUpHandoff : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseTransactionStatusHistory : AuditableEntity
+public sealed class PurchaseTransactionStatusHistory : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string EntityType { get; set; } = string.Empty;
@@ -693,7 +693,7 @@ public sealed class PurchaseTransactionStatusHistory : AuditableEntity
     public string CorrelationId { get; set; } = string.Empty;
 }
 
-public sealed class PurchaseTransactionApprovalPolicy : AuditableEntity
+public sealed class PurchaseTransactionApprovalPolicy : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string RouteCode { get; set; } = string.Empty;

@@ -2,7 +2,7 @@ using SESS.NexaERP.Domain.Common;
 
 namespace SESS.NexaERP.Domain.Employees;
 
-public sealed class ReportingRelationship : AuditableEntity
+public sealed class ReportingRelationship : CompanyScopedAuditableEntity
 {
     public Guid EmployeeId { get; set; }
     public Employee? Employee { get; set; }

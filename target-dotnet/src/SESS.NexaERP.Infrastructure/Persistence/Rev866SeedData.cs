@@ -19,44 +19,44 @@ public static class Rev866SeedData
     private static readonly EmployeeSeed[] EmployeeRows =
     [
         Row("SESS-001", "A. PARAMANANTHAM", "Management", "Management", "TECHNICAL DIRECTOR", "TECHNICAL_DIRECTOR"),
-        Row("SESS-002", "ALAGUEASWARI", "Management", "Management", "MD", "MANAGING_DIRECTOR"),
-        Row("SESS-003", "M. SATHISHKUMAR", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-004", "T. DINESH", "Manager", "Manager", "TECHNICAL SUPPORT MANAGER", "TECHNICAL_SUPPORT_MANAGER"),
-        Row("SESS-005", "WASEEM.S", "Production/Fabrication", "Production/Fabrication", "PRODUCTION MECHANICAL TEAM", "PRODUCTION_OPERATOR"),
-        Row("SESS-006", "S. NANTHAKUMAR", "Junior/Assistant", "Junior/Assistant", "JR. ELECTRICAL / PLC / INSTRUMENTATION SUPPORT", "JUNIOR_ENGINEER"),
-        Row("SESS-007", "A. ALFATHIMA PARVEEN", "Junior/Assistant", "Junior/Assistant", "JR. ACCOUNT", "ACCOUNTS_ASSISTANT"),
-        Row("SESS-008", "SURANTHER P", "Engineer/Technical", "Engineer/Technical", "SOFTWARE DEVELOPER", "SOFTWARE_DEVELOPER"),
-        Row("SESS-009", "MANIKANDAN.S", "Junior/Assistant", "Junior/Assistant", "JR. ENGINEER", "JUNIOR_ENGINEER"),
-        Row("SESS-010", "RAJESHKUMAR.V", "Engineer/Technical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
-        Row("SESS-011", "YESWANTH KUMAR.N", "Junior/Assistant", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
-        Row("SESS-012", "PRIYA.E", "Admin/Accounts/Stores", "Admin/Accounts/Stores", "STORES AND PURCHASE", "PURCHASE_EXECUTIVE", "STORES_EXECUTIVE"),
-        Row("SESS-013", "LALU", "Production/Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
-        Row("SESS-014", "KAMALI SRINIVASAN", "Junior/Assistant", "Junior/Assistant", "STORES ASSISTANT", "STORES_ASSISTANT"),
-        Row("SESS-015", "RANJITH.E", "Engineer/Technical", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
-        Row("SESS-016", "KALIDOSS", "Engineer/Technical", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
-        Row("SESS-017", "MOHD ASHIQ", "Junior/Assistant", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
-        Row("SESS-018", "A. VINAYA SAGAR ARKATI", "Engineer/Technical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
-        Row("SESS-019", "RANJITH. R", "Engineer/Technical", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
-        Row("SESS-020", "RANJEETH.B", "Admin/Accounts/Stores", "Admin/Accounts/Stores", "HR DEPT", "HR_EXECUTIVE"),
-        Row("SESS-021", "KRISHNAVENI", "Admin/Accounts/Stores", "Admin/Accounts/Stores", "ADMIN MAINTENANCE", "ADMIN_EXECUTIVE"),
-        Row("SESS-022", "KARTHICK.B", "Engineer/Technical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
-        Row("SESS-023", "SARATH BABU.K", "Production/Fabrication", "Production/Fabrication", "PRODUCTION COORDINATOR", "PRODUCTION_COORDINATOR"),
-        Row("SESS-024", "PRAKASAM.B", "Engineer/Technical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
-        Row("SESS-025", "KARTHIKEYAN MK", "Production/Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
-        Row("SESS-026", "SRINIVASAN.V", "Production/Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
-        Row("SESS-027", "SANJAY SARAVANAN", "Junior/Assistant", "Junior/Assistant", "JUNIOR ACCOUNTS", "ACCOUNTS_ASSISTANT"),
-        Row("SESS-028", "PRAVEEN KUMAR.M", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-029", "SRINIVASAN.C", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-030", "MANIKANDAN SOKKALINGAM", "Engineer/Technical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
-        Row("SESS-031", "VENKAT RAV.S", "Junior/Assistant", "Junior/Assistant", "JUNIOR ACCOUNTS", "ACCOUNTS_ASSISTANT"),
-        Row("SESS-032", "PRASANNA.G", "Engineer/Technical", "Engineer/Technical", "LABVIEW DEVELOPER", "SOFTWARE_ENGINEER"),
-        Row("SESS-033", "BLESSON PAUL", "Junior/Assistant", "Junior/Assistant", "JR. ENGINEER", "JUNIOR_ENGINEER"),
-        Row("SESS-034", "MADHANKUMAR.J", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-035", "VINAYAGAM", "Production/Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
-        Row("SESS-036", "FRANCIS XAVIER", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-037", "DEVANAND B", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
-        Row("SESS-038", "SYED IJAZUDDIN Z", "Engineer/Technical", "Engineer/Technical", "PLC ENGINEER", "PLC_ENGINEER"),
-        Row("SESS-039", "THIRUNAVUKKARASU", "Engineer/Technical", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER")
+        Row("SESS-002", "ALAGUEASWARI", "Management", "Management", "MANAGING DIRECTOR", "MANAGING_DIRECTOR"),
+        Row("SESS-003", "M. SATHISHKUMAR", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-004", "T. DINESH", "Service", "Manager", "TECHNICAL SUPPORT MANAGER", "TECHNICAL_SUPPORT_MANAGER"),
+        Row("SESS-005", "WASEEM.S", "Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
+        Row("SESS-006", "S. NANTHAKUMAR", "Electrical", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
+        Row("SESS-007", "A. ALFATHIMA PARVEEN", "Accounts", "Junior/Assistant", "JUNIOR ACCOUNTS", "ACCOUNTS_ASSISTANT"),
+        Row("SESS-008", "SURANTHER P", "IT", "Engineer/Technical", "IT MANAGER", "SOFTWARE_DEVELOPER"),
+        Row("SESS-009", "MANIKANDAN.S", "Maintenance", "Junior/Assistant", "MAINTENANCE ENGINEER", "JUNIOR_ENGINEER"),
+        Row("SESS-010", "RAJESHKUMAR.V", "Electrical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
+        Row("SESS-011", "YESWANTH KUMAR.N", "Service", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
+        Row("SESS-012", "PRIYA.E", "Stores", "Admin/Accounts/Stores", "STORES ASSISTANT", "PURCHASE_EXECUTIVE", "STORES_EXECUTIVE"),
+        Row("SESS-013", "LALU", "Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
+        Row("SESS-014", "KAMALI SRINIVASAN", "Stores", "Junior/Assistant", "STORES ASSISTANT", "STORES_ASSISTANT"),
+        Row("SESS-015", "RANJITH.E", "Design", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
+        Row("SESS-016", "KALIDOSS", "Design", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
+        Row("SESS-017", "MOHD ASHIQ", "Electrical", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
+        Row("SESS-018", "A. VINAYA SAGAR ARKATI", "Electrical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
+        Row("SESS-019", "RANJITH. R", "Design", "Engineer/Technical", "DESIGN ENGINEER", "DESIGN_ENGINEER"),
+        Row("SESS-020", "RANJEETH.B", "HR", "Admin/Accounts/Stores", "HR MANAGER", "HR_EXECUTIVE"),
+        Row("SESS-021", "KRISHNAVENI", "HR", "Admin/Accounts/Stores", "HOUSEKEEPING ASSISTANT", "ADMIN_EXECUTIVE"),
+        Row("SESS-022", "KARTHICK.B", "Electrical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
+        Row("SESS-023", "SARATH BABU.K", "Fabrication", "Production/Fabrication", "PRODUCTION COORDINATOR", "PRODUCTION_COORDINATOR"),
+        Row("SESS-024", "PRAKASAM.B", "Electrical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
+        Row("SESS-025", "KARTHIKEYAN MK", "Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
+        Row("SESS-026", "SRINIVASAN.V", "Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
+        Row("SESS-027", "SANJAY SARAVANAN", "Accounts", "Junior/Assistant", "JUNIOR ACCOUNTS", "ACCOUNTS_ASSISTANT"),
+        Row("SESS-028", "PRAVEEN KUMAR.M", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-029", "SRINIVASAN.C", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-030", "MANIKANDAN SOKKALINGAM", "Electrical", "Engineer/Technical", "ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER"),
+        Row("SESS-031", "VENKAT RAV.S", "Accounts", "Junior/Assistant", "JUNIOR ACCOUNTS", "ACCOUNTS_ASSISTANT"),
+        Row("SESS-032", "PRASANNA.G", "PLC/LabVIEW", "Engineer/Technical", "LABVIEW DEVELOPER", "SOFTWARE_ENGINEER"),
+        Row("SESS-033", "BLESSON PAUL", "Electrical", "Junior/Assistant", "JUNIOR ENGINEER", "JUNIOR_ENGINEER"),
+        Row("SESS-034", "MADHANKUMAR.J", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-035", "VINAYAGAM", "Fabrication", "Production/Fabrication", "FABRICATOR", "PRODUCTION_OPERATOR"),
+        Row("SESS-036", "FRANCIS XAVIER", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-037", "DEVANAND B", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER"),
+        Row("SESS-038", "SYED IJAZUDDIN Z", "PLC/LabVIEW", "Engineer/Technical", "PLC ENGINEER", "PLC_ENGINEER"),
+        Row("SESS-039", "THIRUNAVUKKARASU", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER")
     ];
 
     public static IReadOnlyList<Role> AdditionalEmployeeRoles =>
@@ -81,11 +81,70 @@ public static class Rev866SeedData
         Role("SOFTWARE_ENGINEER", "Software Engineer", false)
     ];
 
-    public static IReadOnlyList<Department> Departments => EmployeeRows
-        .Select(row => row.Department)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Select(name => new Department { Id = Id("department", name), Code = Code(name), Name = name, CreatedAt = SeedTime, CreatedBy = "migration" })
-        .ToList();
+    private static readonly Department[] CanonicalDepartments =
+    [
+        DepartmentSeed("Management", "MANAGEMENT", "Management"),
+        DepartmentSeed("Sales", "SALES", "Sales"),
+        DepartmentSeed("Marketing", "MARKETING", "Marketing"),
+        DepartmentSeed("Design", "DESIGN", "Design"),
+        DepartmentSeed("Production", "PRODUCTION", "Production"),
+        DepartmentSeed("QC", "QC", "QC"),
+        DepartmentSeed("R&D", "R_AND_D", "R&D"),
+        DepartmentSeed("Stores", "STORES", "Stores"),
+        DepartmentSeed("Purchase", "PURCHASE", "Purchase"),
+        DepartmentSeed("Service", "SERVICE", "Service"),
+        DepartmentSeed("AMC", "AMC", "AMC"),
+        DepartmentSeed("CAMC", "CAMC", "CAMC"),
+        DepartmentSeed("Accounts", "ACCOUNTS", "Accounts"),
+        DepartmentSeed("HR", "HR", "HR"),
+        DepartmentSeed("IT", "IT", "IT"),
+        DepartmentSeed("Maintenance", "MAINTENANCE", "Maintenance"),
+        DepartmentSeed("Production/Fabrication", "FABRICATION", "Fabrication", "Production"),
+        DepartmentSeed("Refrigeration", "REFRIGERATION", "Refrigeration", "Production"),
+        DepartmentSeed("Electrical", "ELECTRICAL", "Electrical", "Production"),
+        DepartmentSeed("PLC/LabVIEW", "PLC_LABVIEW", "PLC/LabVIEW", "Production")
+    ];
+
+    private static readonly Department[] LegacyDepartments =
+    [
+        DepartmentSeed("Manager", "LEGACY_MANAGER", "Manager (Legacy)", isActive: false),
+        DepartmentSeed("Junior/Assistant", "LEGACY_JUNIOR_ASSISTANT", "Junior/Assistant (Legacy)", isActive: false),
+        DepartmentSeed("Admin/Accounts/Stores", "LEGACY_ADMIN_ACCOUNTS_STORES", "Admin/Accounts/Stores (Legacy)", isActive: false),
+        DepartmentSeed("Engineer/Technical", "LEGACY_ENGINEER_TECHNICAL", "Engineer/Technical (Legacy)", isActive: false)
+    ];
+
+    private static readonly Designation[] CanonicalDesignations =
+    [
+        DesignationSeed("LABVIEW DEVELOPER", "LABVIEW_DEVELOPER", "LabVIEW Developer"),
+        DesignationSeed("TECHNICAL DIRECTOR", "TECHNICAL_DIRECTOR", "Technical Director"),
+        DesignationSeed("ELECTRICAL ENGINEER", "ELECTRICAL_ENGINEER", "Electrical Engineer"),
+        DesignationSeed("JUNIOR ACCOUNTS", "JUNIOR_ACCOUNTS", "Junior Accounts"),
+        DesignationSeed("JUNIOR ENGINEER", "JUNIOR_ENGINEER", "Junior Engineer"),
+        DesignationSeed("DESIGN ENGINEER", "DESIGN_ENGINEER", "Design Engineer"),
+        DesignationSeed("HR DEPT", "HR_MANAGER", "HR Manager"),
+        DesignationSeed("ADMIN MAINTENANCE", "HOUSEKEEPING_ASSISTANT", "Housekeeping Assistant"),
+        DesignationSeed("SOFTWARE DEVELOPER", "SOFTWARE_DEVELOPER", "Software Developer"),
+        DesignationSeed("STORES ASSISTANT", "STORES_ASSISTANT", "Stores Assistant"),
+        DesignationSeed("PRODUCTION COORDINATOR", "PRODUCTION_COORDINATOR", "Production Coordinator"),
+        DesignationSeed("MD", "MANAGING_DIRECTOR", "Managing Director"),
+        DesignationSeed("REFRIGERATION / MECHANICAL ENGINEER", "REFRIGERATION_MECHANICAL_ENGINEER", "Refrigeration / Mechanical Engineer"),
+        DesignationSeed("PLC ENGINEER", "PLC_ENGINEER", "PLC Engineer"),
+        DesignationSeed("TECHNICAL SUPPORT MANAGER", "TECHNICAL_SUPPORT_MANAGER", "Technical Support Manager"),
+        DesignationSeed("FABRICATOR", "FABRICATOR", "Fabricator"),
+        DesignationSeed("MAINTENANCE ENGINEER", "MAINTENANCE_ENGINEER", "Maintenance Engineer"),
+        DesignationSeed("IT MANAGER", "IT_MANAGER", "IT Manager")
+    ];
+
+    private static readonly Designation[] LegacyDesignations =
+    [
+        DesignationSeed("JR. ACCOUNT", "LEGACY_JR_ACCOUNT", "Jr. Account (Legacy)", false),
+        DesignationSeed("JR. ELECTRICAL / PLC / INSTRUMENTATION SUPPORT", "LEGACY_JR_ELECTRICAL_PLC_SUPPORT", "Jr. Electrical / PLC / Instrumentation Support (Legacy)", false),
+        DesignationSeed("JR. ENGINEER", "LEGACY_JR_ENGINEER", "Jr. Engineer (Legacy)", false),
+        DesignationSeed("STORES AND PURCHASE", "LEGACY_STORES_AND_PURCHASE", "Stores and Purchase (Legacy)", false),
+        DesignationSeed("PRODUCTION MECHANICAL TEAM", "LEGACY_PRODUCTION_MECHANICAL_TEAM", "Production Mechanical Team (Legacy)", false)
+    ];
+
+    public static IReadOnlyList<Department> Departments => CanonicalDepartments.Concat(LegacyDepartments).ToList();
 
     public static IReadOnlyList<Skill> Skills => EmployeeRows
         .Select(row => row.Skill)
@@ -93,11 +152,7 @@ public static class Rev866SeedData
         .Select(name => new Skill { Id = Id("skill", name), Code = Code(name), Name = name, CreatedAt = SeedTime, CreatedBy = "migration" })
         .ToList();
 
-    public static IReadOnlyList<Designation> Designations => EmployeeRows
-        .Select(row => row.Designation)
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Select(name => new Designation { Id = Id("designation", name), Code = Code(name), Name = name, CreatedAt = SeedTime, CreatedBy = "migration" })
-        .ToList();
+    public static IReadOnlyList<Designation> Designations => CanonicalDesignations.Concat(LegacyDesignations).ToList();
 
     public static IReadOnlyList<Employee> Employees => EmployeeRows
         .Select(row => new Employee
@@ -108,8 +163,8 @@ public static class Rev866SeedData
             OriginalImportedName = row.Name,
             EmployeeType = row.EmployeeType,
             Grade = row.Grade,
-            DepartmentId = Id("department", row.Department),
-            DesignationId = Id("designation", row.Designation),
+            DepartmentId = DepartmentId(row.Department),
+            DesignationId = DesignationId(row.Designation),
             Status = "Active",
             LoginEnabled = false,
             ApprovalStatus = "SeedApproved",
@@ -135,6 +190,7 @@ public static class Rev866SeedData
         .SelectMany(row => row.Roles.Select(role => new EmployeeRoleAssignment
         {
             Id = Id("employee-role", row.Code, role),
+            CompanyId = MultiCompanyFoundationSeedData.SessPvtLtdId,
             EmployeeId = EmployeeId(row.Code),
             RoleId = RoleId(role),
             EffectiveFrom = EffectiveFrom,
@@ -290,7 +346,43 @@ public static class Rev866SeedData
         };
     }
 
+    private static Department DepartmentSeed(
+        string identityName,
+        string code,
+        string name,
+        string? parentIdentityName = null,
+        bool isActive = true) => new()
+    {
+        Id = Id("department", identityName),
+        ParentDepartmentId = parentIdentityName is null ? null : Id("department", parentIdentityName),
+        Code = code,
+        Name = name,
+        IsActive = isActive,
+        CreatedAt = SeedTime,
+        CreatedBy = "migration"
+    };
+
+    private static Designation DesignationSeed(string identityName, string code, string name, bool isActive = true) => new()
+    {
+        Id = Id("designation", identityName),
+        Code = code,
+        Name = name,
+        IsActive = isActive,
+        CreatedAt = SeedTime,
+        CreatedBy = "migration"
+    };
+
     private static Guid EmployeeId(string employeeCode) => Id("employee", employeeCode);
+
+    private static Guid DepartmentId(string name) => Id("department", name == "Fabrication" ? "Production/Fabrication" : name);
+
+    private static Guid DesignationId(string name) => Id("designation", name switch
+    {
+        "MANAGING DIRECTOR" => "MD",
+        "HR MANAGER" => "HR DEPT",
+        "HOUSEKEEPING ASSISTANT" => "ADMIN MAINTENANCE",
+        _ => name
+    });
 
     private static Guid RoleId(string roleCode) => Id("role", roleCode.ToLowerInvariant());
 

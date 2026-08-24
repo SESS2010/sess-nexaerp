@@ -3,7 +3,7 @@ using SESS.NexaERP.Domain.Masters;
 
 namespace SESS.NexaERP.Domain.Inventory;
 
-public sealed class RackBin : AuditableEntity
+public sealed class RackBin : CompanyScopedAuditableEntity
 {
     public Guid WarehouseId { get; set; }
     public Warehouse? Warehouse { get; set; }

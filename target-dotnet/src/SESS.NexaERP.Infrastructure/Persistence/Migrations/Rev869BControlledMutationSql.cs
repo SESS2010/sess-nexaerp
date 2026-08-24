@@ -51,8 +51,8 @@ internal static class Rev869BControlledMutationSql
               CONSTRAINT='rev869b_audit_controlled_cleanup',MESSAGE='Expired audit cleanup requires the database owner, an exact correlation, and a bounded reason.';
           END IF;
           INSERT INTO __advance_schema__.audit_logs
-            ("Id","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","BeforeJson","AfterJson","CreatedAt","CreatedBy","Version")
-          VALUES(gen_random_uuid(),'Security','PurgeExpiredAudit','AuditLogRetention',
+            ("Id","CompanyId","Scope","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","BeforeJson","AfterJson","CreatedAt","CreatedBy","Version")
+          VALUES(gen_random_uuid(),OLD."CompanyId",CASE WHEN OLD."CompanyId" IS NULL THEN 'GLOBAL' ELSE 'COMPANY' END,'Security','PurgeExpiredAudit','AuditLogRetention',
             encode(public.digest(convert_to(OLD."Id"::text,'UTF8'),'sha256'),'hex'),session_user,'Success',cleanup_correlation,NULL,
             jsonb_build_object('minimumRetentionYears',10,'reason',cleanup_reason,'deletedCreatedAt',OLD."CreatedAt")::text,
             statement_timestamp(),session_user,0);
@@ -463,12 +463,12 @@ internal static class Rev869BControlledMutationSql
         DECLARE employee uuid; matches bigint; actor_role text; actor text:=coalesce(NEW."UpdatedBy",NEW."CreatedBy");
         BEGIN
           SELECT count(*),min(m."EmployeeId") INTO matches,employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
-           WHERE m."Subject"=actor AND m."OrganizationId"=NEW."OrganizationId" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
+           WHERE m."Subject"=actor AND m."CompanyId"=NEW."CompanyId" AND m."OrganizationId"=NEW."OrganizationId" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
           IF matches<>1 THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_identity',MESSAGE='Approval-policy actor must resolve to one active organization identity.'; END IF;
-          SELECT min(r."Code") INTO actor_role FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" AND r."IsActive" WHERE a."EmployeeId"=employee AND r."Code" IN ('PURCHASE_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') AND a."ApprovalStatus" IN ('Approved','SeedApproved');
+          SELECT min(r."Code") INTO actor_role FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" AND r."IsActive" WHERE a."CompanyId"=NEW."CompanyId" AND a."EmployeeId"=employee AND r."Code" IN ('PURCHASE_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') AND a."ApprovalStatus" IN ('Approved','SeedApproved');
           IF actor_role IS NULL THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_role',MESSAGE='Approval-policy lifecycle requires an authorized active role.'; END IF;
-          INSERT INTO __advance_schema__.controlled_configuration_histories ("Id","OrganizationId","EntityType","EntityId","Action","BeforeJson","AfterJson","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version")
-          VALUES(gen_random_uuid(),NEW."OrganizationId",'PurchaseTransactionApprovalPolicy',NEW."Id",CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."IsActive" THEN 'Activate' ELSE 'Deactivate' END,CASE WHEN TG_OP='INSERT' THEN NULL::jsonb ELSE to_jsonb(OLD) END,to_jsonb(NEW),actor,actor_role,'Database-bound approval-policy change',format('REV869B|POLICY|%s|%s',NEW."Id",NEW."Version"),statement_timestamp(),actor,NEW."Version"); RETURN NEW;
+          INSERT INTO __advance_schema__.controlled_configuration_histories ("Id","CompanyId","OrganizationId","EntityType","EntityId","Action","BeforeJson","AfterJson","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version")
+          VALUES(gen_random_uuid(),NEW."CompanyId",NEW."OrganizationId",'PurchaseTransactionApprovalPolicy',NEW."Id",CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."IsActive" THEN 'Activate' ELSE 'Deactivate' END,CASE WHEN TG_OP='INSERT' THEN NULL::jsonb ELSE to_jsonb(OLD) END,to_jsonb(NEW),actor,actor_role,'Database-bound approval-policy change',format('REV869B|POLICY|%s|%s',NEW."Id",NEW."Version"),statement_timestamp(),actor,NEW."Version"); RETURN NEW;
         END $rev869b$;
 
         CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_require_bound_history()

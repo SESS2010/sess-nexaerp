@@ -4,7 +4,7 @@ using SESS.NexaERP.Domain.Masters;
 
 namespace SESS.NexaERP.Domain.Inventory;
 
-public sealed class Warehouse : AuditableEntity
+public sealed class Warehouse : CompanyScopedAuditableEntity
 {
     public string WarehouseCode { get; set; } = string.Empty;
     public bool IsWarehouseCodeLocked { get; set; }

@@ -7,7 +7,7 @@ public static class TaxJurisdictions
     public const string IndiaGst = "IN_GST";
 }
 
-public sealed class TaxGstSetting : AuditableEntity
+public sealed class TaxGstSetting : CompanyScopedAuditableEntity
 {
     public string OrganizationId { get; set; } = string.Empty;
     public string JurisdictionCode { get; set; } = TaxJurisdictions.IndiaGst;
