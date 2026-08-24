@@ -32,7 +32,8 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
         Assert.Equal(new[]
         {
             advanceBaseline,
-            string.Concat(20260824135450L, (char)95, nameof(MultiCompanySharedIdentityFoundation))
+            string.Concat(20260824135450L, (char)95, nameof(MultiCompanySharedIdentityFoundation)),
+            string.Concat(20260824150742L, (char)95, nameof(CalibrationPurchasePairItemTypeCorrections))
         }, migrations);
     }
 

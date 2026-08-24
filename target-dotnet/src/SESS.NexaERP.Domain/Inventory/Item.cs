@@ -3,6 +3,23 @@ using SESS.NexaERP.Domain.Masters;
 
 namespace SESS.NexaERP.Domain.Inventory;
 
+public static class ItemTypes
+{
+    public const string RawMaterial = "RAW_MATERIAL";
+    public const string Component = "COMPONENT";
+    public const string Consumable = "CONSUMABLE";
+    public const string Spare = "SPARE";
+    public const string FinishedMachine = "FINISHED_MACHINE";
+    public const string Tool = "TOOL";
+    public const string ServiceItem = "SERVICE_ITEM";
+    public const string NonStock = "NON_STOCK";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        RawMaterial, Component, Consumable, Spare, FinishedMachine, Tool, ServiceItem, NonStock
+    };
+}
+
 public sealed class Item : AuditableEntity
 {
     public string ItemCode { get; set; } = string.Empty;
@@ -14,6 +31,8 @@ public sealed class Item : AuditableEntity
     public Guid? SubcategoryId { get; set; }
     public ItemSubcategory? Subcategory { get; set; }
     public string MaterialType { get; set; } = string.Empty;
+    public string ItemType { get; set; } = string.Empty;
+    public bool IsReturnable { get; set; }
     public string Uom { get; set; } = string.Empty;
     public Guid? UomId { get; set; }
     public Uom? UomMaster { get; set; }

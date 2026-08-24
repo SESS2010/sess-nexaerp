@@ -28,7 +28,8 @@ public sealed class Rev868C3ImplementationTests
         Assert.Equal(new[]
         {
             advanceBaseline,
-            "20260824135450_MultiCompanySharedIdentityFoundation"
+            "20260824135450_MultiCompanySharedIdentityFoundation",
+            "20260824150742_CalibrationPurchasePairItemTypeCorrections"
         }, migrations);
     }
 

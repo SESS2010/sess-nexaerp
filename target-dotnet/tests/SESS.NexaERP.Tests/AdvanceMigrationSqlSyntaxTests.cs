@@ -19,7 +19,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
-        Assert.Equal(2, migrations.Length);
+        Assert.Equal(3, migrations.Length);
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
@@ -52,6 +52,14 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             """INSERT INTO advance.company_gst_registrations ("Id","CompanyId","Gstin","RegisteredLegalName","StateCode","RegistrationType","EffectiveFrom","IsPrimary","IsActive","CreatedAt","CreatedBy","Version") VALUES(gen_random_uuid(),'70000000-0000-0000-0000-000000000001','BAD','Bad GST','33','PRIVATE_LIMITED',DATE '2026-08-24',false,true,clock_timestamp(),'test',0);""");
         server.AssertRejected("reject-invalid-audit-scope.sql",
             """INSERT INTO advance.audit_logs ("Id","CompanyId","Scope","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","CreatedAt","CreatedBy","Version") VALUES(gen_random_uuid(),NULL,'COMPANY','Test','Test','Test','1','test','Success','test',clock_timestamp(),'test',0);""");
+        server.Execute("item-rejection-uom-prerequisite.sql",
+            """INSERT INTO advance.uoms ("Id","Code","Name","MeasurementDimension","QuantityPrecision","IsActive","CreatedAt","CreatedBy","Version") VALUES('73000000-0000-0000-0000-000000000001','TEST-NOS','Test Number','COUNT',0,true,clock_timestamp(),'test',0);""");
+        server.AssertRejected("reject-invalid-item-type.sql",
+            """INSERT INTO advance.items ("Id","ItemCode","IsItemCodeLocked","Name","DetailedDescription","MaterialType","ItemType","IsReturnable","Uom","BaseUomId","GstPercentage","QcRequired","SerialNumberTracking","BatchTracking","ShelfLifeTracking","MinimumStock","MaximumStock","ReorderLevel","Status","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),'BAD-TYPE',false,'Bad','Bad','Legacy','INVALID',false,u."Code",u."Id",0,false,false,false,false,0,0,0,'Active','Approved',true,clock_timestamp(),'test',0 FROM advance.uoms u LIMIT 1;""");
+        server.AssertRejected("reject-nonreturnable-tool.sql",
+            """INSERT INTO advance.items ("Id","ItemCode","IsItemCodeLocked","Name","DetailedDescription","MaterialType","ItemType","IsReturnable","Uom","BaseUomId","GstPercentage","QcRequired","SerialNumberTracking","BatchTracking","ShelfLifeTracking","MinimumStock","MaximumStock","ReorderLevel","Status","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),'BAD-TOOL',false,'Bad','Bad','Legacy','TOOL',false,u."Code",u."Id",0,false,false,false,false,0,0,0,'Active','Approved',true,clock_timestamp(),'test',0 FROM advance.uoms u LIMIT 1;""");
+        server.AssertRejected("reject-returnable-nontool.sql",
+            """INSERT INTO advance.items ("Id","ItemCode","IsItemCodeLocked","Name","DetailedDescription","MaterialType","ItemType","IsReturnable","Uom","BaseUomId","GstPercentage","QcRequired","SerialNumberTracking","BatchTracking","ShelfLifeTracking","MinimumStock","MaximumStock","ReorderLevel","Status","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),'BAD-COMPONENT',false,'Bad','Bad','Legacy','COMPONENT',true,u."Code",u."Id",0,false,false,false,false,0,0,0,'Active','Approved',true,clock_timestamp(),'test',0 FROM advance.uoms u LIMIT 1;""");
         server.Execute("foundation-down.sql", migrator.GenerateScript(migration, "0"));
     }
 
@@ -75,7 +83,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var businessMigrator = business.GetService<IMigrator>();
         var securityMigrator = security.GetService<IMigrator>();
         var businessMigrations = business.Database.GetMigrations().ToArray();
-        Assert.Equal(2, businessMigrations.Length);
+        Assert.Equal(3, businessMigrations.Length);
         var businessMigration = businessMigrations[^1];
         var securityMigration = Assert.Single(security.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
@@ -135,18 +143,45 @@ public sealed class AdvanceMigrationSqlSyntaxTests
           IF value_count<>2 THEN RAISE EXCEPTION 'GST seed mismatch'; END IF;
 
           SELECT count(*) INTO value_count FROM advance.departments WHERE "IsActive";
-          IF value_count<>20 THEN RAISE EXCEPTION 'expected 20 active departments, found %',value_count; END IF;
+          IF value_count<>21 THEN RAISE EXCEPTION 'expected 21 active departments, found %',value_count; END IF;
           SELECT count(*) INTO value_count FROM advance.departments WHERE "IsActive" AND "ParentDepartmentId" IS NULL;
-          IF value_count<>16 THEN RAISE EXCEPTION 'expected 16 top-level departments, found %',value_count; END IF;
+          IF value_count<>17 THEN RAISE EXCEPTION 'expected 17 top-level departments, found %',value_count; END IF;
+          SELECT count(*) INTO value_count FROM advance.departments WHERE "Code"='CALIBRATION' AND "IsActive" AND "ParentDepartmentId" IS NULL;
+          IF value_count<>1 THEN RAISE EXCEPTION 'Calibration department seed mismatch'; END IF;
 
           SELECT count(*) INTO value_count FROM advance.employee_company_assignments WHERE "AssignmentType"='PAYROLL' AND "IsActive";
           IF value_count<>39 THEN RAISE EXCEPTION 'expected 39 PAYROLL assignments, found %',value_count; END IF;
           SELECT count(*) INTO value_count FROM advance.employee_company_assignments WHERE "AssignmentType"='WORK';
           IF value_count<>0 THEN RAISE EXCEPTION 'migration must not seed WORK assignments'; END IF;
           SELECT count(*) INTO value_count FROM advance.employee_department_assignments;
-          IF value_count<>184 THEN RAISE EXCEPTION 'expected 184 department assignments, found %',value_count; END IF;
+          IF value_count<>186 THEN RAISE EXCEPTION 'expected 186 department assignments, found %',value_count; END IF;
           SELECT count(*) INTO value_count FROM advance.employee_department_assignments WHERE "IsPrimary";
           IF value_count<>39 THEN RAISE EXCEPTION 'expected 39 primary department assignments, found %',value_count; END IF;
+          SELECT count(*) INTO value_count FROM advance.employee_department_assignments WHERE NOT "IsPrimary";
+          IF value_count<>147 THEN RAISE EXCEPTION 'expected 147 secondary department assignments, found %',value_count; END IF;
+
+          SELECT count(*) INTO value_count
+          FROM advance.employees e JOIN advance.departments d ON d."Id"=e."DepartmentId"
+          JOIN advance.designations g ON g."Id"=e."DesignationId"
+          WHERE e."EmployeeCode"='SESS-012' AND d."Code"='PURCHASE' AND g."Code"='PURCHASE_EXECUTIVE';
+          IF value_count<>1 THEN RAISE EXCEPTION 'SESS-012 primary mapping mismatch'; END IF;
+          SELECT count(*) INTO value_count
+          FROM advance.employee_department_assignments a
+          JOIN advance.employee_company_assignments c ON c."Id"=a."EmployeeCompanyAssignmentId"
+          JOIN advance.departments d ON d."Id"=a."DepartmentId"
+          WHERE c."EmployeeCode" IN ('SESS-012','SESS-014') AND NOT a."IsPrimary"
+            AND ((c."EmployeeCode"='SESS-012' AND d."Code"='STORES') OR (c."EmployeeCode"='SESS-014' AND d."Code"='PURCHASE'));
+          IF value_count<>2 THEN RAISE EXCEPTION 'Stores/Purchase secondary pair mismatch'; END IF;
+
+          SELECT count(*) INTO value_count FROM information_schema.columns
+          WHERE table_schema='advance' AND table_name='items' AND column_name='ItemType' AND is_nullable='NO' AND column_default IS NULL;
+          IF value_count<>1 THEN RAISE EXCEPTION 'ItemType must be NOT NULL without a default'; END IF;
+          SELECT count(*) INTO value_count FROM information_schema.columns
+          WHERE table_schema='advance' AND table_name='items' AND column_name='IsReturnable' AND is_nullable='NO' AND column_default='false';
+          IF value_count<>1 THEN RAISE EXCEPTION 'IsReturnable default contract mismatch'; END IF;
+          SELECT count(*) INTO value_count FROM information_schema.columns
+          WHERE table_schema='advance' AND table_name='items' AND column_name='MaterialType';
+          IF value_count<>1 THEN RAISE EXCEPTION 'MaterialType was removed unexpectedly'; END IF;
 
           SELECT count(*) INTO value_count FROM advance.organization_policies
            WHERE "CompanyId"='70000000-0000-0000-0000-000000000001' AND "OrganizationId"='SESS_PVT_LTD';

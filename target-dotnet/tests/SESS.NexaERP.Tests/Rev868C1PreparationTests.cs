@@ -465,7 +465,8 @@ public sealed class Rev868C1PreparationTests
         var expected = new[]
         {
             "20260824032638_AdvanceInitialBaseline",
-            "20260824135450_MultiCompanySharedIdentityFoundation"
+            "20260824135450_MultiCompanySharedIdentityFoundation",
+            "20260824150742_CalibrationPurchasePairItemTypeCorrections"
         };
 
         foreach (var id in expected)

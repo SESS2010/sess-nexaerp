@@ -349,6 +349,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.Name).HasMaxLength(240).IsRequired();
             entity.Property(x => x.DetailedDescription).HasMaxLength(2000).IsRequired();
             entity.Property(x => x.MaterialType).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ItemType).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.IsReturnable).HasDefaultValue(false);
             entity.Property(x => x.Uom).HasMaxLength(32).IsRequired();
             entity.Property(x => x.ManufacturerMake).HasMaxLength(160);
             entity.Property(x => x.Model).HasMaxLength(120);
@@ -381,6 +383,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
                 table.HasCheckConstraint("CK_items_maximum_stock_valid", "\"MaximumStock\" >= \"MinimumStock\"");
                 table.HasCheckConstraint("CK_items_reorder_level_valid", "\"ReorderLevel\" >= 0 AND \"ReorderLevel\" <= \"MaximumStock\"");
                 table.HasCheckConstraint("CK_items_gst_valid", "\"GstPercentage\" >= 0 AND \"GstPercentage\" <= 28");
+                table.HasCheckConstraint("CK_items_item_type", "\"ItemType\" IN ('RAW_MATERIAL','COMPONENT','CONSUMABLE','SPARE','FINISHED_MACHINE','TOOL','SERVICE_ITEM','NON_STOCK')");
+                table.HasCheckConstraint("CK_items_returnable_tool", "(\"ItemType\" = 'TOOL' AND \"IsReturnable\") OR (\"ItemType\" <> 'TOOL' AND NOT \"IsReturnable\")");
             });
         });
 

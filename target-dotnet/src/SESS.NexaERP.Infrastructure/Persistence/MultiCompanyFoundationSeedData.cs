@@ -87,6 +87,13 @@ public static class MultiCompanyFoundationSeedData
     private static readonly string[] SecondaryDepartmentCodes =
         ["ELECTRICAL", "REFRIGERATION", "PLC_LABVIEW", "FABRICATION", "SERVICE", "AMC", "CAMC"];
 
+    private static readonly IReadOnlyDictionary<string, string[]> OfficeSecondaryDepartmentCodes =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["SESS-012"] = ["STORES"],
+            ["SESS-014"] = ["PURCHASE"]
+        };
+
     public static readonly EmployeeDepartmentAssignment[] EmployeeDepartmentAssignments = BuildDepartmentAssignments();
 
     private static EmployeeDepartmentAssignment[] BuildDepartmentAssignments()
@@ -101,12 +108,20 @@ public static class MultiCompanyFoundationSeedData
             var primary = departmentById[employee.DepartmentId];
             rows.Add(DepartmentAssignment(employee.EmployeeCode, companyAssignmentId, primary.Id, employee.DesignationId, "PRIMARY", true));
 
-            if (!CrossTrainedEmployeeCodes.Contains(employee.EmployeeCode)) continue;
-            foreach (var departmentCode in SecondaryDepartmentCodes.Where(code => code != primary.Code))
-                rows.Add(DepartmentAssignment(employee.EmployeeCode, companyAssignmentId, departmentByCode[departmentCode].Id, employee.DesignationId, "SECONDARY", false));
+            if (CrossTrainedEmployeeCodes.Contains(employee.EmployeeCode))
+            {
+                foreach (var departmentCode in SecondaryDepartmentCodes.Where(code => code != primary.Code))
+                    rows.Add(DepartmentAssignment(employee.EmployeeCode, companyAssignmentId, departmentByCode[departmentCode].Id, employee.DesignationId, "SECONDARY", false));
+            }
+
+            if (OfficeSecondaryDepartmentCodes.TryGetValue(employee.EmployeeCode, out var officeSecondaries))
+            {
+                foreach (var departmentCode in officeSecondaries)
+                    rows.Add(DepartmentAssignment(employee.EmployeeCode, companyAssignmentId, departmentByCode[departmentCode].Id, employee.DesignationId, "SECONDARY", false));
+            }
         }
 
-        if (rows.Count != 184 || rows.Count(row => row.IsPrimary) != 39 || rows.Count(row => !row.IsPrimary) != 145)
+        if (rows.Count != 186 || rows.Count(row => row.IsPrimary) != 39 || rows.Count(row => !row.IsPrimary) != 147)
             throw new InvalidOperationException("Deterministic employee department assignment counts changed.");
         return rows.ToArray();
     }
