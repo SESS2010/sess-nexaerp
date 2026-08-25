@@ -75,6 +75,22 @@ public sealed class AdvanceBaselineSeedConstraintTests
     {
         var validators = new Dictionary<(string Table, string Name), CheckValidator>
         {
+            [("authentication_bootstrap_state", "CK_authentication_bootstrap_completion")] = new(
+                "(\"Status\"='PENDING' AND \"EmployeeId\" IS NULL AND \"CompanyId\" IS NULL AND \"OrganizationId\" IS NULL AND \"IssuerSha256\" IS NULL AND \"SubjectSha256\" IS NULL AND \"CompletedAt\" IS NULL AND \"CompletedBy\" IS NULL) OR (\"Status\"='COMPLETED' AND \"EmployeeId\" IS NOT NULL AND \"CompanyId\" IS NOT NULL AND length(trim(\"OrganizationId\"))>0 AND octet_length(\"IssuerSha256\")=32 AND octet_length(\"SubjectSha256\")=32 AND \"CompletedAt\" IS NOT NULL AND length(trim(\"CompletedBy\"))>0)",
+                row => StringValue(row, "Status") == "PENDING"
+                    ? new[] { "EmployeeId", "CompanyId", "OrganizationId", "IssuerSha256", "SubjectSha256", "CompletedAt", "CompletedBy" }.All(x => Value(row, x) is null)
+                    : StringValue(row, "Status") == "COMPLETED"
+                      && Value(row, "EmployeeId") is not null && Value(row, "CompanyId") is not null
+                      && !string.IsNullOrWhiteSpace(StringValue(row, "OrganizationId"))
+                      && Value(row, "IssuerSha256") is byte[] issuer && issuer.Length == 32
+                      && Value(row, "SubjectSha256") is byte[] subject && subject.Length == 32
+                      && Value(row, "CompletedAt") is not null && !string.IsNullOrWhiteSpace(StringValue(row, "CompletedBy"))),
+            [("authentication_bootstrap_state", "CK_authentication_bootstrap_singleton")] = new(
+                "\"Id\" = '81000000-0000-0000-0000-000000000001'::uuid",
+                row => Value(row, "Id") is Guid id && id == Guid.Parse("81000000-0000-0000-0000-000000000001")),
+            [("authentication_bootstrap_state", "CK_authentication_bootstrap_status")] = new(
+                "\"Status\" IN ('PENDING','COMPLETED')",
+                row => StringValue(row, "Status") is "PENDING" or "COMPLETED"),
             [("audit_logs", "CK_audit_logs_scope")] = new(
                 @"(""Scope"" = 'GLOBAL' AND ""CompanyId"" IS NULL) OR (""Scope"" = 'COMPANY' AND ""CompanyId"" IS NOT NULL)",
                 row => StringValue(row, "Scope") == "GLOBAL" ? Value(row, "CompanyId") is null :
@@ -121,7 +137,10 @@ public sealed class AdvanceBaselineSeedConstraintTests
                     (Value(row, "MaximumAmount") is null || DecimalValue(row, "MaximumAmount") >= DecimalValue(row, "MinimumAmount"))),
             [("purchase_transaction_approval_policies", "CK_purchase_transaction_policy_dates")] = new(
                 "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"",
-                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo"))
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("roles", "CK_roles_code_canonical")] = new(
+                "\"Code\" = upper(btrim(\"Code\"))",
+                row => StringValue(row, "Code") == StringValue(row, "Code").Trim().ToUpperInvariant())
         };
         var observed = new HashSet<(string Table, string Name)>();
 
@@ -218,7 +237,7 @@ public sealed class AdvanceBaselineSeedConstraintTests
         Assert.Equal(11, permissions.Length);
         Assert.Equal(8, permissions.Count(row => row.CreatedBy == "migration-rev869a"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-rev869b"));
-        Assert.Equal(1086, AdvanceSeedData.RolePagePermissions.Count);
+        Assert.Equal(1088, AdvanceSeedData.RolePagePermissions.Count);
     }
 
     private static NexaErpDbContext CreateContext()

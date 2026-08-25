@@ -8,6 +8,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 
 public static class Rev869ASeedData
 {
+    public static readonly Guid ItManagerEmployeeIdentitiesPermissionId = Guid.Parse("82000000-0000-0000-0000-000000000001");
+    public static readonly Guid ItManagerOperationalScopesPermissionId = Guid.Parse("82000000-0000-0000-0000-000000000002");
     public static readonly Guid ApprovedEaUomId = Guid.Parse("f71a4725-bb15-e7bf-e97b-991985e96328");
     public static readonly Guid ApprovedEaHistoryId = Guid.Parse("0007efa3-4888-a87d-45ef-72cc55f4dd45");
     public static readonly Guid ApprovedEaItemId = Guid.Parse("8c428e59-db05-471d-a7e7-4f7dc1c13b54");
@@ -58,9 +60,12 @@ public static class Rev869ASeedData
                 if (!existingRoles.TryGetValue(roleCode, out var role)) throw new InvalidOperationException($"REV869A role {roleCode} is not seeded.");
                 foreach (var page in Pages) rows.Add(Permission(role, page));
             }
-            var accounts = FoundationSeedData.Roles.Single(x => x.Code == "accounts_head");
+            var accounts = FoundationSeedData.Roles.Single(x => x.Code == "ACCOUNTS_HEAD");
             rows.Add(Permission(accounts, Pages.Single(x => x.PageKey == "masters.vendor-qualifications")));
             rows.Add(Permission(accounts, Pages.Single(x => x.PageKey == "settings.tax-gst")));
+            var itManager = FoundationSeedData.Roles.Single(x => x.Code == "IT_MANAGER");
+            rows.Add(ItAdministrationPermission(itManager, Pages.Single(x => x.PageKey == "security.employee-identities")));
+            rows.Add(ItAdministrationPermission(itManager, Pages.Single(x => x.PageKey == "security.operational-scopes")));
             return rows;
         }
     }
@@ -73,7 +78,7 @@ public static class Rev869ASeedData
         var storesManager = code == Rev869ARoleCodes.StoresManager;
         var qcManager = code == Rev869ARoleCodes.QcManager;
         var executive = code is Rev869ARoleCodes.PurchaseExecutive or Rev869ARoleCodes.StoresExecutive or Rev869ARoleCodes.QcInspector;
-        var accounts = string.Equals(role.Code, "accounts_head", StringComparison.OrdinalIgnoreCase);
+        var accounts = string.Equals(role.Code, "ACCOUNTS_HEAD", StringComparison.Ordinal);
         var identity = page.PageKey.StartsWith("security.", StringComparison.Ordinal);
         var qc = page.PageKey.StartsWith("qc.", StringComparison.Ordinal);
         var tax = page.PageKey == "settings.tax-gst";
@@ -87,7 +92,7 @@ public static class Rev869ASeedData
         if (identity) { canCreate = code == Rev869ARoleCodes.ManagingDirector; canVerify = director; canApprove = code == Rev869ARoleCodes.ManagingDirector; }
         return new RolePagePermission
         {
-            Id = Id("rev869a-permission", role.Code, page.PageKey), RoleId = role.Id, PageDefinitionId = page.Id,
+            Id = Id("rev869a-permission", LegacyPermissionIdentityRoleCode(role), page.PageKey), RoleId = role.Id, PageDefinitionId = page.Id,
             CanView = canView, CanCreate = canCreate, CanUpdate = canCreate, CanSubmit = canCreate,
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canVerify || canApprove,
             CanRequestClarification = canVerify || canApprove, CanRequestRevision = canVerify || canApprove,
@@ -99,6 +104,28 @@ public static class Rev869ASeedData
             CreatedAt = SeedTime, CreatedBy = "migration-rev869a"
         };
     }
+
+    private static RolePagePermission ItAdministrationPermission(Role role, PageDefinition page) => new()
+    {
+        Id = page.PageKey switch
+        {
+            "security.employee-identities" => ItManagerEmployeeIdentitiesPermissionId,
+            "security.operational-scopes" => ItManagerOperationalScopesPermissionId,
+            _ => throw new InvalidOperationException($"Unsupported IT administration page {page.PageKey}.")
+        },
+        RoleId = role.Id,
+        PageDefinitionId = page.Id,
+        CanView = true,
+        CanCreate = true,
+        CreatedAt = SeedTime,
+        CreatedBy = "migration-authentication-bootstrap"
+    };
+
+    // REV869A originally generated permission IDs from the role code. Preserve the
+    // exact historical casing used by that migration so canonicalizing Code never
+    // changes the identity of any of the 1,086 existing permission rows.
+    private static string LegacyPermissionIdentityRoleCode(Role role) =>
+        Roles.Any(x => x.Id == role.Id) ? role.Code : role.Code.ToLowerInvariant();
 
     private static Role Role(string id, string code, string name, bool privileged) => new() { Id = Guid.Parse(id), Code = code, Name = name, IsPrivileged = privileged, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };
     private static PageDefinition Page(string id, string key, string module, string title, string route) => new() { Id = Guid.Parse(id), PageKey = key, Module = module, Title = title, Route = route, IsActive = true, CreatedAt = SeedTime, CreatedBy = "migration-rev869a" };

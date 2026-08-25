@@ -44,8 +44,8 @@ public sealed class Rev866SeedTests
     [Fact]
     public void Rev866_td_and_md_roles_are_limited_to_approved_employees()
     {
-        var td = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == "technical_director");
-        var md = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == "managing_director");
+        var td = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == "TECHNICAL_DIRECTOR");
+        var md = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == "MANAGING_DIRECTOR");
         var assignments = Rev866SeedData.EmployeeRoleAssignments.ToLookup(assignment => assignment.RoleId);
         var tdEmployees = assignments[td.Id].Select(assignment => Rev866SeedData.Employees.Single(employee => employee.Id == assignment.EmployeeId).EmployeeCode).ToList();
         var mdEmployees = assignments[md.Id].Select(assignment => Rev866SeedData.Employees.Single(employee => employee.Id == assignment.EmployeeId).EmployeeCode).ToList();
@@ -92,9 +92,9 @@ public sealed class Rev866SeedTests
         var pages = FoundationSeedData.Pages;
         var operationalRoleCodes = new[]
         {
-            "technical_engineer", "electrical_engineer", "plc_engineer", "design_engineer",
-            "junior_engineer", "production_operator", "software_engineer", "accounts_assistant",
-            "software_developer", "admin_executive", "production_coordinator"
+            "TECHNICAL_ENGINEER", "ELECTRICAL_ENGINEER", "PLC_ENGINEER", "DESIGN_ENGINEER",
+            "JUNIOR_ENGINEER", "PRODUCTION_OPERATOR", "SOFTWARE_ENGINEER", "ACCOUNTS_ASSISTANT",
+            "SOFTWARE_DEVELOPER", "ADMIN_EXECUTIVE", "PRODUCTION_COORDINATOR"
         };
 
         foreach (var roleCode in operationalRoleCodes)
@@ -115,7 +115,7 @@ public sealed class Rev866SeedTests
     [Fact]
     public void Rev866_corrective_purchase_and_stores_entry_roles_do_not_receive_approval_or_financial_power()
     {
-        foreach (var roleCode in new[] { "purchase_executive", "stores_executive", "stores_assistant" })
+        foreach (var roleCode in new[] { "PURCHASE_EXECUTIVE", "STORES_EXECUTIVE", "STORES_ASSISTANT" })
         {
             var role = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == roleCode);
             var rows = Rev866SeedData.RolePagePermissions.Where(permission => permission.RoleId == role.Id).ToList();

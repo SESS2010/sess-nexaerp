@@ -259,34 +259,35 @@ public static class Rev866SeedData
 
     private static RolePagePermission Permission(Role role, PageDefinition page)
     {
-        var full = role.Code is "admin" or "md" or "technical_director" or "managing_director";
-        var audit = full || role.Code is "it_admin";
+        var full = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR";
+        var audit = full || role.Code is "IT_MANAGER";
         var purchase = page.PageKey.StartsWith("purchase.", StringComparison.OrdinalIgnoreCase);
         var inventory = page.PageKey.StartsWith("inventory.", StringComparison.OrdinalIgnoreCase);
         var master = page.PageKey.StartsWith("masters.", StringComparison.OrdinalIgnoreCase);
         var identity = page.PageKey.StartsWith("identity.", StringComparison.OrdinalIgnoreCase) || page.PageKey.StartsWith("authorization.", StringComparison.OrdinalIgnoreCase);
         var employeePage = page.PageKey.StartsWith("employees.", StringComparison.OrdinalIgnoreCase);
         var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
-        var commercial = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "accounts_head" or "purchase_head";
-        var canOperatePurchase = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "purchase_head" or "store_head" or "purchase_executive";
-        var canOperateInventory = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "store_head" or "purchase_head" or "production_head" or "qc_head" or "stores_executive" or "stores_assistant";
-        var canOperateMaster = role.Code is "admin" or "md" or "technical_director" or "managing_director" or "it_admin" or "purchase_head" or "store_head" or "sales_head";
-        var canOperateEmployee = role.Code is "admin" or "md" or "managing_director" or "it_admin" or "hr_executive";
+        var commercial = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_HEAD" or "PURCHASE_HEAD";
+        var canOperatePurchase = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "PURCHASE_HEAD" or "STORE_HEAD" or "PURCHASE_EXECUTIVE";
+        var canOperateInventory = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "STORE_HEAD" or "PURCHASE_HEAD" or "PRODUCTION_HEAD" or "QC_HEAD" or "STORES_EXECUTIVE" or "STORES_ASSISTANT";
+        var canOperateMaster = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "PURCHASE_HEAD" or "STORE_HEAD" or "SALES_HEAD";
+        var canOperateEmployee = role.Code is "ADMIN" or "MD" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "HR_EXECUTIVE";
+        var canAdministerIdentity = role.Code == "IT_MANAGER" && page.PageKey is "identity.roles" or "identity.users";
         var canView = full || audit || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
-            || (purchase && role.Code is "purchase_executive")
-            || (inventory && role.Code is "stores_executive" or "stores_assistant")
-            || (employeePage && role.Code is "hr_executive");
+            || (purchase && role.Code is "PURCHASE_EXECUTIVE")
+            || (inventory && role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT")
+            || (employeePage && role.Code is "HR_EXECUTIVE");
         var canCreate = full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory) || (employeePage && canOperateEmployee);
-        var canVerify = full || (inventory && role.Code is "qc_head") || (purchase && role.Code is "purchase_head");
-        var canApprove = full || role.Code is "accounts_head" && page.PageKey.Contains("commercial", StringComparison.OrdinalIgnoreCase);
+        var canVerify = full || (inventory && role.Code is "QC_HEAD") || (purchase && role.Code is "PURCHASE_HEAD");
+        var canApprove = full || role.Code is "ACCOUNTS_HEAD" && page.PageKey.Contains("commercial", StringComparison.OrdinalIgnoreCase);
 
         return new RolePagePermission
         {
-            Id = Id("role-page", role.Code, page.PageKey),
+            Id = Id("role-page", LegacyPermissionIdentityRoleCode(role), page.PageKey),
             RoleId = role.Id,
             PageDefinitionId = page.Id,
             CanView = canView,
-            CanCreate = canCreate,
+            CanCreate = canCreate || canAdministerIdentity,
             CanUpdate = canCreate,
             CanSubmit = canCreate,
             CanVerify = canVerify,
@@ -296,19 +297,24 @@ public static class Rev866SeedData
             CanRequestRevision = canVerify || canApprove,
             CanResubmit = canCreate,
             CanCancel = full || canCreate,
-            CanDeactivate = full || ((master || employeePage) && role.Code is "it_admin"),
+            CanDeactivate = full || ((master || employeePage) && role.Code is "IT_MANAGER"),
             CanPrint = canView,
             CanDownload = canView,
-            CanExport = canView && foundationMatrixRole && role.Code is not "customer" and not "vendor",
+            CanExport = canView && foundationMatrixRole && role.Code is not "CUSTOMER" and not "VENDOR",
             CanUploadAttachment = canCreate,
             CanReplaceAttachment = canCreate,
             CanViewCommercialValues = commercial,
-            CanViewAuditHistory = audit || role.Code is "accounts_head",
+            CanViewAuditHistory = audit || role.Code is "ACCOUNTS_HEAD",
             HasFullControl = full,
             CreatedAt = SeedTime,
             CreatedBy = "migration"
         };
     }
+
+    // IT_MANAGER is an in-place semantic rename of it_admin. Its 26 seeded
+    // permission row IDs must remain byte-for-byte stable across that rename.
+    private static string LegacyPermissionIdentityRoleCode(Role role) =>
+        role.Code == "IT_MANAGER" ? "it_admin" : role.Code;
 
     private static EmployeeSeed Row(string code, string name, string department, string skill, string designation, params string[] roles)
     {
@@ -339,7 +345,7 @@ public static class Rev866SeedData
         return new Role
         {
             Id = RoleId(code),
-            Code = code.ToLowerInvariant(),
+            Code = code.ToUpperInvariant(),
             Name = name,
             IsPrivileged = isPrivileged,
             IsActive = true,

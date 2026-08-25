@@ -62,7 +62,7 @@ public sealed class Rev867MasterFoundationTests
     [Fact]
     public void Rev867_operational_roles_still_have_no_master_approval_or_commercial_power()
     {
-        var restrictedRoles = new[] { "technical_engineer", "electrical_engineer", "plc_engineer", "design_engineer", "junior_engineer", "production_operator", "software_engineer", "software_developer" };
+        var restrictedRoles = new[] { "TECHNICAL_ENGINEER", "ELECTRICAL_ENGINEER", "PLC_ENGINEER", "DESIGN_ENGINEER", "JUNIOR_ENGINEER", "PRODUCTION_OPERATOR", "SOFTWARE_ENGINEER", "SOFTWARE_DEVELOPER" };
         foreach (var roleCode in restrictedRoles)
         {
             var role = Rev866SeedData.AdditionalEmployeeRoles.Single(role => role.Code == roleCode);

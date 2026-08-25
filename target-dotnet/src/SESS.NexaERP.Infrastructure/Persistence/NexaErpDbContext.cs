@@ -13,6 +13,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
 {
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
+    public DbSet<AuthenticationBootstrapState> AuthenticationBootstrapStates => Set<AuthenticationBootstrapState>();
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Vendor> Vendors => Set<Vendor>();
     public DbSet<Item> Items => Set<Item>();
@@ -81,7 +82,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     {
         modelBuilder.Entity<Role>(entity =>
         {
-            entity.ToTable("roles");
+            entity.ToTable("roles", table =>
+                table.HasCheckConstraint("CK_roles_code_canonical", @"""Code"" = upper(btrim(""Code""))"));
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.Code).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(64).IsRequired();
@@ -102,6 +104,28 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.UserType).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AuthenticationBootstrapState>(entity =>
+        {
+            entity.ToTable("authentication_bootstrap_state", table =>
+            {
+                table.HasCheckConstraint("CK_authentication_bootstrap_singleton", $@"""Id"" = '{AuthenticationBootstrapSeed.Id:D}'::uuid");
+                table.HasCheckConstraint("CK_authentication_bootstrap_status", @"""Status"" IN ('PENDING','COMPLETED')");
+                table.HasCheckConstraint("CK_authentication_bootstrap_completion",
+                    @"(""Status""='PENDING' AND ""EmployeeId"" IS NULL AND ""CompanyId"" IS NULL AND ""OrganizationId"" IS NULL AND ""IssuerSha256"" IS NULL AND ""SubjectSha256"" IS NULL AND ""CompletedAt"" IS NULL AND ""CompletedBy"" IS NULL) OR " +
+                    @"(""Status""='COMPLETED' AND ""EmployeeId"" IS NOT NULL AND ""CompanyId"" IS NOT NULL AND length(trim(""OrganizationId""))>0 AND octet_length(""IssuerSha256"")=32 AND octet_length(""SubjectSha256"")=32 AND ""CompletedAt"" IS NOT NULL AND length(trim(""CompletedBy""))>0)");
+            });
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            entity.Property(x => x.OrganizationId).HasMaxLength(100);
+            entity.Property(x => x.IssuerSha256).HasMaxLength(32);
+            entity.Property(x => x.SubjectSha256).HasMaxLength(32);
+            entity.Property(x => x.CompletedBy).HasMaxLength(160);
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<SESS.NexaERP.Domain.Foundation.Company>().WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(AuthenticationBootstrapSeed.Pending);
         });
     }
 

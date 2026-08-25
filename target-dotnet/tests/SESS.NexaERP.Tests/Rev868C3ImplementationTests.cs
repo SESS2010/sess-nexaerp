@@ -31,7 +31,8 @@ public sealed class Rev868C3ImplementationTests
             "20260824135450_MultiCompanySharedIdentityFoundation",
             "20260824150742_CalibrationPurchasePairItemTypeCorrections",
             "20260825063221_EmployeeMasterRebuild42",
-            "20260825073027_CorrectManagingDirectorDepartmentPriority"
+            "20260825073027_CorrectManagingDirectorDepartmentPriority",
+            "20260825092016_AuthenticationBootstrapFoundation"
         }, migrations);
     }
 

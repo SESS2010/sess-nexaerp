@@ -697,9 +697,9 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     [Fact]
     public void LegacyBroadAllowListProducedExactlyThirtyTwoFalseMismatches()
     {
-        var lowerCaseReusedRoleCodes = new[] { "purchase_executive", "stores_executive", "technical_director", "managing_director" };
-        Assert.All(lowerCaseReusedRoleCodes, code => Assert.Contains(code, Rev866SeedData.AdditionalEmployeeRoles.Select(x => x.Code)));
-        Assert.Equal(32, lowerCaseReusedRoleCodes.Length * Rev869ASeedData.Pages.Length);
+        var canonicalReusedRoleCodes = new[] { "PURCHASE_EXECUTIVE", "STORES_EXECUTIVE", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR" };
+        Assert.All(canonicalReusedRoleCodes, code => Assert.Contains(code, Rev866SeedData.AdditionalEmployeeRoles.Select(x => x.Code)));
+        Assert.Equal(32, canonicalReusedRoleCodes.Length * Rev869ASeedData.Pages.Length);
         Assert.DoesNotContain("r.\"Code\" in ('PURCHASE_MANAGER','PURCHASE_EXECUTIVE'", FunctionBlock("function Get-PostMigrationSql", "function Get-TransactionalVerificationSql"), StringComparison.Ordinal);
     }
     [Fact]
@@ -831,7 +831,9 @@ public sealed class Rev869AIsolatedExecutionHelperTests
     private static IReadOnlyList<PermissionSpec> SourceDefinedPermissionContracts()
     {
         var roles = FoundationSeedData.Roles.Concat(Rev866SeedData.AdditionalEmployeeRoles).Concat(Rev869ASeedData.Roles).ToDictionary(x => x.Id);
-        var expected = Rev869ASeedData.RolePagePermissions.Select(p => new PermissionSpec(
+        var expected = Rev869ASeedData.RolePagePermissions
+            .Where(p => p.CreatedBy == "migration-rev869a")
+            .Select(p => new PermissionSpec(
             p.Id, roles[p.RoleId].Code.Equals("accounts_head", StringComparison.OrdinalIgnoreCase) ? "ACCOUNTS_HEAD" : Rev869ARoleCodes.Normalize(roles[p.RoleId].Code),
             p.PageDefinitionId, FlagBits(p))).ToList();
         var departmentManagerIds = new[]

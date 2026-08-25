@@ -18,7 +18,7 @@ public sealed class ManagingDirectorDepartmentPriorityMigrationTests
         using var db = new NexaErpDbContext(options);
         var migrations = db.Database.GetMigrations().ToArray();
 
-        Assert.Equal(MigrationId, migrations[^1]);
+        Assert.Equal("20260825092016_AuthenticationBootstrapFoundation", migrations[Array.IndexOf(migrations, MigrationId) + 1]);
         Assert.Equal(1, migrations.Count(x => x == MigrationId));
 
         var source = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260825073027_CorrectManagingDirectorDepartmentPriority.cs");

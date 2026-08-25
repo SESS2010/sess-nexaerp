@@ -7,26 +7,26 @@ public static class FoundationSeedData
 {
     public static readonly Role[] Roles =
     [
-        RoleSeed("10000000-0000-0000-0000-000000000001", "admin", "Administrator", true),
-        RoleSeed("10000000-0000-0000-0000-000000000002", "md", "Managing Director / CFO", true),
-        RoleSeed("10000000-0000-0000-0000-000000000003", "accounts_head", "Accounts Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000004", "purchase_head", "Purchase Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000005", "store_head", "Store Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000006", "production_head", "Production Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000007", "qc_head", "QC Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000008", "design_head", "Design Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000009", "service_head", "Service Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000010", "sales_head", "Sales Head", true),
-        RoleSeed("10000000-0000-0000-0000-000000000011", "service_coordinator", "Service Coordinator", false),
-        RoleSeed("10000000-0000-0000-0000-000000000012", "service_engineer", "Service Engineer", false),
-        RoleSeed("10000000-0000-0000-0000-000000000013", "sales_engineer", "Sales Engineer", false),
-        RoleSeed("10000000-0000-0000-0000-000000000014", "it_admin", "IT Admin", true),
-        RoleSeed("10000000-0000-0000-0000-000000000015", "customer", "Customer Portal User", false),
-        RoleSeed("10000000-0000-0000-0000-000000000016", "vendor", "Vendor Portal User", false),
-        RoleSeed("10000000-0000-0000-0000-000000000017", "document_controller", "Document Controller", false),
-        RoleSeed("10000000-0000-0000-0000-000000000018", "dcc", "DCC / Document Controller", false),
-        RoleSeed("10000000-0000-0000-0000-000000000019", "branch_manager", "Branch Manager", true),
-        RoleSeed("10000000-0000-0000-0000-000000000020", "ops_admin_no_hr", "Operational Admin without HR", true)
+        RoleSeed("10000000-0000-0000-0000-000000000001", "ADMIN", "Administrator", true),
+        RoleSeed("10000000-0000-0000-0000-000000000002", "MD", "Managing Director / CFO", true),
+        RoleSeed("10000000-0000-0000-0000-000000000003", "ACCOUNTS_HEAD", "Accounts Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000004", "PURCHASE_HEAD", "Purchase Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000005", "STORE_HEAD", "Store Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000006", "PRODUCTION_HEAD", "Production Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000007", "QC_HEAD", "QC Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000008", "DESIGN_HEAD", "Design Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000009", "SERVICE_HEAD", "Service Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000010", "SALES_HEAD", "Sales Head", true),
+        RoleSeed("10000000-0000-0000-0000-000000000011", "SERVICE_COORDINATOR", "Service Coordinator", false),
+        RoleSeed("10000000-0000-0000-0000-000000000012", "SERVICE_ENGINEER", "Service Engineer", false),
+        RoleSeed("10000000-0000-0000-0000-000000000013", "SALES_ENGINEER", "Sales Engineer", false),
+        RoleSeed("10000000-0000-0000-0000-000000000014", "IT_MANAGER", "IT Manager", true),
+        RoleSeed("10000000-0000-0000-0000-000000000015", "CUSTOMER", "Customer Portal User", false),
+        RoleSeed("10000000-0000-0000-0000-000000000016", "VENDOR", "Vendor Portal User", false),
+        RoleSeed("10000000-0000-0000-0000-000000000017", "DOCUMENT_CONTROLLER", "Document Controller", false),
+        RoleSeed("10000000-0000-0000-0000-000000000018", "DCC", "DCC / Document Controller", false),
+        RoleSeed("10000000-0000-0000-0000-000000000019", "BRANCH_MANAGER", "Branch Manager", true),
+        RoleSeed("10000000-0000-0000-0000-000000000020", "OPS_ADMIN_NO_HR", "Operational Admin without HR", true)
     ];
 
     public static readonly PageDefinition[] Pages =
