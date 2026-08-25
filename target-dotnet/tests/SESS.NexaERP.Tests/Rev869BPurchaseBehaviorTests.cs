@@ -249,7 +249,7 @@ public sealed class Rev869BPurchaseBehaviorTests
     }
     private sealed class DenyingPermission : IPagePermissionService
     {
-        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken cancellationToken) => Task.FromResult(false);
+        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken cancellationToken) => Task.FromResult(false);
     }
     private sealed class TestAuthenticationService : IAuthenticationService
     {

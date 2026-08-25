@@ -15,7 +15,7 @@ public static class EmployeeEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/employees")
             .WithTags("Employees")
-            .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+            .RequireAuthorization();
 
         group.MapGet("/", async (NexaErpDbContext db, int? page, int? pageSize, string? search, string? status, CancellationToken cancellationToken) =>
         {
@@ -202,7 +202,7 @@ public static class EmployeeEndpoints
             }
 
             var employee = await db.Employees.SingleOrDefaultAsync(existing => existing.EmployeeCode == NormalizeEmployeeCode(employeeCode), cancellationToken);
-            var roleCode = request.RoleCode.Trim().ToLowerInvariant();
+            var roleCode = request.RoleCode.Trim().ToUpperInvariant();
             var role = await db.Roles.SingleOrDefaultAsync(existing => existing.Code == roleCode && existing.IsActive, cancellationToken);
             if (employee is null || role is null)
             {

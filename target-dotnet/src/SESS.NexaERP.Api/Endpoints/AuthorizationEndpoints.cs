@@ -13,7 +13,7 @@ public static class AuthorizationEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/authorization")
             .WithTags("Authorization")
-            .RequireAuthorization(AuthorizationPolicies.AdminOnly);
+            .RequireAuthorization();
 
         group.MapGet("/pages", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
@@ -57,7 +57,7 @@ public static class AuthorizationEndpoints
 
         group.MapGet("/role-page-permissions", async (NexaErpDbContext db, string? roleCode, CancellationToken cancellationToken) =>
         {
-            var normalizedRole = string.IsNullOrWhiteSpace(roleCode) ? null : roleCode.Trim().ToLowerInvariant();
+            var normalizedRole = string.IsNullOrWhiteSpace(roleCode) ? null : roleCode.Trim().ToUpperInvariant();
             var query = db.RolePagePermissions
                 .AsNoTracking()
                 .Include(permission => permission.Role)
@@ -80,7 +80,7 @@ public static class AuthorizationEndpoints
 
         group.MapPut("/role-page-permissions", async (UpsertRolePagePermissionRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
         {
-            var roleCode = request.RoleCode.Trim().ToLowerInvariant();
+            var roleCode = request.RoleCode.Trim().ToUpperInvariant();
             var pageKey = NormalizeKey(request.PageKey);
             var role = await db.Roles.SingleOrDefaultAsync(existing => existing.Code == roleCode && existing.IsActive, cancellationToken);
             var page = await db.PageDefinitions.SingleOrDefaultAsync(existing => existing.PageKey == pageKey && existing.IsActive, cancellationToken);

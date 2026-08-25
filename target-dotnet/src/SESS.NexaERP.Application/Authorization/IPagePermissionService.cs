@@ -2,7 +2,7 @@
 
 public interface IPagePermissionService
 {
-    Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken cancellationToken);
+    Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken cancellationToken);
 }
 
 public static class PagePermissionActions

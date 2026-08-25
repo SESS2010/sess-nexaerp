@@ -60,7 +60,7 @@ public static partial class MasterEndpointHelpers
 
     public static async Task<bool> CanViewCommercialAsync(IPagePermissionService permissionService, ICurrentUser currentUser, string pageKey, CancellationToken cancellationToken)
     {
-        return await permissionService.HasPermissionAsync(currentUser.RoleCode, pageKey, PagePermissionActions.ViewCommercialValues, cancellationToken);
+        return await permissionService.HasPermissionAsync(currentUser.RoleCodes, pageKey, PagePermissionActions.ViewCommercialValues, cancellationToken);
     }
 
     public static async Task AddStatusHistoryAsync(NexaErpDbContext db, string masterType, Guid masterId, string masterCode, string? previous, string next, string reason, ICurrentUser currentUser, string correlationId, CancellationToken cancellationToken)

@@ -11,18 +11,8 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
     private ResolvedEmployeeIdentity? Resolution => Context?.Items[EmployeeIdentityResolutionMiddleware.ResolutionItemKey] as ResolvedEmployeeIdentity;
 
     public string LoginId => Resolution?.Success == true && !string.IsNullOrWhiteSpace(IdentitySubject) ? IdentitySubject! : "unauthenticated";
-    public string RoleCode
-    {
-        get
-        {
-            if (Resolution?.Success != true) return "none";
-            var claimed = Context?.User.Claims
-                .Where(x => x.Type is ClaimTypes.Role or "role" or "roles")
-                .SelectMany(x => x.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
-                .FirstOrDefault(x => Resolution.RoleCodes.Contains(x, StringComparer.OrdinalIgnoreCase));
-            return claimed ?? (Resolution.RoleCodes.Count == 1 ? Resolution.RoleCodes[0] : "none");
-        }
-    }
+    public IReadOnlyList<string> RoleCodes => Resolution?.Success == true ? Resolution.RoleCodes : [];
+    public string RoleCode => RoleCodes.Count == 1 ? RoleCodes[0] : "none";
     public string? OrganizationId => Resolution?.Success == true ? Resolution.OrganizationId : null;
     public bool IsAuthenticated => Context?.User.Identity?.IsAuthenticated == true && Resolution?.Success == true;
     public string? IdentityIssuer => ClaimValue("iss");

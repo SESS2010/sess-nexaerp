@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
         services.AddScoped<IVendorQualificationService, EfVendorQualificationService>();
         services.AddScoped<IRev869BPurchaseService, EfRev869BPurchaseService>();
+        services.AddScoped<DatabaseRuntimePrincipalGuard>();
 
         return services;
     }

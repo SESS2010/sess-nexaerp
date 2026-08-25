@@ -17,6 +17,22 @@ choose canonical semantics, and preserve all relationships by `RoleId`.
 ## Development-only database guard exemption
 
 `DatabaseSecurity:AllowDevelopmentSuperuser` belongs to the runtime startup
-guard checkpoint. It must be accepted only in the Development environment,
-emit a prominent warning on every startup, and cause non-Development startup
-to fail if the setting is present.
+guard checkpoint. It is compiled out of Release eligibility: a Release startup
+fails if the setting is present, even when its value is `false`. A Debug startup
+may enable it only in the Development environment and emits critical warnings
+on every exempted startup.
+
+## Acting-role selection for workflow authority
+
+Page permissions use the union of all effective database roles. Workflow and
+approval authority remains deliberately scalar until an explicit acting-role
+request contract, validation rule, audit field, and user experience are agreed.
+Multi-role identities therefore have no implicit scalar acting role and fail
+closed in legacy workflow comparisons.
+
+## Reproducible deployment toolchain
+
+Tightening `global.json` and pinning the customer build/runtime image are
+deferred to deployment work. Release CI should eventually use an exact SDK and
+runtime/container digest, with security patch upgrades performed deliberately
+after verification rather than through `latestFeature` roll-forward.

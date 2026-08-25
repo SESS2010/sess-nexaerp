@@ -25,9 +25,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.Audience = builder.Configuration["Authentication:Audience"];
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     });
-builder.Services.AddAuthorization(AuthorizationPolicies.AddSessPolicies);
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
+
+await using (var startupScope = app.Services.CreateAsyncScope())
+{
+    await startupScope.ServiceProvider
+        .GetRequiredService<DatabaseRuntimePrincipalGuard>()
+        .ValidateAsync();
+}
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthentication();

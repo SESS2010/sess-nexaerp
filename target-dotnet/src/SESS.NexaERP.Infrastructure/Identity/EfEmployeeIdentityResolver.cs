@@ -31,10 +31,17 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
 
         var roles = await db.EmployeeRoleAssignments.AsNoTracking()
             .Include(x => x.Role)
-            .Where(x => x.EmployeeId == employee.Id && x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
+            .Where(x => x.EmployeeId == employee.Id && x.CompanyId == mapping.CompanyId)
+            .Where(x => x.ApprovalStatus == "SeedApproved" || x.ApprovalStatus == "Approved")
+            .Where(x => x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
             .Where(x => x.Role != null && x.Role.IsActive)
             .Select(x => x.Role!.Code)
             .ToListAsync(cancellationToken);
-        return new(true, employee.Id, employee.DepartmentId, mapping.OrganizationId, null, roles, "Employee identity resolved.");
+        var effectiveRoleCodes = roles
+            .Select(code => code.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        return new(true, employee.Id, employee.DepartmentId, mapping.OrganizationId, employee.EmployeeCode, effectiveRoleCodes, "Employee identity resolved.");
     }
 }

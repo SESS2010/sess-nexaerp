@@ -61,6 +61,20 @@ public sealed class AuthorizationIntegrationTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Any_effective_database_role_can_grant_page_permission()
+    {
+        await using var host = await TestHost.StartAsync((role, permission) =>
+            role == "TECHNICAL_DIRECTOR" && permission == PagePermissionActions.View);
+
+        using var client = new HttpClient { BaseAddress = host.BaseAddress };
+        client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.UserHeader, "SESS-001");
+        client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.RoleHeader, "STORES_ASSISTANT,TECHNICAL_DIRECTOR");
+        var response = await client.GetAsync("/employee-list");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
     [Theory]
     [InlineData("/role-assign", "create")]
     [InlineData("/commercial", "view-commercial-values")]
@@ -86,7 +100,7 @@ public sealed class AuthorizationIntegrationTests
     public async Task Td_and_md_authorized_actions_succeed_according_to_matrix(string role, string path)
     {
         await using var host = await TestHost.StartAsync((actualRole, permission) =>
-            (actualRole is "technical_director" or "managing_director") && permission == PagePermissionActions.Approve);
+            (actualRole is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR") && permission == PagePermissionActions.Approve);
 
         using var client = new HttpClient { BaseAddress = host.BaseAddress };
         client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.UserHeader, role == "technical_director" ? "SESS-001" : "SESS-002");
@@ -194,7 +208,12 @@ public sealed class AuthorizationIntegrationTests
     {
         private ClaimsPrincipal Principal => accessor.HttpContext?.User ?? new ClaimsPrincipal();
         public string LoginId => Principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? string.Empty;
-        public string RoleCode => Principal.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+        public IReadOnlyList<string> RoleCodes => Principal.FindAll(ClaimTypes.Role)
+            .SelectMany(claim => claim.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            .Select(role => role.ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        public string RoleCode => RoleCodes.Count == 1 ? RoleCodes[0] : "none";
         public string? OrganizationId => Principal.FindFirstValue("organization_id") ?? "SESS";
         public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
         public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("90000000-0000-0000-0000-000000000001") : null;
@@ -207,9 +226,9 @@ public sealed class AuthorizationIntegrationTests
     }
     private sealed class DelegatePagePermissionService(Func<string, string, bool> permissionDecision) : IPagePermissionService
     {
-        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken cancellationToken)
+        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken cancellationToken)
         {
-            return Task.FromResult(permissionDecision(roleCode, permission));
+            return Task.FromResult(roleCodes.Any(roleCode => permissionDecision(roleCode, permission)));
         }
     }
 

@@ -4,6 +4,10 @@ public interface ICurrentUser
 {
     string LoginId { get; }
     string RoleCode { get; }
+    IReadOnlyList<string> RoleCodes =>
+        string.IsNullOrWhiteSpace(RoleCode) || string.Equals(RoleCode, "none", StringComparison.OrdinalIgnoreCase)
+            ? []
+            : [RoleCode];
     string? OrganizationId { get; }
     bool IsAuthenticated { get; }
     string? IdentityIssuer => null;

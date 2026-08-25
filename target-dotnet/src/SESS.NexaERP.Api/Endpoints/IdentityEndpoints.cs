@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
+using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Identity;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,7 +12,7 @@ public static class IdentityEndpoints
 {
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/v1/identity").WithTags("Identity").RequireAuthorization(AuthorizationPolicies.AdminOnly);
+        var group = endpoints.MapGroup("/api/v1/identity").WithTags("Identity").RequireAuthorization();
 
         group.MapGet("/roles", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
@@ -22,7 +23,7 @@ public static class IdentityEndpoints
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(roles);
-        });
+        }).RequirePagePermission("identity.roles", PagePermissionActions.View);
 
         group.MapPost("/roles", async (CreateRoleRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
         {
@@ -49,7 +50,7 @@ public static class IdentityEndpoints
             await audit.WriteAsync("Identity", "Create", nameof(Role), role.Id.ToString(), null, role, cancellationToken);
 
             return Results.Created($"/api/v1/identity/roles/{role.Id}", new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive));
-        });
+        }).RequirePagePermission("identity.roles", PagePermissionActions.Create);
 
         group.MapGet("/users", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
@@ -69,7 +70,7 @@ public static class IdentityEndpoints
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(users);
-        });
+        }).RequirePagePermission("identity.users", PagePermissionActions.View);
 
         group.MapPost("/users", async (CreateUserAccountRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
         {
@@ -107,7 +108,7 @@ public static class IdentityEndpoints
             await audit.WriteAsync("Identity", "Create", nameof(UserAccount), user.Id.ToString(), null, user, cancellationToken);
 
             return Results.Created($"/api/v1/identity/users/{user.Id}", new UserAccountSummary(user.Id, user.LoginId, user.DisplayName, user.Email, user.UserType, role.Code, user.MfaRequired, user.IsActive));
-        });
+        }).RequirePagePermission("identity.users", PagePermissionActions.Create);
 
         return endpoints;
     }

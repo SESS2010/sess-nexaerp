@@ -774,7 +774,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
 
     private sealed class AllowAllPagePermissions : IPagePermissionService
     {
-        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) =>
+        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken ct) =>
             Task.FromResult(true);
     }
 
@@ -782,7 +782,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
     {
         public bool Allow { get; set; } = true;
         public bool AllowCommercialValues { get; set; } = true;
-        public Task<bool> HasPermissionAsync(string roleCode, string pageKey, string permission, CancellationToken ct) =>
+        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken ct) =>
             Task.FromResult(permission == PagePermissionActions.ViewCommercialValues ? AllowCommercialValues : Allow);
     }
 
