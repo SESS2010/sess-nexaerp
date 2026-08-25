@@ -35,8 +35,8 @@ public sealed partial class NexaErpDbContext
             entity.Property(x => x.Subject).HasMaxLength(500).IsRequired();
             entity.Property(x => x.IdentityType).HasMaxLength(20).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
-            entity.HasIndex(x => new { x.Issuer, x.Subject, x.IsActive }).IsUnique().HasFilter("\"IsActive\" = TRUE");
-            entity.HasIndex(x => new { x.OrganizationId, x.EmployeeId, x.IdentityType, x.IsActive }).IsUnique().HasFilter("\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN'");
+            entity.HasIndex(x => new { x.CompanyId, x.Issuer, x.Subject, x.IsActive }).IsUnique().HasFilter("\"IsActive\" = TRUE");
+            entity.HasIndex(x => new { x.CompanyId, x.OrganizationId, x.EmployeeId, x.IdentityType, x.IsActive }).IsUnique().HasFilter("\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN'");
             entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
         });
 

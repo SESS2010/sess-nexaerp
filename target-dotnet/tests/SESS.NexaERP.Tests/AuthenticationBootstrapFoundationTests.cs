@@ -10,13 +10,14 @@ public sealed class AuthenticationBootstrapFoundationTests
     private static readonly Assembly Infrastructure = typeof(NexaErpDbContext).Assembly;
 
     [Fact]
-    public void Migration_is_last_guarded_and_does_not_replace_existing_permission_rows()
+    public void Migration_is_guarded_precedes_part1_and_does_not_replace_existing_permission_rows()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect")
             .Options;
         using var db = new NexaErpDbContext(options);
-        Assert.Equal(MigrationId, db.Database.GetMigrations().Last());
+        var migrations = db.Database.GetMigrations().ToArray();
+        Assert.Equal("20260825125621_MultiCompanyEmployeeAuthorizationPart1", migrations[Array.IndexOf(migrations, MigrationId) + 1]);
 
         var source = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", MigrationId + ".cs");
         Assert.Equal(2, Count(source, "PostgreSqlClusterGuard.Require(migrationBuilder);"));

@@ -45,6 +45,8 @@ public static class Rev869ARoleCodes
     public const string QcManager = "QC_MANAGER";
     public const string QcInspector = "QC_INSPECTOR";
     public const string DepartmentManager = "DEPARTMENT_MANAGER";
+    public const string ProductionManager = "PRODUCTION_MANAGER";
+    public const string AccountsManager = "ACCOUNTS_MANAGER";
     public const string TechnicalDirector = "TECHNICAL_DIRECTOR";
     public const string ManagingDirector = "MANAGING_DIRECTOR";
 

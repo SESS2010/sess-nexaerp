@@ -687,7 +687,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("purchase_approval_route_settings");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.RouteCode).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.RouteCode }).IsUnique();
             entity.Property(x => x.RouteCode).HasMaxLength(40).IsRequired();
             entity.Property(x => x.MinimumAmount).HasPrecision(18, 2);
             entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
@@ -702,8 +702,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("purchase_approval_workflow_steps");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.RouteCode, x.StepNumber, x.EffectiveFrom }).IsUnique();
-            entity.HasIndex(x => new { x.RouteCode, x.IsActive });
+            entity.HasIndex(x => new { x.CompanyId, x.RouteCode, x.StepNumber, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.RouteCode, x.IsActive });
             entity.Property(x => x.RouteCode).HasMaxLength(40).IsRequired();
             entity.Property(x => x.MinimumAmount).HasPrecision(18, 2);
             entity.Property(x => x.MaximumAmount).HasPrecision(18, 2);
@@ -719,8 +719,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("department_approval_mappings");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.EffectiveFrom }).IsUnique();
-            entity.HasIndex(x => new { x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.IsActive });
+            entity.HasIndex(x => new { x.CompanyId, x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.IsActive });
             entity.Property(x => x.ApprovalRouteCode).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Scope).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
@@ -863,7 +863,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("employee_role_assignments");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.EmployeeId, x.RoleId, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.EmployeeId, x.RoleId, x.EffectiveFrom }).IsUnique();
             entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
@@ -942,6 +942,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         modelBuilder.Entity<PageDefinition>().HasData(FoundationSeedData.Pages);
         modelBuilder.Entity<Role>().HasData(Rev866SeedData.AdditionalEmployeeRoles);
         modelBuilder.Entity<Role>().HasData(AdvanceSeedData.DepartmentManagerRole);
+        modelBuilder.Entity<Role>().HasData(MultiCompanyEmployeeAuthorizationPart1SeedData.Roles);
         modelBuilder.Entity<RolePagePermission>().HasData(AdvanceSeedData.RolePagePermissions);
         modelBuilder.Entity<Department>().HasData(Rev866SeedData.Departments);
         modelBuilder.Entity<Skill>().HasData(Rev866SeedData.Skills);

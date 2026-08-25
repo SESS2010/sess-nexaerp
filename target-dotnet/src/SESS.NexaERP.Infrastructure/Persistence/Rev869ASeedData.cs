@@ -88,7 +88,9 @@ public static class Rev869ASeedData
         var canView = director || purchaseManager || storesManager || qcManager || executive || accounts;
         var canCreate = director || (purchaseManager && (uom || tax || vendor)) || (storesManager && (uom || stores)) || (qcManager && qc);
         var canVerify = director || accounts && (tax || vendor) || storesManager && stores || qcManager && qc;
-        var canApprove = code == Rev869ARoleCodes.ManagingDirector || qcManager && qc;
+        // QC_MANAGER owns inspection control, but the settled authority matrix reserves
+        // approval for the four named business approvers. QC must never receive CanApprove.
+        var canApprove = code == Rev869ARoleCodes.ManagingDirector;
         if (identity) { canCreate = code == Rev869ARoleCodes.ManagingDirector; canVerify = director; canApprove = code == Rev869ARoleCodes.ManagingDirector; }
         return new RolePagePermission
         {

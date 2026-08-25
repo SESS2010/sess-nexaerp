@@ -45,12 +45,18 @@ public static class Rev869AConfigurationEndpoints
         var employeeCode = MasterEndpointHelpers.NormalizeCode(request.EmployeeCode);
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase)) return Results.Conflict(new { message = "Identity must map to one active login-enabled employee." });
+        var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
+        if (company is null) return Results.Conflict(new { message = "Identity organization must identify one active company." });
+        var hasCompanyAssignment = await db.EmployeeCompanyAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
+            && x.EffectiveFrom <= request.EffectiveFrom && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (!hasCompanyAssignment) return Results.Conflict(new { message = "Identity requires an active employee assignment in the selected company." });
         var issuer = EmployeeIdentityMapping.NormalizeIssuer(request.Issuer);
         var subject = EmployeeIdentityMapping.NormalizeSubject(request.Subject);
-        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == request.OrganizationId.Trim() && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists." });
-        var entity = new EmployeeIdentityMapping { OrganizationId = request.OrganizationId.Trim(), Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
+        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
+        var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.EmployeeIdentityMappings.Add(entity);
-        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user);
+        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("Security", "CreateIdentityMapping", nameof(EmployeeIdentityMapping), entity.Id.ToString(), null, new { entity.OrganizationId, entity.Issuer, employee.EmployeeCode }, ct);
         return Results.Created($"/api/v1/rev869a/configuration/employee-identities/{entity.Id}", new { entity.Id });
@@ -59,10 +65,22 @@ public static class Rev869AConfigurationEndpoints
     private static async Task<IResult> CreateScope(CreateOperationalScopeRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid scope effective range." });
+        if (request.AllowsPrivilegedCrossScope) return Results.BadRequest(new { message = "Privileged cross-scope is disabled; create one scope per active department assignment." });
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.EmployeeCode) && x.Status == MasterStatuses.Active, ct);
         if (employee is null) return Results.Conflict(new { message = "Active employee was not found." });
+        var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
+        if (company is null) return Results.Conflict(new { message = "Scope organization must identify one active company." });
+        var companyAssignment = await db.EmployeeCompanyAssignments.SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
+            && x.EffectiveFrom <= request.EffectiveFrom && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (companyAssignment is null) return Results.Conflict(new { message = "Scope requires an active employee assignment in the selected company." });
         Guid? departmentId = null;
         if (!string.IsNullOrWhiteSpace(request.DepartmentCode)) departmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.DepartmentCode)).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (!departmentId.HasValue) return Results.Conflict(new { message = "Scope requires an active assigned department." });
+        var hasDepartmentAssignment = await db.EmployeeDepartmentAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeCompanyAssignmentId == companyAssignment.Id
+            && x.DepartmentId == departmentId && x.IsActive && x.Status == "ACTIVE" && x.EffectiveFrom <= request.EffectiveFrom
+            && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        if (!hasDepartmentAssignment) return Results.Conflict(new { message = "Scope department must be actively assigned to the employee in the selected company." });
         Guid? warehouseId = null;
         if (!string.IsNullOrWhiteSpace(request.WarehouseCode)) warehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (request.RackBinId.HasValue)
@@ -70,12 +88,11 @@ public static class Rev869AConfigurationEndpoints
             var rack = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);
             if (rack is null || warehouseId != rack.WarehouseId) return Results.Conflict(new { message = "Rack/Bin must be active and belong to the scoped warehouse." });
         }
-        var organization = request.OrganizationId.Trim();
-        var overlap = await db.EmployeeOperationalScopes.AnyAsync(x => x.OrganizationId == organization && x.EmployeeId == employee.Id && x.DepartmentId == departmentId && x.WarehouseId == warehouseId && x.RackBinId == request.RackBinId && x.OwnRecordsOnly == request.OwnRecordsOnly && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        var overlap = await db.EmployeeOperationalScopes.AnyAsync(x => x.CompanyId == company.Id && x.OrganizationId == organization && x.EmployeeId == employee.Id && x.DepartmentId == departmentId && x.WarehouseId == warehouseId && x.RackBinId == request.RackBinId && x.OwnRecordsOnly == request.OwnRecordsOnly && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping operational scope exists." });
-        var entity = new EmployeeOperationalScope { OrganizationId = organization, EmployeeId = employee.Id, DepartmentId = departmentId, WarehouseId = warehouseId, RackBinId = request.RackBinId, OwnRecordsOnly = request.OwnRecordsOnly, AllowsPrivilegedCrossScope = request.AllowsPrivilegedCrossScope, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks.Trim(), CreatedBy = user.LoginId };
+        var entity = new EmployeeOperationalScope { CompanyId = company.Id, OrganizationId = organization, EmployeeId = employee.Id, DepartmentId = departmentId, WarehouseId = warehouseId, RackBinId = request.RackBinId, OwnRecordsOnly = request.OwnRecordsOnly, AllowsPrivilegedCrossScope = false, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks.Trim(), CreatedBy = user.LoginId };
         db.EmployeeOperationalScopes.Add(entity);
-        AddHistory(db, entity.OrganizationId, nameof(EmployeeOperationalScope), entity.Id, "Create", null, entity, request.Remarks, user);
+        AddHistory(db, entity.OrganizationId, nameof(EmployeeOperationalScope), entity.Id, "Create", null, entity, request.Remarks, user, company.Id);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("Security", "CreateOperationalScope", nameof(EmployeeOperationalScope), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/operational-scopes/{entity.Id}", new { entity.Id });
@@ -480,8 +497,8 @@ public static class Rev869AConfigurationEndpoints
         return key.Length is >= 8 and <= 200;
     }
 
-    private static void AddHistory(NexaErpDbContext db, string organizationId, string type, Guid id, string action, object? before, object? after, string remarks, ICurrentUser user)
+    private static void AddHistory(NexaErpDbContext db, string organizationId, string type, Guid id, string action, object? before, object? after, string remarks, ICurrentUser user, Guid companyId = default)
     {
-        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { OrganizationId = organizationId, EntityType = type, EntityId = id, Action = action, BeforeJson = before is null ? null : JsonSerializer.Serialize(before), AfterJson = after is null ? null : JsonSerializer.Serialize(after), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = remarks.Trim(), CorrelationId = $"REV869A_{action.ToUpperInvariant()}_{Guid.NewGuid():N}", CreatedBy = user.LoginId });
+        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { CompanyId = companyId, OrganizationId = organizationId, EntityType = type, EntityId = id, Action = action, BeforeJson = before is null ? null : JsonSerializer.Serialize(before), AfterJson = after is null ? null : JsonSerializer.Serialize(after), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = remarks.Trim(), CorrelationId = $"REV869A_{action.ToUpperInvariant()}_{Guid.NewGuid():N}", CreatedBy = user.LoginId });
     }
 }
