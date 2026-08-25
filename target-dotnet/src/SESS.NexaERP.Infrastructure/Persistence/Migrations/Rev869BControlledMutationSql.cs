@@ -3,6 +3,40 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 internal static class Rev869BControlledMutationSql
 {
     public static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
+    internal static string ApprovalConfigurationPart2Up => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(InstallTemplate));
+    internal static string ApprovalConfigurationPart2Down => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(
+        InstallTemplate
+            .Replace(
+                "((NEW.\"ActorRoleCode\" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER') AND EXISTS (SELECT 1 FROM __advance_schema__.purchase_transaction_approval_policies p WHERE p.\"OrganizationId\"=parent_org AND p.\"RouteCode\" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND p.\"IsActive\"))",
+                "((NEW.\"ActorRoleCode\" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER') AND EXISTS (SELECT 1 FROM __advance_schema__.purchase_transaction_approval_policies p WHERE p.\"OrganizationId\"=parent_org AND p.\"RouteCode\"='MANAGER' AND p.\"IsActive\"))",
+                StringComparison.Ordinal)
+            .Replace(
+                "((NEW.\"ApprovalRoute\" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW.\"ActorRoleCode\" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER'))",
+                "((NEW.\"ApprovalRoute\"='MANAGER' AND NEW.\"ActorRoleCode\" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER'))",
+                StringComparison.Ordinal)
+            .Replace(
+                "((SELECT p.\"ApprovalRoute\" FROM __advance_schema__.purchase_orders p WHERE p.\"Id\"=NEW.\"PurchaseOrderId\") IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW.\"ActorRoleCode\" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')",
+                "((SELECT p.\"ApprovalRoute\" FROM __advance_schema__.purchase_orders p WHERE p.\"Id\"=NEW.\"PurchaseOrderId\")='MANAGER' AND NEW.\"ActorRoleCode\" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER')",
+                StringComparison.Ordinal)
+            .Replace(
+                "r.\"Code\" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')",
+                "r.\"Code\" IN ('PURCHASE_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')",
+                StringComparison.Ordinal)));
+
+    private static string ApprovalAuthorityFunctions(string template) =>
+        ExtractFunction(template, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_history_insert()") +
+        Environment.NewLine +
+        ExtractFunction(template, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_write_policy_history()");
+
+    private static string ExtractFunction(string template, string marker)
+    {
+        var start = template.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"Controlled function marker was not found: {marker}");
+        const string terminator = "END $rev869b$;";
+        var end = template.IndexOf(terminator, start, StringComparison.Ordinal);
+        if (end < 0) throw new InvalidOperationException($"Controlled function terminator was not found after: {marker}");
+        return template.Substring(start, end + terminator.Length - start);
+    }
     private const string InstallTemplate = """
         DO $rev869b_qualification_preflight$
         BEGIN
@@ -141,16 +175,16 @@ internal static class Rev869BControlledMutationSql
               (NEW."EntityType"='PurchaseOrder' AND NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER') OR
               (NEW."EntityType"='MaterialFollowUp' AND ((NEW."Action"='Handoff' AND NEW."ActorRoleCode"='PURCHASE_MANAGER') OR (NEW."Action"<>'Handoff' AND NEW."ActorRoleCode" IN ('STORES_EXECUTIVE','STORES_MANAGER')))) OR
               (NEW."EntityType" IN ('CommercialComparison','PurchaseOrder') AND NEW."Action" IN ('Approve','Reject','RequestRevision') AND
-                ((NEW."ActorRoleCode" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER') AND EXISTS (SELECT 1 FROM __advance_schema__.purchase_transaction_approval_policies p WHERE p."OrganizationId"=parent_org AND p."RouteCode"='MANAGER' AND p."IsActive")) OR
+                ((NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER') AND EXISTS (SELECT 1 FROM __advance_schema__.purchase_transaction_approval_policies p WHERE p."OrganizationId"=parent_org AND p."RouteCode" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND p."IsActive")) OR
                  NEW."ActorRoleCode" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')))
             )) OR
             (TG_TABLE_NAME='purchase_transaction_approval_history' AND
-              ((NEW."ApprovalRoute"='MANAGER' AND NEW."ActorRoleCode" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER')) OR
+              ((NEW."ApprovalRoute" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')) OR
                (NEW."ApprovalRoute"='TECHNICAL_DIRECTOR' AND NEW."ActorRoleCode"='TECHNICAL_DIRECTOR') OR
                (NEW."ApprovalRoute"='MANAGING_DIRECTOR' AND NEW."ActorRoleCode"='MANAGING_DIRECTOR'))) OR
             (TG_TABLE_NAME='purchase_order_history' AND
               ((NEW."Action" IN ('Approve','Reject','RequestRevision') AND
-                (((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId")='MANAGER' AND NEW."ActorRoleCode" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER')) OR
+                (((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId") IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')) OR
                  ((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId")='TECHNICAL_DIRECTOR' AND NEW."ActorRoleCode"='TECHNICAL_DIRECTOR') OR
                  ((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId")='MANAGING_DIRECTOR' AND NEW."ActorRoleCode"='MANAGING_DIRECTOR'))) OR
                (NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER')))
@@ -465,7 +499,7 @@ internal static class Rev869BControlledMutationSql
           SELECT count(*),min(m."EmployeeId") INTO matches,employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
            WHERE m."Subject"=actor AND m."CompanyId"=NEW."CompanyId" AND m."OrganizationId"=NEW."OrganizationId" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
           IF matches<>1 THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_identity',MESSAGE='Approval-policy actor must resolve to one active organization identity.'; END IF;
-          SELECT min(r."Code") INTO actor_role FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" AND r."IsActive" WHERE a."CompanyId"=NEW."CompanyId" AND a."EmployeeId"=employee AND r."Code" IN ('PURCHASE_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') AND a."ApprovalStatus" IN ('Approved','SeedApproved');
+          SELECT min(r."Code") INTO actor_role FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" AND r."IsActive" WHERE a."CompanyId"=NEW."CompanyId" AND a."EmployeeId"=employee AND r."Code" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') AND a."ApprovalStatus" IN ('Approved','SeedApproved');
           IF actor_role IS NULL THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_role',MESSAGE='Approval-policy lifecycle requires an authorized active role.'; END IF;
           INSERT INTO __advance_schema__.controlled_configuration_histories ("Id","CompanyId","OrganizationId","EntityType","EntityId","Action","BeforeJson","AfterJson","ActorLoginId","ActorRoleCode","Remarks","CorrelationId","CreatedAt","CreatedBy","Version")
           VALUES(gen_random_uuid(),NEW."CompanyId",NEW."OrganizationId",'PurchaseTransactionApprovalPolicy',NEW."Id",CASE WHEN TG_OP='INSERT' THEN 'Create' WHEN NEW."IsActive" THEN 'Activate' ELSE 'Deactivate' END,CASE WHEN TG_OP='INSERT' THEN NULL::jsonb ELSE to_jsonb(OLD) END,to_jsonb(NEW),actor,actor_role,'Database-bound approval-policy change',format('REV869B|POLICY|%s|%s',NEW."Id",NEW."Version"),statement_timestamp(),actor,NEW."Version"); RETURN NEW;

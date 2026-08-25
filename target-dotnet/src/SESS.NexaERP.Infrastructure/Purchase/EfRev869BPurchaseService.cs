@@ -311,7 +311,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             var mappings = await db.DepartmentApprovalMappings.AsNoTracking().Where(x => x.DepartmentId == departmentId && x.ApprovalRouteCode == PurchaseRequisitionApprovalRoutes.Manager && x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today)).Take(2).ToListAsync(ct);
             if (mappings.Count != 1 || (mappings[0].PrimaryApproverEmployeeId != actor && mappings[0].AlternateApproverEmployeeId != actor)) throw new UnauthorizedAccessException("A single effective department approval mapping did not authorize this employee.");
-            if (role != Rev869ARoleCodes.PurchaseManager && role != Rev869ARoleCodes.DepartmentManager) throw new UnauthorizedAccessException("Manager-level approval role is required.");
+            if (role != Rev869ARoleCodes.Normalize(mappings[0].ApproverRoleCode)) throw new UnauthorizedAccessException("The department mapping's exact approver role is required.");
             return;
         }
         var expected = route == Rev869BApprovalRoutes.TechnicalDirector ? Rev869ARoleCodes.TechnicalDirector : route == Rev869BApprovalRoutes.ManagingDirector ? Rev869ARoleCodes.ManagingDirector : throw new UnauthorizedAccessException("Approval route is missing or unsupported.");

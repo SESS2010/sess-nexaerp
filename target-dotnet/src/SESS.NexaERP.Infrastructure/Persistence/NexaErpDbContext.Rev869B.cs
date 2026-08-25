@@ -182,7 +182,7 @@ public sealed partial class NexaErpDbContext
                 table.HasCheckConstraint("CK_purchase_transaction_policy_amounts", "\"MinimumAmount\" >= 0 AND (\"MaximumAmount\" IS NULL OR \"MaximumAmount\" >= \"MinimumAmount\")");
                 table.HasCheckConstraint("CK_purchase_transaction_policy_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
             });
-            entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.RouteCode, x.EffectiveFrom, x.EffectiveTo }).IsUnique().AreNullsDistinct(false); Text(entity.Property(x => x.OrganizationId), 100); Text(entity.Property(x => x.RouteCode), 40); Text(entity.Property(x => x.ApproverRoleCode), 100); Money(entity.Property(x => x.MinimumAmount)); Money(entity.Property(x => x.MaximumAmount)); entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasKey(x => x.Id); entity.HasIndex(x => new { x.OrganizationId, x.RouteCode, x.EffectiveFrom, x.EffectiveTo }).IsUnique().AreNullsDistinct(false); Text(entity.Property(x => x.OrganizationId), 100); Text(entity.Property(x => x.RouteCode), 40); entity.Property(x => x.ApproverRoleCode).HasMaxLength(100); Money(entity.Property(x => x.MinimumAmount)); Money(entity.Property(x => x.MaximumAmount)); entity.Property(x => x.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<PageDefinition>().HasData(Rev869BSeedData.Pages);

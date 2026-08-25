@@ -32,7 +32,7 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
         if (grants.Count == 0) return false;
 
         var requiresExplicitRev869BGrant = normalizedPage is "purchase.rfq" or "purchase.vendor-quotations" or
-            "purchase.technical-verification" or "purchase.commercial-comparisons" or "purchase.po" or "purchase.material-followup";
+            "purchase.technical-verification" or "purchase.commercial-comparisons" or "purchase.po" or "purchase.material-followup" or "purchase.requisition-approvals";
         return grants.Any(grant =>
         {
             var explicitlyGranted = normalizedPermission switch

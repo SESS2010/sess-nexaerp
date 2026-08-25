@@ -59,7 +59,7 @@ public sealed class Rev869BPurchaseFoundationTests
     public void VendorTaxLateQuoteAndCurrencyRulesFailClosed()
     {
         Assert.Contains("vendors.IsEligibleAsync", ServiceSource); Assert.Contains("taxes.ResolveAsync", ServiceSource); Assert.Contains("TaxJurisdictions.IndiaGst", ServiceSource);
-        Assert.Contains("Currency conversion is not configured", ServiceSource); Assert.Contains("Late quotation/revision requires Purchase Manager authorization", ServiceSource);
+        Assert.Contains("Currency conversion is not configured", ServiceSource); Assert.Contains("Late quotation/revision authorization is not configured", ServiceSource);
         Assert.Contains("Vendor qualification was not valid at the controlled invitation event", ServiceSource);
     }
 

@@ -96,8 +96,8 @@ public static class Rev869ASeedData
         {
             Id = Id("rev869a-permission", LegacyPermissionIdentityRoleCode(role), page.PageKey), RoleId = role.Id, PageDefinitionId = page.Id,
             CanView = canView, CanCreate = canCreate, CanUpdate = canCreate, CanSubmit = canCreate,
-            CanVerify = canVerify, CanApprove = canApprove, CanReject = canVerify || canApprove,
-            CanRequestClarification = canVerify || canApprove, CanRequestRevision = canVerify || canApprove,
+            CanVerify = canVerify, CanApprove = canApprove, CanReject = canVerify && !qcManager || canApprove,
+            CanRequestClarification = canVerify || canApprove, CanRequestRevision = canVerify && !qcManager || canApprove,
             CanResubmit = canCreate, CanCancel = canCreate, CanDeactivate = canApprove,
             CanPrint = canView, CanDownload = canView, CanExport = director || accounts,
             CanUploadAttachment = canCreate, CanReplaceAttachment = false,

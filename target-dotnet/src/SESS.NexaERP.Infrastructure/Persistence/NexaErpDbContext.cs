@@ -723,6 +723,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasIndex(x => new { x.CompanyId, x.DepartmentId, x.ApprovalRouteCode, x.Scope, x.IsActive });
             entity.Property(x => x.ApprovalRouteCode).HasMaxLength(40).IsRequired();
             entity.Property(x => x.Scope).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.ApproverRoleCode).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);

@@ -25,6 +25,7 @@ public static class AdvanceSeedData
             .Concat(Rev869ADepartmentManagerPermissions())
             .Concat(Rev869BSeedData.RolePagePermissions)
             .Concat(Rev869BDepartmentManagerPermissions())
+            .Concat(ApprovalConfigurationPart2SeedData.RolePagePermissions)
             .ToArray();
 
         return ordered

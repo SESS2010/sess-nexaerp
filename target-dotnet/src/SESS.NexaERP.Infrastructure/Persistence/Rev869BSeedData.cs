@@ -68,26 +68,26 @@ public static class Rev869BSeedData
         var director = roleCode is Rev869ARoleCodes.TechnicalDirector or Rev869ARoleCodes.ManagingDirector;
         var stores = roleCode is Rev869ARoleCodes.StoresManager or Rev869ARoleCodes.StoresExecutive;
         var accounts = roleCode == "ACCOUNTS_HEAD";
-        var canView = director || purchaseManager || purchaseExecutive && (rfq || quote) ||
+        var canView = director || purchaseManager && (comparison || po) || purchaseExecutive && (rfq || quote) ||
             technicalVerifier && (rfq || quote || technical) || stores && (po || followUp) || accounts && (comparison || po);
-        var canCreate = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison || po) || technicalVerifier && technical;
-        var canUpdate = canCreate;
-        var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (rfq || quote || comparison || po) || technicalVerifier && technical;
-        var canVerify = purchaseManager && (rfq || quote || comparison) || technicalVerifier && technical || director && (technical || comparison);
-        var canApprove = purchaseManager && comparison || director && (comparison || po);
-        var canCancel = purchaseManager && (rfq || quote || po) || director && (rfq || quote || po);
+        var canCreate = purchaseExecutive && (rfq || quote) || purchaseManager && (comparison || po) || technicalVerifier && technical;
+        var canUpdate = purchaseManager && po || purchaseExecutive && (rfq || quote) || technicalVerifier && technical;
+        var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (comparison || po) || technicalVerifier && technical;
+        var canVerify = technicalVerifier && technical || director && (technical || comparison);
+        var canApprove = director && (comparison || po);
+        var canCancel = director && (rfq || quote || po);
         return new RolePagePermission
         {
             Id = PermissionId(roleCode, page.PageKey), RoleId = role.Id, PageDefinitionId = page.Id,
             CanView = canView, CanCreate = canCreate, CanUpdate = canUpdate, CanSubmit = canSubmit,
             CanIssue = purchaseManager && po,
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canApprove,
-            CanRequestClarification = canView && (rfq || technical || comparison), CanRequestRevision = canApprove,
-            CanResubmit = purchaseManager && (comparison || po), CanCancel = canCancel, CanDeactivate = false,
-            CanPrint = canView, CanDownload = canView, CanExport = canView && (accounts || director || purchaseManager),
-            CanUploadAttachment = canCreate, CanReplaceAttachment = false,
+            CanRequestClarification = canView && !purchaseManager && (rfq || technical || comparison), CanRequestRevision = canApprove,
+            CanResubmit = purchaseManager && comparison, CanCancel = canCancel, CanDeactivate = false,
+            CanPrint = canView && !purchaseManager, CanDownload = canView && !purchaseManager, CanExport = canView && (accounts || director),
+            CanUploadAttachment = canCreate && !purchaseManager, CanReplaceAttachment = false,
             CanViewCommercialValues = canView && (purchaseExecutive || purchaseManager || director || accounts),
-            CanViewAuditHistory = canView && (purchaseManager || director || accounts), HasFullControl = roleCode == Rev869ARoleCodes.ManagingDirector,
+            CanViewAuditHistory = canView && (director || accounts), HasFullControl = roleCode == Rev869ARoleCodes.ManagingDirector,
             CreatedAt = SeedTime, CreatedBy = "migration-rev869b"
         };
     }

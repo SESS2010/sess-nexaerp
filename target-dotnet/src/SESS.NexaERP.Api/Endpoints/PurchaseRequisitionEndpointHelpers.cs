@@ -185,10 +185,11 @@ public static partial class PurchaseRequisitionEndpoints
         if (actorEmployee is null) return new(false, mapping.PrimaryApproverEmployeeId, null, null, "Actor is not the configured department manager or active delegate.");
         if (!string.Equals(actorEmployee.Status, "Active", StringComparison.OrdinalIgnoreCase) || !actorEmployee.LoginEnabled) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department manager is inactive or login disabled.");
         if (actorEmployee.Id == pr.RequesterEmployeeId) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Requester/submitter cannot approve their own MANAGER route PR.");
+        var requiredRoleCode = mapping.ApproverRoleCode.Trim().ToUpperInvariant();
         var hasManagerRole = await db.EmployeeRoleAssignments.AsNoTracking()
             .Include(x => x.Role)
-            .AnyAsync(x => x.EmployeeId == actorEmployee.Id && x.ApprovalStatus == "SeedApproved" && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today) && x.Role != null && IsManagerLevelRoleCode(x.Role.Code), ct);
-        if (!hasManagerRole) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department manager lacks active manager-level approval permission.");
+            .AnyAsync(x => x.EmployeeId == actorEmployee.Id && x.ApprovalStatus == "SeedApproved" && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today) && x.Role != null && x.Role.Code == requiredRoleCode, ct);
+        if (!hasManagerRole) return new(false, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Configured department approver lacks the mapping's exact active role.");
         return new(true, actorEmployee.Id, actorEmployee.EmployeeCode, actorEmployee.EmployeeName, "Department manager approval resolved.");
     }
     public static decimal AvailableQuantity(decimal onHand, decimal activeReserved) => Math.Max(onHand - activeReserved, 0);

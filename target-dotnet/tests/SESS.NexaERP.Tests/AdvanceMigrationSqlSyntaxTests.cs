@@ -19,7 +19,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         "20260825063221_EmployeeMasterRebuild42",
         "20260825073027_CorrectManagingDirectorDepartmentPriority",
         "20260825092016_AuthenticationBootstrapFoundation",
-        "20260825125621_MultiCompanyEmployeeAuthorizationPart1"
+        "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
+        "20260825135023_ApprovalConfigurationAndPermissionsPart2"
     ];
 
     [Fact]
@@ -34,7 +35,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
-        server.Execute("business-part1-assertions.sql", Part1Assertions);
+        server.Execute("business-part2-assertions.sql", Part2Assertions);
         server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
     }
 
@@ -145,16 +146,20 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         GRANT nexa_rev869b_security_owner TO nexa_rev869b_lifecycle_administrator;
         """;
 
-    private const string Part1Assertions = """
+    private const string Part2Assertions = """
         DO $assert$
         BEGIN
           IF (SELECT count(*) FROM advance.roles)<>45 THEN RAISE EXCEPTION 'Expected 45 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.role_page_permissions)<>1088 THEN RAISE EXCEPTION 'Expected 1088 permissions.'; END IF;
+          IF (SELECT count(*) FROM advance.role_page_permissions)<>1090 THEN RAISE EXCEPTION 'Expected 1090 permissions.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments)<>99 THEN RAISE EXCEPTION 'Expected 99 role assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_operational_scopes)<>398 THEN RAISE EXCEPTION 'Expected 398 operational scopes.'; END IF;
           IF (SELECT count(*) FROM advance.employee_identity_mappings)<>0 THEN RAISE EXCEPTION 'Fresh chain must have no identity mappings before bootstrap.'; END IF;
+          IF (SELECT count(*) FROM advance.purchase_transaction_approval_policies WHERE "IsActive")<>6 THEN RAISE EXCEPTION 'Expected six active approval policies.'; END IF;
+          IF (SELECT count(*) FROM advance.purchase_approval_route_settings WHERE "IsActive")<>6 THEN RAISE EXCEPTION 'Expected six active approval route settings.'; END IF;
+          IF (SELECT count(*) FROM advance.purchase_approval_workflow_steps WHERE "IsActive")<>10 THEN RAISE EXCEPTION 'Expected ten active approval workflow steps.'; END IF;
+          IF (SELECT count(*) FROM advance.department_approval_mappings WHERE "IsActive")<>42 THEN RAISE EXCEPTION 'Expected 42 active department approval mappings.'; END IF;
         END $assert$;
         """;
 

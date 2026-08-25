@@ -82,13 +82,14 @@ public sealed class Rev869BPurchaseCorrectionTests
     public void PermissionMatrixHasNoEmptyOrCommercialOnlyLeakageAndPoApproversExist()
     {
         var rows = Rev869BSeedData.RolePagePermissions;
-        Assert.Equal(29, rows.Count);
+        Assert.Equal(25, rows.Count);
         Assert.All(rows, row => Assert.True(row.CanView || row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue || row.CanVerify || row.CanApprove || row.CanReject || row.CanRequestClarification || row.CanRequestRevision || row.CanResubmit || row.CanCancel || row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment || row.CanViewCommercialValues || row.CanViewAuditHistory || row.HasFullControl));
         Assert.All(rows.Where(row => row.CanViewCommercialValues || row.CanExport || row.CanViewAuditHistory), row => Assert.True(row.CanView));
         var poPage = Guid.Parse("20000000-0000-0000-0000-000000000012");
         Assert.Equal(2, rows.Count(row => row.PageDefinitionId == poPage && row.CanApprove && row.CanReject));
         var managerPo = rows.Single(row => row.Id == Rev869BSeedData.PermissionId(Rev869ARoleCodes.PurchaseManager, "purchase.po"));
-        Assert.True(managerPo.CanView && managerPo.CanCreate && managerPo.CanUpdate && managerPo.CanSubmit && managerPo.CanResubmit && managerPo.CanIssue);
+        Assert.True(managerPo.CanView && managerPo.CanCreate && managerPo.CanUpdate && managerPo.CanSubmit && managerPo.CanIssue);
+        Assert.False(managerPo.CanResubmit);
         Assert.False(managerPo.CanApprove || managerPo.CanReject || managerPo.CanRequestRevision || managerPo.HasFullControl);
         var mdPo = rows.Single(row => row.Id == Rev869BSeedData.PermissionId(Rev869ARoleCodes.ManagingDirector, "purchase.po"));
         Assert.True(mdPo.CanView && mdPo.CanApprove && mdPo.CanReject && mdPo.CanViewCommercialValues && mdPo.CanViewAuditHistory);

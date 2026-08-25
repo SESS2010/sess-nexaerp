@@ -200,9 +200,11 @@ public sealed class Rev869BPurchaseBehaviorTests
         var wrongRole = Service(new ServiceUser(true, "STORES_EXECUTIVE"));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => wrongRole.CreateRfqAsync(invalid, CancellationToken.None));
         var purchaseRole = Service(new ServiceUser(true, "PURCHASE_MANAGER"));
-        await Assert.ThrowsAsync<Rev869BValidationException>(() => purchaseRole.CreateRfqAsync(invalid, CancellationToken.None));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => purchaseRole.CreateRfqAsync(invalid, CancellationToken.None));
+        var purchaseExecutive = Service(new ServiceUser(true, "PURCHASE_EXECUTIVE"));
+        await Assert.ThrowsAsync<Rev869BValidationException>(() => purchaseExecutive.CreateRfqAsync(invalid, CancellationToken.None));
         var missingSingleSourceReason = invalid with { IdempotencyKey = "key", IsSingleSource = true, Lines = [new(Guid.NewGuid(), 1m)] };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => purchaseRole.CreateRfqAsync(missingSingleSourceReason, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => purchaseExecutive.CreateRfqAsync(missingSingleSourceReason, CancellationToken.None));
     }
 
     private static EfRev869BPurchaseService Service(ICurrentUser user)

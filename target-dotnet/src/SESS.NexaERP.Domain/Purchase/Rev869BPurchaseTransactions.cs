@@ -699,7 +699,7 @@ public sealed class PurchaseTransactionApprovalPolicy : CompanyScopedAuditableEn
     public string RouteCode { get; set; } = string.Empty;
     public decimal MinimumAmount { get; set; }
     public decimal? MaximumAmount { get; set; }
-    public string ApproverRoleCode { get; set; } = string.Empty;
+    public string? ApproverRoleCode { get; set; }
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public bool IsActive { get; set; } = true;

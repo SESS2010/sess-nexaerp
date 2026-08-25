@@ -13,7 +13,7 @@ public sealed partial class EfRev869BPurchaseService
 {
     public async Task<Rev869BDocumentResult> CreateRfqAsync(Rev869BCreateRfqRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive);
         if (request.Lines.Count == 0 || request.QuoteDueAt <= DateTimeOffset.UtcNow || string.IsNullOrWhiteSpace(request.IdempotencyKey)) throw new Rev869BValidationException("RFQ lines, future due date and idempotency key are required.");
         var currency = NormalizeCurrency(request.CurrencyCode);
         if (request.IsSingleSource && string.IsNullOrWhiteSpace(request.SingleSourceJustification)) throw new InvalidOperationException("Single-source RFQ justification is required.");
@@ -71,7 +71,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> InviteVendorAsync(string rfqNumber, Rev869BInviteVendorRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive);
         await using var tx = await BeginTransactionScopeAsync("InviteVendor", request.IdempotencyKey,
             new { rfqNumber = rfqNumber.Trim().ToUpperInvariant(), request }, ct);
         var organization = RequireOrganization();
@@ -135,7 +135,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> SubmitQuotationRevisionAsync(Guid invitationId, Rev869BSubmitQuotationRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager);
+        var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseExecutive);
         await using var tx = await BeginTransactionScopeAsync("SubmitQuotation", request.IdempotencyKey,
             new { invitationId, request }, ct);
         var organization = RequireOrganization();
@@ -159,7 +159,7 @@ public sealed partial class EfRev869BPurchaseService
         if (source is not ("EMAIL_RECEIVED" or "PHYSICAL_RECEIVED")) throw new Rev869BValidationException("Internal entry must identify an approved received-on-behalf-of-vendor source.");
         if (request.ReceivedAt > DateTimeOffset.UtcNow || request.ReceivedAt == default || Required(request.AttachmentSha256, "Attachment SHA-256").Length != 64) throw new Rev869BValidationException("Received timestamp and 64-character attachment SHA-256 are required.");
         var now = DateTimeOffset.UtcNow; var late = request.ReceivedAt > invitation.QuoteDueAtSnapshot;
-        if (late && (!request.RequestLateAuthorization || !IsRole(Rev869ARoleCodes.PurchaseManager) || string.IsNullOrWhiteSpace(request.LateAuthorizationRemarks))) throw new Rev869BValidationException("Late quotation/revision requires Purchase Manager authorization and remarks.");
+        if (late) throw new Rev869BValidationException("Late quotation/revision authorization is not configured.");
         var previous = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == organization && x.RfqVendorInvitationId == invitationId && x.IsCurrentRevision, ct);
         if (previous is null && request.PreviousQuotationVersion.HasValue || previous is not null && request.PreviousQuotationVersion != previous.Version) throw new DbUpdateConcurrencyException("Previous quotation version is stale or inconsistent.");
         if (invitation.Status == Rev869BStatuses.Issued)
