@@ -29,7 +29,8 @@ public sealed class Rev868C3ImplementationTests
         {
             advanceBaseline,
             "20260824135450_MultiCompanySharedIdentityFoundation",
-            "20260824150742_CalibrationPurchasePairItemTypeCorrections"
+            "20260824150742_CalibrationPurchasePairItemTypeCorrections",
+            "20260825063221_EmployeeMasterRebuild42"
         }, migrations);
     }
 

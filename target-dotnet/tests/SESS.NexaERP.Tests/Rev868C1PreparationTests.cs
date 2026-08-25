@@ -466,7 +466,8 @@ public sealed class Rev868C1PreparationTests
         {
             "20260824032638_AdvanceInitialBaseline",
             "20260824135450_MultiCompanySharedIdentityFoundation",
-            "20260824150742_CalibrationPurchasePairItemTypeCorrections"
+            "20260824150742_CalibrationPurchasePairItemTypeCorrections",
+            "20260825063221_EmployeeMasterRebuild42"
         };
 
         foreach (var id in expected)

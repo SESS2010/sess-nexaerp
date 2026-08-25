@@ -19,7 +19,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
-        Assert.Equal(3, migrations.Length);
+        Assert.Equal(4, migrations.Length);
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
@@ -33,7 +33,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
-        var migration = db.Database.GetMigrations().Last();
+        var migration = db.Database.GetMigrations().Single(x => x == "20260824150742_CalibrationPurchasePairItemTypeCorrections");
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("foundation-up.sql", migrator.GenerateScript("0", migration));
         server.Execute("foundation-catalogue-assertions.sql", FoundationCatalogueAssertions);
@@ -83,8 +83,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var businessMigrator = business.GetService<IMigrator>();
         var securityMigrator = security.GetService<IMigrator>();
         var businessMigrations = business.Database.GetMigrations().ToArray();
-        Assert.Equal(3, businessMigrations.Length);
-        var businessMigration = businessMigrations[^1];
+        Assert.Equal(4, businessMigrations.Length);
+        var businessMigration = businessMigrations[^2];
         var securityMigration = Assert.Single(security.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
@@ -112,7 +112,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
           AS 'SELECT public.digest($1,$2)';
         CREATE FUNCTION pg_catalog.digest(text,text) RETURNS bytea LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
           AS 'SELECT public.digest($1,$2)';
-        ALTER DATABASE postgres SET advance.rev869b_lease_id = '11111111-1111-1111-1111-111111111111';
+        ALTER DATABASE advance_parser SET advance.rev869b_lease_id = '11111111-1111-1111-1111-111111111111';
         CREATE ROLE nexa_rev869b_security_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_rev869b_lifecycle_administrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_rev869b_app_runtime LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -228,7 +228,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         if (Directory.Exists(root)) candidates = candidates.Concat(Directory.GetDirectories(root)
             .OrderDescending().Select(path => Path.Combine(path, "bin"))).ToArray();
         var suffix = OperatingSystem.IsWindows() ? ".exe" : string.Empty;
-        return candidates.FirstOrDefault(path => new[] { "initdb", "pg_ctl", "psql" }
+        return candidates.FirstOrDefault(path => new[] { "initdb", "pg_ctl", "psql", "createdb" }
                    .All(name => File.Exists(Path.Combine(path, name + suffix))))
                ?? throw new InvalidOperationException("Set ADVANCE_POSTGRES_BIN to a real PostgreSQL bin directory.");
     }
@@ -261,6 +261,9 @@ public sealed class AdvanceMigrationSqlSyntaxTests
                     "-o", $"-h 127.0.0.1 -p {server._port} -c fsync=off -c synchronous_commit=off",
                     "-w", "start"), "pg_ctl start");
                 server._started = true;
+                server.Require(server.Run("createdb", "--host", "127.0.0.1", "--port",
+                    server._port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
+                    "advance_parser"), "createdb");
                 return server;
             }
             catch
@@ -285,7 +288,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             File.WriteAllText(file, sql);
             return Run("psql", "-X", "--quiet", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
                 _port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
-                "--dbname", "postgres", "--file", file);
+                "--dbname", "advance_parser", "--file", file);
         }
 
         public void Dispose()
