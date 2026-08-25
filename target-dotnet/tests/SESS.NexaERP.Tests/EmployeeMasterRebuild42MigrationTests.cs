@@ -21,7 +21,7 @@ public sealed class EmployeeMasterRebuild42MigrationTests
         using var db = new NexaErpDbContext(options);
         var migrations = db.Database.GetMigrations().ToArray();
 
-        Assert.Equal(MigrationId, migrations[^1]);
+        Assert.Equal("20260825073027_CorrectManagingDirectorDepartmentPriority", migrations[Array.IndexOf(migrations, MigrationId) + 1]);
         Assert.Equal(1, migrations.Count(x => x == MigrationId));
 
         var source = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260825063221_EmployeeMasterRebuild42.cs");

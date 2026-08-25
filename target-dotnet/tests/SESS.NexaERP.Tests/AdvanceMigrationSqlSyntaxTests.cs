@@ -19,7 +19,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
-        Assert.Equal(4, migrations.Length);
+        Assert.Equal(5, migrations.Length);
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
@@ -83,8 +83,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var businessMigrator = business.GetService<IMigrator>();
         var securityMigrator = security.GetService<IMigrator>();
         var businessMigrations = business.Database.GetMigrations().ToArray();
-        Assert.Equal(4, businessMigrations.Length);
-        var businessMigration = businessMigrations[^2];
+        Assert.Equal(5, businessMigrations.Length);
+        var businessMigration = businessMigrations[^3];
         var securityMigration = Assert.Single(security.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));

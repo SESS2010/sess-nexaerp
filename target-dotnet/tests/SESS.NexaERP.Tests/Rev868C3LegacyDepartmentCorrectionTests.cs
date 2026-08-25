@@ -34,7 +34,8 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
             advanceBaseline,
             string.Concat(20260824135450L, (char)95, nameof(MultiCompanySharedIdentityFoundation)),
             string.Concat(20260824150742L, (char)95, nameof(CalibrationPurchasePairItemTypeCorrections)),
-            "20260825063221_EmployeeMasterRebuild42"
+            "20260825063221_EmployeeMasterRebuild42",
+            "20260825073027_CorrectManagingDirectorDepartmentPriority"
         }, migrations);
     }
 
