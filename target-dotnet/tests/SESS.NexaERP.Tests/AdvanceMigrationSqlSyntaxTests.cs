@@ -11,6 +11,16 @@ namespace SESS.NexaERP.Tests;
 
 public sealed class AdvanceMigrationSqlSyntaxTests
 {
+    private static readonly string[] ExpectedBusinessMigrationIds =
+    [
+        "20260824032638_AdvanceInitialBaseline",
+        "20260824135450_MultiCompanySharedIdentityFoundation",
+        "20260824150742_CalibrationPurchasePairItemTypeCorrections",
+        "20260825063221_EmployeeMasterRebuild42",
+        "20260825073027_CorrectManagingDirectorDepartmentPriority",
+        "20260825092016_AuthenticationBootstrapFoundation"
+    ];
+
     [Fact]
     public void GeneratedBusinessBaselineScriptsAreAcceptedByDisposablePostgreSql()
     {
@@ -19,7 +29,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
-        Assert.Equal(5, migrations.Length);
+        AssertExpectedBusinessMigrations(migrations);
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
@@ -83,8 +93,9 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var businessMigrator = business.GetService<IMigrator>();
         var securityMigrator = security.GetService<IMigrator>();
         var businessMigrations = business.Database.GetMigrations().ToArray();
-        Assert.Equal(5, businessMigrations.Length);
-        var businessMigration = businessMigrations[^3];
+        AssertExpectedBusinessMigrations(businessMigrations);
+        var businessMigration = businessMigrations.Single(x =>
+            x == "20260824150742_CalibrationPurchasePairItemTypeCorrections");
         var securityMigration = Assert.Single(security.Database.GetMigrations());
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
@@ -92,6 +103,13 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         server.Execute("security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
         server.Execute("security-down.sql", securityMigrator.GenerateScript(securityMigration, "0"));
         server.Execute("business-down.sql", businessMigrator.GenerateScript(businessMigration, "0"));
+    }
+
+    private static void AssertExpectedBusinessMigrations(IEnumerable<string> migrations)
+    {
+        var actual = migrations.ToHashSet(StringComparer.Ordinal);
+        foreach (var expected in ExpectedBusinessMigrationIds)
+            Assert.Contains(expected, actual);
     }
 
     [Theory]

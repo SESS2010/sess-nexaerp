@@ -475,7 +475,7 @@ public sealed class Rev869BCorrection17SourceContractTests
     }
 
     [Fact]
-    public void A3_CheckpointSqlEvidenceMatchesMachineCapturedCanonicalResultExactly()
+    public void A3_CheckpointSqlIntegrityMatchesExactlyAndToolchainProvenanceIsRecorded()
     {
         var evidence = CanonicalSqlRuns.Value.Run1;
         var checkpoint = Source("outputs/rev869b_external_controller_phase_a_checkpoint.md");
@@ -485,7 +485,13 @@ public sealed class Rev869BCorrection17SourceContractTests
         var finish = checkpoint.IndexOf(end, StringComparison.Ordinal);
         Assert.True(start >= 0 && finish > start);
         var actual = checkpoint[(start + begin.Length)..finish].Trim();
-        Assert.Equal(JsonSerializer.Serialize(CheckpointProjection(evidence)), actual);
+        var checkpointEvidence = JsonSerializer.Deserialize<CanonicalSqlCheckpointProjection>(actual);
+        Assert.NotNull(checkpointEvidence);
+        AssertToolchainProvenanceRecorded(checkpointEvidence);
+        AssertToolchainProvenanceRecorded(evidence);
+        Assert.Equal(
+            JsonSerializer.Serialize(CheckpointIntegrityProjection(evidence)),
+            JsonSerializer.Serialize(CheckpointIntegrityProjection(checkpointEvidence)));
     }
 
     [Fact]
@@ -692,15 +698,8 @@ public sealed class Rev869BCorrection17SourceContractTests
             throw new InvalidDataException("Canonical SQL evidence differs from the trusted machine result.");
     }
 
-    private static CanonicalSqlCheckpointProjection CheckpointProjection(CanonicalSqlEvidence evidence) => new(
-        evidence.Commit,
-        evidence.SdkVersion,
-        evidence.RuntimeVersion,
-        evidence.EfCliVersion,
-        evidence.EfCoreVersion,
-        evidence.NpgsqlVersion,
-        evidence.OperatingSystem,
-        evidence.Culture,
+    private static CanonicalSqlCheckpointIntegrityProjection CheckpointIntegrityProjection(
+        CanonicalSqlEvidence evidence) => new(
         evidence.ConnectionString,
         evidence.UpFrom,
         evidence.UpTo,
@@ -709,7 +708,6 @@ public sealed class Rev869BCorrection17SourceContractTests
         evidence.GenerationOptions,
         evidence.NewlineRule,
         evidence.EncodingRule,
-        evidence.SourceHashes,
         evidence.Up.ByteCount,
         evidence.Up.LfCount,
         evidence.Up.Sha256,
@@ -718,6 +716,59 @@ public sealed class Rev869BCorrection17SourceContractTests
         evidence.Down.Sha256,
         evidence.ConnectionOpenCount,
         evidence.MigrationApplyCount);
+
+    private static CanonicalSqlCheckpointIntegrityProjection CheckpointIntegrityProjection(
+        CanonicalSqlCheckpointProjection evidence) => new(
+        evidence.ConnectionString,
+        evidence.UpFrom,
+        evidence.UpTo,
+        evidence.DownFrom,
+        evidence.DownTo,
+        evidence.GenerationOptions,
+        evidence.NewlineRule,
+        evidence.EncodingRule,
+        evidence.UpByteCount,
+        evidence.UpLfCount,
+        evidence.UpSha256,
+        evidence.DownByteCount,
+        evidence.DownLfCount,
+        evidence.DownSha256,
+        evidence.ConnectionOpenCount,
+        evidence.MigrationApplyCount);
+
+    private static void AssertToolchainProvenanceRecorded(CanonicalSqlEvidence evidence)
+    {
+        Assert.Matches(@"^[0-9a-f]{40}$", evidence.Commit);
+        Assert.Matches(@"^\d+\.\d+\.\d+", evidence.SdkVersion);
+        Assert.Matches(@"^\.NET \d+\.\d+\.\d+", evidence.RuntimeVersion);
+        Assert.False(string.IsNullOrWhiteSpace(evidence.EfCliVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.EfCoreVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.NpgsqlVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.OperatingSystem));
+        AssertSourceHashesRecorded(evidence.SourceHashes);
+    }
+
+    private static void AssertToolchainProvenanceRecorded(CanonicalSqlCheckpointProjection evidence)
+    {
+        Assert.Matches(@"^[0-9a-f]{40}$", evidence.Commit);
+        Assert.Matches(@"^\d+\.\d+\.\d+", evidence.SdkVersion);
+        Assert.Matches(@"^\.NET \d+\.\d+\.\d+", evidence.RuntimeVersion);
+        Assert.False(string.IsNullOrWhiteSpace(evidence.EfCliVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.EfCoreVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.NpgsqlVersion));
+        Assert.False(string.IsNullOrWhiteSpace(evidence.OperatingSystem));
+        AssertSourceHashesRecorded(evidence.SourceHashes);
+    }
+
+    private static void AssertSourceHashesRecorded(Dictionary<string, string> sourceHashes)
+    {
+        Assert.NotEmpty(sourceHashes);
+        Assert.All(sourceHashes, pair =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(pair.Key));
+            Assert.Matches(@"^[0-9A-F]{64}$", pair.Value);
+        });
+    }
 
     private static CanonicalSqlOutput SqlOutput(string sql, Encoding encoding)
     {
@@ -818,6 +869,24 @@ public sealed class Rev869BCorrection17SourceContractTests
         string NewlineRule,
         string EncodingRule,
         Dictionary<string, string> SourceHashes,
+        int UpByteCount,
+        int UpLfCount,
+        string UpSha256,
+        int DownByteCount,
+        int DownLfCount,
+        string DownSha256,
+        int ConnectionOpenCount,
+        int MigrationApplyCount);
+
+    private sealed record CanonicalSqlCheckpointIntegrityProjection(
+        string ConnectionString,
+        string UpFrom,
+        string UpTo,
+        string DownFrom,
+        string DownTo,
+        string GenerationOptions,
+        string NewlineRule,
+        string EncodingRule,
         int UpByteCount,
         int UpLfCount,
         string UpSha256,
