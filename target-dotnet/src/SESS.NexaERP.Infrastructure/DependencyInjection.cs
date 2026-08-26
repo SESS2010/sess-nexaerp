@@ -29,8 +29,10 @@ public static class DependencyInjection
         services.AddHealthChecks().AddDbContextCheck<NexaErpDbContext>("postgresql", tags: ["db"]);
         services.AddSingleton<IDateTimeProvider, SystemClock>();
         services.AddScoped<IAuditWriter, EfAuditWriter>();
+        services.AddScoped<IAuditHistoryService, EfAuditHistoryService>();
         services.AddScoped<IPagePermissionService, EfPagePermissionService>();
         services.AddScoped<IEmployeeIdentityResolver, EfEmployeeIdentityResolver>();
+        services.AddScoped<ISessionService, EfSessionService>();
         services.AddScoped<IRecordScopeAuthorizer, EfRecordScopeAuthorizer>();
         services.AddScoped<IUomConversionService, EfUomConversionService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();

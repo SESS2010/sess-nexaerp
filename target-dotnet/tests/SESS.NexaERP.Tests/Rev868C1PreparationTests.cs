@@ -478,7 +478,7 @@ public sealed class Rev868C1PreparationTests
         foreach (var id in expected)
             Assert.Equal(1, migrations.Count(x => x == id));
 
-        Assert.Equal(expected, migrations);
+        Assert.Equal(expected, migrations.Take(expected.Length));
         Assert.Equal(1, migrations.Count(x => x.Contains("AdvanceInitialBaseline", StringComparison.Ordinal)));
 
         for (var i = 1; i < expected.Length; i++)

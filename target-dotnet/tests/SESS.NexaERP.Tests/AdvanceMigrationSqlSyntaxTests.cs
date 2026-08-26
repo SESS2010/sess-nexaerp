@@ -34,9 +34,25 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         AssertExpectedBusinessMigrations(migrations);
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
         server.Execute("business-part2-assertions.sql", Part2Assertions);
         server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
+    }
+
+    [Fact]
+    public void AuthenticationBootstrapCeremonyCompletesExactlyOnceForSess12InBothCompanies()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
+        server.Execute("bootstrap-business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("bootstrap-ceremony.sql", BootstrapCeremony);
+        server.AssertRejected("bootstrap-replay.sql", "SET SESSION AUTHORIZATION nexa_erp_bootstrap; SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');");
     }
 
     [Fact]
@@ -144,6 +160,28 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_rev869b_export_service LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_rev869b_target_verifier LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         GRANT nexa_rev869b_security_owner TO nexa_rev869b_lifecycle_administrator;
+        """;
+
+    private const string BootstrapRolePrerequisites = """
+        CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        """;
+
+    private const string BootstrapCeremony = """
+        GRANT USAGE ON SCHEMA advance TO nexa_erp_bootstrap;
+        SET SESSION AUTHORIZATION nexa_erp_bootstrap;
+        SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');
+        RESET SESSION AUTHORIZATION;
+        DO $assert$
+        BEGIN
+          IF (SELECT count(*) FROM advance.employee_identity_mappings WHERE "EmployeeId"=(SELECT "Id" FROM advance.employees WHERE "EmployeeCode"='SESS-12') AND "IsActive")<>2 THEN RAISE EXCEPTION 'Expected two SESS-12 company identity mappings.'; END IF;
+          IF (SELECT count(*) FROM advance.employees WHERE "EmployeeCode"='SESS-12' AND "EmployeeName"='SURANTHER P' AND "LoginEnabled")<>1 THEN RAISE EXCEPTION 'Expected SESS-12 login to be enabled.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.roles r ON r."Id"=a."RoleId" WHERE a."EmployeeId"=(SELECT "Id" FROM advance.employees WHERE "EmployeeCode"='SESS-12') AND r."Code"='IT_MANAGER')<>2 THEN RAISE EXCEPTION 'Expected two SESS-12 IT_MANAGER assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_operational_scopes WHERE "EmployeeId"=(SELECT "Id" FROM advance.employees WHERE "EmployeeCode"='SESS-12') AND "IsActive")<>2 THEN RAISE EXCEPTION 'Expected two pre-existing company-correct SESS-12 scopes.'; END IF;
+          IF (SELECT count(*) FROM advance.audit_logs WHERE "CreatedBy"='AUTHENTICATION_BOOTSTRAP_INSTALLER' AND "Scope"='COMPANY')<>2 THEN RAISE EXCEPTION 'Expected two company bootstrap audit rows.'; END IF;
+          IF (SELECT count(*) FROM advance.authentication_bootstrap_state WHERE "Status"='COMPLETED' AND "CompanyCount"=2 AND octet_length("CompanySetSha256")=32 AND octet_length("IssuerSha256")=32 AND octet_length("SubjectSha256")=32)<>1 THEN RAISE EXCEPTION 'Bootstrap completion witness mismatch.'; END IF;
+        END $assert$;
         """;
 
     private const string Part2Assertions = """

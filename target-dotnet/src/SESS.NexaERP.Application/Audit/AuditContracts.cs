@@ -10,3 +10,12 @@ public sealed record AuditLogSummary(
     string Result,
     string CorrelationId,
     DateTimeOffset CreatedAt);
+
+public interface IAuditHistoryService
+{
+    Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(
+        string? module,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken);
+}

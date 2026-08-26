@@ -46,6 +46,7 @@ public static class Rev869AConfigurationEndpoints
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase)) return Results.Conflict(new { message = "Identity must map to one active login-enabled employee." });
         var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
         var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
         if (company is null) return Results.Conflict(new { message = "Identity organization must identify one active company." });
         var hasCompanyAssignment = await db.EmployeeCompanyAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
@@ -69,6 +70,7 @@ public static class Rev869AConfigurationEndpoints
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.EmployeeCode) && x.Status == MasterStatuses.Active, ct);
         if (employee is null) return Results.Conflict(new { message = "Active employee was not found." });
         var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
         var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
         if (company is null) return Results.Conflict(new { message = "Scope organization must identify one active company." });
         var companyAssignment = await db.EmployeeCompanyAssignments.SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
@@ -82,7 +84,7 @@ public static class Rev869AConfigurationEndpoints
             && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (!hasDepartmentAssignment) return Results.Conflict(new { message = "Scope department must be actively assigned to the employee in the selected company." });
         Guid? warehouseId = null;
-        if (!string.IsNullOrWhiteSpace(request.WarehouseCode)) warehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (!string.IsNullOrWhiteSpace(request.WarehouseCode)) warehouseId = await db.Warehouses.Where(x => x.CompanyId == company.Id && x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (request.RackBinId.HasValue)
         {
             var rack = await db.RackBins.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);

@@ -7,3 +7,20 @@ public sealed record CreateRoleRequest(string Code, string Name, bool IsPrivileg
 public sealed record UserAccountSummary(Guid Id, string LoginId, string DisplayName, string Email, string UserType, string RoleCode, bool MfaRequired, bool IsActive);
 
 public sealed record CreateUserAccountRequest(string LoginId, string DisplayName, string Email, string UserType, string RoleCode, bool MfaRequired);
+
+public sealed record SessionMe(
+    Guid EmployeeId,
+    string EmployeeCode,
+    string EmployeeName,
+    Guid CompanyId,
+    string OrganizationId,
+    Guid DepartmentId,
+    string DepartmentCode,
+    IReadOnlyList<string> RoleCodes,
+    string IdentityIssuer,
+    string IdentitySubject);
+
+public interface ISessionService
+{
+    Task<SessionMe> GetCurrentAsync(CancellationToken cancellationToken);
+}

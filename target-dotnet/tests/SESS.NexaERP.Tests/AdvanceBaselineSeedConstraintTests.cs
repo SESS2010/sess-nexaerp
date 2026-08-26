@@ -76,14 +76,16 @@ public sealed class AdvanceBaselineSeedConstraintTests
         var validators = new Dictionary<(string Table, string Name), CheckValidator>
         {
             [("authentication_bootstrap_state", "CK_authentication_bootstrap_completion")] = new(
-                "(\"Status\"='PENDING' AND \"EmployeeId\" IS NULL AND \"CompanyId\" IS NULL AND \"OrganizationId\" IS NULL AND \"IssuerSha256\" IS NULL AND \"SubjectSha256\" IS NULL AND \"CompletedAt\" IS NULL AND \"CompletedBy\" IS NULL) OR (\"Status\"='COMPLETED' AND \"EmployeeId\" IS NOT NULL AND \"CompanyId\" IS NOT NULL AND length(trim(\"OrganizationId\"))>0 AND octet_length(\"IssuerSha256\")=32 AND octet_length(\"SubjectSha256\")=32 AND \"CompletedAt\" IS NOT NULL AND length(trim(\"CompletedBy\"))>0)",
+                "(\"Status\"='PENDING' AND \"EmployeeId\" IS NULL AND \"CompanyId\" IS NULL AND \"OrganizationId\" IS NULL AND \"IssuerSha256\" IS NULL AND \"SubjectSha256\" IS NULL AND \"CompanyCount\" IS NULL AND \"CompanySetSha256\" IS NULL AND \"CompletedAt\" IS NULL AND \"CompletedBy\" IS NULL) OR (\"Status\"='COMPLETED' AND \"EmployeeId\" IS NOT NULL AND \"CompanyId\" IS NOT NULL AND length(trim(\"OrganizationId\"))>0 AND octet_length(\"IssuerSha256\")=32 AND octet_length(\"SubjectSha256\")=32 AND \"CompanyCount\">0 AND octet_length(\"CompanySetSha256\")=32 AND \"CompletedAt\" IS NOT NULL AND length(trim(\"CompletedBy\"))>0)",
                 row => StringValue(row, "Status") == "PENDING"
-                    ? new[] { "EmployeeId", "CompanyId", "OrganizationId", "IssuerSha256", "SubjectSha256", "CompletedAt", "CompletedBy" }.All(x => Value(row, x) is null)
+                    ? new[] { "EmployeeId", "CompanyId", "OrganizationId", "IssuerSha256", "SubjectSha256", "CompanyCount", "CompanySetSha256", "CompletedAt", "CompletedBy" }.All(x => Value(row, x) is null)
                     : StringValue(row, "Status") == "COMPLETED"
                       && Value(row, "EmployeeId") is not null && Value(row, "CompanyId") is not null
                       && !string.IsNullOrWhiteSpace(StringValue(row, "OrganizationId"))
                       && Value(row, "IssuerSha256") is byte[] issuer && issuer.Length == 32
                       && Value(row, "SubjectSha256") is byte[] subject && subject.Length == 32
+                      && Value(row, "CompanyCount") is int companyCount && companyCount > 0
+                      && Value(row, "CompanySetSha256") is byte[] companySet && companySet.Length == 32
                       && Value(row, "CompletedAt") is not null && !string.IsNullOrWhiteSpace(StringValue(row, "CompletedBy"))),
             [("authentication_bootstrap_state", "CK_authentication_bootstrap_singleton")] = new(
                 "\"Id\" = '81000000-0000-0000-0000-000000000001'::uuid",

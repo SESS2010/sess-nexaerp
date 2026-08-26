@@ -21,6 +21,6 @@ public sealed class EmployeeIdentityMapping : CompanyScopedAuditableEntity
     public DateOnly? EffectiveTo { get; set; }
     public bool IsActive { get; set; } = true;
 
-    public static string NormalizeIssuer(string value) => value.Trim().TrimEnd('/').ToUpperInvariant();
+    public static string NormalizeIssuer(string value) => value.Trim().TrimEnd('/');
     public static string NormalizeSubject(string value) => value.Trim();
 }

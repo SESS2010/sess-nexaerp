@@ -16,6 +16,8 @@ public sealed class AuthenticationBootstrapState : AuditableEntity
     public string? OrganizationId { get; set; }
     public byte[]? IssuerSha256 { get; set; }
     public byte[]? SubjectSha256 { get; set; }
+    public int? CompanyCount { get; set; }
+    public byte[]? CompanySetSha256 { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string? CompletedBy { get; set; }
 }

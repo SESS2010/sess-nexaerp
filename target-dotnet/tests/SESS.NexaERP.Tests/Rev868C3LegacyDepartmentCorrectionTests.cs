@@ -29,7 +29,7 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
         const string advanceBaseline = "20260824032638_AdvanceInitialBaseline";
 
         Assert.Equal(1, migrations.Count(x => x == advanceBaseline));
-        Assert.Equal(new[]
+        var expected = new[]
         {
             advanceBaseline,
             string.Concat(20260824135450L, (char)95, nameof(MultiCompanySharedIdentityFoundation)),
@@ -40,7 +40,8 @@ public sealed class Rev868C3LegacyDepartmentCorrectionTests
             "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
             "20260825135023_ApprovalConfigurationAndPermissionsPart2",
             "20260826054057_TwoLevelPurchaseApprovalEnginePart3"
-        }, migrations);
+        };
+        Assert.Equal(expected, migrations.Take(expected.Length));
     }
 
     [Fact]

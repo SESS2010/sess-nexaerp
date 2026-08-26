@@ -1,6 +1,13 @@
 using Npgsql;
 
-return await DatabasePrincipalCommand.RunAsync(args);
+return await InstallerCommand.RunAsync(args);
+
+internal static class InstallerCommand
+{
+    internal static Task<int> RunAsync(string[] args) => args.Length > 0 && args[0] == "authentication-bootstrap"
+        ? AuthenticationBootstrapCommand.RunAsync(args[1..])
+        : DatabasePrincipalCommand.RunAsync(args);
+}
 
 internal static class DatabasePrincipalCommand
 {
@@ -150,5 +157,5 @@ internal static class DatabasePrincipalCommand
     }
 
     private static void WriteUsage() =>
-        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>");
+        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>");
 }

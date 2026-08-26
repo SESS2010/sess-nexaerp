@@ -1,6 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
-using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Api.Security;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
@@ -12,27 +12,13 @@ public static class AuditEndpoints
             .WithTags("Audit")
             .RequireAuthorization();
 
-        group.MapGet("/history", async (NexaErpDbContext db, string? module, int? page, int? pageSize, CancellationToken cancellationToken) =>
+        group.MapGet("/history", async (IAuditHistoryService service, string? module, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
             var safePage = Math.Max(page ?? 1, 1);
             var safePageSize = Math.Clamp(pageSize ?? 50, 1, 200);
-            var query = db.AuditLogs.AsNoTracking();
-
-            if (!string.IsNullOrWhiteSpace(module))
-            {
-                var normalizedModule = module.Trim();
-                query = query.Where(log => log.Module == normalizedModule);
-            }
-
-            var rows = await query
-                .OrderByDescending(log => log.CreatedAt)
-                .Skip((safePage - 1) * safePageSize)
-                .Take(safePageSize)
-                .Select(log => new AuditLogSummary(log.Id, log.Module, log.Action, log.EntityName, log.EntityId, log.UserLoginId, log.Result, log.CorrelationId, log.CreatedAt))
-                .ToListAsync(cancellationToken);
-
-            return Results.Ok(rows);
-        });
+            try { return Results.Ok(await service.GetCompanyHistoryAsync(module, safePage, safePageSize, cancellationToken)); }
+            catch (UnauthorizedAccessException) { return Results.Unauthorized(); }
+        }).RequirePagePermission("audit.history", PagePermissionActions.ViewAuditHistory);
 
         return endpoints;
     }

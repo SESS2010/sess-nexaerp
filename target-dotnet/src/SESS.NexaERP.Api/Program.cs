@@ -24,6 +24,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.Authority = builder.Configuration["Authentication:Authority"];
         options.Audience = builder.Configuration["Authentication:Audience"];
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.MapInboundClaims = false;
     });
 builder.Services.AddAuthorization();
 
@@ -76,19 +77,19 @@ app.MapGet("/api/v1/purchase-stores/workflow-stages", () => Results.Ok(new
     stages = Enum.GetNames<PurchaseStoresStage>()
 }));
 
-app.MapGet("/api/v1/system/database-model", (NexaErpDbContext dbContext) => Results.Ok(new
+if (app.Environment.IsDevelopment())
 {
-    schema = DatabaseSchemas.Advance,
-    provider = dbContext.Database.ProviderName,
-    entities = dbContext.Model.GetEntityTypes()
-        .Select(entityType => new
-        {
-            name = entityType.ClrType.Name,
-            table = entityType.GetTableName()
-        })
-        .OrderBy(entity => entity.name)
-}));
+    app.MapGet("/api/v1/system/database-model", (NexaErpDbContext dbContext) => Results.Ok(new
+    {
+        schema = DatabaseSchemas.Advance,
+        provider = dbContext.Database.ProviderName,
+        entities = dbContext.Model.GetEntityTypes()
+            .Select(entityType => new { name = entityType.ClrType.Name, table = entityType.GetTableName() })
+            .OrderBy(entity => entity.name)
+    }));
+}
 
+app.MapSessionEndpoints();
 app.MapIdentityEndpoints();
 app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();

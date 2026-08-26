@@ -113,14 +113,15 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
                 table.HasCheckConstraint("CK_authentication_bootstrap_singleton", $@"""Id"" = '{AuthenticationBootstrapSeed.Id:D}'::uuid");
                 table.HasCheckConstraint("CK_authentication_bootstrap_status", @"""Status"" IN ('PENDING','COMPLETED')");
                 table.HasCheckConstraint("CK_authentication_bootstrap_completion",
-                    @"(""Status""='PENDING' AND ""EmployeeId"" IS NULL AND ""CompanyId"" IS NULL AND ""OrganizationId"" IS NULL AND ""IssuerSha256"" IS NULL AND ""SubjectSha256"" IS NULL AND ""CompletedAt"" IS NULL AND ""CompletedBy"" IS NULL) OR " +
-                    @"(""Status""='COMPLETED' AND ""EmployeeId"" IS NOT NULL AND ""CompanyId"" IS NOT NULL AND length(trim(""OrganizationId""))>0 AND octet_length(""IssuerSha256"")=32 AND octet_length(""SubjectSha256"")=32 AND ""CompletedAt"" IS NOT NULL AND length(trim(""CompletedBy""))>0)");
+                    @"(""Status""='PENDING' AND ""EmployeeId"" IS NULL AND ""CompanyId"" IS NULL AND ""OrganizationId"" IS NULL AND ""IssuerSha256"" IS NULL AND ""SubjectSha256"" IS NULL AND ""CompanyCount"" IS NULL AND ""CompanySetSha256"" IS NULL AND ""CompletedAt"" IS NULL AND ""CompletedBy"" IS NULL) OR " +
+                    @"(""Status""='COMPLETED' AND ""EmployeeId"" IS NOT NULL AND ""CompanyId"" IS NOT NULL AND length(trim(""OrganizationId""))>0 AND octet_length(""IssuerSha256"")=32 AND octet_length(""SubjectSha256"")=32 AND ""CompanyCount"">0 AND octet_length(""CompanySetSha256"")=32 AND ""CompletedAt"" IS NOT NULL AND length(trim(""CompletedBy""))>0)");
             });
             entity.HasKey(x => x.Id);
             entity.Property(x => x.Status).HasMaxLength(20).IsRequired();
             entity.Property(x => x.OrganizationId).HasMaxLength(100);
             entity.Property(x => x.IssuerSha256).HasMaxLength(32);
             entity.Property(x => x.SubjectSha256).HasMaxLength(32);
+            entity.Property(x => x.CompanySetSha256).HasMaxLength(32);
             entity.Property(x => x.CompletedBy).HasMaxLength(160);
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);

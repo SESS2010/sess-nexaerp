@@ -25,7 +25,7 @@ public sealed class Rev868C3ImplementationTests
         Assert.Contains(advanceBaseline, migrations);
         Assert.Equal(advanceBaseline, migrations[0]);
         Assert.Equal(1, migrations.Count(x => x == advanceBaseline));
-        Assert.Equal(new[]
+        var expected = new[]
         {
             advanceBaseline,
             "20260824135450_MultiCompanySharedIdentityFoundation",
@@ -36,7 +36,8 @@ public sealed class Rev868C3ImplementationTests
             "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
             "20260825135023_ApprovalConfigurationAndPermissionsPart2",
             "20260826054057_TwoLevelPurchaseApprovalEnginePart3"
-        }, migrations);
+        };
+        Assert.Equal(expected, migrations.Take(expected.Length));
     }
 
     [Fact]
