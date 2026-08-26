@@ -101,6 +101,125 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         server.AssertRejected("bootstrap-replay.sql", "SET SESSION AUTHORIZATION nexa_erp_bootstrap; SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');");
     }
 
+#if DEBUG
+    [Fact]
+    public async Task DevelopmentBootstrapRollsBackSessionAuthorizationAndTemporaryRoleAfterCeremonyFailure()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("development-bootstrap-failure-up.sql", migrator.GenerateScript("0", migration));
+        using var environment = DevelopmentBootstrapEnvironment(server.ConnectionString);
+        var arguments = new[] {
+            "authentication-bootstrap-development", "--issuer", "https://issuer.example.test/tenant/v2.0",
+            "--subject", "5d80fd62-63af-4d89-a5e6-44d22f866001" };
+
+        server.Execute("development-bootstrap-managed-role.sql", "CREATE ROLE nexa_erp_runtime NOLOGIN;");
+        Assert.Equal(1, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-bootstrap-remove-managed-role.sql", "DROP ROLE nexa_erp_runtime;");
+        server.Execute("development-bootstrap-break-precondition.sql", """
+            UPDATE advance.employee_company_assignments
+               SET "IsActive"=false
+             WHERE "EmployeeId"=(SELECT "Id" FROM advance.employees WHERE "EmployeeCode"='SESS-12')
+               AND "CompanyId"='70000000-0000-0000-0000-000000000002';
+            """);
+        var result = await InstallerCommand.RunAsync([
+            "authentication-bootstrap-development", "--issuer", "https://issuer.example.test/tenant/v2.0",
+            "--subject", "5d80fd62-63af-4d89-a5e6-44d22f866001"]);
+
+        Assert.Equal(1, result);
+        server.Execute("development-bootstrap-failure-witness.sql", """
+            DO $assert$
+            BEGIN
+              IF session_user<>'postgres' OR current_user<>'postgres' THEN
+                RAISE EXCEPTION 'Session authorization was not restored.';
+              END IF;
+              IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='nexa_erp_bootstrap') THEN
+                RAISE EXCEPTION 'Temporary bootstrap role survived failed ceremony.';
+              END IF;
+              IF (SELECT "Status" FROM advance.authentication_bootstrap_state
+                  WHERE "Id"='81000000-0000-0000-0000-000000000001')<>'PENDING' THEN
+                RAISE EXCEPTION 'Failed ceremony consumed bootstrap state.';
+              END IF;
+            END $assert$;
+            """);
+    }
+
+    [Fact]
+    public async Task DevelopmentBootstrapUsesProductionFunctionDropsRoleAndRefusesReplay()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("development-bootstrap-success-up.sql", migrator.GenerateScript("0", migration));
+        server.AssertRejected("development-bootstrap-direct-postgres.sql",
+            "SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');",
+            "requires the dedicated nexa_erp_bootstrap login");
+
+        using var environment = DevelopmentBootstrapEnvironment(server.ConnectionString);
+        var arguments = new[] {
+            "authentication-bootstrap-development", "--issuer", "https://issuer.example.test/tenant/v2.0",
+            "--subject", "5d80fd62-63af-4d89-a5e6-44d22f866001" };
+        Assert.Equal(0, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-bootstrap-success-witness.sql", """
+            DO $assert$
+            BEGIN
+              IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='nexa_erp_bootstrap') THEN
+                RAISE EXCEPTION 'Temporary bootstrap role survived successful ceremony.';
+              END IF;
+              IF (SELECT "Status" FROM advance.authentication_bootstrap_state
+                  WHERE "Id"='81000000-0000-0000-0000-000000000001')<>'COMPLETED' THEN
+                RAISE EXCEPTION 'Development ceremony did not complete.';
+              END IF;
+            END $assert$;
+            """);
+        Assert.Equal(1, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-bootstrap-replay-witness.sql", """
+            DO $assert$
+            BEGIN
+              IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='nexa_erp_bootstrap') THEN
+                RAISE EXCEPTION 'Temporary bootstrap role survived refused replay.';
+              END IF;
+              IF (SELECT count(*) FROM advance.employee_identity_mappings
+                  WHERE "CreatedBy"='AUTHENTICATION_BOOTSTRAP_INSTALLER')<>2 THEN
+                RAISE EXCEPTION 'Replay changed bootstrap identity rows.';
+              END IF;
+            END $assert$;
+            """);
+    }
+#endif
+
+    [Fact]
+    public void ReleaseInstallerOmitsDevelopmentCommandAndRejectsSettingPresence()
+    {
+        var root = FindRepositoryRoot();
+        var output = Path.Combine(Path.GetTempPath(), $"nexa-installer-release-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(output);
+        try
+        {
+            var project = Path.Combine(root, "src", "SESS.NexaERP.Installer", "SESS.NexaERP.Installer.csproj");
+            Require(RunDotnet(root, null, "build", project, "--configuration", "Release", "--no-restore", "--output", output), "Release installer build");
+            var assembly = Path.Combine(output, "SESS.NexaERP.Installer.dll");
+            var absent = RunDotnet(root, null, assembly, "authentication-bootstrap-development", "--issuer", "https://issuer.example.test", "--subject", "subject");
+            Assert.Equal(2, absent.Code);
+            Assert.DoesNotContain("authentication-bootstrap-development", absent.Output, StringComparison.Ordinal);
+
+            var rejected = RunDotnet(root, "false", assembly, "database-principals", "plan");
+            Assert.Equal(1, rejected.Code);
+            Assert.Contains("must not be present in a Release build, even when set to false", rejected.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(output)) Directory.Delete(output, true);
+        }
+    }
+
     [Fact]
     public void MultiCompanyFoundationCatalogueAndRejectionContractsHold()
     {
@@ -376,6 +495,45 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         END $assert$;
         """;
 
+    private static IDisposable DevelopmentBootstrapEnvironment(string connectionString) => new EnvironmentVariables(
+        ("DOTNET_ENVIRONMENT", "Development"),
+        (InstallerCommand.DevelopmentBootstrapSetting, "true"),
+        ("ConnectionStrings__NexaErpDevelopmentBootstrap", connectionString),
+        ("NexaErp__ExpectedDatabase", "advance_parser"));
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "SESS.NexaERP.slnx"))) directory = directory.Parent;
+        return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static ProcessResult RunDotnet(string workingDirectory, string? developmentSetting, params string[] arguments)
+    {
+        var info = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        if (developmentSetting is null) info.Environment.Remove(InstallerCommand.DevelopmentBootstrapSetting);
+        else info.Environment[InstallerCommand.DevelopmentBootstrapSetting] = developmentSetting;
+        foreach (var argument in arguments) info.ArgumentList.Add(argument);
+        using var process = Process.Start(info) ?? throw new InvalidOperationException("Cannot start dotnet.");
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(TimeSpan.FromMinutes(3))) { process.Kill(true); throw new TimeoutException("dotnet timed out."); }
+        Task.WaitAll(standardOutput, standardError);
+        return new ProcessResult(process.ExitCode, standardOutput.Result + standardError.Result);
+    }
+
+    private static void Require(ProcessResult result, string operation)
+    {
+        if (result.Code != 0) throw new InvalidOperationException($"{operation} failed ({result.Code}):\n{result.Output}");
+    }
+
     private static string FindPostgreSqlBin()
     {
         var configured = Environment.GetEnvironmentVariable("ADVANCE_POSTGRES_BIN");
@@ -441,6 +599,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
 
         public void Execute(string name, string sql) => Require(Psql(name, sql), name);
 
+        public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database=advance_parser;Username=postgres;Pooling=false";
+
         private Result Psql(string name, string sql)
         {
             var file = Path.Combine(_root, name);
@@ -501,4 +661,22 @@ public sealed class AdvanceMigrationSqlSyntaxTests
 
         private sealed record Result(int Code, string Output);
     }
+
+    private sealed class EnvironmentVariables : IDisposable
+    {
+        private readonly (string Name, string? Value)[] _original;
+
+        public EnvironmentVariables(params (string Name, string Value)[] values)
+        {
+            _original = values.Select(value => (value.Name, Environment.GetEnvironmentVariable(value.Name))).ToArray();
+            foreach (var value in values) Environment.SetEnvironmentVariable(value.Name, value.Value);
+        }
+
+        public void Dispose()
+        {
+            foreach (var value in _original) Environment.SetEnvironmentVariable(value.Name, value.Value);
+        }
+    }
+
+    private sealed record ProcessResult(int Code, string Output);
 }

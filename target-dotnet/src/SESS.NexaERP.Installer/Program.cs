@@ -4,9 +4,25 @@ return await InstallerCommand.RunAsync(args);
 
 internal static class InstallerCommand
 {
-    internal static Task<int> RunAsync(string[] args) => args.Length > 0 && args[0] == "authentication-bootstrap"
-        ? AuthenticationBootstrapCommand.RunAsync(args[1..])
-        : DatabasePrincipalCommand.RunAsync(args);
+    internal const string DevelopmentBootstrapSetting = "NexaErp__AllowDevelopmentAuthenticationBootstrap";
+
+    internal static Task<int> RunAsync(string[] args)
+    {
+#if !DEBUG
+        if (Environment.GetEnvironmentVariable(DevelopmentBootstrapSetting) is not null)
+        {
+            Console.Error.WriteLine($"REFUSED: {DevelopmentBootstrapSetting} must not be present in a Release build, even when set to false.");
+            return Task.FromResult(1);
+        }
+#endif
+        if (args.Length > 0 && args[0] == "authentication-bootstrap")
+            return AuthenticationBootstrapCommand.RunAsync(args[1..]);
+#if DEBUG
+        if (args.Length > 0 && args[0] == "authentication-bootstrap-development")
+            return DevelopmentAuthenticationBootstrapCommand.RunAsync(args[1..]);
+#endif
+        return DatabasePrincipalCommand.RunAsync(args);
+    }
 }
 
 internal static class DatabasePrincipalCommand
@@ -191,7 +207,11 @@ internal static class DatabasePrincipalCommand
     }
 
     private static void WriteUsage() =>
-        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>");
+        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
+#if DEBUG
+            + "\n   or: SESS.NexaERP.Installer authentication-bootstrap-development --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
+#endif
+        );
 
     private sealed record ManagedRoleStatus(
         string RoleName,
