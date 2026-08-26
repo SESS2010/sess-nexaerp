@@ -3,3 +3,25 @@ target-dotnet/backups/post-rev868-safety-baseline/
 
 outputs/rev868c3_resume_sql_source_verification.md
 outputs/rev868c3_postrun_readonly_sql_source_verification.md
+
+# Build output
+[Bb]in/
+[Oo]bj/
+TestResults/
+*.user
+.vs/
+
+# Secrets - never commit
+*.env
+appsettings.*.local.json
+secrets.json
+*.pfx
+*.key
+
+# Data files with PII
+*.xlsx
+*.xls
+
+# Database dumps
+*.dump
+*.bak
