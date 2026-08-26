@@ -147,8 +147,27 @@ internal static class AuthenticationBootstrapCeremonySql
             'loginEnabled',true,'operationalScopes','VERIFIED_EXISTING_COMPANY_SCOPES');
         END $function$;
 
-        REVOKE ALL ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) FROM PUBLIC,nexa_erp_runtime,nexa_erp_migration;
-        GRANT EXECUTE ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) TO nexa_erp_bootstrap;
+        REVOKE ALL ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) FROM PUBLIC;
+        DO $principal_acl$
+        DECLARE
+          v_existing_count integer;
+          v_missing_roles text;
+        BEGIN
+          WITH managed("RoleName") AS (VALUES
+            ('nexa_erp_owner'),('nexa_erp_migration'),('nexa_erp_bootstrap'),('nexa_erp_runtime'))
+          SELECT count(r.rolname),string_agg(m."RoleName",', ' ORDER BY m."RoleName") FILTER (WHERE r.rolname IS NULL)
+            INTO v_existing_count,v_missing_roles
+          FROM managed m LEFT JOIN pg_catalog.pg_roles r ON r.rolname=m."RoleName";
+
+          IF v_existing_count NOT IN (0,4) THEN
+            RAISE EXCEPTION 'Partial NexaERP principal state; missing managed roles: %.',v_missing_roles;
+          END IF;
+          IF v_existing_count=4 THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) FROM nexa_erp_runtime';
+            EXECUTE 'REVOKE ALL ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) FROM nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION __advance_schema__.complete_authentication_bootstrap(text,text) TO nexa_erp_bootstrap';
+          END IF;
+        END $principal_acl$;
         """;
 
     private const string DownSql = """

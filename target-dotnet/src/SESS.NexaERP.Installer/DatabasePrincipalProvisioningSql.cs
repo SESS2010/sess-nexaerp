@@ -126,6 +126,16 @@ internal static class DatabasePrincipalProvisioningSql
         GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA advance TO nexa_erp_runtime;
         REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
 
+        DO $ceremony_acl$
+        BEGIN
+          IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM PUBLIC';
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM nexa_erp_runtime';
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.complete_authentication_bootstrap(text,text) TO nexa_erp_bootstrap';
+          END IF;
+        END $ceremony_acl$;
+
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON SEQUENCES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
@@ -187,6 +197,44 @@ internal static class DatabasePrincipalProvisioningSql
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'UPDATE')
                    OR has_table_privilege('nexa_erp_runtime',c.oid,'DELETE'))
           ) THEN RAISE EXCEPTION 'Runtime table privileges differ from SELECT/INSERT/UPDATE without DELETE.'; END IF;
+          IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN
+            IF (
+              SELECT count(*)
+              FROM pg_catalog.pg_proc p
+              CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+              LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+              WHERE p.oid=to_regprocedure('advance.complete_authentication_bootstrap(text,text)')
+                AND acl.privilege_type='EXECUTE' AND acl.grantee<>p.proowner
+            )<>1 OR NOT EXISTS(
+              SELECT 1
+              FROM pg_catalog.pg_proc p
+              CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+              JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+              WHERE p.oid=to_regprocedure('advance.complete_authentication_bootstrap(text,text)')
+                AND acl.privilege_type='EXECUTE' AND grantee.rolname='nexa_erp_bootstrap' AND NOT acl.is_grantable
+            ) THEN
+              RAISE EXCEPTION 'Ceremony function EXECUTE ACL must grant only nexa_erp_bootstrap outside its owner.';
+            END IF;
+          END IF;
         END $verify$;
+        """;
+
+    internal const string RoleStatus = """
+        WITH managed("Ordinal","RoleName") AS (VALUES
+          (1,'nexa_erp_owner'),(2,'nexa_erp_migration'),(3,'nexa_erp_bootstrap'),(4,'nexa_erp_runtime')),
+        ceremony AS (
+          SELECT p.oid,p.proacl,p.proowner
+          FROM pg_catalog.pg_proc p
+          WHERE p.oid=to_regprocedure('advance.complete_authentication_bootstrap(text,text)'))
+        SELECT m."RoleName",r.oid IS NOT NULL,
+               r.rolcanlogin,r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolreplication,r.rolbypassrls,
+               c.oid IS NOT NULL,
+               CASE WHEN r.oid IS NULL OR c.oid IS NULL THEN NULL ELSE EXISTS(
+                 SELECT 1 FROM pg_catalog.aclexplode(COALESCE(c.proacl,pg_catalog.acldefault('f',c.proowner))) acl
+                 WHERE acl.grantee=r.oid AND acl.privilege_type='EXECUTE') END
+        FROM managed m
+        LEFT JOIN pg_catalog.pg_roles r ON r.rolname=m."RoleName"
+        LEFT JOIN ceremony c ON true
+        ORDER BY m."Ordinal";
         """;
 }

@@ -41,6 +41,52 @@ public sealed class AdvanceMigrationSqlSyntaxTests
     }
 
     [Fact]
+    public void AuthenticationBootstrapMigrationAppliesAndRevertsWithoutManagedRoles()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("business-no-roles-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("business-no-roles-assertions.sql", NoManagedRoleAssertions);
+        server.Execute("business-no-roles-down.sql", migrator.GenerateScript(migration, "0"));
+    }
+
+    [Fact]
+    public void AuthenticationBootstrapMigrationRefusesPartialManagedRoleStateAndNamesMissingRoles()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var migration = migrations[^1];
+        var predecessor = migrations[^2];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("business-partial-prerequisite.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("business-one-role.sql", "CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;");
+        server.AssertRejected("business-partial-role-up.sql", migrator.GenerateScript(predecessor, migration),
+            "missing managed roles: nexa_erp_bootstrap, nexa_erp_migration, nexa_erp_owner");
+    }
+
+    [Fact]
+    public void PrincipalProvisioningReconcilesCeremonyAclCreatedBeforeManagedRoles()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("business-before-principals.sql", migrator.GenerateScript("0", migration));
+        server.Execute("installer-reconcile.sql", InstallerPasswordSettings + DatabasePrincipalProvisioningSql.Provision +
+            DatabasePrincipalProvisioningSql.Verify + CeremonyAclAssertions + DatabasePrincipalProvisioningSql.RoleStatus);
+        server.Execute("business-after-principals-down.sql", migrator.GenerateScript(migration, "0"));
+    }
+
+    [Fact]
     public void AuthenticationBootstrapCeremonyCompletesExactlyOnceForSess12InBothCompanies()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
@@ -163,9 +209,45 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         """;
 
     private const string BootstrapRolePrerequisites = """
+        CREATE ROLE nexa_erp_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        """;
+
+    private const string NoManagedRoleAssertions = """
+        DO $assert$
+        BEGIN
+          IF (SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime'))<>0 THEN
+            RAISE EXCEPTION 'Expected no managed roles.';
+          END IF;
+          IF EXISTS(
+            SELECT 1 FROM pg_catalog.pg_proc p
+            CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) acl
+            WHERE p.oid=to_regprocedure('advance.complete_authentication_bootstrap(text,text)')
+              AND acl.privilege_type='EXECUTE' AND acl.grantee=0) THEN
+            RAISE EXCEPTION 'PUBLIC must not execute the ceremony function.';
+          END IF;
+        END $assert$;
+        """;
+
+    private const string InstallerPasswordSettings = """
+        SELECT pg_catalog.set_config('nexa.installer.migration_password','migration-test-password-0001',false);
+        SELECT pg_catalog.set_config('nexa.installer.bootstrap_password','bootstrap-test-password-0001',false);
+        SELECT pg_catalog.set_config('nexa.installer.runtime_password','runtime-test-password-000001',false);
+        """;
+
+    private const string CeremonyAclAssertions = """
+        DO $assert$
+        BEGIN
+          IF NOT has_function_privilege('nexa_erp_bootstrap','advance.complete_authentication_bootstrap(text,text)','EXECUTE') THEN
+            RAISE EXCEPTION 'Bootstrap ceremony EXECUTE grant is missing.';
+          END IF;
+          IF has_function_privilege('nexa_erp_runtime','advance.complete_authentication_bootstrap(text,text)','EXECUTE')
+             OR has_function_privilege('nexa_erp_migration','advance.complete_authentication_bootstrap(text,text)','EXECUTE') THEN
+            RAISE EXCEPTION 'Runtime or migration can execute the ceremony function.';
+          END IF;
+        END $assert$;
         """;
 
     private const string BootstrapCeremony = """
@@ -349,11 +431,12 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             }
         }
 
-        public void AssertRejected(string name, string sql)
+        public void AssertRejected(string name, string sql, string? expectedMessage = null)
         {
             var result = Psql(name, sql);
             Assert.NotEqual(0, result.Code);
             Assert.Contains("ERROR:", result.Output, StringComparison.OrdinalIgnoreCase);
+            if (expectedMessage is not null) Assert.Contains(expectedMessage, result.Output, StringComparison.OrdinalIgnoreCase);
         }
 
         public void Execute(string name, string sql) => Require(Psql(name, sql), name);

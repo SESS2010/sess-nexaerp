@@ -55,9 +55,11 @@ internal static class DatabasePrincipalCommand
             await connection.OpenAsync();
             await RequireSafeClusterAsync(connection, expectedDatabase.Trim());
 
-            var roleCount = await CountManagedRolesAsync(connection);
+            var roleStatuses = await ReadManagedRoleStatusAsync(connection);
+            var roleCount = roleStatuses.Count(x => x.Exists);
             if (args[1] == "status")
             {
+                WriteManagedRoleStatus(roleStatuses);
                 if (roleCount == 0)
                 {
                     Console.WriteLine("NOT_PROVISIONED: none of the four NexaERP database principals exists.");
@@ -65,28 +67,31 @@ internal static class DatabasePrincipalCommand
                 }
 
                 if (roleCount != ManagedRoles.Length)
-                    throw new InvalidOperationException($"PARTIAL_STATE: found {roleCount} of {ManagedRoles.Length} managed roles.");
+                    throw new InvalidOperationException(PartialStateMessage(roleStatuses));
 
                 await ExecuteAsync(connection, DatabasePrincipalProvisioningSql.Verify);
-                Console.WriteLine("VERIFIED: database ownership, role attributes, memberships, and least-privilege grants match the installer contract.");
+                Console.WriteLine("VERIFIED: database ownership, role attributes, memberships, least-privilege grants, and ceremony-function ACL match the installer contract.");
                 return 0;
             }
 
             await using var transaction = await connection.BeginTransactionAsync();
             await ExecuteAsync(connection, DatabasePrincipalProvisioningSql.AcquireLock, transaction);
-            roleCount = await CountManagedRolesAsync(connection, transaction);
+            roleStatuses = await ReadManagedRoleStatusAsync(connection, transaction);
+            roleCount = roleStatuses.Count(x => x.Exists);
             if (roleCount is not (0 or 4))
-                throw new InvalidOperationException($"PARTIAL_STATE: found {roleCount} of {ManagedRoles.Length} managed roles; provisioning refuses mixed state.");
+                throw new InvalidOperationException(PartialStateMessage(roleStatuses) + " Provisioning refuses mixed state.");
 
             if (roleCount == 0)
                 await SetInitialPasswordsAsync(connection, transaction);
 
             await ExecuteAsync(connection, DatabasePrincipalProvisioningSql.Provision, transaction);
             await ExecuteAsync(connection, DatabasePrincipalProvisioningSql.Verify, transaction);
+            roleStatuses = await ReadManagedRoleStatusAsync(connection, transaction);
             await transaction.CommitAsync();
+            WriteManagedRoleStatus(roleStatuses);
             Console.WriteLine(roleCount == 0
-                ? "PROVISIONED: four database principals created, ownership transferred, and grants verified."
-                : "RECONCILED: existing principal contract and grants verified; credentials were not changed.");
+                ? "PROVISIONED: four database principals created, ownership transferred, and grants including any existing ceremony function verified."
+                : "RECONCILED: existing principal contract and grants including any existing ceremony function verified; credentials were not changed.");
             return 0;
         }
         catch (Exception exception) when (exception is NpgsqlException or InvalidOperationException)
@@ -117,15 +122,44 @@ internal static class DatabasePrincipalCommand
             throw new InvalidOperationException("Initial principal provisioning requires an explicit PostgreSQL superuser installer session.");
     }
 
-    private static async Task<int> CountManagedRolesAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction = null)
+    private static async Task<IReadOnlyList<ManagedRoleStatus>> ReadManagedRoleStatusAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction = null)
     {
-        await using var command = new NpgsqlCommand(
-            "SELECT count(*)::integer FROM pg_catalog.pg_roles WHERE rolname = ANY(@roles);",
-            connection,
-            transaction);
-        command.Parameters.AddWithValue("roles", ManagedRoles);
-        return (int)(await command.ExecuteScalarAsync() ?? 0);
+        await using var command = new NpgsqlCommand(DatabasePrincipalProvisioningSql.RoleStatus, connection, transaction);
+        await using var reader = await command.ExecuteReaderAsync();
+        var statuses = new List<ManagedRoleStatus>(ManagedRoles.Length);
+        while (await reader.ReadAsync())
+        {
+            statuses.Add(new ManagedRoleStatus(
+                reader.GetString(0), reader.GetBoolean(1),
+                reader.IsDBNull(2) ? null : reader.GetBoolean(2),
+                reader.IsDBNull(3) ? null : reader.GetBoolean(3),
+                reader.IsDBNull(4) ? null : reader.GetBoolean(4),
+                reader.IsDBNull(5) ? null : reader.GetBoolean(5),
+                reader.IsDBNull(6) ? null : reader.GetBoolean(6),
+                reader.IsDBNull(7) ? null : reader.GetBoolean(7),
+                reader.GetBoolean(8), reader.IsDBNull(9) ? null : reader.GetBoolean(9)));
+        }
+        return statuses;
     }
+
+    private static string PartialStateMessage(IEnumerable<ManagedRoleStatus> statuses) =>
+        $"PARTIAL_STATE: missing managed roles: {string.Join(", ", statuses.Where(x => !x.Exists).Select(x => x.RoleName))}.";
+
+    private static void WriteManagedRoleStatus(IEnumerable<ManagedRoleStatus> statuses)
+    {
+        foreach (var status in statuses)
+        {
+            var attributes = status.Exists
+                ? $"superuser:{YesNo(status.Superuser)},createdb:{YesNo(status.CreateDatabase)},createrole:{YesNo(status.CreateRole)},replication:{YesNo(status.Replication)},bypassrls:{YesNo(status.BypassRowLevelSecurity)}"
+                : "n/a";
+            var ceremonyGrant = !status.CeremonyFunctionExists || !status.Exists ? "n/a" : YesNo(status.CeremonyExecuteGrant);
+            Console.WriteLine($"ROLE_STATUS role={status.RoleName} exists={YesNo(status.Exists)} login={YesNo(status.Login)} attributes={attributes} ceremony_function={(status.CeremonyFunctionExists ? "present" : "absent")} ceremony_execute_grant={ceremonyGrant}");
+        }
+    }
+
+    private static string YesNo(bool? value) => value.HasValue ? (value.Value ? "yes" : "no") : "n/a";
 
     private static async Task SetInitialPasswordsAsync(NpgsqlConnection connection, NpgsqlTransaction transaction)
     {
@@ -158,4 +192,16 @@ internal static class DatabasePrincipalCommand
 
     private static void WriteUsage() =>
         Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>");
+
+    private sealed record ManagedRoleStatus(
+        string RoleName,
+        bool Exists,
+        bool? Login,
+        bool? Superuser,
+        bool? CreateDatabase,
+        bool? CreateRole,
+        bool? Replication,
+        bool? BypassRowLevelSecurity,
+        bool CeremonyFunctionExists,
+        bool? CeremonyExecuteGrant);
 }

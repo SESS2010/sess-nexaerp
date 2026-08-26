@@ -76,6 +76,10 @@ public sealed class AuthenticationBootstrapFoundationTests
         Assert.Contains("has_table_privilege('nexa_erp_runtime',c.oid,'DELETE')", sql);
         Assert.Contains("REVOKE ALL ON TABLE advance.authentication_bootstrap_state", sql);
         Assert.Contains("Replays reconcile ownership and grants but never rotate existing credentials", sql);
+        Assert.Contains("complete_authentication_bootstrap(text,text)", sql);
+        Assert.Contains("Ceremony function EXECUTE ACL must grant only nexa_erp_bootstrap", sql);
+        Assert.Contains("ROLE_STATUS role=", program);
+        Assert.Contains("ceremony_execute_grant=", program);
     }
 
     private static string Sql(string property)

@@ -49,6 +49,9 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
         Assert.Contains("CompanySetSha256", sql);
         Assert.Contains("REVOKE ALL ON FUNCTION", sql);
         Assert.Contains("GRANT EXECUTE", sql);
+        Assert.Contains("missing managed roles", sql);
+        Assert.Contains("v_existing_count NOT IN (0,4)", sql);
+        Assert.Contains("FROM PUBLIC;", sql);
         Assert.DoesNotContain("SESS-01", sql);
         Assert.DoesNotContain("SESS-02", sql);
     }
