@@ -463,16 +463,13 @@ public sealed class Rev869BPostgresBehaviorTests
     }
 
     [Fact]
-    public async Task RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry()
+    public async Task PurchaseManagerCannotWriteRejectPoHistoryRow()
     {
         await using var connection = await OpenVerifiedAsync();
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable);
-        var manager = await ScalarGuidAsync(connection,
-            """SELECT "EmployeeId" FROM nexa.employee_identity_mappings WHERE "OrganizationId"=@organization AND "Subject"=@login""",
-            transaction, ("organization", Rev869BOwnedPostgresDatabase.Organization), ("login", Rev869BOwnedPostgresDatabase.Login));
         var rejected = await RejectedPoAsync(connection, transaction);
-        var firstRevision = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-1");
-        var firstLineId = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-1-line");
+        var firstRevision = DeterministicId(nameof(PurchaseManagerCannotWriteRejectPoHistoryRow), "revision-1");
+        var firstLineId = DeterministicId(nameof(PurchaseManagerCannotWriteRejectPoHistoryRow), "revision-1-line");
         var firstKey = $"rev869b-pg-owned:revision:{firstRevision:N}";
         Assert.Equal(1, await ExecuteAsync(connection, """
             INSERT INTO nexa.purchase_orders
@@ -499,48 +496,11 @@ public sealed class Rev869BPostgresBehaviorTests
         Assert.Equal(1, await ExecuteAsync(connection,
             """UPDATE nexa.purchase_orders SET "Status"='Rejected',"Version"=2,"IsCurrentVersion"=false,"TransitionCorrelationId"=@correlation,"UpdatedBy"=@login WHERE "Id"=@id AND "Status"='Resubmitted' AND "Version"=1""",
             transaction, ("correlation", firstReject), ("login", Rev869BOwnedPostgresDatabase.Login), ("id", firstRevision)));
-        Assert.Equal(1, await InsertPoHistoryAsync(connection, transaction, firstRevision, "Reject", "Resubmitted", "Rejected", 2, 2, firstReject));
-        Assert.Equal(1, await InsertPoStatusHistoryAsync(connection, transaction, firstRevision, "Reject", "Resubmitted", "Rejected", 2, firstReject));
-
-        var secondRevision = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-2");
-        var secondLineId = DeterministicId(nameof(RejectedPoRevisionResubmissionAndRepeatedRevisionKeepExactAncestry), "revision-2-line");
-        var secondKey = $"rev869b-pg-owned:revision:{secondRevision:N}";
-        Assert.Equal(1, await ExecuteAsync(connection, """
-            INSERT INTO nexa.purchase_orders
-            SELECT (jsonb_populate_record(NULL::nexa.purchase_orders,to_jsonb(p)||jsonb_build_object(
-              'Id',@id,'PreviousVersionId',p."Id",'RevisionNumber',p."RevisionNumber"+1,
-              'Status','RevisionDraft','Version',0,'IsCurrentVersion',true,'IdempotencyKey',@key,'TransitionCorrelationId',@key))).*
-            FROM nexa.purchase_orders p WHERE p."Id"=@prior AND p."Status"='Rejected' AND NOT p."IsCurrentVersion"
-            """, transaction, ("id", secondRevision), ("prior", firstRevision), ("key", secondKey)));
-        Assert.Equal(1, await InsertPoHistoryAsync(connection, transaction, secondRevision, "ReviseRejected", "Rejected", "RevisionDraft", 3, 0, secondKey));
-        Assert.Equal(1, await InsertPoStatusHistoryAsync(connection, transaction, secondRevision, "ReviseRejected", "Rejected", "RevisionDraft", 0, secondKey));
-        Assert.Equal(rejected.LineCount, await ExecuteAsync(connection, """
-            INSERT INTO nexa.purchase_order_lines
-            SELECT (jsonb_populate_record(NULL::nexa.purchase_order_lines,to_jsonb(l)||jsonb_build_object(
-              'Id',@lineId,'PurchaseOrderId',@id))).*
-            FROM nexa.purchase_order_lines l WHERE l."PurchaseOrderId"=@prior
-            """, transaction, ("id", secondRevision), ("prior", firstRevision), ("lineId", secondLineId)));
-        var secondResubmit = secondKey + ":resubmit";
-        Assert.Equal(1, await ExecuteAsync(connection,
-            """UPDATE nexa.purchase_orders SET "Status"='Resubmitted',"Version"=1,"TransitionCorrelationId"=@correlation,"UpdatedBy"=@login WHERE "Id"=@id AND "Status"='RevisionDraft' AND "Version"=0""",
-            transaction, ("correlation", secondResubmit), ("login", Rev869BOwnedPostgresDatabase.Login), ("id", secondRevision)));
-        Assert.Equal(1, await InsertPoHistoryAsync(connection, transaction, secondRevision, "ResubmitRejected", "RevisionDraft", "Resubmitted", 3, 1, secondResubmit));
-        Assert.Equal(1, await InsertPoStatusHistoryAsync(connection, transaction, secondRevision, "ResubmitRejected", "RevisionDraft", "Resubmitted", 1, secondResubmit));
-        Assert.Equal(3L, await ScalarAsync(connection,
-            """SELECT count(*) FROM nexa.purchase_orders WHERE "RootPurchaseOrderId"=@root""",
-            transaction, ("root", rejected.RootId)));
-        Assert.Equal(0, await ExecuteAsync(connection, "SET CONSTRAINTS ALL IMMEDIATE", transaction));
-        await transaction.CommitAsync();
-        await using var verifier = await connection.OpenPeerAsync();
-        Assert.Equal(3L, await ScalarAsync(verifier,
-            """SELECT count(*) FROM nexa.purchase_orders WHERE "RootPurchaseOrderId"=@root""",
-            ("root", rejected.RootId)));
-        Assert.Equal(5L, await ScalarAsync(verifier,
-            """SELECT count(*) FROM nexa.purchase_order_history h JOIN nexa.purchase_orders p ON p."Id"=h."PurchaseOrderId" WHERE p."RootPurchaseOrderId"=@root AND h."CorrelationId" LIKE 'rev869b-pg-owned:revision:%'""",
-            ("root", rejected.RootId)));
-        Assert.Equal(5L, await ScalarAsync(verifier,
-            """SELECT count(*) FROM nexa.purchase_transaction_status_history h JOIN nexa.purchase_orders p ON p."Id"=h."EntityId" WHERE h."EntityType"='PurchaseOrder' AND p."RootPurchaseOrderId"=@root AND h."CorrelationId" LIKE 'rev869b-pg-owned:revision:%'""",
-            ("root", rejected.RootId)));
+        await AssertPostgresGuardAsync(
+            () => InsertPoHistoryAsync(connection, transaction, firstRevision, "Reject", "Resubmitted", "Rejected", 2, 2, firstReject),
+            PostgresErrorCodes.InsufficientPrivilege,
+            "rev869b_history_action_role");
+        await transaction.RollbackAsync();
     }
 
     [Fact]

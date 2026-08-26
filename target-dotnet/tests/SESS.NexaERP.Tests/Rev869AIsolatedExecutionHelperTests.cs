@@ -10,7 +10,7 @@ public sealed class Rev869AIsolatedExecutionHelperTests
 {
     private static readonly string Root = FindRoot();
     private static readonly string HelperPath = Path.Combine(Root, "tools", "apply-rev869a-isolated-foundation-secure.ps1");
-    private static string Source => File.ReadAllText(HelperPath);
+    private static string Source => NormalizeLineEndings(File.ReadAllText(HelperPath));
     private static readonly string MigrationPath = Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "20260824032638_AdvanceInitialBaseline.cs");
     private static string MigrationSource => File.ReadAllText(MigrationPath);
     private static string DbContextSource => File.ReadAllText(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.cs")) + Environment.NewLine +
@@ -920,6 +920,10 @@ public sealed class Rev869AIsolatedExecutionHelperTests
         Assert.True(start >= 0 && end > start);
         return Source[start..end];
     }
+
+    private static string NormalizeLineEndings(string source) =>
+        source.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
     private sealed record UomContract(Guid Id, string Code, bool Approved);
     private sealed record UomSetResult(int Missing, int Unexpected, int Duplicate, int Unapproved);
 
