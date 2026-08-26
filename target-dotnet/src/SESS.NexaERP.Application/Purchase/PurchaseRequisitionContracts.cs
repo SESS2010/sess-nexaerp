@@ -25,3 +25,15 @@ public sealed record StockAvailabilityCheckSummary(Guid Id, string CheckNumber, 
 public sealed record StockReservationSummary(Guid Id, string ReservationNumber, string PrNumber, int LineNumber, string ItemCode, string WarehouseCode, string? RackBinCode, decimal ReservedQuantity, string Status);
 
 public sealed record PurchaseRequirementHandoffSummary(Guid Id, string HandoffNumber, string PrNumber, int LineNumber, string ItemCode, string WarehouseCode, string? RackBinCode, decimal HandoffQuantity, string Status);
+
+public interface IPurchaseRequisitionWorkflowService
+{
+    Task<PurchaseRequisitionDetail> SubmitAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> VerifyAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> ApproveAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> RejectAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> RequestRevisionAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> ResubmitAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> CancelAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+    Task<PurchaseRequisitionDetail> HoldAsync(string prNumber, PurchaseRequisitionActionRequest request, CancellationToken cancellationToken);
+}

@@ -22,12 +22,20 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private readonly IVendorQualificationService vendors;
     private readonly ITaxGstResolver taxes;
     private readonly IAuditWriter audit;
+    private readonly IPurchaseApprovalWorkflowService approvalWorkflow;
+    private readonly IPurchaseOperationalRoleResolver operationalRoles;
     private readonly List<Rev869BCommandContextAuthorizer.CommandAttemptHandle> pendingCommandAttempts = [];
     private Rev869BCommandContextAuthorizer.CommandEnvelope? currentCommandEnvelope;
+    private string? currentActorRoleCode;
 
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
+        : this(db, user, scopes, vendors, taxes, audit, new EfPurchaseApprovalWorkflowService(db), new PurchaseOperationalRoleResolver()) { }
+
+    public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit,
+        IPurchaseApprovalWorkflowService approvalWorkflow, IPurchaseOperationalRoleResolver operationalRoles)
     {
         this.db = db; this.user = user; this.scopes = scopes; this.vendors = vendors; this.taxes = taxes; this.audit = audit;
+        this.approvalWorkflow = approvalWorkflow; this.operationalRoles = operationalRoles;
     }
 
     private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(
@@ -37,6 +45,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
         currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
             RequireOrganization(), operation, idempotencyKey, request);
+        currentActorRoleCode = IsApprovalOperation(operation) ? null : operationalRoles.Resolve(operation, user.RoleCodes);
         var scope = new Rev869BTransactionScope(this,
             await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
         _ = RequireActor();
@@ -57,6 +66,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             await owned.CommitAsync(ct);
             service.pendingCommandAttempts.Clear();
             service.currentCommandEnvelope = null;
+            service.currentActorRoleCode = null;
             finalized = true;
         }
 
@@ -65,6 +75,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             await owned.RollbackAsync(ct);
             await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
             service.currentCommandEnvelope = null;
+            service.currentActorRoleCode = null;
             finalized = true;
         }
 
@@ -75,6 +86,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
                 try { await owned.RollbackAsync(); }
                 finally { await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None); }
                 service.currentCommandEnvelope = null;
+                service.currentActorRoleCode = null;
                 finalized = true;
             }
             await owned.DisposeAsync();
@@ -91,7 +103,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     {
         var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(
             db, user, RequireOrganization(), currentCommandEnvelope ??
-                throw new InvalidOperationException("Caller command envelope must be established before mutation."), ct);
+                throw new InvalidOperationException("Caller command envelope must be established before mutation."), ct,
+            CurrentActorRole());
         if (attempt.HasValue)
         {
             var prior = pendingCommandAttempts.SingleOrDefault(x => x.AttemptId == attempt.Value.AttemptId);
@@ -141,9 +154,26 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         : throw new UnauthorizedAccessException("Cross-organization purchase-order access is prohibited.");
     private async Task RequireScopeAsync(Guid actor, string organization, Guid? department, Guid? warehouse, Guid? rackBin, Guid? owner, CancellationToken ct)
     {
-        var decision = await scopes.AuthorizeAsync(actor, user.RoleCode, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct);
-        if (!decision.Allowed) { await audit.WriteAsync("Security", "Denied", "REV869BRecordScope", organization, null, new { decision.Reason, user.RoleCode, department, warehouse }, ct); throw new UnauthorizedAccessException(decision.Reason); }
+        var actingRole = CurrentActorRole();
+        var decision = await scopes.AuthorizeAsync(actor, actingRole, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        if (!decision.Allowed) { await WriteAuditAsync("Security", "Denied", "REV869BRecordScope", organization, null, new { decision.Reason, department, warehouse }, ct); throw new UnauthorizedAccessException(decision.Reason); }
     }
+
+    private static bool IsApprovalOperation(string operation) =>
+        operation.StartsWith("Approve", StringComparison.OrdinalIgnoreCase) ||
+        operation.StartsWith("Reject", StringComparison.OrdinalIgnoreCase) ||
+        operation.StartsWith("RequestRevision", StringComparison.OrdinalIgnoreCase);
+    private string CurrentActorRole() => currentActorRoleCode ?? throw new InvalidOperationException("The command's deterministic actor role has not been resolved.");
+    private void SetApprovalActorRole(string roleCode)
+    {
+        if (!IsApprovalOperation(currentCommandEnvelope?.Operation ?? string.Empty))
+            throw new InvalidOperationException("Only approval commands may take their role from a workflow step.");
+        currentActorRoleCode = roleCode;
+    }
+    private Task WriteAuditAsync(string module, string action, string entityType, string entityId, object? before, object? after, CancellationToken ct) =>
+        audit.WriteAsync(module, action, entityType, entityId,
+            before is null ? null : new { Value = before, ActingRole = CurrentActorRole() },
+            new { Value = after, ActingRole = CurrentActorRole() }, ct);
 
     private async Task<uint> ReserveRfqAsync(RequestForQuotation rfq, uint expected, string action, string remarks, string correlation, CancellationToken ct)
     {
@@ -224,7 +254,6 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         if (affected != 1) throw new DbUpdateConcurrencyException($"Stale {aggregate} version; reload before retrying.");
         return checked(expected + 1);
     }
-    private async Task<string> ResolveApprovalRouteAsync(decimal total, string organization, CancellationToken ct) { var policies = await db.PurchaseTransactionApprovalPolicies.AsNoTracking().Where(x => x.OrganizationId == organization).ToListAsync(ct); return Rev869BApprovalRoutes.Resolve(total, policies, DateOnly.FromDateTime(DateTime.UtcNow), organization); }
     private static Rev869BTaxRuleSnapshot TaxSnapshot(Domain.Masters.TaxGstSetting tax) => new(
         tax.Id, tax.OrganizationId, tax.JurisdictionCode, tax.HsnSacCode, tax.SupplyType, tax.SupplierStateCode,
         tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
@@ -301,38 +330,22 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         sequence.LastNumber++; sequence.UpdatedAt = DateTimeOffset.UtcNow; sequence.UpdatedBy = user.LoginId;
         return ($"{prefix}-{year}-{sequence.LastNumber:000001}", year, sequence.LastNumber);
     }
-    private async Task RequireApproverAsync(string route, Guid? departmentId, Guid actor, string creatorLogin, CancellationToken ct)
-    {
-        if (string.Equals(creatorLogin, user.LoginId, StringComparison.OrdinalIgnoreCase)) throw new UnauthorizedAccessException("Self-approval is prohibited.");
-        var role = Rev869ARoleCodes.Normalize(user.RoleCode);
-        if (route == Rev869BApprovalRoutes.Manager)
-        {
-            if (departmentId is null) throw new UnauthorizedAccessException("Department Manager approval mapping is missing.");
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var mappings = await db.DepartmentApprovalMappings.AsNoTracking().Where(x => x.DepartmentId == departmentId && x.ApprovalRouteCode == PurchaseRequisitionApprovalRoutes.Manager && x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today)).Take(2).ToListAsync(ct);
-            if (mappings.Count != 1 || (mappings[0].PrimaryApproverEmployeeId != actor && mappings[0].AlternateApproverEmployeeId != actor)) throw new UnauthorizedAccessException("A single effective department approval mapping did not authorize this employee.");
-            if (role != Rev869ARoleCodes.Normalize(mappings[0].ApproverRoleCode)) throw new UnauthorizedAccessException("The department mapping's exact approver role is required.");
-            return;
-        }
-        var expected = route == Rev869BApprovalRoutes.TechnicalDirector ? Rev869ARoleCodes.TechnicalDirector : route == Rev869BApprovalRoutes.ManagingDirector ? Rev869ARoleCodes.ManagingDirector : throw new UnauthorizedAccessException("Approval route is missing or unsupported.");
-        if (role != expected) throw new UnauthorizedAccessException("Configured approval role does not match current employee role.");
-    }
     private void Transition(CommercialComparison comparison, string next, string action, string remarks, string correlation) { var from = comparison.Status; comparison.Status = next; comparison.TransitionCorrelationId = correlation; comparison.UpdatedAt = DateTimeOffset.UtcNow; comparison.UpdatedBy = user.LoginId; AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, from, next, action, remarks, correlation); }
-    private void AddApproval(CommercialComparison comparison, string action, string from, string to, string remarks, string correlation)
+    private void AddApproval(CommercialComparison comparison, string action, string from, string to, string remarks, string correlation, PurchaseApprovalDecision? decision = null)
     {
-        db.PurchaseTransactionApprovalHistories.Add(new PurchaseTransactionApprovalHistory { CommercialComparisonId = comparison.Id, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = comparison.ApprovalRoute, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseTransactionApprovalHistories.Add(new PurchaseTransactionApprovalHistory { CommercialComparisonId = comparison.Id, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = comparison.ApprovalRoute, ApprovalCycle = decision?.ApprovalCycle ?? comparison.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? comparison.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId ?? Guid.Empty, ResolvedRoleCode = decision?.ResolvedRoleCode ?? CurrentActorRole(), SnapshotIdentity = decision?.SnapshotIdentity ?? string.Empty, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
-    private void AddPoHistory(PurchaseOrder po, string action, string from, string to, string reason, string correlation)
+    private void AddPoHistory(PurchaseOrder po, string action, string from, string to, string reason, string correlation, PurchaseApprovalDecision? decision = null)
     {
-        db.PurchaseOrderHistories.Add(new PurchaseOrderHistory { PurchaseOrderId = po.Id, Action = action, FromStatus = from, ToStatus = to, RevisionNumber = po.RevisionNumber, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Reason = RequiredRemarks(reason), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseOrderHistories.Add(new PurchaseOrderHistory { PurchaseOrderId = po.Id, Action = action, FromStatus = from, ToStatus = to, RevisionNumber = po.RevisionNumber, ApprovalCycle = decision?.ApprovalCycle ?? po.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? po.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId, ResolvedRoleCode = decision?.ResolvedRoleCode, ApprovalRoute = po.ApprovalRoute, SnapshotIdentity = decision?.SnapshotIdentity, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Reason = RequiredRemarks(reason), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
     private void AddStatus(string type, Guid id, string number, string? from, string to, string action, string remarks, string correlation)
     {
-        db.PurchaseTransactionStatusHistories.Add(new PurchaseTransactionStatusHistory { OrganizationId = RequireOrganization(), EntityType = type, EntityId = id, DocumentNumber = number, Action = action, FromStatus = from, ToStatus = to, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseTransactionStatusHistories.Add(new PurchaseTransactionStatusHistory { OrganizationId = RequireOrganization(), EntityType = type, EntityId = id, DocumentNumber = number, Action = action, FromStatus = from, ToStatus = to, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
     private Guid RequireActor() => user.IsAuthenticated && user.EmployeeId.HasValue ? user.EmployeeId.Value : throw new UnauthorizedAccessException("A unique active employee identity mapping is required.");
     private string RequireOrganization() => !string.IsNullOrWhiteSpace(user.OrganizationId) ? user.OrganizationId.Trim() : throw new UnauthorizedAccessException("Organization scope is required.");
-    private bool IsRole(string code) => Rev869ARoleCodes.Normalize(user.RoleCode) == Rev869ARoleCodes.Normalize(code);
+    private bool IsRole(string code) => user.RoleCodes.Any(x => Rev869ARoleCodes.Normalize(x) == Rev869ARoleCodes.Normalize(code));
     private void RequireRole(params string[] allowed) { if (!allowed.Any(IsRole)) throw new UnauthorizedAccessException("Role is not authorized for this operation."); }
     private static string NormalizeCurrency(string value) { var code = Required(value, "Currency").ToUpperInvariant(); if (code.Length != 3 || code.Any(x => !char.IsLetter(x))) throw new Rev869BValidationException("ISO 4217 currency code must contain three letters."); return code; }
     private static string Required(string? value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new Rev869BValidationException($"{name} is required.");

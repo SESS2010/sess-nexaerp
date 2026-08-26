@@ -48,7 +48,7 @@ public sealed partial class EfRev869BPurchaseService
                 .SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, request.Version, "material follow-up");
         await SavePreauthorizedChangesAsync(ct);
-        await audit.WriteAsync("Purchase", "MaterialFollowUpTransition", nameof(MaterialFollowUpHandoff), handoffId.ToString(),
+        await WriteAuditAsync("Purchase", "MaterialFollowUpTransition", nameof(MaterialFollowUpHandoff), handoffId.ToString(),
             new { handoff.Status, handoff.Version }, new { request.ToStatus, Version = next, Reason = request.Reason.Trim() }, ct);
         await tx.CommitAsync(ct);
         return Result(handoff.Id, handoff.HandoffNumber, request.ToStatus, next);

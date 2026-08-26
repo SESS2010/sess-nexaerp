@@ -497,6 +497,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.Status).HasMaxLength(60).IsRequired();
             entity.Property(x => x.EstimatedTotal).HasPrecision(18, 2);
             entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.ApprovalWorkflowSnapshotJson).HasColumnType("jsonb").IsRequired();
             entity.Property(x => x.SubmittedBy).HasMaxLength(160);
             entity.Property(x => x.VerifiedBy).HasMaxLength(160);
             entity.Property(x => x.ApprovedBy).HasMaxLength(160);
@@ -505,6 +506,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasOne(x => x.RequesterEmployee).WithMany().HasForeignKey(x => x.RequesterEmployeeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.DeliveryWarehouse).WithMany().HasForeignKey(x => x.DeliveryWarehouseId).OnDelete(DeleteBehavior.Restrict);
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisitions_estimated_total_nonnegative", "\"EstimatedTotal\" >= 0 AND \"PrSequence\" > 0"));
+            entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisition_approval_progress", "\"ApprovalCycle\" >= 0 AND \"CompletedApprovalStepCount\" >= 0 AND \"CompletedApprovalStepCount\" <= \"RequiredApprovalStepCount\" AND (\"ApprovalCycle\" = 0 OR (\"RequiredApprovalStepCount\" > 0 AND \"CreatorEmployeeId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ApprovalWorkflowSnapshotJson\" <> '{}'::jsonb))"));
         });
 
         modelBuilder.Entity<PurchaseRequisitionLine>(entity =>
@@ -563,11 +565,14 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.ToTable("purchase_requisition_approval_history");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.PurchaseRequisitionId, x.CreatedAt });
+            entity.HasIndex(x => new { x.PurchaseRequisitionId, x.ApprovalCycle, x.StepNumber }).IsUnique().HasFilter("\"Action\" = 'Approve' AND \"StepNumber\" > 0");
             entity.Property(x => x.PrNumber).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Action).HasMaxLength(80).IsRequired();
             entity.Property(x => x.FromStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.ToStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.ApprovalRoute).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.ResolvedRoleCode).HasMaxLength(80).IsRequired();
+            entity.Property(x => x.SnapshotIdentity).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
             entity.Property(x => x.ActorLoginId).HasMaxLength(160).IsRequired();
             entity.Property(x => x.ActorRoleCode).HasMaxLength(80).IsRequired();

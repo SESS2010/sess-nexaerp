@@ -471,7 +471,8 @@ public sealed class Rev868C1PreparationTests
             "20260825073027_CorrectManagingDirectorDepartmentPriority",
             "20260825092016_AuthenticationBootstrapFoundation",
             "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
-            "20260825135023_ApprovalConfigurationAndPermissionsPart2"
+            "20260825135023_ApprovalConfigurationAndPermissionsPart2",
+            "20260826054057_TwoLevelPurchaseApprovalEnginePart3"
         };
 
         foreach (var id in expected)

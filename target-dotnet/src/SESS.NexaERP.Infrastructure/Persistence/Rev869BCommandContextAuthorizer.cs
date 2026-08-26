@@ -38,9 +38,13 @@ public static class Rev869BCommandContextAuthorizer
         Guid ExecutionInstanceId, byte[] ServiceInstanceFingerprint, byte[] OwnershipLeaseFingerprint);
 
     public static async Task<CommandAttemptHandle?> OpenForPendingChangesAsync(
-        NexaErpDbContext db, ICurrentUser user, string organization, CommandEnvelope envelope, CancellationToken ct)
+        NexaErpDbContext db, ICurrentUser user, string organization, CommandEnvelope envelope, CancellationToken ct,
+        string? selectedRoleCode = null)
     {
         RequirePrincipal(user, organization);
+        var actorRole = string.IsNullOrWhiteSpace(selectedRoleCode) ? user.RoleCode : selectedRoleCode.Trim();
+        if (!user.RoleCodes.Any(x => string.Equals(x.Trim(), actorRole, StringComparison.OrdinalIgnoreCase)))
+            throw new UnauthorizedAccessException("Selected command role is not effective for the current employee.");
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("REV869B command attempts require an active service-owned business transaction.");
 
@@ -83,7 +87,7 @@ public static class Rev869BCommandContextAuthorizer
             register.Parameters.AddWithValue("actor", user.EmployeeId!.Value);
             register.Parameters.AddWithValue("issuer", user.IdentityIssuer!);
             register.Parameters.AddWithValue("subject", user.IdentitySubject!);
-            register.Parameters.AddWithValue("role", user.RoleCode);
+            register.Parameters.AddWithValue("role", actorRole);
             commandId = (Guid)(await register.ExecuteScalarAsync(ct) ?? throw new InvalidOperationException("Command request registration returned no identifier."));
 
             if (!Guid.TryParse(Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID"), out var executionId) || executionId == Guid.Empty)
@@ -112,7 +116,7 @@ public static class Rev869BCommandContextAuthorizer
             await db.Database.ExecuteSqlInterpolatedAsync(FormattableStringFactory.Create(
                 OpenCommandAttemptSql,
                 attemptId, user.EmployeeId.Value, user.IdentityIssuer, user.IdentitySubject,
-                user.RoleCode, organization, businessFingerprint, slotsJson), ct);
+                actorRole, organization, businessFingerprint, slotsJson), ct);
         }
         catch
         {

@@ -81,14 +81,15 @@ public sealed class ApprovalConfigurationPart2Tests
         var controlled = Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations", "Rev869BControlledMutationSql.cs");
         controlled = controlled[controlled.IndexOf("private const string InstallTemplate", StringComparison.Ordinal)..];
         var permissionService = Read("src", "SESS.NexaERP.Infrastructure", "Authorization", "EfPagePermissionService.cs");
-        var service = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs");
+        var service = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfPurchaseApprovalWorkflowService.cs");
 
         Assert.DoesNotContain("IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER') AND EXISTS", controlled);
         Assert.DoesNotContain("\"ApprovalRoute\"='MANAGER' AND NEW.\"ActorRoleCode\" IN ('PURCHASE_MANAGER','DEPARTMENT_MANAGER')", controlled);
         Assert.DoesNotContain("r.\"Code\" IN ('PURCHASE_MANAGER','TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')", controlled);
         Assert.Contains("IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')", controlled);
         Assert.Contains("\"purchase.requisition-approvals\"", permissionService);
-        Assert.Contains("mappings[0].ApproverRoleCode", service);
+        Assert.Contains("mapping.ApproverRoleCode", service);
+        Assert.Contains("step.EmployeeId != actorEmployeeId", service);
     }
 
     [Fact]

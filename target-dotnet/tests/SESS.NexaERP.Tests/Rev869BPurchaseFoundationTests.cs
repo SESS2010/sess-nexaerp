@@ -10,6 +10,7 @@ public sealed class Rev869BPurchaseFoundationTests
     private static readonly string Root = FindRoot();
     private static string DomainSource => Read("src", "SESS.NexaERP.Domain", "Purchase", "Rev869BPurchaseTransactions.cs");
     private static string ServiceSource => Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.cs") + Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.RfqQuotation.cs") + Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfRev869BPurchaseService.ComparisonPo.cs");
+    private static string WorkflowSource => Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfPurchaseApprovalWorkflowService.cs");
     private static string MappingSource => Read("src", "SESS.NexaERP.Infrastructure", "Persistence", "NexaErpDbContext.Rev869B.cs");
     private static string ApiSource => Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869BPurchaseEndpoints.cs");
     private static string MigrationPath => Directory.GetFiles(Path.Combine(Root, "src", "SESS.NexaERP.Infrastructure", "Persistence", "Migrations"), "*Rev869BRfqQuotationComparisonPurchaseOrderFoundation.cs").Single(x => !x.EndsWith(".Designer.cs", StringComparison.Ordinal));
@@ -74,8 +75,8 @@ public sealed class Rev869BPurchaseFoundationTests
     [Fact]
     public void ApprovalAndScopeRulesRejectMissingIdentitySelfApprovalAndUnauthorizedRecords()
     {
-        Assert.Contains("A unique active employee identity mapping is required", ServiceSource); Assert.Contains("Self-approval is prohibited", ServiceSource);
-        Assert.Contains("DepartmentApprovalMappings", ServiceSource); Assert.Contains("mappings.Count != 1", ServiceSource); Assert.Contains("scopes.AuthorizeAsync", ServiceSource); Assert.Contains("RecordScope", ServiceSource);
+        Assert.Contains("A unique active employee identity mapping is required", ServiceSource); Assert.Contains("Creator self-approval is prohibited", WorkflowSource);
+        Assert.Contains("DepartmentApprovalMappings", WorkflowSource); Assert.Contains("mappings.Count != 1", WorkflowSource); Assert.Contains("scopes.AuthorizeAsync", ServiceSource); Assert.Contains("RecordScope", ServiceSource);
         Assert.Contains("RequireResolvedEmployeeAndScope", ApiSource); Assert.Contains("RequirePagePermission", ApiSource); Assert.Contains("RequireAuthorization", ApiSource);
     }
 

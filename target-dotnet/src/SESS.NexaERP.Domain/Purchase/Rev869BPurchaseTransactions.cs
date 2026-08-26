@@ -468,6 +468,11 @@ public sealed class CommercialComparison : CompanyScopedAuditableEntity
     public string CurrencyCode { get; set; } = "INR";
     public decimal TotalPayableValue { get; set; }
     public string ApprovalRoute { get; set; } = string.Empty;
+    public int ApprovalCycle { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public int CompletedApprovalStepCount { get; set; }
+    public string ApprovalWorkflowSnapshotJson { get; set; } = "{}";
+    public Guid CreatorEmployeeId { get; set; }
     public string Status { get; set; } = Rev869BStatuses.Draft;
     public bool IsSingleSource { get; set; }
     public string? SingleSourceJustification { get; set; }
@@ -503,6 +508,12 @@ public sealed class PurchaseTransactionApprovalHistory : CompanyScopedAuditableE
     public string FromStatus { get; set; } = string.Empty;
     public string ToStatus { get; set; } = string.Empty;
     public string ApprovalRoute { get; set; } = string.Empty;
+    public int ApprovalCycle { get; set; }
+    public int StepNumber { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public Guid ResolvedEmployeeId { get; set; }
+    public string ResolvedRoleCode { get; set; } = string.Empty;
+    public string SnapshotIdentity { get; set; } = string.Empty;
     public Guid ActorEmployeeId { get; set; }
     public Employee? ActorEmployee { get; set; }
     public string ActorLoginId { get; set; } = string.Empty;
@@ -535,6 +546,11 @@ public sealed class PurchaseOrder : CompanyScopedAuditableEntity
     public string Status { get; set; } = Rev869BStatuses.Draft;
     public string CurrencyCode { get; set; } = "INR";
     public string ApprovalRoute { get; set; } = string.Empty;
+    public int ApprovalCycle { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public int CompletedApprovalStepCount { get; set; }
+    public string ApprovalWorkflowSnapshotJson { get; set; } = "{}";
+    public Guid CreatorEmployeeId { get; set; }
     public decimal TaxableValue { get; set; }
     public decimal DiscountValue { get; set; }
     public decimal HeaderDiscountValue { get; set; }
@@ -655,6 +671,13 @@ public sealed class PurchaseOrderHistory : CompanyScopedAuditableEntity
     public string FromStatus { get; set; } = string.Empty;
     public string ToStatus { get; set; } = string.Empty;
     public int RevisionNumber { get; set; }
+    public int ApprovalCycle { get; set; }
+    public int StepNumber { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public Guid? ResolvedEmployeeId { get; set; }
+    public string? ResolvedRoleCode { get; set; }
+    public string? ApprovalRoute { get; set; }
+    public string? SnapshotIdentity { get; set; }
     public Guid ActorEmployeeId { get; set; }
     public Employee? ActorEmployee { get; set; }
     public string ActorLoginId { get; set; } = string.Empty;

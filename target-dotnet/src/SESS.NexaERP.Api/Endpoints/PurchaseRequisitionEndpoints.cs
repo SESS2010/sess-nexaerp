@@ -50,6 +50,7 @@ public static partial class PurchaseRequisitionEndpoints
             if (validation is not null) return validation;
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var pr = await BuildDraftAsync(request, db, user, ct);
+            pr.CreatorEmployeeId = user.EmployeeId ?? throw new UnauthorizedAccessException("Employee identity is required.");
             pr.PrNumber = await NextPrNumberAsync(db, pr.OrganizationId, pr.RequestDate, user, ct);
             AddStatus(db, pr, null, PurchaseRequisitionStatuses.Draft, "Draft created", user, Correlation("CREATE"));
             db.PurchaseRequisitions.Add(pr);
@@ -74,14 +75,14 @@ public static partial class PurchaseRequisitionEndpoints
             return Results.Ok(ToDetail(await Reload(pr.Id, db, ct)));
         }).RequirePagePermission(PageRequisitions, PagePermissionActions.Update);
 
-        group.MapPost("/{prNumber}/submit", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Submit", PurchaseRequisitionStatuses.Draft, PurchaseRequisitionStatuses.Submitted, PageRequisitions, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.Submit);
-        group.MapPost("/{prNumber}/verify", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => Verify(prNumber, request, db, user, audit, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.Verify);
-        group.MapPost("/{prNumber}/approve", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => Approve(prNumber, request, db, user, audit, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.Approve);
-        group.MapPost("/{prNumber}/reject", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Reject", PurchaseRequisitionStatuses.PendingApproval, PurchaseRequisitionStatuses.Rejected, PageApprovals, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.Reject);
-        group.MapPost("/{prNumber}/request-revision", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "RequestRevision", PurchaseRequisitionStatuses.PendingApproval, PurchaseRequisitionStatuses.RevisionRequested, PageApprovals, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.RequestRevision);
-        group.MapPost("/{prNumber}/resubmit", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Resubmit", PurchaseRequisitionStatuses.RevisionRequested, PurchaseRequisitionStatuses.Submitted, PageRequisitions, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.Resubmit);
-        group.MapPost("/{prNumber}/cancel", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Cancel", null, PurchaseRequisitionStatuses.Cancelled, PageRequisitions, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.Cancel);
-        group.MapPost("/{prNumber}/hold", (string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) => ChangeStatus(prNumber, request, db, user, audit, "Hold", null, PurchaseRequisitionStatuses.Held, PageApprovals, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.Update);
+        group.MapPost("/{prNumber}/submit", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.SubmitAsync(prNumber, request, ct))).RequirePagePermission(PageRequisitions, PagePermissionActions.Submit);
+        group.MapPost("/{prNumber}/verify", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.VerifyAsync(prNumber, request, ct))).RequirePagePermission(PageRequisitions, PagePermissionActions.Verify);
+        group.MapPost("/{prNumber}/approve", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.ApproveAsync(prNumber, request, ct))).RequirePagePermission(PageApprovals, PagePermissionActions.Approve);
+        group.MapPost("/{prNumber}/reject", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.RejectAsync(prNumber, request, ct))).RequirePagePermission(PageApprovals, PagePermissionActions.Reject);
+        group.MapPost("/{prNumber}/request-revision", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.RequestRevisionAsync(prNumber, request, ct))).RequirePagePermission(PageApprovals, PagePermissionActions.RequestRevision);
+        group.MapPost("/{prNumber}/resubmit", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.ResubmitAsync(prNumber, request, ct))).RequirePagePermission(PageRequisitions, PagePermissionActions.Resubmit);
+        group.MapPost("/{prNumber}/cancel", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.CancelAsync(prNumber, request, ct))).RequirePagePermission(PageRequisitions, PagePermissionActions.Cancel);
+        group.MapPost("/{prNumber}/hold", (string prNumber, PurchaseRequisitionActionRequest request, IPurchaseRequisitionWorkflowService service, CancellationToken ct) => RunWorkflow(() => service.HoldAsync(prNumber, request, ct))).RequirePagePermission(PageApprovals, PagePermissionActions.Update);
 
         group.MapPost("/{prNumber}/stock-check", StockCheck).RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
         group.MapGet("/{prNumber}/status-history", (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) => History(db, prNumber, user, ct)).RequirePagePermission(PageRequisitions, PagePermissionActions.ViewAuditHistory);
@@ -91,80 +92,12 @@ public static partial class PurchaseRequisitionEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> Verify(string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> RunWorkflow(Func<Task<PurchaseRequisitionDetail>> command)
     {
-        return await ChangeStatus(prNumber, request, db, user, audit, "DepartmentVerify", PurchaseRequisitionStatuses.Submitted, PurchaseRequisitionStatuses.PendingApproval, PageRequisitions, ct);
-    }
-
-    private static async Task<IResult> Approve(string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
-    {
-        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
-        if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
-        if (pr.Status != PurchaseRequisitionStatuses.PendingApproval) return Results.Conflict(new { message = "PR must be pending approval." });
-        if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-        if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Remarks are required." });
-        if (string.Equals(pr.CreatedBy, user.LoginId, StringComparison.OrdinalIgnoreCase) || string.Equals(pr.SubmittedBy, user.LoginId, StringComparison.OrdinalIgnoreCase))
-        {
-            await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status }, new { reason = "Self approval blocked", user.RoleCode }, ct);
-            return Results.Forbid();
-        }
-        var expected = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct);
-        if (expected == PurchaseRequisitionApprovalRoutes.Manager)
-        {
-            var resolution = await ResolveDepartmentManagerApproverAsync(pr, db, user, ct);
-            if (!resolution.Success)
-            {
-                await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status, pr.RequestingDepartmentId }, new { reason = resolution.Message, expected, user.RoleCode, resolvedEmployeeCode = resolution.EmployeeCode }, ct);
-                return Results.Problem(resolution.Message, statusCode: StatusCodes.Status409Conflict);
-            }
-        }
-        else if (!CanApproveRoute(user.RoleCode, expected))
-        {
-            await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status }, new { reason = "Approval route mismatch", expected, user.RoleCode }, ct);
-            return Results.Forbid();
-        }
-        var correlation = Idempotency(request, "APPROVE");
-        if (await db.PurchaseRequisitionApprovalHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct)) return Results.Ok(ToDetail(pr));
-        pr.ApprovalRoute = expected;
-        pr.ApprovedBy = user.LoginId;
-        pr.ApprovedAt = DateTimeOffset.UtcNow;
-        AddApproval(db, pr, "Approve", pr.Status, PurchaseRequisitionStatuses.Approved, request.Remarks, user, correlation);
-        SetStatus(db, pr, PurchaseRequisitionStatuses.Approved, request.Remarks, user, correlation);
-        SetStatus(db, pr, PurchaseRequisitionStatuses.StockCheckPending, "Approved PR moved to stores stock-check queue", user, correlation);
-        await db.SaveChangesAsync(ct);
-        await audit.WriteAsync("Purchase", "Approve", nameof(PurchaseRequisition), pr.Id.ToString(), null, new { pr.PrNumber, pr.ApprovalRoute }, ct);
-        return Results.Ok(ToDetail(await Reload(pr.Id, db, ct)));
-    }
-
-    private static async Task<IResult> ChangeStatus(string prNumber, PurchaseRequisitionActionRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, string action, string? requiredStatus, string nextStatus, string page, CancellationToken ct)
-    {
-        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
-        if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
-        if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Remarks are required." });
-        if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-        if (requiredStatus is not null && pr.Status != requiredStatus) return Results.Conflict(new { message = $"Invalid PR status sequence. Required: {requiredStatus}." });
-        var correlation = Idempotency(request, action);
-        if (await db.PurchaseRequisitionStatusHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct)) return Results.Ok(ToDetail(pr));
-                if (action == "DepartmentVerify")
-        {
-            pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct);
-            if (pr.ApprovalRoute == PurchaseRequisitionApprovalRoutes.Manager)
-            {
-                var resolution = await ResolveDepartmentManagerApproverAsync(pr, db, user, ct);
-                if (!resolution.Success)
-                {
-                    await audit.WriteAsync("Security", "Denied", nameof(PurchaseRequisition), pr.Id.ToString(), new { pr.Status, pr.RequestingDepartmentId }, new { reason = resolution.Message, expected = pr.ApprovalRoute, user.RoleCode }, ct);
-                    return Results.Problem(resolution.Message, statusCode: StatusCodes.Status409Conflict);
-                }
-            }
-            pr.VerifiedBy = user.LoginId;
-            pr.VerifiedAt = DateTimeOffset.UtcNow;
-        }
-        if (action is "Reject" or "RequestRevision") AddApproval(db, pr, action, pr.Status, nextStatus, request.Remarks, user, correlation);
-        if (action == "Submit") { pr.SubmittedBy = user.LoginId; pr.SubmittedAt = DateTimeOffset.UtcNow; }
-        SetStatus(db, pr, nextStatus, request.Remarks, user, correlation);
-        await db.SaveChangesAsync(ct);
-        await audit.WriteAsync(page.StartsWith("stores", StringComparison.OrdinalIgnoreCase) ? "Stores" : "Purchase", action, nameof(PurchaseRequisition), pr.Id.ToString(), null, new { pr.PrNumber, nextStatus }, ct);
-        return Results.Ok(ToDetail(await Reload(pr.Id, db, ct)));
+        try { return Results.Ok(await command()); }
+        catch (Rev869BValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        catch (Rev869BNotFoundException ex) { return Results.NotFound(new { message = ex.Message }); }
+        catch (Rev869BConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
+        catch (UnauthorizedAccessException) { return Results.Forbid(); }
     }
 }

@@ -154,7 +154,9 @@ public sealed class Rev868OvernightRemediationTests
         var endpoint = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpoints.cs");
         var helper = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpointHelpers.cs");
         var support = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionSupport.cs");
-        var combined = endpoint + helper + support;
+        var workflow = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfPurchaseApprovalWorkflowService.cs");
+        var requisitionWorkflow = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "EfPurchaseRequisitionWorkflowService.cs");
+        var combined = endpoint + helper + support + workflow + requisitionWorkflow;
 
         Assert.Contains("CreateDraft", combined);
         Assert.Contains("UpdateDraft", combined);
@@ -167,7 +169,7 @@ public sealed class Rev868OvernightRemediationTests
         Assert.Contains("Cancel", combined);
         Assert.Contains("Hold", combined);
         Assert.Contains("Remarks are required", combined);
-        Assert.Contains("Self approval blocked", combined);
+        Assert.Contains("Creator self-approval is prohibited", combined);
         Assert.Contains("Security", combined);
         Assert.Contains("PurchaseRequisitionStatusHistories", combined);
         Assert.Contains("PurchaseRequisitionApprovalHistories", combined);

@@ -44,6 +44,9 @@ public static class PurchaseApproverResolutionTypes
 
 public static class PurchaseRequisitionApprovalRoutes
 {
+    public const string DepartmentOnly = "DEPARTMENT_ONLY";
+    public const string DepartmentThenTechnicalDirector = "DEPARTMENT_THEN_TD";
+    public const string DepartmentThenManagingDirector = "DEPARTMENT_THEN_MD";
     public const string Manager = "MANAGER";
     public const string TechnicalDirector = "TECHNICAL_DIRECTOR";
     public const string ManagingDirector = "MANAGING_DIRECTOR";
@@ -97,6 +100,11 @@ public sealed class PurchaseRequisition : CompanyScopedAuditableEntity
     public string Status { get; set; } = PurchaseRequisitionStatuses.Draft;
     public decimal EstimatedTotal { get; set; }
     public string ApprovalRoute { get; set; } = PurchaseRequisitionApprovalRoutes.Manager;
+    public int ApprovalCycle { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public int CompletedApprovalStepCount { get; set; }
+    public string ApprovalWorkflowSnapshotJson { get; set; } = "{}";
+    public Guid CreatorEmployeeId { get; set; }
     public string? SubmittedBy { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
     public string? VerifiedBy { get; set; }
@@ -161,6 +169,12 @@ public sealed class PurchaseRequisitionApprovalHistory : CompanyScopedAuditableE
     public string FromStatus { get; set; } = string.Empty;
     public string ToStatus { get; set; } = string.Empty;
     public string ApprovalRoute { get; set; } = string.Empty;
+    public int ApprovalCycle { get; set; }
+    public int StepNumber { get; set; }
+    public int RequiredApprovalStepCount { get; set; }
+    public Guid ResolvedEmployeeId { get; set; }
+    public string ResolvedRoleCode { get; set; } = string.Empty;
+    public string SnapshotIdentity { get; set; } = string.Empty;
     public string Remarks { get; set; } = string.Empty;
     public string ActorLoginId { get; set; } = string.Empty;
     public string ActorRoleCode { get; set; } = string.Empty;
