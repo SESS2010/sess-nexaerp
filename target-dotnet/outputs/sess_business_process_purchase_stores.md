@@ -95,25 +95,34 @@ There is no middle ground. If vendor invoice price differs from PO price, either
 
 ## 7. Inbound flow
 
-Each company has its own store and QC rack. KAMALI (SESS-16), SUDALAI (SESS-35), and KARTHICK (SESS-41) enter GRNs for both companies.
+Each company has its own store. Within each company, QC racks are separate by category: electrical, refrigeration, fasteners, PLC/instrumentation, fabrication, and mechanical. KAMALI (SESS-16), SUDALAI (SESS-35), and KARTHICK (SESS-41) enter GRNs for both companies.
+
+Gate Entry is a separate document, not a GRN field. One Gate Entry belongs to exactly one PO. One PO may have many Gate Entries because vendors may deliver in parts. A GRN cannot be entered without a Gate Entry.
 
 | Step | Actor | Action | Approval / notification | Document produced | Schema support |
 |---:|---|---|---|---|---|
-| 1 | Stores today; security later | Makes gate entry with vendor DC number, vehicle number, date and time, and received by. | None stated. | Gate entry | **NO SCHEMA SUPPORT TODAY**. |
-| 2 | Stores / ERP | Checks Item master; GRN cannot be entered for a nonexistent item. | Mandatory prerequisite. | Item check | **Partial** - Item exists; GRN does not. |
-| 3 | Item creator | First creates missing item with internal barcode, model number, manufacturer part number, HSN, GST, UOM, category, and any item-level override of the configured serial threshold. Item master does not hold serial numbers. | None stated. | Item | **Partial** - listed descriptive fields and a serial-tracking flag exist; editable threshold/override and separate internal/manufacturer barcode fields are not fully supported. |
-| 4 | ERP / Stores | Uses manufacturer barcode if present; otherwise generates `SESS-<CAT>-<serial>` using a per-company sequence. Category codes: `ELE` electrical, `REF` refrigeration, `FAS` fasteners, `PLC` instrumentation, `FAB` fabrication, `MEC` mechanical. Prints and fixes the sticker to the component. | None stated. | Barcode sticker | **Partial** - barcode fields exist; separate source barcodes, format/sequence, and printing have **NO SCHEMA SUPPORT TODAY**. |
-| 5 | KAMALI, SUDALAI, or KARTHICK | Enters GRN in either company. Per-unit serial is mandatory when item value is above the configured 5,000 threshold, unless the Item master override applies. At or below the threshold, serial may be recorded if available but is not mandatory. Records bill date; installation date is recorded when it occurs. Warranty expiry is the earlier of 12 months from installation or 13 months from bill date; before installation, use 13 months from bill date. | Mandatory serial rule is driven by editable configuration plus Item override. | GRN, serial records, warranty dates/expiry | **NO SCHEMA SUPPORT TODAY** for GRN/unit warranty and threshold evaluation; Item serial-tracking flag exists in advance. |
-| 6 | Stores | Moves received material to that company's QC rack; it is unavailable for issue. | Mandatory availability control. | QC-rack movement | **Partial** - company-scoped QC-hold locations exist; receipt movement does not. |
-| 7 | NARREN S (SESS-33, `QC_MANAGER`) | Inspects incoming material. ISO scope also covers CNC output, powder-coating output, in-process, QC sheets, FAT, and dispatch-document audit. All powder-coating, CNC, milling, and lathe subcontract returns require QC on return. | Inspection, not stated as approval. | QC evidence | **NO SCHEMA SUPPORT TODAY** for operational records; only policy/location foundations exist. |
-| 8 | Stores / ERP | For partial QC, moves accepted quantity to regular racks and makes it available. The accepted portion is not re-inspected. | QC acceptance prerequisite. | Accepted-stock movement | **Partial** - foundations exist; acceptance posting does not. |
-| 9 | Stores | Keeps rejected quantity in QC rack until returnable DC is raised; it never enters regular racks. | Mandatory location/availability control. | Rejected-stock state | **NO SCHEMA SUPPORT TODAY** for the transaction/state. |
-| 10 | Bill-entry user | Enters bill only for accepted quantity. | None stated. | Accepted-quantity bill | **NO SCHEMA SUPPORT TODAY**. |
-| 11 | Stores | Sends rejected quantity on returnable DC with reason `rejection - replacement request`. | **APPROVAL REQUIRED:** PR raiser first, then TD or MD for high value. | Returnable DC | **NO SCHEMA SUPPORT TODAY**. |
-| 12 | ERP / responsible user | If vendor does not collect rejected material within one week, records an escalation and notifies PRIYA E, TD, and MD together. Material is not scrapped automatically. | **ESCALATION REQUIRED after one week; not approval.** | Escalation record | **NO SCHEMA SUPPORT TODAY**. |
-| 13 | Accounts / ERP | Holds payment until replacement arrives and DC closes. | Mandatory hold, not approval. | Payment hold | **NO SCHEMA SUPPORT TODAY**. |
-| 14 | Stores | Receives replacement as a new GRN and sends it through the full QC flow again; closes the earlier returnable DC when the replacement return is received. | Full QC required. | New GRN, QC record, closed DC | **NO SCHEMA SUPPORT TODAY**. |
+| 1 | Stores today; security later | Creates a separate Gate Entry linked to one PO, recording vendor DC number, vehicle number, date/time, and received by. Multiple Gate Entries may link to the same PO. | None stated. | Gate Entry | **NO SCHEMA SUPPORT TODAY**. |
+| 2 | Stores / ERP | Checks Item master and the mandatory Gate Entry. GRN cannot be entered without both an existing item and a Gate Entry. | Mandatory prerequisites. | Item/Gate validation | **Partial** - Item exists; Gate Entry and GRN do not. |
+| 3 | Item creator / ERP | Creates a missing item with internal barcode, model, manufacturer part number, HSN, GST, UOM, category, and any serial-threshold override. Item master does not hold serial numbers. Every Item-master change records who, when, old value, and new value, following the existing snapshot pattern in `backend_architecture_reference.md`. | None stated. | Item and Item change history | **Partial** - Item and audit/history patterns exist; complete field-level old/new history and serial override are not fully supported. |
+| 4 | ERP / Stores | ERP generates the internal barcode and prints its sticker. Format is `SESS-<CAT>-<serial>`, with a per-company sequence. Category codes are `ELE`, `REF`, `FAS`, `PLC`, `FAB`, and `MEC`. | None stated. | ERP barcode and printed sticker | **Partial** - barcode fields exist; required generation, sequence, and printing have **NO SCHEMA SUPPORT TODAY**. |
+| 5 | KAMALI, SUDALAI, or KARTHICK | Enters GRN in either company against the mandatory Gate Entry. Each GRN line snapshots HSN, GST percentage, model, manufacturer part number, UOM, and the relevant Item identity at entry. Later Item-master changes do not alter historical GRNs. | Mandatory snapshot control. | GRN and immutable line snapshots | **NO SCHEMA SUPPORT TODAY**. |
+| 6 | KAMALI, SUDALAI, or KARTHICK | Captures per-unit serial when item value is above the configured 5,000 threshold unless Item override applies. At or below the threshold, serial is optional. On a duplicate serial, ERP warns but does not hard-block; operator may disambiguate by appending financial year and make, for example `A12345/2026-27/BITZER`. | Warning on duplicate; operator may resolve. | Unit serial record | **NO SCHEMA SUPPORT TODAY** for GRN serials, threshold evaluation, duplicate warning, and disambiguation. |
+| 7 | ERP / responsible user | Records bill date. Installation date comes from the installation completion report and, until an Installation module exists, is entered manually on the Job Order. Warranty expiry is the earlier of 12 months from installation or 13 months from bill date; if installation date is absent, use 13 months from bill date. | Mandatory warranty rule. | Warranty dates and expiry | **NO SCHEMA SUPPORT TODAY** for this GRN/Job Order warranty linkage. |
+| 8 | Stores | Moves each received line to that company's QC rack for its category. Material is unavailable for issue. | Mandatory availability control. | Category QC-rack movement | **Partial** - company-scoped QC-hold/rack foundations exist; category-specific receipt movement does not. |
+| 9 | NARREN S (SESS-33, `QC_MANAGER`), or PR raiser when NARREN S is unavailable | Inspects incoming material. All powder-coating, CNC, milling, and lathe subcontract returns also require QC. | Inspection, not approval. PR raiser is the defined fallback inspector. | QC inspection | **NO SCHEMA SUPPORT TODAY** for operational inspection records. |
+| 10 | Inspector / ERP | Creates one inspection record per GRN line. Each record has its own accept/reject decision, accepted/rejected quantities, and inspection parameters. Compressor and copper-pipe lines therefore have separate records. ISO requires this per-item evidence. | Mandatory per-line inspection evidence. | GRN-line QC inspection record | **NO SCHEMA SUPPORT TODAY**; QC policy foundations exist. |
+| 11 | Inspector / ERP | If inspected quantity is less than GRN quantity, records the inspected quantity and treats the difference as QC-rejected; for example, GRN 100 and QC 98 means 98 inspected and 2 rejected. Rejected quantities feed vendor performance. | Mandatory quantity-reconciliation rule. | QC quantity reconciliation and rejection | **NO SCHEMA SUPPORT TODAY**. |
+| 12 | Stores / ERP | For partial QC, moves accepted quantity to regular racks and makes it available. Accepted portion is not re-inspected. | QC acceptance prerequisite. | Accepted-stock movement | **Partial** - foundations exist; acceptance posting does not. |
+| 13 | Stores | Keeps rejected quantity in its category QC rack until returnable DC is raised; it never enters regular racks. | Mandatory location/availability control. | Rejected-stock state | **NO SCHEMA SUPPORT TODAY** for the transaction/state. |
+| 14 | Bill-entry user | Enters bill only for accepted quantity. | None stated. | Accepted-quantity bill | **NO SCHEMA SUPPORT TODAY**. |
+| 15 | Stores | Sends rejected quantity on returnable DC with reason `rejection - replacement request`. | **APPROVAL REQUIRED:** PR raiser first, then TD or MD for high value. | Returnable DC | **NO SCHEMA SUPPORT TODAY**. |
+| 16 | ERP / responsible user | If vendor does not collect rejected material within one week, records escalation and notifies PRIYA E, TD, and MD together. Do not scrap automatically. | **ESCALATION AND NOTIFICATION REQUIRED after one week; not approval.** | Escalation/notification evidence | **NO SCHEMA SUPPORT TODAY**. |
+| 17 | Accounts / ERP | Holds payment until replacement arrives and DC closes. | Mandatory hold, not approval. | Payment hold | **NO SCHEMA SUPPORT TODAY**. |
+| 18 | Stores | Receives replacement as a new GRN through a new/appropriate Gate Entry and sends it through full QC again; closes the earlier returnable DC when replacement is received. | Full QC required. | New GRN, QC record, closed DC | **NO SCHEMA SUPPORT TODAY**. |
 
+### 7.1 Vendor performance and KPI requirement
+
+Rejection counts, on-time delivery, and price variance must roll up into a vendor performance report and KPI required by ISO documentation. This capability depends on GRN and QC data. It is recorded as a build dependency after GRN and QC in Section 19. **Do not design it now.**
 ## 8. Outbound issue flow
 
 **Stores never issues material without an approved Internal Issue Request. There is no exception for any destination.**
@@ -366,108 +375,145 @@ Configuration changes affect new documents only. The mechanism is:
 | 2 | ERP | Records actor, time, old value, new value, and reason without overwriting history. | Mandatory audit control. | Configuration change history | **Partial** - audit/history patterns exist; complete configuration history is new. |
 | 3 | ERP | Resolves current company configuration at document creation and stores an immutable snapshot. | Mandatory snapshot control. | Document configuration snapshot | **Partial** for Purchase approval snapshots; new for the other processes. |
 | 4 | ERP | Applies later values only to documents created under the later effective version. | Mandatory lifecycle control. | Version-bound rule evaluation | **NO SCHEMA SUPPORT TODAY** across all specified processes. |
-## 18. Open questions - final residual list
 
-Section 18 is not empty. The final answers close company-session behavior, separate reporting, contract-review evidence, inter-company GST invoicing frequency/HSN ownership, approval authority, emergency count/value controls, single-offer treatment, required-by date, warranty fallback, rejected-vendor escalation recipients, serial threshold/override, mandatory DC return date, machine-serial format, manager-entered task hours, expense limits/approvals, NIC JSON structure, and configuration governance. They do not answer the following points, which remain open and must not be inferred.
+## 18. First Stores module questions and deferred register
 
-### Company, approval, and configuration
+### 18.1 Questions still blocking the first Stores module
 
-1. Who is authorized to select each company context?
-2. How must company separation apply to audit views, notification histories, generated-file storage, and backups?
-3. Which exact departments are production-side and which are office-side?
-4. What currency and value basis (pre-tax, post-tax, line, or full document total) drive the approval and emergency-purchase value limits?
-5. Who acts when the department manager or MD is unavailable?
-6. Who approves comparisons and POs, and does the amount matrix apply separately to each?
-7. For rejected-material returns, what is high value, what value is tested, and when does TD versus MD apply?
-8. Does PR raiser first for a rejected return mean approval, verification, or confirmation?
-9. Must TD approve scrap/write-off before MD, or may both mandatory approvals occur in either order?
-10. Who may use the emergency-purchase exception, and what facts make a purchase an emergency?
-11. At what count must the approach-limit warning fire before the configured monthly emergency-purchase cap?
-12. May configuration changes be future-dated or backdated, and if so under what rule?
+**None.**
 
-### Purchase, comparison, invoice, and follow-up
+The first Stores module is bounded to the PO-linked Gate Entry, Gate-required GRN, immutable GRN Item snapshots, configured serial handling, per-company/per-category QC racks, one inspection per GRN line, accepted/rejected quantity reconciliation, accepted-stock posting, rejected-stock isolation, and stock-ledger handoff specified in Section 7. The decisions in this revision close the questions blocking that boundary.
 
-13. What fields link a need to project BOM, reorder trigger, or service requirement?
-14. How is warranty preference applied when the warranty vendor is less than 1% or more than 2% higher?
-15. How are warranty duration, scope, exclusions, and value compared?
-16. Is recommendation per line, per order, or both, and may an award be split among vendors?
-17. Who makes the final human vendor choice, and what override reasons are allowed?
-18. What happens when no vendor meets technical qualification or the required-by date?
-19. Which taxes, freight, packing, insurance, discounts, and other charges determine lowest price?
-20. What columns and printable/export format must the comparison chart contain?
-21. What material-follow-up events, owners, reminders, and escalations are required?
-22. Who chooses invoice replacement versus PO revision, and who approves a mismatch-driven revision?
-23. How are partial invoices, credit/debit notes, tax, freight, discount, rounding, and non-price mismatches handled?
-24. How is accepted bill value allocated per unit and BOM line?
-25. What bill fields, numbering, matching, correction, cancellation, and accounting handoff are required?
+### 18.2 DEFERRED - answer when the named module is built
 
-### Item, gate entry, GRN, and QC
+The following unanswered questions do not block the first Stores module. They remain explicitly deferred and must not be inferred during the first Stores build.
 
-26. What uniqueness and validation rules apply to item code, manufacturer barcode, model, and manufacturer part number beyond the decided internal barcode format?
-27. Are internal and manufacturer barcodes stored as two distinct values?
-28. Which barcode symbology, printer, sticker size, and sticker contents are required?
-29. Who creates and approves new items, and what happens to material waiting for item creation?
-30. What gate-entry number, amendment, cancellation, and security-handover rules apply?
-31. Must every GRN reference PO, gate entry, vendor DC, and vendor invoice?
-32. How are partial, excess, short, damaged, free, and without-PO receipts handled?
-33. What GRN numbering, correction, cancellation, reversal, and duplicate-receipt rules apply?
-34. What QC criteria, sampling, tolerances, statuses, evidence, and signatures apply to each ISO scope activity?
-35. Who performs QC when NARREN S is unavailable?
-36. Are QC hold, reinspection of rejected material, and concession allowed, and who decides them?
-37. What documents and fields constitute QC sheets, FAT, and dispatch-document audit?
-38. How does material not requiring QC become available?
-39. Does payment hold cover the full invoice or rejected quantity only?
-40. How is a replacement's new GRN linked to rejected units, original GRN, PO, bill, and DC?
-41. After the one-week escalation, what happens if collection/replacement still does not occur or the vendor offers credit instead?
+#### Company access, governance, and configuration module - deferred
 
-### Issue, DC, subcontract, scrap, and expenses
+- Who is authorized to select each company context?
+- How must company separation apply to audit views, notification histories, generated-file storage, and backups?
+- Which departments are production-side and which are office-side?
+- What currency/value basis drives approval and emergency-purchase value limits?
+- Who acts when the department manager or MD is unavailable?
+- Who approves comparisons and POs, and does the amount matrix apply separately?
+- For rejected-material returns, what is high value, what value is tested, and when does TD versus MD apply?
+- Does “PR raiser first” for a rejected return mean approval, verification, or confirmation?
+- Must TD approve scrap/write-off before MD, or may both act in either order?
+- Who may use the emergency-purchase exception, and what makes a purchase an emergency?
+- At what count does the emergency-limit approach warning fire?
+- May configuration changes be future-dated or backdated?
 
-42. Who may raise Internal Issue Requests, and what fields, attachments, and receiver evidence are mandatory?
-43. When does Production Manager approve versus department owner, and who is the department owner?
-44. Can an issue be partial, changed, cancelled, reversed, or returned, and what approvals apply?
-45. What reference is required for `DEMO` and `FREE_OF_COST`?
-46. When is `SERVICE` linked to customer PO, warranty, or sale bill?
-47. How does `WARRANTY` purpose differ from `SERVICE` against warranty?
-48. Under what condition may the default returnable treatment for demo be overridden?
-49. What does bill through mean, and what bill is linked?
-50. Beyond mandatory expected return date, what numbers, signatures, transporter details, print format, and closure evidence must a DC contain?
-51. What action follows an overdue returnable DC for demo or subcontract, or a short/damaged/consumed return?
-52. Must TD/MD non-returnable-DC notifications be delivered before dispatch, and what acknowledgement, retry, and evidence rules apply?
-53. How are outgoing material, returned processed material, wastage, vendor PO, QC result, and project/Job Order linked for subcontract?
-54. How is PO bill value split when subcontract work serves multiple projects or Job Orders?
-55. What distinguishes scrap from write-off, and what reasons and evidence are required?
-56. How is approved scrap valued and disposed of, and does a scrap sale require a bill, DC, or e-way bill?
+#### Purchase comparison and material-follow-up module - deferred
 
-### Sales, Job Order, BOM, labour, and service contracts
+- What fields link a need to project BOM, reorder trigger, or service requirement?
+- How is warranty preference applied below 1% or above 2% higher price, and how are warranty scope, duration, exclusions, and value compared?
+- Is recommendation per line, per order, or both; may award be split?
+- Who makes the final vendor choice, and which override reasons are allowed?
+- What happens when no vendor meets technical qualification or required-by date?
+- Which taxes/charges determine lowest price?
+- What columns and output format must the comparison chart contain?
+- What material-follow-up events, owners, reminders, and escalations are required?
 
-57. Which standard model copies govern AI-assisted offers, and what prompt, version, human-review, access, and retention controls apply?
-58. Which live-stock cost is used when accepted bill values differ, stock is reserved/unavailable, or HSN/barcode matches multiple items?
-59. Who sets and approves margin, and may it vary by chamber, item, customer, or service part?
-60. What numbering and revision rules apply to customer RFQ, offer, contract review, customer PO, and Job Order?
-61. What qualifies as a chamber and how is it identified?
-62. How are lump-sum discount, tax, freight, installation, and other common charges allocated across chamber prices?
-63. Which bill closes the Job Order, and can a Job Order reopen after correction, cancellation, or credit note?
-64. Which project warranty dates control when the BOM closes, and how are they related to component warranty?
-65. What BOM versions, approvals, substitutions, quantities, and variance reasons are required?
-66. How are shared material, subcontract, labour, travel, lodging, and food costs allocated across Job Orders?
-67. What columns, calculations, thresholds, and reports are required in the side-by-side BOM view?
-68. Which monthly salary value is divided by 208, and how are partial months, leave, overtime, holidays, idle time, and fractional hours treated?
-69. What precision and rounding apply to labour rate, hours, BOM cost, expenses, and inter-company billing?
-70. What morning/evening report fields, deadlines, and correction rules apply?
-71. How do completed/pending counts produce performance and incentive outcomes?
-72. When work for multiple companies occurs on one day, what task-report and inter-company separation rules apply?
-73. What fields, dates, renewals, billing, entitlements, visits, and closure rules apply to Warranty, AMC, and CAMC?
-74. How are customer materials under AMC received, tracked, issued, returned, lost, damaged, or consumed?
-75. Which consumables are included under CAMC and how are they costed?
-76. How is one visit split when it contains warranty and chargeable work?
+#### Vendor bill and finance-integration module - deferred
 
-### E-way-bill JSON export
+- Who chooses invoice replacement versus PO revision, and who approves a mismatch-driven revision?
+- How are partial invoices, credit/debit notes, tax, freight, discount, rounding, and non-price mismatches handled?
+- How is accepted bill value allocated per unit and BOM line?
+- What bill fields, numbering, matching, correction, cancellation, and accounting handoff are required?
+- Does payment hold cover the full invoice or rejected quantity only?
 
-77. Which transactions require an e-way bill, and what value, distance, movement-type, and exemption rules apply?
-78. Which ERP source documents supply payload data for receipt, each DC type, subcontract, rejection, demo, warranty, sale, and free-of-cost movement?
-79. What file naming, retention, correction, and version-adoption rules apply around the official NIC schema?
-80. Who may generate, export, correct, and manually upload the JSON?
-81. How is the portal-generated e-way-bill number/status recorded back in ERP, and how are cancellation, extension, and amendment tracked?
+#### Item-master administration and barcode hardware module - deferred
+
+- What uniqueness/validation rules apply to item code, manufacturer barcode, model, and manufacturer part number beyond the decided ERP barcode format?
+- Are internal and manufacturer barcodes stored as distinct values?
+- Which barcode symbology, printer, sticker size, and sticker contents are required?
+- Who creates/approves new items, and what happens to material waiting for Item creation?
+
+#### Gate Entry and GRN lifecycle hardening - deferred
+
+- What Gate Entry numbering, amendment, cancellation, and security-handover rules apply?
+- Must the GRN also reference the vendor invoice in addition to its mandatory Gate Entry and PO relationship?
+- How are excess, damaged, free, and other receipt exceptions handled beyond the stated partial-delivery flow?
+- What GRN numbering, correction, cancellation, reversal, and duplicate-receipt rules apply?
+- How is a replacement GRN linked in detail to rejected units, original GRN, PO, bill, and DC?
+
+#### QC policy and extended ISO evidence module - deferred
+
+- What exact inspection-parameter catalogs, sampling rules, tolerances, evidence, and signatures apply within each per-line record?
+- Are QC hold, reinspection of rejected material, and concession allowed, and who decides them?
+- What fields constitute QC sheets, FAT, and dispatch-document audit?
+- If a later policy permits material not requiring QC, how does it become available? The first Stores module has no QC-bypass path.
+
+#### Vendor rejection resolution module - deferred
+
+- After the one-week escalation, what happens if collection/replacement still does not occur or the vendor offers credit instead?
+
+#### Internal issue and outbound movement module - deferred
+
+- Who may raise Internal Issue Requests, and what fields, attachments, and receiver evidence are mandatory?
+- When does Production Manager approve versus department owner, and who is the department owner?
+- Can issue be partial, changed, cancelled, reversed, or returned, and what approvals apply?
+- What reference is required for `DEMO` and `FREE_OF_COST`?
+- When is `SERVICE` linked to customer PO, warranty, or sale bill?
+- How does `WARRANTY` purpose differ from `SERVICE` against warranty?
+
+#### Delivery Challan module - deferred
+
+- When may default-returnable treatment for demo be overridden?
+- What does “bill through” mean, and what bill is linked?
+- Beyond mandatory expected return date, what numbers, signatures, transporter details, print format, and closure evidence must a DC contain?
+- What action follows an overdue demo/subcontract DC or a short/damaged/consumed return?
+- Must TD/MD non-returnable-DC notifications arrive before dispatch, and what acknowledgement/retry/evidence rules apply?
+
+#### Subcontract and scrap modules - deferred
+
+- How are outgoing material, processed return, wastage, vendor PO, QC result, and project/Job Order linked for subcontract?
+- How is PO bill value split when subcontract work serves multiple projects/Job Orders?
+- What distinguishes scrap from write-off, and what reasons/evidence are required?
+- How is approved scrap valued/disposed, and does sale require a bill, DC, or e-way bill?
+
+#### Sales, offer, contract-review, and Job Order modules - deferred
+
+- Which standard model copies govern AI-assisted offers, and what prompt/version/human-review/access/retention controls apply?
+- Which live-stock cost is used when accepted bill values differ, stock is reserved/unavailable, or HSN/barcode matches multiple items?
+- Who sets/approves margin, and may it vary by chamber, item, customer, or service part?
+- What numbering/revision rules apply to customer RFQ, offer, contract review, customer PO, and Job Order?
+- What qualifies as a chamber and how is it identified?
+- How are lump-sum discount, tax, freight, installation, and other common charges allocated across chambers?
+- Which bill closes the Job Order, and can it reopen after correction/cancellation/credit note?
+
+#### BOM and warranty-lifecycle modules - deferred
+
+- Which project warranty dates close the BOM, and how do they relate to component warranty?
+- What BOM versions, approvals, substitutions, quantities, and variance reasons are required?
+- How are shared material, subcontract, labour, travel, lodging, and food allocated across Job Orders?
+- What columns/calculations/thresholds/reports are required in the side-by-side BOM view?
+
+#### Labour, expense, performance, and service-contract modules - deferred
+
+- Which monthly salary value is divided by 208, and how are partial months, leave, overtime, holidays, idle time, and fractional hours treated?
+- What precision/rounding applies to labour, hours, BOM cost, expenses, and inter-company billing?
+- What morning/evening report fields, deadlines, and correction rules apply?
+- How do completed/pending counts produce performance and incentive outcomes?
+- How is work for multiple companies separated in one day's task report?
+- What fields, dates, renewals, billing, entitlements, visits, and closure rules apply to Warranty, AMC, and CAMC?
+- How are customer materials under AMC received/tracked/issued/returned/lost/damaged/consumed?
+- Which consumables are included under CAMC and how are they costed?
+- How is one visit split between warranty and chargeable work?
+
+#### Installation activity and installed-machine modules - deferred future work
+
+- Build an Installation Activity module holding installation completion reports.
+- Build an installed-machine register.
+- Until then, installation date is entered manually on the Job Order from the installation completion report.
+
+#### E-way-bill JSON module - deferred
+
+- Which transactions require an e-way bill, and what value/distance/movement/exemption rules apply?
+- Which ERP documents supply payload data for each movement?
+- What file naming, retention, correction, and NIC-version adoption rules apply?
+- Who may generate/export/correct/manually upload JSON?
+- How are portal number/status, cancellation, extension, and amendment recorded?
 ## 19. Build dependencies: schema, services, and APIs
 
 The order below is dependency order, not an effort estimate. "Advance" means the current source already contains a reusable foundation. "New" means the stated capability must be added. Existing foundations do not by themselves satisfy the full business process.
@@ -483,12 +529,13 @@ The order below is dependency order, not an effort estimate. "Advance" means the
 | 4 | Employee, department, role, and authority | Schema | **Advance - partial** | Reuse employees, company/department assignments, reporting, roles, department mapping, and approval-policy snapshots; add only missing substitution/exception evidence. |
 | 5 | Approval engine | Service | **Advance plus extension** | Reuse implemented amount routing and policy snapshots; add MD higher-authority handling, no self-approval for TD/MD raisers, remaining-level resolution, any-value TD+MD scrap approval, normal-matrix single-offer handling, and configuration-snapshot evaluation. |
 | 6 | Approval engine | API | **Advance plus extension** | Reuse PR/comparison/PO transition APIs; expose substitution, emergency bill intake, return approval, issue approval, DC approval/notification, and scrap approval actions. |
-| 7 | Core masters and numbering | Schema | **Advance plus new** | Reuse Item, category, UOM, vendor, customer, warehouse, rack/bin, barcode, reorder, QC/serial flags, and document sequences; add separate manufacturer/internal barcodes, per-company barcode sequence/category codes, and Item-level serial-threshold override. |
-| 8 | Core masters and numbering | Service | **Advance plus extension** | Validate item-before-GRN, generate `SESS-<CAT>-<serial>` per company, and create labels. |
-| 9 | Core masters and numbering | API | **Advance plus extension** | Reuse master APIs; add missing category/UOM/configuration and barcode-generation/label endpoints. |
+| 7 | Core masters and numbering | Schema | **Advance plus new** | Reuse Item, category, UOM, vendor, customer, warehouse, rack/bin, barcode, reorder, QC/serial flags, document sequences, and audit patterns; add per-company ERP barcode sequence/category codes, Item serial-threshold override, and complete who/when/old/new Item history. |
+| 8 | Core masters and numbering | Service | **Advance plus extension** | Validate item-before-GRN, generate `SESS-<CAT>-<serial>` per company, print stickers from ERP, and preserve field-level Item change history. |
+| 9 | Core masters and numbering | API | **Advance plus extension** | Reuse master APIs; add missing category/UOM/configuration, barcode-generation/printing, and Item change-history endpoints. |
 | 10 | Sales documents, contract review, Job Order, and chamber | Schema | **New** | Customer RFQ, AI-assisted Word offer/revisions, customer PO, contract-review agreement with signed Word attachment, chamber breakup, one Job Order per chamber, and machine serial in `SESS-<CompanyCode>-<Year>-<Sequence>` format. Generic Project/Document/Customer foundations are reusable advances. |
 | 11 | Sales-to-Job-Order | Service | **New** | Live-stock cost lookup by HSN/barcode, margin application, offer/PO comparison, signed-Word mutual-agreement recording, Job Order generation, and formatted machine-serial generation. |
 | 12 | Sales-to-Job-Order | API | **New** | Customer RFQ, offer, Word artifact, customer PO, contract-review agreement, chamber, and Job Order endpoints. |
+| 12A | Installation activity and installed-machine register | Schema/service/API | **Future - new; deferred** | Later module holds installation completion reports and installed-machine register. Until built, installation date is entered manually on Job Order. |
 | 13 | Estimated and Actual BOM | Schema | **New** | Versioned Estimated BOM at offer time; Actual BOM lines for accepted-bill material, subcontract, labour, installation expense, and warranty service; warranty-open lifecycle and variance/notification evidence. |
 | 14 | BOM costing | Service | **New** | Side-by-side comparison, actual accumulation, accepted-bill allocation, PO-bill subcontract costing, warranty costing, AMC/CAMC exclusion, and non-blocking overrun notification. |
 | 15 | BOM | API | **New** | Estimated/Actual BOM authoring, issue linkage, comparison, variance, cost-detail, and lifecycle endpoints. |
@@ -497,11 +544,12 @@ The order below is dependency order, not an effort estimate. "Advance" means the
 | 18 | PR through PO | API | **Advance plus extension** | Reuse current Purchase APIs; add emergency purchase, comparison chart/export, mismatch decision, invoice replacement, and full follow-up endpoints. |
 | 19 | Vendor invoice and bill | Schema | **New** | Vendor bill/header/lines, PO/GRN matching, accepted quantity/value, mismatch decision, revisions/replacements, and bill values feeding BOM. |
 | 20 | Vendor invoice and bill | Service/API | **New** | Match invoice to PO/accepted quantity, reject-or-revise only, hold payment, and expose bill entry/status/actions. |
-| 21 | Gate entry and GRN | Schema | **New** | Gate fields, GRN/lines, PO/DC/invoice references, serials driven by configured 5,000 threshold and Item override, bill/installation dates, warranty fallback/expiry, replacements, histories, and per-company numbering. |
-| 22 | Gate entry and GRN | Service/API | **New** | Item prerequisite, named-user entry in both companies, mandatory-above-threshold/optional-below serial logic with Item override, 13-month pre-installation fallback, final warranty calculation, replacement-as-new-GRN, and receipt endpoints. |
-| 23 | QC and condition movement | Schema | **Advance plus new** | Reuse QC policy and company warehouse condition locations; add inspection lots/results, partial acceptance/rejection, QC evidence, rejected-in-QC state, subcontract-return inspection, and histories. |
-| 24 | QC and condition movement | Service/API | **New** | QC queue, inspection, partial disposition, accepted posting, rejected hold, no accepted-portion reinspection, full replacement QC, and QC endpoints. |
-| 25 | Stock ledger and availability | Schema | **Advance plus new** | Reuse warehouse/rack/bin, stock checks, reservations, handoffs, and minimal StockMovement; add immutable receipt/condition/issue/return/reversal/value postings and balances. |
+| 21 | Gate Entry and GRN | Schema | **New** | Separate Gate Entry document with one-PO ownership and many-Gate-Entries-per-PO; mandatory Gate Entry reference on GRN; GRN-line snapshots of HSN/GST/model/manufacturer part number/UOM; serial threshold/override and disambiguated values; bill date, manual Job Order installation date, warranty fallback/expiry, replacements, and histories. |
+| 22 | Gate Entry and GRN | Service/API | **New** | Create PO-linked Gate Entries; block GRN without Gate Entry/Item; support partial deliveries through multiple Gate Entries; freeze Item snapshots; generate/print ERP barcodes; warn without hard-block on duplicate serial and allow FY/make suffix; calculate warranty with manual installation date or 13-month fallback; expose Gate/GRN endpoints. |
+| 23 | QC and condition movement | Schema | **Advance plus new** | Reuse QC policy and company warehouse/rack foundations; add QC racks per company/category and exactly one inspection record per GRN line with decision, accepted/rejected quantities, inspection parameters, inspector, evidence, rejected-in-QC state, subcontract-return inspection, and histories. |
+| 24 | QC and condition movement | Service/API | **New** | Route each line to category QC rack; assign NARREN S or PR raiser fallback; reconcile inspected quantity to GRN and convert shortage to rejection; post accepted quantity, isolate rejected quantity, avoid accepted-portion reinspection, require full replacement QC, emit vendor-performance facts, and expose QC endpoints. |
+| 24A | Vendor performance report and KPI | Schema/service/API | **New; do not design now** | After GRN and QC, roll up rejection counts, on-time delivery, and price variance into the ISO-required vendor performance report and KPI. Dependency only; design is deferred. |
+| 25 | Stock ledger and availability | Schema | **Advance plus new** | Reuse warehouse/rack/bin, stock checks, reservations, handoffs, and minimal StockMovement; add immutable per-GRN-line QC accepted/rejected postings, category/location condition, receipt/issue/return/reversal/value postings, and balances. |
 | 26 | Stock ledger and availability | Service/API | **New** | Make only accepted stock available, preserve QC/rejected isolation, issue/return/posting/reversal, balance/reconciliation, and ledger endpoints. |
 | 27 | Internal Issue Request | Schema | **New** | Header/lines constrained to one Job Order, purpose/reference, approval, issue, receiver, partial/reversal/return evidence, and BOM variance link. |
 | 28 | Internal Issue Request | Service/API | **New** | Enforce approval without destination exception, allow multiple items/one Job Order, permit BOM overrun, notify without blocking, and expose request/approval/issue endpoints. |
@@ -516,6 +564,6 @@ The order below is dependency order, not an effort estimate. "Advance" means the
 | 37 | Document/file handling | Schema | **Advance plus extension** | Reuse Document/DocumentRevision foundations; add typed links and metadata for offers, contract reviews, QC/FAT, DCs, bills, and JSON exports. |
 | 38 | Document generation/storage | Service/API | **New** | AI-assisted Word generation with stored revisions, controlled downloads/uploads, comparison export, barcode labels, and file endpoints. |
 | 39 | E-way-bill JSON | Schema/service/API | **New** | Company-scoped payload/version/status using the official NIC bulk-upload schema from ewaybillgst.gov.in, JSON validation/export, manual-upload tracking, portal result capture, and endpoints; reuse the same structure for future API integration, with no GSP integration now. |
-| 40 | Cross-module audit and traceability | Schema/service/API | **Advance plus extension** | Reuse audit/history patterns; provide company-isolated end-to-end trace from need/PR through PO, GRN/QC, issue/DC, BOM, bill, warranty/service, labour, and e-way-bill export. |
+| 40 | Cross-module audit and traceability | Schema/service/API | **Advance plus extension** | Reuse audit/history and snapshot patterns; provide company-isolated trace from need/PR through PO, Gate Entry, immutable GRN snapshots, per-line QC, stock posting, issue/DC, BOM, bill, warranty/service, labour, and e-way-bill export. |
 
 RESULT_REPORTED_PENDING_WITNESS
