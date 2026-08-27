@@ -36,16 +36,18 @@ public sealed class FirstStoresPart2MigrationTests
     }
 
     [Fact]
-    public void Part2PrecedesPart3AAndPart3BIsAbsent()
+    public void Part2PrecedesPart3AAndPart3B()
     {
         using var db = CreateContext();
         var migrations = db.Database.GetMigrations().ToArray();
         Assert.True(Array.IndexOf(migrations, "20260827110550_FirstStoresPart2GrnAndSerials")
                     < Array.IndexOf(migrations, "20260827115729_FirstStoresPart3AQcOutboundDocuments"));
+        Assert.True(Array.IndexOf(migrations, "20260827115729_FirstStoresPart3AQcOutboundDocuments")
+                    < Array.IndexOf(migrations, "20260827132947_FirstStoresPart3BLedgerActivation"));
         var tables = db.Model.GetEntityTypes().Select(x => x.GetTableName()).ToHashSet(StringComparer.Ordinal);
         Assert.Contains("qc_inspections", tables);
         Assert.Contains("delivery_challans", tables);
-        Assert.DoesNotContain("stock_posting_batches", tables);
+        Assert.Contains("stock_posting_batches", tables);
     }
 
     [Fact]

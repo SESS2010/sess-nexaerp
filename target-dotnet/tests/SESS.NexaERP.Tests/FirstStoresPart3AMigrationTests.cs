@@ -24,11 +24,12 @@ public sealed class FirstStoresPart3AMigrationTests
     }
 
     [Fact]
-    public void Part3AIsLatestAndPart3BIsAbsent()
+    public void Part3APrecedesTheApprovedPart3BLedgerBoundary()
     {
         using var db=CreateContext();
-        Assert.Equal("20260827115729_FirstStoresPart3AQcOutboundDocuments",db.Database.GetMigrations().Last());
-        Assert.DoesNotContain("stock_posting_batches",db.Model.GetEntityTypes().Select(x=>x.GetTableName()));
+        var migrations=db.Database.GetMigrations().ToArray();
+        Assert.True(Array.IndexOf(migrations,"20260827115729_FirstStoresPart3AQcOutboundDocuments")<Array.IndexOf(migrations,"20260827132947_FirstStoresPart3BLedgerActivation"));
+        Assert.Contains("stock_posting_batches",db.Model.GetEntityTypes().Select(x=>x.GetTableName()));
     }
 
     [Fact]

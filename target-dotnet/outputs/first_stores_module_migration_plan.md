@@ -1,6 +1,6 @@
 # SESS First Stores Module - Four-Stage Migration Plan
 
-Status: Parts 1 and 2 witnessed; Part 3A migration prepared but not applied; Part 3B pending
+Status: Parts 1, 2 and 3A witnessed and applied by the owner; Part 3B prepared for witness and not applied
 Schema authority: `outputs/first_stores_module_schema_design.md`  
 Architecture pattern authority: `outputs/backend_architecture_reference.md`
 
@@ -27,9 +27,9 @@ Part 3B is the sole ledger activation boundary. It creates `stock_posting_batche
 ## 2. Row-count notation and fresh-chain assumption
 
 - `C` = count of active companies when Part 1 applies.
-- `S` = count of pre-existing `advance.stock_movements` rows when Part 3 applies.
+- `S` = count of pre-existing `advance.stock_movements` rows when Part 3B applies. The owner confirmed `S = 0` for the target installation before Part 3B design; Codex did not query or apply to that database.
 - “Fresh chain” means the existing authoritative baseline and prior Purchase/multi-company migrations are present, but no Stores-module business commands have run.
-- Only the two required default configuration versions are seeded: `SERIAL_CAPTURE_THRESHOLD = 5000` and `QC_COMPLETION_DAYS = 2`, once per active company. New-company bootstrap must create the same initial versions later.
+- Nine approved default configuration versions are seeded once per active company: serial threshold, QC ageing, emergency-purchase count/value, food, single/double lodging, daily expense cap, and travel distance. New-company bootstrap must create the same initial versions later.
 - Category routes, company Item settings, document numbers and notification events are not invented by migration seed data. Their expected count is zero until authorised setup or business use.
 
 ## 3. Part 1 - foundation and inbound
@@ -173,7 +173,7 @@ Part 3B requires witnessed Parts 1, 2 and 3A, all temporary database blockers, t
 1. Widen `QuantityIn`/`QuantityOut` to `numeric(24,6)`; this is non-lossy upward.
 2. Add `LedgerSchemaVersion smallint NOT NULL DEFAULT 1`; pre-existing rows remain version 1 and all Stores-module inserts must explicitly use version 2.
 3. Add nullable location-condition, posting-batch, ordinal, leg, typed-source, receipt-provenance, serial, reversal and posting-identity columns plus their FKs/indexes.
-4. Do not invent source or location provenance for legacy rows. Promote a version-1 row only when every required version-2 fact is deterministically provable; otherwise leave it immutable as version 1.
+4. Do not invent source or location provenance for legacy rows. This migration leaves every pre-existing row at version 1 with all new provenance columns null; it does not attempt promotion. The generic preservation path therefore works for installations where `S > 0`, while the owner-confirmed target will encounter an empty table.
 5. Add conditional constraints/triggers: every version-2 row requires one typed source, batch, location/condition, movement leg and posting identity; all versions reject update/delete after the controlled migration transaction.
 6. Enable the balanced-batch, exact-reversal, serial-quantity, source-balance and company-containment guards before enabling module write endpoints.
 
@@ -193,7 +193,9 @@ The explicitly documented ISO gaps and deferred modules remain unavailable.
 | `stock_movements` | `S` (unchanged) |
 | Version-2 `stock_movements` | `0` |
 
-No QC policy, Job Order, MIR, DC, approval, posting batch, notification or ledger business row is seeded. Part 1 remains at `2 x C` configuration rows and zero in its other new tables; Part 2 remains zero.
+For the owner-confirmed target, `S = 0`, so all three counts above are zero and the `advance` schema is expected to rise from 118 to 119 tables.
+
+No QC policy, Job Order, MIR, DC, approval, posting batch, notification or ledger business row is seeded. Part 1 remains at `9 x C` configuration rows (18 for the two owner companies) and zero in its other new tables; Part 2 remains zero.
 
 ### 6.6 Witness and rollback gate
 
@@ -218,6 +220,6 @@ The final production plan must name the concrete migration IDs, generated SQL ha
 
 ## 8. Stop point
 
-This document records the approved migration boundaries. Part 3A source is prepared for witness but has not been applied to any owner database. Part 3B remains the explicit stop point and is not written or authorised by this stage.
+This document records the approved migration boundaries. The owner has witnessed and applied Parts 1, 2 and 3A. Part 3B source is now prepared as the final explicit witness point; it has not been applied to the owner database by Codex.
 
 RESULT_REPORTED_PENDING_WITNESS
