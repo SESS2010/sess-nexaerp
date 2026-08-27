@@ -20,7 +20,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         "20260825073027_CorrectManagingDirectorDepartmentPriority",
         "20260825092016_AuthenticationBootstrapFoundation",
         "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
-        "20260825135023_ApprovalConfigurationAndPermissionsPart2"
+        "20260825135023_ApprovalConfigurationAndPermissionsPart2",
+        "20260827093952_FirstStoresPart1FoundationInboundNotifications"
     ];
 
     [Fact]
@@ -62,8 +63,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
-        var migration = migrations[^1];
-        var predecessor = migrations[^2];
+        const string migration = "20260826065344_AuthenticationBootstrapCeremonySteps7To12";
+        var predecessor = migrations[Array.IndexOf(migrations, migration) - 1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-partial-prerequisite.sql", migrator.GenerateScript("0", predecessor));
         server.Execute("business-one-role.sql", "CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;");

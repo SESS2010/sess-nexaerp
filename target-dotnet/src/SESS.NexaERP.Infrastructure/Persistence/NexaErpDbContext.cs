@@ -6,6 +6,7 @@ using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
+using SESS.NexaERP.Domain.Stores;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
@@ -74,6 +75,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureRev869A(modelBuilder);
         ConfigureRev869B(modelBuilder);
         ConfigureMultiCompanyFoundation(modelBuilder);
+        ConfigureStoresPart1(modelBuilder);
         ConfigureCompanyScope(modelBuilder);
         SeedFoundation(modelBuilder);
     }

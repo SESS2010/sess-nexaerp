@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -140,6 +141,24 @@ public sealed class AdvanceBaselineSeedConstraintTests
             [("purchase_transaction_approval_policies", "CK_purchase_transaction_policy_dates")] = new(
                 "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"",
                 row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("business_rule_configuration_versions", "CK_business_rule_configuration_first_version")] = new(
+                "(\"VersionNumber\" = 1 AND \"PreviousVersionId\" IS NULL AND \"OldValueJson\" IS NULL) OR (\"VersionNumber\" > 1 AND \"PreviousVersionId\" IS NOT NULL AND \"OldValueJson\" IS NOT NULL)",
+                row => Convert.ToInt32(Value(row, "VersionNumber"), CultureInfo.InvariantCulture) == 1
+                    ? Value(row, "PreviousVersionId") is null && Value(row, "OldValueJson") is null
+                    : Value(row, "PreviousVersionId") is not null && Value(row, "OldValueJson") is not null),
+            [("business_rule_configuration_versions", "CK_business_rule_configuration_json")] = new(
+                "jsonb_typeof(\"NewValueJson\") IN ('number','boolean','string') AND (\"OldValueJson\" IS NULL OR jsonb_typeof(\"OldValueJson\") IN ('number','boolean','string'))",
+                row => IsScalarJson(StringValue(row, "NewValueJson"))
+                    && (Value(row, "OldValueJson") is null || IsScalarJson(StringValue(row, "OldValueJson")))),
+            [("business_rule_configuration_versions", "CK_business_rule_configuration_role")] = new(
+                "\"ChangedByRoleCode\" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR','IT_MANAGER')",
+                row => StringValue(row, "ChangedByRoleCode") is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "IT_MANAGER"),
+            [("business_rule_configuration_versions", "CK_business_rule_configuration_value_type")] = new(
+                "\"ValueType\" IN ('INTEGER','DECIMAL','BOOLEAN','TEXT')",
+                row => StringValue(row, "ValueType") is "INTEGER" or "DECIMAL" or "BOOLEAN" or "TEXT"),
+            [("business_rule_configuration_versions", "CK_business_rule_configuration_version_number")] = new(
+                "\"VersionNumber\" > 0",
+                row => Convert.ToInt32(Value(row, "VersionNumber"), CultureInfo.InvariantCulture) > 0),
             [("roles", "CK_roles_code_canonical")] = new(
                 "\"Code\" = upper(btrim(\"Code\"))",
                 row => StringValue(row, "Code") == StringValue(row, "Code").Trim().ToUpperInvariant())
@@ -315,6 +334,13 @@ public sealed class AdvanceBaselineSeedConstraintTests
 
     private static decimal DecimalValue(IDictionary<string, object?> row, string name) =>
         Convert.ToDecimal(Value(row, name), CultureInfo.InvariantCulture);
+
+    private static bool IsScalarJson(string value)
+    {
+        using var document = JsonDocument.Parse(value);
+        return document.RootElement.ValueKind is JsonValueKind.Number or JsonValueKind.True
+            or JsonValueKind.False or JsonValueKind.String;
+    }
 
     private static string StringValue(IDictionary<string, object?> row, string name) =>
         Convert.ToString(Value(row, name), CultureInfo.InvariantCulture) ?? string.Empty;

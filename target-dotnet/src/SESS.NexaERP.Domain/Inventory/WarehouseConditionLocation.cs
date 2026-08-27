@@ -9,9 +9,10 @@ public static class InventoryConditionCodes
     public const string Rejected = "REJECTED";
     public const string Quarantine = "QUARANTINE";
     public const string ReturnToVendor = "RETURN_TO_VENDOR";
+    public const string PendingReturnableDc = "PENDING_RETURNABLE_DC";
     public const string Scrap = "SCRAP";
 
-    public static readonly string[] All = [Available, QcHold, Rejected, Quarantine, ReturnToVendor, Scrap];
+    public static readonly string[] All = [Available, QcHold, Rejected, Quarantine, ReturnToVendor, PendingReturnableDc, Scrap];
     public static bool CanReserveOrIssue(string? conditionCode) => string.Equals(conditionCode, Available, StringComparison.OrdinalIgnoreCase);
 }
 
