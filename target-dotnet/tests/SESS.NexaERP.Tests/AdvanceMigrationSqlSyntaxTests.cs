@@ -21,7 +21,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         "20260825092016_AuthenticationBootstrapFoundation",
         "20260825125621_MultiCompanyEmployeeAuthorizationPart1",
         "20260825135023_ApprovalConfigurationAndPermissionsPart2",
-        "20260827093952_FirstStoresPart1FoundationInboundNotifications"
+        "20260827093952_FirstStoresPart1FoundationInboundNotifications",
+        "20260827110550_FirstStoresPart2GrnAndSerials"
     ];
 
     [Fact]

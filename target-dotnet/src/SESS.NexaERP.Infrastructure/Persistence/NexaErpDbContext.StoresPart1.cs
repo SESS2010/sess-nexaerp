@@ -178,10 +178,12 @@ public sealed partial class NexaErpDbContext
             {
                 table.HasCheckConstraint("CK_stores_document_status_action", "\"Action\" IN ('CREATED','FINALIZED','REVERSED')");
                 table.HasCheckConstraint("CK_stores_document_status_transition", "(\"Action\"='CREATED' AND \"FromStatus\" IS NULL AND \"ToStatus\"='DRAFT') OR (\"Action\"='FINALIZED' AND \"FromStatus\"='DRAFT' AND \"ToStatus\"='FINALIZED') OR (\"Action\"='REVERSED' AND \"FromStatus\"='FINALIZED' AND \"ToStatus\"='REVERSED')");
+                table.HasCheckConstraint("CK_stores_document_status_part2_source", "num_nonnulls(\"GateEntryId\",\"GoodsReceiptId\") = 1");
             });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.CorrelationId).IsUnique();
             entity.HasIndex(x => new { x.GateEntryId, x.OccurredAt });
+            entity.HasIndex(x => new { x.GoodsReceiptId, x.OccurredAt });
             entity.Property(x => x.FromStatus).HasMaxLength(30);
             entity.Property(x => x.ToStatus).HasMaxLength(30).IsRequired();
             entity.Property(x => x.Action).HasMaxLength(30).IsRequired();

@@ -127,8 +127,10 @@ public sealed class StoresDocumentStatusHistory
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid CompanyId { get; set; }
-    public Guid GateEntryId { get; set; }
+    public Guid? GateEntryId { get; set; }
     public GateEntry? GateEntry { get; set; }
+    public Guid? GoodsReceiptId { get; set; }
+    public GoodsReceipt? GoodsReceipt { get; set; }
     public string? FromStatus { get; set; }
     public string ToStatus { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;

@@ -20,9 +20,15 @@ public sealed class FirstStoresPart1MigrationTests
     public void Part1ModelContainsExactlyTheNineApprovedStoresTables()
     {
         using var db = CreateContext();
-        var actual = db.Model.GetEntityTypes()
-            .Where(x => x.ClrType.Namespace == typeof(GateEntry).Namespace)
-            .Select(x => x.GetTableName())
+        Type[] part1Types =
+        [
+            typeof(BusinessRuleConfigurationVersion), typeof(ItemCompanyInventorySetting),
+            typeof(StoreCategoryRoute), typeof(GateEntry), typeof(GateEntryLine),
+            typeof(StoresDocumentStatusHistory), typeof(NotificationEvent),
+            typeof(NotificationRecipient), typeof(NotificationDeliveryAttempt)
+        ];
+        var actual = part1Types
+            .Select(type => db.Model.FindEntityType(type)!.GetTableName())
             .OrderBy(x => x, StringComparer.Ordinal)
             .ToArray();
 
@@ -88,17 +94,12 @@ public sealed class FirstStoresPart1MigrationTests
     }
 
     [Fact]
-    public void Part1MigrationIsLastAndUsesNoPart2OrPart3Tables()
+    public void Part1MigrationPrecedesPart2()
     {
         using var db = CreateContext();
-        Assert.Equal(
-            "20260827093952_FirstStoresPart1FoundationInboundNotifications",
-            db.Database.GetMigrations().Last());
-
-        var tables = db.Model.GetEntityTypes().Select(x => x.GetTableName()).ToHashSet(StringComparer.Ordinal);
-        Assert.DoesNotContain("goods_receipts", tables);
-        Assert.DoesNotContain("qc_inspections", tables);
-        Assert.DoesNotContain("delivery_challans", tables);
-        Assert.DoesNotContain("stock_posting_batches", tables);
+        var migrations = db.Database.GetMigrations().ToArray();
+        Assert.True(
+            Array.IndexOf(migrations, "20260827093952_FirstStoresPart1FoundationInboundNotifications")
+            < Array.IndexOf(migrations, "20260827110550_FirstStoresPart2GrnAndSerials"));
     }
 }
