@@ -39,29 +39,22 @@ These tables already exist in schema `advance`; they are not recreated.
 | `qc_inspection_policies` | Company-scoped effective policy rows owned by exactly one Item or ItemCategory, including parameter code, UOM, limits, method, sample size and approval state. | Retained as the source. Finalisation snapshots each resolved policy into normalised result rows. |
 | `stock_movements` | Existing company-scoped minimal ledger; detailed redesign is in Section 4. | Modified in place. |
 | `stock_reservations` | Existing company-scoped reservation foundation. | No write path in this module. QC-hold and pending-return quantities are never reservable. |
-| `controlled_configuration_histories` and `audit_logs` | Existing generic configuration/audit evidence. | Retained, but neither replaces the typed append-only histories below. |
+| `controlled_configuration_histories` and `audit_logs` | Existing controlled before/after configuration history and general audit evidence. | Reused for shared Item and company-setting changes. They do not replace `stores_document_status_history` for Gate/GRN/QC lifecycle evidence. |
 
 ## 3. New and modified table definitions
 
-### 3.1 `stores_number_sequences` - NEW
+The first Stores schema contains exactly 15 new tables. Four earlier proposals are explicitly deferred without weakening the design:
 
-Gap-tolerant sequence storage for Gate Entry, GRN, QC document numbers, and per-company Item ERP barcodes. Number presentation remains format-configurable; schema uniqueness does not depend on a hard-coded display format.
+| Deferred table | Replacement in the first module | Reason |
+|---|---|---|
+| `stores_number_sequences` | Reuse and extend existing `purchase_number_sequences` for Gate Entry, GRN, QC and Item-barcode prefixes. | The established locked, company/fiscal-year sequence pattern already provides the required allocation semantics. |
+| `item_master_change_history` | Use existing `controlled_configuration_histories` plus `audit_logs`, with a required Item/setting entity type, before/after JSON, actor, role, reason and correlation ID. | Existing controlled history carries the complete old/new evidence; a second typed table is unnecessary for the first module. |
+| `qc_inspection_parameter_observations` | Store one `qc_inspection_parameter_results` row per required sample. | The normalised result row can hold the policy snapshot, sample ordinal, observed value and PASS/FAIL without a separate observation child. |
+| `stores_command_receipts` | Use header `IdempotencyKey/RequestFingerprint` and `stock_posting_batches` idempotency. | These protect every first-module business effect and posting; a separate exact-response replay table can be added later if operational need justifies it. |
 
-| Column | Definition |
-|---|---|
-| `Id` | `uuid PK` |
-| `CompanyId` | `uuid NOT NULL FK companies(Id)` |
-| `SequenceType` | `varchar(30) NOT NULL`; `GATE_ENTRY`, `GRN`, `QC_INSPECTION`, or `ITEM_BARCODE` |
-| `FinancialYear` | `varchar(12) NULL`; required for document sequences, null for the continuous Item barcode sequence |
-| `LastNumber` | `bigint NOT NULL DEFAULT 0` |
-| `Version` | `bigint NOT NULL DEFAULT 0`, concurrency token |
-| `CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` | Standard audit columns |
+The existing `purchase_number_sequences` table must accept Stores prefixes/scopes and a non-fiscal Item-barcode scope while retaining its current locking and uniqueness rules. This is an extension of an existing table, not a new table.
 
-Keys/indexes: PK `Id`; unique `(CompanyId, SequenceType, FinancialYear) NULLS NOT DISTINCT`; index `(CompanyId, SequenceType)`.
-
-Checks: `LastNumber >= 0`; allowed `SequenceType`; financial year nullability matches type. Allocation occurs in the document transaction under a row/advisory lock.
-
-### 3.2 `item_company_inventory_settings` - NEW
+### 3.1 `item_company_inventory_settings` - NEW
 
 Company-specific control for a shared Item. This resolves the otherwise impossible combination of shared `items` and per-company ERP barcode sequences.
 
@@ -78,28 +71,9 @@ Company-specific control for a shared Item. This resolves the otherwise impossib
 
 Keys/indexes: PK `Id`; unique `(CompanyId, ItemId)`; unique `(CompanyId, ErpBarcode)`; unique `(CompanyId, BarcodeSequenceNumber)`; index `(ItemId, IsActive)`; alternate key `(CompanyId, Id)`.
 
-Checks: allowed category and serial modes; positive sequence; category code must agree with the Item category at creation and is then immutable. Barcode, sequence, company, and item are immutable after insertion. Changes to serial mode create typed history.
+Checks: allowed category and serial modes; positive sequence; category code must agree with the Item category at creation and is then immutable. Barcode, sequence, company, and item are immutable after insertion. Changes to serial mode append complete old/new evidence to existing `controlled_configuration_histories` and `audit_logs`.
 
-### 3.3 `item_master_change_history` - NEW, APPEND-ONLY
-
-| Column | Definition |
-|---|---|
-| `Id` | `uuid PK` |
-| `ItemId` | `uuid NOT NULL FK items(Id)` |
-| `CompanyInventorySettingId` | `uuid NULL FK item_company_inventory_settings(Id)` |
-| `ChangeScope` | `varchar(30) NOT NULL`; `SHARED_ITEM` or `COMPANY_SETTING` |
-| `ChangedFieldsJson` | `jsonb NOT NULL`, object containing field-level old/new values |
-| `Reason` | `varchar(1000) NOT NULL` |
-| `ActorEmployeeId` | `uuid NOT NULL FK employees(Id)` |
-| `ActorRoleCode` | `varchar(100) NOT NULL` |
-| `ChangedAt` | `timestamptz NOT NULL` |
-| `CorrelationId` | `varchar(100) NOT NULL` |
-
-Keys/indexes: PK; index `(ItemId, ChangedAt DESC)`; index `(CompanyInventorySettingId, ChangedAt DESC)`; unique `CorrelationId`.
-
-Checks: setting FK is required only for `COMPANY_SETTING`; JSON must be a non-empty object. Trigger rejects update/delete.
-
-### 3.4 `business_rule_configuration_versions` - NEW, APPEND-ONLY
+### 3.2 `business_rule_configuration_versions` - NEW, APPEND-ONLY
 
 This is the single company-scoped, effective-dated registry required by Section 17.1.
 
@@ -125,7 +99,7 @@ Keys/indexes: PK; unique `(CompanyId, RuleKey, VersionNumber)`; unique `(Company
 
 Checks/guards: positive version; previous row has the same company/rule and exactly the prior version; old value equals the previous new value; role must be `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`, or `IT_MANAGER`. Trigger rejects update/delete. The effective value at time T is the highest version whose `EffectiveFrom <= T`; inserting a later version never updates the earlier row.
 
-### 3.5 `store_category_routes` - NEW
+### 3.3 `store_category_routes` - NEW
 
 | Column | Definition |
 |---|---|
@@ -142,7 +116,7 @@ Keys/indexes: PK; unique `(CompanyId, ItemCategoryId, EffectiveFrom)`; PostgreSQ
 
 Checks/guards: valid dates; QC and pending-return mappings must point to the same company, warehouse, and rack, with conditions `QC_HOLD` and `PENDING_RETURNABLE_DC`; default accepted mapping must be same company and `AVAILABLE`. Non-overlap plus a coverage guard on route changes and GRN creation enforces exactly one effective QC rack per company/category while allowing Stores to select another valid `AVAILABLE` destination during posting.
 
-### 3.6 `gate_entries` - NEW
+### 3.4 `gate_entries` - NEW
 
 | Column | Definition |
 |---|---|
@@ -170,7 +144,7 @@ Keys/indexes: PK; unique `(CompanyId, GateEntryNumber)`; unique `(CompanyId, Ide
 
 Checks/guards: document-kind/reversal fields agree; reversal target is a finalised normal Gate Entry in the same company/PO; ISO JSON is an object; finaliser fields are both null in draft and both present when finalised. Company and Vendor must match PO. Finalised row is immutable.
 
-### 3.7 `gate_entry_lines` - NEW
+### 3.5 `gate_entry_lines` - NEW
 
 | Column | Definition |
 |---|---|
@@ -190,7 +164,7 @@ Keys/indexes: PK; unique `(GateEntryId, LineNumber)`; unique `(GateEntryId, Purc
 
 Checks/guards: positive line/quantity; composite FKs prove line belongs to Gate PO and Company; Item must equal PO-line Item. Lines become immutable with their finalised parent. A reversal line must exactly mirror its target line; the reversal sign is supplied by `DocumentKind`, never a negative quantity.
 
-### 3.8 `goods_receipts` - NEW
+### 3.6 `goods_receipts` - NEW
 
 This is the GRN header.
 
@@ -226,7 +200,7 @@ Effective-cardinality guard: a deferred constraint trigger permits at most one e
 
 Other guards: Gate Entry must be finalised/effective and have the same Company, PO and Vendor; bill fields are mandatory; document-kind/reversal fields agree; snapshot hash matches canonical JSON; reversal copies the target Gate/PO/vendor/bill/configuration facts. Finalisation and its QC-hold posting batch are one transaction. Finalised rows reject update/delete.
 
-### 3.9 `goods_receipt_lines` - NEW
+### 3.7 `goods_receipt_lines` - NEW
 
 | Column | Definition |
 |---|---|
@@ -273,7 +247,7 @@ Checks: all quantities nonnegative; received positive; `ReceivedQuantity + Exces
 
 Finalisation trigger, under a lock covering the PO line, recalculates effective received-to-date as the signed sum of finalised normal/reversal GRN lines. It rejects any result above `OrderedQuantity`; there is no override path or override column. It also requires every Gate line to have exactly one GRN line and vice versa.
 
-### 3.10 `inventory_serials` - NEW, DURABLE IDENTITY
+### 3.8 `inventory_serials` - NEW, DURABLE IDENTITY
 
 This table owns company-wide stored-serial uniqueness independently of any one GRN. A corrected GRN may reference the same durable identity after the original receipt is reversed; it does not create a false duplicate.
 
@@ -292,7 +266,7 @@ Keys/indexes: PK; unique `(CompanyId, NormalizedStoredSerialNumber)`; index `(Co
 
 Checks/guards: serial values are nonblank and canonical value equals the normalisation function. Identity rows reject update/delete. Reversal does not delete or rename the identity.
 
-### 3.11 `goods_receipt_line_serials` - NEW
+### 3.9 `goods_receipt_line_serials` - NEW
 
 Serial rows exist only for serial-captured GRN lines; warranty remains once on the GRN line.
 
@@ -316,7 +290,7 @@ Keys/indexes: PK; unique `(GoodsReceiptLineId, SerialOrdinal)`; unique `(GoodsRe
 
 Checks/guards: positive ordinal; nonblank values; disambiguation fields agree; Company and Item equal both parent and durable serial identity; stored snapshot equals the identity. Before finalisation, the service warns if entered value already exists. A genuine new duplicate must be disambiguated before its durable identity can be inserted. A correction of a reversed receipt reuses the existing identity. When serial capture is required, finalisation requires an integral received quantity and exactly that many serial rows. Capture rows become immutable with the GRN.
 
-### 3.12 `stores_document_status_history` - NEW, APPEND-ONLY
+### 3.10 `stores_document_status_history` - NEW, APPEND-ONLY
 
 Typed status history shared by Gate Entry, GRN, and QC revision without text-only document references.
 
@@ -340,7 +314,7 @@ Keys/indexes: PK; unique `CorrelationId`; indexes on each source FK plus `Occurr
 
 Checks: exactly one source FK is non-null; legal status/action pair; Company matches source. Trigger rejects update/delete and illegal transition insertion.
 
-### 3.13 `qc_inspections` - NEW, LOGICAL IDENTITY
+### 3.11 `qc_inspections` - NEW, LOGICAL IDENTITY
 
 | Column | Definition |
 |---|---|
@@ -354,7 +328,7 @@ Keys/indexes: PK; unique `(CompanyId, InspectionNumber)`; unique `GoodsReceiptLi
 
 The row itself is immutable. It guarantees one logical inspection per GRN line. Corrections are revisions, not additional logical inspections.
 
-### 3.14 `qc_inspection_revisions` - NEW
+### 3.12 `qc_inspection_revisions` - NEW
 
 | Column | Definition |
 |---|---|
@@ -388,9 +362,9 @@ Keys/indexes: PK; unique `(QcInspectionId, RevisionNumber)`; unique filtered `Re
 
 Checks/guards: revision chain is same logical inspection and sequential; correction fields agree; fallback requires reason and inspector equal the originating PR raiser; `0 <= Inspected <= GRN Received`; `ShortfallRejected = GRN Received - Inspected`; `Accepted + Rejected = GRN Received`; `Rejected >= ShortfallRejected`; decision agrees with quantities; accepted destination is required iff accepted is positive and must be an active same-company `AVAILABLE` mapping; pending-return mapping is required for rejected quantity and remains the same physical QC rack. Finalisation requires the effective GRN, all policy results, and serial dispositions. QC finalisation and all stock posting legs are atomic. A finalised revision is immutable.
 
-### 3.15 `qc_inspection_parameter_results` - NEW
+### 3.13 `qc_inspection_parameter_results` - NEW
 
-One immutable result summary is derived from each effective policy row. Item- and category-owned policies are not collapsed; each source policy remains independently traceable.
+One normalised result row is stored for each required sample of each effective policy. Item- and category-owned policies are not collapsed; each source policy and sample remains independently traceable.
 
 | Column | Definition |
 |---|---|
@@ -405,21 +379,6 @@ One immutable result summary is derived from each effective policy row. Item- an
 | `UpperLimitSnapshot` | `numeric(24,6) NULL` |
 | `InspectionMethodSnapshot` | `varchar(200) NOT NULL` |
 | `RequiredSampleSizeSnapshot` | `integer NOT NULL` |
-| `Result` | `varchar(20) NOT NULL`; `PASS` or `FAIL` |
-| `Remarks` | `varchar(1000) NULL` |
-| `CreatedAt`, `CreatedBy` | Immutable audit columns |
-
-Keys/indexes: PK; unique `(QcInspectionRevisionId, QcInspectionPolicyId)`; index `(CompanyId, ParameterCodeSnapshot, Result)`; alternate key `(CompanyId, Id)`.
-
-Checks: valid limits/sample/result; policy is approved/effective for the GRN Item or category at `PolicyResolvedAt`; snapshots equal that policy at creation. Rows are mutable only while the parent revision is draft.
-
-### 3.16 `qc_inspection_parameter_observations` - NEW
-
-| Column | Definition |
-|---|---|
-| `Id` | `uuid PK` |
-| `CompanyId` | `uuid NOT NULL` |
-| `QcInspectionParameterResultId` | `uuid NOT NULL FK qc_inspection_parameter_results(Id)` |
 | `SampleOrdinal` | `integer NOT NULL` |
 | `ObservedNumericValue` | `numeric(24,6) NULL` |
 | `ObservedTextValue` | `varchar(500) NULL` |
@@ -427,12 +386,13 @@ Checks: valid limits/sample/result; policy is approved/effective for the GRN Ite
 | `Remarks` | `varchar(1000) NULL` |
 | `ObservedAt` | `timestamptz NOT NULL` |
 | `ObservedByEmployeeId` | `uuid NOT NULL FK employees(Id)` |
+| `CreatedAt`, `CreatedBy` | Immutable audit columns after revision finalisation |
 
-Keys/indexes: PK; unique `(QcInspectionParameterResultId, SampleOrdinal)`; index `(CompanyId, Result)`.
+Keys/indexes: PK; unique `(QcInspectionRevisionId, QcInspectionPolicyId, SampleOrdinal)`; index `(CompanyId, ParameterCodeSnapshot, Result)`; alternate key `(CompanyId, Id)`.
 
-Checks: positive ordinal; exactly one observed-value column is non-null. Finalisation requires observation count equal the result's required sample size and the summary result to equal the aggregate observation result. Rows are immutable after parent finalisation.
+Checks: valid limits/sample/result; positive `SampleOrdinal` not above the snapshotted sample size; exactly one observed-value column is non-null; policy is approved/effective for the GRN Item or category at `PolicyResolvedAt`; snapshots equal that policy at creation. Finalisation requires exactly `RequiredSampleSizeSnapshot` rows for every resolved policy. Rows are mutable only while the parent revision is draft and immutable afterward.
 
-### 3.17 `qc_inspection_serial_dispositions` - NEW
+### 3.14 `qc_inspection_serial_dispositions` - NEW
 
 This table makes serial-level stock location and condition deterministic while the QC decision remains one record per GRN line.
 
@@ -450,7 +410,7 @@ Keys/indexes: PK; unique `(QcInspectionRevisionId, GoodsReceiptLineSerialId)`; i
 
 Checks/guards: serial belongs to the inspected GRN line; every serial on a serialised line has exactly one disposition; accepted/rejected serial counts equal the revision quantities. Rows are immutable after finalisation.
 
-### 3.18 `stock_posting_batches` - NEW, APPEND-ONLY
+### 3.15 `stock_posting_batches` - NEW, APPEND-ONLY
 
 One business command creates a batch containing all balanced ledger legs.
 
@@ -474,26 +434,6 @@ One business command creates a batch containing all balanced ledger legs.
 Keys/indexes: PK; unique `(CompanyId, IdempotencyKey)`; unique `CorrelationId`; unique filtered `ReversesPostingBatchId WHERE PostingKind='REVERSAL'`; indexes on each source FK and `(CompanyId, PostingDate)`; alternate key `(CompanyId, Id)`.
 
 Checks/guards: exactly one direct source FK for non-reversal batches; reversal target required only for `REVERSAL`; source and reversal company match; reference values must be derived from the source document. Trigger rejects update/delete. A reused idempotency key with identical fingerprint replays; a different fingerprint conflicts.
-
-### 3.19 `stores_command_receipts` - NEW, APPEND-ONLY
-
-This applies the architecture-reference idempotency pattern to retryable document commands, independent of stock-posting idempotency.
-
-| Column | Definition |
-|---|---|
-| `Id` | `uuid PK` |
-| `CompanyId` | `uuid NOT NULL` |
-| `CommandScope` | `varchar(80) NOT NULL` |
-| `IdempotencyKey` | `varchar(100) NOT NULL` |
-| `RequestFingerprint` | `char(64) NOT NULL` |
-| `ResponseStatusCode` | `integer NOT NULL` |
-| `ResponseJson` | `jsonb NOT NULL` |
-| `CreatedAt` | `timestamptz NOT NULL` |
-| `ExpiresAt` | `timestamptz NULL` |
-
-Keys/indexes: PK; unique `(CompanyId, CommandScope, IdempotencyKey)`; index `ExpiresAt`.
-
-Checks: valid HTTP status and JSON object. Inserted in the same transaction as the business effect; trigger rejects update/delete. Retention is operational policy, not a delete permission for the runtime principal.
 
 ## 4. Exact `advance.stock_movements` redesign
 
@@ -586,7 +526,7 @@ Prerequisite: only an effective finalised Gate Entry can create a GRN draft. Ven
 | `QC_FINALIZED_STOCK_POSTED` | Derived: QC is final and its available/pending-return posting batch committed. | Reverse QC posting/revision before any GRN reversal. |
 | `REVERSED` | Derived: a finalised GRN reversal and its exact ledger reversal exist. | Terminal. A corrected GRN is a new effective document after reversal. |
 
-The GRN finalisation transaction locks affected PO lines, recomputes received-to-date, rejects over-receipt, validates all Gate lines and required serials, finalises the document, appends status history, creates its posting batch/movements, audit event, and command receipt, then commits. Failure rolls back everything.
+The GRN finalisation transaction locks affected PO lines, recomputes received-to-date, rejects over-receipt, validates all Gate lines and required serials, finalises the document, appends status history, creates its idempotent posting batch/movements and audit event, then commits. The GRN header retains the command idempotency key and request fingerprint. Failure rolls back everything.
 
 ### 5.3 QC inspection
 
@@ -594,7 +534,7 @@ One immutable `qc_inspections` identity exists per GRN line. Each attempt/correc
 
 | State | Meaning | Allowed transition |
 |---|---|---|
-| `REVISION_DRAFT` | Quantities, policy results, observations, serial dispositions and accepted destination may be edited. | `FINALIZE_AND_POST` -> `REVISION_FINALIZED_STOCK_POSTED`. |
+| `REVISION_DRAFT` | Quantities, per-sample policy results, serial dispositions and accepted destination may be edited. | `FINALIZE_AND_POST` -> `REVISION_FINALIZED_STOCK_POSTED`. |
 | `REVISION_FINALIZED_STOCK_POSTED` | Immutable revision; accepted stock is `AVAILABLE`, rejected stock is `PENDING_RETURNABLE_DC`. | Correction command creates a new `CORRECTION` draft after atomically reversing the prior revision's posting. |
 | `REVISION_SUPERSEDED` | Derived for an older revision when a later correction revision finalises. | Terminal; the row and its evidence remain unchanged. |
 
@@ -618,7 +558,7 @@ Strict-sequence guards reject:
 
 ## 6. Configuration and immutable snapshots
 
-Editable values live in `business_rule_configuration_versions`, one effective append-only version per Company and RuleKey. Only `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`, and `IT_MANAGER` may append a version. Every row records actor, role, time, old value, new value, reason, previous version and effective period.
+Editable values live in `business_rule_configuration_versions`, one effective append-only version per Company and RuleKey. Only `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`, and `IT_MANAGER` may append a version. Every row records actor, role, time, old value, new value, reason, previous version and effective-from time.
 
 For this module the relevant value is `SERIAL_CAPTURE_THRESHOLD`, initially 5,000. At **GRN draft creation**, the service:
 
@@ -667,8 +607,8 @@ There is no update or delete endpoint for a finalised Gate Entry.
 | Method and route | Purpose |
 |---|---|
 | `GET /items/{itemId}/inventory-setting` | Current-company ERP barcode and serial mode for the shared Item. |
-| `POST /items/{itemId}/erp-barcode` | Allocate the company sequence and create the immutable ERP barcode. |
-| `PUT /items/{itemId}/serial-capture-mode` | Change company Item override with reason and typed history. |
+| `POST /items/{itemId}/erp-barcode` | Allocate through the existing Purchase sequence table and create the immutable company ERP barcode. |
+| `PUT /items/{itemId}/serial-capture-mode` | Change company Item override with reason and existing controlled before/after history. |
 | `POST /items/{itemId}/barcode-label` | Produce the printable label artifact from the stored ERP barcode. |
 | `GET /items/{itemId}/change-history` | Shared Item and company-setting change evidence visible in current scope. |
 
@@ -677,9 +617,9 @@ There is no update or delete endpoint for a finalised Gate Entry.
 | Method and route | Purpose |
 |---|---|
 | `GET /qc/queue` | Effective finalised GRN lines awaiting QC, including assigned QC rack and inspector basis. |
-| `GET /qc/inspections/{id}` | Logical inspection with all immutable revisions, parameters, observations, serial dispositions and posting links. |
+| `GET /qc/inspections/{id}` | Logical inspection with all immutable revisions, per-sample parameter results, serial dispositions and posting links. |
 | `POST /goods-receipt-lines/{lineId}/qc-inspection` | Create the one logical inspection and initial draft revision. |
-| `PUT /qc/revisions/{revisionId}` | Edit a draft revision, parameter observations and serial dispositions. |
+| `PUT /qc/revisions/{revisionId}` | Edit a draft revision, per-sample parameter results and serial dispositions. |
 | `POST /qc/revisions/{revisionId}/finalize-and-post` | Validate reconciliation/evidence, freeze revision and atomically post accepted/pending-return movements. |
 | `POST /qc/inspections/{id}/corrections` | Reverse the effective QC posting and create the next correction draft with mandatory reason. |
 | `GET /category-routes` | Read effective current-company QC/default-accepted mappings. |
