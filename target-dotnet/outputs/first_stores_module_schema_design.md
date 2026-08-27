@@ -8,9 +8,11 @@ Architecture pattern reference: `outputs/backend_architecture_reference.md`
 
 ## 1. Scope and design rules
 
-This design covers Gate Entry, one effective GRN per Gate Entry, mandatory vendor-bill evidence, GRN-line Item snapshots, serial capture, Item ERP barcode generation, one logical QC inspection per GRN line with immutable revisions, company/category QC routing, accepted and rejected disposition, and the append-only stock ledger.
+This design covers Gate Entry, one effective GRN per Gate Entry, mandatory one-bill/one-GRN evidence, GRN-line Item snapshots, serial capture, Item ERP barcode generation, category-routed QC with optional structured parameters and immutable revisions, QC ageing, accepted and rejected disposition, append-only stock ledger, approved material issues, bidirectional Delivery Challans, and a minimal manually created Job Order.
 
-Issue, DC creation or dispatch, subcontract transactions, Job Order, BOM, vendor-performance reporting, e-way bill, batch/lot tracking, and source-less adjustment commands are excluded.
+The Delivery Challan boundary includes returnable rejected-material, subcontract and demo dispatch/return, plus non-returnable warranty, bill-based and customer-PO-based dispatch. It does not include a subcontract PO or customer commercial-document model.
+
+Explicitly deferred: Customer PO, offer generation, contract review, Estimated BOM, Actual BOM rollup, labour hours, subcontract PO, installation reports, installed-machine register, vendor-performance report/KPI, e-way bill, batch/lot tracking, source-less stock adjustments, and barcode-printer hardware integration. The minimal Job Order has no FK to a nonexistent Customer PO; its stable UUID lets a nullable `CustomerPoId` be added later without changing any table that references `JobOrderId`.
 
 All transactional rows carry `CompanyId uuid NOT NULL`. It is copied from the selected Purchase Order by the service and verified against the PO by database constraints/triggers; request-supplied company values are never trusted. Shared `items` remain without `CompanyId`.
 
@@ -30,20 +32,23 @@ These tables already exist in schema `advance`; they are not recreated.
 | `items` | Shared Item master; `Id` PK; Item code, name, category, model, part number, HSN/SAC, GST, UOM, manufacturer, QC/serial flags, legacy `Barcode`; unique ItemCode and filtered unique Barcode. No `CompanyId` by design. | No company column. Add no per-company data here. ERP barcode and serial override live in `item_company_inventory_settings`. |
 | `item_categories` | Shared category master; `Id` PK, unique code through master rules. | Category codes `ELE`, `REF`, `FAS`, `PLC`, `FAB`, and `MEC` are validated by service/configuration; no table-shape change. |
 | `vendors` | Shared vendor master used by PO. | None; GRN snapshots vendor name. |
+| `customers` | Shared customer master. | Reused as an optional typed DC/MIR destination; Job Order intentionally stores the required customer-name snapshot only. |
+| `departments` | Shared department master. | Reused for request ownership, department destination and department-owner approval resolution. |
 | `employees` | Shared employee identity used for received-by, inspector, finaliser, and Stores poster. | None. |
+| `purchase_number_sequences` | Existing company/fiscal-year/prefix sequence foundation. | Extended/reused for Gate Entry, GRN, QC, Job Order, Material Issue Request, DC and company Item-barcode numbering; no new sequence table. |
 | `purchase_orders` | Company-scoped PO header with VendorId, DeliveryWarehouseId, status and immutable commercial snapshot. | Add/retain alternate key `UNIQUE (CompanyId, Id)` for tenant-safe FKs; no received-to-date column. |
 | `purchase_order_lines` | Company-scoped PO line with PurchaseOrderId, ItemId, OrderedQuantity, UnitRate, UOM and commercial snapshots. | Add/retain `UNIQUE (CompanyId, Id)` and `UNIQUE (PurchaseOrderId, Id)` for composite FKs; no received-to-date column. |
 | `warehouses` | Company-scoped warehouse; defaults include accepted and QC-hold locations. | Retained. Default accepted destination is offered through the new category route, not forced. |
 | `rack_bins` | Company-scoped warehouse rack/bin; `UNIQUE (WarehouseId, BinCode)`; alternate key `(WarehouseId, Id)`. | Retained. Add/retain `UNIQUE (CompanyId, Id)` and enforce Warehouse and Rack company equality. |
 | `warehouse_condition_locations` | Company-scoped effective mapping of warehouse/rack to condition; currently supports `AVAILABLE`, `QC_HOLD`, `REJECTED`, `QUARANTINE`, `RETURN_TO_VENDOR`, and `SCRAP`. | Extend condition vocabulary with `PENDING_RETURNABLE_DC`; add/retain `UNIQUE (CompanyId, Id)`. |
-| `qc_inspection_policies` | Company-scoped effective policy rows owned by exactly one Item or ItemCategory, including parameter code, UOM, limits, method, sample size and approval state. | Retained as the source. Finalisation snapshots each resolved policy into normalised result rows. |
+| `qc_inspection_policies` | Company-scoped effective policy rows owned by exactly one Item or ItemCategory, including parameter code, UOM, limits, method, sample size and approval state. | Retained as an optional source. Zero policies produces zero result rows and never blocks QC. |
 | `stock_movements` | Existing company-scoped minimal ledger; detailed redesign is in Section 4. | Modified in place. |
 | `stock_reservations` | Existing company-scoped reservation foundation. | No write path in this module. QC-hold and pending-return quantities are never reservable. |
 | `controlled_configuration_histories` and `audit_logs` | Existing controlled before/after configuration history and general audit evidence. | Reused for shared Item and company-setting changes. They do not replace `stores_document_status_history` for Gate/GRN/QC lifecycle evidence. |
 
 ## 3. New and modified table definitions
 
-The first Stores schema contains exactly 15 new tables. Four earlier proposals are explicitly deferred without weakening the design:
+The final Stores schema contains exactly 22 new tables. The following four earlier proposals remain explicitly deferred without weakening the design:
 
 | Deferred table | Replacement in the first module | Reason |
 |---|---|---|
@@ -75,7 +80,7 @@ Checks: allowed category and serial modes; positive sequence; category code must
 
 ### 3.2 `business_rule_configuration_versions` - NEW, APPEND-ONLY
 
-This is the single company-scoped, effective-dated registry required by Section 17.1.
+This is the single company-scoped, effective-dated registry required by Section 17.1. This module uses `SERIAL_CAPTURE_THRESHOLD` (5,000 initially) and `QC_COMPLETION_DAYS` (2 initially).
 
 | Column | Definition |
 |---|---|
@@ -188,15 +193,18 @@ This is the GRN header.
 | `IsoReceiptVerificationJson` | `jsonb NOT NULL`, copied/extended from Gate evidence |
 | `ConfigurationSnapshotJson` | `jsonb NOT NULL`, immutable effective rule IDs and values |
 | `ConfigurationSnapshotHash` | `char(64) NOT NULL` |
+| `QcCompletionDaysConfigVersionId` | `uuid NOT NULL FK business_rule_configuration_versions(Id)` |
+| `QcCompletionDaysSnapshot` | `integer NOT NULL` |
+| `QcDueAt` | `timestamptz NOT NULL`, calculated from GRN finalisation plus the snapshotted day limit |
 | `Status` | `varchar(20) NOT NULL DEFAULT 'DRAFT'`; `DRAFT` or `FINALIZED` |
 | `FinalizedAt` | `timestamptz NULL` |
 | `FinalizedByEmployeeId` | `uuid NULL FK employees(Id)` |
 | `IdempotencyKey` | `varchar(100) NOT NULL` |
 | `RequestFingerprint` | `char(64) NOT NULL` |
 
-Keys/indexes: PK; unique `(CompanyId, GrnNumber)`; unique `(CompanyId, IdempotencyKey)`; unique filtered `ReversesGoodsReceiptId WHERE DocumentKind='REVERSAL' AND Status='FINALIZED'`; index `(CompanyId, PurchaseOrderId, ReceivedAt DESC)`; index `(CompanyId, VendorId, VendorBillNumber, VendorBillDate)`; index `GateEntryId`; alternate keys `(CompanyId, Id)`, `(GateEntryId, Id)`.
+Keys/indexes: PK; unique `(CompanyId, GrnNumber)`; unique `(CompanyId, IdempotencyKey)`; unique filtered `ReversesGoodsReceiptId WHERE DocumentKind='REVERSAL' AND Status='FINALIZED'`; index `(CompanyId, PurchaseOrderId, ReceivedAt DESC)`; index `(CompanyId, VendorBillNumber)`; index `(CompanyId, QcDueAt)`; index `GateEntryId`; alternate keys `(CompanyId, Id)`, `(GateEntryId, Id)`.
 
-Effective-cardinality guard: a deferred constraint trigger permits at most one effective finalised normal GRN per Gate Entry. A corrected replacement is allowed only after a finalised reversal of the prior GRN. Draft duplicates may exist but cannot both finalise.
+Effective-cardinality guard: a deferred constraint trigger permits at most one effective finalised normal GRN per Gate Entry and at most one effective normal GRN per `(CompanyId, VendorBillNumber)`. A corrected replacement using the same bill number is allowed only after a finalised reversal of the prior GRN. Draft duplicates may exist but cannot both finalise.
 
 Other guards: Gate Entry must be finalised/effective and have the same Company, PO and Vendor; bill fields are mandatory; document-kind/reversal fields agree; snapshot hash matches canonical JSON; reversal copies the target Gate/PO/vendor/bill/configuration facts. Finalisation and its QC-hold posting batch are one transaction. Finalised rows reject update/delete.
 
@@ -225,10 +233,11 @@ Other guards: Gate Entry must be finalised/effective and have the same Company, 
 | `PriorEffectiveReceivedQuantitySnapshot` | `numeric(24,6) NOT NULL` |
 | `RemainingPoQuantitySnapshot` | `numeric(24,6) NOT NULL` |
 | `DeliveredQuantitySnapshot` | `numeric(24,6) NOT NULL` |
-| `ReceivedQuantity` | `numeric(24,6) NOT NULL`; quantity admitted to QC-hold |
-| `ExcessRejectedQuantity` | `numeric(24,6) NOT NULL DEFAULT 0`; delivered excess excluded from stock |
-| `ExcessDisposition` | `varchar(40) NULL`; `PENDING_VENDOR_RETURN` when excess is positive |
-| `UnitRateSnapshot` | `numeric(24,6) NOT NULL`, PO unit rate used for serial threshold |
+| `ReceivedQuantity` | `numeric(24,6) NOT NULL`; PO-authorised quantity admitted to QC inspection |
+| `ExcessRejectedQuantity` | `numeric(24,6) NOT NULL DEFAULT 0`; delivered excess admitted only to segregated QC-rack custody |
+| `ExcessDisposition` | `varchar(40) NULL`; `PENDING_RETURNABLE_DC` when excess is positive |
+| `LineValueSnapshot` | `numeric(24,6) NOT NULL`, commercial value attributable to this GRN line's `ReceivedQuantity` |
+| `UnitRateSnapshot` | `numeric(24,6) NOT NULL`, exactly `LineValueSnapshot / ReceivedQuantity`; basis for the serial threshold |
 | `SerialThresholdConfigVersionId` | `uuid NOT NULL FK business_rule_configuration_versions(Id)` |
 | `SerialThresholdValueSnapshot` | `numeric(24,6) NOT NULL` |
 | `SerialCaptureModeSnapshot` | `varchar(20) NOT NULL`; resolved `REQUIRED` or `OPTIONAL` |
@@ -236,16 +245,14 @@ Other guards: Gate Entry must be finalised/effective and have the same Company, 
 | `QcRouteIdSnapshot` | `uuid NOT NULL FK store_category_routes(Id)` |
 | `QcHoldConditionLocationIdSnapshot` | `uuid NOT NULL FK warehouse_condition_locations(Id)` |
 | `BillWarrantyLimitDate` | `date NOT NULL`; bill date plus 13 months |
-| `InstallationDateAtReceipt` | `date NULL` |
-| `InstallationWarrantyLimitDate` | `date NULL`; installation date plus 12 months |
-| `WarrantyExpiryAtReceipt` | `date NOT NULL`; earlier limit, or bill limit when installation is absent |
+| `InitialWarrantyExpiryDate` | `date NOT NULL`; initially equal to the bill date plus 13 months |
 | `CreatedAt`, `CreatedBy` | Immutable audit columns |
 
 Keys/indexes: PK; unique `(GoodsReceiptId, LineNumber)`; unique `(GoodsReceiptId, GateEntryLineId)`; index `(CompanyId, PurchaseOrderLineId)`; index `(CompanyId, ItemId)`; alternate key `(CompanyId, Id)`.
 
-Checks: all quantities nonnegative; received positive; `ReceivedQuantity + ExcessRejectedQuantity = DeliveredQuantitySnapshot`; `ReceivedQuantity <= RemainingPoQuantitySnapshot`; `Remaining = Ordered - PriorReceived`; excess disposition agrees with excess; GST range 0-100; serial mode valid; warranty-date arithmetic consistent.
+Checks: all quantities nonnegative; received positive; `ReceivedQuantity + ExcessRejectedQuantity = DeliveredQuantitySnapshot`; `ReceivedQuantity <= RemainingPoQuantitySnapshot`; `Remaining = Ordered - PriorReceived`; excess disposition is `PENDING_RETURNABLE_DC` iff excess is positive; GST range 0-100; serial mode valid; `UnitRateSnapshot = LineValueSnapshot / ReceivedQuantity`; initial warranty equals bill date plus 13 months.
 
-Finalisation trigger, under a lock covering the PO line, recalculates effective received-to-date as the signed sum of finalised normal/reversal GRN lines. It rejects any result above `OrderedQuantity`; there is no override path or override column. It also requires every Gate line to have exactly one GRN line and vice versa.
+Finalisation trigger, under a lock covering the PO line, recalculates effective received-to-date using only `ReceivedQuantity`, not excess. It rejects any result above `OrderedQuantity`; there is no override path or override column. It also requires every Gate line to have exactly one GRN line and vice versa. GRN posting separately records `ReceivedQuantity` in `QC_HOLD` and `ExcessRejectedQuantity` in `PENDING_RETURNABLE_DC` at the same category QC rack.
 
 ### 3.8 `inventory_serials` - NEW, DURABLE IDENTITY
 
@@ -280,6 +287,7 @@ Serial rows exist only for serial-captured GRN lines; warranty remains once on t
 | `SerialOrdinal` | `integer NOT NULL` |
 | `EnteredSerialNumber` | `varchar(200) NOT NULL`, original operator input |
 | `StoredSerialNumberSnapshot` | `varchar(300) NOT NULL`, possibly disambiguated and equal to the durable identity |
+| `ReceiptDisposition` | `varchar(30) NOT NULL`; `QC_INSPECTION` or `EXCESS_PENDING_RETURN` |
 | `DisambiguationApplied` | `boolean NOT NULL DEFAULT false` |
 | `DuplicateWarningAcknowledged` | `boolean NOT NULL DEFAULT false` |
 | `DisambiguationReason` | `varchar(500) NULL` |
@@ -288,7 +296,7 @@ Serial rows exist only for serial-captured GRN lines; warranty remains once on t
 
 Keys/indexes: PK; unique `(GoodsReceiptLineId, SerialOrdinal)`; unique `(GoodsReceiptLineId, InventorySerialId)`; index `(CompanyId, ItemId, StoredSerialNumberSnapshot)`; index `InventorySerialId`; alternate key `(CompanyId, Id)`.
 
-Checks/guards: positive ordinal; nonblank values; disambiguation fields agree; Company and Item equal both parent and durable serial identity; stored snapshot equals the identity. Before finalisation, the service warns if entered value already exists. A genuine new duplicate must be disambiguated before its durable identity can be inserted. A correction of a reversed receipt reuses the existing identity. When serial capture is required, finalisation requires an integral received quantity and exactly that many serial rows. Capture rows become immutable with the GRN.
+Checks/guards: positive ordinal; nonblank values; disambiguation fields agree; Company and Item equal both parent and durable serial identity; stored snapshot equals the identity. Before finalisation, the service warns if entered value already exists. A genuine new duplicate must be disambiguated before its durable identity can be inserted. A correction of a reversed receipt reuses the existing identity. When serial capture is required, finalisation requires an integral delivered quantity and exactly that many serial rows: the `QC_INSPECTION` count equals `ReceivedQuantity` and the `EXCESS_PENDING_RETURN` count equals `ExcessRejectedQuantity`. Capture rows become immutable with the GRN.
 
 ### 3.10 `stores_document_status_history` - NEW, APPEND-ONLY
 
@@ -301,16 +309,19 @@ Typed status history shared by Gate Entry, GRN, and QC revision without text-onl
 | `GateEntryId` | `uuid NULL FK gate_entries(Id)` |
 | `GoodsReceiptId` | `uuid NULL FK goods_receipts(Id)` |
 | `QcInspectionRevisionId` | `uuid NULL FK qc_inspection_revisions(Id)` |
+| `JobOrderId` | `uuid NULL FK job_orders(Id)` |
+| `MaterialIssueRequestId` | `uuid NULL FK material_issue_requests(Id)` |
+| `DeliveryChallanId` | `uuid NULL FK delivery_challans(Id)` |
 | `FromStatus` | `varchar(30) NULL` |
 | `ToStatus` | `varchar(30) NOT NULL` |
-| `Action` | `varchar(30) NOT NULL`; `CREATED` or `FINALIZED` |
+| `Action` | `varchar(30) NOT NULL`; `CREATED`, `SUBMITTED`, `APPROVED`, `REJECTED`, `FINALIZED`, `INSTALLED`, `DISPATCHED`, `RECEIVED`, `CLOSED`, or `REVERSED` |
 | `ActorEmployeeId` | `uuid NOT NULL FK employees(Id)` |
 | `ActorRoleCode` | `varchar(100) NOT NULL` |
 | `Reason` | `varchar(1000) NULL` |
 | `OccurredAt` | `timestamptz NOT NULL` |
 | `CorrelationId` | `varchar(100) NOT NULL` |
 
-Keys/indexes: PK; unique `CorrelationId`; indexes on each source FK plus `OccurredAt`.
+Keys/indexes: PK; unique `CorrelationId`; indexes on every source FK plus `OccurredAt`.
 
 Checks: exactly one source FK is non-null; legal status/action pair; Company matches source. Trigger rejects update/delete and illegal transition insertion.
 
@@ -321,12 +332,13 @@ Checks: exactly one source FK is non-null; legal status/action pair; Company mat
 | `Id` | `uuid PK` |
 | `CompanyId` | `uuid NOT NULL` |
 | `InspectionNumber` | `varchar(50) NOT NULL` |
-| `GoodsReceiptLineId` | `uuid NOT NULL FK goods_receipt_lines(Id)` |
+| `GoodsReceiptLineId` | `uuid NULL FK goods_receipt_lines(Id)` |
+| `DeliveryChallanLineId` | `uuid NULL FK delivery_challan_lines(Id)`; inbound-return source |
 | `CreatedAt`, `CreatedBy` | Immutable identity audit |
 
-Keys/indexes: PK; unique `(CompanyId, InspectionNumber)`; unique `GoodsReceiptLineId`; alternate key `(CompanyId, Id)`.
+Keys/indexes: PK; unique `(CompanyId, InspectionNumber)`; unique filtered `GoodsReceiptLineId` where non-null; unique filtered `DeliveryChallanLineId` where non-null; alternate key `(CompanyId, Id)`.
 
-The row itself is immutable. It guarantees one logical inspection per GRN line. Corrections are revisions, not additional logical inspections.
+The row itself is immutable. Exactly one source line FK is non-null. It guarantees one logical inspection per GRN line or QC-required inbound DC-return line. Corrections are revisions, not additional logical inspections.
 
 ### 3.12 `qc_inspection_revisions` - NEW
 
@@ -360,7 +372,7 @@ The row itself is immutable. It guarantees one logical inspection per GRN line. 
 
 Keys/indexes: PK; unique `(QcInspectionId, RevisionNumber)`; unique filtered `RevisesRevisionId WHERE RevisionKind='CORRECTION'`; unique `(CompanyId, IdempotencyKey)`; index `(CompanyId, Status, InspectionStartedAt)`; alternate key `(CompanyId, Id)`.
 
-Checks/guards: revision chain is same logical inspection and sequential; correction fields agree; fallback requires reason and inspector equal the originating PR raiser; `0 <= Inspected <= GRN Received`; `ShortfallRejected = GRN Received - Inspected`; `Accepted + Rejected = GRN Received`; `Rejected >= ShortfallRejected`; decision agrees with quantities; accepted destination is required iff accepted is positive and must be an active same-company `AVAILABLE` mapping; pending-return mapping is required for rejected quantity and remains the same physical QC rack. Finalisation requires the effective GRN, all policy results, and serial dispositions. QC finalisation and all stock posting legs are atomic. A finalised revision is immutable.
+Checks/guards: revision chain is same logical inspection and sequential; correction fields agree; fallback requires reason and inspector equal the originating PR/MIR raiser; quantities reconcile to the GRN received quantity or inbound DC-line quantity; any inspection shortfall is rejected; accepted plus rejected equals the source quantity; decision agrees with quantities; accepted destination is required iff accepted is positive and must be an active same-company `AVAILABLE` mapping; pending-return mapping is required for rejected quantity and remains the same physical QC rack. QC finalisation requires policy-result rows only when effective policies exist. Zero policies and zero parameter rows are valid and never block the inspector's accept/reject decision. Serial dispositions remain mandatory for serialized sources. Finalisation and all stock posting legs are atomic. A finalised revision is immutable.
 
 ### 3.13 `qc_inspection_parameter_results` - NEW
 
@@ -390,7 +402,7 @@ One normalised result row is stored for each required sample of each effective p
 
 Keys/indexes: PK; unique `(QcInspectionRevisionId, QcInspectionPolicyId, SampleOrdinal)`; index `(CompanyId, ParameterCodeSnapshot, Result)`; alternate key `(CompanyId, Id)`.
 
-Checks: valid limits/sample/result; positive `SampleOrdinal` not above the snapshotted sample size; exactly one observed-value column is non-null; policy is approved/effective for the GRN Item or category at `PolicyResolvedAt`; snapshots equal that policy at creation. Finalisation requires exactly `RequiredSampleSizeSnapshot` rows for every resolved policy. Rows are mutable only while the parent revision is draft and immutable afterward.
+Checks: when an effective policy exists, limits/sample/result are valid, `SampleOrdinal` is positive and not above the snapshotted sample size, exactly one observed-value column is non-null, and snapshots equal that policy at creation. Finalisation requires exactly `RequiredSampleSizeSnapshot` rows for every resolved policy. When no effective policy exists, the revision has zero parameter rows and finalises from its quantity decision alone. Rows are mutable only while the parent revision is draft and immutable afterward.
 
 ### 3.14 `qc_inspection_serial_dispositions` - NEW
 
@@ -401,14 +413,14 @@ This table makes serial-level stock location and condition deterministic while t
 | `Id` | `uuid PK` |
 | `CompanyId` | `uuid NOT NULL` |
 | `QcInspectionRevisionId` | `uuid NOT NULL FK qc_inspection_revisions(Id)` |
-| `GoodsReceiptLineSerialId` | `uuid NOT NULL FK goods_receipt_line_serials(Id)` |
+| `InventorySerialId` | `uuid NOT NULL FK inventory_serials(Id)` |
 | `Disposition` | `varchar(20) NOT NULL`; `ACCEPTED` or `REJECTED` |
 | `Reason` | `varchar(1000) NULL` |
 | `CreatedAt`, `CreatedBy` | Immutable audit columns |
 
-Keys/indexes: PK; unique `(QcInspectionRevisionId, GoodsReceiptLineSerialId)`; index `(CompanyId, GoodsReceiptLineSerialId)`.
+Keys/indexes: PK; unique `(QcInspectionRevisionId, InventorySerialId)`; index `(CompanyId, InventorySerialId)`.
 
-Checks/guards: serial belongs to the inspected GRN line; every serial on a serialised line has exactly one disposition; accepted/rejected serial counts equal the revision quantities. Rows are immutable after finalisation.
+Checks/guards: serial belongs to the inspected GRN's `QC_INSPECTION` population or the inbound DC source line; every inspected serial has exactly one disposition; accepted/rejected serial counts equal the revision quantities. Excess serials bypass QC only into `PENDING_RETURNABLE_DC` and must be selected on their outbound DC. Rows are immutable after finalisation.
 
 ### 3.15 `stock_posting_batches` - NEW, APPEND-ONLY
 
@@ -418,9 +430,11 @@ One business command creates a batch containing all balanced ledger legs.
 |---|---|
 | `Id` | `uuid PK` |
 | `CompanyId` | `uuid NOT NULL` |
-| `PostingKind` | `varchar(30) NOT NULL`; `GRN_TO_QC_HOLD`, `QC_DISPOSITION`, or `REVERSAL` |
+| `PostingKind` | `varchar(30) NOT NULL`; `GRN_CUSTODY`, `QC_DISPOSITION`, `MATERIAL_ISSUE`, `DC_DISPATCH`, `DC_RETURN_CUSTODY`, or `REVERSAL` |
 | `GoodsReceiptId` | `uuid NULL FK goods_receipts(Id)` |
 | `QcInspectionRevisionId` | `uuid NULL FK qc_inspection_revisions(Id)` |
+| `MaterialIssueRequestId` | `uuid NULL FK material_issue_requests(Id)` |
+| `DeliveryChallanId` | `uuid NULL FK delivery_challans(Id)` |
 | `ReversesPostingBatchId` | `uuid NULL FK stock_posting_batches(Id)` |
 | `ReferenceType` | `varchar(40) NOT NULL`, descriptive snapshot |
 | `ReferenceNumber` | `varchar(120) NOT NULL`, descriptive snapshot |
@@ -431,9 +445,192 @@ One business command creates a batch containing all balanced ledger legs.
 | `RequestFingerprint` | `char(64) NOT NULL` |
 | `CorrelationId` | `varchar(100) NOT NULL` |
 
-Keys/indexes: PK; unique `(CompanyId, IdempotencyKey)`; unique `CorrelationId`; unique filtered `ReversesPostingBatchId WHERE PostingKind='REVERSAL'`; indexes on each source FK and `(CompanyId, PostingDate)`; alternate key `(CompanyId, Id)`.
+Keys/indexes: PK; unique `(CompanyId, IdempotencyKey)`; unique `CorrelationId`; unique filtered `ReversesPostingBatchId WHERE PostingKind='REVERSAL'`; indexes on every source FK and `(CompanyId, PostingDate)`; alternate key `(CompanyId, Id)`.
 
 Checks/guards: exactly one direct source FK for non-reversal batches; reversal target required only for `REVERSAL`; source and reversal company match; reference values must be derived from the source document. Trigger rejects update/delete. A reused idempotency key with identical fingerprint replays; a different fingerprint conflicts.
+
+### 3.16 `job_orders` - NEW
+
+Minimal manually created Job Order identity. It deliberately has no Customer PO, offer, contract-review or BOM dependency.
+
+| Column | Definition |
+|---|---|
+| Standard identity/audit | `Id`, `CompanyId`, audit columns and `Version` |
+| `JobOrderNumber` | `varchar(50) NOT NULL` |
+| `MachineModel` | `varchar(160) NOT NULL` |
+| `MachineSerial` | `varchar(100) NOT NULL`; existing sequence mechanism may generate the settled SESS format |
+| `CustomerName` | `varchar(240) NOT NULL` |
+| `Status` | `varchar(20) NOT NULL`; `DRAFT`, `OPEN`, `INSTALLED`, or `CLOSED` |
+| `JobOrderDate` | `date NOT NULL` |
+| `PlannedCompletionDate` | `date NULL` |
+| `InstallationDate` | `date NULL` |
+| `ClosedAt` | `timestamptz NULL` |
+| `IdempotencyKey` | `varchar(100) NOT NULL` |
+| `RequestFingerprint` | `char(64) NOT NULL` |
+
+Keys/indexes: PK; unique `(CompanyId, JobOrderNumber)`; unique `(CompanyId, MachineSerial)`; unique `(CompanyId, IdempotencyKey)`; index `(CompanyId, Status, JobOrderDate)`; alternate key `(CompanyId, Id)`.
+
+Checks/guards: nonblank identity fields; installation date is present for `INSTALLED/CLOSED`; close date only for `CLOSED`; valid date order. A future nullable `CustomerPoId` can be added to this stable header without changing any MIR, DC, approval, ledger or reporting FK that already targets `JobOrderId`.
+
+### 3.17 `material_issue_requests` - NEW
+
+The approved authority to issue material. There is no issue-without-request path.
+
+| Column | Definition |
+|---|---|
+| Standard identity/audit | `Id`, `CompanyId`, audit columns and `Version` |
+| `RequestNumber` | `varchar(50) NOT NULL` |
+| `Purpose` | `varchar(30) NOT NULL`; `FACTORY_ASSEMBLY`, `PROJECT`, `SERVICE`, `WARRANTY`, `DEMO`, `SALE`, or `FREE_OF_COST` |
+| `DestinationType` | `varchar(20) NOT NULL`; `JOB_ORDER`, `CUSTOMER`, `VENDOR`, `DEPARTMENT`, or `OTHER` |
+| `JobOrderId` | `uuid NULL FK job_orders(Id)` |
+| `CustomerId` | `uuid NULL FK customers(Id)` |
+| `VendorId` | `uuid NULL FK vendors(Id)` |
+| `DestinationDepartmentId` | `uuid NULL FK departments(Id)` |
+| `DestinationNameSnapshot` | `varchar(240) NOT NULL` |
+| `RequestingDepartmentId` | `uuid NOT NULL FK departments(Id)` |
+| `RequestedByEmployeeId` | `uuid NOT NULL FK employees(Id)` |
+| `RequiredDate` | `date NOT NULL` |
+| `Status` | `varchar(30) NOT NULL`; `DRAFT`, `SUBMITTED`, `APPROVED`, `REJECTED`, `PARTIALLY_FULFILLED`, `FULFILLED`, or `REVERSED` |
+| `ApprovalRouteSnapshotJson` | `jsonb NOT NULL`; Production Manager or resolved department owner |
+| `ApprovedAt` | `timestamptz NULL` |
+| `ApprovedByEmployeeId` | `uuid NULL FK employees(Id)` |
+| `IdempotencyKey` | `varchar(100) NOT NULL` |
+| `RequestFingerprint` | `char(64) NOT NULL` |
+
+Keys/indexes: PK; unique `(CompanyId, RequestNumber)`; unique `(CompanyId, IdempotencyKey)`; index `(CompanyId, Status, RequiredDate)`; index `JobOrderId`; alternate key `(CompanyId, Id)`.
+
+Checks/guards: exactly one destination FK is non-null for typed destination types; `OTHER` has none and requires a name; Company of Job Order matches request; approval fields agree with status; route snapshot is immutable after submission. Issue posting requires an append-only approval row matching the snapshot. Fulfilled state is derived from signed posting batches, not a trusted client quantity.
+
+### 3.18 `material_issue_request_lines` - NEW
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `MaterialIssueRequestId` | `uuid NOT NULL FK material_issue_requests(Id)` |
+| `LineNumber` | `integer NOT NULL` |
+| `ItemId` | `uuid NOT NULL FK items(Id)` |
+| `ItemCodeSnapshot` | `varchar(80) NOT NULL` |
+| `ItemNameSnapshot` | `varchar(240) NOT NULL` |
+| `UomSnapshot` | `varchar(32) NOT NULL` |
+| `RequestedQuantity` | `numeric(24,6) NOT NULL` |
+| `Remarks` | `varchar(1000) NULL` |
+| `CreatedAt`, `CreatedBy` | Audit columns; immutable after parent submission |
+
+Keys/indexes: PK; unique `(MaterialIssueRequestId, LineNumber)`; index `(CompanyId, ItemId)`; alternate key `(CompanyId, Id)`.
+
+Checks/guards: positive line and quantity; Company matches header. Issued-to-date is the signed sum of stock movements sourced to this line and may not exceed requested quantity. A posting batch is the fulfilment document, avoiding a redundant material-issue header/line pair.
+
+### 3.19 `stores_approval_history` - NEW, APPEND-ONLY
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `MaterialIssueRequestId` | `uuid NULL FK material_issue_requests(Id)` |
+| `DeliveryChallanId` | `uuid NULL FK delivery_challans(Id)` |
+| `ApprovalCycle` | `integer NOT NULL` |
+| `StepNumber` | `integer NOT NULL` |
+| `Action` | `varchar(30) NOT NULL`; `APPROVE`, `REJECT`, or `REQUEST_REVISION` |
+| `ResolvedEmployeeId` | `uuid NOT NULL FK employees(Id)` |
+| `ResolvedRoleCode` | `varchar(100) NOT NULL` |
+| `SnapshotIdentity` | `varchar(100) NOT NULL` |
+| `Remarks` | `varchar(1000) NOT NULL` |
+| `OccurredAt` | `timestamptz NOT NULL` |
+| `CorrelationId` | `varchar(100) NOT NULL` |
+
+Keys/indexes: PK; unique `CorrelationId`; unique `(MaterialIssueRequestId, ApprovalCycle, StepNumber)` where MIR is non-null; equivalent unique index for DC; indexes on resolved employee and occurrence time.
+
+Checks/guards: exactly one parent FK; positive cycle/step; actor must equal the immutable route snapshot. Trigger rejects update/delete. It covers MIR approval, rejected-material DC approval where required by the specification, and department-owner approval for non-returnable DC.
+
+### 3.20 `delivery_challans` - NEW
+
+One table handles outbound DCs and inbound return receipts. An inbound row points to its original outbound returnable DC; multiple partial returns are allowed.
+
+| Column | Definition |
+|---|---|
+| Standard identity/audit | `Id`, `CompanyId`, audit columns and `Version` |
+| `DcNumber` | `varchar(50) NOT NULL` |
+| `Direction` | `varchar(20) NOT NULL`; `OUTBOUND` or `INBOUND_RETURN` |
+| `ParentDeliveryChallanId` | `uuid NULL FK delivery_challans(Id)`; required for inbound return |
+| `DcType` | `varchar(20) NOT NULL`; `RETURNABLE` or `NON_RETURNABLE` |
+| `Purpose` | `varchar(30) NOT NULL`; `REJECTED_MATERIAL`, `SUBCONTRACT`, `DEMO`, `WARRANTY`, `BILL_BASED`, or `CUSTOMER_PO_BASED` |
+| `MaterialIssueRequestId` | `uuid NULL FK material_issue_requests(Id)` |
+| `JobOrderId` | `uuid NULL FK job_orders(Id)` |
+| `VendorId` | `uuid NULL FK vendors(Id)` |
+| `CustomerId` | `uuid NULL FK customers(Id)` |
+| `DestinationNameSnapshot` | `varchar(240) NOT NULL` |
+| `ExternalReferenceNumber` | `varchar(120) NULL`; required for bill-based/customer-PO-based DC until native source tables exist |
+| `DispatchEvidenceJson` | `jsonb NOT NULL`, immutable supporting reference, transport and acknowledgement evidence |
+| `ExpectedReturnDate` | `date NULL`; mandatory for outbound returnable DC |
+| `DocumentDate` | `date NOT NULL` |
+| `Status` | `varchar(30) NOT NULL`; `DRAFT`, `SUBMITTED`, `APPROVED`, `DISPATCHED`, `OUTSTANDING`, `PARTIALLY_RETURNED`, `RECEIVED`, `CLOSED`, or `REVERSED` |
+| `ApprovalRouteSnapshotJson` | `jsonb NULL`; mandatory where DC approval applies |
+| `DispatchedAt` | `timestamptz NULL` |
+| `ReceivedAt` | `timestamptz NULL` |
+| `HandledByEmployeeId` | `uuid NOT NULL FK employees(Id)` |
+| `IdempotencyKey` | `varchar(100) NOT NULL` |
+| `RequestFingerprint` | `char(64) NOT NULL` |
+
+Keys/indexes: PK; unique `(CompanyId, DcNumber)`; unique `(CompanyId, IdempotencyKey)`; index `(CompanyId, Status, ExpectedReturnDate)`; indexes `ParentDeliveryChallanId`, `MaterialIssueRequestId`, `JobOrderId`; alternate key `(CompanyId, Id)`.
+
+Checks/guards: inbound rows require a same-company outbound returnable parent and inherit its purpose/type/destination; `REJECTED_MATERIAL/SUBCONTRACT/DEMO` are returnable and `WARRANTY/BILL_BASED/CUSTOMER_PO_BASED` are non-returnable; outbound returnable rows require expected date and remain effectively `OUTSTANDING` until signed inbound quantities fully reconcile; non-returnable outbound rows require department-owner approval and atomic enqueue of TD/MD notifications before dispatch; Job Order FK is mandatory for job-related purposes. No Customer PO FK exists yet; `CUSTOMER_PO_BASED` requires an external reference and evidence snapshot until that future module exists.
+
+### 3.21 `delivery_challan_lines` - NEW
+
+For serialized material, one line is recorded per serial with quantity 1; non-serialized material may use aggregate quantity. This avoids another serial junction table.
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `DeliveryChallanId` | `uuid NOT NULL FK delivery_challans(Id)` |
+| `LineNumber` | `integer NOT NULL` |
+| `ParentDeliveryChallanLineId` | `uuid NULL FK delivery_challan_lines(Id)`; required for inbound return |
+| `MaterialIssueRequestLineId` | `uuid NULL FK material_issue_request_lines(Id)` |
+| `QcInspectionRevisionId` | `uuid NULL FK qc_inspection_revisions(Id)`; rejected-QC source |
+| `GoodsReceiptLineId` | `uuid NULL FK goods_receipt_lines(Id)`; excess source or replacement linkage |
+| `ItemId` | `uuid NOT NULL FK items(Id)` |
+| `InventorySerialId` | `uuid NULL FK inventory_serials(Id)` |
+| `ItemCodeSnapshot` | `varchar(80) NOT NULL` |
+| `UomSnapshot` | `varchar(32) NOT NULL` |
+| `Quantity` | `numeric(24,6) NOT NULL` |
+| `WeightUomId` | `uuid NULL FK uoms(Id)` |
+| `DispatchedWeight` | `numeric(24,6) NULL` |
+| `ReturnedWeight` | `numeric(24,6) NULL` |
+| `CalculatedScrapWeight` | `numeric(24,6) NULL` |
+| `VendorWeightExplanation` | `varchar(2000) NULL` |
+| `RequiresQcSnapshot` | `boolean NOT NULL` |
+| `ReplacementGoodsReceiptLineId` | `uuid NULL FK goods_receipt_lines(Id)` |
+| `CreatedAt`, `CreatedBy` | Audit columns; immutable after dispatch/receipt |
+
+Keys/indexes: PK; unique `(DeliveryChallanId, LineNumber)`; unique filtered `(DeliveryChallanId, InventorySerialId)` where serial is non-null; indexes on every typed source/parent FK; alternate key `(CompanyId, Id)`.
+
+Checks/guards: positive quantity; serialized quantity equals 1; outbound line has exactly one source among approved MIR line, QC rejection revision, or GRN excess line; inbound line requires a parent line and may identify a replacement GRN line; returned-to-date cannot exceed dispatched quantity. Subcontract and demo inbound returns require QC; rejected-material replacement links to a new Gate/GRN and therefore receives full GRN QC rather than a duplicate DC-return posting. Subcontract outbound requires dispatched weight; inbound requires returned weight; `CalculatedScrapWeight = DispatchedWeight - cumulative ReturnedWeight`, is nonnegative, and positive scrap requires vendor explanation. Rejected/excess return quantities cannot exceed their current `PENDING_RETURNABLE_DC` balance.
+
+### 3.22 `stores_notification_deliveries` - NEW
+
+Durable evidence and retry state for mandatory non-returnable-DC notifications.
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `DeliveryChallanId` | `uuid NOT NULL FK delivery_challans(Id)` |
+| `RecipientEmployeeId` | `uuid NOT NULL FK employees(Id)` |
+| `RecipientRoleCode` | `varchar(100) NOT NULL`; `TECHNICAL_DIRECTOR` or `MANAGING_DIRECTOR` |
+| `Channel` | `varchar(20) NOT NULL`; `IN_APP` or `EMAIL` |
+| `Status` | `varchar(20) NOT NULL`; `PENDING`, `SENT`, or `FAILED` |
+| `AttemptCount` | `integer NOT NULL DEFAULT 0` |
+| `QueuedAt` | `timestamptz NOT NULL` |
+| `LastAttemptAt` | `timestamptz NULL` |
+| `SentAt` | `timestamptz NULL` |
+| `LastError` | `varchar(2000) NULL` |
+| `CorrelationId` | `varchar(100) NOT NULL` |
+
+Keys/indexes: PK; unique `(DeliveryChallanId, RecipientRoleCode, Channel)`; unique `CorrelationId`; index `(Status, QueuedAt)`; index `(CompanyId, RecipientEmployeeId, SentAt)`.
+
+Checks/guards: role/channel/status vocabulary; attempt/timestamp consistency; recipient is the current resolved TD or MD for the DC company. Non-returnable approval atomically creates four rows: TD and MD, each for in-app and email. Delivery retry updates only delivery-state fields under controlled service authority; audit records every attempt.
 
 ## 4. Exact `advance.stock_movements` redesign
 
@@ -459,9 +656,12 @@ Exact changes:
 | `ConditionCode` | Add `varchar(30) NOT NULL`; immutable snapshot of the condition mapping. |
 | `StockPostingBatchId` | Add `uuid NOT NULL FK stock_posting_batches(Id)`. |
 | `BatchLineOrdinal` | Add `integer NOT NULL`. |
-| `MovementLeg` | Add `varchar(30) NOT NULL`: `RECEIPT_IN`, `TRANSFER_OUT`, `TRANSFER_IN`, or `REVERSAL`. |
+| `MovementLeg` | Add `varchar(30) NOT NULL`: `RECEIPT_IN`, `TRANSFER_OUT`, `TRANSFER_IN`, `ISSUE_OUT`, `DISPATCH_OUT`, `RETURN_IN`, or `REVERSAL`. |
 | `GoodsReceiptLineId` | Add nullable typed FK to `goods_receipt_lines(Id)`. |
 | `QcInspectionRevisionId` | Add nullable typed FK to `qc_inspection_revisions(Id)`. |
+| `MaterialIssueRequestLineId` | Add nullable typed FK to `material_issue_request_lines(Id)`. |
+| `DeliveryChallanLineId` | Add nullable typed FK to `delivery_challan_lines(Id)`. |
+| `OriginGoodsReceiptLineId` | Add nullable provenance FK to `goods_receipt_lines(Id)`; identifies the receipt layer consumed and is not a source-document FK. |
 | `InventorySerialId` | Add nullable FK to `inventory_serials(Id)`; null for non-serial aggregate movement. No batch/lot column is added. |
 | `ReversesStockMovementId` | Add nullable self-FK; required for reversal rows. |
 | `PostingIdentity` | Add `varchar(200) NOT NULL`, deterministic identity of source, serial/aggregate and leg. |
@@ -474,29 +674,33 @@ New keys/indexes:
 - Unique filtered `ReversesStockMovementId WHERE ReversesStockMovementId IS NOT NULL`.
 - Index `(CompanyId, ItemId, WarehouseConditionLocationId, PostingDate, Id)` for ledger/balance queries.
 - Index `(CompanyId, InventorySerialId, PostingDate, Id)` where serial is non-null.
-- Indexes on `GoodsReceiptLineId`, `QcInspectionRevisionId`, and `StockPostingBatchId`.
+- Indexes on every typed source FK, `OriginGoodsReceiptLineId`, and `StockPostingBatchId`.
 - Composite tenant/location FKs enforce the same Company, Warehouse, Rack and mapping.
 
 New checks/triggers:
 
 - Exactly one of `QuantityIn` and `QuantityOut` is greater than zero; the other is zero.
-- Current module rows have exactly one source FK: GRN receipt rows use `GoodsReceiptLineId`; QC disposition rows use `QcInspectionRevisionId`. The serial FK supplements, never replaces, that source.
+- Current module rows have exactly one source FK: GRN custody uses `GoodsReceiptLineId`; QC disposition uses `QcInspectionRevisionId`; internal fulfilment uses `MaterialIssueRequestLineId`; and DC dispatch/return uses `DeliveryChallanLineId`. Serial and origin-receipt FKs supplement, never replace, that source.
 - Reversal rows copy the original source FK, Item, serial, location and condition, swap quantity in/out exactly, and identify the original movement.
 - Serialized movement quantity is exactly 1. Non-serialized movement has no serial FK.
+- Every issue/DC outbound movement carries `OriginGoodsReceiptLineId`; serialized movement origin must agree with the serial's receipt provenance.
 - `ReferenceType` and `ReferenceNumber` remain readable audit/display snapshots. They are derived and verified from the typed FK; they are not the integrity link.
 - Trigger rejects every `UPDATE` and `DELETE`. Corrections insert a reversal batch and new movements.
-- Batch insert is rejected unless its legs reconcile: a GRN batch contains QC-hold inbound legs; a QC batch has equal out/in quantities for each Item/serial; a reversal exactly negates its target batch.
+- Batch insert is rejected unless its legs reconcile: a GRN batch contains the ordered QC-hold and excess pending-return inbound legs; a QC batch has equal out/in quantities for each Item/serial; MIR/DC quantities remain within approved/source balances; a reversal exactly negates its target batch.
 
 No over-receipt override field is added to GRN lines or movements. Source-less adjustment support is deliberately not enabled in this module. The future adjustment module must add its typed override evidence and relax the exactly-one-source rule only for `ADJUSTMENT`; no free-text or source-less movement can be posted now.
 
 ### 4.2 Posting examples
 
-- GRN finalisation: one `RECEIPT_IN` into the category `QC_HOLD` location per non-serial line, or one quantity-1 row per serial. Source FK is the GRN line.
+- GRN finalisation: `ReceivedQuantity` posts into category `QC_HOLD`; `ExcessRejectedQuantity` posts separately into `PENDING_RETURNABLE_DC` at that QC rack. Both use the GRN-line source, but only received quantity contributes to PO received-to-date.
 - QC accepted quantity: `TRANSFER_OUT` from `QC_HOLD` plus `TRANSFER_IN` to the Stores-selected `AVAILABLE` location. Both use the same QC revision source and posting batch.
 - QC rejected quantity: `TRANSFER_OUT` from `QC_HOLD` plus `TRANSFER_IN` to `PENDING_RETURNABLE_DC` at the same warehouse/rack. It is physically retained but cannot be reserved or issued.
+- Internal approved issue: `ISSUE_OUT` from `AVAILABLE`, sourced to the approved MIR line and carrying `JobOrderId` through the MIR header.
+- DC dispatch: `DISPATCH_OUT` from `AVAILABLE` or `PENDING_RETURNABLE_DC`, sourced to the outbound DC line.
+- DC return: `RETURN_IN` sourced to the inbound DC line. QC-required returns enter `QC_HOLD`; a rejected-material replacement may instead identify the new Gate/GRN line so receipt is not posted twice.
 - Correction: a `REVERSAL` batch negates every row of the erroneous finalised posting, followed by the replacement document/revision and its new batch.
 
-Stock balance is a query/view, not a mutable balance table: sum `QuantityIn - QuantityOut` by Company, Item, condition location and optional serial. Received-to-date is likewise a query: signed effective GRN-line quantity by PO line.
+Stock balance is a query/view, not a mutable balance table: sum `QuantityIn - QuantityOut` by Company, Item, condition location and optional serial. Received-to-date is likewise a query over signed effective GRN `ReceivedQuantity` by PO line. `OriginGoodsReceiptLineId` preserves receipt-layer and bill-date provenance for warranty recomputation after issue.
 
 ## 5. State machine
 
@@ -530,7 +734,7 @@ The GRN finalisation transaction locks affected PO lines, recomputes received-to
 
 ### 5.3 QC inspection
 
-One immutable `qc_inspections` identity exists per GRN line. Each attempt/correction is a revision.
+One immutable `qc_inspections` identity exists per GRN line or QC-required inbound DC line. Each attempt/correction is a revision.
 
 | State | Meaning | Allowed transition |
 |---|---|---|
@@ -538,39 +742,75 @@ One immutable `qc_inspections` identity exists per GRN line. Each attempt/correc
 | `REVISION_FINALIZED_STOCK_POSTED` | Immutable revision; accepted stock is `AVAILABLE`, rejected stock is `PENDING_RETURNABLE_DC`. | Correction command creates a new `CORRECTION` draft after atomically reversing the prior revision's posting. |
 | `REVISION_SUPERSEDED` | Derived for an older revision when a later correction revision finalises. | Terminal; the row and its evidence remain unchanged. |
 
-There is no QC bypass. QC finalisation and ledger posting are one transaction, so no persisted “final but unposted” state exists.
+There is no stock-availability bypass. QC finalisation and ledger posting are one transaction, so no persisted “final but unposted” state exists. Structured parameters are optional: when no effective policy exists, the inspector finalises the quantity decision with zero parameter rows. Missing policy never blocks QC.
+
+The due time is `goods_receipts.QcDueAt`, calculated from the snapshotted `QC_COMPLETION_DAYS` value. At age greater than the configured two-day default, the queue shows `OVERDUE` and warns Stores; this is a derived dashboard condition, not a mutation of the immutable GRN.
 
 ### 5.4 Physical/ledger condition path
 
 `VENDOR/OUTSIDE -> QC_HOLD -> AVAILABLE` for accepted quantity.
 
-`VENDOR/OUTSIDE -> QC_HOLD -> PENDING_RETURNABLE_DC` for rejected quantity.
+`VENDOR/OUTSIDE -> QC_HOLD -> PENDING_RETURNABLE_DC -> DC_DISPATCHED/OUTSIDE` for QC-rejected quantity.
 
-`PENDING_RETURNABLE_DC` is terminal within this module. The later DC module owns the next transition. Delivered excess never enters the stock ledger; it is recorded as Gate/GRN excess evidence pending vendor return.
+`VENDOR/OUTSIDE -> PENDING_RETURNABLE_DC -> DC_DISPATCHED/OUTSIDE` for delivered excess, which is held separately in the category QC rack and never enters an available/store rack.
+
+`AVAILABLE -> MATERIAL_ISSUED` for an approved internal issue, or `AVAILABLE -> DC_DISPATCHED/OUTSIDE` for an approved external movement.
+
+`DC_OUTSIDE -> DC_RETURN_CUSTODY -> QC_HOLD -> AVAILABLE/PENDING_RETURNABLE_DC` for QC-required returns.
 
 Strict-sequence guards reject:
 
 - GRN creation/finalisation without an effective finalised Gate Entry.
 - QC creation/finalisation without an effective finalised GRN and QC-hold posting.
 - available or pending-return posting without a finalising QC revision.
+- any issue posting without an approved MIR and remaining approved line quantity.
+- any outbound DC posting without its MIR/QC-rejection/GRN-excess source and required approvals.
+- closing a returnable DC before cumulative inbound-return quantities reconcile to dispatched quantities.
 - direct stock-movement writes without a typed source and authorised posting batch.
 - reversal of an upstream document while an effective downstream document/posting remains.
+
+### 5.5 Material Issue Request
+
+| State | Meaning | Allowed transition |
+|---|---|---|
+| `DRAFT` | Header, one destination and many Item lines are editable. | `SUBMIT` -> `SUBMITTED`. |
+| `SUBMITTED` | Frozen approval route; no issue permitted. | `APPROVE` -> `APPROVED`; `REJECT` -> `REJECTED`. |
+| `APPROVED` | Production Manager or department owner approval exists. | First signed issue/DC posting -> `PARTIALLY_FULFILLED` or `FULFILLED`. |
+| `PARTIALLY_FULFILLED` | Some approved quantity has moved. | Further valid postings -> `FULFILLED`. |
+| `FULFILLED` | Signed issued quantities equal all requested quantities. | Reversal postings derive `PARTIALLY_FULFILLED` or `REVERSED`. |
+| `REJECTED` / `REVERSED` | Terminal effective states. | New requirement uses a new request. |
+
+### 5.6 Delivery Challan
+
+Outbound DC sequence is `DRAFT -> SUBMITTED -> APPROVED -> DISPATCHED`. Approval resolution has no shortcut: it either consumes the approved MIR authority or records the separate DC approval required for rejected/non-returnable material.
+
+- Returnable dispatch immediately derives `OUTSTANDING`, remains outstanding past its mandatory expected return date, becomes `PARTIALLY_RETURNED` after a partial inbound DC, and becomes `CLOSED` only when cumulative returns/replacement links reconcile every line.
+- A non-returnable DC requires department-owner approval and atomic creation of TD/MD in-app and email notification rows before dispatch; after dispatch it becomes `CLOSED`.
+- Each inbound return document follows `DRAFT -> RECEIVED`; its posting and the parent outstanding-balance update are atomic.
+- Reversal is a new posting/document event. Dispatched quantities are never edited in place.
+
+### 5.7 Minimal Job Order
+
+`DRAFT -> OPEN -> INSTALLED -> CLOSED`. The record is created manually. Setting `InstallationDate` moves an open Job Order to `INSTALLED` and causes warranty queries to recompute every issued GRN layer as the earlier of the immutable bill-date-plus-13-month limit and installation-date-plus-12-month limit. The GRN is not updated.
 
 ## 6. Configuration and immutable snapshots
 
 Editable values live in `business_rule_configuration_versions`, one effective append-only version per Company and RuleKey. Only `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`, and `IT_MANAGER` may append a version. Every row records actor, role, time, old value, new value, reason, previous version and effective-from time.
 
-For this module the relevant value is `SERIAL_CAPTURE_THRESHOLD`, initially 5,000. At **GRN draft creation**, the service:
+For this module the relevant values are `SERIAL_CAPTURE_THRESHOLD`, initially 5,000 per unit rate, and `QC_COMPLETION_DAYS`, initially 2. At **GRN draft creation**, the service:
 
 1. resolves the effective company configuration row;
 2. reads the company-specific Item `SerialCaptureMode`;
 3. stores the complete canonical configuration object plus version IDs in `goods_receipts.ConfigurationSnapshotJson`;
 4. stores a SHA-256 identity in `ConfigurationSnapshotHash`; and
-5. writes the resolved threshold, configuration-version FK, override-setting FK and final `REQUIRED/OPTIONAL` decision on every GRN line.
+5. writes the resolved serial threshold, version FK, Item override and final `REQUIRED/OPTIONAL` decision on every GRN line, comparing the threshold to `receipt line value / receipt quantity`; and
+6. writes the QC-day version, value and resulting `QcDueAt` on the GRN header.
 
 Every later validation uses those snapshots. Configuration changes therefore affect only GRNs created after the new version becomes effective. A draft created earlier keeps its original values; submission/finalisation does not re-resolve them.
 
-QC policy is effective-dated operational master data rather than a Section 17.1 monetary configuration value. Each QC draft resolves the effective policy rows once and snapshots every policy field into `qc_inspection_parameter_results`. Later policy edits do not change that revision. A correction revision resolves policies afresh at its own creation time and preserves both sets of evidence.
+QC policy is optional effective-dated operational master data rather than a Section 17.1 configuration value. Each QC draft resolves zero or more effective policy rows. When rows exist, it snapshots each policy into per-sample `qc_inspection_parameter_results`; when none exist, the inspection retains zero parameter rows and proceeds with its accept/reject quantity decision. Later policy edits do not change an existing revision. A correction revision resolves policies afresh at its own creation time.
+
+Warranty has two layers: the immutable GRN line stores the initial bill-date-plus-13-month limit, while the effective warranty query joins issued stock provenance to the minimal Job Order. Before installation it returns the bill limit; after `JobOrder.InstallationDate` is recorded it returns the earlier of installation plus 12 months and the bill limit. No finalised GRN row is rewritten.
 
 ## 7. API surface
 
@@ -598,7 +838,7 @@ There is no update or delete endpoint for a finalised Gate Entry.
 | `POST /gate-entries/{gateEntryId}/goods-receipt` | Create the sole effective GRN draft and snapshot configuration/Item/PO/Gate values. |
 | `PUT /goods-receipts/{id}` | Edit a GRN draft and its lines using expected Version. |
 | `POST /goods-receipts/{id}/serials/validate` | Return duplicate warnings and candidate disambiguation; performs no final write. |
-| `POST /goods-receipts/{id}/finalize` | Lock PO lines, block over-receipt, validate bill/serials, freeze GRN and post QC-hold ledger atomically. |
+| `POST /goods-receipts/{id}/finalize` | Lock PO lines, cap received-to-date, validate bill/serials, freeze GRN, post ordered quantity to QC hold and excess separately to pending-return custody. |
 | `POST /goods-receipts/{id}/reversals` | Reverse an eligible GRN and its posting batch; no edit to original. |
 | `GET /purchase-orders/{poId}/receipt-position` | Computed ordered, effective received, Gate-delivered, excess and remaining quantity by PO line. |
 
@@ -609,22 +849,64 @@ There is no update or delete endpoint for a finalised Gate Entry.
 | `GET /items/{itemId}/inventory-setting` | Current-company ERP barcode and serial mode for the shared Item. |
 | `POST /items/{itemId}/erp-barcode` | Allocate through the existing Purchase sequence table and create the immutable company ERP barcode. |
 | `PUT /items/{itemId}/serial-capture-mode` | Change company Item override with reason and existing controlled before/after history. |
-| `POST /items/{itemId}/barcode-label` | Produce the printable label artifact from the stored ERP barcode. |
+| `GET /items/{itemId}/barcode-label` | Download label data/artifact from the stored ERP barcode; direct printer-hardware control is deferred. |
 | `GET /items/{itemId}/change-history` | Shared Item and company-setting change evidence visible in current scope. |
 
 ### QC and category routes
 
 | Method and route | Purpose |
 |---|---|
-| `GET /qc/queue` | Effective finalised GRN lines awaiting QC, including assigned QC rack and inspector basis. |
+| `GET /qc/queue` | Stores dashboard of effective GRN/DC-return lines awaiting QC, including category rack, age, due time and overdue warning. |
 | `GET /qc/inspections/{id}` | Logical inspection with all immutable revisions, per-sample parameter results, serial dispositions and posting links. |
 | `POST /goods-receipt-lines/{lineId}/qc-inspection` | Create the one logical inspection and initial draft revision. |
+| `POST /delivery-challan-lines/{lineId}/qc-inspection` | Create inspection for a QC-required inbound return line. |
 | `PUT /qc/revisions/{revisionId}` | Edit a draft revision, per-sample parameter results and serial dispositions. |
 | `POST /qc/revisions/{revisionId}/finalize-and-post` | Validate reconciliation/evidence, freeze revision and atomically post accepted/pending-return movements. |
 | `POST /qc/inspections/{id}/corrections` | Reverse the effective QC posting and create the next correction draft with mandatory reason. |
 | `GET /category-routes` | Read effective current-company QC/default-accepted mappings. |
 | `POST /category-routes` | Create a future/effective route under authorised master administration. |
 | `POST /category-routes/{id}/close` | Effective-date close a route; never rewrites document snapshots. |
+
+### Minimal Job Orders
+
+| Method and route | Purpose |
+|---|---|
+| `GET /job-orders` / `GET /job-orders/{id}` | Company-scoped list/detail with issue/DC links and effective component warranties. |
+| `POST /job-orders` | Manually create the minimal Job Order. |
+| `PUT /job-orders/{id}` | Edit permitted fields using expected Version. |
+| `POST /job-orders/{id}/open` | Move draft to open. |
+| `POST /job-orders/{id}/installation-date` | Record installation date and expose recomputed effective warranty dates without changing GRNs. |
+| `POST /job-orders/{id}/close` | Close the minimal Job Order. |
+
+### Material Issue Requests
+
+| Method and route | Purpose |
+|---|---|
+| `GET /material-issue-requests` / `GET /material-issue-requests/{id}` | List/detail with destination, approval, line balances and postings. |
+| `POST /material-issue-requests` | Create one-destination, many-line draft. |
+| `PUT /material-issue-requests/{id}` | Edit draft header/lines using expected Version. |
+| `POST /material-issue-requests/{id}/submit` | Freeze destination, lines and approval route. |
+| `POST /material-issue-requests/{id}/decisions` | Production Manager or resolved department owner approves/rejects. |
+| `POST /material-issue-requests/{id}/issue` | Post an approved internal issue from available locations; no exception path. |
+| `POST /material-issue-requests/{id}/reversals` | Append an exact issue reversal. |
+
+### Delivery Challans and returns
+
+| Method and route | Purpose |
+|---|---|
+| `GET /delivery-challans` / `GET /delivery-challans/{id}` | List/detail with lines, approvals, notifications, postings, returns and outstanding balance. |
+| `GET /delivery-challans/outstanding` | Returnable-DC dashboard filtered by expected date, overdue age, vendor/customer and purpose. |
+| `POST /delivery-challans` | Create outbound returnable or non-returnable draft from approved MIR, QC rejection or GRN excess. |
+| `PUT /delivery-challans/{id}` | Edit an outbound/inbound draft using expected Version. |
+| `POST /delivery-challans/{id}/submit` | Freeze source quantities, destination, expected date and approval route. |
+| `POST /delivery-challans/{id}/decisions` | Record required rejected-material or department-owner decision. |
+| `POST /delivery-challans/{id}/dispatch` | Validate authority/notifications and post outbound movement. |
+| `POST /delivery-challans/{id}/returns` | Create an inbound return draft against an outstanding returnable DC. |
+| `POST /delivery-challans/{returnId}/receive` | Receive partial/full return, record weights/scrap explanation and post custody or link replacement GRN. |
+| `POST /delivery-challans/{id}/reversals` | Reverse an eligible dispatch/return posting without editing history. |
+| `GET /delivery-challans/{id}/notifications` | TD/MD in-app/email delivery and retry evidence for non-returnable DC. |
+
+Returnable closure is derived and automatic after full reconciliation; there is no endpoint that can force-close an outstanding quantity.
 
 ### Stock ledger and configuration
 
@@ -634,34 +916,86 @@ There is no update or delete endpoint for a finalised Gate Entry.
 | `GET /stock/balances` | Computed balances; only `AVAILABLE` is reservable/issuable. |
 | `GET /stock/posting-batches/{id}` | Batch, typed source, all legs, idempotency and reversal chain. |
 | `GET /stock/serials/{serial}` | Company-scoped serial provenance and current condition/location. |
+| `GET /job-orders/{id}/component-warranties` | Effective warranty by consumed GRN layer/serial using bill and installation dates. |
 | `GET /configuration/{ruleKey}` | Effective value and version for current company. |
 | `GET /configuration/{ruleKey}/history` | Immutable version/change history. |
 | `POST /configuration/{ruleKey}/versions` | Append a version; TD, MD or IT Manager only, with reason. |
 
 There is intentionally no public `POST/PUT/DELETE /stock-movements` endpoint and no adjustment endpoint.
 
-## 8. Practicality, contradictions, and risks
+## 8. Resolved risks and implementation constraints
 
-1. **QC custody versus “stock.”** A GRN must place material in the category QC rack, so the ledger records company custody at `QC_HOLD` before inspection. “Nothing reaches stock without QC” must mean nothing becomes **available stock** without QC. Interpreted literally as no ledger row before QC, the QC-rack quantity would be untracked and the stated flow would be contradictory.
+1. **Excess custody resolved.** Excess is a GRN-line quantity, posts to `PENDING_RETURNABLE_DC` in the category QC rack, is excluded from PO received-to-date and available stock, and leaves through a DC sourced to that GRN line.
+2. **Category routing resolved.** The Item's current master category is validated and snapshotted on the GRN line; that category selects the one effective company/category route.
+3. **Vendor bill mapping resolved.** A company/bill number can have only one effective normal GRN. Reversal preserves history and permits a corrected replacement to reuse the bill number.
+4. **Empty QC policy resolved.** Zero effective policies means zero parameter-result rows; accept/reject quantity evidence still finalises. Missing policy never blocks QC.
+5. **Serial threshold basis resolved.** The snapshotted unit rate is receipt line value divided by receipt quantity and is compared with the snapshotted 5,000 threshold, subject to Item override.
+6. **Warranty recomputation resolved.** GRN preserves bill-plus-13 months; effective warranty is a query over receipt provenance and Job Order installation date, never a GRN update.
+7. **QC deadline resolved.** The configurable two-day value is snapshotted on the GRN, `QcDueAt` is stored, and the pending-QC dashboard derives age/overdue warnings.
+8. **DC accumulation risk resolved.** Returnable/non-returnable DC, dispatch, partial inbound returns, outstanding/overdue state, replacement linkage, subcontract weight/scrap explanation, approvals and notifications are inside this module.
 
-2. **Shared Item versus per-company barcode.** The existing `items.Barcode` cannot correctly hold two company-scoped barcodes for a shared Item. The company child table is necessary. The legacy Item Barcode must not be treated as the new ERP barcode or used for company-specific uniqueness.
+Implementation constraints, not open business questions:
 
-3. **Immutable GRN versus later installation date.** At receipt, installation normally has not occurred. The GRN can immutably store the bill-based limit and warranty expiry known at receipt. If a later installation makes the 12-month limit earlier, the future Installation/installed-machine module must hold the new effective warranty fact or an append-only warranty event; it cannot update the finalised GRN line. Treating the GRN column as permanently authoritative after installation would contradict both the warranty formula and GRN immutability.
+- `IsoReceiptVerificationJson` needs a versioned module-owned JSON schema because the exact ISO field catalogue/signature attachment set remains deferred.
+- Existing number-sequence allocation is reused; display formats must be configured without rewriting issued numbers.
+- Cross-row invariants require serializable service transactions and narrow PostgreSQL deferred triggers/functions; application-only checks are insufficient.
+- Ledger/source quantities use `numeric(24,6)` consistently.
+- The future Vendor Invoice module must reference the GRN bill identity rather than create a conflicting second bill.
 
-4. **Mandatory vendor bill duplicates future invoice intake.** Capturing bill identity/date on the GRN is required and workable, but accounting invoice lines, tax matching, credits and payment status remain in the future Vendor Invoice module. That module must reference this GRN bill snapshot instead of silently creating a second inconsistent bill identity.
+No unresolved contradiction blocks the final schema design.
 
-5. **Excess custody gap.** Delivered excess is recorded but deliberately never enters stock. Until the DC/return workflow exists, the ERP has evidence but no stock location or dispatch document for the physical excess. Operations must segregate it outside controlled stock and return it manually; otherwise physical custody and ERP stock will diverge.
+## 9. Final new-table list
 
-6. **ISO verification vocabulary is not enumerated.** `IsoReceiptVerificationJson` preserves immutable evidence without inventing a fixed field catalogue, but validation can initially guarantee only a JSON object and a module-owned JSON schema version. Exact ISO fields, attachments and signatures remain a later hardening decision.
+All 22 tables below are `ESSENTIAL` for the now-final module scope. The four previously deferred support tables are not included in this count.
 
-7. **Number formats remain deferred.** The schema guarantees scoped uniqueness and safe allocation, but it does not invent Gate/GRN/QC display formats. Those formats must be configured before implementation; changing presentation must not alter stored issued numbers.
+| # | New table | What it holds and why it is needed | Marking |
+|---:|---|---|---|
+| 1 | `item_company_inventory_settings` | Company ERP barcode and serial override for shared Items. | `ESSENTIAL` |
+| 2 | `business_rule_configuration_versions` | Immutable serial-threshold and QC-deadline versions used by document snapshots. | `ESSENTIAL` |
+| 3 | `store_category_routes` | One company/category QC rack, pending-return mapping and default accepted location. | `ESSENTIAL` |
+| 4 | `gate_entries` | PO-linked physical arrival header and ISO receipt evidence. | `ESSENTIAL` |
+| 5 | `gate_entry_lines` | Delivered quantities by PO line, including physical excess. | `ESSENTIAL` |
+| 6 | `goods_receipts` | One-Gate/one-bill GRN header, rule snapshot, QC due date and reversal identity. | `ESSENTIAL` |
+| 7 | `goods_receipt_lines` | Ordered receipt, segregated excess, Item/tax/UOM snapshots, unit rate and initial warranty. | `ESSENTIAL` |
+| 8 | `inventory_serials` | Durable company-unique serial identities across reversal/correction. | `ESSENTIAL` |
+| 9 | `goods_receipt_line_serials` | GRN capture occurrences and duplicate-disambiguation evidence. | `ESSENTIAL` |
+| 10 | `stores_document_status_history` | Append-only Gate, GRN, QC, Job Order, MIR and DC lifecycle evidence. | `ESSENTIAL` |
+| 11 | `qc_inspections` | Stable one-per-source-line logical inspection identity. | `ESSENTIAL` |
+| 12 | `qc_inspection_revisions` | Immutable inspection decisions, corrections, quantities, inspector and destinations. | `ESSENTIAL` |
+| 13 | `qc_inspection_parameter_results` | Optional per-policy, per-sample readings when policies exist. | `ESSENTIAL` |
+| 14 | `qc_inspection_serial_dispositions` | Accepted/rejected result for every serialized unit. | `ESSENTIAL` |
+| 15 | `stock_posting_batches` | Atomic, idempotent grouping and reversal of all ledger legs. | `ESSENTIAL` |
+| 16 | `job_orders` | Stable minimal Job Order, machine/customer fields and installation date for issue/DC linkage and warranty. | `ESSENTIAL` |
+| 17 | `material_issue_requests` | One-destination issue authority, purpose, approval route and fulfilment state. | `ESSENTIAL` |
+| 18 | `material_issue_request_lines` | Many requested Items/quantities and the typed source for approved issue postings. | `ESSENTIAL` |
+| 19 | `stores_approval_history` | Immutable MIR and DC approval decisions against snapshotted routes. | `ESSENTIAL` |
+| 20 | `delivery_challans` | Outbound and inbound-return DC headers, expected dates, destination and outstanding lifecycle. | `ESSENTIAL` |
+| 21 | `delivery_challan_lines` | Typed material sources, serials, quantities, return reconciliation and subcontract weight/scrap evidence. | `ESSENTIAL` |
+| 22 | `stores_notification_deliveries` | Durable TD/MD in-app/email enqueue, delivery and retry evidence. | `ESSENTIAL` |
 
-8. **PostgreSQL constraints are essential.** Effective-cardinality, PO received-to-date, parent-state, snapshot reconciliation, balanced transfer, and reversal equivalence cannot be expressed by ordinary row CHECK constraints. They require serializable service transactions plus narrow deferred constraint triggers/functions, following the architecture reference. Application-only enforcement would be unsafe.
+Existing tables modified/reused but not counted as new include `stock_movements`, `purchase_number_sequences`, `warehouse_condition_locations`, `qc_inspection_policies`, `controlled_configuration_histories` and the existing masters/Purchase tables.
 
-9. **Existing quantity precision is too narrow.** `numeric(18,3)` is inconsistent with existing UOM precision foundations and weight/length materials. Widening the ledger to six decimal places is necessary; all source quantities must use the same precision to prevent reconciliation drift.
+## 10. End-to-end user capability
 
-10. **QC policy evidence is implementable but extended evidence remains deferred.** The normalised policy/result/observation tables support the first module. Attachments, signatures, FAT sheets, concessions and reinspection are intentionally absent and must not be simulated with ungoverned columns.
+When this module ships, a user will be able to:
 
-No other contradiction blocks the schema design.
+- manually create a minimal Job Order with stable ID, machine/customer facts and later installation date;
+- create a PO-linked Gate Entry with delivered quantities, then one mandatory-bill GRN with immutable Item snapshots, serials, warranty basis and separately held excess;
+- see pending-QC age and overdue warnings, inspect each GRN or QC-required return line with or without configured parameters, move accepted stock to a selected store rack, and isolate rejected stock;
+- create a one-destination multi-Item Material Issue Request, obtain Production Manager/department-owner approval, and issue only approved available stock to the referenced Job Order/destination;
+- create and dispatch returnable DCs for rejection, subcontract and demo, receive partial/full returns, track mandatory expected dates, record subcontract dispatched/returned weight and vendor-explained scrap, route required returns through QC, and close only after reconciliation;
+- create non-returnable warranty, bill-based and customer-PO-based DCs after department-owner approval, with mandatory TD/MD in-app and email notification evidence;
+- trace every receipt, QC decision, issue, DC dispatch/return, serial and reversal through the append-only ledger; and
+- view effective component warranty after installation without altering the original GRN.
+
+The user still cannot:
+
+- create or link native Customer POs, offers or contract reviews;
+- create Estimated BOMs, roll up Actual BOMs, or post labour hours;
+- create a subcontract PO or allocate subcontract PO bill value;
+- create installation reports or maintain the full installed-machine register;
+- generate vendor-performance/KPI reports or e-way-bill payloads;
+- control barcode-printer hardware;
+- use batch/lot tracking or source-less stock adjustments.
 
 RESULT_REPORTED_PENDING_WITNESS
