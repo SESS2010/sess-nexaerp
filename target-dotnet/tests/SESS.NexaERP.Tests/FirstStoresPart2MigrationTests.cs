@@ -36,13 +36,15 @@ public sealed class FirstStoresPart2MigrationTests
     }
 
     [Fact]
-    public void Part2IsLatestAndPart3TablesAreAbsent()
+    public void Part2PrecedesPart3AAndPart3BIsAbsent()
     {
         using var db = CreateContext();
-        Assert.Equal("20260827110550_FirstStoresPart2GrnAndSerials", db.Database.GetMigrations().Last());
+        var migrations = db.Database.GetMigrations().ToArray();
+        Assert.True(Array.IndexOf(migrations, "20260827110550_FirstStoresPart2GrnAndSerials")
+                    < Array.IndexOf(migrations, "20260827115729_FirstStoresPart3AQcOutboundDocuments"));
         var tables = db.Model.GetEntityTypes().Select(x => x.GetTableName()).ToHashSet(StringComparer.Ordinal);
-        Assert.DoesNotContain("qc_inspections", tables);
-        Assert.DoesNotContain("delivery_challans", tables);
+        Assert.Contains("qc_inspections", tables);
+        Assert.Contains("delivery_challans", tables);
         Assert.DoesNotContain("stock_posting_batches", tables);
     }
 

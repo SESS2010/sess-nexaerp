@@ -1,25 +1,28 @@
-# SESS First Stores Module - Three-Part Migration Plan
+# SESS First Stores Module - Four-Stage Migration Plan
 
-Status: design and witness plan only; no migration has been written or applied  
+Status: Parts 1 and 2 witnessed; Part 3A migration prepared but not applied; Part 3B pending
 Schema authority: `outputs/first_stores_module_schema_design.md`  
 Architecture pattern authority: `outputs/backend_architecture_reference.md`
 
 ## 1. Decision and safety boundary
 
-Use three sequential, independently transactional migrations. The final schema contains 24 new tables because the shared notification engine requires an event, resolved-recipient/read-state, and append-only delivery-attempt table instead of the earlier single DC-specific table.
+Use four sequential, independently transactional migration stages. The final schema contains 24 new tables. The originally planned Part 3 is split into Part 3A and Part 3B at the document/ledger activation boundary.
 
-The requested three-part split remains the safer split:
+The approved four-stage split is:
 
 | Part | Boundary | New tables | Existing-table work |
 |---:|---|---:|---|
 | 1 | Foundation, Gate Entry and notification engine | 9 | Reuse sequence/audit/role/Purchase/location masters; extend condition vocabulary only |
 | 2 | GRN and serial identity/capture | 4 | Add later-document FKs to status history only after their parents exist |
-| 3 | QC, outbound documents and append-only ledger | 11 | Complete status-history FKs and harden `stock_movements` |
+| 3A | QC and outbound document graph, database-blocked from finalisation/posting | 10 | Complete status-history FKs; preserve the Part 2 GRN block |
+| 3B | Append-only ledger contract and activation | 1 | Create posting batches, harden `stock_movements`, then replace temporary blockers |
 | **Total** |  | **24** |  |
 
-Part 3 is intentionally not split further. QC posting, Material Issue/DC posting, posting-batch identity, and the ledger's typed source FKs must become valid together. Separating them would create a witness point where a source can finalise without its complete append-only posting contract, or where the ledger requires FKs to tables not yet present. Part 3 is controlled by one database transaction and an ordered internal DDL checklist, so its larger table count does not expose a half-applied state.
+The approved 3A/3B split is safer to witness than one large Part 3 migration. Part 3A creates the complete cyclic QC/DC document graph in one transaction, but database guards prohibit every posting, dispatch and finalisation path. The Part 2 GRN finalisation block remains in force because `stock_posting_batches` does not yet exist. Documents may be drafted and their FK graph witnessed, but no Part 3A document can create an inventory consequence.
 
-“Independently applicable and rollback-able” means each part has its own migration identity, transaction, preflight, post-apply witness, and down path, while respecting dependency order. Part 2 applies only after Part 1; Part 3 only after Parts 1 and 2. Rollback order is 3, then 2, then 1. A down path fails closed rather than deleting business data.
+Part 3B is the sole ledger activation boundary. It creates `stock_posting_batches`, hardens `stock_movements`, installs the complete typed-source and atomic-posting contract, and only then replaces the temporary Part 2/3A blockers. There is no witness point where a finalised source can exist without its append-only ledger contract.
+
+“Independently applicable and rollback-able” means each stage has its own migration identity, transaction, preflight, post-apply witness, and down path, while respecting dependency order. Part 2 applies only after Part 1; Part 3A only after Parts 1 and 2; Part 3B only after Part 3A. Rollback order is 3B, 3A, 2, then 1. A down path fails closed rather than deleting business data.
 
 ## 2. Row-count notation and fresh-chain assumption
 
@@ -109,9 +112,9 @@ All four new Part 2 tables contain `0` rows immediately after apply. Part 1 row 
 
 Verify one-Gate/one-effective-GRN, company/bill effective uniqueness, tenant-safe parent FKs, immutable Item snapshots, `UnitRateSnapshot = LineValueSnapshot / ReceivedQuantity`, received/excess reconciliation, initial bill-plus-13-month warranty, serial-threshold snapshot, durable serial uniqueness and required duplicate disambiguation. Use transaction-scoped fixtures and roll them back.
 
-Rollback is allowed only when Part 3 is absent and all four Part 2 tables plus GRN status-history rows are empty. The down path first removes the GRN FK/column from status history, then drops serial occurrence, serial identity, GRN line and GRN header tables. Any persisted GRN/serial data causes a fail-closed abort. Part 1 remains applied and usable.
+Rollback is allowed only when Parts 3A and 3B are absent and all four Part 2 tables plus GRN status-history rows are empty. The down path first removes the GRN FK/column from status history, then drops serial occurrence, serial identity, GRN line and GRN header tables. Any persisted GRN/serial data causes a fail-closed abort. Part 1 remains applied and usable.
 
-## 5. Part 3 - QC, outbound and ledger
+## 5. Part 3A - QC and outbound document graph
 
 ### 5.1 Objects created
 
@@ -127,9 +130,8 @@ Rollback is allowed only when Part 3 is absent and all four Part 2 tables plus G
 | 8 | `stores_approval_history` | Append-only MIR/DC decisions. |
 | 9 | `delivery_challans` | Returnable/non-returnable outbound and inbound-return lifecycle. |
 | 10 | `delivery_challan_lines` | Typed material sources, quantities, serials, weights and return reconciliation. |
-| 11 | `stock_posting_batches` | Atomic/idempotent posting and reversal grouping. |
 
-Part 3 completes the QC/Job Order/MIR/DC typed columns in `stores_document_status_history` and modifies existing `stock_movements` as specified below.
+Part 3A completes the QC/Job Order/MIR/DC typed columns in `stores_document_status_history`. It does not create `stock_posting_batches` and does not modify `stock_movements`.
 
 ### 5.2 Dependencies on Parts 1 and 2
 
@@ -138,9 +140,35 @@ Part 3 completes the QC/Job Order/MIR/DC typed columns in `stores_document_statu
 - Existing optional `qc_inspection_policies`, Items, employees, departments, customers, vendors, locations, stock reservations and role/permission data.
 - Existing `stock_movements` and its authoritative baseline shape.
 
-The internal DDL order resolves the deliberate QC/DC relationship safely: create Job Order and MIR; create approval/DC headers and lines without the inbound-QC FK; create QC logical/revision/result/disposition tables; add the QC-to-DC and DC-to-QC FKs; create posting batches; then add ledger columns, indexes, constraints and guards. All steps are inside one migration transaction.
+The internal DDL order resolves the deliberate QC/DC relationship safely: create Job Order and MIR; create approval/DC headers and lines; create QC logical/revision/result/disposition tables; then add the cross-direction QC-to-DC and DC-to-QC FKs. All steps are inside one migration transaction.
 
-### 5.3 `stock_movements` transition
+### 5.3 Applicability and usability after Part 3A
+
+All pre-existing ERP functions remain usable. Part 3A documents may be created as drafts so the complete FK graph can be witnessed. Database triggers reject QC `FINALIZED`, MIR issue/fulfilment states, DC dispatch/return-receipt/final states, and any attempt to derive an inventory consequence. The Part 2 GRN finalisation block remains unchanged and effective. Feature endpoints for those transitions remain disabled.
+
+### 5.4 Expected fresh-chain row counts after Part 3A
+
+All ten new Part 3A tables contain `0` rows immediately after apply. Parts 1 and 2 retain their witnessed counts. No QC, Job Order, MIR, approval, DC, status-history, notification or ledger row is seeded.
+
+### 5.5 Part 3A witness and rollback gate
+
+Witness the exact ten-table catalog, complete tenant-safe FK graph including the QC/DC cycle, checks, indexes, append-only evidence guards, draft-write paths, and negative database tests for every prohibited finalisation/posting/dispatch path. Verify `stock_posting_batches` is absent, `stock_movements` is unchanged, and a Part 2 GRN still cannot finalise.
+
+Rollback is permitted only while Part 3B is absent and every Part 3A table and Part 3A status-history reference is empty. Down removes the Part 3A status-history FKs/columns and ten tables in dependency-safe order. Any persisted Part 3A business or history row makes rollback fail closed.
+
+## 6. Part 3B - append-only ledger contract and activation
+
+### 6.1 Object created
+
+| # | Table | Initial purpose |
+|---:|---|---|
+| 1 | `stock_posting_batches` | Atomic/idempotent posting and reversal grouping. |
+
+### 6.2 Dependencies
+
+Part 3B requires witnessed Parts 1, 2 and 3A, all temporary database blockers, the complete QC/DC document graph, and the authoritative existing `stock_movements` shape.
+
+### 6.3 `stock_movements` transition
 
 1. Widen `QuantityIn`/`QuantityOut` to `numeric(24,6)`; this is non-lossy upward.
 2. Add `LedgerSchemaVersion smallint NOT NULL DEFAULT 1`; pre-existing rows remain version 1 and all Stores-module inserts must explicitly use version 2.
@@ -151,33 +179,33 @@ The internal DDL order resolves the deliberate QC/DC relationship safely: create
 
 This staged version rule is safer than making new columns immediately `NOT NULL`, because no database inspection has authorised an assumption that every historical ledger row can be mapped to a real new source line.
 
-### 5.4 Applicability and usability after apply
+### 6.4 Applicability and usability after apply
 
 After the Part 3 transaction and witness pass, the full scoped module is usable end to end: Gate Entry, GRN, QC with or without policies, accepted/rejected/excess custody, approved issues, minimal Job Orders, bidirectional DCs, scheduled/immediate notifications, serial provenance, and append-only ledger reversals. Existing functions remain usable. Feature enablement occurs only after every Part 3 constraint and witness succeeds; there is no interval where finalisation can bypass posting.
 
 The explicitly documented ISO gaps and deferred modules remain unavailable.
 
-### 5.5 Expected fresh-chain row counts
+### 6.5 Expected fresh-chain row counts
 
 | Object | Expected rows immediately after apply |
 |---|---:|
-| All 11 new Part 3 tables | `0` each |
+| `stock_posting_batches` | `0` |
 | `stock_movements` | `S` (unchanged) |
 | Version-2 `stock_movements` | `0` |
 
 No QC policy, Job Order, MIR, DC, approval, posting batch, notification or ledger business row is seeded. Part 1 remains at `2 x C` configuration rows and zero in its other new tables; Part 2 remains zero.
 
-### 5.6 Witness and rollback gate
+### 6.6 Witness and rollback gate
 
 Witness the empty-policy QC path, optional parameter samples, per-line and per-serial reconciliation, correction revision immutability, accepted transfer to selected available rack, rejected/excess pending-return custody, MIR approved-only issue, returnable/non-returnable DC rules, partial return, subcontract weight/scrap evidence, four notification scenarios, role/company recipient resolution, posting idempotency, balanced legs, typed source FKs, exact reversal, serial provenance, and update/delete rejection. Verify legacy version-1 ledger rows remain byte-for-byte equivalent in their original columns and are not assigned fabricated sources.
 
-Rollback requires module writes to be quiesced and fails unless all Part 3 business tables, their status/approval/notification references, and version-2 ledger rows are empty. It then removes the Part 3 history FKs, guards/indexes/FKs and added ledger columns in dependency order. Before narrowing quantities back to `numeric(18,3)`, it proves every retained value fits that precision and scale; otherwise rollback aborts. The pre-existing `S` ledger rows must survive with equal original-column values and counts. Parts 1 and 2 remain applied.
+Rollback requires module writes to be quiesced and fails unless all posting batches and version-2 ledger rows are empty and no Part 3A document has crossed an activated transition. It restores the Part 2/3A database blockers before removing ledger guards/indexes/FKs and added columns in dependency order. Before narrowing quantities back to `numeric(18,3)`, it proves every retained value fits that precision and scale; otherwise rollback aborts. The pre-existing `S` ledger rows must survive with equal original-column values and counts. Parts 1, 2 and 3A remain applied.
 
 Once real Part 3 documents or ledger postings exist, schema rollback is intentionally not destructive or automatic. Operational rollback is then feature disablement plus a forward correction migration; business records and ledger evidence are never dropped to make a down script pass.
 
-## 6. Cross-part witness sequence
+## 7. Cross-part witness sequence
 
-For each part on an isolated fresh-chain database:
+For each stage on an isolated fresh-chain database:
 
 1. Record pre-apply migration history, schema fingerprint and relevant row counts.
 2. Apply only that part in one transaction.
@@ -188,8 +216,8 @@ For each part on an isolated fresh-chain database:
 
 The final production plan must name the concrete migration IDs, generated SQL hashes, backup/restore point, maintenance/feature-toggle steps, timeouts, lock expectations and witness signatories. Those belong to the migration implementation review and are not invented in this design-only plan.
 
-## 7. Stop point
+## 8. Stop point
 
-This document authorises planning only. No migration, model change, SQL, database query or application implementation has been produced or executed.
+This document records the approved migration boundaries. Part 3A source is prepared for witness but has not been applied to any owner database. Part 3B remains the explicit stop point and is not written or authorised by this stage.
 
 RESULT_REPORTED_PENDING_WITNESS

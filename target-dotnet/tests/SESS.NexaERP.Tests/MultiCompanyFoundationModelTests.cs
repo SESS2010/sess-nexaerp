@@ -19,8 +19,8 @@ public sealed class MultiCompanyFoundationModelTests
             .Count(x => typeof(CompanyScopedAuditableEntity).IsAssignableFrom(x.ClrType) &&
                         x.ClrType.Namespace != "SESS.NexaERP.Domain.Foundation");
 
-        Assert.Equal(47, existingScoped);
-        Assert.Equal(38, 85 - existingScoped);
+        Assert.Equal(51, existingScoped);
+        Assert.Equal(38, 89 - existingScoped);
         Assert.Equal(39, MultiCompanyFoundationSeedData.EmployeeCompanyAssignments.Length);
         Assert.All(MultiCompanyFoundationSeedData.EmployeeCompanyAssignments,
             row => Assert.Equal("PAYROLL", row.AssignmentType));

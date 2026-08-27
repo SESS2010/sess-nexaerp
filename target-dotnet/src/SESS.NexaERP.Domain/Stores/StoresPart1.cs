@@ -131,6 +131,14 @@ public sealed class StoresDocumentStatusHistory
     public GateEntry? GateEntry { get; set; }
     public Guid? GoodsReceiptId { get; set; }
     public GoodsReceipt? GoodsReceipt { get; set; }
+    public Guid? QcInspectionRevisionId { get; set; }
+    public QcInspectionRevision? QcInspectionRevision { get; set; }
+    public Guid? JobOrderId { get; set; }
+    public JobOrder? JobOrder { get; set; }
+    public Guid? MaterialIssueRequestId { get; set; }
+    public MaterialIssueRequest? MaterialIssueRequest { get; set; }
+    public Guid? DeliveryChallanId { get; set; }
+    public DeliveryChallan? DeliveryChallan { get; set; }
     public string? FromStatus { get; set; }
     public string ToStatus { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
