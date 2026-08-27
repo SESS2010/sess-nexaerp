@@ -8,7 +8,7 @@ Architecture pattern reference: `outputs/backend_architecture_reference.md`
 
 ## 1. Scope and design rules
 
-This design covers Gate Entry, one effective GRN per Gate Entry, mandatory one-bill/one-GRN evidence, GRN-line Item snapshots, serial capture, Item ERP barcode generation, category-routed QC with optional structured parameters and immutable revisions, QC ageing, accepted and rejected disposition, append-only stock ledger, approved material issues, bidirectional Delivery Challans, and a minimal manually created Job Order.
+This design covers Gate Entry, one effective GRN per Gate Entry, mandatory one-bill/one-GRN evidence, GRN-line Item snapshots, serial capture, Item ERP barcode generation, category-routed QC with optional structured parameters and immutable revisions, QC ageing, accepted and rejected disposition, append-only stock ledger, approved material issues, bidirectional Delivery Challans, a minimal manually created Job Order, and one shared role-resolved notification engine for this and future modules.
 
 The Delivery Challan boundary includes returnable rejected-material, subcontract and demo dispatch/return, plus non-returnable warranty, bill-based and customer-PO-based dispatch. It does not include a subcontract PO or customer commercial-document model.
 
@@ -48,7 +48,7 @@ These tables already exist in schema `advance`; they are not recreated.
 
 ## 3. New and modified table definitions
 
-The final Stores schema contains exactly 22 new tables. The following four earlier proposals remain explicitly deferred without weakening the design:
+The final Stores schema contains exactly 24 new tables. The shared notification engine replaces the earlier single DC-specific delivery table with three generic tables. The following four earlier proposals remain explicitly deferred without weakening the design:
 
 | Deferred table | Replacement in the first module | Reason |
 |---|---|---|
@@ -574,7 +574,7 @@ One table handles outbound DCs and inbound return receipts. An inbound row point
 
 Keys/indexes: PK; unique `(CompanyId, DcNumber)`; unique `(CompanyId, IdempotencyKey)`; index `(CompanyId, Status, ExpectedReturnDate)`; indexes `ParentDeliveryChallanId`, `MaterialIssueRequestId`, `JobOrderId`; alternate key `(CompanyId, Id)`.
 
-Checks/guards: inbound rows require a same-company outbound returnable parent and inherit its purpose/type/destination; `REJECTED_MATERIAL/SUBCONTRACT/DEMO` are returnable and `WARRANTY/BILL_BASED/CUSTOMER_PO_BASED` are non-returnable; outbound returnable rows require expected date and remain effectively `OUTSTANDING` until signed inbound quantities fully reconcile; non-returnable outbound rows require department-owner approval and atomic enqueue of TD/MD notifications before dispatch; Job Order FK is mandatory for job-related purposes. No Customer PO FK exists yet; `CUSTOMER_PO_BASED` requires an external reference and evidence snapshot until that future module exists.
+Checks/guards: inbound rows require a same-company outbound returnable parent and inherit its purpose/type/destination; `REJECTED_MATERIAL/SUBCONTRACT/DEMO` are returnable and `WARRANTY/BILL_BASED/CUSTOMER_PO_BASED` are non-returnable; outbound returnable rows require expected date and remain effectively `OUTSTANDING` until signed inbound quantities fully reconcile; creating a non-returnable outbound row atomically enqueues the immediate TD/MD event, and dispatch additionally requires department-owner approval; Job Order FK is mandatory for job-related purposes. No Customer PO FK exists yet; `CUSTOMER_PO_BASED` requires an external reference and evidence snapshot until that future module exists.
 
 ### 3.21 `delivery_challan_lines` - NEW
 
@@ -608,29 +608,92 @@ Keys/indexes: PK; unique `(DeliveryChallanId, LineNumber)`; unique filtered `(De
 
 Checks/guards: positive quantity; serialized quantity equals 1; outbound line has exactly one source among approved MIR line, QC rejection revision, or GRN excess line; inbound line requires a parent line and may identify a replacement GRN line; returned-to-date cannot exceed dispatched quantity. Subcontract and demo inbound returns require QC; rejected-material replacement links to a new Gate/GRN and therefore receives full GRN QC rather than a duplicate DC-return posting. Subcontract outbound requires dispatched weight; inbound requires returned weight; `CalculatedScrapWeight = DispatchedWeight - cumulative ReturnedWeight`, is nonnegative, and positive scrap requires vendor explanation. Rejected/excess return quantities cannot exceed their current `PENDING_RETURNABLE_DC` balance.
 
-### 3.22 `stores_notification_deliveries` - NEW
+### 3.22 `notification_events` - NEW, SHARED ENGINE
 
-Durable evidence and retry state for mandatory non-returnable-DC notifications.
+One generic event/outbox row. A module raises or cancels an event through the shared notification service; the delivery engine does not contain module-specific source FKs or event-type code.
 
 | Column | Definition |
 |---|---|
 | `Id` | `uuid PK` |
 | `CompanyId` | `uuid NOT NULL` |
-| `DeliveryChallanId` | `uuid NOT NULL FK delivery_challans(Id)` |
+| `EventType` | `varchar(120) NOT NULL`; extensible business key such as `STORES.QC_OVERDUE` |
+| `SourceEntityType` | `varchar(120) NOT NULL`; stable logical source type |
+| `SourceEntityId` | `uuid NOT NULL`; source identity within the named type |
+| `SourceReferenceSnapshot` | `varchar(160) NOT NULL`; user-readable GRN/DC/etc. number |
+| `RecipientRoleCodes` | `text[] NOT NULL`; role targets, never employee IDs |
+| `TitleSnapshot` | `varchar(300) NOT NULL` |
+| `BodySnapshot` | `text NOT NULL` |
+| `DeepLinkSnapshot` | `varchar(500) NOT NULL`; company-scoped application route |
+| `PayloadJson` | `jsonb NOT NULL DEFAULT '{}'`; versioned, non-secret display/context data |
+| `NotBeforeAt` | `timestamptz NOT NULL`; immediate or scheduled activation time |
+| `CancellationKey` | `varchar(200) NULL`; stable key used when the condition is resolved before activation |
+| `Status` | `varchar(24) NOT NULL`; `SCHEDULED`, `READY`, `ACTIVE`, `COMPLETED`, `CANCELLED`, or `RECIPIENT_BLOCKED` |
+| `IdempotencyKey` | `varchar(160) NOT NULL` |
+| `CreatedAt`, `CreatedBy` | Creation audit columns |
+| `ActivatedAt` | `timestamptz NULL` |
+| `CompletedAt` | `timestamptz NULL` |
+| `CancelledAt`, `CancelledBy`, `CancellationReason` | Nullable controlled cancellation audit |
+
+Keys/indexes: PK; unique `(CompanyId, IdempotencyKey)`; unique filtered `(CompanyId, CancellationKey)` while status is schedulable/active; index `(Status, NotBeforeAt, Id)` for worker claiming; index `(CompanyId, SourceEntityType, SourceEntityId, CreatedAt)`; GIN index on `RecipientRoleCodes` only if role-target reporting needs it.
+
+Checks/guards: nonblank type/source/title/body/link; at least one distinct role code; timestamp/status consistency; Company is copied from and checked against the source command context. `EventType` is data, not a database enum, so later modules can publish vendor-evaluation, calibration, task-overdue, or reorder events without an engine migration. Source identity is deliberately generic because notification evidence is not a financial integrity link; `PayloadJson` carries a schema-version property. Activation resolves every target role against active role membership in the event Company. A mandatory event becomes `RECIPIENT_BLOCKED` and raises an operational fault if any required role has no active recipient; it never substitutes a hard-coded employee ID.
+
+### 3.23 `notification_recipients` - NEW, SHARED ENGINE
+
+Resolved employee inbox rows and read state. Role resolution occurs at activation, so a scheduled event reaches the people holding the roles when it becomes due.
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `NotificationEventId` | `uuid NOT NULL FK notification_events(Id)` |
 | `RecipientEmployeeId` | `uuid NOT NULL FK employees(Id)` |
-| `RecipientRoleCode` | `varchar(100) NOT NULL`; `TECHNICAL_DIRECTOR` or `MANAGING_DIRECTOR` |
+| `ResolvedRoleCodes` | `text[] NOT NULL`; all event roles that matched this employee |
+| `ResolvedAt` | `timestamptz NOT NULL` |
+| `InAppAvailableAt` | `timestamptz NOT NULL` |
+| `ReadAt` | `timestamptz NULL` |
+| `ReadByEmployeeId` | `uuid NULL FK employees(Id)`; must equal the recipient |
+| `ReadCorrelationId` | `varchar(100) NULL` |
+
+Keys/indexes: PK; unique `(NotificationEventId, RecipientEmployeeId)`; alternate key `(CompanyId, Id)`; index `(CompanyId, RecipientEmployeeId, ReadAt, InAppAvailableAt DESC)` for unread badge/inbox; index `NotificationEventId`.
+
+Checks/guards: role list is nonempty and a subset of the event targets; Company equals the event Company and the employee has an active company-role assignment for at least one recorded role at `ResolvedAt`; read fields are all null or all populated; only the recipient may mark the row read. The header unread badge is `COUNT(*) WHERE RecipientEmployeeId = current employee AND CompanyId = current company AND ReadAt IS NULL`. Opening the inbox does not mark anything read. The user opens a notification/deep link and invokes the explicit mark-read command; bulk mark-read is permitted only for that user's currently visible company inbox.
+
+### 3.24 `notification_delivery_attempts` - NEW, APPEND-ONLY SHARED ENGINE
+
+One immutable attempt per recipient and channel. In-app availability and every email attempt are witnessed without overwriting earlier failures.
+
+| Column | Definition |
+|---|---|
+| `Id` | `uuid PK` |
+| `CompanyId` | `uuid NOT NULL` |
+| `NotificationRecipientId` | `uuid NOT NULL FK notification_recipients(Id)` |
 | `Channel` | `varchar(20) NOT NULL`; `IN_APP` or `EMAIL` |
-| `Status` | `varchar(20) NOT NULL`; `PENDING`, `SENT`, or `FAILED` |
-| `AttemptCount` | `integer NOT NULL DEFAULT 0` |
-| `QueuedAt` | `timestamptz NOT NULL` |
-| `LastAttemptAt` | `timestamptz NULL` |
-| `SentAt` | `timestamptz NULL` |
-| `LastError` | `varchar(2000) NULL` |
+| `AttemptNumber` | `integer NOT NULL` |
+| `Status` | `varchar(20) NOT NULL`; `SENT` or `FAILED` |
+| `AttemptedAt` | `timestamptz NOT NULL` |
+| `DeliveredAt` | `timestamptz NULL` |
+| `ProviderMessageId` | `varchar(300) NULL` |
+| `ErrorCode` | `varchar(100) NULL` |
+| `ErrorDetail` | `varchar(2000) NULL` |
 | `CorrelationId` | `varchar(100) NOT NULL` |
 
-Keys/indexes: PK; unique `(DeliveryChallanId, RecipientRoleCode, Channel)`; unique `CorrelationId`; index `(Status, QueuedAt)`; index `(CompanyId, RecipientEmployeeId, SentAt)`.
+Keys/indexes: PK; unique `(NotificationRecipientId, Channel, AttemptNumber)`; unique `CorrelationId`; index `(CompanyId, Channel, Status, AttemptedAt)`; index `NotificationRecipientId`.
 
-Checks/guards: role/channel/status vocabulary; attempt/timestamp consistency; recipient is the current resolved TD or MD for the DC company. Non-returnable approval atomically creates four rows: TD and MD, each for in-app and email. Delivery retry updates only delivery-state fields under controlled service authority; audit records every attempt.
+Checks/guards: positive sequential attempt number; status/timestamp/error fields agree; Company equals the recipient Company. Trigger rejects update/delete. Activation creates one successful `IN_APP` attempt and makes the inbox row visible in the same transaction; email is delivered asynchronously with append-only retries and bounded backoff. Event completion is derived when all recipients have in-app delivery and at least one successful email attempt. Read state is independent of email delivery.
+
+### 3.25 Notification scheduling contract
+
+The same enqueue/cancel/activate/deliver mechanism covers this module:
+
+| Event type | Created/scheduled by | `NotBeforeAt` | Recipient roles | Cancellation condition |
+|---|---|---|---|---|
+| `STORES.QC_OVERDUE` | GRN finalisation | Snapshotted `QcDueAt` | `QC_MANAGER` | All effective GRN-line inspections finalised before due time |
+| `STORES.RETURNABLE_DC_OVERDUE` | Returnable DC dispatch | End of mandatory expected return date in company timezone | `PURCHASE_MANAGER`, `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR` | DC fully returned/closed before due time |
+| `STORES.NON_RETURNABLE_DC_CREATED` | Non-returnable DC creation | Immediate | `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR` | Never; creation and durable enqueue are atomic |
+| `STORES.REJECTED_VENDOR_COLLECTION_OVERDUE` | Finalised QC rejection | Rejection finalisation plus seven calendar days | `PURCHASE_MANAGER`, `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR` | Rejected quantity dispatched/collected before due time |
+
+`PURCHASE_MANAGER` is the company role that currently resolves to PRIYA E; the design intentionally records the role and resolved holder rather than PRIYA's employee ID. If more than one active employee holds a target role for the company, every holder receives one deduplicated inbox row and email. A generic scheduler claims due events with `FOR UPDATE SKIP LOCKED`; idempotency and cancellation keys prevent duplicates and late sends. Future modules call the same contract with their own event type, source, schedule, role codes, title/body/link and payload. The engine requires no schema or branching change for vendor evaluation due, calibration due, task overdue, or stock below reorder.
 
 ## 4. Exact `advance.stock_movements` redesign
 
@@ -651,12 +714,13 @@ Exact changes:
 | Column/change | Definition |
 |---|---|
 | Quantity precision | Widen `QuantityIn` and `QuantityOut` to `numeric(24,6) NOT NULL DEFAULT 0`. |
-| Location nullability | Make `WarehouseId` and `RackBinId` non-null for all first-module movements. |
-| `WarehouseConditionLocationId` | Add `uuid NOT NULL FK warehouse_condition_locations(Id)`; proves warehouse, rack and condition. |
-| `ConditionCode` | Add `varchar(30) NOT NULL`; immutable snapshot of the condition mapping. |
-| `StockPostingBatchId` | Add `uuid NOT NULL FK stock_posting_batches(Id)`. |
-| `BatchLineOrdinal` | Add `integer NOT NULL`. |
-| `MovementLeg` | Add `varchar(30) NOT NULL`: `RECEIPT_IN`, `TRANSFER_OUT`, `TRANSFER_IN`, `ISSUE_OUT`, `DISPATCH_OUT`, `RETURN_IN`, or `REVERSAL`. |
+| `LedgerSchemaVersion` | Add `smallint NOT NULL DEFAULT 1`; existing rows remain version 1 and every movement created by this module is version 2. |
+| Location nullability | Existing version-1 rows retain their current nullability; version-2 trigger requires `WarehouseId` and `RackBinId`. |
+| `WarehouseConditionLocationId` | Add nullable `uuid FK warehouse_condition_locations(Id)`; mandatory for version 2, nullable only for unprovable legacy version-1 rows. |
+| `ConditionCode` | Add nullable `varchar(30)`; mandatory immutable mapping snapshot for version 2. |
+| `StockPostingBatchId` | Add nullable `uuid FK stock_posting_batches(Id)`; mandatory for version 2. |
+| `BatchLineOrdinal` | Add nullable `integer`; mandatory and positive for version 2. |
+| `MovementLeg` | Add nullable `varchar(30)`; mandatory for version 2: `RECEIPT_IN`, `TRANSFER_OUT`, `TRANSFER_IN`, `ISSUE_OUT`, `DISPATCH_OUT`, `RETURN_IN`, or `REVERSAL`. |
 | `GoodsReceiptLineId` | Add nullable typed FK to `goods_receipt_lines(Id)`. |
 | `QcInspectionRevisionId` | Add nullable typed FK to `qc_inspection_revisions(Id)`. |
 | `MaterialIssueRequestLineId` | Add nullable typed FK to `material_issue_request_lines(Id)`. |
@@ -664,13 +728,13 @@ Exact changes:
 | `OriginGoodsReceiptLineId` | Add nullable provenance FK to `goods_receipt_lines(Id)`; identifies the receipt layer consumed and is not a source-document FK. |
 | `InventorySerialId` | Add nullable FK to `inventory_serials(Id)`; null for non-serial aggregate movement. No batch/lot column is added. |
 | `ReversesStockMovementId` | Add nullable self-FK; required for reversal rows. |
-| `PostingIdentity` | Add `varchar(200) NOT NULL`, deterministic identity of source, serial/aggregate and leg. |
+| `PostingIdentity` | Add nullable `varchar(200)`, deterministic identity of source, serial/aggregate and leg; mandatory for version 2. |
 | Audit mutability | `UpdatedAt`, `UpdatedBy`, and `Version` remain physically present for compatibility but are never changed after insert. |
 
 New keys/indexes:
 
-- Unique `(StockPostingBatchId, BatchLineOrdinal)`.
-- Unique `(CompanyId, PostingIdentity)`.
+- Unique filtered `(StockPostingBatchId, BatchLineOrdinal)` where batch is non-null.
+- Unique filtered `(CompanyId, PostingIdentity)` where identity is non-null.
 - Unique filtered `ReversesStockMovementId WHERE ReversesStockMovementId IS NOT NULL`.
 - Index `(CompanyId, ItemId, WarehouseConditionLocationId, PostingDate, Id)` for ledger/balance queries.
 - Index `(CompanyId, InventorySerialId, PostingDate, Id)` where serial is non-null.
@@ -680,15 +744,17 @@ New keys/indexes:
 New checks/triggers:
 
 - Exactly one of `QuantityIn` and `QuantityOut` is greater than zero; the other is zero.
-- Current module rows have exactly one source FK: GRN custody uses `GoodsReceiptLineId`; QC disposition uses `QcInspectionRevisionId`; internal fulfilment uses `MaterialIssueRequestLineId`; and DC dispatch/return uses `DeliveryChallanLineId`. Serial and origin-receipt FKs supplement, never replace, that source.
+- Every version-2 row has exactly one source FK: GRN custody uses `GoodsReceiptLineId`; QC disposition uses `QcInspectionRevisionId`; internal fulfilment uses `MaterialIssueRequestLineId`; and DC dispatch/return uses `DeliveryChallanLineId`. Serial and origin-receipt FKs supplement, never replace, that source. Legacy version-1 rows are preserved without invented source provenance.
 - Reversal rows copy the original source FK, Item, serial, location and condition, swap quantity in/out exactly, and identify the original movement.
 - Serialized movement quantity is exactly 1. Non-serialized movement has no serial FK.
 - Every issue/DC outbound movement carries `OriginGoodsReceiptLineId`; serialized movement origin must agree with the serial's receipt provenance.
 - `ReferenceType` and `ReferenceNumber` remain readable audit/display snapshots. They are derived and verified from the typed FK; they are not the integrity link.
-- Trigger rejects every `UPDATE` and `DELETE`. Corrections insert a reversal batch and new movements.
+- Trigger rejects every `UPDATE` and `DELETE` after the one controlled migration/backfill transaction. Corrections insert a reversal batch and new movements.
 - Batch insert is rejected unless its legs reconcile: a GRN batch contains the ordered QC-hold and excess pending-return inbound legs; a QC batch has equal out/in quantities for each Item/serial; MIR/DC quantities remain within approved/source balances; a reversal exactly negates its target batch.
 
 No over-receipt override field is added to GRN lines or movements. Source-less adjustment support is deliberately not enabled in this module. The future adjustment module must add its typed override evidence and relax the exactly-one-source rule only for `ADJUSTMENT`; no free-text or source-less movement can be posted now.
+
+The migration may promote a legacy row from version 1 to version 2 only when location, condition, batch and typed source can be proven deterministically. Otherwise it remains an immutable version-1 historical row. This avoids fabricating provenance merely to satisfy new constraints while making all new module postings fully constrained.
 
 ### 4.2 Posting examples
 
@@ -744,7 +810,7 @@ One immutable `qc_inspections` identity exists per GRN line or QC-required inbou
 
 There is no stock-availability bypass. QC finalisation and ledger posting are one transaction, so no persisted “final but unposted” state exists. Structured parameters are optional: when no effective policy exists, the inspector finalises the quantity decision with zero parameter rows. Missing policy never blocks QC.
 
-The due time is `goods_receipts.QcDueAt`, calculated from the snapshotted `QC_COMPLETION_DAYS` value. At age greater than the configured two-day default, the queue shows `OVERDUE` and warns Stores; this is a derived dashboard condition, not a mutation of the immutable GRN.
+The due time is `goods_receipts.QcDueAt`, calculated from the snapshotted `QC_COMPLETION_DAYS` value. GRN finalisation schedules the shared `STORES.QC_OVERDUE` event for that instant. Completing all line inspections first cancels it; otherwise activation notifies the current-company `QC_MANAGER`. The queue also shows `OVERDUE` and warns Stores; neither the dashboard condition nor notification mutates the immutable GRN.
 
 ### 5.4 Physical/ledger condition path
 
@@ -785,7 +851,8 @@ Strict-sequence guards reject:
 Outbound DC sequence is `DRAFT -> SUBMITTED -> APPROVED -> DISPATCHED`. Approval resolution has no shortcut: it either consumes the approved MIR authority or records the separate DC approval required for rejected/non-returnable material.
 
 - Returnable dispatch immediately derives `OUTSTANDING`, remains outstanding past its mandatory expected return date, becomes `PARTIALLY_RETURNED` after a partial inbound DC, and becomes `CLOSED` only when cumulative returns/replacement links reconcile every line.
-- A non-returnable DC requires department-owner approval and atomic creation of TD/MD in-app and email notification rows before dispatch; after dispatch it becomes `CLOSED`.
+- Returnable dispatch schedules `STORES.RETURNABLE_DC_OVERDUE`; full reconciliation before the expected date cancels it. Rejected-material QC also schedules the separate seven-day vendor-collection event, cancelled only by dispatch/collection.
+- Creating a non-returnable DC atomically enqueues `STORES.NON_RETURNABLE_DC_CREATED` for TD/MD. Department-owner approval is still required before dispatch; after dispatch it becomes `CLOSED`.
 - Each inbound return document follows `DRAFT -> RECEIVED`; its posting and the parent outstanding-balance update are atomic.
 - Reversal is a new posting/document event. Dispatched quantities are never edited in place.
 
@@ -908,6 +975,21 @@ There is no update or delete endpoint for a finalised Gate Entry.
 
 Returnable closure is derived and automatic after full reconciliation; there is no endpoint that can force-close an outstanding quantity.
 
+### Shared notifications
+
+| Method and route | Purpose |
+|---|---|
+| `GET /notifications?state=unread` | Current employee/current company inbox; returns unread count, title, age, source reference and deep link. |
+| `GET /notifications/{recipientId}` | Read one resolved notification and its delivery evidence within the current company. |
+| `POST /notifications/{recipientId}/read` | Explicitly mark the current employee's inbox row read, idempotently. |
+| `POST /notifications/read-visible` | Mark only the current employee's supplied, currently visible company inbox rows read. |
+| `POST /internal/notification-events` | Authenticated internal publisher contract for any module: enqueue immediate/scheduled role-targeted event. Not exposed to ordinary users. |
+| `POST /internal/notification-events/{id}/cancel` | Authenticated idempotent cancellation when a scheduled business condition is resolved. |
+| `GET /admin/notification-events` | Authorised company-scoped operations view of scheduled, blocked, failed and completed events. |
+| `POST /admin/notification-deliveries/{recipientId}/retry-email` | Authorised retry request; creates a new immutable attempt rather than editing evidence. |
+
+The application shell displays an unread-count badge for the selected company. Selecting it opens the inbox; selecting an item follows its stored company-scoped deep link and explicitly marks that recipient row read. Company switching changes the inbox and badge. There is no cross-company notification view in this scope.
+
 ### Stock ledger and configuration
 
 | Method and route | Purpose |
@@ -944,9 +1026,18 @@ Implementation constraints, not open business questions:
 
 No unresolved contradiction blocks the final schema design.
 
-## 9. Final new-table list
+## 9. ISO 9001 gaps explicitly not satisfied by this module
 
-All 22 tables below are `ESSENTIAL` for the now-final module scope. The four previously deferred support tables are not included in this count.
+These requirements are recorded here so completing the Stores flow is not mistaken for completing the ISO 9001 control set:
+
+1. **Vendor performance and re-evaluation:** not satisfied. It requires months of on-time-delivery, rejection and price-variance history from GRN/QC before meaningful evaluation and re-evaluation can be implemented.
+2. **Calibration register:** not satisfied. Equipment identity, calibration intervals, certificates, due/overdue state and calibration history belong with the future QC/calibration module. The shared notification engine can later deliver `CALIBRATION_DUE` events without being redesigned.
+3. **Shelf-life and batch tracking:** not satisfied. Batch/lot capture was explicitly deferred by decision Q7; therefore expiry control, FEFO and batch traceability are absent.
+4. **Document control for QC sheets and vendor certificates:** not satisfied. This module does not yet provide governed file attachment, version, approval, retention or retrieval evidence for those documents. `IsoReceiptVerificationJson` is metadata, not a substitute for controlled files.
+
+## 10. Final new-table list
+
+All 24 tables below are `ESSENTIAL` for the now-final module scope. The four previously deferred support tables are not included in this count.
 
 | # | New table | What it holds and why it is needed | Marking |
 |---:|---|---|---|
@@ -971,11 +1062,13 @@ All 22 tables below are `ESSENTIAL` for the now-final module scope. The four pre
 | 19 | `stores_approval_history` | Immutable MIR and DC approval decisions against snapshotted routes. | `ESSENTIAL` |
 | 20 | `delivery_challans` | Outbound and inbound-return DC headers, expected dates, destination and outstanding lifecycle. | `ESSENTIAL` |
 | 21 | `delivery_challan_lines` | Typed material sources, serials, quantities, return reconciliation and subcontract weight/scrap evidence. | `ESSENTIAL` |
-| 22 | `stores_notification_deliveries` | Durable TD/MD in-app/email enqueue, delivery and retry evidence. | `ESSENTIAL` |
+| 22 | `notification_events` | Generic immediate/scheduled/cancellable role-targeted event and outbox source for every module. | `ESSENTIAL` |
+| 23 | `notification_recipients` | Company-role-resolved employee inbox rows and explicit unread/read evidence. | `ESSENTIAL` |
+| 24 | `notification_delivery_attempts` | Append-only in-app/email delivery and retry evidence. | `ESSENTIAL` |
 
 Existing tables modified/reused but not counted as new include `stock_movements`, `purchase_number_sequences`, `warehouse_condition_locations`, `qc_inspection_policies`, `controlled_configuration_histories` and the existing masters/Purchase tables.
 
-## 10. End-to-end user capability
+## 11. End-to-end user capability
 
 When this module ships, a user will be able to:
 
@@ -985,7 +1078,8 @@ When this module ships, a user will be able to:
 - create a one-destination multi-Item Material Issue Request, obtain Production Manager/department-owner approval, and issue only approved available stock to the referenced Job Order/destination;
 - create and dispatch returnable DCs for rejection, subcontract and demo, receive partial/full returns, track mandatory expected dates, record subcontract dispatched/returned weight and vendor-explained scrap, route required returns through QC, and close only after reconciliation;
 - create non-returnable warranty, bill-based and customer-PO-based DCs after department-owner approval, with mandatory TD/MD in-app and email notification evidence;
-- trace every receipt, QC decision, issue, DC dispatch/return, serial and reversal through the append-only ledger; and
+- trace every receipt, QC decision, issue, DC dispatch/return, serial and reversal through the append-only ledger;
+- see a current-company unread notification badge/inbox, open source-linked notifications, mark them read, and receive the same events by email; and
 - view effective component warranty after installation without altering the original GRN.
 
 The user still cannot:
@@ -996,6 +1090,6 @@ The user still cannot:
 - create installation reports or maintain the full installed-machine register;
 - generate vendor-performance/KPI reports or e-way-bill payloads;
 - control barcode-printer hardware;
-- use batch/lot tracking or source-less stock adjustments.
+- use batch/lot or shelf-life tracking, source-less stock adjustments, the calibration register, controlled QC/vendor-certificate attachments, or vendor re-evaluation.
 
 RESULT_REPORTED_PENDING_WITNESS
