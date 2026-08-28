@@ -202,6 +202,7 @@ public sealed partial class NexaErpDbContext
 
         modelBuilder.Entity<Role>().HasData(Rev869ASeedData.Roles);
         modelBuilder.Entity<PageDefinition>().HasData(Rev869ASeedData.Pages);
+        modelBuilder.Entity<PageDefinition>().HasData(ItemReferenceMasterSeedData.Pages);
         modelBuilder.Entity<OrganizationPolicy>().HasData(Rev869ASeedData.OrganizationPolicies);
     }
 }

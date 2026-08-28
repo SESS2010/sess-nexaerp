@@ -255,10 +255,11 @@ public sealed class AdvanceBaselineSeedConstraintTests
         Assert.Equal(Rev869ARoleCodes.DepartmentManager, AdvanceSeedData.DepartmentManagerRole.Code);
         var permissions = AdvanceSeedData.RolePagePermissions
             .Where(row => row.RoleId == AdvanceSeedData.DepartmentManagerRole.Id).ToArray();
-        Assert.Equal(11, permissions.Length);
+        Assert.Equal(14, permissions.Length);
         Assert.Equal(8, permissions.Count(row => row.CreatedBy == "migration-rev869a"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-rev869b"));
-        Assert.Equal(1090, AdvanceSeedData.RolePagePermissions.Count);
+        Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-item-reference-masters"));
+        Assert.Equal(1219, AdvanceSeedData.RolePagePermissions.Count);
     }
 
     private static NexaErpDbContext CreateContext()

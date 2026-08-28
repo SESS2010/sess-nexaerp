@@ -1,4 +1,6 @@
 using System.Linq.Expressions;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
@@ -118,15 +120,50 @@ public static partial class MasterEndpointHelpers
         return Results.Ok(rows);
     }
 
-    public static async Task<IResult> GetAuditHistoryAsync(NexaErpDbContext db, string entityName, string entityId, CancellationToken cancellationToken)
+    public static async Task<IResult> GetAuditHistoryAsync(NexaErpDbContext db, string entityName, string entityId, CancellationToken cancellationToken, bool redactVendorBankMetadata = false)
     {
         var rows = await db.AuditLogs.AsNoTracking()
             .Where(row => row.EntityName == entityName && row.EntityId == entityId)
             .OrderByDescending(row => row.CreatedAt)
             .Take(200)
-            .Select(row => new { row.Id, row.Module, row.Action, row.UserLoginId, row.Result, row.CorrelationId, row.BeforeJson, row.AfterJson, row.CreatedAt })
+            .Select(row => new MasterAuditHistorySummary(row.Id, row.Module, row.Action, row.UserLoginId, row.Result, row.CorrelationId, row.BeforeJson, row.AfterJson, row.CreatedAt))
             .ToListAsync(cancellationToken);
+        if (redactVendorBankMetadata)
+        {
+            rows = rows.Select(row => row with { BeforeJson = RedactVendorBankMetadata(row.BeforeJson), AfterJson = RedactVendorBankMetadata(row.AfterJson) }).ToList();
+        }
         return Results.Ok(rows);
+    }
+
+    public static string? RedactVendorBankMetadata(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return json;
+        try
+        {
+            var node = JsonNode.Parse(json);
+            RedactVendorBankMetadata(node);
+            return node?.ToJsonString(new JsonSerializerOptions { PropertyNamingPolicy = null });
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void RedactVendorBankMetadata(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            foreach (var property in obj.ToList())
+            {
+                if (property.Key.Equals("BankMetadata", StringComparison.OrdinalIgnoreCase) || property.Key.Equals("BankMetadataJson", StringComparison.OrdinalIgnoreCase)) obj[property.Key] = null;
+                else RedactVendorBankMetadata(property.Value);
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (var child in array) RedactVendorBankMetadata(child);
+        }
     }
 
     public static async Task<IResult> ChangeLifecycleAsync<T>(NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, T entity, string masterType, string code, string action, string nextStatus, string nextApprovalStatus, string remarks, uint version, Action<T, string, string> setStatus, Func<T, string> getStatus, Func<T, string> getApproval, Action<T, string> setApproval, CancellationToken cancellationToken)

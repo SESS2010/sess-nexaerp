@@ -22,33 +22,33 @@ public static class InventoryEndpoints
             var q = db.Items.AsNoTracking().AsQueryable();
             if (!string.IsNullOrWhiteSpace(search)) { var s = search.Trim().ToUpperInvariant(); q = q.Where(x => x.ItemCode.ToUpper().Contains(s) || x.Name.ToUpper().Contains(s) || (x.PartNumber != null && x.PartNumber.ToUpper().Contains(s)) || (x.Barcode != null && x.Barcode.ToUpper().Contains(s))); }
             if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim());
-            if (!string.IsNullOrWhiteSpace(category)) q = q.Where(x => x.MaterialType == category.Trim());
+            if (!string.IsNullOrWhiteSpace(category)) { var categoryCode = MasterEndpointHelpers.NormalizeCode(category); q = q.Where(x => (x.Category != null && x.Category.Code == categoryCode) || x.MaterialType == category.Trim()); }
             var total = await q.CountAsync(ct);
             q = Sort(q, sortBy, sortDirection, x => x.ItemCode, x => x.Name, x => x.Status);
-            var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new ItemSummary(x.Id, x.ItemCode, x.Name, x.Uom, x.MaterialType, x.ItemType, x.IsReturnable, x.ManufacturerMake, x.Model, x.PartNumber, x.MinimumStock, x.MaximumStock, x.ReorderLevel, x.Status, x.ApprovalStatus, x.IsActive, x.Version)).ToListAsync(ct);
+            var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new ItemSummary(x.Id, x.ItemCode, x.Name, x.CategoryId, x.Category != null ? x.Category.Code : null, x.Category != null ? x.Category.Name : null, x.SubcategoryId, x.Subcategory != null ? x.Subcategory.Code : null, x.Subcategory != null ? x.Subcategory.Name : null, x.Uom, x.MaterialType, x.ItemType, x.IsReturnable, x.ManufacturerMake, x.Model, x.PartNumber, x.MinimumStock, x.MaximumStock, x.ReorderLevel, x.Status, x.ApprovalStatus, x.IsActive, x.Version)).ToListAsync(ct);
             return Results.Ok(new PagedResponse<ItemSummary>(total, p.PageNumber, p.PageSize, rows));
         }).RequirePagePermission("masters.items", PagePermissionActions.View);
 
         group.MapGet("/items/{code}", async (string code, NexaErpDbContext db, CancellationToken ct) =>
         {
-            var item = await db.Items.AsNoTracking().Include(x => x.PreferredVendor).SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct);
+            var item = await db.Items.AsNoTracking().Include(x => x.Category).Include(x => x.Subcategory).Include(x => x.PreferredVendor).SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct);
             return item is null ? Results.NotFound(new { message = "Item not found." }) : Results.Ok(ToDetail(item));
         }).RequirePagePermission("masters.items", PagePermissionActions.View);
 
         group.MapPost("/items", async (UpsertItemRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
         {
             var validation = await ValidateItem(r, db, null, ct); if (validation is not null) return validation;
-            var item = new Item(); Apply(item, r, user.LoginId, true); var baseUom = await db.Uoms.SingleAsync(x => x.Code == item.Uom && x.IsActive, ct); item.UomId = baseUom.Id; item.BaseUomId = baseUom.Id; db.Items.Add(item); AddInitialStatus(db, nameof(Item), item.Id, item.ItemCode, item.Status, user.LoginId);
+            var item = new Item(); Apply(item, r, user.LoginId, true); await ApplyItemRelationships(item, r, db, ct); db.Items.Add(item); AddInitialStatus(db, nameof(Item), item.Id, item.ItemCode, item.Status, user.LoginId);
             await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateDraft", nameof(Item), item.Id.ToString(), null, item, ct);
             return Results.Created($"/api/v1/inventory/items/{item.ItemCode}", ToDetail(item));
         }).RequirePagePermission("masters.items", PagePermissionActions.Create);
 
         group.MapPut("/items/{code}", async (string code, UpsertItemRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
         {
-            var item = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (item is null) return Results.NotFound(new { message = "Item not found." });
+            var item = await db.Items.Include(x => x.Category).Include(x => x.Subcategory).Include(x => x.PreferredVendor).SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (item is null) return Results.NotFound(new { message = "Item not found." });
             if (item.IsItemCodeLocked && MasterEndpointHelpers.NormalizeCode(r.ItemCode) != item.ItemCode) return Results.BadRequest(new { message = "Item code is immutable after approval." });
             if (r.Version is null || r.Version.Value != item.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-            var validation = await ValidateItem(r, db, item.Id, ct); if (validation is not null) return validation; var before = ToDetail(item); Apply(item, r, user.LoginId, false); var baseUom = await db.Uoms.SingleAsync(x => x.Code == item.Uom && x.IsActive, ct); item.UomId = baseUom.Id; item.BaseUomId = baseUom.Id;
+            var validation = await ValidateItem(r, db, item.Id, ct); if (validation is not null) return validation; var before = ToDetail(item); Apply(item, r, user.LoginId, false); await ApplyItemRelationships(item, r, db, ct);
             await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "UpdateDraft", nameof(Item), item.Id.ToString(), before, item, ct); return Results.Ok(ToDetail(item));
         }).RequirePagePermission("masters.items", PagePermissionActions.Update);
 
@@ -189,11 +189,35 @@ public static class InventoryEndpoints
         if (r.MaximumStock < r.MinimumStock) return Results.BadRequest(new { message = "Maximum stock must not be below minimum stock." });
         if (r.ReorderLevel < 0 || r.ReorderLevel > r.MaximumStock) return Results.BadRequest(new { message = "Reorder level must be within valid range." });
         if (r.GstPercentage < 0 || r.GstPercentage > 100) return Results.BadRequest(new { message = "Legacy GST display percentage must be a valid percentage; effective tax is configuration-resolved." });
+        if (r.CategoryId == Guid.Empty || !await db.ItemCategories.AnyAsync(x => x.Id == r.CategoryId && x.IsActive, ct)) return Results.BadRequest(new { message = "An active item category is required." });
+        if (r.SubcategoryId.HasValue && !await db.ItemSubcategories.AnyAsync(x => x.Id == r.SubcategoryId.Value && x.CategoryId == r.CategoryId && x.IsActive, ct)) return Results.BadRequest(new { message = "Item subcategory must be active and belong to the selected category." });
         var uomCode = MasterEndpointHelpers.NormalizeCode(r.Uom);
         if (!await db.Uoms.AnyAsync(x => x.Code == uomCode && x.IsActive && x.QuantityPrecision == 6 && x.MeasurementDimension != string.Empty, ct)) return Results.BadRequest(new { message = "Active canonical Base UOM with measurement dimension and six-decimal precision is required." });
         var make = MasterEndpointHelpers.NormalizeOptional(r.ManufacturerMake); var model = MasterEndpointHelpers.NormalizeOptional(r.Model); var part = MasterEndpointHelpers.NormalizeOptional(r.PartNumber);
         if (await db.Items.AnyAsync(x => x.Id != id && (x.ItemCode == code || (barcode != null && x.Barcode == barcode) || (x.Name == r.Name.Trim() && x.ManufacturerMake == make && x.Model == model && x.PartNumber == part)), ct)) return Results.Conflict(new { message = "Duplicate item identity blocked." });
+        if (!string.IsNullOrWhiteSpace(r.PreferredVendorCode))
+        {
+            var vendorCode = MasterEndpointHelpers.NormalizeCode(r.PreferredVendorCode);
+            if (!await db.Vendors.AnyAsync(x => x.VendorCode == vendorCode && x.IsActive && x.VendorStatus == MasterStatuses.Active, ct)) return Results.BadRequest(new { message = "Preferred vendor must identify one active vendor." });
+        }
         return null;
+    }
+
+    private static async Task ApplyItemRelationships(Item item, UpsertItemRequest request, NexaErpDbContext db, CancellationToken ct)
+    {
+        var baseUom = await db.Uoms.SingleAsync(x => x.Code == item.Uom && x.IsActive, ct);
+        var category = await db.ItemCategories.SingleAsync(x => x.Id == request.CategoryId && x.IsActive, ct);
+        var subcategory = request.SubcategoryId.HasValue
+            ? await db.ItemSubcategories.SingleAsync(x => x.Id == request.SubcategoryId.Value && x.CategoryId == request.CategoryId && x.IsActive, ct)
+            : null;
+        var preferredVendor = !string.IsNullOrWhiteSpace(request.PreferredVendorCode)
+            ? await db.Vendors.SingleAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(request.PreferredVendorCode) && x.IsActive && x.VendorStatus == MasterStatuses.Active, ct)
+            : null;
+
+        item.UomId = baseUom.Id; item.UomMaster = baseUom; item.BaseUomId = baseUom.Id; item.BaseUom = baseUom;
+        item.CategoryId = category.Id; item.Category = category;
+        item.SubcategoryId = subcategory?.Id; item.Subcategory = subcategory;
+        item.PreferredVendorId = preferredVendor?.Id; item.PreferredVendor = preferredVendor;
     }
 
     private static async Task<IResult?> ValidateWarehouse(UpsertWarehouseRequest r, NexaErpDbContext db, Guid? id, CancellationToken ct)
@@ -213,7 +237,7 @@ public static class InventoryEndpoints
 
     private static void AddInitialStatus(NexaErpDbContext db, string type, Guid id, string code, string status, string user) => db.MasterStatusHistories.Add(new MasterStatusHistory { MasterType = type, MasterId = id, MasterCode = code, PreviousStatus = null, NewStatus = status, Reason = "REV867 draft created", SourceRevision = "REV867", CorrelationId = $"REV867_{type.ToUpperInvariant()}_CREATE_{Guid.NewGuid():N}", CreatedBy = user });
     private static IQueryable<T> Sort<T>(IQueryable<T> q, string? sortBy, string? dir, System.Linq.Expressions.Expression<Func<T, string>> code, System.Linq.Expressions.Expression<Func<T, string>> name, System.Linq.Expressions.Expression<Func<T, string>> status) => (sortBy?.Trim().ToLowerInvariant(), dir?.Trim().ToLowerInvariant()) switch { ("name", "desc") => q.OrderByDescending(name), ("name", _) => q.OrderBy(name), ("status", "desc") => q.OrderByDescending(status), ("status", _) => q.OrderBy(status), ("code", "desc") => q.OrderByDescending(code), _ => q.OrderBy(code) };
-    private static ItemDetail ToDetail(Item x) => new(x.Id, x.ItemCode, x.Name, x.DetailedDescription, x.MaterialType, x.ItemType, x.IsReturnable, x.Uom, x.ManufacturerMake, x.Model, x.PartNumber, x.HsnSacCode, x.GstPercentage, x.TechnicalSpecification, x.DrawingDocumentReference, x.QcRequired, x.SerialNumberTracking, x.BatchTracking, x.ShelfLifeTracking, x.MinimumStock, x.MaximumStock, x.ReorderLevel, x.PreferredVendor?.VendorCode, x.StandardEstimatedPrice, x.Barcode, x.BarcodeSymbology, x.ImageStorageKey, x.ImageFileName, x.ImageContentType, x.Status, x.ApprovalStatus, x.IsActive, x.Version);
+    private static ItemDetail ToDetail(Item x) => new(x.Id, x.ItemCode, x.Name, x.DetailedDescription, x.CategoryId, x.Category?.Code, x.Category?.Name, x.SubcategoryId, x.Subcategory?.Code, x.Subcategory?.Name, x.MaterialType, x.ItemType, x.IsReturnable, x.Uom, x.ManufacturerMake, x.Model, x.PartNumber, x.HsnSacCode, x.GstPercentage, x.TechnicalSpecification, x.DrawingDocumentReference, x.QcRequired, x.SerialNumberTracking, x.BatchTracking, x.ShelfLifeTracking, x.MinimumStock, x.MaximumStock, x.ReorderLevel, x.PreferredVendor?.VendorCode, x.StandardEstimatedPrice, x.Barcode, x.BarcodeSymbology, x.ImageStorageKey, x.ImageFileName, x.ImageContentType, x.Status, x.ApprovalStatus, x.IsActive, x.Version);
     private static WarehouseDetail ToDetail(Warehouse x) => new(x.Id, x.WarehouseCode, x.Name, x.WarehouseType, x.Location, x.ResponsibleEmployee?.EmployeeCode, x.Department?.Name, x.DefaultReceivingLocationId, x.DefaultAcceptedLocationId, x.DefaultQcHoldLocationId, x.DefaultRejectedLocationId, x.DefaultRepairableLocationId, x.DefaultScrapLocationId, x.Status, x.ApprovalStatus, x.IsActive, x.Version);
     private static RackBinDetail ToDetail(RackBin x) => new(x.Id, x.WarehouseId, x.Warehouse?.WarehouseCode ?? string.Empty, x.BinCode, x.RackName, x.BinNameNumber, x.Zone, x.LocationType, x.MaterialCondition, x.CapacityQuantity, x.CapacityUom, x.Barcode, x.Description, x.Status, x.ApprovalStatus, x.IsActive, x.Version);
 }

@@ -391,7 +391,7 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         DO $assert$
         BEGIN
           IF (SELECT count(*) FROM advance.roles)<>45 THEN RAISE EXCEPTION 'Expected 45 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.role_page_permissions)<>1090 THEN RAISE EXCEPTION 'Expected 1090 permissions.'; END IF;
+          IF (SELECT count(*) FROM advance.role_page_permissions)<>1219 THEN RAISE EXCEPTION 'Expected 1219 permissions.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments)<>99 THEN RAISE EXCEPTION 'Expected 99 role assignments.'; END IF;
