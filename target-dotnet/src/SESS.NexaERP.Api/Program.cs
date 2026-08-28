@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Api.Middleware;
 using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Api.Serialization;
 using SESS.NexaERP.Application;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Domain;
@@ -13,6 +14,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
 builder.Services.AddScoped<ICurrentUser, ClaimsCurrentUser>();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
@@ -37,6 +39,7 @@ await using (var startupScope = app.Services.CreateAsyncScope())
         .ValidateAsync();
 }
 
+app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<EmployeeIdentityResolutionMiddleware>();

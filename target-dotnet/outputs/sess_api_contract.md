@@ -28,7 +28,7 @@ Company selection persists for the login session. To change company, the client 
 
 JSON property names are **PascalCase and match the C# and database column names exactly**. There is no frontend/backend field-mapping layer. Use `CompanyId`, `RequiredByDate`, and `Version`; do not use `companyId`, `required_by_date`, or aliases. Query-string parameter names shown in paths remain camelCase because they are parameter names, not JSON fields.
 
-Implementation alignment required before frontend integration: the current general ASP.NET JSON defaults serialize ordinary DTOs as camelCase, and some legacy failures return `{ "message": "..." }` or an empty body. Those are implementation variances, not this contract. The backend must configure PascalCase and the standard error envelope below before a strict client is connected. Mock data and new Stores APIs must follow this document now.
+The backend globally emits and accepts PascalCase for ordinary HTTP JSON and normalizes every HTTP failure through the standard error envelope in section 3.1. This includes legacy endpoints whose internal result originally supplied `{ "message": "..." }` or an empty body. Mock data and new Stores APIs must follow this document.
 
 ### 1.4 Dates, numbers, nulls and identifiers
 
@@ -84,7 +84,7 @@ Errors: `401 AUTHENTICATION_REQUIRED` when the token is absent/invalid or no act
 
 ### 3.1 Error envelope
 
-Every non-2xx JSON response uses exactly these properties. `Errors` is `{}` unless field validation details exist.
+Every HTTP failure response uses JSON with exactly these properties. `Errors` is `{}` unless field validation details exist.
 
 Validation, `400`:
 
@@ -161,7 +161,7 @@ Concurrency, `409`:
 }
 ```
 
-An idempotency key reused with a different request returns the same shape with `Code: "IDEMPOTENCY_CONFLICT"`. An illegal lifecycle transition returns `409 BUSINESS_RULE_CONFLICT`. An unexpected failure returns `500 INTERNAL_ERROR`; internal exception text and stack traces are never exposed.
+An idempotency key reused with a different request returns the same shape with `Code: "IDEMPOTENCY_CONFLICT"`. An illegal lifecycle transition returns `409 BUSINESS_RULE_CONFLICT`. An unexpected server or dependency failure returns `INTERNAL_ERROR`; internal exception text and stack traces are never exposed. A framework failure without a more specific contract mapping, such as `405 Method Not Allowed`, returns `Type: "https://api.sess.example/problems/request-error"`, `Title: "Request failed"`, and `Code: "REQUEST_FAILED"` with its actual HTTP status.
 
 ### 3.2 Pagination, sorting and filtering
 
@@ -236,9 +236,9 @@ Unless a row states otherwise, all authenticated endpoints can also return `401`
 
 | Method and path | Request | Success response | Required page permission | Endpoint-specific errors |
 |---|---|---|---|---|
-| `GET /health/live` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if unhealthy |
-| `GET /health/ready` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if not ready |
-| `GET /health/db` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if DB check fails |
+| `GET /health/live` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if unhealthy |
+| `GET /health/ready` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if not ready |
+| `GET /health/db` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if DB check fails |
 | `GET /api/v1/system/architecture` | none | `{ "App":"SESS NexaERP", "Architecture":"ASP.NET Core modular monolith target", "Status":"Phase 1 permanent auth foundation", "SourceSystem":"REV861 Node.js/single HTML current ERP snapshot", "Database":"PostgreSQL authoritative target", "Note":"Master APIs require authenticated JWT/OIDC claims. No temporary header identity is used." }` | public | `500` |
 | `GET /api/v1/system/modules` | none | `{ "Modules":["IdentityAndAccess","CustomerPortal","VendorPortal","EmployeeAdmin","Sales","Project","Design","Purchase","StoresInventory","Qc","Production","Dispatch","Finance","Service","DocumentManagement","Notification","AuditReporting"] }` | public | `500` |
 | `GET /api/v1/purchase-stores/workflow-stages` | none | `{ "Stages":["MaterialRequirement","CurrentStockCheck","ProjectReservation","Rfq","VendorQuotation","VendorComparison","PurchaseApproval","PurchaseOrder","MaterialFollowUp","GateEntry","Grn","QcVerification","InventoryUpdate","MaterialIssue","MaterialReturn","StockLedger","ProjectConsumption","AccountsHandover","VendorPerformance"] }` | public | `500` |
@@ -1064,10 +1064,8 @@ There is intentionally no public POST, PUT, PATCH, or DELETE route for `stock_mo
 
 ## 15. Known backend alignment work
 
-This document is the intended stable contract. Before declaring frontend/backend integration complete, the backend must:
+This document is the intended stable contract. Global PascalCase HTTP serialization and section 3.1 error normalization are implemented. Before declaring frontend/backend integration complete, the backend must:
 
-- configure the HTTP serializer to emit and accept PascalCase consistently;
-- replace legacy anonymous `{ "message":"..." }`, empty `401/403/404`, and lower-case problem responses with section 3.1;
 - return explicit response DTOs for REV869B reads instead of serializing persistence entities and navigation properties;
 - normalize the three legacy pagination exceptions identified in 3.2, or retain them as explicitly versioned exceptions;
 - add `Version` concurrency to employee mutations or keep the documented exception visible;

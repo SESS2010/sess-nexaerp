@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -10,6 +11,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Api.Middleware;
+using SESS.NexaERP.Api.Serialization;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
@@ -27,6 +30,7 @@ public sealed class AuthorizationIntegrationTests
         var response = await client.GetAsync("/employee-list");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        await AssertEnvelopeAsync(response, "AUTHENTICATION_REQUIRED");
     }
 
     [Fact]
@@ -41,6 +45,7 @@ public sealed class AuthorizationIntegrationTests
         var response = await client.GetAsync("/employee-list");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertEnvelopeAsync(response, "PERMISSION_DENIED");
         var denial = Assert.Single(audit.Entries);
         Assert.Equal("Security", denial.Module);
         Assert.Equal("Denied", denial.Action);
@@ -148,6 +153,7 @@ public sealed class AuthorizationIntegrationTests
             });
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Services.AddRouting();
+            builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
             builder.Services.AddAuthentication(TestOnlyAuthenticationHandler.SchemeName)
                 .AddScheme<AuthenticationSchemeOptions, TestOnlyAuthenticationHandler>(TestOnlyAuthenticationHandler.SchemeName, _ => { });
             builder.Services.AddAuthorization();
@@ -158,6 +164,8 @@ public sealed class AuthorizationIntegrationTests
             builder.Services.AddSingleton<IRecordScopeAuthorizer, AllowingRecordScopeAuthorizer>();
 
             var app = builder.Build();
+            app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
+            app.UseMiddleware<ExceptionHandlingMiddleware>();
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapGet("/employee-list", () => Results.Ok(new { ok = true }))
@@ -202,6 +210,15 @@ public sealed class AuthorizationIntegrationTests
             listener.Stop();
             return port;
         }
+    }
+
+    private static async Task AssertEnvelopeAsync(HttpResponseMessage response, string expectedCode)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(expectedCode, document.RootElement.GetProperty("Code").GetString());
+        Assert.Equal((int)response.StatusCode, document.RootElement.GetProperty("Status").GetInt32());
+        Assert.Equal(JsonValueKind.Object, document.RootElement.GetProperty("Errors").ValueKind);
+        Assert.False(document.RootElement.TryGetProperty("message", out _));
     }
 
     private sealed class TestCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
