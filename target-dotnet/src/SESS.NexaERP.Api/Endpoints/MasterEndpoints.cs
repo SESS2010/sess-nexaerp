@@ -17,6 +17,7 @@ public static partial class MasterEndpoints
 
         MapCustomerEndpoints(group);
         MapVendorEndpoints(group);
+        MapVendorAttachmentEndpoints(group);
         return endpoints;
     }
 
@@ -149,6 +150,8 @@ public static partial class MasterEndpoints
         {
             var validation = await ValidateVendorAsync(request, db, null, cancellationToken);
             if (validation is not null) return validation;
+            var gstCertificateError = await ValidateVendorGstCertificateAsync(request.AttachmentMetadataJson, db, cancellationToken);
+            if (gstCertificateError is not null) return Results.BadRequest(new { message = gstCertificateError });
             var vendor = new Vendor { VendorCode = MasterEndpointHelpers.NormalizeCode(request.VendorCode), IsVendorCodeLocked = false };
             ApplyVendor(vendor, request, currentUser.LoginId, true);
             db.Vendors.Add(vendor);

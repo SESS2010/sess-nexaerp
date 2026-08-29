@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { createVendor, updateVendor } from '../../api/vendors'
+import {
+  createVendor, getNextVendorCode, parseAttachmentMetadata, updateVendor, uploadVendorAttachment,
+} from '../../api/vendors'
+import type { VendorAttachmentMetadata } from '../../api/vendors'
 import type { UpsertVendorRequest, VendorDetail } from '../../types/vendor'
 
 interface Props {
@@ -38,6 +41,22 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [existingAttachments] = useState<VendorAttachmentMetadata>(
+    () => parseAttachmentMetadata(existing?.AttachmentMetadataJson ?? null),
+  )
+  const [gstFile, setGstFile] = useState<File | null>(null)
+  const [bankLeafFile, setBankLeafFile] = useState<File | null>(null)
+
+  // New vendors get the next VEN-### code from the server; the field is
+  // read-only so the series stays continuous.
+  useEffect(() => {
+    if (mode === 'create') {
+      getNextVendorCode()
+        .then((next) => setForm((prev) => ({ ...prev, vendorCode: next.VendorCode })))
+        .catch(() => setError('Could not fetch the next vendor code. Reload and try again.'))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }))
@@ -48,6 +67,23 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
     setError('')
     const optional = (value: string) => (value.trim() ? value.trim() : null)
     try {
+      // Upload any newly selected files first, then reference them from the
+      // vendor's attachment metadata. GST certificate is mandatory on create.
+      const attachments: VendorAttachmentMetadata = { ...existingAttachments }
+      if (gstFile) {
+        const uploaded = await uploadVendorAttachment('GST_CERTIFICATE', gstFile)
+        attachments.gstCertificate = { id: uploaded.Id, fileName: uploaded.FileName }
+      }
+      if (bankLeafFile) {
+        const uploaded = await uploadVendorAttachment('BANK_LEAF', bankLeafFile)
+        attachments.bankLeaf = { id: uploaded.Id, fileName: uploaded.FileName }
+      }
+      if (!attachments.gstCertificate) {
+        setError('GST certificate attachment is required.')
+        setSaving(false)
+        return
+      }
+
       const body: UpsertVendorRequest = {
         VendorCode: form.vendorCode,
         LegalVendorName: form.legalVendorName,
@@ -71,7 +107,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         DeliveryTerms: optional(form.deliveryTerms),
         CreditPeriodDays: form.creditPeriodDays.trim() ? Number(form.creditPeriodDays) : null,
         BankMetadataJson: null,
-        AttachmentMetadataJson: existing?.AttachmentMetadataJson ?? null,
+        AttachmentMetadataJson: JSON.stringify(attachments),
         Version: mode === 'edit' ? existing!.Version : null,
       }
       if (mode === 'create') {
@@ -97,14 +133,14 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         </div>
         <form onSubmit={submit} className="form-grid">
           <label className="field">
-            <span className="field-label">Vendor code *</span>
+            <span className="field-label">Vendor code (auto-generated)</span>
             <input
               className="input"
               required
               value={form.vendorCode}
-              onChange={set('vendorCode')}
-              placeholder="VEND-XXX"
-              disabled={mode === 'edit'}
+              readOnly
+              disabled
+              placeholder="VEN-…"
             />
           </label>
           <label className="field">
@@ -195,6 +231,30 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
           <label className="field">
             <span className="field-label">Credit period (days)</span>
             <input className="input" type="number" min="0" value={form.creditPeriodDays} onChange={set('creditPeriodDays')} />
+          </label>
+          <label className="field">
+            <span className="field-label">GST certificate * (PDF/JPG/PNG, max 5 MB)</span>
+            <input
+              className="input"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={(event) => setGstFile(event.target.files?.[0] ?? null)}
+            />
+            {!gstFile && existingAttachments.gstCertificate && (
+              <span className="field-hint">Current: {existingAttachments.gstCertificate.fileName}</span>
+            )}
+          </label>
+          <label className="field">
+            <span className="field-label">Bank cheque leaf (PDF/JPG/PNG, max 5 MB)</span>
+            <input
+              className="input"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={(event) => setBankLeafFile(event.target.files?.[0] ?? null)}
+            />
+            {!bankLeafFile && existingAttachments.bankLeaf && (
+              <span className="field-hint">Current: {existingAttachments.bankLeaf.fileName}</span>
+            )}
           </label>
           {error && <div className="alert alert-error field-wide">{error}</div>}
           <div className="modal-actions field-wide">

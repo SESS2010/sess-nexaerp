@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, getStoredToken } from './client'
 import type { PagedResponse } from './client'
 import type { UpsertVendorRequest, VendorDetail, VendorSummary } from '../types/vendor'
 
@@ -51,4 +51,67 @@ export function runVendorAction(vendorCode: string, action: VendorAction, remark
     Remarks: remarks,
     Version: version,
   })
+}
+
+export type VendorAttachmentKind = 'BANK_LEAF' | 'GST_CERTIFICATE'
+
+export interface VendorAttachmentInfo {
+  Id: string
+  Kind: VendorAttachmentKind
+  FileName: string
+  ContentType: string
+  SizeBytes: number
+}
+
+export function getNextVendorCode(): Promise<{ VendorCode: string }> {
+  return api.get<{ VendorCode: string }>(`${BASE}/next-code`)
+}
+
+export async function uploadVendorAttachment(kind: VendorAttachmentKind, file: File): Promise<VendorAttachmentInfo> {
+  const body = new FormData()
+  body.set('kind', kind)
+  body.set('file', file)
+  const headers: Record<string, string> = {}
+  const token = getStoredToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(`${BASE}/attachments`, { method: 'POST', body, headers })
+  if (!response.ok) {
+    let message = `Upload failed (${response.status})`
+    try {
+      const errorBody = await response.json()
+      message = errorBody.Detail || errorBody.message || message
+    } catch { /* keep default */ }
+    throw new Error(message)
+  }
+  return (await response.json()) as VendorAttachmentInfo
+}
+
+export async function downloadVendorAttachment(attachmentId: string, fileName: string): Promise<void> {
+  const headers: Record<string, string> = {}
+  const token = getStoredToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetch(`${BASE}/attachments/${attachmentId}`, { headers })
+  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+// Shape stored in the vendor's AttachmentMetadataJson column.
+export interface VendorAttachmentMetadata {
+  gstCertificate?: { id: string; fileName: string }
+  bankLeaf?: { id: string; fileName: string }
+}
+
+export function parseAttachmentMetadata(json: string | null): VendorAttachmentMetadata {
+  if (!json) return {}
+  try {
+    return JSON.parse(json) as VendorAttachmentMetadata
+  } catch {
+    return {}
+  }
 }

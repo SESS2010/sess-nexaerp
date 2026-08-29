@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { getVendor, runVendorAction } from '../../api/vendors'
+import { downloadVendorAttachment, getVendor, parseAttachmentMetadata, runVendorAction } from '../../api/vendors'
 import type { VendorAction } from '../../api/vendors'
 import type { VendorDetail } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
@@ -108,6 +108,8 @@ export function VendorDetailPage() {
           <Field label="Payment terms" value={detail.PaymentTerms ?? '—'} />
           <Field label="Delivery terms" value={detail.DeliveryTerms ?? '—'} />
           <Field label="Credit period" value={detail.CreditPeriodDays != null ? `${detail.CreditPeriodDays} days` : '—'} />
+          <AttachmentField label="GST certificate" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).gstCertificate} />
+          <AttachmentField label="Bank cheque leaf" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).bankLeaf} />
         </div>
       )}
 
@@ -118,6 +120,25 @@ export function VendorDetailPage() {
           onClose={() => setEditing(false)}
           onSaved={() => { setEditing(false); void load() }}
         />
+      )}
+    </div>
+  )
+}
+
+function AttachmentField({ label, attachment }: { label: string; attachment?: { id: string; fileName: string } }) {
+  return (
+    <div className="detail-field">
+      <div className="field-label">{label}</div>
+      {attachment ? (
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => void downloadVendorAttachment(attachment.id, attachment.fileName).catch(() => window.alert('Download failed.'))}
+        >
+          {attachment.fileName}
+        </button>
+      ) : (
+        <div>—</div>
       )}
     </div>
   )
