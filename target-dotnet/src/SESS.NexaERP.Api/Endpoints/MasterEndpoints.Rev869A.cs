@@ -35,7 +35,7 @@ public static partial class MasterEndpoints
         vendor.EffectiveTo
     };
 
-    private static void AddVendorReverificationEvidence(NexaErpDbContext db, Vendor vendor, string previousApprovalStatus, object before, ICurrentUser user)
+    private static void AddVendorReverificationEvidence(NexaErpDbContext db, Vendor vendor, string previousApprovalStatus, object before, ICurrentUser user, Guid companyId)
     {
         vendor.CommercialVerificationStatus = MasterApprovalStatuses.PendingApproval;
         vendor.ApprovalStatus = MasterApprovalStatuses.PendingApproval;
@@ -47,7 +47,7 @@ public static partial class MasterEndpoints
         vendor.ApprovedAt = null;
         var correlation = $"REV869A_VENDOR_REVERIFY_{Guid.NewGuid():N}";
         db.MasterApprovalHistories.Add(new MasterApprovalHistory { MasterType = nameof(Vendor), MasterId = vendor.Id, MasterCode = vendor.VendorCode, Action = "ControlledDetailsChanged", FromStatus = previousApprovalStatus, ToStatus = vendor.ApprovalStatus, Remarks = "GST/PAN/bank/commercial details changed; Accounts re-verification and final approval required.", ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
-        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { OrganizationId = user.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "ControlledDetailsChanged", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = "Controlled vendor details changed.", CorrelationId = correlation, CreatedBy = user.LoginId });
+        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { CompanyId = companyId, OrganizationId = user.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "ControlledDetailsChanged", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = "Controlled vendor details changed.", CorrelationId = correlation, CreatedBy = user.LoginId });
     }
 
     private static async Task<IResult> VerifyVendorCommercial(string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IPagePermissionService permissions, IAuditWriter audit, CancellationToken cancellationToken)

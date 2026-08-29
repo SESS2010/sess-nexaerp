@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { downloadVendorAttachment, getVendor, parseAttachmentMetadata, runVendorAction } from '../../api/vendors'
+import { downloadVendorAttachment, getVendor, parseAttachmentMetadata, parseBankMetadata, runVendorAction } from '../../api/vendors'
 import type { VendorAction } from '../../api/vendors'
 import type { VendorDetail } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
@@ -108,8 +108,14 @@ export function VendorDetailPage() {
           <Field label="Payment terms" value={detail.PaymentTerms ?? '—'} />
           <Field label="Delivery terms" value={detail.DeliveryTerms ?? '—'} />
           <Field label="Credit period" value={detail.CreditPeriodDays != null ? `${detail.CreditPeriodDays} days` : '—'} />
+          <Field label="Bank name" value={parseBankMetadata(detail.BankMetadata).bankName ?? '—'} />
+          <Field label="Account holder" value={parseBankMetadata(detail.BankMetadata).accountHolder ?? '—'} />
+          <Field label="Account number" value={parseBankMetadata(detail.BankMetadata).accountNumber ?? '—'} mono />
+          <Field label="IFSC" value={parseBankMetadata(detail.BankMetadata).ifsc ?? '—'} mono />
+          <Field label="Branch" value={parseBankMetadata(detail.BankMetadata).branch ?? '—'} />
           <AttachmentField label="GST certificate" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).gstCertificate} />
           <AttachmentField label="Bank cheque leaf" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).bankLeaf} />
+          <AttachmentField label="PAN card" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).panCard} />
         </div>
       )}
 

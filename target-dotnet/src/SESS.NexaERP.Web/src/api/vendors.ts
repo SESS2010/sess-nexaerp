@@ -53,7 +53,7 @@ export function runVendorAction(vendorCode: string, action: VendorAction, remark
   })
 }
 
-export type VendorAttachmentKind = 'BANK_LEAF' | 'GST_CERTIFICATE'
+export type VendorAttachmentKind = 'BANK_LEAF' | 'GST_CERTIFICATE' | 'PAN_CARD'
 
 export interface VendorAttachmentInfo {
   Id: string
@@ -105,12 +105,34 @@ export async function downloadVendorAttachment(attachmentId: string, fileName: s
 export interface VendorAttachmentMetadata {
   gstCertificate?: { id: string; fileName: string }
   bankLeaf?: { id: string; fileName: string }
+  panCard?: { id: string; fileName: string }
 }
 
 export function parseAttachmentMetadata(json: string | null): VendorAttachmentMetadata {
   if (!json) return {}
   try {
     return JSON.parse(json) as VendorAttachmentMetadata
+  } catch {
+    return {}
+  }
+}
+
+// Shape stored in the vendor's BankMetadataJson column. The API returns it
+// only to roles with commercial-view permission (BankMetadata is null
+// otherwise), and it may arrive as a JSON string or an object.
+export interface VendorBankDetails {
+  bankName?: string
+  accountHolder?: string
+  accountNumber?: string
+  ifsc?: string
+  branch?: string
+}
+
+export function parseBankMetadata(value: unknown): VendorBankDetails {
+  if (!value) return {}
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    return parsed && typeof parsed === 'object' ? (parsed as VendorBankDetails) : {}
   } catch {
     return {}
   }

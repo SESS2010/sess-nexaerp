@@ -152,6 +152,8 @@ public static partial class MasterEndpoints
             if (validation is not null) return validation;
             var gstCertificateError = await ValidateVendorGstCertificateAsync(request.AttachmentMetadataJson, db, cancellationToken);
             if (gstCertificateError is not null) return Results.BadRequest(new { message = gstCertificateError });
+            var bankMetadataError = ValidateVendorBankMetadata(request.BankMetadataJson);
+            if (bankMetadataError is not null) return Results.BadRequest(new { message = bankMetadataError });
             var vendor = new Vendor { VendorCode = MasterEndpointHelpers.NormalizeCode(request.VendorCode), IsVendorCodeLocked = false };
             ApplyVendor(vendor, request, currentUser.LoginId, true);
             db.Vendors.Add(vendor);
@@ -170,11 +172,21 @@ public static partial class MasterEndpoints
             if (request.Version is null || MasterEndpointHelpers.IsMismatch(request.Version.Value, vendor.Version)) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
             var validation = await ValidateVendorAsync(request, db, vendor.Id, cancellationToken);
             if (validation is not null) return validation;
+            var updateBankMetadataError = ValidateVendorBankMetadata(request.BankMetadataJson);
+            if (updateBankMetadataError is not null) return Results.BadRequest(new { message = updateBankMetadataError });
             var before = ToDetail(vendor, true);
             var beforeControlled = VendorControlledSnapshot(vendor);
             var controlledChange = VendorControlledFieldsChanged(vendor, request);
             ApplyVendor(vendor, request, currentUser.LoginId, false);
-            if (controlledChange) AddVendorReverificationEvidence(db, vendor, before.ApprovalStatus, beforeControlled, currentUser);
+            if (controlledChange)
+            {
+                var companyId = await db.Companies.AsNoTracking()
+                    .Where(company => company.Code == currentUser.OrganizationId)
+                    .Select(company => (Guid?)company.Id)
+                    .SingleOrDefaultAsync(cancellationToken);
+                if (companyId is null) return Results.BadRequest(new { message = "Company scope could not be resolved for re-verification evidence." });
+                AddVendorReverificationEvidence(db, vendor, before.ApprovalStatus, beforeControlled, currentUser, companyId.Value);
+            }
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Masters", "UpdateDraft", nameof(Vendor), vendor.Id.ToString(), before, vendor, cancellationToken);
             var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);

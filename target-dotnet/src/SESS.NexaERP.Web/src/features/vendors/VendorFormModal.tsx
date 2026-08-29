@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  createVendor, getNextVendorCode, parseAttachmentMetadata, updateVendor, uploadVendorAttachment,
+  createVendor, getNextVendorCode, parseAttachmentMetadata, parseBankMetadata, updateVendor, uploadVendorAttachment,
 } from '../../api/vendors'
 import type { VendorAttachmentMetadata } from '../../api/vendors'
 import type { UpsertVendorRequest, VendorDetail } from '../../types/vendor'
@@ -38,6 +38,11 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
     paymentTerms: existing?.PaymentTerms ?? '',
     deliveryTerms: existing?.DeliveryTerms ?? '',
     creditPeriodDays: existing?.CreditPeriodDays?.toString() ?? '',
+    bankName: parseBankMetadata(existing?.BankMetadata).bankName ?? '',
+    accountHolder: parseBankMetadata(existing?.BankMetadata).accountHolder ?? '',
+    accountNumber: parseBankMetadata(existing?.BankMetadata).accountNumber ?? '',
+    ifsc: parseBankMetadata(existing?.BankMetadata).ifsc ?? '',
+    branch: parseBankMetadata(existing?.BankMetadata).branch ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -46,6 +51,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
   )
   const [gstFile, setGstFile] = useState<File | null>(null)
   const [bankLeafFile, setBankLeafFile] = useState<File | null>(null)
+  const [panFile, setPanFile] = useState<File | null>(null)
 
   // New vendors get the next VEN-### code from the server; the field is
   // read-only so the series stays continuous.
@@ -78,6 +84,10 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         const uploaded = await uploadVendorAttachment('BANK_LEAF', bankLeafFile)
         attachments.bankLeaf = { id: uploaded.Id, fileName: uploaded.FileName }
       }
+      if (panFile) {
+        const uploaded = await uploadVendorAttachment('PAN_CARD', panFile)
+        attachments.panCard = { id: uploaded.Id, fileName: uploaded.FileName }
+      }
       if (!attachments.gstCertificate) {
         setError('GST certificate attachment is required.')
         setSaving(false)
@@ -106,7 +116,16 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         PaymentTerms: optional(form.paymentTerms),
         DeliveryTerms: optional(form.deliveryTerms),
         CreditPeriodDays: form.creditPeriodDays.trim() ? Number(form.creditPeriodDays) : null,
-        BankMetadataJson: null,
+        BankMetadataJson: (() => {
+          const bank = {
+            bankName: optional(form.bankName),
+            accountHolder: optional(form.accountHolder),
+            accountNumber: optional(form.accountNumber),
+            ifsc: optional(form.ifsc)?.toUpperCase() ?? null,
+            branch: optional(form.branch),
+          }
+          return Object.values(bank).some((v) => v !== null) ? JSON.stringify(bank) : null
+        })(),
         AttachmentMetadataJson: JSON.stringify(attachments),
         Version: mode === 'edit' ? existing!.Version : null,
       }
@@ -232,6 +251,35 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Credit period (days)</span>
             <input className="input" type="number" min="0" value={form.creditPeriodDays} onChange={set('creditPeriodDays')} />
           </label>
+          <div className="field-wide form-section-title">Bank details</div>
+          <label className="field">
+            <span className="field-label">Bank name</span>
+            <input className="input" value={form.bankName} onChange={set('bankName')} placeholder="e.g. HDFC Bank" />
+          </label>
+          <label className="field">
+            <span className="field-label">Account holder name</span>
+            <input className="input" value={form.accountHolder} onChange={set('accountHolder')} />
+          </label>
+          <label className="field">
+            <span className="field-label">Account number</span>
+            <input className="input" inputMode="numeric" pattern="[0-9]{6,18}" title="6-18 digits" value={form.accountNumber} onChange={set('accountNumber')} />
+          </label>
+          <label className="field">
+            <span className="field-label">IFSC code</span>
+            <input
+              className="input mono"
+              pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}"
+              title="e.g. HDFC0001234"
+              value={form.ifsc}
+              onChange={set('ifsc')}
+              placeholder="HDFC0001234"
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Branch</span>
+            <input className="input" value={form.branch} onChange={set('branch')} />
+          </label>
+          <div className="field-wide form-section-title">Attachments</div>
           <label className="field">
             <span className="field-label">GST certificate * (PDF/JPG/PNG, max 5 MB)</span>
             <input
@@ -254,6 +302,18 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
             />
             {!bankLeafFile && existingAttachments.bankLeaf && (
               <span className="field-hint">Current: {existingAttachments.bankLeaf.fileName}</span>
+            )}
+          </label>
+          <label className="field">
+            <span className="field-label">PAN card (PDF/JPG/PNG, max 5 MB)</span>
+            <input
+              className="input"
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+              onChange={(event) => setPanFile(event.target.files?.[0] ?? null)}
+            />
+            {!panFile && existingAttachments.panCard && (
+              <span className="field-hint">Current: {existingAttachments.panCard.fileName}</span>
             )}
           </label>
           {error && <div className="alert alert-error field-wide">{error}</div>}

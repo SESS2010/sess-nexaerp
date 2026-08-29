@@ -6,8 +6,9 @@ public static class VendorAttachmentKinds
 {
     public const string BankLeaf = "BANK_LEAF";
     public const string GstCertificate = "GST_CERTIFICATE";
+    public const string PanCard = "PAN_CARD";
 
-    public static bool IsValid(string value) => value is BankLeaf or GstCertificate;
+    public static bool IsValid(string value) => value is BankLeaf or GstCertificate or PanCard;
 }
 
 /// <summary>

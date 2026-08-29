@@ -47,7 +47,7 @@ public static partial class MasterEndpoints
             }
             if (!VendorAttachmentKinds.IsValid(kind))
             {
-                return Results.BadRequest(new { message = $"Attachment kind must be {VendorAttachmentKinds.BankLeaf} or {VendorAttachmentKinds.GstCertificate}." });
+                return Results.BadRequest(new { message = $"Attachment kind must be {VendorAttachmentKinds.BankLeaf}, {VendorAttachmentKinds.GstCertificate} or {VendorAttachmentKinds.PanCard}." });
             }
             if (file.Length > MaxVendorAttachmentBytes)
             {
@@ -90,6 +90,55 @@ public static partial class MasterEndpoints
                 ? Results.NotFound(new { message = "Attachment not found." })
                 : Results.File(attachment.Content, attachment.ContentType, attachment.FileName);
         }).RequirePagePermission("masters.vendors", PagePermissionActions.Download);
+    }
+
+    /// <summary>
+    /// Bank details ride in BankMetadataJson as
+    /// {"bankName","accountHolder","accountNumber","ifsc","branch"}.
+    /// All fields are optional, but a supplied IFSC must be a valid Indian
+    /// IFSC and a supplied account number must be 6-18 digits.
+    /// Returns the failure message, or null when valid.
+    /// </summary>
+    private static string? ValidateVendorBankMetadata(string? bankMetadataJson)
+    {
+        if (string.IsNullOrWhiteSpace(bankMetadataJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(bankMetadataJson);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return "Bank metadata must be a JSON object.";
+            }
+
+            if (root.TryGetProperty("ifsc", out var ifscProperty))
+            {
+                var ifsc = ifscProperty.GetString()?.Trim().ToUpperInvariant();
+                if (!string.IsNullOrEmpty(ifsc) && !System.Text.RegularExpressions.Regex.IsMatch(ifsc, "^[A-Z]{4}0[A-Z0-9]{6}$"))
+                {
+                    return "Invalid IFSC code format (expected e.g. HDFC0001234).";
+                }
+            }
+
+            if (root.TryGetProperty("accountNumber", out var accountProperty))
+            {
+                var account = accountProperty.GetString()?.Trim();
+                if (!string.IsNullOrEmpty(account) && !System.Text.RegularExpressions.Regex.IsMatch(account, "^[0-9]{6,18}$"))
+                {
+                    return "Bank account number must be 6-18 digits.";
+                }
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return "Bank metadata is not valid JSON.";
+        }
     }
 
     /// <summary>
