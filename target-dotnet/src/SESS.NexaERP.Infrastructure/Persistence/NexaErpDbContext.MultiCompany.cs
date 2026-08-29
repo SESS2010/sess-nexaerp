@@ -145,6 +145,8 @@ public sealed partial class NexaErpDbContext
                 table.HasCheckConstraint("CK_vendor_company_relationship_dates", @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom"""));
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.VendorId, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => x.VendorAssignedCustomerCode).HasFilter(@"""VendorAssignedCustomerCode"" IS NOT NULL");
+            entity.Property(x => x.VendorAssignedCustomerCode).HasMaxLength(80);
             entity.Property(x => x.RelationshipStatus).HasMaxLength(30).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne<Vendor>().WithMany().HasForeignKey(x => x.VendorId).OnDelete(DeleteBehavior.Restrict);
@@ -158,6 +160,8 @@ public sealed partial class NexaErpDbContext
                 table.HasCheckConstraint("CK_customer_company_relationship_dates", @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom"""));
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.CustomerId, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => x.CustomerAssignedSupplierCode).HasFilter(@"""CustomerAssignedSupplierCode"" IS NOT NULL");
+            entity.Property(x => x.CustomerAssignedSupplierCode).HasMaxLength(80);
             entity.Property(x => x.RelationshipStatus).HasMaxLength(30).IsRequired();
             entity.Property(x => x.CreditLimit).HasPrecision(18, 2);
             entity.Property(x => x.Version).IsConcurrencyToken();

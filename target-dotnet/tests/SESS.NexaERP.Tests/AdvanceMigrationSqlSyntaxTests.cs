@@ -25,6 +25,40 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         "20260827110550_FirstStoresPart2GrnAndSerials"
     ];
 
+    private const string RelationshipCodesUpAssertions = """
+        DO $assert$
+        BEGIN
+          IF (SELECT count(*) FROM information_schema.columns
+              WHERE table_schema='advance'
+                AND ((table_name='customer_company_relationships' AND column_name='CustomerAssignedSupplierCode')
+                  OR (table_name='vendor_company_relationships' AND column_name='VendorAssignedCustomerCode'))
+                AND data_type='character varying' AND character_maximum_length=80 AND is_nullable='YES') <> 2
+          THEN RAISE EXCEPTION 'relationship external code columns are not exact nullable varchar(80)'; END IF;
+
+          IF (SELECT count(*) FROM pg_indexes
+              WHERE schemaname='advance'
+                AND indexname IN ('IX_customer_company_relationships_CustomerAssignedSupplierCode',
+                                  'IX_vendor_company_relationships_VendorAssignedCustomerCode')
+                AND indexdef LIKE '%IS NOT NULL%') <> 2
+          THEN RAISE EXCEPTION 'relationship external code filtered indexes are missing'; END IF;
+        END $assert$;
+        """;
+
+    private const string RelationshipCodesDownAssertions = """
+        DO $assert$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema='advance'
+                       AND column_name IN ('CustomerAssignedSupplierCode','VendorAssignedCustomerCode'))
+          THEN RAISE EXCEPTION 'relationship external code columns survived Down'; END IF;
+          IF EXISTS (SELECT 1 FROM pg_indexes
+                     WHERE schemaname='advance'
+                       AND indexname IN ('IX_customer_company_relationships_CustomerAssignedSupplierCode',
+                                         'IX_vendor_company_relationships_VendorAssignedCustomerCode'))
+          THEN RAISE EXCEPTION 'relationship external code indexes survived Down'; END IF;
+        END $assert$;
+        """;
+
     [Fact]
     public void TrialMasterDataPackageIsExplicitlyMarkedDevelopmentOnlyAndRemovable()
     {
@@ -75,6 +109,24 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         server.AssertRejected("trial-managed-role-rejected.sql", "\\set expected_database advance_parser\n" + apply,
             "principal-provisioned database");
         server.Execute("trial-managed-role-drop.sql", "DROP ROLE nexa_erp_runtime;");
+    }
+
+    [Fact]
+    public void CompanyRelationshipExternalCodesApplyAndRevertOnDisposablePostgreSql()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        const string target = "20260829045502_CompanyRelationshipExternalCodes";
+        Assert.Equal(target, migrations[^1]);
+        var predecessor = migrations[^2];
+
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("relationship-codes-prerequisite.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("relationship-codes-up.sql", migrator.GenerateScript(predecessor, target) + RelationshipCodesUpAssertions);
+        server.Execute("relationship-codes-down.sql", migrator.GenerateScript(target, predecessor) + RelationshipCodesDownAssertions);
     }
 
     [Fact]
