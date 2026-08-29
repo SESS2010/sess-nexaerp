@@ -134,20 +134,23 @@ public static class ReferenceMasterEndpoints
 
         group.MapGet("/uoms/{id:guid}", async (Guid id, NexaErpDbContext db, CancellationToken ct) => { var row = await db.Uoms.AsNoTracking().Where(x => x.Id == id).Select(x => new UomSummary(x.Id, x.Code, x.Name, x.MeasurementDimension, x.QuantityPrecision, x.IsActive, x.Version)).SingleOrDefaultAsync(ct); return row is null ? Results.NotFound(new { message = "UOM not found." }) : Results.Ok(row); }).RequirePagePermission(UomsPage, PagePermissionActions.View);
 
-        group.MapPost("/uoms", async (UpsertUomMasterRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/uoms", async (UpsertUomMasterRequest request, IUomMasterService service, CancellationToken ct) =>
         {
-            var code = MasterEndpointHelpers.NormalizeCode(request.Code); var dimension = MasterEndpointHelpers.NormalizeCode(request.MeasurementDimension);
-            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(dimension)) return Results.BadRequest(new { message = "UOM code, name and measurement dimension are required." });
-            if (await db.Uoms.AnyAsync(x => x.Code == code, ct)) return Results.Conflict(new { message = "UOM code already exists." });
-            var row = new Uom { Code = code, Name = request.Name.Trim(), MeasurementDimension = dimension, QuantityPrecision = 6, CreatedBy = user.LoginId }; db.Uoms.Add(row); await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "Create", nameof(Uom), row.Id.ToString(), null, row, ct); return Results.Created($"/api/v1/masters/uoms/{row.Id}", UomSummary(row));
+            try
+            {
+                var row = await service.CreateAsync(request, ct);
+                return Results.Created($"/api/v1/masters/uoms/{row.Id}", row);
+            }
+            catch (MasterDataValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (MasterDataConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
         }).RequirePagePermission(UomsPage, PagePermissionActions.Create);
 
-        group.MapPut("/uoms/{id:guid}", async (Guid id, UpsertUomMasterRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPut("/uoms/{id:guid}", async (Guid id, UpsertUomMasterRequest request, IUomMasterService service, CancellationToken ct) =>
         {
-            var row = await db.Uoms.SingleOrDefaultAsync(x => x.Id == id, ct); if (row is null) return Results.NotFound(new { message = "UOM not found." }); var conflict = ValidateVersion(request.Version, row.Version); if (conflict is not null) return conflict;
-            var code = MasterEndpointHelpers.NormalizeCode(request.Code); var dimension = MasterEndpointHelpers.NormalizeCode(request.MeasurementDimension); if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(dimension)) return Results.BadRequest(new { message = "UOM code, name and measurement dimension are required." });
-            if (await db.Uoms.AnyAsync(x => x.Id != id && x.Code == code, ct)) return Results.Conflict(new { message = "UOM code already exists." });
-            var before = UomSummary(row); Apply(row, code, request.Name, user.LoginId); row.MeasurementDimension = dimension; row.QuantityPrecision = 6; await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "Update", nameof(Uom), row.Id.ToString(), before, row, ct); return Results.Ok(UomSummary(row));
+            try { return Results.Ok(await service.UpdateAsync(id, request, ct)); }
+            catch (MasterDataValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }
+            catch (MasterDataConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
+            catch (MasterDataNotFoundException ex) { return Results.NotFound(new { message = ex.Message }); }
         }).RequirePagePermission(UomsPage, PagePermissionActions.Update);
 
         group.MapPost("/uoms/{id:guid}/deactivate", async (Guid id, DeactivateReferenceMasterRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>

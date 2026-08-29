@@ -146,6 +146,7 @@ app.MapIdentityEndpoints();
 app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();
 app.MapReferenceMasterEndpoints();
+app.MapMasterDataTransferEndpoints();
 app.MapInventoryEndpoints();
 app.MapPurchaseRequisitionEndpoints();
 app.MapRev869BPurchaseEndpoints();

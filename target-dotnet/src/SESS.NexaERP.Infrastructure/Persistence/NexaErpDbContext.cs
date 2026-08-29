@@ -47,6 +47,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     public DbSet<MasterStatusHistory> MasterStatusHistories => Set<MasterStatusHistory>();
     public DbSet<MasterApprovalHistory> MasterApprovalHistories => Set<MasterApprovalHistory>();
     public DbSet<MasterAttachmentMetadata> MasterAttachmentMetadata => Set<MasterAttachmentMetadata>();
+    public DbSet<MasterImportBatch> MasterImportBatches => Set<MasterImportBatch>();
+    public DbSet<MasterImportRowResult> MasterImportRowResults => Set<MasterImportRowResult>();
     public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
     public DbSet<PurchaseRequisitionLine> PurchaseRequisitionLines => Set<PurchaseRequisitionLine>();
     public DbSet<PurchaseRequisitionStatusHistory> PurchaseRequisitionStatusHistories => Set<PurchaseRequisitionStatusHistory>();
@@ -80,6 +82,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureStoresPart3A(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
         ConfigureVendorAttachments(modelBuilder);
+        ConfigureMasterDataImport(modelBuilder);
         ConfigureCompanyScope(modelBuilder);
         SeedFoundation(modelBuilder);
     }

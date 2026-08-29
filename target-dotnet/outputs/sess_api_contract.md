@@ -1104,6 +1104,27 @@ Notification event types required now are `STORES.QC_OVERDUE` to `QC_MANAGER`, `
 
 There is intentionally no public POST, PUT, PATCH, or DELETE route for `stock_movements`, and no adjustment route in this module. Inventory consequences occur only inside Gate/GRN/QC/MIR/DC finalisation commands through an atomic balanced posting batch.
 
+### 13.9 Synchronous master-data transfer (UOM, customer and vendor adapters)
+
+| Method and route | Request | Success response | Permission | Errors |
+|---|---|---|---|---|
+| `GET /api/v1/master-data/{masterKey}/template` | none | `.xlsx` with `Data`, `Column Guide`, hidden `_Metadata` | master's `Download` | disabled master `404` |
+| `GET /api/v1/master-data/{masterKey}/export?search=&isActive=&sortBy=&sortDirection=` | none | filtered `.xlsx` in the template shape | master's `Export` | over row limit `400` |
+| `POST /api/v1/master-data/{masterKey}/import` | multipart `File`, `Mode`, `IdempotencyKey`; xlsx only | `200 MasterDataImportResult` | master's `Create` and `Update` | validation `400`; idempotency conflict `409` |
+| `GET /api/v1/master-data/imports/{batchId}` | none | batch counts plus row results | uploader with master `View`, or master `ViewAuditHistory` | scoped/denied `403/404` |
+| `GET /api/v1/master-data/imports/{batchId}/rows?page=&pageSize=` | none | paged row results | same as batch; sensitive gate also applies | scoped/denied `403/404` |
+| `GET /api/v1/master-data/imports/{batchId}/errors.xlsx` | none | submitted rows plus errors | same as batch; sensitive gate also applies | purged/no errors `404` |
+
+`Mode` is `IMPORT_VALID_ROWS` or `REJECT_ENTIRE_FILE`. The synchronous hard ceiling is 1,000 non-empty data rows and may be configured lower. Existing-record updates require the exported `RecordId` and exact current `Version`; business codes are immutable through upload. Re-uploading an unchanged create-shaped row matches its business code and produces `UNCHANGED`, not a duplicate.
+
+Enabled master keys are `uoms`, `customers`, and `vendors`. The UOM columns are `RecordId`, `Version`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`. Customer columns are `RecordId`, `Version`, `CustomerCode`, `LegalCustomerName`, `TradeName`, `CustomerType`, `GstNumber`, `PanNumber`, `BillingAddress`, `ShippingAddress`, `State`, `StateCode`, `Country`, `ContactPerson`, `Phone`, `Email`, `Industry`, `PaymentTerms`, `CreditPeriodDays`, `CreditLimit`, `Status`, `ApprovalStatus`, `IsActive`. Vendor columns are `RecordId`, `Version`, `VendorCode`, `LegalVendorName`, `TradeName`, `VendorType`, `GstNumber`, `PanNumber`, `MsmeStatus`, `MsmeNumber`, `ContactPerson`, `Phone`, `Email`, `BillingAddress`, `ShippingAddress`, `State`, `StateCode`, `Country`, `MaterialServiceCategories`, `ApprovedMakes`, `PaymentTerms`, `DeliveryTerms`, `CreditPeriodDays`, `AttachmentMetadataJson`, `ApprovalStatus`, `VendorStatus`, `IsActive`. Identity, version and lifecycle/approval columns are read-only.
+
+Customer and vendor records are shared across companies. `PortalOrganizationId` is server-derived from the immutable CustomerCode/VendorCode and is absent from workbooks. Customer GSTIN/PAN are optional; customer/vendor country defaults to India and StateCode is derived from recognized State values and pair-validated. Vendor MSME Number is required when MSME Status is true. Vendor `BankMetadataJson` is absent from templates, exports, and imports; bank details remain a governed UI operation and existing bank data is preserved by spreadsheet updates. The Column Guide states this exclusion explicitly.
+
+Import audit rows remain company-scoped from the authenticated session, never workbook data. Customer and vendor definitions require their page's `view-commercial-values` permission for exports and every historical batch/row/error-workbook read, so rejected values are not exposed merely by `ViewAuditHistory`.
+
+Rejected/not-imported submitted values and error attempted values expire after 90 days. The guarded manual installer purge removes those values; immutable counts, hashes, uploader/company/role identity, timestamps, statuses, business codes, outcomes, error locations/codes/messages and audit metadata remain forever.
+
 ## 14. Frontend implementation checklist
 
 1. Bootstrap with `/session/me`; namespace all caches by `CompanyId` and clear them on company change.

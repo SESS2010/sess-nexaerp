@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260829065338_MasterDataImportFramework")]
+    partial class MasterDataImportFramework
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -49770,57 +49773,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("VendorId", "AddressType");
 
                     b.ToTable("vendor_addresses", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Masters.VendorAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind");
-
-                    b.ToTable("vendor_attachments", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Masters.VendorCategory", b =>

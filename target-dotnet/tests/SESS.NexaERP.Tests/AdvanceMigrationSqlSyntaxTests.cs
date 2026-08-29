@@ -120,13 +120,101 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
         const string target = "20260829045502_CompanyRelationshipExternalCodes";
-        Assert.Equal(target, migrations[^1]);
-        var predecessor = migrations[^2];
+        var targetIndex = Array.IndexOf(migrations, target);
+        Assert.True(targetIndex > 0);
+        var predecessor = migrations[targetIndex - 1];
 
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("relationship-codes-prerequisite.sql", migrator.GenerateScript("0", predecessor));
         server.Execute("relationship-codes-up.sql", migrator.GenerateScript(predecessor, target) + RelationshipCodesUpAssertions);
         server.Execute("relationship-codes-down.sql", migrator.GenerateScript(target, predecessor) + RelationshipCodesDownAssertions);
+    }
+
+    [Fact]
+    public void MasterDataImportMigrationGuardsUpAndDownAndPurgesOnlyExpiredSensitiveValues()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        const string target = "20260829065338_MasterDataImportFramework";
+        Assert.Equal(target, migrations[^1]);
+        var predecessor = migrations[^2];
+
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("master-import-prerequisite.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("master-import-up.sql", migrator.GenerateScript(predecessor, target) + """
+            DO $assert$
+            BEGIN
+              IF to_regclass('advance.master_import_batches') IS NULL
+                 OR to_regclass('advance.master_import_row_results') IS NULL THEN
+                RAISE EXCEPTION 'master import tables are missing';
+              END IF;
+              IF (SELECT pg_get_expr(d.adbin,d.adrelid) FROM pg_attrdef d
+                  JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum
+                  WHERE d.adrelid='advance.master_import_batches'::regclass AND a.attname='RetentionExpiresAt') NOT LIKE '%90 days%' THEN
+                RAISE EXCEPTION '90-day retention default is missing';
+              END IF;
+              IF to_regprocedure('advance.purge_expired_master_import_sensitive_values()') IS NULL THEN
+                RAISE EXCEPTION 'retention purge function is missing';
+              END IF;
+            END $assert$;
+
+            INSERT INTO advance.master_import_batches
+              ("Id","MasterKey","TemplateVersion","CompanyId","ImportMode","Status","OriginalFileName",
+               "FileSizeBytes","FileSha256","IdempotencyKey","RequestFingerprint","UploadedByEmployeeId",
+               "UploadedByEmployeeCode","OperationalRoleCode","UploadedAt","CompletedAt","RetentionExpiresAt",
+               "TotalRows","ValidRows","InvalidRows","CreatedRows","UpdatedRows","UnchangedRows","RejectedRows",
+               "NotImportedRows","CorrelationId","CreatedAt","CreatedBy","Version")
+            SELECT '91000000-0000-0000-0000-000000000001','uoms',1,c."Id",'IMPORT_VALID_ROWS','COMPLETED_WITH_ERRORS',
+                   'uoms.xlsx',100,repeat('a',64),'purge-test',repeat('b',64),e."Id",e."EmployeeCode",'STORES_MANAGER',
+                   clock_timestamp()-interval '100 days',clock_timestamp()-interval '100 days',clock_timestamp()-interval '10 days',
+                   1,0,1,0,0,0,1,0,'92000000-0000-0000-0000-000000000001',clock_timestamp()-interval '100 days','test',0
+            FROM advance.companies c CROSS JOIN LATERAL (SELECT "Id","EmployeeCode" FROM advance.employees ORDER BY "Id" LIMIT 1) e
+            ORDER BY c."Id" LIMIT 1;
+
+            INSERT INTO advance.master_import_row_results
+              ("Id","ImportBatchId","SourceRowNumber","BusinessCode","NormalizedBusinessCode","IntendedAction","Outcome",
+               "SubmittedValuesJson","ErrorsJson","ProcessedAt","CreatedAt","CreatedBy","Version")
+            VALUES ('93000000-0000-0000-0000-000000000001','91000000-0000-0000-0000-000000000001',2,'BAD','BAD','CREATE','REJECTED',
+                    '{"Code":"BAD","Contact":"private"}',
+                    '[{"columnKey":"Code","columnHeader":"Code","code":"INVALID","message":"Bad code","attemptedValue":"private"}]',
+                    clock_timestamp(),clock_timestamp(),'test',0);
+            """);
+        server.AssertRejected("master-import-append-only.sql", """
+            UPDATE advance.master_import_row_results SET "BusinessCode"='EDITED'
+            WHERE "Id"='93000000-0000-0000-0000-000000000001';
+            """, "append-only");
+        server.Execute("master-import-purge.sql", """
+            SELECT * FROM advance.purge_expired_master_import_sensitive_values();
+            DO $assert$
+            DECLARE values_json jsonb; errors_json jsonb;
+            BEGIN
+              SELECT "SubmittedValuesJson","ErrorsJson" INTO values_json,errors_json
+              FROM advance.master_import_row_results WHERE "Id"='93000000-0000-0000-0000-000000000001';
+              IF values_json IS NOT NULL THEN RAISE EXCEPTION 'submitted values survived purge'; END IF;
+              IF errors_json @? '$[*].attemptedValue' THEN RAISE EXCEPTION 'attempted value survived purge'; END IF;
+              IF errors_json->0->>'code'<>'INVALID' OR errors_json->0->>'message'<>'Bad code' THEN
+                RAISE EXCEPTION 'permanent error evidence was changed';
+              END IF;
+              IF (SELECT "TotalRows" FROM advance.master_import_batches WHERE "Id"='91000000-0000-0000-0000-000000000001')<>1
+                 OR (SELECT "FileSha256" FROM advance.master_import_batches WHERE "Id"='91000000-0000-0000-0000-000000000001')<>repeat('a',64)
+                 OR (SELECT "SensitiveValuesPurgedAt" FROM advance.master_import_batches WHERE "Id"='91000000-0000-0000-0000-000000000001') IS NULL THEN
+                RAISE EXCEPTION 'permanent batch evidence was changed or purge was not recorded';
+              END IF;
+            END $assert$;
+            """);
+        server.Execute("master-import-down.sql", migrator.GenerateScript(target, predecessor) + """
+            DO $assert$
+            BEGIN
+              IF to_regclass('advance.master_import_batches') IS NOT NULL
+                 OR to_regclass('advance.master_import_row_results') IS NOT NULL
+                 OR to_regprocedure('advance.purge_expired_master_import_sensitive_values()') IS NOT NULL THEN
+                RAISE EXCEPTION 'master import objects survived Down';
+              END IF;
+            END $assert$;
+            """);
     }
 
     [Fact]
