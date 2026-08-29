@@ -6,10 +6,16 @@ import { EmployeeListPage } from './features/employees/EmployeeListPage'
 import { EmployeeDetailPage } from './features/employees/EmployeeDetailPage'
 import { VendorListPage } from './features/vendors/VendorListPage'
 import { VendorDetailPage } from './features/vendors/VendorDetailPage'
+import { CustomerListPage } from './features/customers/CustomerListPage'
+import { CustomerDetailPage } from './features/customers/CustomerDetailPage'
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const title = location.pathname.startsWith('/vendors') ? 'Vendor Master' : 'Employee Master'
+  const title = location.pathname.startsWith('/vendors')
+    ? 'Vendor Master'
+    : location.pathname.startsWith('/customers')
+      ? 'Customer Master'
+      : 'Employee Master'
 
   return (
     <div className="app-shell">
@@ -29,7 +35,9 @@ function Shell({ children }: { children: React.ReactNode }) {
           <NavLink to="/vendors" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             Vendor Master
           </NavLink>
-          <span className="nav-link disabled">Customer Master</span>
+          <NavLink to="/customers" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Customer Master
+          </NavLink>
           <span className="nav-link disabled">Item Master</span>
           <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           <div className="nav-section">Transactions</div>
@@ -63,6 +71,8 @@ export default function App() {
                 <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
                 <Route path="/vendors" element={<VendorListPage />} />
                 <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
+                <Route path="/customers" element={<CustomerListPage />} />
+                <Route path="/customers/:customerCode" element={<CustomerDetailPage />} />
               </Routes>
             </Shell>
           </RequireAuth>

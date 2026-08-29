@@ -16,6 +16,7 @@ public static partial class MasterEndpoints
         var group = endpoints.MapGroup("/api/v1/masters").WithTags("Masters").RequireAuthorization();
 
         MapCustomerEndpoints(group);
+        MapCustomerAttachmentEndpoints(group);
         MapVendorEndpoints(group);
         MapVendorAttachmentEndpoints(group);
         return endpoints;
@@ -64,6 +65,8 @@ public static partial class MasterEndpoints
         {
             var validation = await ValidateCustomerAsync(request, db, null, cancellationToken);
             if (validation is not null) return validation;
+            var bankError = ValidateVendorBankMetadata(request.BankMetadataJson);
+            if (bankError is not null) return Results.BadRequest(new { message = bankError });
             var code = MasterEndpointHelpers.NormalizeCode(request.CustomerCode);
             var customer = new Customer { CustomerCode = code, IsCustomerCodeLocked = false };
             ApplyCustomer(customer, request, currentUser.LoginId, true);
@@ -83,6 +86,8 @@ public static partial class MasterEndpoints
             if (request.Version is null || MasterEndpointHelpers.IsMismatch(request.Version.Value, customer.Version)) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
             var validation = await ValidateCustomerAsync(request, db, customer.Id, cancellationToken);
             if (validation is not null) return validation;
+            var customerBankError = ValidateVendorBankMetadata(request.BankMetadataJson);
+            if (customerBankError is not null) return Results.BadRequest(new { message = customerBankError });
             var before = ToDetail(customer, true);
             ApplyCustomer(customer, request, currentUser.LoginId, false);
             await db.SaveChangesAsync(cancellationToken);
@@ -288,6 +293,8 @@ public static partial class MasterEndpoints
         customer.PaymentTerms = MasterEndpointHelpers.NormalizeOptional(request.PaymentTerms);
         customer.CreditPeriodDays = request.CreditPeriodDays;
         customer.CreditLimit = request.CreditLimit;
+        customer.BankMetadataJson = MasterEndpointHelpers.NormalizeOptional(request.BankMetadataJson);
+        customer.AttachmentMetadataJson = MasterEndpointHelpers.NormalizeOptional(request.AttachmentMetadataJson);
         customer.PortalOrganizationId = customer.CustomerCode;
         if (create) customer.CreatedBy = loginId; else { customer.UpdatedBy = loginId; customer.UpdatedAt = DateTimeOffset.UtcNow; }
     }
@@ -324,7 +331,7 @@ public static partial class MasterEndpoints
 
     private static CustomerSummary ToSummary(Customer customer, bool canViewCredit) => new(customer.Id, customer.CustomerCode, customer.Name, customer.GstNumber, customer.PanNumber, customer.PortalOrganizationId, customer.Status, customer.ApprovalStatus, customer.IsActive, customer.Version, canViewCredit ? customer.CreditLimit : null);
 
-    private static CustomerDetail ToDetail(Customer customer, bool canViewCredit) => new(customer.Id, customer.CustomerCode, customer.Name, customer.LegalCustomerName, customer.TradeName, customer.CustomerType, customer.GstNumber, customer.PanNumber, customer.BillingAddress, customer.ShippingAddress, customer.State, customer.StateCode, customer.Country, customer.ContactPerson, customer.Phone, customer.Email, customer.Industry, customer.PaymentTerms, customer.CreditPeriodDays, canViewCredit ? customer.CreditLimit : null, customer.PortalOrganizationId, customer.Status, customer.ApprovalStatus, customer.IsActive, customer.Version);
+    private static CustomerDetail ToDetail(Customer customer, bool canViewCredit) => new(customer.Id, customer.CustomerCode, customer.Name, customer.LegalCustomerName, customer.TradeName, customer.CustomerType, customer.GstNumber, customer.PanNumber, customer.BillingAddress, customer.ShippingAddress, customer.State, customer.StateCode, customer.Country, customer.ContactPerson, customer.Phone, customer.Email, customer.Industry, customer.PaymentTerms, customer.CreditPeriodDays, canViewCredit ? customer.CreditLimit : null, customer.PortalOrganizationId, customer.Status, customer.ApprovalStatus, customer.IsActive, customer.Version, canViewCredit ? customer.BankMetadataJson : null, customer.AttachmentMetadataJson);
 
     private static VendorSummary ToSummary(Vendor vendor, bool canViewBank) => new(vendor.Id, vendor.VendorCode, vendor.Name, vendor.GstNumber, vendor.PanNumber, vendor.ApprovalStatus, vendor.VendorStatus, vendor.IsActive, vendor.Version, canViewBank ? vendor.BankMetadataJson : null);
 

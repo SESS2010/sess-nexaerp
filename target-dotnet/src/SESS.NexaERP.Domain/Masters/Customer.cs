@@ -24,6 +24,8 @@ public sealed class Customer : AuditableEntity
     public string? PaymentTerms { get; set; }
     public int? CreditPeriodDays { get; set; }
     public decimal? CreditLimit { get; set; }
+    public string? BankMetadataJson { get; set; }
+    public string? AttachmentMetadataJson { get; set; }
     public string PortalOrganizationId { get; set; } = string.Empty;
     public string Status { get; set; } = MasterStatuses.Draft;
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
