@@ -25,9 +25,9 @@ public sealed class FirstStoresPart3BMigrationTests
         var migrations=db.Database.GetMigrations().ToArray();
         Assert.True(Array.IndexOf(migrations,"20260827132947_FirstStoresPart3BLedgerActivation")
             < Array.IndexOf(migrations,"20260828121759_ItemReferenceMasterFrontendReadiness"));
-        Assert.Equal("20260829045502_CompanyRelationshipExternalCodes",migrations[^1]);
+        Assert.Equal("20260829065338_MasterDataImportFramework",migrations[^1]);
         Assert.Equal("stock_posting_batches",db.Model.FindEntityType(typeof(StockPostingBatch))!.GetTableName());
-        Assert.Equal(118,db.Model.GetEntityTypes().Count());
+        Assert.Equal(120,db.Model.GetEntityTypes().Count());
     }
 
     [Fact]

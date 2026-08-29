@@ -11,6 +11,7 @@ using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Audit;
 using SESS.NexaERP.Infrastructure.Identity;
 using SESS.NexaERP.Infrastructure.Masters;
+using SESS.NexaERP.Infrastructure.MasterData;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Infrastructure.Purchase;
 
@@ -35,6 +36,15 @@ public static class DependencyInjection
         services.AddScoped<ISessionService, EfSessionService>();
         services.AddScoped<IRecordScopeAuthorizer, EfRecordScopeAuthorizer>();
         services.AddScoped<IUomConversionService, EfUomConversionService>();
+        services.AddScoped<IUomMasterService, EfUomMasterService>();
+        services.AddOptions<MasterDataTransferOptions>()
+            .Bind(configuration.GetSection(MasterDataTransferOptions.SectionName))
+            .Validate(x => x.MaxRows is >= 1 and <= 1000, "MaxRows must be from 1 through 1000.")
+            .Validate(x => x.SensitiveRowRetentionDays == 90, "Sensitive row retention is fixed at 90 days.")
+            .ValidateOnStart();
+        services.AddScoped<IMasterDataAdapter, UomMasterDataAdapter>();
+        services.AddScoped<IMasterDataRegistry, MasterDataRegistry>();
+        services.AddScoped<IMasterDataTransferService, EfMasterDataTransferService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
         services.AddScoped<IVendorQualificationService, EfVendorQualificationService>();
         services.AddScoped<IRev869BPurchaseService, EfRev869BPurchaseService>();

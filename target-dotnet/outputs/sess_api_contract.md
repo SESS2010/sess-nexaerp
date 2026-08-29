@@ -1104,6 +1104,25 @@ Notification event types required now are `STORES.QC_OVERDUE` to `QC_MANAGER`, `
 
 There is intentionally no public POST, PUT, PATCH, or DELETE route for `stock_movements`, and no adjustment route in this module. Inventory consequences occur only inside Gate/GRN/QC/MIR/DC finalisation commands through an atomic balanced posting batch.
 
+### 13.9 Synchronous master-data transfer (implemented UOM pilot)
+
+| Method and route | Request | Success response | Permission | Errors |
+|---|---|---|---|---|
+| `GET /api/v1/master-data/{masterKey}/template` | none | `.xlsx` with `Data`, `Column Guide`, hidden `_Metadata` | master's `Download` | disabled master `404` |
+| `GET /api/v1/master-data/{masterKey}/export?search=&isActive=&sortBy=&sortDirection=` | none | filtered `.xlsx` in the template shape | master's `Export` | over row limit `400` |
+| `POST /api/v1/master-data/{masterKey}/import` | multipart `File`, `Mode`, `IdempotencyKey`; xlsx only | `200 MasterDataImportResult` | master's `Create` and `Update` | validation `400`; idempotency conflict `409` |
+| `GET /api/v1/master-data/imports/{batchId}` | none | batch counts plus row results | uploader with master `View`, or master `ViewAuditHistory` | scoped/denied `403/404` |
+| `GET /api/v1/master-data/imports/{batchId}/rows?page=&pageSize=` | none | paged row results | same as batch; sensitive gate also applies | scoped/denied `403/404` |
+| `GET /api/v1/master-data/imports/{batchId}/errors.xlsx` | none | submitted rows plus errors | same as batch; sensitive gate also applies | purged/no errors `404` |
+
+`Mode` is `IMPORT_VALID_ROWS` or `REJECT_ENTIRE_FILE`. The synchronous hard ceiling is 1,000 non-empty data rows and may be configured lower. Existing-record updates require the exported `RecordId` and exact current `Version`; business codes are immutable through upload. Re-uploading an unchanged create-shaped row matches its business code and produces `UNCHANGED`, not a duplicate.
+
+The UOM pilot master key is `uoms`. Its ordered columns are `RecordId`, `Version`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`. `RecordId`, `Version`, and `IsActive` are read-only; lifecycle changes remain governed API operations.
+
+Import results are company-scoped from the authenticated session, never workbook data. A definition carrying sensitive commercial data adds a mandatory result permission to every historical batch/row/error-workbook read. The vendor definition, when enabled later, must declare `masters.vendors:ViewCommercialValues`; rejected vendor submitted values are therefore not exposed merely by `ViewAuditHistory`.
+
+Rejected/not-imported submitted values and error attempted values expire after 90 days. The guarded manual installer purge removes those values; immutable counts, hashes, uploader/company/role identity, timestamps, statuses, business codes, outcomes, error locations/codes/messages and audit metadata remain forever.
+
 ## 14. Frontend implementation checklist
 
 1. Bootstrap with `/session/me`; namespace all caches by `CompanyId` and clear them on company change.

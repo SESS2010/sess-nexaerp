@@ -10,6 +10,6 @@ public sealed record UpsertReferenceMasterRequest(string Code, string Name, uint
 
 public sealed record UpsertItemSubcategoryRequest(Guid CategoryId, string Code, string Name, uint? Version);
 
-public sealed record UpsertUomMasterRequest(string Code, string Name, string MeasurementDimension, uint? Version);
+public sealed record UpsertUomMasterRequest(string Code, string Name, string MeasurementDimension, uint? Version, int? QuantityPrecision = null);
 
 public sealed record DeactivateReferenceMasterRequest(string Reason, uint Version);

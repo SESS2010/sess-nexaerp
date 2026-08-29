@@ -17,6 +17,8 @@ internal static class InstallerCommand
 #endif
         if (args.Length > 0 && args[0] == "authentication-bootstrap")
             return AuthenticationBootstrapCommand.RunAsync(args[1..]);
+        if (args.Length > 0 && args[0] == "master-import-retention")
+            return MasterImportRetentionPurgeCommand.RunAsync(args[1..]);
 #if DEBUG
         if (args.Length > 0 && args[0] == "authentication-bootstrap-development")
             return DevelopmentAuthenticationBootstrapCommand.RunAsync(args[1..]);
@@ -207,7 +209,7 @@ internal static class DatabasePrincipalCommand
     }
 
     private static void WriteUsage() =>
-        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
+        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>\n   or: SESS.NexaERP.Installer master-import-retention purge"
 #if DEBUG
             + "\n   or: SESS.NexaERP.Installer authentication-bootstrap-development --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
 #endif
