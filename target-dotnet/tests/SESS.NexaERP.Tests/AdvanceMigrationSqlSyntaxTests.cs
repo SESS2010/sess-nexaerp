@@ -47,6 +47,9 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         Assert.Contains("DOTNET_ENVIRONMENT -cne 'Development'", wrapper, StringComparison.Ordinal);
         Assert.Contains("NexaErp__AllowTrialData -cne 'true'", wrapper, StringComparison.Ordinal);
         Assert.Contains("PGDATABASE -cne $env:NexaErp__ExpectedDatabase", wrapper, StringComparison.Ordinal);
+        Assert.Contains("ConvertTo-PostgreSqlDirectoryVersion $_.Name", wrapper, StringComparison.Ordinal);
+        Assert.Contains("[version]::Parse(($parts -join '.'))", wrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("[version]$_.Name", wrapper, StringComparison.Ordinal);
     }
 
     [Fact]

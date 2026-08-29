@@ -26,6 +26,20 @@ foreach ($name in @('PGHOST','PGPORT','PGUSER')) {
     }
 }
 
+function ConvertTo-PostgreSqlDirectoryVersion([string]$Name) {
+    $parts = @($Name -split '\.')
+    if ($parts.Count -gt 4 -or @($parts | Where-Object { $_ -notmatch '^\d+$' }).Count -ne 0) {
+        return [version]::Parse('0.0.0.0')
+    }
+    while ($parts.Count -lt 4) { $parts += '0' }
+    try {
+        return [version]::Parse(($parts -join '.'))
+    }
+    catch {
+        return [version]::Parse('0.0.0.0')
+    }
+}
+
 function Find-Psql {
     if (-not [string]::IsNullOrWhiteSpace($env:ADVANCE_POSTGRES_BIN)) {
         $candidate = Join-Path $env:ADVANCE_POSTGRES_BIN 'psql.exe'
@@ -34,7 +48,7 @@ function Find-Psql {
     $root = Join-Path $env:ProgramFiles 'PostgreSQL'
     if (Test-Path -LiteralPath $root -PathType Container) {
         $candidate = Get-ChildItem -LiteralPath $root -Directory |
-            Sort-Object { [version]$_.Name } -Descending |
+            Sort-Object -Property @{ Expression = { ConvertTo-PostgreSqlDirectoryVersion $_.Name }; Descending = $true } |
             ForEach-Object { Join-Path $_.FullName 'bin\psql.exe' } |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
             Select-Object -First 1
