@@ -4,7 +4,15 @@ public sealed record CreateEmployeeIdentityMappingRequest(string OrganizationId,
 public sealed record CreateOperationalScopeRequest(string OrganizationId, string EmployeeCode, string? DepartmentCode, string? WarehouseCode, Guid? RackBinId, bool OwnRecordsOnly, bool AllowsPrivilegedCrossScope, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
 public sealed record CreateUomRequest(string Code, string Name, string MeasurementDimension);
 public sealed record CreateUomConversionRequest(string OrganizationId, string FromUomCode, string ToUomCode, string MeasurementDimension, decimal ConversionFactor, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
-public sealed record CreateTaxGstSettingRequest(string OrganizationId, string JurisdictionCode, string HsnSacCode, string SupplierStateCode, string PlaceOfSupplyStateCode, string VendorRegistrationType, decimal GstRate, decimal CgstRate, decimal SgstRate, decimal IgstRate, decimal CessRate, bool IsExempt, bool IsReverseCharge, string CurrencyCode, int RoundingScale, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
+public sealed record CreateTaxGstSettingRequest(string OrganizationId, string JurisdictionCode, string HsnSacCode, string SupplierStateCode, string PlaceOfSupplyStateCode, string VendorRegistrationType, decimal GstRate, decimal CgstRate, decimal SgstRate, decimal IgstRate, decimal CessRate, bool IsExempt, bool IsReverseCharge, string CurrencyCode, int RoundingScale, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks, Guid? SupersedesTaxGstSettingId = null);
+public sealed record DecideTaxGstSettingRequest(uint ExpectedVersion, string Remarks, string IdempotencyKey);
+public sealed record TaxGstWorkflowResult(Guid Id, string ApprovalStatus, uint Version, Guid CreatorEmployeeId, Guid? DecisionEmployeeId, string? DecisionRoleCode);
+public interface ITaxGstWorkflowService
+{
+    Task<TaxGstWorkflowResult> CreateAsync(CreateTaxGstSettingRequest request, string idempotencyKey, CancellationToken cancellationToken);
+    Task<TaxGstWorkflowResult> ApproveAsync(Guid id, DecideTaxGstSettingRequest request, CancellationToken cancellationToken);
+    Task<TaxGstWorkflowResult> RejectAsync(Guid id, DecideTaxGstSettingRequest request, CancellationToken cancellationToken);
+}
 public sealed record CreateVendorQualificationRequest(string OrganizationId, string VendorCode, string? ItemCategoryCode, string QualificationCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
 public sealed record ChangeVendorQualificationLifecycleRequest(uint ExpectedVersion, string Remarks);
 public sealed record CreateWarehouseConditionLocationRequest(string OrganizationId, string WarehouseCode, Guid RackBinId, string ConditionCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);

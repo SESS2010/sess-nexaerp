@@ -70,7 +70,7 @@ SELECT id,code,true,name,name,name,vendor_type,msme,CASE WHEN msme THEN 'TRIAL-M
  'TRIAL Contact '||lpad(n::text,2,'0'),'+91-00000-'||lpad(n::text,5,'0'),'trial-vendor-'||lpad(n::text,2,'0')||'@example.invalid',
  'TRIAL billing address, '||state,'TRIAL shipping address, '||state,state,state_code,'India',category,'TRIAL Approved Make',
  'TRIAL Net 30','TRIAL road delivery',30,'{}'::jsonb,'[]'::jsonb,'TRIAL-PORTAL-'||lpad(n::text,2,'0'),approval,vendor_status,
- CASE WHEN approval='Approved' THEN 'Verified' ELSE 'Draft' END,DATE '2026-08-29',false,active,now(),'TRIAL_DATA',0
+ CASE WHEN approval='Approved' THEN 'Approved' ELSE 'Draft' END,DATE '2026-08-29',false,active,now(),'TRIAL_DATA',0
 FROM (VALUES
 (1,'71000000-0000-0000-0005-000000000001'::uuid,'TRIAL-VEN-001','TRIAL Alpine Cooling Supplies','MATERIAL',true,'Karnataka','29','Refrigeration','Approved','Active',true),
 (2,'71000000-0000-0000-0005-000000000002'::uuid,'TRIAL-VEN-002','TRIAL Delta Sensor Traders','MATERIAL',true,'Tamil Nadu','33','Sensors','Approved','Active',true),
@@ -144,7 +144,7 @@ WITH company_seed(company_n,company_id,warehouse_id) AS (VALUES
  SELECT c.*,bin_n,(company_n-1)*11+bin_n AS sequence_no,
    CASE WHEN bin_n<=5 THEN 'GEN-'||lpad(bin_n::text,2,'0') ELSE 'QC-'||(ARRAY['ELE','REF','FAS','PLC','FAB','MEC'])[bin_n-5] END suffix,
    CASE WHEN bin_n<=5 THEN 'STORAGE' ELSE 'QC_HOLD' END location_type,
-   CASE WHEN bin_n<=5 THEN 'Accepted' ELSE 'QcHold' END material_condition
+   CASE WHEN bin_n<=5 THEN 'AVAILABLE' ELSE 'QC_HOLD' END material_condition
  FROM company_seed c CROSS JOIN generate_series(1,11) bin_n
 )
 INSERT INTO advance.rack_bins

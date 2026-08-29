@@ -3,6 +3,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 internal static class Rev869BControlledMutationSql
 {
     public static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
+    internal static string ReconcileExplicitMutationGuard => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation()"));
     internal static string ApprovalConfigurationPart2Up => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(InstallTemplate));
     internal static string ApprovalConfigurationPart2Down => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(
         InstallTemplate
@@ -98,9 +100,12 @@ internal static class Rev869BControlledMutationSql
 
         CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_history_insert()
         RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,__advance_schema__ AS $rev869b$
-        DECLARE matches bigint; creator_matches bigint; parent_version bigint; parent_login text; parent_org text; parent_number text; parent_status text; parent_correlation text; parent_creator text; parent_creator_employee uuid;
+        DECLARE matches bigint; creator_matches bigint; parent_version bigint; parent_login text; parent_org text; parent_number text; parent_status text; parent_correlation text; parent_creator text; parent_creator_employee uuid; history_remarks text; history_entity_type text; history_entity_id uuid; authorized boolean:=false;
         BEGIN
           IF TG_TABLE_NAME='purchase_transaction_status_history' THEN
+            history_remarks:=NEW."Remarks";
+            history_entity_type:=NEW."EntityType";
+            history_entity_id:=NEW."EntityId";
             SELECT count(*),min(p.version),min(p.login),min(p.org),min(p.number),min(p.status),min(p.correlation),min(p.creator)
               INTO matches,parent_version,parent_login,parent_org,parent_number,parent_status,parent_correlation,parent_creator FROM (
               SELECT r."Version" version,coalesce(r."UpdatedBy",r."CreatedBy") login,r."OrganizationId" org,r."RfqNumber" number,r."Status" status,r."TransitionCorrelationId" correlation,r."CreatedBy" creator FROM __advance_schema__.request_for_quotations r WHERE NEW."EntityType"='RFQ' AND r."Id"=NEW."EntityId" AND r.xmin::text::bigint=txid_current()
@@ -115,12 +120,18 @@ internal static class Rev869BControlledMutationSql
               RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_history_parent_transition',MESSAGE='Status history requires the exact parent mutation in the current transaction.';
             END IF;
           ELSIF TG_TABLE_NAME='purchase_transaction_approval_history' THEN
+            history_remarks:=NEW."Remarks";
+            history_entity_type:='CommercialComparison';
+            history_entity_id:=NEW."CommercialComparisonId";
             SELECT count(*),min(c."Version"),min(coalesce(c."UpdatedBy",c."CreatedBy")),min(c."OrganizationId"),min(c."ComparisonNumber"),min(c."Status"),min(c."TransitionCorrelationId"),min(c."CreatedBy") INTO matches,parent_version,parent_login,parent_org,parent_number,parent_status,parent_correlation,parent_creator
               FROM __advance_schema__.commercial_comparisons c WHERE c."Id"=NEW."CommercialComparisonId" AND c.xmin::text::bigint=txid_current();
             IF matches<>1 OR NEW."ToStatus"<>parent_status OR NEW."ApprovalRoute"<>(SELECT c."ApprovalRoute" FROM __advance_schema__.commercial_comparisons c WHERE c."Id"=NEW."CommercialComparisonId") THEN
               RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_approval_history_parent_transition',MESSAGE='Approval history requires the exact comparison transition in the current transaction.';
             END IF;
           ELSE
+            history_remarks:=NEW."Reason";
+            history_entity_type:='PurchaseOrder';
+            history_entity_id:=NEW."PurchaseOrderId";
             SELECT count(*),min(p."Version"),min(coalesce(p."UpdatedBy",p."CreatedBy")),min(p."OrganizationId"),min(p."PoNumber"),min(p."Status"),min(p."TransitionCorrelationId"),min(p."CreatedBy") INTO matches,parent_version,parent_login,parent_org,parent_number,parent_status,parent_correlation,parent_creator
               FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId" AND p.xmin::text::bigint=txid_current();
             IF matches<>1 OR NEW."ToStatus"<>parent_status OR NEW."RevisionNumber"<>(SELECT p."RevisionNumber" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId") THEN
@@ -130,43 +141,44 @@ internal static class Rev869BControlledMutationSql
           IF NEW."ActorLoginId" IS DISTINCT FROM parent_login OR NEW."CreatedBy" IS DISTINCT FROM parent_login OR NEW."CorrelationId" IS DISTINCT FROM parent_correlation OR
              __advance_schema__.rev869b_command_context_valid(parent_org,NEW."ActorEmployeeId",
                current_setting('__advance_schema__.rev869b_identity_issuer',true),NEW."ActorLoginId",NEW."ActorRoleCode") IS NOT TRUE OR
-             length(trim(coalesce(CASE WHEN TG_TABLE_NAME='purchase_order_history' THEN NEW."Reason" ELSE NEW."Remarks" END,'')))=0 OR
-             NOT EXISTS (SELECT 1 FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId" WHERE m."Subject"=NEW."ActorLoginId" AND m."EmployeeId"=NEW."ActorEmployeeId" AND m."OrganizationId"=parent_org AND m."IsActive" AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date) AND e."Status"='Active' AND e."LoginEnabled") OR
+             length(trim(coalesce(history_remarks,'')))=0 OR
+             NOT EXISTS (SELECT 1 FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId" WHERE m."Subject"=NEW."ActorLoginId" AND m."EmployeeId"=NEW."ActorEmployeeId" AND m."OrganizationId"=parent_org AND m."IsActive" AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date) AND upper(e."Status")='ACTIVE' AND e."LoginEnabled") OR
              NOT EXISTS (SELECT 1 FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" WHERE a."EmployeeId"=NEW."ActorEmployeeId" AND r."Code"=NEW."ActorRoleCode" AND r."IsActive" AND a."ApprovalStatus" IN ('Approved','SeedApproved') AND a."EffectiveFrom"<=statement_timestamp()::date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=statement_timestamp()::date)) THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_history_actor_binding',MESSAGE='History actor, role, correlation and remarks must match the current controlled transition.';
           END IF;
-          SELECT count(*),min(m."EmployeeId") INTO creator_matches,parent_creator_employee
+          SELECT count(*),min(m."EmployeeId"::text)::uuid INTO creator_matches,parent_creator_employee
             FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
             WHERE m."Subject"=parent_creator AND m."OrganizationId"=parent_org AND m."IsActive"
               AND m."EffectiveFrom"<=statement_timestamp()::date AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=statement_timestamp()::date)
-              AND e."Status"='Active' AND e."LoginEnabled";
+              AND upper(e."Status")='ACTIVE' AND e."LoginEnabled";
           IF creator_matches<>1 THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_parent_creator_identity_binding',MESSAGE='Parent creator must resolve to exactly one active employee identity.';
           END IF;
           IF NEW."Action"='Approve' AND NEW."ActorEmployeeId"=parent_creator_employee THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_creator_self_approval',MESSAGE='Creator self-approval is prohibited.';
           END IF;
-          IF NEW."Action"='Approve' AND TG_TABLE_NAME='purchase_transaction_approval_history' AND EXISTS (
-            SELECT 1 FROM __advance_schema__.commercial_comparisons c JOIN __advance_schema__.commercial_comparison_lines cl ON cl."CommercialComparisonId"=c."Id" AND cl."IsRecommended"
-            JOIN __advance_schema__.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId" JOIN __advance_schema__.quotation_technical_verifications v ON v."VendorQuotationLineId"=ql."Id"
-            WHERE c."Id"=NEW."CommercialComparisonId" AND v."VerifierEmployeeId"=NEW."ActorEmployeeId") THEN
-            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_verifier_approver_separation',MESSAGE='Technical verifier cannot approve the same controlled comparison.';
+          IF TG_TABLE_NAME='purchase_transaction_approval_history' THEN
+            IF NEW."Action"='Approve' AND EXISTS (
+              SELECT 1 FROM __advance_schema__.commercial_comparisons c JOIN __advance_schema__.commercial_comparison_lines cl ON cl."CommercialComparisonId"=c."Id" AND cl."IsRecommended"
+              JOIN __advance_schema__.vendor_quotation_lines ql ON ql."Id"=cl."VendorQuotationLineId" JOIN __advance_schema__.quotation_technical_verifications v ON v."VendorQuotationLineId"=ql."Id"
+              WHERE c."Id"=NEW."CommercialComparisonId" AND v."VerifierEmployeeId"=NEW."ActorEmployeeId") THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_verifier_approver_separation',MESSAGE='Technical verifier cannot approve the same controlled comparison.';
+            END IF;
+          ELSIF TG_TABLE_NAME='purchase_order_history' THEN
+            IF NEW."Action"='Approve' AND EXISTS (
+              SELECT 1 FROM __advance_schema__.purchase_transaction_status_history h WHERE h."EntityType"='PurchaseOrder' AND h."EntityId"=NEW."PurchaseOrderId"
+                AND h."ToStatus" IN ('PendingApproval','Resubmitted') AND h."ActorEmployeeId"=NEW."ActorEmployeeId" AND h."Version"=parent_version-1) THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_issuer_approver_separation',MESSAGE='The PO submitter or resubmitter cannot approve the same controlled version.';
+            ELSIF NEW."Action"='Issue' AND EXISTS (
+              SELECT 1 FROM __advance_schema__.purchase_order_history approved
+              WHERE approved."PurchaseOrderId"=NEW."PurchaseOrderId" AND approved."Action"='Approve'
+                AND approved."ToStatus"='Approved' AND approved."RevisionNumber"=NEW."RevisionNumber"
+                AND approved."ActorEmployeeId"=NEW."ActorEmployeeId") THEN
+              RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_po_approver_issuer_separation',MESSAGE='The PO approver cannot issue the same controlled revision.';
+            END IF;
           END IF;
-          IF NEW."Action"='Approve' AND TG_TABLE_NAME='purchase_order_history' AND EXISTS (
-            SELECT 1 FROM __advance_schema__.purchase_transaction_status_history h WHERE h."EntityType"='PurchaseOrder' AND h."EntityId"=NEW."PurchaseOrderId"
-              AND h."ToStatus" IN ('PendingApproval','Resubmitted') AND h."ActorEmployeeId"=NEW."ActorEmployeeId" AND h."Version"=parent_version-1) THEN
-            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_issuer_approver_separation',MESSAGE='The PO submitter or resubmitter cannot approve the same controlled version.';
-          END IF;
-          IF NEW."Action"='Issue' AND TG_TABLE_NAME='purchase_order_history' AND EXISTS (
-            SELECT 1 FROM __advance_schema__.purchase_order_history approved
-            WHERE approved."PurchaseOrderId"=NEW."PurchaseOrderId" AND approved."Action"='Approve'
-              AND approved."ToStatus"='Approved' AND approved."RevisionNumber"=NEW."RevisionNumber"
-              AND approved."ActorEmployeeId"=NEW."ActorEmployeeId") THEN
-            RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_po_approver_issuer_separation',
-              MESSAGE='The PO approver cannot issue the same controlled revision.';
-          END IF;
-          IF NOT (
-            (TG_TABLE_NAME='purchase_transaction_status_history' AND (
+          IF TG_TABLE_NAME='purchase_transaction_status_history' THEN
+            authorized:=(
               (NEW."EntityType" IN ('RFQ','RFQInvitation') AND NEW."ActorRoleCode" IN ('PURCHASE_EXECUTIVE','PURCHASE_MANAGER')) OR
               (NEW."EntityType"='VendorQuotation' AND NEW."Action" IN ('Verify','RejectTechnical','ReserveTechnicalVerification') AND NEW."ActorRoleCode" IN ('TECHNICAL_ENGINEER','TECHNICAL_DIRECTOR')) OR
               (NEW."EntityType"='VendorQuotation' AND NEW."Action" NOT IN ('Verify','RejectTechnical','ReserveTechnicalVerification') AND NEW."ActorRoleCode" IN ('PURCHASE_EXECUTIVE','PURCHASE_MANAGER')) OR
@@ -177,29 +189,25 @@ internal static class Rev869BControlledMutationSql
               (NEW."EntityType" IN ('CommercialComparison','PurchaseOrder') AND NEW."Action" IN ('Approve','Reject','RequestRevision') AND
                 ((NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER') AND EXISTS (SELECT 1 FROM __advance_schema__.purchase_transaction_approval_policies p WHERE p."OrganizationId"=parent_org AND p."RouteCode" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND p."IsActive")) OR
                  NEW."ActorRoleCode" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR')))
-            )) OR
-            (TG_TABLE_NAME='purchase_transaction_approval_history' AND
-              ((NEW."ApprovalRoute" IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')) OR
-               (NEW."ApprovalRoute"='TECHNICAL_DIRECTOR' AND NEW."ActorRoleCode"='TECHNICAL_DIRECTOR') OR
-               (NEW."ApprovalRoute"='MANAGING_DIRECTOR' AND NEW."ActorRoleCode"='MANAGING_DIRECTOR'))) OR
-            (TG_TABLE_NAME='purchase_order_history' AND
-              ((NEW."Action" IN ('Approve','Reject','RequestRevision') AND
-                (((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId") IN ('DEPARTMENT_ONLY','DEPARTMENT_THEN_TD','DEPARTMENT_THEN_MD') AND NEW."ActorRoleCode" IN ('PRODUCTION_MANAGER','ACCOUNTS_MANAGER')) OR
-                 ((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId")='TECHNICAL_DIRECTOR' AND NEW."ActorRoleCode"='TECHNICAL_DIRECTOR') OR
-                 ((SELECT p."ApprovalRoute" FROM __advance_schema__.purchase_orders p WHERE p."Id"=NEW."PurchaseOrderId")='MANAGING_DIRECTOR' AND NEW."ActorRoleCode"='MANAGING_DIRECTOR'))) OR
-               (NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER')))
-          ) THEN
+            );
+          ELSIF TG_TABLE_NAME='purchase_transaction_approval_history' THEN
+            authorized:=(
+              (NEW."Action" IN ('Approve','Reject','RequestRevision') AND
+               NEW."ActorRoleCode"=NEW."ResolvedRoleCode" AND NEW."ResolvedRoleCode"<>'PURCHASE_MANAGER') OR
+              (NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER'));
+          ELSE
+            authorized:=(
+              (NEW."Action" IN ('Approve','Reject','RequestRevision') AND
+               NEW."ActorRoleCode"=NEW."ResolvedRoleCode" AND NEW."ResolvedRoleCode"<>'PURCHASE_MANAGER') OR
+              (NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER'));
+          END IF;
+          IF NOT authorized THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_history_action_role',MESSAGE='History role is not authorized for the exact controlled action and approval route.';
           END IF;
           PERFORM __advance_schema__.rev869b_claim_command_context(TG_TABLE_NAME,NEW."Id",
-            CASE WHEN TG_TABLE_NAME='purchase_transaction_status_history' THEN NEW."EntityType"
-                 WHEN TG_TABLE_NAME='purchase_transaction_approval_history' THEN 'CommercialComparison'
-                 ELSE 'PurchaseOrder' END,
-            CASE WHEN TG_TABLE_NAME='purchase_transaction_status_history' THEN NEW."EntityId"
-                 WHEN TG_TABLE_NAME='purchase_transaction_approval_history' THEN NEW."CommercialComparisonId"
-                 ELSE NEW."PurchaseOrderId" END,
+            history_entity_type,history_entity_id,
             NEW."Action",parent_version,NEW."FromStatus",NEW."ToStatus",NEW."CorrelationId",
-            CASE WHEN TG_TABLE_NAME='purchase_order_history' THEN NEW."Reason" ELSE NEW."Remarks" END);
+            history_remarks);
           NEW."Version":=parent_version; NEW."CreatedAt":=transaction_timestamp(); NEW."UpdatedAt":=NULL; NEW."UpdatedBy":=NULL;
           RETURN NEW;
         END $rev869b$;
@@ -238,9 +246,9 @@ internal static class Rev869BControlledMutationSql
             END IF;
             RETURN NEW;
           END IF;
-          SELECT count(*),min(m."EmployeeId") INTO actor_matches,actor_employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
-           WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=NEW."UpdatedBy" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
-          SELECT count(*),min(m."EmployeeId") INTO creator_matches,creator_employee FROM __advance_schema__.employee_identity_mappings m
+          SELECT count(*),min(m."EmployeeId"::text)::uuid INTO actor_matches,actor_employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
+            WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=NEW."UpdatedBy" AND m."IsActive" AND upper(e."Status")='ACTIVE' AND e."LoginEnabled";
+          SELECT count(*),min(m."EmployeeId"::text)::uuid INTO creator_matches,creator_employee FROM __advance_schema__.employee_identity_mappings m
            WHERE m."OrganizationId"=NEW."OrganizationId" AND m."Subject"=OLD."CreatedBy" AND m."IsActive";
           IF actor_matches<>1 THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_qualification_actor_binding',MESSAGE='Qualification actor must resolve to exactly one active employee.';
@@ -418,11 +426,14 @@ internal static class Rev869BControlledMutationSql
               RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_actor_binding',MESSAGE='Controlled INSERT actor must match command context.';
             END IF;
             IF NEW."Version"<>0 THEN RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_version_zero',MESSAGE=format('%s INSERT requires version zero.',TG_TABLE_NAME); END IF;
-            IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') AND
-               (length(trim(coalesce(NEW."TransitionCorrelationId",'')))=0 OR NEW."TransitionCorrelationId" IS DISTINCT FROM NEW."IdempotencyKey") THEN
-              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_command_correlation',MESSAGE='Controlled aggregate INSERT must bind its initial command fingerprint.';
-            ELSIF TG_TABLE_NAME IN ('quotation_technical_verifications','material_followup_handoffs') AND length(trim(coalesce(NEW."CorrelationId",'')))=0 THEN
-              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_command_correlation',MESSAGE='Controlled event INSERT must bind its command fingerprint.';
+            IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') THEN
+              IF length(trim(coalesce(NEW."TransitionCorrelationId",'')))=0 OR NEW."TransitionCorrelationId" IS DISTINCT FROM NEW."IdempotencyKey" THEN
+                RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_command_correlation',MESSAGE='Controlled aggregate INSERT must bind its initial command fingerprint.';
+              END IF;
+            ELSIF TG_TABLE_NAME IN ('quotation_technical_verifications','material_followup_handoffs') THEN
+              IF length(trim(coalesce(NEW."CorrelationId",'')))=0 THEN
+                RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_initial_command_correlation',MESSAGE='Controlled event INSERT must bind its command fingerprint.';
+              END IF;
             END IF;
             IF TG_TABLE_NAME='purchase_transaction_approval_policies' THEN
               IF length(trim(coalesce(NEW."CreatedBy",'')))=0 OR NEW."EffectiveTo" IS NOT NULL AND NEW."EffectiveTo"<NEW."EffectiveFrom" THEN
@@ -435,6 +446,27 @@ internal static class Rev869BControlledMutationSql
           IF NEW."Version"<>OLD."Version"+1 THEN RAISE EXCEPTION USING ERRCODE='40001',CONSTRAINT='rev869b_exact_version_increment',MESSAGE=format('%s UPDATE requires exact version +1.',TG_TABLE_NAME); END IF;
           IF NEW."UpdatedBy" IS DISTINCT FROM current_setting('__advance_schema__.rev869b_actor_login',true) THEN
             RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_command_actor_binding',MESSAGE='Controlled UPDATE actor must match command context.';
+          END IF;
+          IF TG_TABLE_NAME='commercial_comparison_lines' THEN
+            SELECT c."Status" INTO STRICT parent_status FROM __advance_schema__.commercial_comparisons c WHERE c."Id"=NEW."CommercialComparisonId";
+            IF parent_status NOT IN ('Draft','RevisionRequested') OR
+               to_jsonb(NEW)-ARRAY['IsRecommended','RecommendationReason','TotalPayableValue','CommercialSnapshotJson','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['IsRecommended','RecommendationReason','TotalPayableValue','CommercialSnapshotJson','Version','UpdatedAt','UpdatedBy'] THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_comparison_line_editable_boundary',MESSAGE='Comparison line correction requires its exact editable parent and immutable provenance.';
+            END IF;
+            RETURN NEW;
+          ELSIF TG_TABLE_NAME='material_followup_handoffs' THEN
+            IF NEW."CorrelationId" IS NOT DISTINCT FROM OLD."CorrelationId" OR length(trim(coalesce(NEW."CorrelationId",'')))=0 OR
+               (OLD."Status",NEW."Status") NOT IN (('PendingFollowUp','InProgress'),('InProgress','Completed')) OR
+               (NEW."PurchaseOrderId",NEW."PurchaseOrderLineId",NEW."HandoffNumber",NEW."OrderedQuantitySnapshot",NEW."HandoffAt") IS DISTINCT FROM (OLD."PurchaseOrderId",OLD."PurchaseOrderLineId",OLD."HandoffNumber",OLD."OrderedQuantitySnapshot",OLD."HandoffAt") OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_followup_transition',MESSAGE='Material Follow-up permits only PendingFollowUp to InProgress to Completed.';
+            END IF;
+            RETURN NEW;
+          ELSIF TG_TABLE_NAME='purchase_transaction_approval_policies' THEN
+            IF (NEW."OrganizationId",NEW."RouteCode",NEW."MinimumAmount",NEW."MaximumAmount",NEW."ApproverRoleCode",NEW."EffectiveFrom") IS DISTINCT FROM (OLD."OrganizationId",OLD."RouteCode",OLD."MinimumAmount",OLD."MaximumAmount",OLD."ApproverRoleCode",OLD."EffectiveFrom") OR NEW."IsActive"=OLD."IsActive" OR length(trim(coalesce(NEW."UpdatedBy",'')))=0 THEN
+              RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_policy_controlled_lifecycle',MESSAGE='Approval policy UPDATE permits only controlled activation/deactivation.';
+            END IF;
+            NEW."UpdatedAt":=statement_timestamp();
+            RETURN NEW;
           END IF;
           IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') AND
              (length(trim(coalesce(NEW."TransitionCorrelationId",'')))=0 OR NEW."TransitionCorrelationId" IS NOT DISTINCT FROM OLD."TransitionCorrelationId") THEN
@@ -450,10 +482,10 @@ internal static class Rev869BControlledMutationSql
              to_jsonb(NEW)-ARRAY['Status','IsCurrentRevision','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','IsCurrentRevision','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_quotation_update_allowlist',MESSAGE='Quotation update altered immutable commercial, revision or provenance facts.';
           ELSIF TG_TABLE_NAME='commercial_comparisons' AND NEW."Status"='PendingApproval' AND OLD."Status" IN ('Draft','RevisionRequested') AND
-             to_jsonb(NEW)-ARRAY['RecommendedVendorQuotationId','SelectedVendorId','TotalPayableValue','ApprovalRoute','SingleSourceJustification','RecommendationRemarks','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['RecommendedVendorQuotationId','SelectedVendorId','TotalPayableValue','ApprovalRoute','SingleSourceJustification','RecommendationRemarks','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+             to_jsonb(NEW)-ARRAY['RecommendedVendorQuotationId','SelectedVendorId','TotalPayableValue','ApprovalRoute','ApprovalCycle','RequiredApprovalStepCount','CompletedApprovalStepCount','ApprovalWorkflowSnapshotJson','CreatorEmployeeId','SingleSourceJustification','RecommendationRemarks','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['RecommendedVendorQuotationId','SelectedVendorId','TotalPayableValue','ApprovalRoute','ApprovalCycle','RequiredApprovalStepCount','CompletedApprovalStepCount','ApprovalWorkflowSnapshotJson','CreatorEmployeeId','SingleSourceJustification','RecommendationRemarks','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_comparison_recommendation_allowlist',MESSAGE='Comparison recommendation altered a field outside the Draft/RevisionRequested correction boundary.';
           ELSIF TG_TABLE_NAME='commercial_comparisons' AND NOT (NEW."Status"='PendingApproval' AND OLD."Status" IN ('Draft','RevisionRequested')) AND
-             to_jsonb(NEW)-ARRAY['Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+             to_jsonb(NEW)-ARRAY['Status','CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_comparison_transition_allowlist',MESSAGE='Comparison transition altered protected commercial, selection or provenance fields.';
           ELSIF TG_TABLE_NAME='purchase_orders' AND NEW."Status"='Issued' AND
              to_jsonb(NEW)-ARRAY['Status','IssuedAt','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','IssuedAt','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
@@ -462,13 +494,20 @@ internal static class Rev869BControlledMutationSql
              to_jsonb(NEW)-ARRAY['Status','CancelledAt','CancellationReason','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','CancelledAt','CancellationReason','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_po_cancel_allowlist',MESSAGE='PO cancellation altered a protected snapshot or lifecycle field.';
           ELSIF TG_TABLE_NAME='purchase_orders' AND NEW."Status" IN ('Approved','Rejected','Superseded') AND
-             to_jsonb(NEW)-ARRAY['Status','IsCurrentVersion','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','IsCurrentVersion','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+             to_jsonb(NEW)-ARRAY['Status','CompletedApprovalStepCount','IsCurrentVersion','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','CompletedApprovalStepCount','IsCurrentVersion','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_po_approval_allowlist',MESSAGE='PO approval/rejection/supersession altered a protected snapshot or lifecycle field.';
+          ELSIF TG_TABLE_NAME='purchase_orders' AND NEW."Status" IN ('PendingApproval','Resubmitted') AND OLD."Status" IN ('Draft','RevisionDraft') AND
+             to_jsonb(NEW)-ARRAY['ApprovalRoute','ApprovalCycle','RequiredApprovalStepCount','CompletedApprovalStepCount','ApprovalWorkflowSnapshotJson','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['ApprovalRoute','ApprovalCycle','RequiredApprovalStepCount','CompletedApprovalStepCount','ApprovalWorkflowSnapshotJson','Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_po_submission_allowlist',MESSAGE='PO submission altered a field outside its exact approval-workflow snapshot allowlist.';
           ELSIF TG_TABLE_NAME='purchase_orders' AND NEW."Status" NOT IN ('Issued','Cancelled','Approved','Rejected','Superseded') AND
-             to_jsonb(NEW)-ARRAY['Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+             NOT (NEW."Status" IN ('PendingApproval','Resubmitted') AND OLD."Status" IN ('Draft','RevisionDraft')) AND
+             to_jsonb(NEW)-ARRAY['Status','CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['Status','CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_po_transition_allowlist',MESSAGE='PO transition altered protected terms, snapshots, current-version or provenance fields.';
           END IF;
-          IF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations','commercial_comparisons','purchase_orders') AND NEW."Status"=OLD."Status" AND
+          IF TG_TABLE_NAME IN ('commercial_comparisons','purchase_orders') AND NEW."Status"=OLD."Status" AND
+             to_jsonb(NEW)-ARRAY['CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['CompletedApprovalStepCount','TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
+            RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_protected_fields',MESSAGE='Same-status approval step cannot alter controlled fields.';
+          ELSIF TG_TABLE_NAME IN ('request_for_quotations','rfq_vendor_invitations','vendor_quotations') AND NEW."Status"=OLD."Status" AND
              to_jsonb(NEW)-ARRAY['TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] IS DISTINCT FROM to_jsonb(OLD)-ARRAY['TransitionCorrelationId','Version','UpdatedAt','UpdatedBy'] THEN
             RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_protected_fields',MESSAGE='Same-status reservation cannot alter controlled fields.';
           ELSIF TG_TABLE_NAME='commercial_comparison_lines' THEN
@@ -496,8 +535,8 @@ internal static class Rev869BControlledMutationSql
         CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_write_policy_history() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,__advance_schema__ AS $rev869b$
         DECLARE employee uuid; matches bigint; actor_role text; actor text:=coalesce(NEW."UpdatedBy",NEW."CreatedBy");
         BEGIN
-          SELECT count(*),min(m."EmployeeId") INTO matches,employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
-           WHERE m."Subject"=actor AND m."CompanyId"=NEW."CompanyId" AND m."OrganizationId"=NEW."OrganizationId" AND m."IsActive" AND e."Status"='Active' AND e."LoginEnabled";
+          SELECT count(*),min(m."EmployeeId"::text)::uuid INTO matches,employee FROM __advance_schema__.employee_identity_mappings m JOIN __advance_schema__.employees e ON e."Id"=m."EmployeeId"
+            WHERE m."Subject"=actor AND m."CompanyId"=NEW."CompanyId" AND m."OrganizationId"=NEW."OrganizationId" AND m."IsActive" AND upper(e."Status")='ACTIVE' AND e."LoginEnabled";
           IF matches<>1 THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_identity',MESSAGE='Approval-policy actor must resolve to one active organization identity.'; END IF;
           SELECT min(r."Code") INTO actor_role FROM __advance_schema__.employee_role_assignments a JOIN __advance_schema__.roles r ON r."Id"=a."RoleId" AND r."IsActive" WHERE a."CompanyId"=NEW."CompanyId" AND a."EmployeeId"=employee AND r."Code" IN ('TECHNICAL_DIRECTOR','MANAGING_DIRECTOR') AND a."ApprovalStatus" IN ('Approved','SeedApproved');
           IF actor_role IS NULL THEN RAISE EXCEPTION USING ERRCODE='42501',CONSTRAINT='rev869b_policy_actor_role',MESSAGE='Approval-policy lifecycle requires an authorized active role.'; END IF;
@@ -536,8 +575,12 @@ internal static class Rev869BControlledMutationSql
               SELECT h."Action" INTO expected_action FROM __advance_schema__.purchase_transaction_status_history h WHERE h."EntityType"=entity_type AND h."EntityId"=NEW."Id" AND h."Action" IN ('ReserveInvitation','ReserveComparison') AND h."CorrelationId"=NEW."TransitionCorrelationId" AND h.xmin::text::bigint=txid_current();
             ELSIF TG_TABLE_NAME='rfq_vendor_invitations' THEN entity_type:='RFQInvitation'; expected_action:='ReserveQuotation';
             ELSIF TG_TABLE_NAME='vendor_quotations' THEN entity_type:='VendorQuotation'; expected_action:='ReserveTechnicalVerification';
-            ELSIF TG_TABLE_NAME='commercial_comparisons' THEN entity_type:='CommercialComparison'; expected_action:='ReservePurchaseOrder';
-            ELSIF TG_TABLE_NAME='purchase_orders' THEN entity_type:='PurchaseOrder'; expected_action:='ReserveAmendment';
+            ELSIF TG_TABLE_NAME='commercial_comparisons' THEN
+              entity_type:='CommercialComparison';
+              expected_action:=CASE WHEN NEW."CompletedApprovalStepCount"=OLD."CompletedApprovalStepCount"+1 THEN 'Approve' ELSE 'ReservePurchaseOrder' END;
+            ELSIF TG_TABLE_NAME='purchase_orders' THEN
+              entity_type:='PurchaseOrder';
+              expected_action:=CASE WHEN NEW."CompletedApprovalStepCount"=OLD."CompletedApprovalStepCount"+1 THEN 'Approve' ELSE 'ReserveAmendment' END;
             ELSE RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_update_forbidden',MESSAGE='This aggregate has no controlled same-status mutation.';
             END IF;
             IF expected_action IS NULL THEN RAISE EXCEPTION USING ERRCODE='23514',CONSTRAINT='rev869b_same_status_history_action',MESSAGE='Same-status mutation requires its exact reservation action.'; END IF;
@@ -573,6 +616,7 @@ internal static class Rev869BControlledMutationSql
         CREATE TRIGGER trg_rev869b_explicit_po_mutation BEFORE INSERT OR UPDATE ON __advance_schema__.purchase_orders FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_followup_mutation BEFORE INSERT OR UPDATE ON __advance_schema__.material_followup_handoffs FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation();
         CREATE TRIGGER trg_rev869b_explicit_policy_mutation BEFORE INSERT OR UPDATE ON __advance_schema__.purchase_transaction_approval_policies FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation();
+        DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON __advance_schema__.vendor_qualifications;
         CREATE TRIGGER trg_rev869b_qualification_lifecycle BEFORE INSERT OR UPDATE OR DELETE ON __advance_schema__.vendor_qualifications FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_guard_qualification_lifecycle();
         CREATE CONSTRAINT TRIGGER trg_rev869b_bound_qualification_history AFTER INSERT OR UPDATE ON __advance_schema__.vendor_qualifications DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_require_qualification_history();
         CREATE TRIGGER trg_rev869b_explicit_rfq_line_insert BEFORE INSERT ON __advance_schema__.request_for_quotation_lines FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation();
@@ -618,5 +662,7 @@ internal static class Rev869BControlledMutationSql
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_require_bound_history() CASCADE;
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_guard_explicit_mutation() CASCADE;
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_reject_controlled_delete() CASCADE;
+        DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON __advance_schema__.vendor_qualifications;
+        CREATE TRIGGER trg_rev869a_vendor_qualification_version_guard BEFORE UPDATE OR DELETE ON __advance_schema__.vendor_qualifications FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869a_guard_controlled_version();
         """;
 }

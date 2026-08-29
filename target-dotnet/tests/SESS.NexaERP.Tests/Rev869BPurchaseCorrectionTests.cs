@@ -39,12 +39,12 @@ public sealed class Rev869BPurchaseCorrectionTests
             ("TechnicallyCompliant", "Superseded"), ("TechnicallyCompliant", "Withdrawn"),
             ("TechnicallyRejected", "Superseded"), ("TechnicallyRejected", "Withdrawn"), ("TechnicallyRejected", "Rejected"));
         AssertMatrix(Rev869BStatusContracts.Comparison, Rev869BStatusContracts.RequireComparison,
-            ("Draft", "PendingApproval"), ("Draft", "Cancelled"), ("PendingApproval", "Approved"), ("PendingApproval", "Rejected"),
+            ("Draft", "PendingApproval"), ("Draft", "Cancelled"), ("PendingApproval", "PendingApproval"), ("PendingApproval", "Approved"), ("PendingApproval", "Rejected"),
             ("PendingApproval", "RevisionRequested"), ("RevisionRequested", "PendingApproval"), ("RevisionRequested", "Cancelled"));
         AssertMatrix(Rev869BStatusContracts.PurchaseOrder, Rev869BStatusContracts.RequirePurchaseOrder,
-            ("Draft", "PendingApproval"), ("Draft", "Cancelled"), ("PendingApproval", "Approved"), ("PendingApproval", "Rejected"),
+            ("Draft", "PendingApproval"), ("Draft", "Cancelled"), ("PendingApproval", "PendingApproval"), ("PendingApproval", "Approved"), ("PendingApproval", "Rejected"),
             ("PendingApproval", "Cancelled"), ("Rejected", "RevisionDraft"), ("RevisionDraft", "Resubmitted"), ("RevisionDraft", "Cancelled"),
-            ("Resubmitted", "Approved"), ("Resubmitted", "Rejected"), ("Resubmitted", "Cancelled"),
+            ("Resubmitted", "Resubmitted"), ("Resubmitted", "Approved"), ("Resubmitted", "Rejected"), ("Resubmitted", "Cancelled"),
             ("Approved", "Issued"), ("Approved", "Cancelled"), ("Issued", "Superseded"), ("Issued", "Cancelled"));
         AssertMatrix(Rev869BStatusContracts.MaterialFollowUp, Rev869BStatusContracts.RequireMaterialFollowUp,
             ("PendingFollowUp", "InProgress"), ("InProgress", "Completed"));

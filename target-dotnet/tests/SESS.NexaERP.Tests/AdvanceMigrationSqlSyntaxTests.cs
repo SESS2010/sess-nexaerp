@@ -9,7 +9,7 @@ using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
-public sealed class AdvanceMigrationSqlSyntaxTests
+public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private static readonly string[] ExpectedBusinessMigrationIds =
     [
@@ -139,8 +139,9 @@ public sealed class AdvanceMigrationSqlSyntaxTests
         var migrator = db.GetService<IMigrator>();
         var migrations = db.Database.GetMigrations().ToArray();
         const string target = "20260829065338_MasterDataImportFramework";
-        Assert.Equal(target, migrations[^1]);
-        var predecessor = migrations[^2];
+        var targetIndex = Array.IndexOf(migrations, target);
+        Assert.True(targetIndex > 0);
+        var predecessor = migrations[targetIndex - 1];
 
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("master-import-prerequisite.sql", migrator.GenerateScript("0", predecessor));
@@ -212,6 +213,78 @@ public sealed class AdvanceMigrationSqlSyntaxTests
                  OR to_regclass('advance.master_import_row_results') IS NOT NULL
                  OR to_regprocedure('advance.purge_expired_master_import_sensitive_values()') IS NOT NULL THEN
                 RAISE EXCEPTION 'master import objects survived Down';
+              END IF;
+            END $assert$;
+            """);
+    }
+
+    [Fact]
+    public void ControlledTaxGstWorkflowGuardsUpAndDownOnDisposablePostgreSql()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        const string target = "20260829114544_ControlledTaxGstWorkflow";
+        var targetIndex = Array.IndexOf(migrations, target);
+        Assert.True(targetIndex > 0);
+        var predecessor = migrations[targetIndex - 1];
+
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("tax-workflow-prerequisite.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("tax-workflow-up.sql", migrator.GenerateScript(predecessor, target) + """
+            DO $assert$
+            BEGIN
+              IF to_regprocedure('advance.tax_gst_guard_controlled_mutation()') IS NULL
+                 OR to_regprocedure('advance.tax_gst_guard_history_insert()') IS NULL
+                 OR to_regprocedure('advance.tax_gst_require_history()') IS NULL THEN
+                RAISE EXCEPTION 'GST workflow functions are missing';
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='advance' AND table_name='tax_gst_settings' AND column_name='CreatorEmployeeId') THEN
+                RAISE EXCEPTION 'GST creator identity is missing';
+              END IF;
+            END $assert$;
+            """);
+        server.AssertRejected("tax-workflow-direct-postgres-denied.sql", """
+            DO $assert$
+            DECLARE error_state text; error_constraint text; error_message text;
+            BEGIN
+              BEGIN
+                INSERT INTO advance.tax_gst_settings
+                  ("Id","CompanyId","OrganizationId","JurisdictionCode","HsnSacCode","SupplyType",
+                   "SupplierStateCode","PlaceOfSupplyStateCode","VendorRegistrationType","GstRate","CgstRate",
+                   "SgstRate","IgstRate","CessRate","IsExempt","IsReverseCharge","CurrencyCode","RoundingScale",
+                   "EffectiveFrom","ApprovalStatus","CreatorEmployeeId","IsActive","CreatedAt","CreatedBy","Version")
+                SELECT '94000000-0000-0000-0000-000000000001',c."Id",c."Code",'IN_GST','9025','INTRASTATE',
+                       '33','33','REGULAR',18,9,9,0,0,false,false,'INR',2,current_date,'Pending Approval',
+                       e."Id",true,clock_timestamp(),'postgres',0
+                FROM advance.companies c CROSS JOIN LATERAL
+                  (SELECT "Id" FROM advance.employees ORDER BY "Id" LIMIT 1) e
+                ORDER BY c."Id" LIMIT 1;
+              EXCEPTION WHEN OTHERS THEN
+                GET STACKED DIAGNOSTICS error_state=RETURNED_SQLSTATE,error_constraint=CONSTRAINT_NAME,error_message=MESSAGE_TEXT;
+                IF error_state='42501' AND error_constraint='tax_gst_signed_context_required' THEN
+                  RAISE EXCEPTION 'exact signed command principal';
+                END IF;
+                RAISE EXCEPTION 'unexpected direct-write result: state=%, constraint=%, message=%',
+                  error_state,error_constraint,error_message;
+              END;
+              RAISE EXCEPTION 'direct postgres execution was allowed';
+            END $assert$;
+            """, "exact signed command principal");
+        server.Execute("tax-workflow-down.sql", migrator.GenerateScript(target, predecessor) + """
+            DO $assert$
+            BEGIN
+              IF to_regprocedure('advance.tax_gst_guard_controlled_mutation()') IS NOT NULL
+                 OR EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema='advance' AND table_name='tax_gst_settings' AND column_name='CreatorEmployeeId') THEN
+                RAISE EXCEPTION 'GST workflow objects survived Down';
+              END IF;
+              IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                WHERE tgrelid='advance.tax_gst_settings'::regclass AND tgname='trg_rev869a_tax_version_guard') THEN
+                RAISE EXCEPTION 'REV869A tax guard was not restored';
               END IF;
             END $assert$;
             """);
@@ -788,7 +861,8 @@ public sealed class AdvanceMigrationSqlSyntaxTests
             var result = Psql(name, sql);
             Assert.NotEqual(0, result.Code);
             Assert.Contains("ERROR:", result.Output, StringComparison.OrdinalIgnoreCase);
-            if (expectedMessage is not null) Assert.Contains(expectedMessage, result.Output, StringComparison.OrdinalIgnoreCase);
+            if (expectedMessage is not null)
+                Assert.True(result.Output.Contains(expectedMessage, StringComparison.OrdinalIgnoreCase), result.Output);
         }
 
         public void Execute(string name, string sql) => Require(Psql(name, sql), name);

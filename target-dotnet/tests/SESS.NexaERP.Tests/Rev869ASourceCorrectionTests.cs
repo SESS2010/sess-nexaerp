@@ -69,11 +69,11 @@ public sealed class Rev869ASourceCorrectionTests
         Assert.True(interstate.HasValidIndiaComponentSplit());
 
         var service = Read("src", "SESS.NexaERP.Infrastructure", "Masters", "EfRev869AFoundationServices.cs");
-        var endpoint = Read("src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs");
+        var taxWorkflow = Read("src", "SESS.NexaERP.Infrastructure", "Masters", "EfTaxGstWorkflowService.cs");
         Assert.Contains("matches.Count != 1", service);
-        Assert.Contains("SupplierStateCode", endpoint);
-        Assert.Contains("PlaceOfSupplyStateCode", endpoint);
-        Assert.Contains("An overlapping effective tax rule exists", endpoint);
+        Assert.Contains("SupplierStateCode", taxWorkflow);
+        Assert.Contains("PlaceOfSupplyStateCode", taxWorkflow);
+        Assert.Contains("An overlapping effective approved tax rule exists", taxWorkflow);
     }
 
 

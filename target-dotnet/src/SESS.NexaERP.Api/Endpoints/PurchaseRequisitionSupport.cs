@@ -24,7 +24,7 @@ public static partial class PurchaseRequisitionEndpoints
         var correlation = string.IsNullOrWhiteSpace(request.IdempotencyKey) ? Correlation("STOCKCHECK") : request.IdempotencyKey.Trim();
         var existingCheck = await db.StockAvailabilityChecks.SingleOrDefaultAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct);
         if (existingCheck is not null) return Results.Ok(new { existingCheck.CheckNumber, existingCheck.ResultStatus });
-        var check = new StockAvailabilityCheck { PurchaseRequisitionId = pr.Id, CheckNumber = $"SC-{pr.PrNumber}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}", CheckedBy = user.LoginId, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = user.LoginId };
+        var check = new StockAvailabilityCheck { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, CheckNumber = $"SC-{pr.PrNumber}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}", CheckedBy = user.LoginId, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = user.LoginId };
         var anyShortage = false;
         var anyReservation = false;
         foreach (var line in pr.Lines.OrderBy(x => x.LineNumber))
@@ -50,13 +50,13 @@ public static partial class PurchaseRequisitionEndpoints
                 totalPriorReserved += activeReserved;
                 totalAvailable += available;
                 totalReservedNow += reserve;
-                check.Lines.Add(new StockAvailabilityCheckLine { PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = location.WarehouseId, RackBinId = location.RackBinId, LocationKey = location.LocationKey, RequestedQuantity = line.RequestedQuantity, OnHandQuantity = onHand, ActiveReservedQuantity = activeReserved, AvailableQuantity = available, ReservedQuantity = reserve, ShortageQuantity = locationShortage, CheckedAt = checkedAt, LineResultStatus = reserve > 0 ? PurchaseRequisitionLineStatuses.PartiallyReserved : PurchaseRequisitionLineStatuses.PurchaseRequired, CreatedBy = user.LoginId });
+                check.Lines.Add(new StockAvailabilityCheckLine { CompanyId = pr.CompanyId, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = location.WarehouseId, RackBinId = location.RackBinId, LocationKey = location.LocationKey, RequestedQuantity = line.RequestedQuantity, OnHandQuantity = onHand, ActiveReservedQuantity = activeReserved, AvailableQuantity = available, ReservedQuantity = reserve, ShortageQuantity = locationShortage, CheckedAt = checkedAt, LineResultStatus = reserve > 0 ? PurchaseRequisitionLineStatuses.PartiallyReserved : PurchaseRequisitionLineStatuses.PurchaseRequired, CreatedBy = user.LoginId });
                 if (reserve > 0)
                 {
                     if (await db.StockReservations.AnyAsync(x => x.PurchaseRequisitionLineId == line.Id && x.LocationKey == location.LocationKey && x.Status == "Active", ct)) return Results.Conflict(new { message = $"Line {line.LineNumber}: active reservation already exists for warehouse/bin allocation." });
-                    var reservation = new StockReservation { PurchaseRequisitionId = pr.Id, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = location.WarehouseId, RackBinId = location.RackBinId, LocationKey = location.LocationKey, ReservedQuantity = reserve, ReservationNumber = $"RSV-{pr.PrNumber}-{line.LineNumber:000}-{location.WarehouseCode}-{location.RackBinCode ?? "NA"}", ReservedBy = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId };
+                    var reservation = new StockReservation { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = location.WarehouseId, RackBinId = location.RackBinId, LocationKey = location.LocationKey, ReservedQuantity = reserve, ReservationNumber = $"RSV-{pr.PrNumber}-{line.LineNumber:000}-{location.WarehouseCode}-{location.RackBinCode ?? "NA"}", ReservedBy = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId };
                     db.StockReservations.Add(reservation);
-                    db.StockReservationHistories.Add(new StockReservationHistory { StockReservationId = reservation.Id, Action = "Create", NewStatus = "Active", Remarks = request.Remarks.Trim(), ActorLoginId = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId });
+                    db.StockReservationHistories.Add(new StockReservationHistory { CompanyId = pr.CompanyId, StockReservationId = reservation.Id, StockReservation = reservation, Action = "Create", NewStatus = "Active", Remarks = request.Remarks.Trim(), ActorLoginId = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId });
                 }
             }
             var activeReservedAfter = await ActiveReservedForLine(db, line.Id, ct) + totalReservedNow;
@@ -73,7 +73,7 @@ public static partial class PurchaseRequisitionEndpoints
             if (shortage > 0 && !await db.PurchaseRequirementHandoffs.AnyAsync(x => x.PurchaseRequisitionLineId == line.Id && x.Status == "PendingRFQ", ct))
             {
                 var handoffLocation = locations[0];
-                db.PurchaseRequirementHandoffs.Add(new PurchaseRequirementHandoff { PurchaseRequisitionId = pr.Id, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = handoffLocation.WarehouseId, RackBinId = handoffLocation.RackBinId, LocationKey = handoffLocation.LocationKey, HandoffQuantity = shortage, HandoffNumber = $"PHO-{pr.PrNumber}-{line.LineNumber:000}", HandoffBy = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId });
+                db.PurchaseRequirementHandoffs.Add(new PurchaseRequirementHandoff { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisitionLineId = line.Id, ItemId = line.ItemId.Value, WarehouseId = handoffLocation.WarehouseId, RackBinId = handoffLocation.RackBinId, LocationKey = handoffLocation.LocationKey, HandoffQuantity = shortage, HandoffNumber = $"PHO-{pr.PrNumber}-{line.LineNumber:000}", HandoffBy = user.LoginId, CorrelationId = correlation, CreatedBy = user.LoginId });
             }
             anyReservation |= line.ReservedQuantity > 0;
             anyShortage |= shortage > 0;

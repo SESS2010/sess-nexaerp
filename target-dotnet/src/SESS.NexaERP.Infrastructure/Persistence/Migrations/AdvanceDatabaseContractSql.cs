@@ -4,8 +4,80 @@ internal static class AdvanceDatabaseContractSql
 {
     internal static string InstallRev869A => AdvanceSchemaSql.Expand(InstallRev869ATemplate);
     internal static string InstallRev869B => AdvanceSchemaSql.Expand(InstallRev869BTemplate);
+    internal static string ReconcileRev869BTransitionGuard => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_enforce_transition()")
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace(
+                "ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW.\"Status\" NOT IN ('Draft','RevisionDraft') THEN",
+                "ELSIF TG_TABLE_NAME = 'purchase_orders' THEN\n                            IF NEW.\"Status\" NOT IN ('Draft','RevisionDraft') THEN")
+            .Replace(
+                "ELSIF TG_TABLE_NAME = 'purchase_orders' AND NEW.\"Status\" = 'RevisionDraft' AND NOT EXISTS (",
+                "ELSIF NEW.\"Status\" = 'RevisionDraft' AND NOT EXISTS (")
+            .Replace(
+                "RAISE EXCEPTION 'RevisionDraft requires an immutable rejected predecessor.';",
+                "RAISE EXCEPTION 'RevisionDraft requires an immutable rejected predecessor.';\n                            END IF;")
+            .Replace("IF TG_TABLE_NAME = 'request_for_quotations' AND\n", "IF TG_TABLE_NAME = 'request_for_quotations' THEN\n                        IF ")
+            .Replace("RAISE EXCEPTION 'RFQ organization and parent are immutable.';", "RAISE EXCEPTION 'RFQ organization and parent are immutable.';\n                        END IF;")
+            .Replace("ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' AND\n", "ELSIF TG_TABLE_NAME = 'rfq_vendor_invitations' THEN\n                        IF ")
+            .Replace("RAISE EXCEPTION 'RFQ invitation parents are immutable.';", "RAISE EXCEPTION 'RFQ invitation parents are immutable.';\n                        END IF;")
+            .Replace("ELSIF TG_TABLE_NAME = 'vendor_quotations' AND\n", "ELSIF TG_TABLE_NAME = 'vendor_quotations' THEN\n                        IF ")
+            .Replace("RAISE EXCEPTION 'Quotation organization and parents are immutable.';", "RAISE EXCEPTION 'Quotation organization and parents are immutable.';\n                        END IF;")
+            .Replace("ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND\n", "ELSIF TG_TABLE_NAME = 'commercial_comparisons' THEN\n                        IF ")
+            .Replace("RAISE EXCEPTION 'Comparison organization and parent are immutable.';", "RAISE EXCEPTION 'Comparison organization and parent are immutable.';\n                        END IF;")
+            .Replace("ELSIF TG_TABLE_NAME = 'purchase_orders' AND\n", "ELSIF TG_TABLE_NAME = 'purchase_orders' THEN\n                        IF ")
+            .Replace("RAISE EXCEPTION 'Purchase order organization, provenance and version ancestry are immutable.';", "RAISE EXCEPTION 'Purchase order organization, provenance and version ancestry are immutable.';\n                        END IF;")
+            .Replace("IF TG_TABLE_NAME = 'commercial_comparisons' AND NEW.\"Status\" IN ('PendingApproval','Approved') AND (", "IF TG_TABLE_NAME = 'commercial_comparisons' THEN\n                    IF NEW.\"Status\" IN ('PendingApproval','Approved') AND (")
+            .Replace("THEN RAISE EXCEPTION 'Comparison snapshot is incomplete or does not exactly reconcile.'; END IF;", "THEN RAISE EXCEPTION 'Comparison snapshot is incomplete or does not exactly reconcile.'; END IF;\n                    END IF;"));
+    internal static string ReconcileRev869BParentGuard => AdvanceSchemaSql.Expand(
+        new[]
+        {
+            ("vendor_quotation_lines", "Quotation line parent contract mismatch."),
+            ("quotation_technical_verifications", "Technical verification parent contract mismatch."),
+            ("commercial_comparison_lines", "Comparison line parent contract mismatch."),
+            ("purchase_orders", "Purchase order parent contract mismatch."),
+            ("purchase_order_lines", "Purchase order line parent contract mismatch."),
+            ("material_followup_handoffs", "Material follow-up parent contract mismatch.")
+        }.Aggregate(
+            ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_validate_parent_contract()")
+                .Replace("\r\n", "\n", StringComparison.Ordinal),
+            static (sql, guard) => NestTableGuard(sql, guard.Item1, guard.Item2)));
+    internal static string ReconcileRev869BSnapshotGuard => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_controlled_snapshot()")
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("ARRAY['Status','Version','IsCurrentRevision','UpdatedAt','UpdatedBy']", "ARRAY['Status','Version','IsCurrentRevision','TransitionCorrelationId','UpdatedAt','UpdatedBy']", StringComparison.Ordinal)
+            .Replace("ARRAY['Status','Version','UpdatedAt','UpdatedBy']", "ARRAY['Status','CompletedApprovalStepCount','Version','TransitionCorrelationId','UpdatedAt','UpdatedBy']", StringComparison.Ordinal)
+            .Replace("ARRAY['Status','Version','IsCurrentVersion','IssuedAt','CancelledAt','CancellationReason','UpdatedAt','UpdatedBy']", "ARRAY['Status','ApprovalRoute','ApprovalCycle','RequiredApprovalStepCount','CompletedApprovalStepCount','ApprovalWorkflowSnapshotJson','Version','IsCurrentVersion','IssuedAt','CancelledAt','CancellationReason','TransitionCorrelationId','UpdatedAt','UpdatedBy']", StringComparison.Ordinal)
+            .Replace("IF TG_TABLE_NAME = 'vendor_quotations' AND\n", "IF TG_TABLE_NAME = 'vendor_quotations' THEN\n                        IF ", StringComparison.Ordinal)
+            .Replace("RAISE EXCEPTION 'Submitted quotation provenance and commercial terms are immutable.';", "RAISE EXCEPTION 'Submitted quotation provenance and commercial terms are immutable.';\n                        END IF;", StringComparison.Ordinal)
+            .Replace("ELSIF TG_TABLE_NAME = 'commercial_comparisons' AND OLD.\"Status\" NOT IN ('Draft','RevisionRequested') AND\n", "ELSIF TG_TABLE_NAME = 'commercial_comparisons' THEN\n                        IF OLD.\"Status\" NOT IN ('Draft','RevisionRequested') AND\n", StringComparison.Ordinal)
+            .Replace("RAISE EXCEPTION 'Submitted comparison snapshot is immutable.';", "RAISE EXCEPTION 'Submitted comparison snapshot is immutable.';\n                        END IF;", StringComparison.Ordinal)
+            .Replace("ELSIF TG_TABLE_NAME = 'commercial_comparison_lines' AND\n", "ELSIF TG_TABLE_NAME = 'commercial_comparison_lines' THEN\n                        IF ", StringComparison.Ordinal)
+            .Replace("RAISE EXCEPTION 'Submitted comparison line snapshot is immutable.';", "RAISE EXCEPTION 'Submitted comparison line snapshot is immutable.';\n                        END IF;", StringComparison.Ordinal)
+            .Replace("ELSIF TG_TABLE_NAME = 'purchase_orders' AND\n", "ELSIF TG_TABLE_NAME = 'purchase_orders' THEN\n                        IF ", StringComparison.Ordinal)
+            .Replace("RAISE EXCEPTION 'Purchase order commercial and provenance snapshot is immutable.';", "RAISE EXCEPTION 'Purchase order commercial and provenance snapshot is immutable.';\n                        END IF;", StringComparison.Ordinal));
+    internal static string RestoreRev869BGuards => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_controlled_snapshot()") + Environment.NewLine +
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_enforce_transition()") + Environment.NewLine +
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_validate_parent_contract()"));
     internal static string RemoveRev869B => AdvanceSchemaSql.Expand(RemoveRev869BTemplate);
     internal static string RemoveRev869A => AdvanceSchemaSql.Expand(RemoveRev869ATemplate);
+
+    private static string ExtractFunction(string template, string marker)
+    {
+        var start = template.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"SQL function marker was not found: {marker}");
+        const string terminator = "END $rev869b$;";
+        var end = template.IndexOf(terminator, start, StringComparison.Ordinal);
+        if (end < 0) throw new InvalidOperationException($"SQL function terminator was not found after: {marker}");
+        return template.Substring(start, end + terminator.Length - start);
+    }
+
+    private static string NestTableGuard(string sql, string table, string message)
+    {
+        sql = sql.Replace($"IF TG_TABLE_NAME = '{table}' AND NOT EXISTS (", $"IF TG_TABLE_NAME = '{table}' THEN\n                        IF NOT EXISTS (", StringComparison.Ordinal);
+        sql = sql.Replace($"ELSIF TG_TABLE_NAME = '{table}' AND NOT EXISTS (", $"ELSIF TG_TABLE_NAME = '{table}' THEN\n                        IF NOT EXISTS (", StringComparison.Ordinal);
+        return sql.Replace($"RAISE EXCEPTION '{message}';", $"RAISE EXCEPTION '{message}';\n                        END IF;", StringComparison.Ordinal);
+    }
 
     private const string InstallRev869ATemplate = """
                 CREATE FUNCTION __advance_schema__.rev869a_block_history_mutation() RETURNS trigger LANGUAGE plpgsql AS $$

@@ -7,6 +7,7 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Identity;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Audit;
 using SESS.NexaERP.Infrastructure.Identity;
@@ -50,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IMasterDataRegistry, MasterDataRegistry>();
         services.AddScoped<IMasterDataTransferService, EfMasterDataTransferService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
+        services.AddScoped<ITaxGstWorkflowService, EfTaxGstWorkflowService>();
         services.AddScoped<IVendorQualificationService, EfVendorQualificationService>();
         services.AddScoped<IRev869BPurchaseService, EfRev869BPurchaseService>();
         services.AddScoped<IPurchaseApprovalWorkflowService, EfPurchaseApprovalWorkflowService>();

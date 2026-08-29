@@ -29,6 +29,10 @@ public sealed class EfTaxGstResolver(NexaErpDbContext db) : ITaxGstResolver
         var matches = await db.TaxGstSettings.AsNoTracking()
             .Where(x => x.OrganizationId == request.OrganizationId && x.JurisdictionCode == request.JurisdictionCode && x.HsnSacCode == request.HsnSacCode && x.SupplierStateCode == supplierState && x.PlaceOfSupplyStateCode == placeOfSupply && x.SupplyType == supplyType && x.VendorRegistrationType == request.VendorRegistrationType)
             .Where(x => x.IsActive && x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= request.TransactionDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.TransactionDate))
+            .Where(x => !db.TaxGstSettings.Any(child => child.SupersedesTaxGstSettingId == x.Id &&
+                child.IsActive && child.ApprovalStatus == MasterApprovalStatuses.Approved &&
+                child.EffectiveFrom <= request.TransactionDate &&
+                (!child.EffectiveTo.HasValue || child.EffectiveTo.Value >= request.TransactionDate)))
             .Take(2).ToListAsync(cancellationToken);
         if (matches.Count != 1) throw new InvalidOperationException(matches.Count == 0 ? "No effective tax rule is configured." : "Effective tax configuration overlaps or is ambiguous.");
         if (!matches[0].HasValidIndiaComponentSplit()) throw new InvalidOperationException("GST component split is invalid for intrastate/interstate supply.");

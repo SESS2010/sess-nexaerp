@@ -4,6 +4,45 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 internal static class Rev869BCommandContextSql
 {
     internal static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
+    internal static string ReconcileCommercialSnapshotHelperAcl => BuildCommercialSnapshotHelperAcl(grant: true);
+    internal static string RemoveCommercialSnapshotHelperAcl => BuildCommercialSnapshotHelperAcl(grant: false);
+
+    private static string BuildCommercialSnapshotHelperAcl(bool grant)
+    {
+        var verifier = ExtractFunction(InstallTemplate, "CREATE FUNCTION __advance_schema__.rev869b_verify_target_catalogue_acl()")
+            .Replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", StringComparison.Ordinal);
+        if (!grant)
+        {
+            verifier = verifier.Replace(
+                "('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb)'),",
+                string.Empty,
+                StringComparison.Ordinal);
+            verifier = verifier.Replace(
+                "('nexa_rev869b_app_runtime','__advance_schema__.rev869b_qualification_provenance_valid(uuid)'),",
+                string.Empty,
+                StringComparison.Ordinal);
+        }
+        var privilege = grant ? "GRANT" : "REVOKE";
+        var recipient = grant ? "TO" : "FROM";
+        return AdvanceSchemaSql.Expand(
+            "DO $acl$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_rev869b_app_runtime') THEN EXECUTE $definition$" +
+            verifier +
+            "$definition$; EXECUTE '" + privilege +
+            " EXECUTE ON FUNCTION __advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb)," +
+            "__advance_schema__.rev869b_qualification_provenance_valid(uuid) " +
+            recipient + " nexa_rev869b_app_runtime'; END IF; END $acl$;");
+    }
+
+    private static string ExtractFunction(string template, string marker)
+    {
+        var start = template.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"SQL function marker was not found: {marker}");
+        const string terminator = "END $f$;";
+        var end = template.IndexOf(terminator, start, StringComparison.Ordinal);
+        if (end < 0) throw new InvalidOperationException($"SQL function terminator was not found after: {marker}");
+        return template.Substring(start, end + terminator.Length - start);
+    }
+
     private const string InstallTemplate = """
         DO $roles$ DECLARE r text; expected_login boolean; BEGIN
           FOR r,expected_login IN SELECT * FROM (VALUES
@@ -501,7 +540,7 @@ internal static class Rev869BCommandContextSql
           IF session_user<>'nexa_rev869b_target_verifier' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Target verifier required'; END IF;
           IF (SELECT "CatalogueSha256"<>__advance_schema__.rev869b_target_catalogue_fingerprint() FROM __advance_schema__.rev869b_target_catalogue_manifest) IS DISTINCT FROM false THEN RAISE EXCEPTION 'Target catalogue fingerprint mismatch'; END IF;
           WITH expected(role_name,signature) AS (VALUES
-            ('nexa_rev869b_app_runtime','__advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid)'),
+            ('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_qualification_provenance_valid(uuid)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid)'),
             ('nexa_rev869b_command_audit','__advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_reconcile_command_attempt(uuid)'),
             ('nexa_rev869b_management_writer','__advance_schema__.rev869b_register_purge_authorization(uuid,uuid,uuid,uuid,uuid,bytea,text,text,timestamp with time zone,integer,bytea,text,bytea,timestamp with time zone)'),('nexa_rev869b_management_writer','__advance_schema__.rev869b_register_export_authorization(uuid,uuid,text,text[],integer,timestamp with time zone,timestamp with time zone)'),
             ('nexa_rev869b_purge_worker','__advance_schema__.rev869b_start_purge(uuid,uuid)'),('nexa_rev869b_purge_worker','__advance_schema__.rev869b_execute_purge(uuid)'),('nexa_rev869b_purge_worker','__advance_schema__.rev869b_reconcile_purge(uuid)'),
@@ -512,9 +551,9 @@ internal static class Rev869BCommandContextSql
           delta AS ((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) SELECT EXISTS(SELECT 1 FROM delta) INTO mismatch;
           IF mismatch THEN RAISE EXCEPTION 'Target function ACL mismatch'; END IF;
           WITH read_relation(relation_name) AS (VALUES
-            ('employees'),('employee_identity_mappings'),('employee_role_assignments'),('employee_operational_scopes'),('roles'),('role_page_permissions'),('page_definitions'),('items'),('uoms'),('uom_conversions'),('vendors'),('tax_gst_settings'),('organization_policies'),('warehouses'),('purchase_requisitions'),('purchase_requisition_lines'),('purchase_requirement_handoffs'),('purchase_approval_route_settings'),('purchase_approval_workflow_steps'),('purchase_transaction_approval_policies')),
+            ('companies'),('employees'),('employee_identity_mappings'),('employee_role_assignments'),('employee_operational_scopes'),('roles'),('role_page_permissions'),('page_definitions'),('items'),('item_categories'),('uoms'),('uom_conversions'),('vendors'),('organization_policies'),('warehouses'),('departments'),('department_approval_mappings'),('purchase_requisitions'),('purchase_requisition_lines'),('purchase_requirement_handoffs'),('purchase_approval_route_settings'),('purchase_approval_workflow_steps'),('purchase_transaction_approval_policies')),
           write_relation(relation_name) AS (VALUES
-            ('vendor_qualifications'),('controlled_configuration_histories'),('request_for_quotations'),('request_for_quotation_lines'),('rfq_vendor_invitations'),('vendor_quotations'),('vendor_quotation_lines'),('quotation_technical_verifications'),('commercial_comparisons'),('commercial_comparison_lines'),('purchase_transaction_status_history'),('purchase_transaction_approval_history'),('purchase_orders'),('purchase_order_lines'),('purchase_order_history'),('material_followup_handoffs'),('purchase_number_sequences')),
+            ('tax_gst_settings'),('vendor_qualifications'),('controlled_configuration_histories'),('request_for_quotations'),('request_for_quotation_lines'),('rfq_vendor_invitations'),('vendor_quotations'),('vendor_quotation_lines'),('quotation_technical_verifications'),('commercial_comparisons'),('commercial_comparison_lines'),('purchase_transaction_status_history'),('purchase_transaction_approval_history'),('purchase_orders'),('purchase_order_lines'),('purchase_order_history'),('material_followup_handoffs'),('purchase_number_sequences')),
           expected(role_name,relation_name,privilege_name) AS (
             SELECT 'nexa_rev869b_app_runtime',relation_name,'SELECT' FROM read_relation
             UNION ALL SELECT 'nexa_rev869b_app_runtime',relation_name,p FROM write_relation CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE']) p
@@ -549,10 +588,10 @@ internal static class Rev869BCommandContextSql
         REVOKE ALL ON ALL SEQUENCES IN SCHEMA __advance_schema__ FROM PUBLIC,nexa_rev869b_app_runtime,nexa_rev869b_command_audit,nexa_rev869b_management_writer,nexa_rev869b_purge_worker,nexa_rev869b_purge_audit,nexa_rev869b_export_service,nexa_rev869b_target_verifier;
         REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA __advance_schema__ FROM PUBLIC,nexa_rev869b_app_runtime,nexa_rev869b_command_audit,nexa_rev869b_management_writer,nexa_rev869b_purge_worker,nexa_rev869b_purge_audit,nexa_rev869b_export_service,nexa_rev869b_target_verifier;
         GRANT USAGE ON SCHEMA __advance_schema__ TO nexa_rev869b_app_runtime,nexa_rev869b_command_audit,nexa_rev869b_management_writer,nexa_rev869b_purge_worker,nexa_rev869b_purge_audit,nexa_rev869b_export_service,nexa_rev869b_target_verifier;
-        GRANT SELECT ON __advance_schema__.employees,__advance_schema__.employee_identity_mappings,__advance_schema__.employee_role_assignments,__advance_schema__.employee_operational_scopes,__advance_schema__.roles,__advance_schema__.role_page_permissions,__advance_schema__.page_definitions,__advance_schema__.items,__advance_schema__.uoms,__advance_schema__.uom_conversions,__advance_schema__.vendors,__advance_schema__.tax_gst_settings,__advance_schema__.organization_policies,__advance_schema__.warehouses,__advance_schema__.purchase_requisitions,__advance_schema__.purchase_requisition_lines,__advance_schema__.purchase_requirement_handoffs,__advance_schema__.purchase_approval_route_settings,__advance_schema__.purchase_approval_workflow_steps,__advance_schema__.purchase_transaction_approval_policies TO nexa_rev869b_app_runtime;
-        GRANT SELECT,INSERT,UPDATE ON __advance_schema__.vendor_qualifications,__advance_schema__.controlled_configuration_histories,__advance_schema__.request_for_quotations,__advance_schema__.request_for_quotation_lines,__advance_schema__.rfq_vendor_invitations,__advance_schema__.vendor_quotations,__advance_schema__.vendor_quotation_lines,__advance_schema__.quotation_technical_verifications,__advance_schema__.commercial_comparisons,__advance_schema__.commercial_comparison_lines,__advance_schema__.purchase_transaction_status_history,__advance_schema__.purchase_transaction_approval_history,__advance_schema__.purchase_orders,__advance_schema__.purchase_order_lines,__advance_schema__.purchase_order_history,__advance_schema__.material_followup_handoffs,__advance_schema__.purchase_number_sequences TO nexa_rev869b_app_runtime;
+        GRANT SELECT ON __advance_schema__.companies,__advance_schema__.employees,__advance_schema__.employee_identity_mappings,__advance_schema__.employee_role_assignments,__advance_schema__.employee_operational_scopes,__advance_schema__.roles,__advance_schema__.role_page_permissions,__advance_schema__.page_definitions,__advance_schema__.items,__advance_schema__.item_categories,__advance_schema__.uoms,__advance_schema__.uom_conversions,__advance_schema__.vendors,__advance_schema__.organization_policies,__advance_schema__.warehouses,__advance_schema__.departments,__advance_schema__.department_approval_mappings,__advance_schema__.purchase_requisitions,__advance_schema__.purchase_requisition_lines,__advance_schema__.purchase_requirement_handoffs,__advance_schema__.purchase_approval_route_settings,__advance_schema__.purchase_approval_workflow_steps,__advance_schema__.purchase_transaction_approval_policies TO nexa_rev869b_app_runtime;
+        GRANT SELECT,INSERT,UPDATE ON __advance_schema__.tax_gst_settings,__advance_schema__.vendor_qualifications,__advance_schema__.controlled_configuration_histories,__advance_schema__.request_for_quotations,__advance_schema__.request_for_quotation_lines,__advance_schema__.rfq_vendor_invitations,__advance_schema__.vendor_quotations,__advance_schema__.vendor_quotation_lines,__advance_schema__.quotation_technical_verifications,__advance_schema__.commercial_comparisons,__advance_schema__.commercial_comparison_lines,__advance_schema__.purchase_transaction_status_history,__advance_schema__.purchase_transaction_approval_history,__advance_schema__.purchase_orders,__advance_schema__.purchase_order_lines,__advance_schema__.purchase_order_history,__advance_schema__.material_followup_handoffs,__advance_schema__.purchase_number_sequences TO nexa_rev869b_app_runtime;
         GRANT SELECT,INSERT ON __advance_schema__.audit_logs TO nexa_rev869b_app_runtime;
-        GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb),__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text),__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text),__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid) TO nexa_rev869b_app_runtime;
+        GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb),__advance_schema__.rev869b_qualification_provenance_valid(uuid),__advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb),__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text),__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text),__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid) TO nexa_rev869b_app_runtime;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text),__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint),__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid),__advance_schema__.rev869b_reconcile_command_attempt(uuid) TO nexa_rev869b_command_audit;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_register_purge_authorization(uuid,uuid,uuid,uuid,uuid,bytea,text,text,timestamptz,integer,bytea,text,bytea,timestamptz),__advance_schema__.rev869b_register_export_authorization(uuid,uuid,text,text[],integer,timestamptz,timestamptz) TO nexa_rev869b_management_writer;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_start_purge(uuid,uuid),__advance_schema__.rev869b_execute_purge(uuid),__advance_schema__.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_worker;

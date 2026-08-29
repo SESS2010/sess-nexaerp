@@ -106,6 +106,8 @@ public sealed partial class NexaErpDbContext
             entity.Property(x => x.VendorRegistrationType).HasMaxLength(30).IsRequired();
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.ApprovalStatus).HasMaxLength(50).IsRequired();
+            entity.Property(x => x.DecisionRoleCode).HasMaxLength(100);
+            entity.Property(x => x.DecisionRemarks).HasMaxLength(2000);
             entity.Property(x => x.GstRate).HasPrecision(9, 6);
             entity.Property(x => x.CgstRate).HasPrecision(9, 6);
             entity.Property(x => x.SgstRate).HasPrecision(9, 6);
@@ -113,6 +115,11 @@ public sealed partial class NexaErpDbContext
             entity.Property(x => x.CessRate).HasPrecision(9, 6);
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasIndex(x => new { x.OrganizationId, x.JurisdictionCode, x.HsnSacCode, x.SupplierStateCode, x.PlaceOfSupplyStateCode, x.VendorRegistrationType, x.EffectiveFrom, x.EffectiveTo }).IsUnique().AreNullsDistinct(false);
+            entity.HasIndex(x => x.SupersedesTaxGstSettingId).IsUnique()
+                .HasFilter(@"""SupersedesTaxGstSettingId"" IS NOT NULL AND ""ApprovalStatus"" = 'Approved'");
+            entity.HasOne(x => x.CreatorEmployee).WithMany().HasForeignKey(x => x.CreatorEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.DecisionEmployee).WithMany().HasForeignKey(x => x.DecisionEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.SupersedesTaxGstSetting).WithMany().HasForeignKey(x => x.SupersedesTaxGstSettingId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<OrganizationPolicy>(entity =>

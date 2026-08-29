@@ -1,4 +1,5 @@
 using SESS.NexaERP.Domain.Common;
+using SESS.NexaERP.Domain.Employees;
 
 namespace SESS.NexaERP.Domain.Masters;
 
@@ -28,6 +29,15 @@ public sealed class TaxGstSetting : CompanyScopedAuditableEntity
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
+    public Guid CreatorEmployeeId { get; set; }
+    public Employee? CreatorEmployee { get; set; }
+    public Guid? DecisionEmployeeId { get; set; }
+    public Employee? DecisionEmployee { get; set; }
+    public string? DecisionRoleCode { get; set; }
+    public DateTimeOffset? DecisionAt { get; set; }
+    public string? DecisionRemarks { get; set; }
+    public Guid? SupersedesTaxGstSettingId { get; set; }
+    public TaxGstSetting? SupersedesTaxGstSetting { get; set; }
     public bool IsActive { get; set; } = true;
 
     public static bool IsValidRange(DateOnly from, DateOnly? to) => !to.HasValue || to.Value >= from;
