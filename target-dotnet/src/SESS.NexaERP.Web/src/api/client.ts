@@ -28,6 +28,29 @@ export function setStoredToken(token: string): void {
   }
 }
 
+const IDENTITY_STORAGE_KEY = 'nexaerp.dev.identity'
+
+export function getStoredIdentity(): { employeeCode: string; organizationId: string } | null {
+  try {
+    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+export function setStoredIdentity(identity: { employeeCode: string; organizationId: string } | null): void {
+  try {
+    if (identity) {
+      localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity))
+    } else {
+      localStorage.removeItem(IDENTITY_STORAGE_KEY)
+    }
+  } catch {
+    // storage unavailable; the top bar just won't show the name
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number
   readonly code?: string
@@ -85,7 +108,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // non-JSON error body; keep the status text
     }
     if (response.status === 401) {
-      message = 'Not signed in, or the session expired. Use the sign-in box (top right) and retry.'
+      message = 'Not signed in, or the session expired. Please sign in again.'
+      // Expired/invalid token (e.g. the API restarted): send the user back to
+      // the login page instead of showing dead screens.
+      setStoredToken('')
+      setStoredIdentity(null)
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.assign('/login')
+      }
     }
     if (response.status === 403) {
       message = 'Permission denied for this page action.'

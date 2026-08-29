@@ -4,7 +4,7 @@
     {
       "name": "nexaerp-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "target-dotnet/frontend", "--", "--port", "5174"],
+      "runtimeArgs": ["run", "dev", "--prefix", "target-dotnet/src/SESS.NexaERP.Web", "--", "--port", "5174"],
       "port": 5174,
       "autoPort": false
     }

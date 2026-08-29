@@ -1,11 +1,13 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
-import { DevTokenBox } from './components/DevTokenBox'
+import { UserMenu } from './components/UserMenu'
+import { LoginPage } from './features/auth/LoginPage'
+import { RequireAuth } from './features/auth/RequireAuth'
 import { EmployeeListPage } from './features/employees/EmployeeListPage'
 import { EmployeeDetailPage } from './features/employees/EmployeeDetailPage'
 import { VendorListPage } from './features/vendors/VendorListPage'
 import { VendorDetailPage } from './features/vendors/VendorDetailPage'
 
-export default function App() {
+function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const title = location.pathname.startsWith('/vendors') ? 'Vendor Master' : 'Employee Master'
 
@@ -38,18 +40,34 @@ export default function App() {
       <div className="main">
         <header className="topbar">
           <div className="topbar-title">{title}</div>
-          <DevTokenBox />
+          <UserMenu />
         </header>
-        <main className="content">
-          <Routes>
-            <Route path="/" element={<Navigate to="/employees" replace />} />
-            <Route path="/employees" element={<EmployeeListPage />} />
-            <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
-            <Route path="/vendors" element={<VendorListPage />} />
-            <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
-          </Routes>
-        </main>
+        <main className="content">{children}</main>
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="*"
+        element={
+          <RequireAuth>
+            <Shell>
+              <Routes>
+                <Route path="/" element={<Navigate to="/employees" replace />} />
+                <Route path="/employees" element={<EmployeeListPage />} />
+                <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
+                <Route path="/vendors" element={<VendorListPage />} />
+                <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
+              </Routes>
+            </Shell>
+          </RequireAuth>
+        }
+      />
+    </Routes>
   )
 }
