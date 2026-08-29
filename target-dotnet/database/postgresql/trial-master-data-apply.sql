@@ -36,12 +36,12 @@ DELETE FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LI
 DELETE FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
 
 INSERT INTO advance.uoms ("Id","Code","Name","MeasurementDimension","QuantityPrecision","IsActive","CreatedAt","CreatedBy","Version") VALUES
-('71000000-0000-0000-0003-000000000001','TRIAL-NOS','TRIAL Number','COUNT',6,true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0003-000000000002','TRIAL-KG','TRIAL Kilogram','MASS',6,true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0003-000000000003','TRIAL-MTR','TRIAL Metre','LENGTH',6,true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0003-000000000004','TRIAL-LTR','TRIAL Litre','VOLUME',6,true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0003-000000000005','TRIAL-SET','TRIAL Set','COUNT',6,true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0003-000000000006','TRIAL-LOT','TRIAL Lot','COUNT',6,true,now(),'TRIAL_DATA',0);
+('71000000-0000-0000-0003-000000000001','TRIAL-NOS','TRIAL Number','COUNT',0,true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0003-000000000002','TRIAL-KG','TRIAL Kilogram','MASS',3,true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0003-000000000003','TRIAL-MTR','TRIAL Metre','LENGTH',3,true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0003-000000000004','TRIAL-LTR','TRIAL Litre','VOLUME',3,true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0003-000000000005','TRIAL-SET','TRIAL Set','COUNT',0,true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0003-000000000006','TRIAL-LOT','TRIAL Lot','COUNT',0,true,now(),'TRIAL_DATA',0);
 
 INSERT INTO advance.item_categories ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version") VALUES
 ('71000000-0000-0000-0001-000000000001','TRIAL-ELE','TRIAL Electrical',true,now(),'TRIAL_DATA',0),
@@ -171,7 +171,15 @@ BEGIN
  ] INTO actual;
  IF actual<>ARRAY[6,6,4,5,15,20,2,22] THEN RAISE EXCEPTION 'Trial-data count mismatch: %, expected {6,6,4,5,15,20,2,22}.',actual; END IF;
  IF (SELECT count(*) FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemType"='TOOL' AND "IsReturnable")<>1 THEN RAISE EXCEPTION 'Trial data requires exactly one returnable TOOL.'; END IF;
- IF EXISTS(SELECT 1 FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "QuantityPrecision"<>6) THEN RAISE EXCEPTION 'Trial UOM precision must match the API six-decimal contract.'; END IF;
+ IF EXISTS(
+   SELECT 1
+   FROM advance.uoms u
+   JOIN (VALUES
+     ('TRIAL-NOS',0),('TRIAL-SET',0),('TRIAL-LOT',0),
+     ('TRIAL-KG',3),('TRIAL-MTR',3),('TRIAL-LTR',3)
+   ) expected(code,precision) ON expected.code=u."Code"
+   WHERE u."CreatedBy"='TRIAL_DATA' AND u."QuantityPrecision"<>expected.precision
+ ) THEN RAISE EXCEPTION 'Trial UOM precision does not match the Stores entry/display contract.'; END IF;
  IF EXISTS(SELECT 1 FROM advance.rack_bins rb JOIN advance.warehouses w ON w."Id"=rb."WarehouseId" WHERE rb."CreatedBy"='TRIAL_DATA' AND rb."CompanyId"<>w."CompanyId") THEN RAISE EXCEPTION 'Trial rack-bin company scope mismatch.'; END IF;
 END $verify$;
 COMMIT;

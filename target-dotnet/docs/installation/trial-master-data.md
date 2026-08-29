@@ -32,7 +32,7 @@ $env:NexaErp__ExpectedDatabase=$env:PGDATABASE
 
 Expected rows are 6 UOMs, 6 categories, 4 subcategories, 5 manufacturers, 15 vendors, 20 items, 2 warehouses, and 22 rack bins. The rack-bin total is 10 general bins (five in each warehouse) plus 12 QC bins (one for each of six categories in each company): 80 rows overall.
 
-All UOMs use the API's canonical six-decimal quantity precision. `NOS`, `SET`, and `LOT` are count units; `KG`, `MTR`, and `LTR` use `MASS`, `LENGTH`, and `VOLUME` respectively.
+`NOS`, `SET`, and `LOT` are whole-number count units with quantity precision 0. `KG`, `MTR`, and `LTR` use quantity precision 3 so grams, millimetres, and millilitres can be entered and displayed.
 
 ## Remove in one command
 
