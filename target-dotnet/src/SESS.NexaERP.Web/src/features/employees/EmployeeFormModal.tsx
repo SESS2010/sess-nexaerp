@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { createEmployee, getEmployeeLookups, updateEmployee } from '../../api/employees'
+import { createEmployee, createEmployeeLookup, getEmployeeLookups, updateEmployee } from '../../api/employees'
+import { AddableSelect } from '../../components/AddableSelect'
 import type { EmployeeDetail, EmployeeMasterLookups } from '../../types/employee'
 
 interface Props {
@@ -107,27 +108,45 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Grade *</span>
             <input className="input" required value={form.grade} onChange={set('grade')} placeholder="e.g. Executive" />
           </label>
-          <label className="field">
-            <span className="field-label">Department *</span>
-            <select className="input" required value={form.departmentCode} onChange={set('departmentCode')}>
-              <option value="">Select department…</option>
-              {lookups?.Departments.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">Skill category *</span>
-            <select className="input" required value={form.skillCode} onChange={set('skillCode')}>
-              <option value="">Select skill…</option>
-              {lookups?.Skills.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">Designation *</span>
-            <select className="input" required value={form.designationCode} onChange={set('designationCode')}>
-              <option value="">Select designation…</option>
-              {lookups?.Designations.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
-            </select>
-          </label>
+          <AddableSelect
+            label="Department"
+            required
+            value={form.departmentCode}
+            options={(lookups?.Departments ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
+            placeholder="Select department…"
+            onChange={(departmentCode) => setForm((prev) => ({ ...prev, departmentCode }))}
+            onCreate={async (name, code) => {
+              const created = await createEmployeeLookup('departments', code, name)
+              setLookups((prev) => prev && ({ ...prev, Departments: [...prev.Departments, created].sort((a, b) => a.Name.localeCompare(b.Name)) }))
+              return { value: created.Code, label: created.Name }
+            }}
+          />
+          <AddableSelect
+            label="Skill category"
+            required
+            value={form.skillCode}
+            options={(lookups?.Skills ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
+            placeholder="Select skill…"
+            onChange={(skillCode) => setForm((prev) => ({ ...prev, skillCode }))}
+            onCreate={async (name, code) => {
+              const created = await createEmployeeLookup('skills', code, name)
+              setLookups((prev) => prev && ({ ...prev, Skills: [...prev.Skills, created].sort((a, b) => a.Name.localeCompare(b.Name)) }))
+              return { value: created.Code, label: created.Name }
+            }}
+          />
+          <AddableSelect
+            label="Designation"
+            required
+            value={form.designationCode}
+            options={(lookups?.Designations ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
+            placeholder="Select designation…"
+            onChange={(designationCode) => setForm((prev) => ({ ...prev, designationCode }))}
+            onCreate={async (name, code) => {
+              const created = await createEmployeeLookup('designations', code, name)
+              setLookups((prev) => prev && ({ ...prev, Designations: [...prev.Designations, created].sort((a, b) => a.Name.localeCompare(b.Name)) }))
+              return { value: created.Code, label: created.Name }
+            }}
+          />
           <label className="field">
             <span className="field-label">Date of joining</span>
             <input className="input" type="date" value={form.dateOfJoining} onChange={set('dateOfJoining')} />

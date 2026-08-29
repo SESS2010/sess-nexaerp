@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
-  createItem, getItemVendors, listItemCategories, listItemSubcategories, listUoms,
-  setItemVendors, updateItem, uploadItemImage,
+  createItem, createItemCategory, createItemSubcategory, createUom, getItemVendors,
+  listItemCategories, listItemSubcategories, listUoms, setItemVendors, updateItem, uploadItemImage,
 } from '../../api/items'
 import { listVendors } from '../../api/vendors'
+import { AddableSelect } from '../../components/AddableSelect'
 import type { ItemDetail, ReferenceLookup, SubcategoryLookup, UpsertItemRequest } from '../../types/item'
 
 interface Props {
@@ -158,33 +159,53 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Item name *</span>
             <input className="input" required value={form.name} onChange={set('name')} />
           </label>
-          <label className="field">
-            <span className="field-label">Category *</span>
-            <select className="input" required value={form.categoryId} onChange={(event) => setForm((prev) => ({ ...prev, categoryId: event.target.value, subcategoryId: '' }))}>
-              <option value="">Select category…</option>
-              {categories.map((cat) => <option key={cat.Id} value={cat.Id}>{cat.Name}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span className="field-label">Subcategory</span>
-            <select className="input" value={form.subcategoryId} onChange={set('subcategoryId')} disabled={subcategories.length === 0}>
-              <option value="">{subcategories.length === 0 ? 'None for category' : 'Select subcategory…'}</option>
-              {subcategories.map((sub) => <option key={sub.Id} value={sub.Id}>{sub.Name}</option>)}
-            </select>
-          </label>
+          <AddableSelect
+            label="Category"
+            required
+            value={form.categoryId}
+            options={categories.map((cat) => ({ value: cat.Id, label: cat.Name }))}
+            placeholder="Select category…"
+            onChange={(categoryId) => setForm((prev) => ({ ...prev, categoryId, subcategoryId: '' }))}
+            onCreate={async (name, code) => {
+              const created = await createItemCategory(code, name)
+              setCategories((prev) => [...prev, created].sort((a, b) => a.Name.localeCompare(b.Name)))
+              return { value: created.Id, label: created.Name }
+            }}
+          />
+          <AddableSelect
+            label="Subcategory"
+            value={form.subcategoryId}
+            disabled={!form.categoryId}
+            options={subcategories.map((sub) => ({ value: sub.Id, label: sub.Name }))}
+            placeholder={subcategories.length === 0 ? 'None for category' : 'Select subcategory…'}
+            onChange={(subcategoryId) => setForm((prev) => ({ ...prev, subcategoryId }))}
+            addHint="Added under the selected category."
+            onCreate={async (name, code) => {
+              const created = await createItemSubcategory(form.categoryId, code, name)
+              setSubcategories((prev) => [...prev, created].sort((a, b) => a.Name.localeCompare(b.Name)))
+              return { value: created.Id, label: created.Name }
+            }}
+          />
           <label className="field">
             <span className="field-label">Item type *</span>
             <select className="input" value={form.itemType} onChange={set('itemType')}>
               {ITEM_TYPES.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
-          <label className="field">
-            <span className="field-label">UOM *</span>
-            <select className="input" required value={form.uom} onChange={set('uom')}>
-              <option value="">Select UOM…</option>
-              {uoms.map((u) => <option key={u.Id} value={u.Code}>{u.Name} ({u.Code})</option>)}
-            </select>
-          </label>
+          <AddableSelect
+            label="UOM"
+            required
+            value={form.uom}
+            options={uoms.map((u) => ({ value: u.Code, label: `${u.Name} (${u.Code})` }))}
+            placeholder="Select UOM…"
+            onChange={(uom) => setForm((prev) => ({ ...prev, uom }))}
+            extraField={{ label: 'Dimension', options: ['COUNT', 'LENGTH', 'MASS', 'VOLUME', 'AREA', 'TIME'] }}
+            onCreate={async (name, code, dimension) => {
+              const created = await createUom(code, name, dimension)
+              setUoms((prev) => [...prev, created].sort((a, b) => a.Name.localeCompare(b.Name)))
+              return { value: created.Code, label: `${created.Name} (${created.Code})` }
+            }}
+          />
           <label className="field">
             <span className="field-label">Make / manufacturer</span>
             <input className="input" value={form.make} onChange={set('make')} />

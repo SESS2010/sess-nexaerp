@@ -70,6 +70,18 @@ public static class EmployeeEndpoints
             return Results.Ok(new EmployeeMasterLookups(departments, skills, designations));
         }).RequirePagePermission("employees.master", PagePermissionActions.View);
 
+        // Quick-add endpoints so the employee form dropdowns can grow their
+        // master tables inline.
+        group.MapPost("/lookups/departments", (CreateLookupRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken ct) =>
+            CreateLookupAsync(request, db.Departments, (code, name) => new Department { Code = code, Name = name }, db, audit, currentUser, ct))
+            .RequirePagePermission("employees.master", PagePermissionActions.Create);
+        group.MapPost("/lookups/skills", (CreateLookupRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken ct) =>
+            CreateLookupAsync(request, db.Skills, (code, name) => new Skill { Code = code, Name = name }, db, audit, currentUser, ct))
+            .RequirePagePermission("employees.master", PagePermissionActions.Create);
+        group.MapPost("/lookups/designations", (CreateLookupRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken ct) =>
+            CreateLookupAsync(request, db.Designations, (code, name) => new Designation { Code = code, Name = name }, db, audit, currentUser, ct))
+            .RequirePagePermission("employees.master", PagePermissionActions.Create);
+
         group.MapGet("/{employeeCode}", async (string employeeCode, NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
             var employee = await db.Employees
@@ -361,6 +373,36 @@ public static class EmployeeEndpoints
         var skill = await db.Skills.SingleOrDefaultAsync(existing => existing.Code == NormalizeCode(skillCode) && existing.IsActive, cancellationToken);
         var designation = await db.Designations.SingleOrDefaultAsync(existing => existing.Code == NormalizeCode(designationCode) && existing.IsActive, cancellationToken);
         return department is null || skill is null || designation is null ? null : (department, skill, designation);
+    }
+
+    public sealed record CreateLookupRequest(string Code, string Name);
+
+    private static async Task<IResult> CreateLookupAsync<TEntity>(
+        CreateLookupRequest request,
+        Microsoft.EntityFrameworkCore.DbSet<TEntity> set,
+        Func<string, string, TEntity> factory,
+        NexaErpDbContext db,
+        IAuditWriter audit,
+        ICurrentUser currentUser,
+        CancellationToken cancellationToken) where TEntity : SESS.NexaERP.Domain.Common.AuditableEntity
+    {
+        var code = request.Code?.Trim().ToUpperInvariant() ?? string.Empty;
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (code.Length == 0 || name.Length == 0)
+        {
+            return Results.BadRequest(new { message = "Code and name are required." });
+        }
+        if (await set.AnyAsync(entity => EF.Property<string>(entity, "Code") == code, cancellationToken))
+        {
+            return Results.Conflict(new { message = $"Duplicate code blocked: {code}" });
+        }
+
+        var entity = factory(code, name);
+        entity.CreatedBy = currentUser.LoginId;
+        set.Add(entity);
+        await db.SaveChangesAsync(cancellationToken);
+        await audit.WriteAsync("Employees", "CreateLookup", typeof(TEntity).Name, entity.Id.ToString(), null, new { code, name }, cancellationToken);
+        return Results.Created($"/api/v1/employees/lookups/{typeof(TEntity).Name.ToLowerInvariant()}s/{entity.Id}", new { entity.Id, Code = code, Name = name });
     }
 
     private static string NormalizeEmployeeCode(string value) => value.Trim().ToUpperInvariant();

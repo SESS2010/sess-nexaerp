@@ -99,3 +99,16 @@ export function listItemSubcategories(categoryId: string): Promise<PagedResponse
 export function listUoms(): Promise<PagedResponse<ReferenceLookup>> {
   return api.get<PagedResponse<ReferenceLookup>>(`${MASTERS}/uoms?${lookupParams}`)
 }
+
+// Inline quick-adds for the master-backed dropdowns.
+export function createItemCategory(code: string, name: string): Promise<ReferenceLookup> {
+  return api.post<ReferenceLookup>(`${MASTERS}/item-categories`, { Code: code, Name: name })
+}
+
+export function createItemSubcategory(categoryId: string, code: string, name: string): Promise<SubcategoryLookup> {
+  return api.post<SubcategoryLookup>(`${MASTERS}/item-subcategories`, { CategoryId: categoryId, Code: code, Name: name })
+}
+
+export function createUom(code: string, name: string, measurementDimension: string): Promise<ReferenceLookup> {
+  return api.post<ReferenceLookup>(`${MASTERS}/uoms`, { Code: code, Name: name, MeasurementDimension: measurementDimension })
+}

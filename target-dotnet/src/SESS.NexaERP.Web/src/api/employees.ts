@@ -33,6 +33,10 @@ export function getEmployeeLookups(): Promise<EmployeeMasterLookups> {
   return api.get<EmployeeMasterLookups>(`${BASE}/lookups`)
 }
 
+export function createEmployeeLookup(kind: 'departments' | 'skills' | 'designations', code: string, name: string) {
+  return api.post<{ Id: string; Code: string; Name: string }>(`${BASE}/lookups/${kind}`, { Code: code, Name: name })
+}
+
 export function getEmployee(employeeCode: string): Promise<EmployeeDetail> {
   return api.get<EmployeeDetail>(`${BASE}/${encodeURIComponent(employeeCode)}`)
 }
