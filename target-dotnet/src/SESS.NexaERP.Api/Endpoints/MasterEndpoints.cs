@@ -145,7 +145,7 @@ public static partial class MasterEndpoints
             return Results.Ok(ToDetail(vendor, await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken)));
         }).RequirePagePermission("masters.vendors", PagePermissionActions.View);
 
-        group.MapPost("/vendors", async (UpsertVendorRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+        group.MapPost("/vendors", async (UpsertVendorRequest request, NexaErpDbContext db, IAuditWriter audit, IPagePermissionService permissions, ICurrentUser currentUser, CancellationToken cancellationToken) =>
         {
             var validation = await ValidateVendorAsync(request, db, null, cancellationToken);
             if (validation is not null) return validation;
@@ -155,10 +155,11 @@ public static partial class MasterEndpoints
             db.MasterStatusHistories.Add(new MasterStatusHistory { MasterType = nameof(Vendor), MasterId = vendor.Id, MasterCode = vendor.VendorCode, PreviousStatus = null, NewStatus = vendor.VendorStatus, Reason = "REV867 vendor draft created", SourceRevision = "REV867", CorrelationId = $"REV867_VENDOR_CREATE_{Guid.NewGuid():N}", CreatedBy = currentUser.LoginId });
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Masters", "CreateDraft", nameof(Vendor), vendor.Id.ToString(), null, vendor, cancellationToken);
-            return Results.Created($"/api/v1/masters/vendors/{vendor.VendorCode}", ToSummary(vendor, true));
+            var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);
+            return Results.Created($"/api/v1/masters/vendors/{vendor.VendorCode}", ToSummary(vendor, canViewBank));
         }).RequirePagePermission("masters.vendors", PagePermissionActions.Create);
 
-        group.MapPut("/vendors/{vendorCode}", async (string vendorCode, UpsertVendorRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+        group.MapPut("/vendors/{vendorCode}", async (string vendorCode, UpsertVendorRequest request, NexaErpDbContext db, IAuditWriter audit, IPagePermissionService permissions, ICurrentUser currentUser, CancellationToken cancellationToken) =>
         {
             var vendor = await db.Vendors.SingleOrDefaultAsync(existing => existing.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
             if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
@@ -173,7 +174,8 @@ public static partial class MasterEndpoints
             if (controlledChange) AddVendorReverificationEvidence(db, vendor, before.ApprovalStatus, beforeControlled, currentUser);
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Masters", "UpdateDraft", nameof(Vendor), vendor.Id.ToString(), before, vendor, cancellationToken);
-            return Results.Ok(ToDetail(vendor, true));
+            var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);
+            return Results.Ok(ToDetail(vendor, canViewBank));
         }).RequirePagePermission("masters.vendors", PagePermissionActions.Update);
 
         MapVendorAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
@@ -191,10 +193,12 @@ public static partial class MasterEndpoints
 
         group.MapGet("/vendors/{vendorCode}/status-history", (string vendorCode, NexaErpDbContext db, CancellationToken cancellationToken) => MasterEndpointHelpers.GetStatusHistoryAsync(db, nameof(Vendor), MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken)).RequirePagePermission("masters.vendors", PagePermissionActions.ViewAuditHistory);
         group.MapGet("/vendors/{vendorCode}/approval-history", (string vendorCode, NexaErpDbContext db, CancellationToken cancellationToken) => MasterEndpointHelpers.GetApprovalHistoryAsync(db, nameof(Vendor), MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken)).RequirePagePermission("masters.vendors", PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/vendors/{vendorCode}/audit-history", async (string vendorCode, NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/vendors/{vendorCode}/audit-history", async (string vendorCode, NexaErpDbContext db, IPagePermissionService permissions, ICurrentUser currentUser, CancellationToken cancellationToken) =>
         {
             var id = await db.Vendors.AsNoTracking().Where(vendor => vendor.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode)).Select(vendor => vendor.Id.ToString()).SingleOrDefaultAsync(cancellationToken);
-            return id is null ? Results.NotFound(new { message = "Vendor not found." }) : await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(Vendor), id, cancellationToken);
+            if (id is null) return Results.NotFound(new { message = "Vendor not found." });
+            var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);
+            return await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(Vendor), id, cancellationToken, redactVendorBankMetadata: !canViewBank);
         }).RequirePagePermission("masters.vendors", PagePermissionActions.ViewAuditHistory);
     }
 

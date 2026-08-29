@@ -19,10 +19,12 @@ public sealed class FirstStoresPart3BMigrationTests
     }
 
     [Fact]
-    public void Part3BIsLatestAndAddsOnlyThePostingBatchTable()
+    public void Part3BRemainsImmediatelyBeforeTheSeedOnlyReferenceMasterMigration()
     {
         using var db=CreateContext();
-        Assert.Equal("20260827132947_FirstStoresPart3BLedgerActivation",db.Database.GetMigrations().Last());
+        var migrations=db.Database.GetMigrations().ToArray();
+        Assert.Equal("20260827132947_FirstStoresPart3BLedgerActivation",migrations[^2]);
+        Assert.Equal("20260828121759_ItemReferenceMasterFrontendReadiness",migrations[^1]);
         Assert.Equal("stock_posting_batches",db.Model.FindEntityType(typeof(StockPostingBatch))!.GetTableName());
         Assert.Equal(118,db.Model.GetEntityTypes().Count());
     }

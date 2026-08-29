@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
+using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Domain.Authorization;
@@ -49,7 +50,7 @@ public static partial class MasterEndpoints
         db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { OrganizationId = user.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "ControlledDetailsChanged", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = "Controlled vendor details changed.", CorrelationId = correlation, CreatedBy = user.LoginId });
     }
 
-    private static async Task<IResult> VerifyVendorCommercial(string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
+    private static async Task<IResult> VerifyVendorCommercial(string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IPagePermissionService permissions, IAuditWriter audit, CancellationToken cancellationToken)
     {
         if (!string.Equals(Rev869ARoleCodes.Normalize(currentUser.RoleCode), "ACCOUNTS_HEAD", StringComparison.Ordinal)) return Results.Forbid();
         if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Accounts verification remarks are required." });
@@ -70,7 +71,8 @@ public static partial class MasterEndpoints
         db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { OrganizationId = currentUser.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "AccountsVerify", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = currentUser.LoginId, ActorRoleCode = currentUser.RoleCode, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = currentUser.LoginId });
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("Masters", "VerifyVendorCommercial", nameof(Vendor), vendor.Id.ToString(), before, VendorControlledSnapshot(vendor), cancellationToken);
-        return Results.Ok(ToDetail(vendor, true));
+        var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);
+        return Results.Ok(ToDetail(vendor, canViewBank));
     }
 
     private static async Task<IResult?> ValidateVendorFinalApproval(Vendor vendor, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)

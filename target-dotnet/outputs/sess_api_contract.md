@@ -28,7 +28,7 @@ Company selection persists for the login session. To change company, the client 
 
 JSON property names are **PascalCase and match the C# and database column names exactly**. There is no frontend/backend field-mapping layer. Use `CompanyId`, `RequiredByDate`, and `Version`; do not use `companyId`, `required_by_date`, or aliases. Query-string parameter names shown in paths remain camelCase because they are parameter names, not JSON fields.
 
-Implementation alignment required before frontend integration: the current general ASP.NET JSON defaults serialize ordinary DTOs as camelCase, and some legacy failures return `{ "message": "..." }` or an empty body. Those are implementation variances, not this contract. The backend must configure PascalCase and the standard error envelope below before a strict client is connected. Mock data and new Stores APIs must follow this document now.
+The backend globally emits and accepts PascalCase for ordinary HTTP JSON and normalizes every HTTP failure through the standard error envelope in section 3.1. This includes legacy endpoints whose internal result originally supplied `{ "message": "..." }` or an empty body. Mock data and new Stores APIs must follow this document.
 
 ### 1.4 Dates, numbers, nulls and identifiers
 
@@ -84,7 +84,7 @@ Errors: `401 AUTHENTICATION_REQUIRED` when the token is absent/invalid or no act
 
 ### 3.1 Error envelope
 
-Every non-2xx JSON response uses exactly these properties. `Errors` is `{}` unless field validation details exist.
+Every HTTP failure response uses JSON with exactly these properties. `Errors` is `{}` unless field validation details exist.
 
 Validation, `400`:
 
@@ -161,7 +161,7 @@ Concurrency, `409`:
 }
 ```
 
-An idempotency key reused with a different request returns the same shape with `Code: "IDEMPOTENCY_CONFLICT"`. An illegal lifecycle transition returns `409 BUSINESS_RULE_CONFLICT`. An unexpected failure returns `500 INTERNAL_ERROR`; internal exception text and stack traces are never exposed.
+An idempotency key reused with a different request returns the same shape with `Code: "IDEMPOTENCY_CONFLICT"`. An illegal lifecycle transition returns `409 BUSINESS_RULE_CONFLICT`. An unexpected server or dependency failure returns `INTERNAL_ERROR`; internal exception text and stack traces are never exposed. A framework failure without a more specific contract mapping, such as `405 Method Not Allowed`, returns `Type: "https://api.sess.example/problems/request-error"`, `Title: "Request failed"`, and `Code: "REQUEST_FAILED"` with its actual HTTP status.
 
 ### 3.2 Pagination, sorting and filtering
 
@@ -236,9 +236,9 @@ Unless a row states otherwise, all authenticated endpoints can also return `401`
 
 | Method and path | Request | Success response | Required page permission | Endpoint-specific errors |
 |---|---|---|---|---|
-| `GET /health/live` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if unhealthy |
-| `GET /health/ready` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if not ready |
-| `GET /health/db` | none | `200 text/plain` body `Healthy` | public | `503 text/plain` if DB check fails |
+| `GET /health/live` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if unhealthy |
+| `GET /health/ready` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if not ready |
+| `GET /health/db` | none | `200 text/plain` body `Healthy` | public | `503` standard error envelope if DB check fails |
 | `GET /api/v1/system/architecture` | none | `{ "App":"SESS NexaERP", "Architecture":"ASP.NET Core modular monolith target", "Status":"Phase 1 permanent auth foundation", "SourceSystem":"REV861 Node.js/single HTML current ERP snapshot", "Database":"PostgreSQL authoritative target", "Note":"Master APIs require authenticated JWT/OIDC claims. No temporary header identity is used." }` | public | `500` |
 | `GET /api/v1/system/modules` | none | `{ "Modules":["IdentityAndAccess","CustomerPortal","VendorPortal","EmployeeAdmin","Sales","Project","Design","Purchase","StoresInventory","Qc","Production","Dispatch","Finance","Service","DocumentManagement","Notification","AuditReporting"] }` | public | `500` |
 | `GET /api/v1/purchase-stores/workflow-stages` | none | `{ "Stages":["MaterialRequirement","CurrentStockCheck","ProjectReservation","Rfq","VendorQuotation","VendorComparison","PurchaseApproval","PurchaseOrder","MaterialFollowUp","GateEntry","Grn","QcVerification","InventoryUpdate","MaterialIssue","MaterialReturn","StockLedger","ProjectConsumption","AccountsHandover","VendorPerformance"] }` | public | `500` |
@@ -338,7 +338,10 @@ Employee request/response examples:
   },
   "Item": {
     "Id":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb", "ItemCode":"COMP-001", "Name":"Semi-hermetic compressor",
-    "DetailedDescription":"BITZER compressor", "MaterialType":"Refrigeration", "ItemType":"Purchased", "IsReturnable":false,
+    "DetailedDescription":"BITZER compressor",
+    "CategoryId":"d506d657-a514-4381-89e2-dac7df55d804", "CategoryCode":"REF", "CategoryName":"Refrigeration",
+    "SubcategoryId":"9bdd9f8b-cae3-476c-9433-d6ac8e1a025a", "SubcategoryCode":"COMP", "SubcategoryName":"Compressors",
+    "MaterialType":"Refrigeration", "ItemType":"COMPONENT", "IsReturnable":false,
     "Uom":"NOS", "ManufacturerMake":"BITZER", "Model":"4NES-14Y", "PartNumber":"4NES-14Y-40P",
     "HsnSacCode":"84143000", "GstPercentage":18.000000, "TechnicalSpecification":"400V/3Ph/50Hz",
     "DrawingDocumentReference":null, "QcRequired":true, "SerialNumberTracking":true, "BatchTracking":false,
@@ -369,13 +372,15 @@ Exact upsert fields are:
 
 - Customer: `CustomerCode, LegalCustomerName, TradeName, CustomerType, GstNumber, PanNumber, BillingAddress, ShippingAddress, State, StateCode, Country, ContactPerson, Phone, Email, Industry, PaymentTerms, CreditPeriodDays, CreditLimit, PortalOrganizationId, Version`.
 - Vendor: `VendorCode, LegalVendorName, TradeName, VendorType, GstNumber, PanNumber, MsmeStatus, MsmeNumber, ContactPerson, Phone, Email, BillingAddress, ShippingAddress, State, StateCode, Country, MaterialServiceCategories, ApprovedMakes, PaymentTerms, DeliveryTerms, CreditPeriodDays, BankMetadataJson, AttachmentMetadataJson, Version`.
-- Item: `ItemCode, Name, DetailedDescription, MaterialType, ItemType, IsReturnable, Uom, ManufacturerMake, Model, PartNumber, HsnSacCode, GstPercentage, TechnicalSpecification, DrawingDocumentReference, QcRequired, SerialNumberTracking, BatchTracking, ShelfLifeTracking, MinimumStock, MaximumStock, ReorderLevel, PreferredVendorCode, StandardEstimatedPrice, Barcode, BarcodeSymbology, ImageStorageKey, ImageFileName, ImageContentType, Version`.
+- Item: `ItemCode, Name, DetailedDescription, CategoryId, SubcategoryId, MaterialType, ItemType, IsReturnable, Uom, ManufacturerMake, Model, PartNumber, HsnSacCode, GstPercentage, TechnicalSpecification, DrawingDocumentReference, QcRequired, SerialNumberTracking, BatchTracking, ShelfLifeTracking, MinimumStock, MaximumStock, ReorderLevel, PreferredVendorCode, StandardEstimatedPrice, Barcode, BarcodeSymbology, ImageStorageKey, ImageFileName, ImageContentType, Version`.
 - Warehouse: `WarehouseCode, Name, WarehouseType, Location, ResponsibleEmployeeCode, DepartmentCode, DefaultReceivingLocationId, DefaultAcceptedLocationId, DefaultQcHoldLocationId, DefaultRejectedLocationId, DefaultRepairableLocationId, DefaultScrapLocationId, Version`.
 - Rack/bin: `WarehouseCode, BinCode, RackName, BinNameNumber, Zone, LocationType, MaterialCondition, CapacityQuantity, CapacityUom, Barcode, Description, Version`.
 
-POST sends `Version:null`; PUT sends the version returned by GET. Commercial fields may be `null` in responses when the role lacks `ViewCommercialValues`.
+POST sends `Version:null`; PUT sends the version returned by GET. Item `CategoryId` is required by create and update even though the nullable database column is temporarily retained for legacy rows. `SubcategoryId` is optional, but when supplied it must identify an active subcategory of the selected active category. `PreferredVendorCode` is optional; when supplied the server resolves it to `PreferredVendorId`, rejects an unknown or inactive vendor, and returns the resolved code. Clearing the code clears the relationship.
 
-List item fields are exact: `CustomerSummary` = `Id, CustomerCode, Name, GstNumber, PanNumber, PortalOrganizationId, Status, ApprovalStatus, IsActive, Version, CreditLimit`; `VendorSummary` = `Id, VendorCode, Name, GstNumber, PanNumber, ApprovalStatus, VendorStatus, IsActive, Version, BankMetadata`; `ItemSummary` = `Id, ItemCode, Name, Uom, MaterialType, ItemType, IsReturnable, ManufacturerMake, Model, PartNumber, MinimumStock, MaximumStock, ReorderLevel, Status, ApprovalStatus, IsActive, Version`; `WarehouseSummary` = `Id, WarehouseCode, Name, WarehouseType, Location, Status, ApprovalStatus, IsActive, Version`; `RackBinSummary` = `Id, WarehouseId, WarehouseCode, BinCode, RackName, BinNameNumber, Zone, LocationType, MaterialCondition, Status, ApprovalStatus, IsActive, Version`.
+Commercial fields may be `null` in responses when the role lacks `ViewCommercialValues`. Vendor `BankMetadata` uses the `masters.vendors:ViewCommercialValues` gate on list, detail, create, update and commercial-verification responses. Vendor audit history applies the same gate: unauthorized callers still receive permitted audit rows, but `BankMetadata` and `BankMetadataJson` are replaced with `null` recursively in both `BeforeJson` and `AfterJson`. Malformed historical JSON is returned as `null`, never unredacted.
+
+List item fields are exact: `CustomerSummary` = `Id, CustomerCode, Name, GstNumber, PanNumber, PortalOrganizationId, Status, ApprovalStatus, IsActive, Version, CreditLimit`; `VendorSummary` = `Id, VendorCode, Name, GstNumber, PanNumber, ApprovalStatus, VendorStatus, IsActive, Version, BankMetadata`; `ItemSummary` = `Id, ItemCode, Name, CategoryId, CategoryCode, CategoryName, SubcategoryId, SubcategoryCode, SubcategoryName, Uom, MaterialType, ItemType, IsReturnable, ManufacturerMake, Model, PartNumber, MinimumStock, MaximumStock, ReorderLevel, Status, ApprovalStatus, IsActive, Version`; `WarehouseSummary` = `Id, WarehouseCode, Name, WarehouseType, Location, Status, ApprovalStatus, IsActive, Version`; `RackBinSummary` = `Id, WarehouseId, WarehouseCode, BinCode, RackName, BinNameNumber, Zone, LocationType, MaterialCondition, Status, ApprovalStatus, IsActive, Version`.
 
 ### 7.2 Customer and vendor routes
 
@@ -415,7 +420,7 @@ For each resource the implemented routes are:
 |---|---|---|---|---|
 | `GET {base}` | none | `PagedResponse<Item|Warehouse|RackBin summary>` | `{page}:View` | invalid filters `400` |
 | `GET {base}/{key}` | none | corresponding full object | `{page}:View` | `404` |
-| `POST {base}` | editable object, no `Id`; `Version:null` | `201` summary (`RackBin` create returns `{ "Id":"...", "BinCode":"REF-A-01", "Version":1 }`) | `{page}:Create` | invalid FK/duplicate `400/409` |
+| `POST {base}` | editable object, no `Id`; `Version:null` | `201` full object for Item/Warehouse; RackBin returns `{ "Id":"...", "BinCode":"REF-A-01", "Version":1 }` | `{page}:Create` | invalid FK/duplicate `400/409` |
 | `PUT {base}/{key}` | editable object plus `Version` | `200` full object | `{page}:Update` | `404`, stale `409` |
 | `POST {base}/{key}/{action}` | `ActionRequest` | `LifecycleResult` | mapping below | state/stale `409`; self-approval `403` |
 | `GET {base}/{key}/status-history` | none | `StatusHistory[]` | `{page}:ViewAuditHistory` | common |
@@ -423,6 +428,37 @@ For each resource the implemented routes are:
 | `GET {base}/{key}/audit-history` | none | `AuditHistory[]` | `{page}:ViewAuditHistory` | `404` |
 
 Item actions: `submit:Submit`, `approve:Approve`, `reject:Reject`, `request-clarification:RequestClarification`, `request-revision:RequestRevision`, `resubmit:Resubmit`, `hold:Deactivate`, `reactivate:Update`, `deactivate:Deactivate`. Warehouse and rack/bin actions: `submit:Submit`, `approve:Approve`, `reject:Reject`, `hold:Deactivate`, `reactivate:Update`, `deactivate:Deactivate`.
+
+The item list `category` filter first matches the live `CategoryCode`; it also matches legacy `MaterialType` while legacy rows are remediated.
+
+### 7.4 Item reference-master routes
+
+These endpoints are implemented. All responses and requests use PascalCase.
+
+```json
+{
+  "ReferenceMasterSummary":{"Id":"d506d657-a514-4381-89e2-dac7df55d804","Code":"REF","Name":"Refrigeration","IsActive":true,"Version":2},
+  "ItemSubcategorySummary":{"Id":"9bdd9f8b-cae3-476c-9433-d6ac8e1a025a","CategoryId":"d506d657-a514-4381-89e2-dac7df55d804","CategoryCode":"REF","CategoryName":"Refrigeration","Code":"COMP","Name":"Compressors","IsActive":true,"Version":1},
+  "UomSummary":{"Id":"f71a4725-bb15-e7bf-e97b-991985e96328","Code":"EA","Name":"Each","MeasurementDimension":"COUNT","QuantityPrecision":6,"IsActive":true,"Version":1},
+  "ReferenceMasterUpsert":{"Code":"REF","Name":"Refrigeration","Version":2},
+  "SubcategoryUpsert":{"CategoryId":"d506d657-a514-4381-89e2-dac7df55d804","Code":"COMP","Name":"Compressors","Version":1},
+  "UomUpsert":{"Code":"EA","Name":"Each","MeasurementDimension":"COUNT","Version":1},
+  "Deactivate":{"Reason":"Merged into another code","Version":2}
+}
+```
+
+For POST, `Version` is `null`; PUT and deactivate require the current `Version`. Codes and `MeasurementDimension` are normalized to uppercase. UOM `QuantityPrecision` is server-set to `6`.
+
+| Resource | Base path | List response | Page key |
+|---|---|---|---|
+| Item category | `/api/v1/masters/item-categories` | `PagedResponse<ReferenceMasterSummary>` | `masters.item-categories` |
+| Item subcategory | `/api/v1/masters/item-subcategories` | `PagedResponse<ItemSubcategorySummary>` | `masters.item-subcategories` |
+| UOM | `/api/v1/masters/uoms` | `PagedResponse<UomSummary>` | `masters.uoms` |
+| Manufacturer | `/api/v1/masters/manufacturers` | `PagedResponse<ReferenceMasterSummary>` | `masters.manufacturers` |
+
+Each base supports `GET {base}?page=&pageSize=&search=&isActive=&sortBy=&sortDirection=` with `{page}:View`, `GET {base}/{id:guid}` with `{page}:View`, `POST {base}` with `{page}:Create`, `PUT {base}/{id:guid}` with `{page}:Update`, and `POST {base}/{id:guid}/deactivate` with `{page}:Deactivate`. Subcategory lists additionally accept `categoryId`.
+
+Create returns `201` and the corresponding summary; get/update/deactivate return `200`. Missing IDs return `404`; invalid required fields, inactive parents, or a subcategory/category mismatch return `400`; duplicates and stale versions return `409`. Deactivation requires a non-empty reason and is blocked with `409` when dependencies exist: categories check active items, subcategories, QC policies and Stores routes; subcategories check active items; UOMs check active items, conversions and QC policies plus historical delivery-weight and inspection-result references; manufacturers check active items.
 
 ## 8. Implemented purchase-requisition and stock-check endpoints
 
@@ -1064,10 +1100,8 @@ There is intentionally no public POST, PUT, PATCH, or DELETE route for `stock_mo
 
 ## 15. Known backend alignment work
 
-This document is the intended stable contract. Before declaring frontend/backend integration complete, the backend must:
+This document is the intended stable contract. Global PascalCase HTTP serialization and section 3.1 error normalization are implemented. Before declaring frontend/backend integration complete, the backend must:
 
-- configure the HTTP serializer to emit and accept PascalCase consistently;
-- replace legacy anonymous `{ "message":"..." }`, empty `401/403/404`, and lower-case problem responses with section 3.1;
 - return explicit response DTOs for REV869B reads instead of serializing persistence entities and navigation properties;
 - normalize the three legacy pagination exceptions identified in 3.2, or retain them as explicitly versioned exceptions;
 - add `Version` concurrency to employee mutations or keep the documented exception visible;

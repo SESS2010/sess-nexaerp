@@ -15,6 +15,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using SESS.NexaERP.Api.Endpoints;
+using SESS.NexaERP.Api.Middleware;
+using SESS.NexaERP.Api.Serialization;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
@@ -208,6 +210,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         builder.Services.AddAuthentication(OwnedAuthenticationHandler.SchemeName)
             .AddScheme<AuthenticationSchemeOptions, OwnedAuthenticationHandler>(OwnedAuthenticationHandler.SchemeName, _ => { });
         builder.Services.AddAuthorization();
+        builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
         builder.Services.AddSingleton<ICurrentUser>(user);
         var scopes = new ToggleScope();
         builder.Services.AddSingleton<IRecordScopeAuthorizer>(scopes);
@@ -219,6 +222,8 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
         builder.Services.AddSingleton<IRev869BPurchaseService>(fixture.Service(scopes: scopes, currentUser: user));
 
         await using var app = builder.Build();
+        app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
+        app.UseMiddleware<ExceptionHandlingMiddleware>();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapRev869BPurchaseEndpoints();
@@ -280,7 +285,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
             var createdQualification = await client.PostAsJsonAsync("/api/v1/rev869a/configuration/vendor-qualifications", qualificationRequest);
             Assert.Equal(HttpStatusCode.Created, createdQualification.StatusCode);
             using var qualificationJson = JsonDocument.Parse(await createdQualification.Content.ReadAsStringAsync());
-            var qualificationId = qualificationJson.RootElement.GetProperty("id").GetGuid();
+            var qualificationId = qualificationJson.RootElement.GetProperty("Id").GetGuid();
 
             var creatorVerify = await client.PostAsJsonAsync(
                 $"/api/v1/rev869a/configuration/vendor-qualifications/{qualificationId}/verify",
@@ -346,7 +351,7 @@ public sealed class Rev869BPostgresApplicationBehaviorTests
                 qualificationRequest with { QualificationCode = "MAPPED-Q-REJECT", Remarks = "create rejection case" });
             Assert.Equal(HttpStatusCode.Created, rejectedCreate.StatusCode);
             using var rejectedJson = JsonDocument.Parse(await rejectedCreate.Content.ReadAsStringAsync());
-            var rejectedId = rejectedJson.RootElement.GetProperty("id").GetGuid();
+            var rejectedId = rejectedJson.RootElement.GetProperty("Id").GetGuid();
             user.LoginId = "REV869B-VERIFIER";
             user.RoleCode = Rev869ARoleCodes.TechnicalDirector;
             user.ActorId = directVerifier.EmployeeId;
