@@ -64,4 +64,11 @@ public sealed record AssignEmployeeRoleRequest(string RoleCode, DateOnly Effecti
 
 public sealed record EmployeeRoleSummary(Guid Id, string RoleCode, string RoleName, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, string Remarks);
 
+public sealed record MasterLookupItem(string Code, string Name);
+
+public sealed record EmployeeMasterLookups(
+    IReadOnlyList<MasterLookupItem> Departments,
+    IReadOnlyList<MasterLookupItem> Skills,
+    IReadOnlyList<MasterLookupItem> Designations);
+
 public sealed record EmployeeHistorySummary(Guid Id, string Action, string FromStatus, string ToStatus, string Remarks, DateTimeOffset CreatedAt, string CreatedBy);

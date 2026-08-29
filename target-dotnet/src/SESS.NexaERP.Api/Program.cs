@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+#if DEBUG
+using Microsoft.IdentityModel.Tokens;
+#endif
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Api.Middleware;
@@ -20,14 +23,51 @@ builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = builder.Configuration["Authentication:Authority"];
-        options.Audience = builder.Configuration["Authentication:Audience"];
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.MapInboundClaims = false;
-    });
+// Development-only authentication follows the same gate pattern as
+// DatabaseSecurity:AllowDevelopmentSuperuser: the setting must be absent in a
+// Release build, and it activates only in Debug + Development + explicit opt-in.
+var developmentAuthenticationSetting = builder.Configuration["NexaErp:AllowDevelopmentAuthentication"];
+#if !DEBUG
+if (developmentAuthenticationSetting is not null)
+{
+    throw new InvalidOperationException("NexaErp:AllowDevelopmentAuthentication must not be present in a Release build.");
+}
+#endif
+var developmentAuthenticationEnabled = false;
+#if DEBUG
+developmentAuthenticationEnabled = builder.Environment.IsDevelopment()
+    && string.Equals(developmentAuthenticationSetting, "true", StringComparison.OrdinalIgnoreCase);
+if (developmentAuthenticationEnabled)
+{
+    var developmentTokens = new SESS.NexaERP.Api.Security.DevelopmentTokenService();
+    builder.Services.AddSingleton(developmentTokens);
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.RequireHttpsMetadata = false;
+            options.MapInboundClaims = false;
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                // Issuer varies per employee identity mapping; the per-process
+                // random signing key is the validation boundary.
+                ValidateIssuer = false,
+                ValidAudience = SESS.NexaERP.Api.Security.DevelopmentTokenService.Audience,
+                IssuerSigningKey = developmentTokens.SigningKey,
+            };
+        });
+}
+#endif
+if (!developmentAuthenticationEnabled)
+{
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.Authority = builder.Configuration["Authentication:Authority"];
+            options.Audience = builder.Configuration["Authentication:Audience"];
+            options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+            options.MapInboundClaims = false;
+        });
+}
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -91,6 +131,15 @@ if (app.Environment.IsDevelopment())
             .OrderBy(entity => entity.name)
     }));
 }
+
+#if DEBUG
+if (developmentAuthenticationEnabled)
+{
+    app.Logger.LogCritical(
+        "SECURITY WARNING: Development-only authentication is active. Tokens from /api/v1/dev/token bypass the OIDC provider. This configuration must never be deployed.");
+    app.MapDevelopmentAuthEndpoints();
+}
+#endif
 
 app.MapSessionEndpoints();
 app.MapIdentityEndpoints();
