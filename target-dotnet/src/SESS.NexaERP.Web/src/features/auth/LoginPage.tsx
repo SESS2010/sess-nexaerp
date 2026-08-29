@@ -16,16 +16,16 @@ interface DevTokenResponse {
   ExpiresInHours: number
 }
 
-// Sign-in page. Production authentication is OIDC-only (REV866): there is no
-// password verification anywhere in the backend, so this page has no password
-// field. In development it signs in through the Debug-only /api/v1/dev pipeline
-// using the employee's real identity mapping; when the production OIDC provider
-// is selected, the submit handler becomes a redirect to the provider and the
-// rest of the app is unchanged.
+// Sign-in page. Production authentication is OIDC-only (REV866); this page runs
+// on the Debug-only /api/v1/dev pipeline, which verifies the development
+// password and the employee's real identity mapping. When the production OIDC
+// provider is selected, the submit handler becomes a redirect to the provider
+// and the rest of the app is unchanged.
 export function LoginPage() {
   const navigate = useNavigate()
   const [identities, setIdentities] = useState<DevIdentity[]>([])
-  const [employeeCode, setEmployeeCode] = useState('')
+  const [loginId, setLoginId] = useState('')
+  const [password, setPassword] = useState('')
   const [organizationId, setOrganizationId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -36,22 +36,18 @@ export function LoginPage() {
       .then((list) => {
         setIdentities(list)
         setApiDown(false)
-        if (list.length > 0) {
-          setEmployeeCode(list[0].EmployeeCode)
-          setOrganizationId(list[0].OrganizationId)
-        }
       })
       .catch(() => setApiDown(true))
   }, [])
 
   const companies = useMemo(
-    () => identities.filter((identity) => identity.EmployeeCode === employeeCode.trim().toUpperCase()),
-    [identities, employeeCode],
+    () => [...new Set(identities.map((identity) => identity.OrganizationId))],
+    [identities],
   )
 
   useEffect(() => {
-    if (companies.length > 0 && !companies.some((c) => c.OrganizationId === organizationId)) {
-      setOrganizationId(companies[0].OrganizationId)
+    if (companies.length > 0 && !companies.includes(organizationId)) {
+      setOrganizationId(companies[0])
     }
   }, [companies, organizationId])
 
@@ -61,7 +57,8 @@ export function LoginPage() {
     setError('')
     try {
       const result = await api.post<DevTokenResponse>('/api/v1/dev/token', {
-        EmployeeCode: employeeCode.trim(),
+        LoginId: loginId.trim(),
+        Password: password,
         OrganizationId: organizationId || null,
       })
       setStoredToken(result.Token)
@@ -94,23 +91,29 @@ export function LoginPage() {
         )}
 
         <label className="field">
-          <span className="field-label">Employee ID</span>
+          <span className="field-label">Employee ID or email</span>
           <input
             className="input"
             required
             autoFocus
-            value={employeeCode}
-            onChange={(event) => setEmployeeCode(event.target.value)}
-            placeholder="e.g. SESS-12"
-            list="known-identities"
+            autoComplete="username"
+            value={loginId}
+            onChange={(event) => setLoginId(event.target.value)}
+            placeholder="e.g. TEST-01 or test.user@sess.local"
           />
-          <datalist id="known-identities">
-            {[...new Set(identities.map((identity) => identity.EmployeeCode))].map((code) => (
-              <option key={code} value={code}>
-                {identities.find((identity) => identity.EmployeeCode === code)?.EmployeeName}
-              </option>
-            ))}
-          </datalist>
+        </label>
+
+        <label className="field">
+          <span className="field-label">Password</span>
+          <input
+            className="input"
+            required
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+          />
         </label>
 
         <label className="field">
@@ -122,9 +125,9 @@ export function LoginPage() {
             onChange={(event) => setOrganizationId(event.target.value)}
           >
             {companies.length === 0 && <option value="">Select company…</option>}
-            {companies.map((identity) => (
-              <option key={identity.OrganizationId} value={identity.OrganizationId}>
-                {identity.OrganizationId.replaceAll('_', ' ')}
+            {companies.map((company) => (
+              <option key={company} value={company}>
+                {company.replaceAll('_', ' ')}
               </option>
             ))}
           </select>
@@ -137,8 +140,8 @@ export function LoginPage() {
         </button>
 
         <p className="login-note">
-          Development sign-in — verifies your employee identity mapping. Password login is
-          replaced by the organization's single sign-on (OIDC) in production.
+          Development sign-in — verifies the development password and your employee identity
+          mapping. In production this is replaced by the organization's single sign-on (OIDC).
         </p>
       </form>
     </div>
