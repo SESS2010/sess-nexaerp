@@ -4,6 +4,7 @@ import { listVendors } from '../../api/vendors'
 import type { VendorSummary } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
+import { ImportExportBar } from '../../components/ImportExportBar'
 
 const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected', 'Blacklisted']
 const PAGE_SIZE = 20
@@ -54,9 +55,12 @@ export function VendorListPage() {
           <h1>Vendors</h1>
           <p className="page-sub">Vendor master with approval workflow ({totalCount} total)</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + New Vendor
-        </button>
+        <div className="action-row">
+          <ImportExportBar masterKey="vendors" onImported={() => void load()} />
+          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            + New Vendor
+          </button>
+        </div>
       </div>
 
       <div className="toolbar">

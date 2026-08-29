@@ -255,7 +255,7 @@ public static partial class MasterEndpoints
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.LegalCustomerName) || string.IsNullOrWhiteSpace(request.CustomerType)) return Results.BadRequest(new { message = "Customer code, legal name and type are required." });
         if (!MasterEndpointHelpers.IsValidGstin(gst)) return Results.BadRequest(new { message = "Invalid Indian GSTIN format." });
         if (!MasterEndpointHelpers.IsValidPan(pan)) return Results.BadRequest(new { message = "Invalid Indian PAN format." });
-        if (await db.Customers.AnyAsync(customer => customer.Id != currentId && (customer.CustomerCode == code || (gst != null && customer.GstNumber == gst)), cancellationToken)) return Results.Conflict(new { message = "Duplicate customer code/GST blocked." });
+        if (await db.Customers.AnyAsync(customer => customer.Id != currentId && (customer.CustomerCode == code || (gst != null && customer.GstNumber == gst) || (pan != null && customer.PanNumber == pan && customer.LegalCustomerName.ToUpper() == request.LegalCustomerName.Trim().ToUpper())), cancellationToken)) return Results.Conflict(new { message = "Duplicate customer code/GST/PAN identity blocked." });
         return null;
     }
 
@@ -268,7 +268,7 @@ public static partial class MasterEndpoints
         if (request.MsmeStatus && string.IsNullOrWhiteSpace(request.MsmeNumber)) return Results.BadRequest(new { message = "MSME number is required when MSME status is true." });
         if (!MasterEndpointHelpers.IsValidGstin(gst)) return Results.BadRequest(new { message = "Invalid Indian GSTIN format." });
         if (!MasterEndpointHelpers.IsValidPan(pan)) return Results.BadRequest(new { message = "Invalid Indian PAN format." });
-        if (await db.Vendors.AnyAsync(vendor => vendor.Id != currentId && (vendor.VendorCode == code || (gst != null && vendor.GstNumber == gst) || (pan != null && vendor.PanNumber == pan && vendor.LegalVendorName == request.LegalVendorName.Trim())), cancellationToken)) return Results.Conflict(new { message = "Duplicate vendor identity blocked." });
+        if (await db.Vendors.AnyAsync(vendor => vendor.Id != currentId && (vendor.VendorCode == code || (gst != null && vendor.GstNumber == gst) || (pan != null && vendor.PanNumber == pan && vendor.LegalVendorName.ToUpper() == request.LegalVendorName.Trim().ToUpper())), cancellationToken)) return Results.Conflict(new { message = "Duplicate vendor identity blocked." });
         return null;
     }
 

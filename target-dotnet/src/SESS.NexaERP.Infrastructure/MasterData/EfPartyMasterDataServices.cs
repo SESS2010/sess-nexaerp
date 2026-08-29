@@ -92,7 +92,7 @@ public sealed class EfCustomerMasterDataService(
         if (request.CreditLimit < 0) errors.Add(PartyMasterRules.Error("CreditLimit", "Credit Limit", "INVALID_VALUE", "Credit Limit cannot be negative.", request.CreditLimit?.ToString(CultureInfo.InvariantCulture)));
         if (errors.Count > 0) throw new MasterDataValidationException(string.Join(" ", errors.Select(x => x.Message).Distinct(StringComparer.Ordinal)));
         if (await db.Customers.AnyAsync(x => x.Id != currentId && (x.CustomerCode == code || (gst != null && x.GstNumber == gst)
-            || (pan != null && x.PanNumber == pan && x.LegalCustomerName == request.LegalCustomerName.Trim())), cancellationToken))
+            || (pan != null && x.PanNumber == pan && x.LegalCustomerName.ToUpper() == request.LegalCustomerName.Trim().ToUpper())), cancellationToken))
             throw new MasterDataConflictException("Duplicate customer identity blocked.");
         return (code, location.State, location.StateCode, location.Country);
     }
@@ -198,7 +198,7 @@ public sealed class EfVendorMasterDataService(
         if (request.CreditPeriodDays < 0) errors.Add(PartyMasterRules.Error("CreditPeriodDays", "Credit Period Days", "INVALID_VALUE", "Credit Period Days cannot be negative.", request.CreditPeriodDays?.ToString(CultureInfo.InvariantCulture)));
         if (errors.Count > 0) throw new MasterDataValidationException(string.Join(" ", errors.Select(x => x.Message).Distinct(StringComparer.Ordinal)));
         if (await db.Vendors.AnyAsync(x => x.Id != currentId && (x.VendorCode == code || (gst != null && x.GstNumber == gst)
-            || (pan != null && x.PanNumber == pan && x.LegalVendorName == request.LegalVendorName.Trim())), cancellationToken)) throw new MasterDataConflictException("Duplicate vendor identity blocked.");
+            || (pan != null && x.PanNumber == pan && x.LegalVendorName.ToUpper() == request.LegalVendorName.Trim().ToUpper())), cancellationToken)) throw new MasterDataConflictException("Duplicate vendor identity blocked.");
         return (code, location.State, location.StateCode, location.Country);
     }
 

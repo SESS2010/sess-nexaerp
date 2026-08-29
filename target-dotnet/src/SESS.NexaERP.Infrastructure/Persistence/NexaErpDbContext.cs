@@ -151,7 +151,9 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasIndex(x => x.Status);
             entity.HasIndex(x => x.IsActive);
             entity.HasIndex(x => x.GstNumber).IsUnique().HasFilter("\"GstNumber\" IS NOT NULL");
-            entity.HasIndex(x => new { x.PanNumber, x.LegalCustomerName }).IsUnique().HasFilter("\"PanNumber\" IS NOT NULL");
+            // PAN uniqueness is (PAN, upper(name)) so one PAN may cover multiple
+            // state branches with distinct names; created as a raw expression
+            // index in the StrictPanCaseInsensitiveUniqueness migration.
             entity.Property(x => x.CustomerCode).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(240).IsRequired();
             entity.Property(x => x.LegalCustomerName).HasMaxLength(240).IsRequired();
@@ -186,7 +188,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasIndex(x => x.PortalOrganizationId);
             entity.HasIndex(x => x.IsActive);
             entity.HasIndex(x => x.GstNumber).IsUnique().HasFilter("\"GstNumber\" IS NOT NULL");
-            entity.HasIndex(x => new { x.PanNumber, x.LegalVendorName }).IsUnique().HasFilter("\"PanNumber\" IS NOT NULL");
+            // See customer note: PAN uniqueness is a case-insensitive raw
+            // expression index created in StrictPanCaseInsensitiveUniqueness.
             entity.Property(x => x.VendorCode).HasMaxLength(80).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(240).IsRequired();
             entity.Property(x => x.LegalVendorName).HasMaxLength(240).IsRequired();

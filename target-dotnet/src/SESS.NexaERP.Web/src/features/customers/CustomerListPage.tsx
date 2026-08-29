@@ -4,6 +4,7 @@ import { listCustomers } from '../../api/customers'
 import type { CustomerSummary } from '../../types/customer'
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerFormModal } from './CustomerFormModal'
+import { ImportExportBar } from '../../components/ImportExportBar'
 
 const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected']
 const PAGE_SIZE = 20
@@ -54,9 +55,12 @@ export function CustomerListPage() {
           <h1>Customers</h1>
           <p className="page-sub">Customer master with approval workflow ({totalCount} total)</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + New Customer
-        </button>
+        <div className="action-row">
+          <ImportExportBar masterKey="customers" onImported={() => void load()} />
+          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            + New Customer
+          </button>
+        </div>
       </div>
 
       <div className="toolbar">
