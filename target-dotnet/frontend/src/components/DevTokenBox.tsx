@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react'
 import { api, getStoredToken, setStoredToken } from '../api/client'
 
 interface DevIdentity {
-  employeeCode: string
-  employeeName: string
-  organizationId: string
+  EmployeeCode: string
+  EmployeeName: string
+  OrganizationId: string
 }
 
 interface DevTokenResponse {
-  token: string
-  employeeCode: string
-  organizationId: string
-  expiresInHours: number
+  Token: string
+  EmployeeCode: string
+  OrganizationId: string
+  ExpiresInHours: number
 }
 
 // Development authentication control. Preferred path: pick an identity and the
@@ -33,7 +33,7 @@ export function DevTokenBox() {
       .then((list) => {
         setIdentities(list)
         if (list.length > 0 && !selected) {
-          setSelected(`${list[0].employeeCode}|${list[0].organizationId}`)
+          setSelected(`${list[0].EmployeeCode}|${list[0].OrganizationId}`)
         }
         setError('')
       })
@@ -50,9 +50,9 @@ export function DevTokenBox() {
     setBusy(true)
     setError('')
     try {
-      const result = await api.post<DevTokenResponse>('/api/v1/dev/token', { employeeCode, organizationId })
-      setStoredToken(result.token)
-      setSignedInAs(`${result.employeeCode} (${result.organizationId})`)
+      const result = await api.post<DevTokenResponse>('/api/v1/dev/token', { EmployeeCode: employeeCode, OrganizationId: organizationId })
+      setStoredToken(result.Token)
+      setSignedInAs(`${result.EmployeeCode} (${result.OrganizationId})`)
       setOpen(false)
       window.location.reload()
     } catch (err) {
@@ -89,8 +89,8 @@ export function DevTokenBox() {
             <>
               <select className="input" style={{ width: '100%' }} value={selected} onChange={(event) => setSelected(event.target.value)}>
                 {identities.map((identity) => (
-                  <option key={`${identity.employeeCode}|${identity.organizationId}`} value={`${identity.employeeCode}|${identity.organizationId}`}>
-                    {identity.employeeCode} — {identity.employeeName} ({identity.organizationId})
+                  <option key={`${identity.EmployeeCode}|${identity.OrganizationId}`} value={`${identity.EmployeeCode}|${identity.OrganizationId}`}>
+                    {identity.EmployeeCode} — {identity.EmployeeName} ({identity.OrganizationId})
                   </option>
                 ))}
               </select>

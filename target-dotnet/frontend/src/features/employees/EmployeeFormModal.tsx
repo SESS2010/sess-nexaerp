@@ -15,16 +15,16 @@ const EMPLOYEE_TYPES = ['Permanent', 'Contract', 'Trainee', 'Consultant']
 export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
   const [lookups, setLookups] = useState<EmployeeMasterLookups | null>(null)
   const [form, setForm] = useState({
-    employeeCode: existing?.employeeCode ?? '',
-    employeeName: existing?.employeeName ?? '',
-    employeeType: existing?.employeeType ?? 'Permanent',
-    grade: existing?.grade ?? '',
+    employeeCode: existing?.EmployeeCode ?? '',
+    employeeName: existing?.EmployeeName ?? '',
+    employeeType: existing?.EmployeeType ?? 'Permanent',
+    grade: existing?.Grade ?? '',
     departmentCode: '',
     skillCode: '',
     designationCode: '',
-    dateOfJoining: existing?.dateOfJoining ?? '',
-    officialEmail: existing?.officialEmail ?? '',
-    mobileNumber: existing?.mobileNumber ?? '',
+    dateOfJoining: existing?.DateOfJoining ?? '',
+    officialEmail: existing?.OfficialEmail ?? '',
+    mobileNumber: existing?.MobileNumber ?? '',
     remarks: '',
   })
   const [saving, setSaving] = useState(false)
@@ -39,9 +39,9 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
         if (existing) {
           setForm((prev) => ({
             ...prev,
-            departmentCode: data.departments.find((x) => x.name === existing.department)?.code ?? '',
-            skillCode: data.skills.find((x) => existing.skillCategories.includes(x.name))?.code ?? '',
-            designationCode: data.designations.find((x) => x.name === existing.jobDesignation)?.code ?? '',
+            departmentCode: data.Departments.find((x) => x.Name === existing.Department)?.Code ?? '',
+            skillCode: data.Skills.find((x) => existing.SkillCategories.includes(x.Name))?.Code ?? '',
+            designationCode: data.Designations.find((x) => x.Name === existing.JobDesignation)?.Code ?? '',
           }))
         }
       })
@@ -58,19 +58,19 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
     setError('')
     try {
       const shared = {
-        employeeName: form.employeeName,
-        employeeType: form.employeeType,
-        grade: form.grade,
-        departmentCode: form.departmentCode,
-        skillCode: form.skillCode,
-        designationCode: form.designationCode,
-        dateOfJoining: form.dateOfJoining || null,
-        officialEmail: form.officialEmail || null,
-        mobileNumber: form.mobileNumber || null,
+        EmployeeName: form.employeeName,
+        EmployeeType: form.employeeType,
+        Grade: form.grade,
+        DepartmentCode: form.departmentCode,
+        SkillCode: form.skillCode,
+        DesignationCode: form.designationCode,
+        DateOfJoining: form.dateOfJoining || null,
+        OfficialEmail: form.officialEmail || null,
+        MobileNumber: form.mobileNumber || null,
       }
       const detail = mode === 'create'
-        ? await createEmployee({ ...shared, employeeCode: form.employeeCode, remarks: form.remarks })
-        : await updateEmployee(existing!.employeeCode, { ...shared, reason: form.remarks })
+        ? await createEmployee({ ...shared, EmployeeCode: form.employeeCode, Remarks: form.remarks })
+        : await updateEmployee(existing!.EmployeeCode, { ...shared, Reason: form.remarks })
       onSaved(detail)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed.')
@@ -83,7 +83,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <h2>{mode === 'create' ? 'New Employee' : `Edit ${existing?.employeeCode}`}</h2>
+          <h2>{mode === 'create' ? 'New Employee' : `Edit ${existing?.EmployeeCode}`}</h2>
           <button type="button" className="btn btn-ghost" onClick={onClose}>✕</button>
         </div>
         <form onSubmit={submit} className="form-grid">
@@ -111,21 +111,21 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Department *</span>
             <select className="input" required value={form.departmentCode} onChange={set('departmentCode')}>
               <option value="">Select department…</option>
-              {lookups?.departments.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+              {lookups?.Departments.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
             </select>
           </label>
           <label className="field">
             <span className="field-label">Skill category *</span>
             <select className="input" required value={form.skillCode} onChange={set('skillCode')}>
               <option value="">Select skill…</option>
-              {lookups?.skills.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+              {lookups?.Skills.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
             </select>
           </label>
           <label className="field">
             <span className="field-label">Designation *</span>
             <select className="input" required value={form.designationCode} onChange={set('designationCode')}>
               <option value="">Select designation…</option>
-              {lookups?.designations.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+              {lookups?.Designations.map((item) => <option key={item.Code} value={item.Code}>{item.Name}</option>)}
             </select>
           </label>
           <label className="field">

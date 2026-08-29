@@ -1,9 +1,14 @@
-import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { DevTokenBox } from './components/DevTokenBox'
 import { EmployeeListPage } from './features/employees/EmployeeListPage'
 import { EmployeeDetailPage } from './features/employees/EmployeeDetailPage'
+import { VendorListPage } from './features/vendors/VendorListPage'
+import { VendorDetailPage } from './features/vendors/VendorDetailPage'
 
 export default function App() {
+  const location = useLocation()
+  const title = location.pathname.startsWith('/vendors') ? 'Vendor Master' : 'Employee Master'
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -19,8 +24,10 @@ export default function App() {
           <NavLink to="/employees" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             Employee Master
           </NavLink>
+          <NavLink to="/vendors" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Vendor Master
+          </NavLink>
           <span className="nav-link disabled">Customer Master</span>
-          <span className="nav-link disabled">Vendor Master</span>
           <span className="nav-link disabled">Item Master</span>
           <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           <div className="nav-section">Transactions</div>
@@ -30,7 +37,7 @@ export default function App() {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div className="topbar-title">Employee Master</div>
+          <div className="topbar-title">{title}</div>
           <DevTokenBox />
         </header>
         <main className="content">
@@ -38,6 +45,8 @@ export default function App() {
             <Route path="/" element={<Navigate to="/employees" replace />} />
             <Route path="/employees" element={<EmployeeListPage />} />
             <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
+            <Route path="/vendors" element={<VendorListPage />} />
+            <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
           </Routes>
         </main>
       </div>

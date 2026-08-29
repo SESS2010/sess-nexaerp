@@ -1,6 +1,10 @@
 // Thin fetch wrapper. The API requires a JWT bearer token (permanent OIDC design);
-// until the identity provider is wired, a development token can be stored via the
-// header token box and is attached to every request.
+// until the identity provider is wired, a development token can be obtained via the
+// header sign-in box and is attached to every request.
+//
+// Wire contract (enforced globally by the API): PascalCase JSON properties, and
+// error responses use the standard envelope
+// { Type, Title, Status, Code, Detail, TraceId, Errors }.
 
 const TOKEN_STORAGE_KEY = 'nexaerp.dev.bearerToken'
 
@@ -26,11 +30,26 @@ export function setStoredToken(token: string): void {
 
 export class ApiError extends Error {
   readonly status: number
+  readonly code?: string
+  readonly traceId?: string
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string, traceId?: string) {
     super(message)
     this.status = status
+    this.code = code
+    this.traceId = traceId
   }
+}
+
+interface StandardErrorEnvelope {
+  Type?: string
+  Title?: string
+  Status?: number
+  Code?: string
+  Detail?: string
+  TraceId?: string
+  Errors?: Record<string, string[]>
+  message?: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -47,21 +66,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, headers })
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`
+    let code: string | undefined
+    let traceId: string | undefined
     try {
-      const body = await response.json()
-      if (body && typeof body.message === 'string') {
-        message = body.message
+      const body = (await response.json()) as StandardErrorEnvelope
+      if (body) {
+        message = body.Detail || body.Title || body.message || message
+        code = body.Code
+        traceId = body.TraceId
+        if (body.Errors && Object.keys(body.Errors).length > 0) {
+          const details = Object.entries(body.Errors)
+            .map(([field, errors]) => `${field}: ${errors.join('; ')}`)
+            .join(' | ')
+          if (details) message = `${message} — ${details}`
+        }
       }
     } catch {
       // non-JSON error body; keep the status text
     }
     if (response.status === 401) {
-      message = 'Not authenticated. Set a valid bearer token (top right) and retry.'
+      message = 'Not signed in, or the session expired. Use the sign-in box (top right) and retry.'
     }
     if (response.status === 403) {
       message = 'Permission denied for this page action.'
     }
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, message, code, traceId)
   }
 
   if (response.status === 204) {
@@ -76,4 +105,11 @@ export const api = {
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+}
+
+export interface PagedResponse<T> {
+  TotalCount: number
+  PageNumber: number
+  PageSize: number
+  Items: T[]
 }

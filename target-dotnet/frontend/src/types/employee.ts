@@ -1,92 +1,93 @@
-// Mirrors SESS.NexaERP.Application.Employees contracts (camelCase over the wire).
+// Mirrors SESS.NexaERP.Application.Employees contracts.
+// The API enforces PascalCase JSON property names globally (ApiJsonContract).
 
 export interface EmployeeSummary {
-  id: string
-  employeeCode: string
-  employeeName: string
-  employeeType: string
-  grade: string
-  department: string
-  skillCategory: string
-  jobDesignation: string
-  status: string
-  loginEnabled: boolean
-  approvalStatus: string
+  Id: string
+  EmployeeCode: string
+  EmployeeName: string
+  EmployeeType: string
+  Grade: string
+  Department: string
+  SkillCategory: string
+  JobDesignation: string
+  Status: string
+  LoginEnabled: boolean
+  ApprovalStatus: string
 }
 
 export interface EmployeeRoleSummary {
-  id: string
-  roleCode: string
-  roleName: string
-  effectiveFrom: string
-  effectiveTo: string | null
-  approvalStatus: string
-  remarks: string
+  Id: string
+  RoleCode: string
+  RoleName: string
+  EffectiveFrom: string
+  EffectiveTo: string | null
+  ApprovalStatus: string
+  Remarks: string
 }
 
 export interface EmployeeDetail {
-  id: string
-  employeeCode: string
-  employeeName: string
-  originalImportedName: string
-  employeeType: string
-  grade: string
-  department: string
-  skillCategories: string[]
-  jobDesignation: string
-  status: string
-  dateOfJoining: string | null
-  officialEmail: string | null
-  mobileNumber: string | null
-  loginEnabled: boolean
-  approvalStatus: string
-  roles: EmployeeRoleSummary[]
+  Id: string
+  EmployeeCode: string
+  EmployeeName: string
+  OriginalImportedName: string
+  EmployeeType: string
+  Grade: string
+  Department: string
+  SkillCategories: string[]
+  JobDesignation: string
+  Status: string
+  DateOfJoining: string | null
+  OfficialEmail: string | null
+  MobileNumber: string | null
+  LoginEnabled: boolean
+  ApprovalStatus: string
+  Roles: EmployeeRoleSummary[]
 }
 
 export interface EmployeeHistorySummary {
-  id: string
-  action: string
-  fromStatus: string
-  toStatus: string
-  remarks: string
-  createdAt: string
-  createdBy: string
+  Id: string
+  Action: string
+  FromStatus: string
+  ToStatus: string
+  Remarks: string
+  CreatedAt: string
+  CreatedBy: string
 }
 
 export interface MasterLookupItem {
-  code: string
-  name: string
+  Code: string
+  Name: string
 }
 
 export interface EmployeeMasterLookups {
-  departments: MasterLookupItem[]
-  skills: MasterLookupItem[]
-  designations: MasterLookupItem[]
+  Departments: MasterLookupItem[]
+  Skills: MasterLookupItem[]
+  Designations: MasterLookupItem[]
 }
 
 export interface CreateEmployeeRequest {
-  employeeCode: string
-  employeeName: string
-  employeeType: string
-  grade: string
-  departmentCode: string
-  skillCode: string
-  designationCode: string
-  dateOfJoining: string | null
-  officialEmail: string | null
-  mobileNumber: string | null
-  remarks: string
+  EmployeeCode: string
+  EmployeeName: string
+  EmployeeType: string
+  Grade: string
+  DepartmentCode: string
+  SkillCode: string
+  DesignationCode: string
+  DateOfJoining: string | null
+  OfficialEmail: string | null
+  MobileNumber: string | null
+  Remarks: string
 }
 
 export interface UpdateEmployeeRequest {
-  employeeName: string
-  employeeType: string
-  grade: string
-  departmentCode: string
-  skillCode: string
-  designationCode: string
-  dateOfJoining: string | null
-  officialEmail: string | null
-  mobileNumber: string | null
-  reason: string
+  EmployeeName: string
+  EmployeeType: string
+  Grade: string
+  DepartmentCode: string
+  SkillCode: string
+  DesignationCode: string
+  DateOfJoining: string | null
+  OfficialEmail: string | null
+  MobileNumber: string | null
+  Reason: string
 }

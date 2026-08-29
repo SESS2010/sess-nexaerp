@@ -46,16 +46,16 @@ export function updateEmployee(employeeCode: string, body: UpdateEmployeeRequest
 }
 
 export function changeApprovalStatus(employeeCode: string, action: ApprovalAction, remarks: string) {
-  return api.post<{ employeeCode: string; approvalStatus: string }>(
+  return api.post<{ EmployeeCode: string; ApprovalStatus: string }>(
     `${BASE}/${encodeURIComponent(employeeCode)}/${action}`,
-    { remarks },
+    { Remarks: remarks },
   )
 }
 
 export function setLoginStatus(employeeCode: string, enable: boolean, reason: string) {
-  return api.post<{ employeeCode: string; loginEnabled: boolean; status: string }>(
+  return api.post<{ EmployeeCode: string; LoginEnabled: boolean; Status: string }>(
     `${BASE}/${encodeURIComponent(employeeCode)}/${enable ? 'activate-login' : 'deactivate-login'}`,
-    { reason },
+    { Reason: reason },
   )
 }
 

@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listEmployees } from '../../api/employees'
-import type { EmployeeSummary } from '../../types/employee'
-import { StatusBadge } from './StatusBadge'
-import { EmployeeFormModal } from './EmployeeFormModal'
+import { listVendors } from '../../api/vendors'
+import type { VendorSummary } from '../../types/vendor'
+import { StatusBadge } from '../employees/StatusBadge'
+import { VendorFormModal } from './VendorFormModal'
 
-const STATUS_OPTIONS = ['', 'Active', 'Inactive']
+const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected', 'Blacklisted']
 const PAGE_SIZE = 20
 
-export function EmployeeListPage() {
+export function VendorListPage() {
   const navigate = useNavigate()
-  const [rows, setRows] = useState<EmployeeSummary[]>([])
+  const [rows, setRows] = useState<VendorSummary[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
@@ -19,15 +20,19 @@ export function EmployeeListPage() {
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
 
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const data = await listEmployees({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
-      setRows(data)
+      const data = await listVendors({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
+      setRows(data.Items)
+      setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
-      setError(err instanceof Error ? err.message : 'Failed to load employees.')
+      setTotalCount(0)
+      setError(err instanceof Error ? err.message : 'Failed to load vendors.')
     } finally {
       setLoading(false)
     }
@@ -46,18 +51,18 @@ export function EmployeeListPage() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Employees</h1>
-          <p className="page-sub">Employee master with approval workflow and login control</p>
+          <h1>Vendors</h1>
+          <p className="page-sub">Vendor master with approval workflow ({totalCount} total)</p>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + New Employee
+          + New Vendor
         </button>
       </div>
 
       <div className="toolbar">
         <input
           className="input search"
-          placeholder="Search by code or name…"
+          placeholder="Search by code, name or GSTIN…"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && applySearch()}
@@ -75,8 +80,8 @@ export function EmployeeListPage() {
         <div className="spacer" />
         <div className="pager">
           <button type="button" className="btn btn-ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>‹ Prev</button>
-          <span className="pager-label">Page {page}</span>
-          <button type="button" className="btn btn-ghost" disabled={rows.length < PAGE_SIZE || loading} onClick={() => setPage(page + 1)}>Next ›</button>
+          <span className="pager-label">Page {page} of {totalPages}</span>
+          <button type="button" className="btn btn-ghost" disabled={page >= totalPages || loading} onClick={() => setPage(page + 1)}>Next ›</button>
         </div>
       </div>
 
@@ -88,35 +93,29 @@ export function EmployeeListPage() {
             <tr>
               <th>Code</th>
               <th>Name</th>
-              <th>Type</th>
-              <th>Grade</th>
-              <th>Department</th>
-              <th>Designation</th>
-              <th>Skill</th>
+              <th>GSTIN</th>
+              <th>PAN</th>
               <th>Status</th>
               <th>Approval</th>
-              <th>Login</th>
+              <th>Active</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={10} className="table-empty">Loading…</td></tr>
+              <tr><td colSpan={7} className="table-empty">Loading…</td></tr>
             )}
             {!loading && rows.length === 0 && !error && (
-              <tr><td colSpan={10} className="table-empty">No employees found.</td></tr>
+              <tr><td colSpan={7} className="table-empty">No vendors found.</td></tr>
             )}
             {!loading && rows.map((row) => (
-              <tr key={row.Id} className="row-click" onClick={() => navigate(`/employees/${encodeURIComponent(row.EmployeeCode)}`)}>
-                <td className="mono">{row.EmployeeCode}</td>
-                <td>{row.EmployeeName}</td>
-                <td>{row.EmployeeType}</td>
-                <td>{row.Grade}</td>
-                <td>{row.Department}</td>
-                <td>{row.JobDesignation}</td>
-                <td>{row.SkillCategory}</td>
-                <td><StatusBadge value={row.Status} /></td>
+              <tr key={row.Id} className="row-click" onClick={() => navigate(`/vendors/${encodeURIComponent(row.VendorCode)}`)}>
+                <td className="mono">{row.VendorCode}</td>
+                <td>{row.Name}</td>
+                <td className="mono">{row.GstNumber ?? '—'}</td>
+                <td className="mono">{row.PanNumber ?? '—'}</td>
+                <td><StatusBadge value={row.VendorStatus} /></td>
                 <td><StatusBadge value={row.ApprovalStatus} /></td>
-                <td>{row.LoginEnabled ? 'Enabled' : 'Disabled'}</td>
+                <td>{row.IsActive ? 'Yes' : 'No'}</td>
               </tr>
             ))}
           </tbody>
@@ -124,12 +123,12 @@ export function EmployeeListPage() {
       </div>
 
       {showCreate && (
-        <EmployeeFormModal
+        <VendorFormModal
           mode="create"
           onClose={() => setShowCreate(false)}
-          onSaved={(detail) => {
+          onSaved={(vendorCode) => {
             setShowCreate(false)
-            navigate(`/employees/${encodeURIComponent(detail.EmployeeCode)}`)
+            navigate(`/vendors/${encodeURIComponent(vendorCode)}`)
           }}
         />
       )}

@@ -61,7 +61,7 @@ export function EmployeeDetailPage() {
 
   const toggleLogin = async () => {
     if (!detail) return
-    const enable = !detail.loginEnabled
+    const enable = !detail.LoginEnabled
     const reason = window.prompt(`${enable ? 'Activate' : 'Deactivate'} login — enter reason (required):`)
     if (!reason || !reason.trim()) return
     setBusy(true)
@@ -83,24 +83,24 @@ export function EmployeeDetailPage() {
           <div className="breadcrumbs">
             <Link to="/employees">Employees</Link> / <span className="mono">{employeeCode}</span>
           </div>
-          <h1>{detail ? detail.employeeName : employeeCode}</h1>
+          <h1>{detail ? detail.EmployeeName : employeeCode}</h1>
           {detail && (
             <p className="page-sub">
-              <StatusBadge value={detail.status} /> <StatusBadge value={detail.approvalStatus} />{' '}
-              Login: {detail.loginEnabled ? 'Enabled' : 'Disabled'}
+              <StatusBadge value={detail.Status} /> <StatusBadge value={detail.ApprovalStatus} />{' '}
+              Login: {detail.LoginEnabled ? 'Enabled' : 'Disabled'}
             </p>
           )}
         </div>
         {detail && (
           <div className="action-row">
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {APPROVAL_ACTIONS.filter((item) => item.from.includes(detail.approvalStatus)).map((item) => (
+            {APPROVAL_ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runApproval(item.action, item.label)}>
                 {item.label}
               </button>
             ))}
-            <button type="button" className={`btn ${detail.loginEnabled ? 'btn-warn' : 'btn-primary'}`} disabled={busy} onClick={toggleLogin}>
-              {detail.loginEnabled ? 'Deactivate login' : 'Activate login'}
+            <button type="button" className={`btn ${detail.LoginEnabled ? 'btn-warn' : 'btn-primary'}`} disabled={busy} onClick={toggleLogin}>
+              {detail.LoginEnabled ? 'Deactivate login' : 'Activate login'}
             </button>
           </div>
         )}
@@ -112,23 +112,23 @@ export function EmployeeDetailPage() {
         <>
           <div className="tabs">
             <button type="button" className={`tab${tab === 'profile' ? ' active' : ''}`} onClick={() => setTab('profile')}>Profile</button>
-            <button type="button" className={`tab${tab === 'roles' ? ' active' : ''}`} onClick={() => setTab('roles')}>Roles ({detail.roles.length})</button>
+            <button type="button" className={`tab${tab === 'roles' ? ' active' : ''}`} onClick={() => setTab('roles')}>Roles ({detail.Roles.length})</button>
             <button type="button" className={`tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>History ({history.length})</button>
           </div>
 
           {tab === 'profile' && (
             <div className="card detail-grid">
-              <Field label="Employee code" value={detail.employeeCode} mono />
-              <Field label="Employee name" value={detail.employeeName} />
-              <Field label="Imported name" value={detail.originalImportedName} />
-              <Field label="Type" value={detail.employeeType} />
-              <Field label="Grade" value={detail.grade} />
-              <Field label="Department" value={detail.department} />
-              <Field label="Designation" value={detail.jobDesignation} />
-              <Field label="Skills" value={detail.skillCategories.join(', ') || '—'} />
-              <Field label="Date of joining" value={detail.dateOfJoining ?? '—'} />
-              <Field label="Official email" value={detail.officialEmail ?? '—'} />
-              <Field label="Mobile" value={detail.mobileNumber ?? '—'} />
+              <Field label="Employee code" value={detail.EmployeeCode} mono />
+              <Field label="Employee name" value={detail.EmployeeName} />
+              <Field label="Imported name" value={detail.OriginalImportedName} />
+              <Field label="Type" value={detail.EmployeeType} />
+              <Field label="Grade" value={detail.Grade} />
+              <Field label="Department" value={detail.Department} />
+              <Field label="Designation" value={detail.JobDesignation} />
+              <Field label="Skills" value={detail.SkillCategories.join(', ') || '—'} />
+              <Field label="Date of joining" value={detail.DateOfJoining ?? '—'} />
+              <Field label="Official email" value={detail.OfficialEmail ?? '—'} />
+              <Field label="Mobile" value={detail.MobileNumber ?? '—'} />
             </div>
           )}
 
@@ -139,15 +139,15 @@ export function EmployeeDetailPage() {
                   <tr><th>Role code</th><th>Role name</th><th>Effective from</th><th>Effective to</th><th>Approval</th><th>Remarks</th></tr>
                 </thead>
                 <tbody>
-                  {detail.roles.length === 0 && <tr><td colSpan={6} className="table-empty">No role assignments.</td></tr>}
-                  {detail.roles.map((role) => (
-                    <tr key={role.id}>
-                      <td className="mono">{role.roleCode}</td>
-                      <td>{role.roleName}</td>
-                      <td>{role.effectiveFrom}</td>
-                      <td>{role.effectiveTo ?? '—'}</td>
-                      <td><StatusBadge value={role.approvalStatus} /></td>
-                      <td>{role.remarks}</td>
+                  {detail.Roles.length === 0 && <tr><td colSpan={6} className="table-empty">No role assignments.</td></tr>}
+                  {detail.Roles.map((role) => (
+                    <tr key={role.Id}>
+                      <td className="mono">{role.RoleCode}</td>
+                      <td>{role.RoleName}</td>
+                      <td>{role.EffectiveFrom}</td>
+                      <td>{role.EffectiveTo ?? '—'}</td>
+                      <td><StatusBadge value={role.ApprovalStatus} /></td>
+                      <td>{role.Remarks}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -165,13 +165,13 @@ export function EmployeeDetailPage() {
                 <tbody>
                   {history.length === 0 && !historyError && <tr><td colSpan={6} className="table-empty">No history records.</td></tr>}
                   {history.map((item) => (
-                    <tr key={item.id}>
-                      <td>{new Date(item.createdAt).toLocaleString()}</td>
-                      <td>{item.action}</td>
-                      <td><StatusBadge value={item.fromStatus} /></td>
-                      <td><StatusBadge value={item.toStatus} /></td>
-                      <td>{item.remarks}</td>
-                      <td>{item.createdBy}</td>
+                    <tr key={item.Id}>
+                      <td>{new Date(item.CreatedAt).toLocaleString()}</td>
+                      <td>{item.Action}</td>
+                      <td><StatusBadge value={item.FromStatus} /></td>
+                      <td><StatusBadge value={item.ToStatus} /></td>
+                      <td>{item.Remarks}</td>
+                      <td>{item.CreatedBy}</td>
                     </tr>
                   ))}
                 </tbody>
