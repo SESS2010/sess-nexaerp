@@ -8,6 +8,8 @@ import { VendorListPage } from './features/vendors/VendorListPage'
 import { VendorDetailPage } from './features/vendors/VendorDetailPage'
 import { CustomerListPage } from './features/customers/CustomerListPage'
 import { CustomerDetailPage } from './features/customers/CustomerDetailPage'
+import { ItemListPage } from './features/items/ItemListPage'
+import { ItemDetailPage } from './features/items/ItemDetailPage'
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
@@ -15,7 +17,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     ? 'Vendor Master'
     : location.pathname.startsWith('/customers')
       ? 'Customer Master'
-      : 'Employee Master'
+      : location.pathname.startsWith('/items')
+        ? 'Item Master'
+        : 'Employee Master'
 
   return (
     <div className="app-shell">
@@ -38,7 +42,9 @@ function Shell({ children }: { children: React.ReactNode }) {
           <NavLink to="/customers" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             Customer Master
           </NavLink>
-          <span className="nav-link disabled">Item Master</span>
+          <NavLink to="/items" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Item Master
+          </NavLink>
           <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           <div className="nav-section">Transactions</div>
           <span className="nav-link disabled">Purchase</span>
@@ -73,6 +79,8 @@ export default function App() {
                 <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
                 <Route path="/customers" element={<CustomerListPage />} />
                 <Route path="/customers/:customerCode" element={<CustomerDetailPage />} />
+                <Route path="/items" element={<ItemListPage />} />
+                <Route path="/items/:itemCode" element={<ItemDetailPage />} />
               </Routes>
             </Shell>
           </RequireAuth>

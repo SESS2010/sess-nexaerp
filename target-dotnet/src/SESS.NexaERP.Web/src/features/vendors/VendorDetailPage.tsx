@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { downloadVendorAttachment, getVendor, parseAttachmentMetadata, parseBankMetadata, runVendorAction } from '../../api/vendors'
 import type { VendorAction } from '../../api/vendors'
+import { getVendorItems } from '../../api/items'
+import type { VendorSuppliedItem } from '../../types/item'
 import type { VendorDetail } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
@@ -24,6 +26,7 @@ const ACTIONS: { action: VendorAction; label: string; from: string[] }[] = [
 export function VendorDetailPage() {
   const { vendorCode = '' } = useParams()
   const [detail, setDetail] = useState<VendorDetail | null>(null)
+  const [suppliedItems, setSuppliedItems] = useState<VendorSuppliedItem[]>([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -32,6 +35,7 @@ export function VendorDetailPage() {
     setError('')
     try {
       setDetail(await getVendor(vendorCode))
+      setSuppliedItems(await getVendorItems(vendorCode).catch(() => []))
     } catch (err) {
       setDetail(null)
       setError(err instanceof Error ? err.message : 'Failed to load vendor.')
@@ -116,6 +120,31 @@ export function VendorDetailPage() {
           <AttachmentField label="GST certificate" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).gstCertificate} />
           <AttachmentField label="Bank cheque leaf" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).bankLeaf} />
           <AttachmentField label="PAN card" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).panCard} />
+        </div>
+      )}
+
+      {detail && (
+        <div className="table-wrap mt-5">
+          <table className="table">
+            <thead>
+              <tr><th colSpan={4}>Items supplied by this vendor ({suppliedItems.length})</th></tr>
+            </thead>
+            <tbody>
+              {suppliedItems.length === 0 && (
+                <tr><td colSpan={4} className="table-empty">No items linked — link vendors from the Item Master edit form.</td></tr>
+              )}
+              {suppliedItems.map((item) => (
+                <tr key={item.ItemCode}>
+                  <td className="mono">
+                    <Link to={`/items/${encodeURIComponent(item.ItemCode)}`} className="text-accent hover:underline">{item.ItemCode}</Link>
+                  </td>
+                  <td>{item.Name}</td>
+                  <td>{item.Uom}</td>
+                  <td>{item.Relationship === 'PREFERRED' ? <span className="badge badge-info">Preferred</span> : <span className="badge badge-muted">Supplier</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
