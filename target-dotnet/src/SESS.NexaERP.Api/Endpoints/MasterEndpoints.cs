@@ -245,6 +245,7 @@ public static partial class MasterEndpoints
         var gst = MasterEndpointHelpers.NormalizeUpperOptional(request.GstNumber);
         var pan = MasterEndpointHelpers.NormalizeUpperOptional(request.PanNumber);
         if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(request.LegalVendorName) || string.IsNullOrWhiteSpace(request.VendorType)) return Results.BadRequest(new { message = "Vendor code, legal name and type are required." });
+        if (request.MsmeStatus && string.IsNullOrWhiteSpace(request.MsmeNumber)) return Results.BadRequest(new { message = "MSME number is required when MSME status is true." });
         if (!MasterEndpointHelpers.IsValidGstin(gst)) return Results.BadRequest(new { message = "Invalid Indian GSTIN format." });
         if (!MasterEndpointHelpers.IsValidPan(pan)) return Results.BadRequest(new { message = "Invalid Indian PAN format." });
         if (await db.Vendors.AnyAsync(vendor => vendor.Id != currentId && (vendor.VendorCode == code || (gst != null && vendor.GstNumber == gst) || (pan != null && vendor.PanNumber == pan && vendor.LegalVendorName == request.LegalVendorName.Trim())), cancellationToken)) return Results.Conflict(new { message = "Duplicate vendor identity blocked." });
@@ -272,7 +273,7 @@ public static partial class MasterEndpoints
         customer.PaymentTerms = MasterEndpointHelpers.NormalizeOptional(request.PaymentTerms);
         customer.CreditPeriodDays = request.CreditPeriodDays;
         customer.CreditLimit = request.CreditLimit;
-        customer.PortalOrganizationId = string.IsNullOrWhiteSpace(request.PortalOrganizationId) ? customer.CustomerCode : request.PortalOrganizationId.Trim();
+        customer.PortalOrganizationId = customer.CustomerCode;
         if (create) customer.CreatedBy = loginId; else { customer.UpdatedBy = loginId; customer.UpdatedAt = DateTimeOffset.UtcNow; }
     }
 

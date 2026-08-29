@@ -186,6 +186,7 @@ public sealed class MasterDataImportFrameworkTests
         public IReadOnlyList<string> OperationalRolePriority => [];
         public MasterDataSensitivePermission? SensitiveResultPermission =>
             new("masters.vendors", PagePermissionActions.ViewCommercialValues);
+        public IReadOnlyList<string> WorkbookGuideNotes => [];
         public IReadOnlyList<MasterDataColumnDefinition> Columns => [];
     }
 

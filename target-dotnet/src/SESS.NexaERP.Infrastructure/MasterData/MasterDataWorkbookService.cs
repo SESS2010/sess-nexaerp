@@ -54,6 +54,17 @@ internal sealed class MasterDataWorkbookService
             WriteValue(guide.Cell(row, 7), column.LookupMasterKey ?? string.Empty);
             WriteValue(guide.Cell(row, 8), column.Description);
         }
+        if (definition.WorkbookGuideNotes.Count > 0)
+        {
+            var noteRow = definition.Columns.Count + 3;
+            WriteValue(guide.Cell(noteRow, 1), "Master Notes");
+            guide.Cell(noteRow, 1).Style.Font.Bold = true;
+            for (var index = 0; index < definition.WorkbookGuideNotes.Count; index++)
+            {
+                WriteValue(guide.Cell(noteRow + index + 1, 1), $"NOTE {index + 1}");
+                WriteValue(guide.Cell(noteRow + index + 1, 8), definition.WorkbookGuideNotes[index]);
+            }
+        }
         guide.SheetView.FreezeRows(1);
         guide.Columns(1, 8).Width = 28;
 
@@ -189,6 +200,7 @@ internal sealed class MasterDataWorkbookService
         public string BusinessCodeColumnKey => source.BusinessCodeColumnKey;
         public IReadOnlyList<string> OperationalRolePriority => source.OperationalRolePriority;
         public MasterDataSensitivePermission? SensitiveResultPermission => source.SensitiveResultPermission;
+        public IReadOnlyList<string> WorkbookGuideNotes => source.WorkbookGuideNotes;
         public IReadOnlyList<MasterDataColumnDefinition> Columns => columns;
     }
 }

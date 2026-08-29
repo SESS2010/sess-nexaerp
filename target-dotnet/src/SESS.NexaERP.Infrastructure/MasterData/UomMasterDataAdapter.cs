@@ -13,6 +13,7 @@ public sealed class UomMasterDataDefinition : IMasterDataDefinition
     public IReadOnlyList<string> OperationalRolePriority { get; } =
         ["PURCHASE_MANAGER", "STORES_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR"];
     public MasterDataSensitivePermission? SensitiveResultPermission => null;
+    public IReadOnlyList<string> WorkbookGuideNotes => [];
     public IReadOnlyList<MasterDataColumnDefinition> Columns { get; } =
     [
         new("RecordId", "Record ID", MasterDataColumnType.Guid, false, true, false, "UUID; blank for new rows", "Existing UOM identifier", null, "Read-only identity used to detect business-code rename attempts."),

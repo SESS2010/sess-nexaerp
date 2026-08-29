@@ -155,6 +155,16 @@ public static class MasterDataTransferEndpoints
                 cancellationToken);
             return Results.Forbid();
         }
+        var sensitive = adapter!.Definition.SensitiveResultPermission;
+        if (required.Contains(PagePermissionActions.Export, StringComparer.Ordinal)
+            && sensitive is not null
+            && !await permissions.HasPermissionAsync(user.RoleCodes, sensitive.PageKey, sensitive.Permission, cancellationToken))
+        {
+            await audit.WriteAsync("Security", "Denied", sensitive.PageKey, sensitive.Permission, null,
+                new { user.EmployeeId, user.RoleCodes, masterKey, path = http.Request.Path.Value, method = http.Request.Method },
+                cancellationToken);
+            return Results.Forbid();
+        }
         return null;
     }
 

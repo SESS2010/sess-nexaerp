@@ -59,6 +59,7 @@ public interface IMasterDataDefinition
     string BusinessCodeColumnKey { get; }
     IReadOnlyList<string> OperationalRolePriority { get; }
     MasterDataSensitivePermission? SensitiveResultPermission { get; }
+    IReadOnlyList<string> WorkbookGuideNotes { get; }
     IReadOnlyList<MasterDataColumnDefinition> Columns { get; }
 }
 
@@ -95,6 +96,7 @@ public sealed record MasterDataPreparedRow(
     IReadOnlyList<MasterDataRowError> Errors);
 
 public sealed record MasterDataApplyResult(Guid RecordId, uint Version);
+public sealed record MasterDataPartyIdentityRecord(Guid Id, string BusinessCode, string? GstNumber, string? PanNumber, string LegalName);
 
 public interface IMasterDataAdapter
 {
@@ -179,4 +181,22 @@ public interface IUomMasterService
     Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
     Task<UomSummary> CreateAsync(UpsertUomMasterRequest request, CancellationToken cancellationToken);
     Task<UomSummary> UpdateAsync(Guid id, UpsertUomMasterRequest request, CancellationToken cancellationToken);
+}
+
+public interface ICustomerMasterDataService
+{
+    Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken);
+    Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
+    Task<IReadOnlyList<MasterDataPartyIdentityRecord>> LoadIdentityRecordsAsync(IReadOnlyCollection<string> gstins, IReadOnlyCollection<string> pans, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> CreateAsync(UpsertCustomerRequest request, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertCustomerRequest request, CancellationToken cancellationToken);
+}
+
+public interface IVendorMasterDataService
+{
+    Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken);
+    Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
+    Task<IReadOnlyList<MasterDataPartyIdentityRecord>> LoadIdentityRecordsAsync(IReadOnlyCollection<string> gstins, IReadOnlyCollection<string> pans, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> CreateAsync(UpsertVendorRequest request, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertVendorRequest request, CancellationToken cancellationToken);
 }
