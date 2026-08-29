@@ -26,6 +26,53 @@ public sealed class AdvanceMigrationSqlSyntaxTests
     ];
 
     [Fact]
+    public void TrialMasterDataPackageIsExplicitlyMarkedDevelopmentOnlyAndRemovable()
+    {
+        var root = FindRepositoryRoot();
+        var apply = File.ReadAllText(Path.Combine(root, "database", "postgresql", "trial-master-data-apply.sql"));
+        var remove = File.ReadAllText(Path.Combine(root, "database", "postgresql", "trial-master-data-remove.sql"));
+        var wrapper = File.ReadAllText(Path.Combine(root, "tools", "trial-master-data.ps1"));
+
+        Assert.Contains("'TRIAL_DATA'", apply, StringComparison.Ordinal);
+        Assert.Contains("LIKE 'TRIAL-%'", apply, StringComparison.Ordinal);
+        Assert.Contains("ARRAY[6,6,4,5,15,20,2,22]", apply, StringComparison.Ordinal);
+        Assert.Contains("principal-provisioned database", apply, StringComparison.Ordinal);
+        Assert.Contains("principal-provisioned database", remove, StringComparison.Ordinal);
+        Assert.True(remove.IndexOf("DELETE FROM advance.rack_bins", StringComparison.Ordinal) <
+                    remove.IndexOf("DELETE FROM advance.warehouses", StringComparison.Ordinal));
+        Assert.True(remove.IndexOf("DELETE FROM advance.items", StringComparison.Ordinal) <
+                    remove.IndexOf("DELETE FROM advance.vendors", StringComparison.Ordinal));
+        Assert.Contains("DOTNET_ENVIRONMENT -cne 'Development'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("NexaErp__AllowTrialData -cne 'true'", wrapper, StringComparison.Ordinal);
+        Assert.Contains("PGDATABASE -cne $env:NexaErp__ExpectedDatabase", wrapper, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrialMasterDataAppliesTwiceAndRemovesOnDisposablePostgreSql()
+    {
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migration = db.Database.GetMigrations().Last();
+        var root = FindRepositoryRoot();
+        var apply = File.ReadAllText(Path.Combine(root, "database", "postgresql", "trial-master-data-apply.sql"));
+        var remove = File.ReadAllText(Path.Combine(root, "database", "postgresql", "trial-master-data-remove.sql"));
+
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("trial-business-up.sql", migrator.GenerateScript("0", migration));
+        server.AssertRejected("trial-wrong-database.sql", "\\set expected_database wrong_database\n" + apply, "database mismatch");
+        server.Execute("trial-apply.sql", "\\set expected_database advance_parser\n" + apply);
+        server.Execute("trial-reapply.sql", "\\set expected_database advance_parser\n" + apply);
+        server.Execute("trial-remove.sql", "\\set expected_database advance_parser\n" + remove);
+        server.Execute("trial-remove-again.sql", "\\set expected_database advance_parser\n" + remove);
+        server.Execute("trial-managed-role.sql", "CREATE ROLE nexa_erp_runtime NOLOGIN;");
+        server.AssertRejected("trial-managed-role-rejected.sql", "\\set expected_database advance_parser\n" + apply,
+            "principal-provisioned database");
+        server.Execute("trial-managed-role-drop.sql", "DROP ROLE nexa_erp_runtime;");
+    }
+
+    [Fact]
     public void GeneratedBusinessBaselineScriptsAreAcceptedByDisposablePostgreSql()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
