@@ -17,18 +17,27 @@ public static partial class MasterEndpoints
 
     private static void MapVendorAttachmentEndpoints(RouteGroupBuilder group)
     {
-        // Next free vendor code in the VEN-### series, skipping existing records.
+        // Next free vendor code, continuing the dominant existing series and
+        // skipping existing records. The imported legacy master uses
+        // SESS-V-#### ; that series wins whenever it is present, with VEN-###
+        // as the fallback for an empty database.
         group.MapGet("/vendors/next-code", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
-            var codes = await db.Vendors.AsNoTracking()
-                .Where(vendor => vendor.VendorCode.StartsWith("VEN-"))
-                .Select(vendor => vendor.VendorCode)
-                .ToListAsync(cancellationToken);
-            var highest = codes
-                .Select(code => int.TryParse(code["VEN-".Length..], out var number) ? number : 0)
+            static int HighestSuffix(IEnumerable<string> codes, string prefix) => codes
+                .Where(code => code.StartsWith(prefix))
+                .Select(code => int.TryParse(code[prefix.Length..], out var number) ? number : 0)
                 .DefaultIfEmpty(0)
                 .Max();
-            return Results.Ok(new { VendorCode = $"VEN-{highest + 1:D3}" });
+
+            var codes = await db.Vendors.AsNoTracking()
+                .Where(vendor => vendor.VendorCode.StartsWith("SESS-V-") || vendor.VendorCode.StartsWith("VEN-"))
+                .Select(vendor => vendor.VendorCode)
+                .ToListAsync(cancellationToken);
+            var highestLegacy = HighestSuffix(codes, "SESS-V-");
+            var nextCode = highestLegacy > 0
+                ? $"SESS-V-{highestLegacy + 1:D4}"
+                : $"VEN-{HighestSuffix(codes, "VEN-") + 1:D3}";
+            return Results.Ok(new { VendorCode = nextCode });
         }).RequirePagePermission("masters.vendors", PagePermissionActions.Create);
 
         group.MapPost("/vendors/attachments", async (HttpRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken cancellationToken) =>
