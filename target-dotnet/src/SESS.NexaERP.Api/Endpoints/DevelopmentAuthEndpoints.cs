@@ -1,0 +1,83 @@
+#if DEBUG
+using Microsoft.EntityFrameworkCore;
+using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Infrastructure.Persistence;
+
+namespace SESS.NexaERP.Api.Endpoints;
+
+/// <summary>
+/// Development-only login endpoints. Compiled exclusively into Debug builds and
+/// mapped only when development authentication is active. Tokens carry the
+/// exact issuer/subject/organization of a real employee identity mapping so the
+/// normal resolution middleware, permission checks and audit trail run unchanged.
+/// </summary>
+public static class DevelopmentAuthEndpoints
+{
+    public sealed record DevelopmentTokenRequest(string EmployeeCode, string? OrganizationId);
+
+    public static IEndpointRouteBuilder MapDevelopmentAuthEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        var group = endpoints.MapGroup("/api/v1/dev")
+            .WithTags("Development")
+            .AllowAnonymous();
+
+        group.MapGet("/identities", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var identities = await db.EmployeeIdentityMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.IsActive && mapping.EffectiveFrom <= today && (!mapping.EffectiveTo.HasValue || mapping.EffectiveTo >= today))
+                .Where(mapping => mapping.Employee != null && mapping.Employee.LoginEnabled)
+                .Select(mapping => new
+                {
+                    employeeCode = mapping.Employee!.EmployeeCode,
+                    employeeName = mapping.Employee.EmployeeName,
+                    organizationId = mapping.OrganizationId,
+                })
+                .Distinct()
+                .OrderBy(identity => identity.employeeCode)
+                .ThenBy(identity => identity.organizationId)
+                .ToListAsync(cancellationToken);
+            return Results.Ok(identities);
+        });
+
+        group.MapPost("/token", async (DevelopmentTokenRequest request, NexaErpDbContext db, DevelopmentTokenService tokens, CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.EmployeeCode))
+            {
+                return Results.BadRequest(new { message = "Employee code is required." });
+            }
+
+            var code = request.EmployeeCode.Trim().ToUpperInvariant();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var query = db.EmployeeIdentityMappings
+                .AsNoTracking()
+                .Where(mapping => mapping.IsActive && mapping.EffectiveFrom <= today && (!mapping.EffectiveTo.HasValue || mapping.EffectiveTo >= today))
+                .Where(mapping => mapping.Employee != null && mapping.Employee.EmployeeCode == code);
+
+            if (!string.IsNullOrWhiteSpace(request.OrganizationId))
+            {
+                var organization = request.OrganizationId.Trim().ToUpperInvariant();
+                query = query.Where(mapping => mapping.OrganizationId == organization);
+            }
+
+            var mapping = await query.OrderBy(mapping => mapping.OrganizationId).FirstOrDefaultAsync(cancellationToken);
+            if (mapping is null)
+            {
+                return Results.NotFound(new { message = $"No active identity mapping exists for employee '{code}'." });
+            }
+
+            var token = tokens.IssueToken(mapping.Issuer, mapping.Subject, mapping.OrganizationId, TimeSpan.FromHours(12));
+            return Results.Ok(new
+            {
+                token,
+                employeeCode = code,
+                organizationId = mapping.OrganizationId,
+                expiresInHours = 12,
+            });
+        });
+
+        return endpoints;
+    }
+}
+#endif

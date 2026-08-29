@@ -1,0 +1,158 @@
+import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
+import { createEmployee, getEmployeeLookups, updateEmployee } from '../../api/employees'
+import type { EmployeeDetail, EmployeeMasterLookups } from '../../types/employee'
+
+interface Props {
+  mode: 'create' | 'edit'
+  existing?: EmployeeDetail
+  onClose: () => void
+  onSaved: (detail: EmployeeDetail) => void
+}
+
+const EMPLOYEE_TYPES = ['Permanent', 'Contract', 'Trainee', 'Consultant']
+
+export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const [lookups, setLookups] = useState<EmployeeMasterLookups | null>(null)
+  const [form, setForm] = useState({
+    employeeCode: existing?.employeeCode ?? '',
+    employeeName: existing?.employeeName ?? '',
+    employeeType: existing?.employeeType ?? 'Permanent',
+    grade: existing?.grade ?? '',
+    departmentCode: '',
+    skillCode: '',
+    designationCode: '',
+    dateOfJoining: existing?.dateOfJoining ?? '',
+    officialEmail: existing?.officialEmail ?? '',
+    mobileNumber: existing?.mobileNumber ?? '',
+    remarks: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getEmployeeLookups()
+      .then((data) => {
+        setLookups(data)
+        // In edit mode the detail carries display names; preselect the codes
+        // whose names match the current values.
+        if (existing) {
+          setForm((prev) => ({
+            ...prev,
+            departmentCode: data.departments.find((x) => x.name === existing.department)?.code ?? '',
+            skillCode: data.skills.find((x) => existing.skillCategories.includes(x.name))?.code ?? '',
+            designationCode: data.designations.find((x) => x.name === existing.jobDesignation)?.code ?? '',
+          }))
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load master lookups.'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
+    setForm((prev) => ({ ...prev, [key]: event.target.value }))
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      const shared = {
+        employeeName: form.employeeName,
+        employeeType: form.employeeType,
+        grade: form.grade,
+        departmentCode: form.departmentCode,
+        skillCode: form.skillCode,
+        designationCode: form.designationCode,
+        dateOfJoining: form.dateOfJoining || null,
+        officialEmail: form.officialEmail || null,
+        mobileNumber: form.mobileNumber || null,
+      }
+      const detail = mode === 'create'
+        ? await createEmployee({ ...shared, employeeCode: form.employeeCode, remarks: form.remarks })
+        : await updateEmployee(existing!.employeeCode, { ...shared, reason: form.remarks })
+      onSaved(detail)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{mode === 'create' ? 'New Employee' : `Edit ${existing?.employeeCode}`}</h2>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={submit} className="form-grid">
+          {mode === 'create' && (
+            <label className="field">
+              <span className="field-label">Employee code *</span>
+              <input className="input" required value={form.employeeCode} onChange={set('employeeCode')} placeholder="SESS-XXX" />
+            </label>
+          )}
+          <label className="field">
+            <span className="field-label">Employee name *</span>
+            <input className="input" required value={form.employeeName} onChange={set('employeeName')} />
+          </label>
+          <label className="field">
+            <span className="field-label">Employee type *</span>
+            <select className="input" value={form.employeeType} onChange={set('employeeType')}>
+              {EMPLOYEE_TYPES.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Grade *</span>
+            <input className="input" required value={form.grade} onChange={set('grade')} placeholder="e.g. Executive" />
+          </label>
+          <label className="field">
+            <span className="field-label">Department *</span>
+            <select className="input" required value={form.departmentCode} onChange={set('departmentCode')}>
+              <option value="">Select department…</option>
+              {lookups?.departments.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Skill category *</span>
+            <select className="input" required value={form.skillCode} onChange={set('skillCode')}>
+              <option value="">Select skill…</option>
+              {lookups?.skills.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Designation *</span>
+            <select className="input" required value={form.designationCode} onChange={set('designationCode')}>
+              <option value="">Select designation…</option>
+              {lookups?.designations.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span className="field-label">Date of joining</span>
+            <input className="input" type="date" value={form.dateOfJoining} onChange={set('dateOfJoining')} />
+          </label>
+          <label className="field">
+            <span className="field-label">Official email</span>
+            <input className="input" type="email" value={form.officialEmail} onChange={set('officialEmail')} />
+          </label>
+          <label className="field">
+            <span className="field-label">Mobile number</span>
+            <input className="input" value={form.mobileNumber} onChange={set('mobileNumber')} />
+          </label>
+          <label className="field field-wide">
+            <span className="field-label">{mode === 'create' ? 'Remarks *' : 'Reason for update *'}</span>
+            <textarea className="input" required rows={2} value={form.remarks} onChange={set('remarks')} />
+          </label>
+          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <div className="modal-actions field-wide">
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving || !lookups}>
+              {saving ? 'Saving…' : mode === 'create' ? 'Create employee' : 'Save changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}

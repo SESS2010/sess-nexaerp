@@ -59,6 +59,17 @@ public static class EmployeeEndpoints
             return Results.Ok(employees);
         }).RequirePagePermission("employees.master", PagePermissionActions.View);
 
+        group.MapGet("/lookups", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        {
+            var departments = await db.Departments.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name)
+                .Select(x => new MasterLookupItem(x.Code, x.Name)).ToListAsync(cancellationToken);
+            var skills = await db.Skills.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name)
+                .Select(x => new MasterLookupItem(x.Code, x.Name)).ToListAsync(cancellationToken);
+            var designations = await db.Designations.AsNoTracking().Where(x => x.IsActive).OrderBy(x => x.Name)
+                .Select(x => new MasterLookupItem(x.Code, x.Name)).ToListAsync(cancellationToken);
+            return Results.Ok(new EmployeeMasterLookups(departments, skills, designations));
+        }).RequirePagePermission("employees.master", PagePermissionActions.View);
+
         group.MapGet("/{employeeCode}", async (string employeeCode, NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
             var employee = await db.Employees
@@ -354,7 +365,7 @@ public static class EmployeeEndpoints
 
     private static string NormalizeEmployeeCode(string value) => value.Trim().ToUpperInvariant();
 
-    private static string NormalizeCode(string value) => value.Trim().ToLowerInvariant();
+    private static string NormalizeCode(string value) => value.Trim().ToUpperInvariant();
 
     private static string NormalizeName(string value) => string.Join(' ', value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
