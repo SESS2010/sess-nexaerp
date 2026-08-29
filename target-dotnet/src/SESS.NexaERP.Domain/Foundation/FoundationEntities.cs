@@ -74,6 +74,7 @@ public sealed class UserRoleAssignment : AuditableEntity
 public sealed class VendorCompanyRelationship : CompanyScopedAuditableEntity
 {
     public Guid VendorId { get; set; }
+    public string? VendorAssignedCustomerCode { get; set; }
     public string RelationshipStatus { get; set; } = "ACTIVE";
     public Guid? PaymentTermId { get; set; }
     public DateOnly EffectiveFrom { get; set; }
@@ -86,6 +87,7 @@ public sealed class VendorCompanyRelationship : CompanyScopedAuditableEntity
 public sealed class CustomerCompanyRelationship : CompanyScopedAuditableEntity
 {
     public Guid CustomerId { get; set; }
+    public string? CustomerAssignedSupplierCode { get; set; }
     public string RelationshipStatus { get; set; } = "ACTIVE";
     public Guid? PaymentTermId { get; set; }
     public int? CreditPeriodDays { get; set; }

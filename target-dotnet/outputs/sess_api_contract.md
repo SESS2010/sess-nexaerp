@@ -336,6 +336,19 @@ Employee request/response examples:
     "CreditPeriodDays":30, "BankMetadata":"{}", "AttachmentMetadataJson":"[]",
     "ApprovalStatus":"Approved", "VendorStatus":"Active", "IsActive":true, "Version":17
   },
+  "CustomerCompanyRelationship": {
+    "Id":"0ffb7783-9cea-4190-a933-c203c0449ca0", "CompanyId":"70000000-0000-0000-0000-000000000001",
+    "CustomerId":"ea111df8-15b6-43c5-9ac8-c082abf74b96", "CustomerAssignedSupplierCode":"SUP-10482",
+    "RelationshipStatus":"ACTIVE", "PaymentTermId":null, "CreditPeriodDays":30, "CreditLimit":500000.00,
+    "EffectiveFrom":"2026-08-29", "EffectiveTo":null, "ApprovedByEmployeeId":null, "ApprovedAt":null,
+    "IsActive":true, "Version":3
+  },
+  "VendorCompanyRelationship": {
+    "Id":"408708e5-73b0-488f-8129-c9127dc82681", "CompanyId":"70000000-0000-0000-0000-000000000002",
+    "VendorId":"fd43c5d3-85bd-4a06-bcd0-484cab82b75d", "VendorAssignedCustomerCode":"CUST-7781",
+    "RelationshipStatus":"ACTIVE", "PaymentTermId":null, "EffectiveFrom":"2026-08-29", "EffectiveTo":null,
+    "ApprovedByEmployeeId":null, "ApprovedAt":null, "IsActive":true, "Version":2
+  },
   "Item": {
     "Id":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb", "ItemCode":"COMP-001", "Name":"Semi-hermetic compressor",
     "DetailedDescription":"BITZER compressor",
@@ -375,6 +388,10 @@ Exact upsert fields are:
 - Item: `ItemCode, Name, DetailedDescription, CategoryId, SubcategoryId, MaterialType, ItemType, IsReturnable, Uom, ManufacturerMake, Model, PartNumber, HsnSacCode, GstPercentage, TechnicalSpecification, DrawingDocumentReference, QcRequired, SerialNumberTracking, BatchTracking, ShelfLifeTracking, MinimumStock, MaximumStock, ReorderLevel, PreferredVendorCode, StandardEstimatedPrice, Barcode, BarcodeSymbology, ImageStorageKey, ImageFileName, ImageContentType, Version`.
 - Warehouse: `WarehouseCode, Name, WarehouseType, Location, ResponsibleEmployeeCode, DepartmentCode, DefaultReceivingLocationId, DefaultAcceptedLocationId, DefaultQcHoldLocationId, DefaultRejectedLocationId, DefaultRepairableLocationId, DefaultScrapLocationId, Version`.
 - Rack/bin: `WarehouseCode, BinCode, RackName, BinNameNumber, Zone, LocationType, MaterialCondition, CapacityQuantity, CapacityUom, Barcode, Description, Version`.
+- Customer/company relationship: `CustomerAssignedSupplierCode, RelationshipStatus, PaymentTermId, CreditPeriodDays, CreditLimit, EffectiveFrom, EffectiveTo, Version`.
+- Vendor/company relationship: `VendorAssignedCustomerCode, RelationshipStatus, PaymentTermId, EffectiveFrom, EffectiveTo, Version`.
+
+`CustomerAssignedSupplierCode` is the code a customer uses for the selected SESS company as its supplier. `VendorAssignedCustomerCode` is the code a vendor uses for the selected SESS company as its customer. Both are nullable, company-specific, and limited to 80 characters; neither belongs on the shared customer or vendor master.
 
 POST sends `Version:null`; PUT sends the version returned by GET. Item `CategoryId` is required by create and update even though the nullable database column is temporarily retained for legacy rows. `SubcategoryId` is optional, but when supplied it must identify an active subcategory of the selected active category. `PreferredVendorCode` is optional; when supplied the server resolves it to `PreferredVendorId`, rejects an unknown or inactive vendor, and returns the resolved code. Clearing the code clears the relationship.
 
