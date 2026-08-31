@@ -15,6 +15,8 @@ using SESS.NexaERP.Infrastructure.Masters;
 using SESS.NexaERP.Infrastructure.MasterData;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Infrastructure.Purchase;
+using SESS.NexaERP.Application.Stores;
+using SESS.NexaERP.Infrastructure.Stores;
 
 namespace SESS.NexaERP.Infrastructure;
 
@@ -56,6 +58,7 @@ public static class DependencyInjection
         services.AddScoped<IRev869BPurchaseService, EfRev869BPurchaseService>();
         services.AddScoped<IPurchaseApprovalWorkflowService, EfPurchaseApprovalWorkflowService>();
         services.AddScoped<IPurchaseRequisitionWorkflowService, EfPurchaseRequisitionWorkflowService>();
+        services.AddScoped<IGateEntryService, EfGateEntryService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

@@ -69,11 +69,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         Assert.Contains("'TRIAL_DATA'", apply, StringComparison.Ordinal);
         Assert.Contains("LIKE 'TRIAL-%'", apply, StringComparison.Ordinal);
-        Assert.Contains("ARRAY[6,6,4,5,15,20,2,22]", apply, StringComparison.Ordinal);
+        Assert.Contains("ARRAY[6,6,4,5,15,20,2,22,26,12,0]", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-NOS',0),('TRIAL-SET',0),('TRIAL-LOT',0)", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-KG',3),('TRIAL-MTR',3),('TRIAL-LTR',3)", apply, StringComparison.Ordinal);
         Assert.Contains("principal-provisioned database", apply, StringComparison.Ordinal);
         Assert.Contains("principal-provisioned database", remove, StringComparison.Ordinal);
+        Assert.True(remove.IndexOf("DELETE FROM advance.store_category_routes", StringComparison.Ordinal) <
+                    remove.IndexOf("DELETE FROM advance.warehouse_condition_locations", StringComparison.Ordinal));
+        Assert.True(remove.IndexOf("DELETE FROM advance.warehouse_condition_locations", StringComparison.Ordinal) <
+                    remove.IndexOf("DELETE FROM advance.rack_bins", StringComparison.Ordinal));
         Assert.True(remove.IndexOf("DELETE FROM advance.rack_bins", StringComparison.Ordinal) <
                     remove.IndexOf("DELETE FROM advance.warehouses", StringComparison.Ordinal));
         Assert.True(remove.IndexOf("DELETE FROM advance.items", StringComparison.Ordinal) <

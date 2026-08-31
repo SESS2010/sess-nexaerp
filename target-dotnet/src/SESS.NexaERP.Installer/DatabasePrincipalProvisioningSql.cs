@@ -136,6 +136,20 @@ internal static class DatabasePrincipalProvisioningSql
           END IF;
         END $ceremony_acl$;
 
+        DO $stores_acl$
+        BEGIN
+          IF to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL THEN
+            REVOKE INSERT,UPDATE,DELETE ON advance.stock_posting_batches,advance.stock_movements FROM nexa_erp_runtime;
+            GRANT SELECT ON advance.stock_posting_batches,advance.stock_movements TO nexa_erp_runtime;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb) TO nexa_erp_runtime';
+          END IF;
+          IF to_regprocedure('advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb) TO nexa_erp_runtime';
+          END IF;
+        END $stores_acl$;
+
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON SEQUENCES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
@@ -192,6 +206,8 @@ internal static class DatabasePrincipalProvisioningSql
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
+              AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
+                       AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
               AND (NOT has_table_privilege('nexa_erp_runtime',c.oid,'SELECT')
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'INSERT')
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'UPDATE')
@@ -215,6 +231,27 @@ internal static class DatabasePrincipalProvisioningSql
             ) THEN
               RAISE EXCEPTION 'Ceremony function EXECUTE ACL must grant only nexa_erp_bootstrap outside its owner.';
             END IF;
+          END IF;
+          IF to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL THEN
+            IF has_table_privilege('nexa_erp_runtime','advance.stock_posting_batches','INSERT')
+               OR has_table_privilege('nexa_erp_runtime','advance.stock_posting_batches','UPDATE')
+               OR has_table_privilege('nexa_erp_runtime','advance.stock_posting_batches','DELETE')
+               OR has_table_privilege('nexa_erp_runtime','advance.stock_movements','INSERT')
+               OR has_table_privilege('nexa_erp_runtime','advance.stock_movements','UPDATE')
+               OR has_table_privilege('nexa_erp_runtime','advance.stock_movements','DELETE') THEN
+              RAISE EXCEPTION 'Runtime stock ledger mutation must be available only through the controlled posting function.';
+            END IF;
+            IF NOT has_function_privilege('nexa_erp_runtime','advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)','EXECUTE') THEN
+              RAISE EXCEPTION 'Controlled Stores posting function ACL is invalid.';
+            END IF;
+          END IF;
+          IF to_regprocedure('advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)') IS NOT NULL
+             AND (NOT has_function_privilege('nexa_erp_runtime','advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_migration','advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)','EXECUTE')) THEN
+            RAISE EXCEPTION 'Controlled Gate Entry draft function ACL is invalid.';
           END IF;
         END $verify$;
         """;

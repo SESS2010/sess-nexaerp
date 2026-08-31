@@ -21,6 +21,7 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Rev869A;
+using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
@@ -126,13 +127,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         try
         {
-            user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
-                Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
-            await PostNoResult(adminClient, "/api/v1/rev869a/configuration/warehouse-condition-locations",
-                new CreateWarehouseConditionLocationRequest("SESS_PVT_LTD", "TRIAL-WH-C01", rackBinId,
-                    InventoryConditionCodes.Available, new DateOnly(2026, 1, 1), null,
-                    "Disposable Purchase-flow available location"), "fixture-warehouse-location");
-
             var categoryCode = await Query(options, db => db.ItemCategories.Where(x => x.Id == categoryId).Select(x => x.Code).SingleAsync());
             foreach (var vendorCode in new[] { "TRIAL-VEN-001", "TRIAL-VEN-002" })
             {
@@ -198,6 +192,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.CommercialComparisons.CountAsync());
             Assert.Equal(3, await verify.PurchaseOrders.CountAsync());
             Assert.Equal(3, await verify.MaterialFollowUpHandoffs.CountAsync());
+            Assert.Equal(3, await verify.GateEntries.CountAsync());
+            Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
             Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
         }
         finally { }
@@ -339,6 +335,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, $"{band.Code}-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
+
+        user.Set(purchaseId,"SESS-15",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
+        var poLineId=await Query(options,db=>db.PurchaseOrderLines.Where(x=>x.PurchaseOrderId==po.Id).Select(x=>x.Id).SingleAsync());
+        var gate=await Post<GateEntryResult>(prClient,"/api/v1/stores/gate-entries/",
+            new CreateGateEntryRequest(po.Number,$"TRIAL-DC-{band.Code}","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,"{\"packagesChecked\":true}",[new(poLineId,1)]),$"{band.Code}-gate-create");
+        Assert.Equal("DRAFT",gate.Status); Assert.Single(gate.History);
+        gate=await Put<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}",new UpdateGateEntryRequest(gate.VendorDcNumber,"TRIAL-VEHICLE-EDITED","ROAD",gate.ArrivedAt,"{\"packagesChecked\":true,\"edited\":true}",[new(poLineId,1)],gate.Version));
+        var detail=await Get<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}"); Assert.Equal("TRIAL-VEHICLE-EDITED",detail.VehicleNumber);
+        var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?purchaseOrderNumber={po.Number}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);
+        gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
+        Assert.Equal("FINALIZED",gate.Status); Assert.Equal(2,gate.History.Count);
+        await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
     }
 
     private static async Task AssertPrEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction,
@@ -419,6 +427,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task PostNoResult(HttpClient client, string path, object body, string key) =>
         _ = await Post<JsonElement>(client, path, body, key);
 
+    private static async Task<T> Put<T>(HttpClient client,string path,object body)
+    { using var response=await client.PutAsJsonAsync(path,body);var payload=await response.Content.ReadAsStringAsync();Assert.True(response.IsSuccessStatusCode,$"{path} returned {(int)response.StatusCode}: {payload}");return JsonSerializer.Deserialize<T>(payload,new JsonSerializerOptions(JsonSerializerDefaults.Web))!; }
+    private static async Task<T> Get<T>(HttpClient client,string path)
+    { using var response=await client.GetAsync(path);var payload=await response.Content.ReadAsStringAsync();Assert.True(response.IsSuccessStatusCode,$"{path} returned {(int)response.StatusCode}: {payload}");return JsonSerializer.Deserialize<T>(payload,new JsonSerializerOptions(JsonSerializerDefaults.Web))!; }
+
     private static int FreePurchaseFlowPort()
     {
         var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
@@ -461,6 +474,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapRev869AConfigurationEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();
+            app.MapStoresGateEntryEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");

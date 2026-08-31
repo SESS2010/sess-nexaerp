@@ -151,6 +151,7 @@ app.MapInventoryEndpoints();
 app.MapPurchaseRequisitionEndpoints();
 app.MapRev869BPurchaseEndpoints();
 app.MapRev869AConfigurationEndpoints();
+app.MapStoresGateEntryEndpoints();
 app.MapAuditEndpoints();
 app.MapEmployeeEndpoints();
 
