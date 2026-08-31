@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="..\SESS.NexaERP.Domain\SESS.NexaERP.Domain.csproj" />
     <ProjectReference Include="..\SESS.NexaERP.Application\SESS.NexaERP.Application.csproj" />
@@ -19,5 +19,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>SESS.NexaERP.Api</RootNamespace>
+    <UserSecretsId>8f4daaac-06d6-4b87-8b8f-959fb0d81cfc</UserSecretsId>
   </PropertyGroup>
 </Project>

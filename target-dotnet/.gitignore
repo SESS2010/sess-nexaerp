@@ -25,3 +25,6 @@ secrets.json
 # Database dumps
 *.dump
 *.bak
+
+# Local developer scripts with machine-specific secrets
+*.local.ps1
