@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { changeApprovalStatus, getEmployee, getEmployeeHistory, provisionDevLogin, setLoginStatus } from '../../api/employees'
+import { changeApprovalStatus, getEmployee, getEmployeeHistory, setLoginStatus } from '../../api/employees'
 import type { ApprovalAction } from '../../api/employees'
 import type { EmployeeDetail, EmployeeHistorySummary } from '../../types/employee'
 import { StatusBadge } from './StatusBadge'
@@ -101,30 +101,6 @@ export function EmployeeDetailPage() {
             ))}
             <button type="button" className={`btn ${detail.LoginEnabled ? 'btn-warn' : 'btn-primary'}`} disabled={busy} onClick={toggleLogin}>
               {detail.LoginEnabled ? 'Deactivate login' : 'Activate login'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy}
-              onClick={async () => {
-                const password = window.prompt(`Set login password for ${detail.EmployeeCode} (min 6 characters):`)
-                if (!password) return
-                const roleCode = window.prompt('ERP role code for this login:', 'SOFTWARE_DEVELOPER')
-                if (roleCode === null) return
-                setBusy(true)
-                setError('')
-                try {
-                  await provisionDevLogin(employeeCode, password, roleCode.trim())
-                  window.alert(`${detail.EmployeeCode} can now sign in with their employee ID and this password.`)
-                  await load()
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Provisioning failed.')
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              Provision login
             </button>
           </div>
         )}

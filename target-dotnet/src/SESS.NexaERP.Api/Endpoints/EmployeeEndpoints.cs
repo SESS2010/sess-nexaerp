@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
@@ -70,130 +70,6 @@ public static class EmployeeEndpoints
             return Results.Ok(new EmployeeMasterLookups(departments, skills, designations));
         }).RequirePagePermission("employees.master", PagePermissionActions.View);
 
-#if DEBUG
-        // Debug-only: one-click login provisioning. Creates everything a real
-        // sign-in needs (identity mapping, company/department assignments,
-        // role assignment, operational scopes) in both companies and stores a
-        // per-employee development password. Production stays OIDC (REV866).
-        group.MapPost("/{employeeCode}/provision-dev-login", async (string employeeCode, ProvisionDevLoginRequest request, NexaErpDbContext db, IAuditWriter audit, ICurrentUser currentUser, CancellationToken ct) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 6)
-            {
-                return Results.BadRequest(new { message = "A password of at least 6 characters is required." });
-            }
-
-            var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == NormalizeEmployeeCode(employeeCode), ct);
-            if (employee is null) return Results.NotFound(new { message = "Employee not found." });
-
-            var roleCode = (request.RoleCode ?? "SOFTWARE_DEVELOPER").Trim().ToUpperInvariant();
-            var role = await db.Roles.SingleOrDefaultAsync(x => x.Code == roleCode && x.IsActive, ct);
-            if (role is null) return Results.BadRequest(new { message = $"Active role not found: {roleCode}" });
-
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var companies = await db.Companies.OrderBy(x => x.Code).ToListAsync(ct);
-            var subject = $"dev-{employee.EmployeeCode.ToLowerInvariant()}";
-            const string issuer = "https://dev-auth.nexaerp.local";
-
-            foreach (var company in companies)
-            {
-                var assignment = await db.EmployeeCompanyAssignments
-                    .FirstOrDefaultAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE", ct);
-                if (assignment is null)
-                {
-                    assignment = new SESS.NexaERP.Domain.Foundation.EmployeeCompanyAssignment
-                    {
-                        CompanyId = company.Id,
-                        EmployeeId = employee.Id,
-                        AssignmentType = company.Code == "SESS_PVT_LTD" ? "PAYROLL" : "WORK",
-                        EmployeeCode = employee.EmployeeCode,
-                        EmploymentType = employee.EmployeeType,
-                        EffectiveFrom = today,
-                        CreatedBy = currentUser.LoginId
-                    };
-                    db.EmployeeCompanyAssignments.Add(assignment);
-                }
-
-                if (!await db.EmployeeDepartmentAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeCompanyAssignmentId == assignment.Id && x.IsPrimary && x.IsActive && x.Status == "ACTIVE", ct))
-                {
-                    db.EmployeeDepartmentAssignments.Add(new SESS.NexaERP.Domain.Foundation.EmployeeDepartmentAssignment
-                    {
-                        CompanyId = company.Id,
-                        EmployeeCompanyAssignmentId = assignment.Id,
-                        DepartmentId = employee.DepartmentId,
-                        DesignationId = employee.DesignationId,
-                        IsPrimary = true,
-                        EffectiveFrom = today,
-                        CreatedBy = currentUser.LoginId
-                    });
-                }
-
-                if (!await db.EmployeeRoleAssignments.AnyAsync(x => x.EmployeeId == employee.Id && x.CompanyId == company.Id && x.RoleId == role.Id && x.EffectiveTo == null, ct))
-                {
-                    db.EmployeeRoleAssignments.Add(new EmployeeRoleAssignment
-                    {
-                        EmployeeId = employee.Id,
-                        RoleId = role.Id,
-                        CompanyId = company.Id,
-                        EffectiveFrom = today,
-                        ApprovalStatus = "SeedApproved",
-                        Remarks = "Development login provisioning",
-                        CreatedBy = currentUser.LoginId
-                    });
-                }
-
-                if (!await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive, ct))
-                {
-                    db.EmployeeIdentityMappings.Add(new SESS.NexaERP.Domain.Identity.EmployeeIdentityMapping
-                    {
-                        CompanyId = company.Id,
-                        OrganizationId = company.Code,
-                        Issuer = issuer,
-                        Subject = subject,
-                        EmployeeId = employee.Id,
-                        EffectiveFrom = today,
-                        CreatedBy = currentUser.LoginId
-                    });
-                }
-
-                if (!await db.EmployeeOperationalScopes.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive, ct))
-                {
-                    db.EmployeeOperationalScopes.Add(new SESS.NexaERP.Domain.Authorization.EmployeeOperationalScope
-                    {
-                        CompanyId = company.Id,
-                        OrganizationId = company.Code,
-                        EmployeeId = employee.Id,
-                        DepartmentId = employee.DepartmentId,
-                        EffectiveFrom = today,
-                        Remarks = "Development login provisioning",
-                        CreatedBy = currentUser.LoginId
-                    });
-                }
-            }
-
-            var passwordRow = await db.DevelopmentLoginPasswords.SingleOrDefaultAsync(x => x.EmployeeId == employee.Id, ct);
-            var hash = SESS.NexaERP.Api.Security.DevelopmentPasswordHasher.Hash(request.Password);
-            if (passwordRow is null)
-            {
-                db.DevelopmentLoginPasswords.Add(new SESS.NexaERP.Domain.Identity.DevelopmentLoginPassword { EmployeeId = employee.Id, PasswordHash = hash, CreatedBy = currentUser.LoginId });
-            }
-            else
-            {
-                passwordRow.PasswordHash = hash;
-                passwordRow.UpdatedAt = DateTimeOffset.UtcNow;
-                passwordRow.UpdatedBy = currentUser.LoginId;
-            }
-
-            employee.LoginEnabled = true;
-            employee.Status = "Active";
-            employee.UpdatedAt = DateTimeOffset.UtcNow;
-            employee.UpdatedBy = currentUser.LoginId;
-            await db.SaveChangesAsync(ct);
-            await audit.WriteAsync("Employees", "ProvisionDevLogin", nameof(Employee), employee.Id.ToString(), null,
-                new { employee.EmployeeCode, roleCode, companies = companies.Count }, ct);
-
-            return Results.Ok(new { employee.EmployeeCode, LoginEnabled = true, RoleCode = roleCode, Companies = companies.Select(c => c.Code) });
-        }).RequirePagePermission("employees.master", PagePermissionActions.Update);
-#endif
 
         // Quick-add endpoints so the employee form dropdowns can grow their
         // master tables inline.
@@ -502,9 +378,6 @@ public static class EmployeeEndpoints
 
     public sealed record CreateLookupRequest(string Code, string Name);
 
-#if DEBUG
-    public sealed record ProvisionDevLoginRequest(string Password, string? RoleCode);
-#endif
 
     private static async Task<IResult> CreateLookupAsync<TEntity>(
         CreateLookupRequest request,

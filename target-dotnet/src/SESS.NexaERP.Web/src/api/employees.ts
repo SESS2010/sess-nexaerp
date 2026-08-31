@@ -33,13 +33,6 @@ export function getEmployeeLookups(): Promise<EmployeeMasterLookups> {
   return api.get<EmployeeMasterLookups>(`${BASE}/lookups`)
 }
 
-/** Debug-only: provisions everything the employee needs to sign in with their own password. */
-export function provisionDevLogin(employeeCode: string, password: string, roleCode: string) {
-  return api.post<{ EmployeeCode: string; LoginEnabled: boolean; RoleCode: string }>(
-    `${BASE}/${encodeURIComponent(employeeCode)}/provision-dev-login`,
-    { Password: password, RoleCode: roleCode || null },
-  )
-}
 
 export function createEmployeeLookup(kind: 'departments' | 'skills' | 'designations', code: string, name: string) {
   return api.post<{ Id: string; Code: string; Name: string }>(`${BASE}/lookups/${kind}`, { Code: code, Name: name })

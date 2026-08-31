@@ -13,7 +13,7 @@ namespace SESS.NexaERP.Api.Endpoints;
 /// </summary>
 public static class DevelopmentAuthEndpoints
 {
-    public sealed record DevelopmentTokenRequest(string? EmployeeCode, string? LoginId, string? Password, string? OrganizationId);
+    public sealed record DevelopmentTokenRequest(string? EmployeeCode, string? LoginId, string? OrganizationId);
 
     public static IEndpointRouteBuilder MapDevelopmentAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -41,7 +41,7 @@ public static class DevelopmentAuthEndpoints
             return Results.Ok(identities);
         });
 
-        group.MapPost("/token", async (DevelopmentTokenRequest request, NexaErpDbContext db, DevelopmentTokenService tokens, IConfiguration configuration, CancellationToken cancellationToken) =>
+        group.MapPost("/token", async (DevelopmentTokenRequest request, NexaErpDbContext db, DevelopmentTokenService tokens, CancellationToken cancellationToken) =>
         {
             var login = (request.LoginId ?? request.EmployeeCode)?.Trim();
             if (string.IsNullOrWhiteSpace(login))
@@ -72,7 +72,6 @@ public static class DevelopmentAuthEndpoints
                     mapping.Issuer,
                     mapping.Subject,
                     mapping.OrganizationId,
-                    mapping.EmployeeId,
                     mapping.Employee!.EmployeeCode,
                 })
                 .FirstOrDefaultAsync(cancellationToken);
@@ -81,21 +80,6 @@ public static class DevelopmentAuthEndpoints
                 return Results.NotFound(new { message = $"No active identity mapping exists for login '{login}'." });
             }
 
-            // Password check (development only; production is OIDC per REV866).
-            // A provisioned per-employee password wins; otherwise the shared
-            // NexaErp:DevelopmentAuthenticationPassword applies when configured.
-            var storedHash = await db.DevelopmentLoginPasswords.AsNoTracking()
-                .Where(x => x.EmployeeId == mapping.EmployeeId)
-                .Select(x => x.PasswordHash)
-                .SingleOrDefaultAsync(cancellationToken);
-            var passwordOk = storedHash is not null
-                ? !string.IsNullOrEmpty(request.Password) && DevelopmentPasswordHasher.Verify(request.Password, storedHash)
-                : string.IsNullOrEmpty(configuration["NexaErp:DevelopmentAuthenticationPassword"])
-                  || string.Equals(request.Password, configuration["NexaErp:DevelopmentAuthenticationPassword"], StringComparison.Ordinal);
-            if (!passwordOk)
-            {
-                return Results.BadRequest(new { message = "Invalid login ID or password." });
-            }
 
             var token = tokens.IssueToken(mapping.Issuer, mapping.Subject, mapping.OrganizationId, TimeSpan.FromHours(12));
             return Results.Ok(new
