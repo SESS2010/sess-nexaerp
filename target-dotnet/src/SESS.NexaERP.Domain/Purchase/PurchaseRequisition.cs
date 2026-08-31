@@ -1,6 +1,7 @@
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Inventory;
+using SESS.NexaERP.Domain.Sales;
 
 namespace SESS.NexaERP.Domain.Purchase;
 
@@ -82,6 +83,8 @@ public sealed class PurchaseRequisition : CompanyScopedAuditableEntity
     public string FinancialYear { get; set; } = string.Empty;
     public long PrSequence { get; set; }
     public string OrganizationId { get; set; } = string.Empty;
+    public Guid? CustomerPurchaseOrderId { get; set; }
+    public CustomerPurchaseOrder? CustomerPurchaseOrder { get; set; }
     public Guid? RequestingDepartmentId { get; set; }
     public Department? RequestingDepartment { get; set; }
     public Guid? RequesterEmployeeId { get; set; }

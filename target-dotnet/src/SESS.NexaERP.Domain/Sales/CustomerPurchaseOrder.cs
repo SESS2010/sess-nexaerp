@@ -51,15 +51,12 @@ public sealed class CustomerPurchaseOrder : AuditableEntity
     public string? QuoteNumber { get; set; }
     public DateOnly? QuoteDate { get; set; }
 
-    /// <summary>Link to the customer master when the name could be matched.</summary>
-    public Guid? CustomerId { get; set; }
+    /// <summary>Mandatory shared customer-master identity. Free-text customer identity is forbidden.</summary>
+    public Guid CustomerId { get; set; }
     public Customer? Customer { get; set; }
 
-    /// <summary>Customer name as received (imported ledgers may not match a master row).</summary>
-    public string CustomerName { get; set; } = string.Empty;
-
     /// <summary>Which of our companies the PO belongs to (SESS / SESS PVT).</summary>
-    public Guid? CompanyId { get; set; }
+    public Guid CompanyId { get; set; }
     public Company? Company { get; set; }
 
     public string? ServiceMode { get; set; }
@@ -68,10 +65,6 @@ public sealed class CustomerPurchaseOrder : AuditableEntity
     public decimal? TotalAmountWithGst { get; set; }
     public string WorkStatus { get; set; } = CustomerPoWorkStatuses.NotCompleted;
 
-    public string? InvoiceNumber { get; set; }
-    public DateOnly? InvoiceDate { get; set; }
-    public DateOnly? FinalInvoiceDate { get; set; }
-    public string? PaymentStatus { get; set; }
     public string? PaymentTerms { get; set; }
     public string? ModeOfDelivery { get; set; }
 
@@ -101,11 +94,11 @@ public sealed class CustomerPurchaseOrder : AuditableEntity
     public Guid? PoFileId { get; set; }
     public string? PoFileName { get; set; }
 
-    /// <summary>Uploaded invoice copy (customer_po_files.Id).</summary>
-    public Guid? InvoiceFileId { get; set; }
-    public string? InvoiceFileName { get; set; }
+    /// <summary>The current immutable intake revision; starts at one and increases exactly once per change.</summary>
+    public int CurrentRevisionNumber { get; set; } = 1;
 
     public List<CustomerPurchaseOrderLine> Lines { get; set; } = [];
+    public List<CustomerPurchaseOrderRevision> Revisions { get; set; } = [];
 }
 
 /// <summary>One goods/services row of a customer PO (Sl No, description, qty, rate…).</summary>
@@ -113,6 +106,8 @@ public sealed class CustomerPurchaseOrderLine : AuditableEntity
 {
     public Guid CustomerPurchaseOrderId { get; set; }
     public CustomerPurchaseOrder? CustomerPurchaseOrder { get; set; }
+    public int RevisionNumber { get; set; }
+    public CustomerPurchaseOrderRevision? Revision { get; set; }
     public int SlNo { get; set; }
     public string Description { get; set; } = string.Empty;
     public DateOnly? DueDate { get; set; }
@@ -121,6 +116,17 @@ public sealed class CustomerPurchaseOrderLine : AuditableEntity
     public decimal? Rate { get; set; }
     public decimal? DiscountPercent { get; set; }
     public decimal? Amount { get; set; }
+}
+
+/// <summary>Append-only identity and canonical JSON snapshot for one intake revision.</summary>
+public sealed class CustomerPurchaseOrderRevision : AuditableEntity
+{
+    public Guid CustomerPurchaseOrderId { get; set; }
+    public CustomerPurchaseOrder? CustomerPurchaseOrder { get; set; }
+    public int RevisionNumber { get; set; }
+    public string ChangeReason { get; set; } = string.Empty;
+    public string SnapshotJson { get; set; } = "{}";
+    public List<CustomerPurchaseOrderLine> Lines { get; set; } = [];
 }
 
 public static class CustomerPoOptionKinds

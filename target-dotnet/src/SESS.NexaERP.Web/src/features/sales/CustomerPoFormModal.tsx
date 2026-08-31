@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  addCustomerPoOption, createCustomerPo, downloadCustomerPoFile, downloadCustomerPoInvoiceFile,
-  getCustomerPoLookups, getNextCustomerPoNumber, updateCustomerPo, uploadCustomerPoFile, uploadCustomerPoInvoiceFile,
+  addCustomerPoOption, createCustomerPo, downloadCustomerPoFile,
+  getCustomerPoLookups, getNextCustomerPoNumber, updateCustomerPo, uploadCustomerPoFile,
 } from '../../api/customerPos'
 import type { CustomerPoOptionKind } from '../../api/customerPos'
 import { listCustomers } from '../../api/customers'
@@ -53,7 +53,6 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
   const [lookups, setLookups] = useState<CustomerPoLookups | null>(null)
   const [customers, setCustomers] = useState<CustomerOption[]>([])
   const [poFile, setPoFile] = useState<File | null>(null)
-  const [invoiceFile, setInvoiceFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -70,10 +69,6 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
     description: existing?.Description ?? '',
     totalAmountWithGst: existing?.TotalAmountWithGst?.toString() ?? '',
     workStatus: existing?.WorkStatus ?? 'Not Completed',
-    invoiceNumber: existing?.InvoiceNumber ?? '',
-    invoiceDate: existing?.InvoiceDate ?? '',
-    finalInvoiceDate: existing?.FinalInvoiceDate ?? '',
-    paymentStatus: existing?.PaymentStatus ?? '',
     paymentTerms: existing?.PaymentTerms ?? '',
     modeOfDelivery: existing?.ModeOfDelivery ?? '',
     remarks: existing?.Remarks ?? '',
@@ -81,6 +76,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
     cgstPercent: existing?.CgstPercent?.toString() ?? '9',
     sgstPercent: existing?.SgstPercent?.toString() ?? '9',
     igstPercent: existing?.IgstPercent?.toString() ?? '',
+    revisionReason: '',
   })
 
   const [lines, setLines] = useState<LineDraft[]>(
@@ -142,7 +138,8 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
     event.preventDefault()
     setError('')
     if (!form.customerPoNumber.trim()) { setError('Customer PO number is required.'); return }
-    if (!form.customerCode && !form.customerName.trim()) { setError('Select a customer (or type the customer name).'); return }
+    if (!form.customerCode) { setError('Select a customer from the Customer Master.'); return }
+    if (mode === 'edit' && !form.revisionReason.trim()) { setError('Revision reason is required.'); return }
     for (const [index, line] of lines.entries()) {
       if (!line.description.trim()) { setError(`Line ${index + 1}: description is required.`); return }
     }
@@ -153,17 +150,12 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
       CustomerPoDate: form.customerPoDate || null,
       QuoteNumber: form.quoteNumber.trim() || null,
       QuoteDate: form.quoteDate || null,
-      CustomerCode: form.customerCode || null,
-      CustomerName: form.customerName.trim() || null,
+      CustomerCode: form.customerCode,
       ServiceMode: form.serviceMode || null,
       SalesType: form.salesType || null,
       Description: form.description.trim() || null,
       TotalAmountWithGst: form.totalAmountWithGst ? Number(form.totalAmountWithGst) : null,
       WorkStatus: form.workStatus || null,
-      InvoiceNumber: form.invoiceNumber.trim() || null,
-      InvoiceDate: form.invoiceDate || null,
-      FinalInvoiceDate: form.finalInvoiceDate || null,
-      PaymentStatus: form.paymentStatus.trim() || null,
       PaymentTerms: form.paymentTerms.trim() || null,
       ModeOfDelivery: form.modeOfDelivery.trim() || null,
       Remarks: form.remarks.trim() || null,
@@ -182,19 +174,23 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
         Amount: lineAmount(line),
       })),
       Version: existing?.Version,
+      RevisionReason: mode === 'edit' ? form.revisionReason.trim() : null,
     }
     try {
       let recordNumber: string
+      let savedVersion: number
       if (mode === 'create') {
-        recordNumber = (await createCustomerPo(body)).PoRecordNumber
+        const saved = await createCustomerPo(body)
+        recordNumber = saved.PoRecordNumber
+        savedVersion = saved.Version
       } else {
-        recordNumber = (await updateCustomerPo(existing!.PoRecordNumber, body)).PoRecordNumber
+        const saved = await updateCustomerPo(existing!.PoRecordNumber, body)
+        recordNumber = saved.PoRecordNumber
+        savedVersion = saved.Version
       }
       if (poFile) {
-        await uploadCustomerPoFile(recordNumber, poFile)
-      }
-      if (invoiceFile) {
-        await uploadCustomerPoInvoiceFile(recordNumber, invoiceFile)
+        const fileReason = mode === 'create' ? 'Initial customer PO document upload' : form.revisionReason.trim()
+        await uploadCustomerPoFile(recordNumber, poFile, savedVersion, fileReason)
       }
       onSaved(recordNumber)
     } catch (err) {
@@ -371,7 +367,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
             </label>
           )}
 
-          <div className="field-wide form-section-title">Terms, invoice & payment</div>
+          <div className="field-wide form-section-title">Terms and customer PO document</div>
           <label className="field">
             <span className="field-label">Delivery terms</span>
             <input className="input" value={form.deliveryTerms} onChange={set('deliveryTerms')} />
@@ -383,22 +379,6 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
           <label className="field">
             <span className="field-label">Dispatched through / delivery mode</span>
             <input className="input" value={form.modeOfDelivery} onChange={set('modeOfDelivery')} placeholder="e.g. Courier & Mail" />
-          </label>
-          <label className="field">
-            <span className="field-label">Invoice number</span>
-            <input className="input" value={form.invoiceNumber} onChange={set('invoiceNumber')} />
-          </label>
-          <label className="field">
-            <span className="field-label">Invoice date</span>
-            <input className="input" type="date" value={form.invoiceDate} onChange={set('invoiceDate')} />
-          </label>
-          <label className="field">
-            <span className="field-label">Final invoice date</span>
-            <input className="input" type="date" value={form.finalInvoiceDate} onChange={set('finalInvoiceDate')} />
-          </label>
-          <label className="field">
-            <span className="field-label">Payment status</span>
-            <input className="input" value={form.paymentStatus} onChange={set('paymentStatus')} placeholder="e.g. Payment Received / Bill raised" />
           </label>
           <label className="field">
             <span className="field-label">PO copy (PDF, max 10 MB)</span>
@@ -417,23 +397,14 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
               </span>
             )}
           </label>
-          <label className="field">
-            <span className="field-label">Invoice copy (PDF, max 10 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept="application/pdf"
-              onChange={(event) => setInvoiceFile(event.target.files?.[0] ?? null)}
-            />
-            {!invoiceFile && existing?.InvoiceFileName && (
-              <span className="field-hint">
-                Current: {existing.InvoiceFileName}{' '}
-                <a href="#" onClick={(event) => { event.preventDefault(); void downloadCustomerPoInvoiceFile(existing.PoRecordNumber, existing.InvoiceFileName ?? '') }}>
-                  Download
-                </a>
-              </span>
-            )}
-          </label>
+          {mode === 'edit' && (
+            <label className="field field-wide">
+              <span className="field-label">Revision reason *</span>
+              <input className="input" required value={form.revisionReason} onChange={set('revisionReason')} />
+              <span className="field-hint">Every edit creates an immutable revision; earlier lines and snapshots remain unchanged.</span>
+            </label>
+          )}
+
           <label className="field field-wide">
             <span className="field-label">Remarks</span>
             <textarea className="input" rows={2} value={form.remarks} onChange={set('remarks')} />

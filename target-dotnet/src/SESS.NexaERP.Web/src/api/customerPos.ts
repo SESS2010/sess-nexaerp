@@ -38,8 +38,8 @@ export function getNextCustomerPoNumber(): Promise<{ PoRecordNumber: string }> {
   return api.get<{ PoRecordNumber: string }>(`${BASE}/next-number`)
 }
 
-export function createCustomerPo(body: UpsertCustomerPoRequest): Promise<{ PoRecordNumber: string }> {
-  return api.post<{ PoRecordNumber: string }>(BASE, body)
+export function createCustomerPo(body: UpsertCustomerPoRequest): Promise<{ PoRecordNumber: string; Version: number }> {
+  return api.post<{ PoRecordNumber: string; Version: number }>(BASE, body)
 }
 
 export type CustomerPoOptionKind = 'SERVICE_MODE' | 'SALES_TYPE'
@@ -52,9 +52,11 @@ export function updateCustomerPo(poRecordNumber: string, body: UpsertCustomerPoR
   return api.put<CustomerPoDetail>(`${BASE}/${encodeURIComponent(poRecordNumber)}`, body)
 }
 
-async function uploadPdf(path: string, file: File): Promise<Record<string, string>> {
+async function uploadPdf(path: string, file: File, version: number, revisionReason: string): Promise<Record<string, string | number>> {
   const body = new FormData()
   body.set('file', file)
+  body.set('version', String(version))
+  body.set('revisionReason', revisionReason)
   const headers: Record<string, string> = {}
   const token = getStoredToken()
   if (token) headers.Authorization = `Bearer ${token}`
@@ -85,18 +87,10 @@ async function downloadPdf(path: string, fileName: string): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-export function uploadCustomerPoFile(poRecordNumber: string, file: File) {
-  return uploadPdf(`${BASE}/${encodeURIComponent(poRecordNumber)}/file`, file)
+export function uploadCustomerPoFile(poRecordNumber: string, file: File, version: number, revisionReason: string) {
+  return uploadPdf(`${BASE}/${encodeURIComponent(poRecordNumber)}/file`, file, version, revisionReason)
 }
 
 export function downloadCustomerPoFile(poRecordNumber: string, fileName: string) {
   return downloadPdf(`${BASE}/${encodeURIComponent(poRecordNumber)}/file`, fileName)
-}
-
-export function uploadCustomerPoInvoiceFile(poRecordNumber: string, file: File) {
-  return uploadPdf(`${BASE}/${encodeURIComponent(poRecordNumber)}/invoice-file`, file)
-}
-
-export function downloadCustomerPoInvoiceFile(poRecordNumber: string, fileName: string) {
-  return downloadPdf(`${BASE}/${encodeURIComponent(poRecordNumber)}/invoice-file`, fileName)
 }

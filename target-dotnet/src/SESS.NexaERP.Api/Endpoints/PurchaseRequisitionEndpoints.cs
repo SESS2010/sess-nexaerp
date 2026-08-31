@@ -66,7 +66,7 @@ public static partial class PurchaseRequisitionEndpoints
             if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
             if (pr.Status != PurchaseRequisitionStatuses.Draft && pr.Status != PurchaseRequisitionStatuses.RevisionRequested) return Results.Conflict(new { message = "Only draft or revision-requested PR can be updated." });
             if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-            var validation = await ValidateDraftAsync(request, db, user, ct);
+            var validation = await ValidateDraftAsync(request, pr.CompanyId, db, user, ct);
             if (validation is not null) return validation;
             var before = ToDetail(pr);
             await ApplyDraftAsync(pr, request, db, user, ct);

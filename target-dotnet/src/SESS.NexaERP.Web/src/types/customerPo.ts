@@ -4,19 +4,17 @@ export interface CustomerPoSummary {
   CustomerPoNumber: string
   CustomerPoDate: string | null
   CustomerName: string
-  CustomerCode: string | null
-  CompanyCode: string | null
+  CustomerCode: string
+  CompanyCode: string
   ServiceMode: string | null
   SalesType: string | null
   Description: string | null
   TotalAmountWithGst: number | null
   WorkStatus: string
-  InvoiceNumber: string | null
-  InvoiceDate: string | null
-  PaymentStatus: string | null
   FiscalYear: string | null
   LineCount: number
   PoFileName: string | null
+  CurrentRevisionNumber: number
   Version: number
 }
 
@@ -31,10 +29,16 @@ export interface CustomerPoLine {
   Amount: number | null
 }
 
+export interface CustomerPoRevision {
+  RevisionNumber: number
+  ChangeReason: string
+  CreatedBy: string
+  CreatedAt: string
+}
+
 export interface CustomerPoDetail extends CustomerPoSummary {
   QuoteNumber: string | null
   QuoteDate: string | null
-  FinalInvoiceDate: string | null
   PaymentTerms: string | null
   ModeOfDelivery: string | null
   Remarks: string | null
@@ -48,8 +52,8 @@ export interface CustomerPoDetail extends CustomerPoSummary {
   IgstAmount: number | null
   RoundOff: number | null
   AmountInWords: string | null
-  InvoiceFileName: string | null
   Lines: CustomerPoLine[]
+  Revisions: CustomerPoRevision[]
   CreatedBy: string
   CreatedAt: string
 }
@@ -60,17 +64,12 @@ export interface UpsertCustomerPoRequest {
   CustomerPoDate?: string | null
   QuoteNumber?: string | null
   QuoteDate?: string | null
-  CustomerCode?: string | null
-  CustomerName?: string | null
+  CustomerCode: string
   ServiceMode?: string | null
   SalesType?: string | null
   Description?: string | null
   TotalAmountWithGst?: number | null
   WorkStatus?: string | null
-  InvoiceNumber?: string | null
-  InvoiceDate?: string | null
-  FinalInvoiceDate?: string | null
-  PaymentStatus?: string | null
   PaymentTerms?: string | null
   ModeOfDelivery?: string | null
   FiscalYear?: string | null
@@ -81,6 +80,7 @@ export interface UpsertCustomerPoRequest {
   IgstPercent?: number | null
   Lines?: CustomerPoLine[]
   Version?: number
+  RevisionReason?: string | null
 }
 
 export interface CustomerPoLookups {

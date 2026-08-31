@@ -522,6 +522,10 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasOne(x => x.RequestingDepartment).WithMany().HasForeignKey(x => x.RequestingDepartmentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.RequesterEmployee).WithMany().HasForeignKey(x => x.RequesterEmployeeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.DeliveryWarehouse).WithMany().HasForeignKey(x => x.DeliveryWarehouseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.CustomerPurchaseOrder).WithMany()
+                .HasForeignKey(x => new { x.CustomerPurchaseOrderId, x.CompanyId })
+                .HasPrincipalKey(x => new { x.Id, x.CompanyId }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.CustomerPurchaseOrderId, x.CompanyId });
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisitions_estimated_total_nonnegative", "\"EstimatedTotal\" >= 0 AND \"PrSequence\" > 0"));
             entity.ToTable(table => table.HasCheckConstraint("CK_purchase_requisition_approval_progress", "\"ApprovalCycle\" >= 0 AND \"CompletedApprovalStepCount\" >= 0 AND \"CompletedApprovalStepCount\" <= \"RequiredApprovalStepCount\" AND (\"ApprovalCycle\" = 0 OR (\"RequiredApprovalStepCount\" > 0 AND \"CreatorEmployeeId\" <> '00000000-0000-0000-0000-000000000000'::uuid AND \"ApprovalWorkflowSnapshotJson\" <> '{}'::jsonb))"));
         });

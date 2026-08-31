@@ -122,7 +122,7 @@ export function CustomerPoListPage() {
               <th>Sales Type</th>
               <th className="text-right">Amount (₹)</th>
               <th>Work Status</th>
-              <th>Invoice No</th>
+              <th>Revision</th>
               <th>FY</th>
             </tr>
           </thead>
@@ -142,7 +142,7 @@ export function CustomerPoListPage() {
                 <td>{row.SalesType ?? '—'}</td>
                 <td className="text-right mono">{formatAmount(row.TotalAmountWithGst)}</td>
                 <td><StatusBadge value={row.WorkStatus} /></td>
-                <td className="mono">{row.InvoiceNumber ?? '—'}</td>
+                <td className="mono">R{row.CurrentRevisionNumber}</td>
                 <td>{row.FiscalYear ?? '—'}</td>
               </tr>
             ))}

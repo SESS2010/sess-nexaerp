@@ -14,16 +14,25 @@ public static partial class PurchaseRequisitionEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.OrganizationId) || string.IsNullOrWhiteSpace(request.RequestingDepartmentCode) || string.IsNullOrWhiteSpace(request.RequesterEmployeeCode) || string.IsNullOrWhiteSpace(request.DeliveryWarehouseCode) || string.IsNullOrWhiteSpace(request.PurposeJustification)) return Results.BadRequest(new { message = "Organization, department, requester, delivery warehouse and purpose are required." });
         if (!string.IsNullOrWhiteSpace(user.OrganizationId) && !string.Equals(request.OrganizationId.Trim(), user.OrganizationId, StringComparison.OrdinalIgnoreCase)) return Results.Forbid();
+        if (request.CustomerPurchaseOrderId is { } customerPoId)
+        {
+            var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
+            var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            if (companyId is null || !await db.CustomerPurchaseOrders.AnyAsync(x => x.Id == customerPoId && x.CompanyId == companyId.Value, ct))
+                return Results.BadRequest(new { message = "Customer PO was not found in the current company." });
+        }
         if (!await db.Departments.AnyAsync(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode), ct)) return Results.BadRequest(new { message = "Requesting department not found." });
         if (!await db.Employees.AnyAsync(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode), ct)) return Results.BadRequest(new { message = "Requester employee not found." });
         if (!await db.Warehouses.AnyAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive, ct)) return Results.BadRequest(new { message = "Active delivery warehouse not found." });
         return await ValidateLines(request.Lines, db, ct);
     }
 
-    private static async Task<IResult?> ValidateDraftAsync(UpdatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
+    private static async Task<IResult?> ValidateDraftAsync(UpdatePurchaseRequisitionRequest request, Guid companyId, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.DeliveryWarehouseCode) || string.IsNullOrWhiteSpace(request.PurposeJustification)) return Results.BadRequest(new { message = "Delivery warehouse and purpose are required." });
         if (!await db.Warehouses.AnyAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive, ct)) return Results.BadRequest(new { message = "Active delivery warehouse not found." });
+        if (request.CustomerPurchaseOrderId is { } customerPoId && !await db.CustomerPurchaseOrders.AnyAsync(x => x.Id == customerPoId && x.CompanyId == companyId, ct))
+            return Results.BadRequest(new { message = "Customer PO was not found in the current company." });
         return await ValidateLines(request.Lines, db, ct);
     }
 
@@ -47,7 +56,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
         var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => x.Id).SingleAsync(ct);
-        var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
+        var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, CustomerPurchaseOrderId = request.CustomerPurchaseOrderId, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
         pr.RequestingDepartmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode)).Select(x => x.Id).SingleAsync(ct);
         pr.RequesterEmployeeId = await db.Employees.Where(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode)).Select(x => x.Id).SingleAsync(ct);
         pr.DeliveryWarehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive).Select(x => x.Id).SingleAsync(ct);
@@ -65,6 +74,7 @@ public static partial class PurchaseRequisitionEndpoints
         pr.ServiceReference = Norm(request.ServiceReference);
         pr.WorkOrderReference = Norm(request.WorkOrderReference);
         pr.CustomerReference = Norm(request.CustomerReference);
+        pr.CustomerPurchaseOrderId = request.CustomerPurchaseOrderId;
         pr.DeliveryWarehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive).Select(x => x.Id).SingleAsync(ct);
         pr.UpdatedBy = user.LoginId;
         pr.UpdatedAt = DateTimeOffset.UtcNow;
@@ -221,7 +231,7 @@ public static partial class PurchaseRequisitionEndpoints
             !scope.RackBinId.HasValue &&
             (!scope.OwnRecordsOnly || pr.RequesterEmployeeId == employeeId)));
     }
-    private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) => query.Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee).Include(x => x.DeliveryWarehouse).Include(x => x.Lines).ThenInclude(x => x.Item);
+    private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) => query.Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee).Include(x => x.DeliveryWarehouse).Include(x => x.CustomerPurchaseOrder).Include(x => x.Lines).ThenInclude(x => x.Item);
     private static IQueryable<PurchaseRequisition> Sort(IQueryable<PurchaseRequisition> q, string? sortBy, string? dir) => (sortBy?.Trim().ToLowerInvariant(), dir?.Trim().ToLowerInvariant()) switch { ("requiredby", "desc") => q.OrderByDescending(x => x.RequiredByDate), ("requiredby", _) => q.OrderBy(x => x.RequiredByDate), ("status", "desc") => q.OrderByDescending(x => x.Status), ("status", _) => q.OrderBy(x => x.Status), ("total", "desc") => q.OrderByDescending(x => x.EstimatedTotal), ("total", _) => q.OrderBy(x => x.EstimatedTotal), ("prnumber", "desc") => q.OrderByDescending(x => x.PrNumber), _ => q.OrderBy(x => x.PrNumber) };
     private static string NormalizePr(string value) => value.Trim().ToUpperInvariant();
     private static string? Norm(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -237,5 +247,5 @@ public static partial class PurchaseRequisitionEndpoints
     private static async Task<IResult> History(NexaErpDbContext db, string prNumber, ICurrentUser user, CancellationToken ct) { var allowed = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Where(x => x.PrNumber == NormalizePr(prNumber)).Select(x => x.Id); return Results.Ok(await db.PurchaseRequisitionStatusHistories.AsNoTracking().Where(x => allowed.Contains(x.PurchaseRequisitionId)).OrderByDescending(x => x.CreatedAt).Select(x => new PurchaseRequisitionHistorySummary(x.Id, "Status", x.PreviousStatus, x.NewStatus, x.Reason, x.ActorLoginId, x.ActorRoleCode, x.CreatedAt, x.CorrelationId)).ToListAsync(ct)); }
     private static async Task<IResult> ApprovalHistory(NexaErpDbContext db, string prNumber, ICurrentUser user, CancellationToken ct) { var allowed = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Where(x => x.PrNumber == NormalizePr(prNumber)).Select(x => x.Id); return Results.Ok(await db.PurchaseRequisitionApprovalHistories.AsNoTracking().Where(x => allowed.Contains(x.PurchaseRequisitionId)).OrderByDescending(x => x.CreatedAt).Select(x => new PurchaseRequisitionHistorySummary(x.Id, x.Action, x.FromStatus, x.ToStatus, x.Remarks, x.ActorLoginId, x.ActorRoleCode, x.CreatedAt, x.CorrelationId)).ToListAsync(ct)); }
     private static PurchaseRequisitionSummary ToSummary(PurchaseRequisition x) => new(x.Id, x.PrNumber, x.OrganizationId, x.RequestingDepartment?.Name ?? string.Empty, x.RequesterEmployee?.EmployeeCode ?? string.Empty, x.RequestDate, x.RequiredByDate, x.Priority, x.Status, x.ApprovalRoute, x.EstimatedTotal, x.Version);
-    private static PurchaseRequisitionDetail ToDetail(PurchaseRequisition x) => new(x.Id, x.PrNumber, x.OrganizationId, x.RequestingDepartment?.Name ?? string.Empty, x.RequesterEmployee?.EmployeeCode ?? string.Empty, x.RequestDate, x.RequiredByDate, x.Priority, x.PurposeJustification, x.DeliveryWarehouse?.WarehouseCode ?? string.Empty, x.CostCentre, x.ProjectReference, x.ServiceReference, x.WorkOrderReference, x.CustomerReference, x.Status, x.ApprovalRoute, x.EstimatedTotal, x.Version, x.Lines.OrderBy(l => l.LineNumber).Select(l => new PurchaseRequisitionLineSummary(l.Id, l.LineNumber, l.ItemCodeSnapshot, l.ItemNameSnapshot, l.UomSnapshot, l.RequestedQuantity, l.EstimatedUnitPriceSnapshot, l.EstimatedLineTotal, l.OnHandSnapshot, l.ActiveReservedSnapshot, l.AvailableSnapshot, l.ReservedQuantity, l.ShortageQuantity, l.ProcurementHandoffQuantity, l.LineStatus)).ToList());
+    private static PurchaseRequisitionDetail ToDetail(PurchaseRequisition x) => new(x.Id, x.PrNumber, x.OrganizationId, x.RequestingDepartment?.Name ?? string.Empty, x.RequesterEmployee?.EmployeeCode ?? string.Empty, x.RequestDate, x.RequiredByDate, x.Priority, x.PurposeJustification, x.DeliveryWarehouse?.WarehouseCode ?? string.Empty, x.CostCentre, x.ProjectReference, x.ServiceReference, x.WorkOrderReference, x.CustomerReference, x.CustomerPurchaseOrderId, x.CustomerPurchaseOrder?.PoRecordNumber, x.Status, x.ApprovalRoute, x.EstimatedTotal, x.Version, x.Lines.OrderBy(l => l.LineNumber).Select(l => new PurchaseRequisitionLineSummary(l.Id, l.LineNumber, l.ItemCodeSnapshot, l.ItemNameSnapshot, l.UomSnapshot, l.RequestedQuantity, l.EstimatedUnitPriceSnapshot, l.EstimatedLineTotal, l.OnHandSnapshot, l.ActiveReservedSnapshot, l.AvailableSnapshot, l.ReservedQuantity, l.ShortageQuantity, l.ProcurementHandoffQuantity, l.LineStatus)).ToList());
 }

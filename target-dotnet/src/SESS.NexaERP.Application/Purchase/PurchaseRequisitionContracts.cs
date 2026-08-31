@@ -1,10 +1,10 @@
-﻿namespace SESS.NexaERP.Application.Purchase;
+namespace SESS.NexaERP.Application.Purchase;
 
 public sealed record PurchaseRequisitionLineRequest(string ItemCode, decimal RequestedQuantity, decimal EstimatedUnitPrice, DateOnly RequiredDate, string? PreferredWarehouseCode, string? ProjectReference, string? MachineReference, string? ServiceReference);
 
-public sealed record CreatePurchaseRequisitionRequest(string OrganizationId, string RequestingDepartmentCode, string RequesterEmployeeCode, DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, IReadOnlyList<PurchaseRequisitionLineRequest> Lines);
+public sealed record CreatePurchaseRequisitionRequest(string OrganizationId, string RequestingDepartmentCode, string RequesterEmployeeCode, DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, IReadOnlyList<PurchaseRequisitionLineRequest> Lines, Guid? CustomerPurchaseOrderId = null);
 
-public sealed record UpdatePurchaseRequisitionRequest(DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, IReadOnlyList<PurchaseRequisitionLineRequest> Lines, uint Version);
+public sealed record UpdatePurchaseRequisitionRequest(DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, IReadOnlyList<PurchaseRequisitionLineRequest> Lines, uint Version, Guid? CustomerPurchaseOrderId = null);
 
 public sealed record PurchaseRequisitionActionRequest(string Remarks, uint Version, string? IdempotencyKey = null);
 
@@ -16,7 +16,7 @@ public sealed record PurchaseRequisitionLineSummary(Guid Id, int LineNumber, str
 
 public sealed record PurchaseRequisitionSummary(Guid Id, string PrNumber, string OrganizationId, string RequestingDepartment, string RequesterEmployeeCode, DateOnly RequestDate, DateOnly RequiredByDate, string Priority, string Status, string ApprovalRoute, decimal EstimatedTotal, uint Version);
 
-public sealed record PurchaseRequisitionDetail(Guid Id, string PrNumber, string OrganizationId, string RequestingDepartment, string RequesterEmployeeCode, DateOnly RequestDate, DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, string Status, string ApprovalRoute, decimal EstimatedTotal, uint Version, IReadOnlyList<PurchaseRequisitionLineSummary> Lines);
+public sealed record PurchaseRequisitionDetail(Guid Id, string PrNumber, string OrganizationId, string RequestingDepartment, string RequesterEmployeeCode, DateOnly RequestDate, DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, Guid? CustomerPurchaseOrderId, string? CustomerPoRecordNumber, string Status, string ApprovalRoute, decimal EstimatedTotal, uint Version, IReadOnlyList<PurchaseRequisitionLineSummary> Lines);
 
 public sealed record PurchaseRequisitionHistorySummary(Guid Id, string Action, string? PreviousStatus, string NewStatus, string Remarks, string ActorLoginId, string ActorRoleCode, DateTimeOffset CreatedAt, string CorrelationId);
 
