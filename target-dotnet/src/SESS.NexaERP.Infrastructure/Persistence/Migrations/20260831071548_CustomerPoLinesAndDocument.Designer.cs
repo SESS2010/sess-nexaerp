@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260831071548_CustomerPoLinesAndDocument")]
+    partial class CustomerPoLinesAndDocument
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53662,141 +53665,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("customer_po_files", "advance");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPoOption", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind", "Value")
-                        .IsUnique();
-
-                    b.ToTable("customer_po_options", "advance");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "NON AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000002"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Under AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000003"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Dispatch Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000004"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000005"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Service Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000006"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000007"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "AMC Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000008"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares & Service",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000009"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Calibration Charges",
-                            Version = 0L
-                        });
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
                 {
                     b.Property<Guid>("Id")
@@ -53869,13 +53737,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.Property<DateOnly?>("InvoiceDate")
                         .HasColumnType("date");
-
-                    b.Property<Guid?>("InvoiceFileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InvoiceFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("InvoiceNumber")
                         .HasMaxLength(200)

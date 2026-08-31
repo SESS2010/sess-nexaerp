@@ -131,7 +131,7 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <h2>{mode === 'create' ? 'New Customer' : `Edit ${existing?.CustomerCode}`}</h2>

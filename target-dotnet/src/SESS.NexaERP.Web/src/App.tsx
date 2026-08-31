@@ -10,6 +10,7 @@ import { CustomerListPage } from './features/customers/CustomerListPage'
 import { CustomerDetailPage } from './features/customers/CustomerDetailPage'
 import { ItemListPage } from './features/items/ItemListPage'
 import { ItemDetailPage } from './features/items/ItemDetailPage'
+import { CustomerPoListPage } from './features/sales/CustomerPoListPage'
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
@@ -19,7 +20,9 @@ function Shell({ children }: { children: React.ReactNode }) {
       ? 'Customer Master'
       : location.pathname.startsWith('/items')
         ? 'Item Master'
-        : 'Employee Master'
+        : location.pathname.startsWith('/sales/customer-po')
+          ? 'Customer PO'
+          : 'Employee Master'
 
   return (
     <div className="app-shell">
@@ -46,6 +49,15 @@ function Shell({ children }: { children: React.ReactNode }) {
             Item Master
           </NavLink>
           <span className="nav-link disabled">Warehouse / Rack-Bin</span>
+          <div className="nav-section">Sales</div>
+          <NavLink to="/sales/customer-po" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Customer PO
+          </NavLink>
+          <span className="nav-link disabled">Contract Review</span>
+          <span className="nav-link disabled">Contract Confirmation</span>
+          <span className="nav-link disabled">Order Acceptance (OA)</span>
+          <span className="nav-link disabled">Proforma / Advance PI</span>
+          <span className="nav-link disabled">Sales Dispatch Request</span>
           <div className="nav-section">Transactions</div>
           <span className="nav-link disabled">Purchase</span>
           <span className="nav-link disabled">Stores</span>
@@ -81,6 +93,7 @@ export default function App() {
                 <Route path="/customers/:customerCode" element={<CustomerDetailPage />} />
                 <Route path="/items" element={<ItemListPage />} />
                 <Route path="/items/:itemCode" element={<ItemDetailPage />} />
+                <Route path="/sales/customer-po" element={<CustomerPoListPage />} />
               </Routes>
             </Shell>
           </RequireAuth>

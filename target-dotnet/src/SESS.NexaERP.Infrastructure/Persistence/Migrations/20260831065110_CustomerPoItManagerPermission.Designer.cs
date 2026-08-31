@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260831065110_CustomerPoItManagerPermission")]
+    partial class CustomerPoItManagerPermission
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -53618,202 +53621,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPoFile", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("customer_po_files", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPoOption", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind", "Value")
-                        .IsUnique();
-
-                    b.ToTable("customer_po_options", "advance");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "NON AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000002"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Under AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000003"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Dispatch Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000004"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000005"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Service Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000006"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000007"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "AMC Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000008"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares & Service",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000009"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Calibration Charges",
-                            Version = 0L
-                        });
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
-
-                    b.Property<string>("AmountInWords")
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
-
-                    b.Property<decimal?>("CgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("CgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
 
                     b.Property<Guid?>("CompanyId")
                         .HasColumnType("uuid");
@@ -53841,16 +53653,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
 
-                    b.Property<string>("DeliveryTerms")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
                     b.Property<string>("Description")
                         .HasColumnType("text");
-
-                    b.Property<string>("Destination")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
 
                     b.Property<DateOnly?>("FinalInvoiceDate")
                         .HasColumnType("date");
@@ -53859,33 +53663,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
-                    b.Property<decimal?>("IgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("IgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
                     b.Property<DateOnly?>("InvoiceDate")
                         .HasColumnType("date");
-
-                    b.Property<Guid?>("InvoiceFileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InvoiceFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("InvoiceNumber")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
                     b.Property<string>("ModeOfDelivery")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("OtherReferences")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
@@ -53896,13 +53681,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<string>("PaymentTerms")
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
-
-                    b.Property<Guid?>("PoFileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PoFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("PoRecordNumber")
                         .IsRequired()
@@ -53916,16 +53694,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
-                    b.Property<string>("ReferenceNumber")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
                     b.Property<string>("Remarks")
                         .HasColumnType("text");
-
-                    b.Property<decimal?>("RoundOff")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("SalesType")
                         .HasMaxLength(60)
@@ -53934,18 +53704,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<string>("ServiceMode")
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
-
-                    b.Property<decimal?>("SgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("SgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<decimal?>("TaxableValue")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal?>("TotalAmountWithGst")
                         .HasPrecision(18, 2)
@@ -53981,68 +53739,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("WorkStatus");
 
                     b.ToTable("customer_purchase_orders", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal?>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("CustomerPurchaseOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal?>("DiscountPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<DateOnly?>("DueDate")
-                        .HasColumnType("date");
-
-                    b.Property<decimal?>("Quantity")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)");
-
-                    b.Property<decimal?>("Rate")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<int>("SlNo")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Uom")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CustomerPurchaseOrderId", "SlNo");
-
-                    b.ToTable("customer_purchase_order_lines", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
@@ -58580,17 +58276,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Customer");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", "CustomerPurchaseOrder")
-                        .WithMany("Lines")
-                        .HasForeignKey("CustomerPurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CustomerPurchaseOrder");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ChangedByEmployee")
@@ -59573,11 +59258,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Purchase.VendorQuotation", b =>
-                {
-                    b.Navigation("Lines");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
                 {
                     b.Navigation("Lines");
                 });

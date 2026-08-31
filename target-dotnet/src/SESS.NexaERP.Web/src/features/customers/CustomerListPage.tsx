@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { listCustomers } from '../../api/customers'
 import type { CustomerSummary } from '../../types/customer'
 import { StatusBadge } from '../employees/StatusBadge'
@@ -11,6 +11,7 @@ const PAGE_SIZE = 20
 
 export function CustomerListPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [rows, setRows] = useState<CustomerSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -20,6 +21,14 @@ export function CustomerListPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
+
+  // /customers?create=1 (e.g. from the Customer PO form) opens the create modal directly.
+  useEffect(() => {
+    if (searchParams.get('create') === '1') {
+      setShowCreate(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 

@@ -15,6 +15,9 @@ const TONE_BY_VALUE: Record<string, string> = {
   LEFT: 'muted',
   Rejected: 'error',
   Blacklisted: 'error',
+  Completed: 'ok',
+  'W.I.P': 'info',
+  'Not Completed': 'warn',
 }
 
 export function StatusBadge({ value }: { value: string }) {
