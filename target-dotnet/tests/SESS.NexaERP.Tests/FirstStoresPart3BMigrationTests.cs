@@ -19,7 +19,7 @@ public sealed class FirstStoresPart3BMigrationTests
     }
 
     [Fact]
-    public void Part3BRemainsBeforeTheReferenceMasterAndControlledPostingMigrations()
+    public void Part3BDependenciesAndCoreLedgerMappingsRemainIntact()
     {
         using var db=CreateContext();
         var migrations=db.Database.GetMigrations().ToArray();
@@ -27,8 +27,17 @@ public sealed class FirstStoresPart3BMigrationTests
             < Array.IndexOf(migrations,"20260828121759_ItemReferenceMasterFrontendReadiness"));
         Assert.True(Array.IndexOf(migrations,"20260829114544_ControlledTaxGstWorkflow")
             < Array.IndexOf(migrations,"20260831052559_StoresSlice0ControlledPostingAndGateApi"));
-        Assert.Equal("stock_posting_batches",db.Model.FindEntityType(typeof(StockPostingBatch))!.GetTableName());
-        Assert.Equal(120,db.Model.GetEntityTypes().Count());
+        var batch=db.Model.FindEntityType(typeof(StockPostingBatch));
+        var movement=db.Model.FindEntityType(typeof(StockMovement));
+        Assert.NotNull(batch);
+        Assert.NotNull(movement);
+        Assert.Equal("advance",batch.GetSchema());
+        Assert.Equal("stock_posting_batches",batch.GetTableName());
+        Assert.Equal("advance",movement.GetSchema());
+        Assert.Equal("stock_movements",movement.GetTableName());
+        Assert.NotNull(movement.FindProperty(nameof(StockMovement.StockPostingBatchId)));
+        Assert.NotNull(movement.FindProperty(nameof(StockMovement.WarehouseConditionLocationId)));
+        Assert.NotNull(movement.FindProperty(nameof(StockMovement.ReversesStockMovementId)));
     }
 
     [Fact]

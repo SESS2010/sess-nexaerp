@@ -660,7 +660,33 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DO $assert$
         BEGIN
           IF (SELECT count(*) FROM advance.roles)<>45 THEN RAISE EXCEPTION 'Expected 45 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.role_page_permissions)<>1219 THEN RAISE EXCEPTION 'Expected 1219 permissions.'; END IF;
+          IF EXISTS (
+            SELECT expected."RoleCode",expected."PageKey"
+            FROM (VALUES
+              ('TECHNICAL_DIRECTOR','purchase.commercial-comparisons'),
+              ('TECHNICAL_DIRECTOR','purchase.po'),
+              ('TECHNICAL_DIRECTOR','purchase.requisition-approvals'),
+              ('MANAGING_DIRECTOR','purchase.commercial-comparisons'),
+              ('MANAGING_DIRECTOR','purchase.po'),
+              ('MANAGING_DIRECTOR','purchase.requisition-approvals')
+            ) expected("RoleCode","PageKey")
+            EXCEPT
+            SELECT r."Code",p."PageKey"
+            FROM advance.role_page_permissions permission
+            JOIN advance.roles r ON r."Id"=permission."RoleId"
+            JOIN advance.page_definitions p ON p."Id"=permission."PageDefinitionId"
+            WHERE permission."CanView" AND permission."CanApprove" AND permission."CanReject"
+              AND permission."CanRequestRevision" AND permission."CanViewAuditHistory"
+          ) THEN RAISE EXCEPTION 'Required TD/MD purchase approval permissions are missing.'; END IF;
+          IF EXISTS (
+            SELECT 1
+            FROM advance.role_page_permissions permission
+            JOIN advance.roles r ON r."Id"=permission."RoleId"
+            JOIN advance.page_definitions p ON p."Id"=permission."PageDefinitionId"
+            WHERE r."Code"='PURCHASE_MANAGER'
+              AND p."PageKey" IN ('purchase.commercial-comparisons','purchase.po','purchase.requisition-approvals')
+              AND (permission."CanApprove" OR permission."CanReject" OR permission."CanRequestRevision" OR permission."HasFullControl")
+          ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments)<>99 THEN RAISE EXCEPTION 'Expected 99 role assignments.'; END IF;

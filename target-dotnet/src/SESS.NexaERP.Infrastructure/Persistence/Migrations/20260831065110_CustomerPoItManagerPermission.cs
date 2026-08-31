@@ -11,6 +11,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            PostgreSqlClusterGuard.Require(migrationBuilder);
+
             migrationBuilder.UpdateData(
                 schema: "advance",
                 table: "role_page_permissions",
@@ -37,6 +39,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            PostgreSqlClusterGuard.Require(migrationBuilder);
+
             migrationBuilder.DeleteData(
                 schema: "advance",
                 table: "role_page_permissions",
@@ -47,17 +51,17 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 schema: "advance",
                 table: "role_page_permissions",
                 keyColumn: "Id",
-                keyValue: new Guid("44000000-0000-0000-0001-000000000007"),
-                columns: new[] { "CanCancel", "CanCreate", "CanResubmit", "CanSubmit", "CanUpdate", "CanUploadAttachment", "RoleId" },
-                values: new object[] { false, false, false, false, false, false, new Guid("10000000-0000-0000-0000-000000000003") });
+                keyValue: new Guid("44000000-0000-0000-0001-000000000008"),
+                columns: new[] { "CanExport", "CanViewCommercialValues", "RoleId" },
+                values: new object[] { false, false, new Guid("10000000-0000-0000-0000-000000000019") });
 
             migrationBuilder.UpdateData(
                 schema: "advance",
                 table: "role_page_permissions",
                 keyColumn: "Id",
-                keyValue: new Guid("44000000-0000-0000-0001-000000000008"),
-                columns: new[] { "CanExport", "CanViewCommercialValues", "RoleId" },
-                values: new object[] { false, false, new Guid("10000000-0000-0000-0000-000000000019") });
+                keyValue: new Guid("44000000-0000-0000-0001-000000000007"),
+                columns: new[] { "CanCancel", "CanCreate", "CanResubmit", "CanSubmit", "CanUpdate", "CanUploadAttachment", "RoleId" },
+                values: new object[] { false, false, false, false, false, false, new Guid("10000000-0000-0000-0000-000000000003") });
         }
     }
 }
