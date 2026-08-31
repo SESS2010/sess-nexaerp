@@ -794,9 +794,9 @@ public sealed class A5Slice1ContractsTests
         foreach (var path in Directory.GetFiles(a5Root, "*.cs", SearchOption.AllDirectories))
             Assert.Empty(FindForbiddenSyntax(File.ReadAllText(path)));
 
-        var endpoint = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Api", "Endpoints", "Rev869AConfigurationEndpoints.cs"));
-        Assert.Contains("VendorRegistrationTypes.TryParseCanonical(request.VendorRegistrationType", endpoint, StringComparison.Ordinal);
-        Assert.DoesNotContain("NormalizeCode(request.VendorRegistrationType)", endpoint, StringComparison.Ordinal);
+        var taxWorkflow = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Infrastructure", "Masters", "EfTaxGstWorkflowService.cs"));
+        Assert.Contains("VendorRegistrationTypes.TryParseCanonical(r.VendorRegistrationType", taxWorkflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("NormalizeCode(r.VendorRegistrationType)", taxWorkflow, StringComparison.Ordinal);
     }
 
     [Theory]

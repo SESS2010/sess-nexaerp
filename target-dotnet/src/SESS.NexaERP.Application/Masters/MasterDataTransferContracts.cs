@@ -200,3 +200,19 @@ public interface IVendorMasterDataService
     Task<MasterDataApplyResult> CreateAsync(UpsertVendorRequest request, CancellationToken cancellationToken);
     Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertVendorRequest request, CancellationToken cancellationToken);
 }
+
+public interface IWarehouseMasterDataService
+{
+    Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken);
+    Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> CreateAsync(SESS.NexaERP.Application.Inventory.UpsertWarehouseRequest request, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, SESS.NexaERP.Application.Inventory.UpsertWarehouseRequest request, CancellationToken cancellationToken);
+}
+
+public interface IRackBinMasterDataService
+{
+    Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken);
+    Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> CreateAsync(SESS.NexaERP.Application.Inventory.UpsertRackBinRequest request, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, SESS.NexaERP.Application.Inventory.UpsertRackBinRequest request, CancellationToken cancellationToken);
+}

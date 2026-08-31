@@ -26,6 +26,13 @@ END $guard$;
 SELECT pg_advisory_xact_lock(hashtextextended('SESS.NexaERP.TRIAL_DATA',0));
 
 -- Deterministic reset. External FK references make this fail closed.
+DELETE FROM advance.store_category_routes WHERE "CreatedBy"='TRIAL_DATA';
+ALTER TABLE advance.item_company_inventory_settings DISABLE TRIGGER "TR_item_company_inventory_setting_guard";
+ALTER TABLE advance.warehouse_condition_locations DISABLE TRIGGER trg_rev869a_warehouse_condition_version_guard;
+DELETE FROM advance.item_company_inventory_settings WHERE "CreatedBy"='TRIAL_DATA';
+DELETE FROM advance.warehouse_condition_locations WHERE "CreatedBy"='TRIAL_DATA';
+ALTER TABLE advance.item_company_inventory_settings ENABLE TRIGGER "TR_item_company_inventory_setting_guard";
+ALTER TABLE advance.warehouse_condition_locations ENABLE TRIGGER trg_rev869a_warehouse_condition_version_guard;
 DELETE FROM advance.rack_bins WHERE "CreatedBy"='TRIAL_DATA' AND "BinCode" LIKE 'TRIAL-%';
 DELETE FROM advance.warehouses WHERE "CreatedBy"='TRIAL_DATA' AND "WarehouseCode" LIKE 'TRIAL-%';
 DELETE FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemCode" LIKE 'TRIAL-%';
@@ -70,7 +77,7 @@ SELECT id,code,true,name,name,name,vendor_type,msme,CASE WHEN msme THEN 'TRIAL-M
  'TRIAL Contact '||lpad(n::text,2,'0'),'+91-00000-'||lpad(n::text,5,'0'),'trial-vendor-'||lpad(n::text,2,'0')||'@example.invalid',
  'TRIAL billing address, '||state,'TRIAL shipping address, '||state,state,state_code,'India',category,'TRIAL Approved Make',
  'TRIAL Net 30','TRIAL road delivery',30,'{}'::jsonb,'[]'::jsonb,'TRIAL-PORTAL-'||lpad(n::text,2,'0'),approval,vendor_status,
- CASE WHEN approval='Approved' THEN 'Verified' ELSE 'Draft' END,DATE '2026-08-29',false,active,now(),'TRIAL_DATA',0
+ CASE WHEN approval='Approved' THEN 'Approved' ELSE 'Draft' END,DATE '2026-08-29',false,active,now(),'TRIAL_DATA',0
 FROM (VALUES
 (1,'71000000-0000-0000-0005-000000000001'::uuid,'TRIAL-VEN-001','TRIAL Alpine Cooling Supplies','MATERIAL',true,'Karnataka','29','Refrigeration','Approved','Active',true),
 (2,'71000000-0000-0000-0005-000000000002'::uuid,'TRIAL-VEN-002','TRIAL Delta Sensor Traders','MATERIAL',true,'Tamil Nadu','33','Sensors','Approved','Active',true),
@@ -144,7 +151,7 @@ WITH company_seed(company_n,company_id,warehouse_id) AS (VALUES
  SELECT c.*,bin_n,(company_n-1)*11+bin_n AS sequence_no,
    CASE WHEN bin_n<=5 THEN 'GEN-'||lpad(bin_n::text,2,'0') ELSE 'QC-'||(ARRAY['ELE','REF','FAS','PLC','FAB','MEC'])[bin_n-5] END suffix,
    CASE WHEN bin_n<=5 THEN 'STORAGE' ELSE 'QC_HOLD' END location_type,
-   CASE WHEN bin_n<=5 THEN 'Accepted' ELSE 'QcHold' END material_condition
+   CASE WHEN bin_n<=5 THEN 'AVAILABLE' ELSE 'QC_HOLD' END material_condition
  FROM company_seed c CROSS JOIN generate_series(1,11) bin_n
 )
 INSERT INTO advance.rack_bins
@@ -155,6 +162,26 @@ SELECT ('71000000-0000-0000-0008-'||lpad(sequence_no::text,12,'0'))::uuid,compan
  location_type,material_condition,1000.000,'TRIAL-NOS','TRIAL-BIN-'||lpad(sequence_no::text,3,'0'),
  'TRIAL ONLY - development rack/bin','Active','Approved','TRIAL_DATA',now(),true,now(),'TRIAL_DATA',0
 FROM bin_seed;
+
+WITH c(n,cid,org,wid,available_bin) AS (VALUES
+ (1,'70000000-0000-0000-0000-000000000001'::uuid,'SESS_PVT_LTD','71000000-0000-0000-0007-000000000001'::uuid,'71000000-0000-0000-0008-000000000001'::uuid),
+ (2,'70000000-0000-0000-0000-000000000002'::uuid,'SESS_PROPRIETORSHIP','71000000-0000-0000-0007-000000000002'::uuid,'71000000-0000-0000-0008-000000000012'::uuid)), loc AS (
+ SELECT n,cid,org,wid,1 slot,available_bin bid,'AVAILABLE' condition FROM c
+ UNION ALL SELECT c.n,c.cid,c.org,c.wid,2+(k-1)*2,('71000000-0000-0000-0008-'||lpad(((n-1)*11+5+k)::text,12,'0'))::uuid,'QC_HOLD' FROM c CROSS JOIN generate_series(1,6) k
+ UNION ALL SELECT c.n,c.cid,c.org,c.wid,3+(k-1)*2,('71000000-0000-0000-0008-'||lpad(((n-1)*11+5+k)::text,12,'0'))::uuid,'PENDING_RETURNABLE_DC' FROM c CROSS JOIN generate_series(1,6) k)
+INSERT INTO advance.warehouse_condition_locations
+ ("Id","CompanyId","OrganizationId","WarehouseId","RackBinId","ConditionCode","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version")
+SELECT ('71000000-0000-0000-0009-'||lpad(((n-1)*13+slot)::text,12,'0'))::uuid,cid,org,wid,bid,condition,'2026-01-01',true,now(),'TRIAL_DATA',0 FROM loc;
+
+WITH c(n,cid) AS (VALUES (1,'70000000-0000-0000-0000-000000000001'::uuid),(2,'70000000-0000-0000-0000-000000000002'::uuid))
+INSERT INTO advance.store_category_routes
+ ("Id","CompanyId","ItemCategoryId","QcHoldConditionLocationId","PendingReturnConditionLocationId","DefaultAcceptedConditionLocationId","EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version")
+SELECT ('71000000-0000-0000-0010-'||lpad(((n-1)*6+k)::text,12,'0'))::uuid,cid,
+ ('71000000-0000-0000-0001-'||lpad(k::text,12,'0'))::uuid,
+ ('71000000-0000-0000-0009-'||lpad(((n-1)*13+2+(k-1)*2)::text,12,'0'))::uuid,
+ ('71000000-0000-0000-0009-'||lpad(((n-1)*13+3+(k-1)*2)::text,12,'0'))::uuid,
+ ('71000000-0000-0000-0009-'||lpad(((n-1)*13+1)::text,12,'0'))::uuid,
+ '2026-01-01',true,now(),'TRIAL_DATA',0 FROM c CROSS JOIN generate_series(1,6) k;
 
 DO $verify$
 DECLARE actual integer[];
@@ -167,9 +194,12 @@ BEGIN
   (SELECT count(*) FROM advance.vendors WHERE "CreatedBy"='TRIAL_DATA' AND "VendorCode" LIKE 'TRIAL-%'),
   (SELECT count(*) FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemCode" LIKE 'TRIAL-%'),
   (SELECT count(*) FROM advance.warehouses WHERE "CreatedBy"='TRIAL_DATA' AND "WarehouseCode" LIKE 'TRIAL-%'),
-  (SELECT count(*) FROM advance.rack_bins WHERE "CreatedBy"='TRIAL_DATA' AND "BinCode" LIKE 'TRIAL-%')
+  (SELECT count(*) FROM advance.rack_bins WHERE "CreatedBy"='TRIAL_DATA' AND "BinCode" LIKE 'TRIAL-%'),
+  (SELECT count(*) FROM advance.warehouse_condition_locations WHERE "CreatedBy"='TRIAL_DATA'),
+  (SELECT count(*) FROM advance.store_category_routes WHERE "CreatedBy"='TRIAL_DATA'),
+  (SELECT count(*) FROM advance.item_company_inventory_settings WHERE "CreatedBy"='TRIAL_DATA')
  ] INTO actual;
- IF actual<>ARRAY[6,6,4,5,15,20,2,22] THEN RAISE EXCEPTION 'Trial-data count mismatch: %, expected {6,6,4,5,15,20,2,22}.',actual; END IF;
+ IF actual<>ARRAY[6,6,4,5,15,20,2,22,26,12,0] THEN RAISE EXCEPTION 'Trial-data count mismatch: %, expected {6,6,4,5,15,20,2,22,26,12,0}.',actual; END IF;
  IF (SELECT count(*) FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemType"='TOOL' AND "IsReturnable")<>1 THEN RAISE EXCEPTION 'Trial data requires exactly one returnable TOOL.'; END IF;
  IF EXISTS(
    SELECT 1
@@ -183,4 +213,4 @@ BEGIN
  IF EXISTS(SELECT 1 FROM advance.rack_bins rb JOIN advance.warehouses w ON w."Id"=rb."WarehouseId" WHERE rb."CreatedBy"='TRIAL_DATA' AND rb."CompanyId"<>w."CompanyId") THEN RAISE EXCEPTION 'Trial rack-bin company scope mismatch.'; END IF;
 END $verify$;
 COMMIT;
-\echo 'TRIAL_DATA apply complete: 6 UOMs, 6 categories, 4 subcategories, 5 manufacturers, 15 vendors, 20 items, 2 warehouses, 22 rack bins.'
+\echo 'TRIAL_DATA apply complete: base masters plus 26 condition locations, 12 category routes and no unnecessary serial override.'

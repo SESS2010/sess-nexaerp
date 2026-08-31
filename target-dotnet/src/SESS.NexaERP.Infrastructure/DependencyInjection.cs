@@ -7,6 +7,7 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Identity;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Audit;
 using SESS.NexaERP.Infrastructure.Identity;
@@ -14,6 +15,8 @@ using SESS.NexaERP.Infrastructure.Masters;
 using SESS.NexaERP.Infrastructure.MasterData;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Infrastructure.Purchase;
+using SESS.NexaERP.Application.Stores;
+using SESS.NexaERP.Infrastructure.Stores;
 
 namespace SESS.NexaERP.Infrastructure;
 
@@ -39,6 +42,8 @@ public static class DependencyInjection
         services.AddScoped<IUomMasterService, EfUomMasterService>();
         services.AddScoped<ICustomerMasterDataService, EfCustomerMasterDataService>();
         services.AddScoped<IVendorMasterDataService, EfVendorMasterDataService>();
+        services.AddScoped<IWarehouseMasterDataService, EfWarehouseMasterDataService>();
+        services.AddScoped<IRackBinMasterDataService, EfRackBinMasterDataService>();
         services.AddOptions<MasterDataTransferOptions>()
             .Bind(configuration.GetSection(MasterDataTransferOptions.SectionName))
             .Validate(x => x.MaxRows is >= 1 and <= 1000, "MaxRows must be from 1 through 1000.")
@@ -47,13 +52,17 @@ public static class DependencyInjection
         services.AddScoped<IMasterDataAdapter, UomMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, CustomerMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, VendorMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, WarehouseMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, RackBinMasterDataAdapter>();
         services.AddScoped<IMasterDataRegistry, MasterDataRegistry>();
         services.AddScoped<IMasterDataTransferService, EfMasterDataTransferService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
+        services.AddScoped<ITaxGstWorkflowService, EfTaxGstWorkflowService>();
         services.AddScoped<IVendorQualificationService, EfVendorQualificationService>();
         services.AddScoped<IRev869BPurchaseService, EfRev869BPurchaseService>();
         services.AddScoped<IPurchaseApprovalWorkflowService, EfPurchaseApprovalWorkflowService>();
         services.AddScoped<IPurchaseRequisitionWorkflowService, EfPurchaseRequisitionWorkflowService>();
+        services.AddScoped<IGateEntryService, EfGateEntryService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

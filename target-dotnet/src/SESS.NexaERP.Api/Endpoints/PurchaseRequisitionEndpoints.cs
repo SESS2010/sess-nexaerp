@@ -51,7 +51,7 @@ public static partial class PurchaseRequisitionEndpoints
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             var pr = await BuildDraftAsync(request, db, user, ct);
             pr.CreatorEmployeeId = user.EmployeeId ?? throw new UnauthorizedAccessException("Employee identity is required.");
-            pr.PrNumber = await NextPrNumberAsync(db, pr.OrganizationId, pr.RequestDate, user, ct);
+            (pr.PrNumber, pr.PrSequence) = await NextPrNumberAsync(db, pr.CompanyId, pr.OrganizationId, pr.RequestDate, user, ct);
             AddStatus(db, pr, null, PurchaseRequisitionStatuses.Draft, "Draft created", user, Correlation("CREATE"));
             db.PurchaseRequisitions.Add(pr);
             await db.SaveChangesAsync(ct);

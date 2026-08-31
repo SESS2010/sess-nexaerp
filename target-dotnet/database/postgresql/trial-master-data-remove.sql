@@ -25,6 +25,13 @@ SELECT pg_advisory_xact_lock(hashtextextended('SESS.NexaERP.TRIAL_DATA',0));
 
 -- Both markers are required. RESTRICT failures are deliberate: operational
 -- data must be removed first and is never cascaded by this helper.
+DELETE FROM advance.store_category_routes WHERE "CreatedBy"='TRIAL_DATA';
+ALTER TABLE advance.item_company_inventory_settings DISABLE TRIGGER "TR_item_company_inventory_setting_guard";
+ALTER TABLE advance.warehouse_condition_locations DISABLE TRIGGER trg_rev869a_warehouse_condition_version_guard;
+DELETE FROM advance.item_company_inventory_settings WHERE "CreatedBy"='TRIAL_DATA';
+DELETE FROM advance.warehouse_condition_locations WHERE "CreatedBy"='TRIAL_DATA';
+ALTER TABLE advance.item_company_inventory_settings ENABLE TRIGGER "TR_item_company_inventory_setting_guard";
+ALTER TABLE advance.warehouse_condition_locations ENABLE TRIGGER trg_rev869a_warehouse_condition_version_guard;
 DELETE FROM advance.rack_bins WHERE "CreatedBy"='TRIAL_DATA' AND "BinCode" LIKE 'TRIAL-%';
 DELETE FROM advance.warehouses WHERE "CreatedBy"='TRIAL_DATA' AND "WarehouseCode" LIKE 'TRIAL-%';
 DELETE FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemCode" LIKE 'TRIAL-%';
@@ -39,6 +46,9 @@ DECLARE remaining bigint;
 BEGIN
   SELECT sum(n) INTO remaining FROM (
     SELECT count(*) n FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'
+    UNION ALL SELECT count(*) FROM advance.store_category_routes WHERE "CreatedBy"='TRIAL_DATA'
+    UNION ALL SELECT count(*) FROM advance.item_company_inventory_settings WHERE "CreatedBy"='TRIAL_DATA'
+    UNION ALL SELECT count(*) FROM advance.warehouse_condition_locations WHERE "CreatedBy"='TRIAL_DATA'
     UNION ALL SELECT count(*) FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'
     UNION ALL SELECT count(*) FROM advance.item_subcategories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'
     UNION ALL SELECT count(*) FROM advance.manufacturers WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'

@@ -47,6 +47,7 @@ public static class Rev869BCommandContextAuthorizer
             throw new UnauthorizedAccessException("Selected command role is not effective for the current employee.");
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("REV869B command attempts require an active service-owned business transaction.");
+        db.Database.AutoSavepointsEnabled = false;
 
         var slots = await CollectSlotsAsync(db, ct);
         if (slots.Count == 0) return null;
@@ -132,6 +133,7 @@ public static class Rev869BCommandContextAuthorizer
     {
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("A committed receipt must be staged in the exact business transaction.");
+        await db.Database.ExecuteSqlRawAsync("SET CONSTRAINTS ALL IMMEDIATE", ct);
         var response = JsonSerializer.Serialize(new { attempt.CommandId, attempt.AttemptId });
         await db.Database.ExecuteSqlInterpolatedAsync(FormattableStringFactory.Create(
             CommitCommandAttemptSql,
@@ -223,9 +225,23 @@ public static class Rev869BCommandContextAuthorizer
         {
             var qualification = db.ChangeTracker.Entries<VendorQualification>().Single(x => x.Entity.Id == history.EntityId).Entity;
             var version = history.Action == "Create" ? 0L : checked((long)qualification.Version - 1L);
-            var from = history.Action switch { "Approve" or "Reject" => MasterApprovalStatuses.PendingApproval, "RequestCorrection" => MasterApprovalStatuses.Approved, "Normalize" => MasterApprovalStatuses.Draft, _ => null };
+            var from = history.Action switch
+            {
+                "Verify" or "Approve" or "Reject" => MasterApprovalStatuses.PendingApproval,
+                "RequestCorrection" => MasterApprovalStatuses.Approved,
+                "Normalize" => MasterApprovalStatuses.Draft,
+                _ => null
+            };
             var to = history.Action switch { "Verify" => MasterApprovalStatuses.Verified, "Approve" => MasterApprovalStatuses.Approved, "Reject" => MasterApprovalStatuses.Rejected, "RequestCorrection" => MasterApprovalStatuses.RevisionRequested, _ => MasterApprovalStatuses.PendingApproval };
             result.Add(new("qualification_history", history.Id, nameof(VendorQualification), history.EntityId, history.Action, version, from, to, history.CorrelationId, history.Remarks));
+        }
+        foreach (var history in db.ChangeTracker.Entries<ControlledConfigurationHistory>().Where(x => x.State == EntityState.Added && x.Entity.EntityType == nameof(TaxGstSetting)).Select(x => x.Entity))
+        {
+            var rule = db.ChangeTracker.Entries<TaxGstSetting>().Single(x => x.Entity.Id == history.EntityId).Entity;
+            var parentVersion = history.Action == "Create" ? 0L : checked((long)rule.Version - 1L);
+            var from = history.Action == "Create" ? null : MasterApprovalStatuses.PendingApproval;
+            var to = history.Action switch { "Approve" => MasterApprovalStatuses.Approved, "Reject" => MasterApprovalStatuses.Rejected, _ => MasterApprovalStatuses.PendingApproval };
+            result.Add(new("tax_history", history.Id, nameof(TaxGstSetting), history.EntityId, history.Action, parentVersion, from, to, history.CorrelationId, history.Remarks));
         }
         if (result.GroupBy(x => new { x.ClaimKind, x.EntityType, x.EntityId, x.Operation, x.ParentVersion, x.Correlation }).Any(x => x.Count() != 1))
             throw new InvalidOperationException("Duplicate semantic command slots are prohibited before registration.");
@@ -233,7 +249,9 @@ public static class Rev869BCommandContextAuthorizer
     }
 
     private static long? TrackedVersion<T>(NexaErpDbContext db, Guid id) where T : AuditableEntity =>
-        db.ChangeTracker.Entries<T>().Where(x => x.Entity.Id == id).Select(x => (long?)x.Entity.Version).SingleOrDefault();
+        db.ChangeTracker.Entries<T>()
+            .Where(x => x.Entity.Id == id && x.State is EntityState.Added or EntityState.Modified)
+            .Select(x => (long?)x.Entity.Version).SingleOrDefault();
     private static Task<long> NextVersionAsync<T>(IQueryable<T> query, Guid id, CancellationToken ct) where T : AuditableEntity =>
         query.Where(x => x.Id == id).Select(x => checked((long)x.Version + 1L)).SingleAsync(ct);
 

@@ -3,6 +3,27 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 internal static class Rev869BDatabaseSafetySql
 {
     public static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
+    public static string ReconcileInvitationImmutability => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_extended_immutability()")
+            .Replace("ARRAY['Status','Version','UpdatedAt','UpdatedBy']", "ARRAY['Status','Version','TransitionCorrelationId','UpdatedAt','UpdatedBy']", StringComparison.Ordinal));
+    public static string RestoreInvitationImmutability => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_extended_immutability()"));
+    public static string ReconcileAuthoritativeJsonObjectCounts => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_authoritative_transition()")
+            .Replace("jsonb_object_length(pl.\"CommercialSnapshotJson\" - ARRAY['input','result'])=18", "(SELECT count(*) FROM jsonb_object_keys(pl.\"CommercialSnapshotJson\" - ARRAY['input','result']))=18", StringComparison.Ordinal)
+            .Replace("jsonb_object_length(NEW.\"ApprovalPolicySnapshotJson\")<>4", "(SELECT count(*) FROM jsonb_object_keys(NEW.\"ApprovalPolicySnapshotJson\"))<>4", StringComparison.Ordinal));
+    public static string RestoreAuthoritativeTransition => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_authoritative_transition()"));
+
+    private static string ExtractFunction(string template, string marker)
+    {
+        var start = template.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException($"SQL function marker was not found: {marker}");
+        const string terminator = "END $rev869b$;";
+        var end = template.IndexOf(terminator, start, StringComparison.Ordinal);
+        if (end < 0) throw new InvalidOperationException($"SQL function terminator was not found after: {marker}");
+        return template.Substring(start, end + terminator.Length - start);
+    }
     private const string InstallTemplate = """
         CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_commercial_snapshot_reconciles(
             p_quotation_line_id uuid, p_commercial jsonb, p_tax jsonb)

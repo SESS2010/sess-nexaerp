@@ -29,11 +29,13 @@ public sealed partial class EfRev869BPurchaseService
         if (quotes.Count == 0) throw new Rev869BConflictException("No current technically compliant quotation is available.");
         if (quotes.Any(x => x.CurrencyCode != rfq.CurrencyCode)) throw new Rev869BConflictException("Currency conversion unavailable; quotations must match RFQ currency.");
         var next = await NextNumberAsync(organization, "CMP", DateOnly.FromDateTime(DateTime.UtcNow), ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CreatorEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, TransitionCorrelationId = comparisonFingerprint, CreatedBy = user.LoginId };
+        comparison.CompanyId = rfq.CompanyId;
         foreach (var quote in quotes) foreach (var line in quote.Lines)
         {
             var recalculated = Recalculate(line, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
             comparison.Lines.Add(new CommercialComparisonLine { VendorQuotationLineId = line.Id, VendorId = quote.VendorId, TechnicalComplianceSnapshot = Rev869BStatuses.TechnicallyCompliant, CommercialSnapshotJson = ComparisonSnapshotJson(comparison, quote, line, recalculated), DeliverySnapshot = line.PromisedDeliveryDate.ToString("yyyy-MM-dd"), WarrantySnapshot = quote.WarrantyTermsSnapshot, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, TotalPayableValue = recalculated.Breakdown.TotalPayableValue, CreatedBy = user.LoginId });
         }
+        foreach (var comparisonLine in comparison.Lines) comparisonLine.CompanyId = comparison.CompanyId;
         db.CommercialComparisons.Add(comparison);
         AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, null, comparison.Status, "Create", "Created from technically compliant quotations", comparisonFingerprint);
         await SaveAuthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "CreateComparison", nameof(CommercialComparison), comparison.Id.ToString(), null, new { comparison.ComparisonNumber, lineCount = comparison.Lines.Count }, ct); await tx.CommitAsync(ct); return Result(comparison.Id, comparison.ComparisonNumber, comparison.Status, comparison.Version);
@@ -157,6 +159,7 @@ public sealed partial class EfRev869BPurchaseService
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         foreach (var category in quote.Lines.Select(x => x.RequestForQuotationLine!.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(quote.VendorId, c.OrganizationId, category, today, ct)) throw new Rev869BConflictException("Selected vendor category qualification is no longer effective.");
         var next = await NextNumberAsync(c.OrganizationId, "PO", today, ct); var po = new PurchaseOrder { OrganizationId = c.OrganizationId, PoNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RootPurchaseOrderId = Guid.NewGuid(), RevisionNumber = 1, CommercialComparisonId = c.Id, VendorId = quote.VendorId, RequestingDepartmentId = rfq.RequestingDepartmentId, DeliveryWarehouseId = rfq.DeliveryWarehouseId, OwnerEmployeeId = actor, CreatorEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = quote.CurrencyCode, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, DeliveryTermsSnapshot = quote.DeliveryTermsSnapshot, WarrantyTermsSnapshot = quote.WarrantyTermsSnapshot, IdempotencyKey = poFingerprint, TransitionCorrelationId = poFingerprint, CreatedBy = user.LoginId };
+        po.CompanyId = c.CompanyId;
         var lineNo = 0; var reconciledLines = new List<Rev869BCommercialBreakdown>();
         foreach (var ql in quote.Lines)
         {
@@ -175,6 +178,7 @@ public sealed partial class EfRev869BPurchaseService
         po.TaxableValue = aggregate.TaxableValue; po.DiscountValue = aggregate.DiscountValue; po.HeaderDiscountValue = aggregate.HeaderDiscountValue; po.TaxValue = aggregate.TaxValue;
         po.PackingForwarding = aggregate.PackingForwarding; po.Freight = aggregate.Freight; po.Insurance = aggregate.Insurance;
         po.OtherCharges = aggregate.OtherCharges; po.RoundOff = aggregate.RoundOff; po.TotalPayableValue = aggregate.TotalPayableValue;
+        foreach (var poLine in po.Lines) poLine.CompanyId = po.CompanyId;
         po.ApprovalRoute = c.ApprovalRoute;
         po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = DateOnly.FromDateTime(DateTime.UtcNow) }, JsonOptions);
         db.PurchaseOrders.Add(po);
@@ -231,6 +235,7 @@ public sealed partial class EfRev869BPurchaseService
         foreach (var line in po.Lines)
         {
             var handoff = new MaterialFollowUpHandoff { PurchaseOrderId = po.Id, PurchaseOrderLineId = line.Id, HandoffNumber = $"MFU-{po.Id:N}-{line.LineNumber:000}", OrderedQuantitySnapshot = line.OrderedQuantity, HandoffAt = issuedAt, CorrelationId = commandFingerprint, CreatedBy = user.LoginId };
+            handoff.CompanyId = po.CompanyId;
             db.MaterialFollowUpHandoffs.Add(handoff);
             AddStatus("MaterialFollowUp", handoff.Id, handoff.HandoffNumber, null, handoff.Status, "Handoff", remarks, commandFingerprint);
         }
@@ -260,6 +265,8 @@ public sealed partial class EfRev869BPurchaseService
         await ReservePoAsync(prior, request.Version, RequiredRemarks(request.AmendmentReason), commandFingerprint + ":prior", ct);
         var next = new PurchaseOrder { OrganizationId = prior.OrganizationId, PoNumber = prior.PoNumber, FinancialYear = prior.FinancialYear, SequenceNumber = prior.SequenceNumber, RootPurchaseOrderId = prior.RootPurchaseOrderId, PreviousVersionId = prior.Id, RevisionNumber = prior.RevisionNumber + 1, IsCurrentVersion = false, CommercialComparisonId = prior.CommercialComparisonId, VendorId = prior.VendorId, RequestingDepartmentId = prior.RequestingDepartmentId, DeliveryWarehouseId = prior.DeliveryWarehouseId, OwnerEmployeeId = actor, CreatorEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = prior.CurrencyCode, ApprovalRoute = prior.ApprovalRoute, TaxableValue = prior.TaxableValue, DiscountValue = prior.DiscountValue, HeaderDiscountValue = prior.HeaderDiscountValue, TaxValue = prior.TaxValue, PackingForwarding = prior.PackingForwarding, Freight = prior.Freight, Insurance = prior.Insurance, OtherCharges = prior.OtherCharges, RoundOff = prior.RoundOff, TotalPayableValue = prior.TotalPayableValue, ApprovalPolicySnapshotJson = prior.ApprovalPolicySnapshotJson, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"), DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"), AmendmentReason = RequiredRemarks(request.AmendmentReason), IdempotencyKey = commandFingerprint, TransitionCorrelationId = commandFingerprint, CreatedBy = user.LoginId };
         foreach (var l in prior.Lines) next.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = l.CommercialComparisonLineId, PurchaseRequisitionLineId = l.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = l.PurchaseRequirementHandoffId, ItemId = l.ItemId, LineNumber = l.LineNumber, ItemCodeSnapshot = l.ItemCodeSnapshot, ItemNameSnapshot = l.ItemNameSnapshot, UomSnapshot = l.UomSnapshot, OrderedQuantity = l.OrderedQuantity, ApprovedOutstandingQuantitySnapshot = l.ApprovedOutstandingQuantitySnapshot, UnitRate = l.UnitRate, CommercialSnapshotJson = l.CommercialSnapshotJson, TaxRuleSnapshotJson = l.TaxRuleSnapshotJson, TotalPayableValue = l.TotalPayableValue, CreatedBy = user.LoginId });
+        next.CompanyId = prior.CompanyId;
+        foreach (var line in next.Lines) line.CompanyId = next.CompanyId;
         db.PurchaseOrders.Add(next);
         AddPoHistory(next, "Amend", prior.Status, next.Status, request.AmendmentReason, commandFingerprint); AddStatus("PurchaseOrder", next.Id, next.PoNumber, prior.Status, next.Status, "Amend", request.AmendmentReason, commandFingerprint); await SaveAuthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "AmendPO", nameof(PurchaseOrder), next.Id.ToString(), new { prior.Id, prior.RevisionNumber, prior.Status }, new { next.RevisionNumber, next.Status, next.IsCurrentVersion }, ct); await tx.CommitAsync(ct); return Result(next.Id, next.PoNumber, next.Status, next.Version);
     }
@@ -302,6 +309,8 @@ public sealed partial class EfRev869BPurchaseService
         };
         foreach (var line in rejected.Lines)
             revision.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = line.CommercialComparisonLineId, PurchaseRequisitionLineId = line.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = line.PurchaseRequirementHandoffId, ItemId = line.ItemId, LineNumber = line.LineNumber, ItemCodeSnapshot = line.ItemCodeSnapshot, ItemNameSnapshot = line.ItemNameSnapshot, UomSnapshot = line.UomSnapshot, OrderedQuantity = line.OrderedQuantity, ApprovedOutstandingQuantitySnapshot = line.ApprovedOutstandingQuantitySnapshot, UnitRate = line.UnitRate, CommercialSnapshotJson = line.CommercialSnapshotJson, TaxRuleSnapshotJson = line.TaxRuleSnapshotJson, TotalPayableValue = line.TotalPayableValue, CreatedBy = user.LoginId });
+        revision.CompanyId = rejected.CompanyId;
+        foreach (var line in revision.Lines) line.CompanyId = revision.CompanyId;
         db.PurchaseOrders.Add(revision);
         AddPoHistory(revision, "ReviseRejected", rejected.Status, revision.Status, request.RevisionReason, commandFingerprint);
         AddStatus("PurchaseOrder", revision.Id, revision.PoNumber, rejected.Status, revision.Status, "ReviseRejected", request.RevisionReason, commandFingerprint);
@@ -350,7 +359,7 @@ public sealed partial class EfRev869BPurchaseService
             else if (prior.Status != Rev869BStatuses.Rejected || prior.IsCurrentVersion)
                 throw new Rev869BConflictException("Rejected-version recovery predecessor is invalid.");
         }
-        var nextIsCurrent = approve && decision.CompletesDocument;
+        var nextIsCurrent = approve && decision.CompletesDocument ? true : po.IsCurrentVersion;
         AddPoHistory(po, action, po.Status, next, remarks, commandFingerprint, decision); AddStatus("PurchaseOrder", po.Id, po.PoNumber, po.Status, next, action, remarks, commandFingerprint);
         await OpenPendingAuthorizationAsync(ct);
         if (prior is not null && priorExpectedVersion.HasValue)

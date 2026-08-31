@@ -27,6 +27,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private readonly List<Rev869BCommandContextAuthorizer.CommandAttemptHandle> pendingCommandAttempts = [];
     private Rev869BCommandContextAuthorizer.CommandEnvelope? currentCommandEnvelope;
     private string? currentActorRoleCode;
+    private Guid currentCompanyId;
 
     public EfRev869BPurchaseService(NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IVendorQualificationService vendors, ITaxGstResolver taxes, IAuditWriter audit)
         : this(db, user, scopes, vendors, taxes, audit, new EfPurchaseApprovalWorkflowService(db), new PurchaseOperationalRoleResolver()) { }
@@ -47,7 +48,10 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             RequireOrganization(), operation, idempotencyKey, request);
         currentActorRoleCode = IsApprovalOperation(operation) ? null : operationalRoles.Resolve(operation, user.RoleCodes);
         var scope = new Rev869BTransactionScope(this,
-            await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct));
+            await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct));
+        currentCompanyId = await db.Companies.AsNoTracking()
+            .Where(x => x.Code == RequireOrganization() && x.IsActive)
+            .Select(x => x.Id).SingleAsync(ct);
         _ = RequireActor();
         _ = RequireOrganization();
         return scope;
@@ -67,6 +71,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             service.pendingCommandAttempts.Clear();
             service.currentCommandEnvelope = null;
             service.currentActorRoleCode = null;
+            service.currentCompanyId = Guid.Empty;
             finalized = true;
         }
 
@@ -76,6 +81,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
             service.currentCommandEnvelope = null;
             service.currentActorRoleCode = null;
+            service.currentCompanyId = Guid.Empty;
             finalized = true;
         }
 
@@ -87,6 +93,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
                 finally { await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None); }
                 service.currentCommandEnvelope = null;
                 service.currentActorRoleCode = null;
+                service.currentCompanyId = Guid.Empty;
                 finalized = true;
             }
             await owned.DisposeAsync();
@@ -96,7 +103,18 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task<int> SaveAuthorizedChangesAsync(CancellationToken ct)
     {
         await OpenPendingAuthorizationAsync(ct);
-        return await db.SaveChangesAsync(ct);
+        var histories = db.ChangeTracker.Entries()
+            .Where(x => x.State == EntityState.Added &&
+                (x.Entity is PurchaseTransactionStatusHistory ||
+                 x.Entity is PurchaseTransactionApprovalHistory ||
+                 x.Entity is PurchaseOrderHistory))
+            .Select(x => x.Entity).ToArray();
+        if (histories.Length == 0) return await db.SaveChangesAsync(ct);
+
+        foreach (var history in histories) db.Entry(history).State = EntityState.Detached;
+        var affected = await db.SaveChangesAsync(ct);
+        db.AddRange(histories);
+        return affected + await db.SaveChangesAsync(ct);
     }
 
     private async Task OpenPendingAuthorizationAsync(CancellationToken ct)
@@ -326,23 +344,26 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     {
         var year = date.Month >= 4 ? $"{date.Year % 100:00}-{(date.Year + 1) % 100:00}" : $"{(date.Year - 1) % 100:00}-{date.Year % 100:00}";
         var sequence = await db.PurchaseNumberSequences.SingleOrDefaultAsync(x => x.OrganizationId == organization && x.FinancialYear == year && x.Prefix == prefix && x.IsActive, ct);
-        if (sequence is null) { sequence = new PurchaseNumberSequence { OrganizationId = organization, FinancialYear = year, Prefix = prefix, CreatedBy = user.LoginId }; db.PurchaseNumberSequences.Add(sequence); }
+        if (sequence is null) { sequence = new PurchaseNumberSequence { CompanyId = CurrentCompanyId(), OrganizationId = organization, FinancialYear = year, Prefix = prefix, CreatedBy = user.LoginId }; db.PurchaseNumberSequences.Add(sequence); }
         sequence.LastNumber++; sequence.UpdatedAt = DateTimeOffset.UtcNow; sequence.UpdatedBy = user.LoginId;
         return ($"{prefix}-{year}-{sequence.LastNumber:000001}", year, sequence.LastNumber);
     }
     private void Transition(CommercialComparison comparison, string next, string action, string remarks, string correlation) { var from = comparison.Status; comparison.Status = next; comparison.TransitionCorrelationId = correlation; comparison.UpdatedAt = DateTimeOffset.UtcNow; comparison.UpdatedBy = user.LoginId; AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, from, next, action, remarks, correlation); }
     private void AddApproval(CommercialComparison comparison, string action, string from, string to, string remarks, string correlation, PurchaseApprovalDecision? decision = null)
     {
-        db.PurchaseTransactionApprovalHistories.Add(new PurchaseTransactionApprovalHistory { CommercialComparisonId = comparison.Id, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = comparison.ApprovalRoute, ApprovalCycle = decision?.ApprovalCycle ?? comparison.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? comparison.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId ?? Guid.Empty, ResolvedRoleCode = decision?.ResolvedRoleCode ?? CurrentActorRole(), SnapshotIdentity = decision?.SnapshotIdentity ?? string.Empty, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseTransactionApprovalHistories.Add(new PurchaseTransactionApprovalHistory { CompanyId = comparison.CompanyId, CommercialComparisonId = comparison.Id, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = comparison.ApprovalRoute, ApprovalCycle = decision?.ApprovalCycle ?? comparison.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? comparison.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId ?? Guid.Empty, ResolvedRoleCode = decision?.ResolvedRoleCode ?? CurrentActorRole(), SnapshotIdentity = decision?.SnapshotIdentity ?? string.Empty, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
     private void AddPoHistory(PurchaseOrder po, string action, string from, string to, string reason, string correlation, PurchaseApprovalDecision? decision = null)
     {
-        db.PurchaseOrderHistories.Add(new PurchaseOrderHistory { PurchaseOrderId = po.Id, Action = action, FromStatus = from, ToStatus = to, RevisionNumber = po.RevisionNumber, ApprovalCycle = decision?.ApprovalCycle ?? po.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? po.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId, ResolvedRoleCode = decision?.ResolvedRoleCode, ApprovalRoute = po.ApprovalRoute, SnapshotIdentity = decision?.SnapshotIdentity, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Reason = RequiredRemarks(reason), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseOrderHistories.Add(new PurchaseOrderHistory { CompanyId = po.CompanyId, PurchaseOrderId = po.Id, Action = action, FromStatus = from, ToStatus = to, RevisionNumber = po.RevisionNumber, ApprovalCycle = decision?.ApprovalCycle ?? po.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? po.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId, ResolvedRoleCode = decision?.ResolvedRoleCode, ApprovalRoute = po.ApprovalRoute, SnapshotIdentity = decision?.SnapshotIdentity, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Reason = RequiredRemarks(reason), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
     private void AddStatus(string type, Guid id, string number, string? from, string to, string action, string remarks, string correlation)
     {
-        db.PurchaseTransactionStatusHistories.Add(new PurchaseTransactionStatusHistory { OrganizationId = RequireOrganization(), EntityType = type, EntityId = id, DocumentNumber = number, Action = action, FromStatus = from, ToStatus = to, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
+        db.PurchaseTransactionStatusHistories.Add(new PurchaseTransactionStatusHistory { CompanyId = CurrentCompanyId(), OrganizationId = RequireOrganization(), EntityType = type, EntityId = id, DocumentNumber = number, Action = action, FromStatus = from, ToStatus = to, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });
     }
+    private Guid CurrentCompanyId() => currentCompanyId == Guid.Empty
+        ? throw new InvalidOperationException("A resolved company is required inside the Purchase command transaction.")
+        : currentCompanyId;
     private Guid RequireActor() => user.IsAuthenticated && user.EmployeeId.HasValue ? user.EmployeeId.Value : throw new UnauthorizedAccessException("A unique active employee identity mapping is required.");
     private string RequireOrganization() => !string.IsNullOrWhiteSpace(user.OrganizationId) ? user.OrganizationId.Trim() : throw new UnauthorizedAccessException("Organization scope is required.");
     private bool IsRole(string code) => user.RoleCodes.Any(x => Rev869ARoleCodes.Normalize(x) == Rev869ARoleCodes.Normalize(code));

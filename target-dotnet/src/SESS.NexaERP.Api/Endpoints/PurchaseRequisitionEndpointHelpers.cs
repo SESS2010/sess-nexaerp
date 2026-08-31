@@ -46,7 +46,8 @@ public static partial class PurchaseRequisitionEndpoints
     private static async Task<PurchaseRequisition> BuildDraftAsync(CreatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
         var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
-        var pr = new PurchaseRequisition { OrganizationId = organization, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
+        var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => x.Id).SingleAsync(ct);
+        var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
         pr.RequestingDepartmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode)).Select(x => x.Id).SingleAsync(ct);
         pr.RequesterEmployeeId = await db.Employees.Where(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode)).Select(x => x.Id).SingleAsync(ct);
         pr.DeliveryWarehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive).Select(x => x.Id).SingleAsync(ct);
@@ -84,24 +85,24 @@ public static partial class PurchaseRequisitionEndpoints
             if (!string.IsNullOrWhiteSpace(request.PreferredWarehouseCode)) warehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.PreferredWarehouseCode) && x.IsActive).Select(x => x.Id).SingleAsync(ct);
             var total = decimal.Round(request.RequestedQuantity * request.EstimatedUnitPrice, 2);
             pr.EstimatedTotal += total;
-            pr.Lines.Add(new PurchaseRequisitionLine { LineNumber = lineNo, ItemId = item.Id, ItemCodeSnapshot = item.ItemCode, ItemNameSnapshot = item.Name, UomSnapshot = item.Uom, SpecificationSnapshot = item.TechnicalSpecification, RequestedQuantity = request.RequestedQuantity, EstimatedUnitPriceSnapshot = request.EstimatedUnitPrice, EstimatedLineTotal = total, RequiredDate = request.RequiredDate, PreferredWarehouseId = warehouseId, ProjectReference = Norm(request.ProjectReference), MachineReference = Norm(request.MachineReference), ServiceReference = Norm(request.ServiceReference), CreatedBy = pr.CreatedBy });
+            pr.Lines.Add(new PurchaseRequisitionLine { CompanyId = pr.CompanyId, LineNumber = lineNo, ItemId = item.Id, ItemCodeSnapshot = item.ItemCode, ItemNameSnapshot = item.Name, UomSnapshot = item.Uom, SpecificationSnapshot = item.TechnicalSpecification, RequestedQuantity = request.RequestedQuantity, EstimatedUnitPriceSnapshot = request.EstimatedUnitPrice, EstimatedLineTotal = total, RequiredDate = request.RequiredDate, PreferredWarehouseId = warehouseId, ProjectReference = Norm(request.ProjectReference), MachineReference = Norm(request.MachineReference), ServiceReference = Norm(request.ServiceReference), ReservedQuantity = 0, ShortageQuantity = request.RequestedQuantity, ProcurementHandoffQuantity = request.RequestedQuantity, CreatedBy = pr.CreatedBy });
         }
-        pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.EstimatedTotal, ct);
+        pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.CompanyId, pr.EstimatedTotal, ct);
     }
 
-    private static async Task<string> NextPrNumberAsync(NexaErpDbContext db, string organizationId, DateOnly requestDate, ICurrentUser user, CancellationToken ct)
+    private static async Task<(string Number, long Sequence)> NextPrNumberAsync(NexaErpDbContext db, Guid companyId, string organizationId, DateOnly requestDate, ICurrentUser user, CancellationToken ct)
     {
         var financialYear = FinancialYear(requestDate);
-        var sequence = await db.PurchaseNumberSequences.SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.FinancialYear == financialYear && x.Prefix == "PR" && x.IsActive, ct);
+        var sequence = await db.PurchaseNumberSequences.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.OrganizationId == organizationId && x.FinancialYear == financialYear && x.Prefix == "PR" && x.IsActive, ct);
         if (sequence is null)
         {
-            sequence = new PurchaseNumberSequence { OrganizationId = organizationId, FinancialYear = financialYear, Prefix = "PR", LastNumber = 0, CreatedBy = user.LoginId };
+            sequence = new PurchaseNumberSequence { CompanyId = companyId, OrganizationId = organizationId, FinancialYear = financialYear, Prefix = "PR", LastNumber = 0, CreatedBy = user.LoginId };
             db.PurchaseNumberSequences.Add(sequence);
         }
         sequence.LastNumber++;
         sequence.UpdatedBy = user.LoginId;
         sequence.UpdatedAt = DateTimeOffset.UtcNow;
-        return $"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000001}";
+        return ($"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000001}", sequence.LastNumber);
     }
 
     public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string? ApproverRoleCode, string ApproverResolutionType, bool IsActive = true);
@@ -147,10 +148,10 @@ public static partial class PurchaseRequisitionEndpoints
             .ToList();
         return matches.Count == 1 ? matches[0] : throw new InvalidOperationException($"No single active PR approval route is configured for amount {total}.");
     }
-    private static async Task<string> RouteForConfiguredAsync(NexaErpDbContext db, decimal total, CancellationToken ct)
+    private static async Task<string> RouteForConfiguredAsync(NexaErpDbContext db, Guid companyId, decimal total, CancellationToken ct)
     {
         var routes = await db.PurchaseApprovalRouteSettings.AsNoTracking()
-            .Where(x => x.IsActive)
+            .Where(x => x.CompanyId == companyId && x.IsActive)
             .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.ApproverResolutionType, x.IsActive))
             .ToListAsync(ct);
         return RouteFor(total, routes.Count == 0 ? DefaultApprovalRoutes : routes);
@@ -231,8 +232,8 @@ public static partial class PurchaseRequisitionEndpoints
     private static async Task<decimal> ActiveReserved(NexaErpDbContext db, Guid itemId, Guid warehouseId, Guid? rackBinId, CancellationToken ct) => await db.StockReservations.Where(x => x.ItemId == itemId && x.WarehouseId == warehouseId && x.RackBinId == rackBinId && x.Status == "Active").SumAsync(x => x.ReservedQuantity, ct);
     private static async Task<decimal> ActiveReservedForLine(NexaErpDbContext db, Guid lineId, CancellationToken ct) => await db.StockReservations.Where(x => x.PurchaseRequisitionLineId == lineId && x.Status == "Active").SumAsync(x => x.ReservedQuantity, ct);
     private static void SetStatus(NexaErpDbContext db, PurchaseRequisition pr, string next, string reason, ICurrentUser user, string correlation, string? roleCode = null) { var previous = pr.Status; pr.Status = next; pr.UpdatedBy = user.LoginId; pr.UpdatedAt = DateTimeOffset.UtcNow; AddStatus(db, pr, previous, next, reason, user, correlation, roleCode); }
-    private static void AddStatus(NexaErpDbContext db, PurchaseRequisition pr, string? previous, string next, string reason, ICurrentUser user, string correlation, string? roleCode = null) => db.PurchaseRequisitionStatusHistories.Add(new PurchaseRequisitionStatusHistory { PurchaseRequisitionId = pr.Id, PrNumber = pr.PrNumber, PreviousStatus = previous, NewStatus = next, Reason = reason.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = roleCode ?? user.RoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
-    private static void AddApproval(NexaErpDbContext db, PurchaseRequisition pr, string action, string from, string to, string remarks, ICurrentUser user, string correlation, PurchaseApprovalDecision decision) => db.PurchaseRequisitionApprovalHistories.Add(new PurchaseRequisitionApprovalHistory { PurchaseRequisitionId = pr.Id, PrNumber = pr.PrNumber, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = decision.RouteCode, ApprovalCycle = decision.ApprovalCycle, StepNumber = decision.StepNumber, RequiredApprovalStepCount = decision.RequiredStepCount, ResolvedEmployeeId = decision.ResolvedEmployeeId, ResolvedRoleCode = decision.ResolvedRoleCode, SnapshotIdentity = decision.SnapshotIdentity, Remarks = remarks.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = decision.ResolvedRoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
+    private static void AddStatus(NexaErpDbContext db, PurchaseRequisition pr, string? previous, string next, string reason, ICurrentUser user, string correlation, string? roleCode = null) => db.PurchaseRequisitionStatusHistories.Add(new PurchaseRequisitionStatusHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, PreviousStatus = previous, NewStatus = next, Reason = reason.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = roleCode ?? user.RoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
+    private static void AddApproval(NexaErpDbContext db, PurchaseRequisition pr, string action, string from, string to, string remarks, ICurrentUser user, string correlation, PurchaseApprovalDecision decision) => db.PurchaseRequisitionApprovalHistories.Add(new PurchaseRequisitionApprovalHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = decision.RouteCode, ApprovalCycle = decision.ApprovalCycle, StepNumber = decision.StepNumber, RequiredApprovalStepCount = decision.RequiredStepCount, ResolvedEmployeeId = decision.ResolvedEmployeeId, ResolvedRoleCode = decision.ResolvedRoleCode, SnapshotIdentity = decision.SnapshotIdentity, Remarks = remarks.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = decision.ResolvedRoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
     private static async Task<IResult> History(NexaErpDbContext db, string prNumber, ICurrentUser user, CancellationToken ct) { var allowed = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Where(x => x.PrNumber == NormalizePr(prNumber)).Select(x => x.Id); return Results.Ok(await db.PurchaseRequisitionStatusHistories.AsNoTracking().Where(x => allowed.Contains(x.PurchaseRequisitionId)).OrderByDescending(x => x.CreatedAt).Select(x => new PurchaseRequisitionHistorySummary(x.Id, "Status", x.PreviousStatus, x.NewStatus, x.Reason, x.ActorLoginId, x.ActorRoleCode, x.CreatedAt, x.CorrelationId)).ToListAsync(ct)); }
     private static async Task<IResult> ApprovalHistory(NexaErpDbContext db, string prNumber, ICurrentUser user, CancellationToken ct) { var allowed = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Where(x => x.PrNumber == NormalizePr(prNumber)).Select(x => x.Id); return Results.Ok(await db.PurchaseRequisitionApprovalHistories.AsNoTracking().Where(x => allowed.Contains(x.PurchaseRequisitionId)).OrderByDescending(x => x.CreatedAt).Select(x => new PurchaseRequisitionHistorySummary(x.Id, x.Action, x.FromStatus, x.ToStatus, x.Remarks, x.ActorLoginId, x.ActorRoleCode, x.CreatedAt, x.CorrelationId)).ToListAsync(ct)); }
     private static PurchaseRequisitionSummary ToSummary(PurchaseRequisition x) => new(x.Id, x.PrNumber, x.OrganizationId, x.RequestingDepartment?.Name ?? string.Empty, x.RequesterEmployee?.EmployeeCode ?? string.Empty, x.RequestDate, x.RequiredByDate, x.Priority, x.Status, x.ApprovalRoute, x.EstimatedTotal, x.Version);

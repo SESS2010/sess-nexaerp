@@ -52,14 +52,14 @@ public static class Rev869BStatusContracts
         (Rev869BStatuses.TechnicallyRejected, [Rev869BStatuses.Superseded, Rev869BStatuses.Withdrawn, Rev869BStatuses.Rejected]));
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> ComparisonTransitions = Transitions(
         (Rev869BStatuses.Draft, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]),
-        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested]),
+        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.RevisionRequested]),
         (Rev869BStatuses.RevisionRequested, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]));
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> PurchaseOrderTransitions = Transitions(
         (Rev869BStatuses.Draft, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Cancelled]),
-        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.PendingApproval, [Rev869BStatuses.PendingApproval, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Rejected, [Rev869BStatuses.RevisionDraft]),
         (Rev869BStatuses.RevisionDraft, [Rev869BStatuses.Resubmitted, Rev869BStatuses.Cancelled]),
-        (Rev869BStatuses.Resubmitted, [Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
+        (Rev869BStatuses.Resubmitted, [Rev869BStatuses.Resubmitted, Rev869BStatuses.Approved, Rev869BStatuses.Rejected, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Approved, [Rev869BStatuses.Issued, Rev869BStatuses.Cancelled]),
         (Rev869BStatuses.Issued, [Rev869BStatuses.Superseded, Rev869BStatuses.Cancelled]));
     private static readonly IReadOnlyDictionary<string, IReadOnlySet<string>> MaterialFollowUpTransitions = Transitions(

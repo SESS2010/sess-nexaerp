@@ -25,6 +25,8 @@ public static class Rev869AConfigurationEndpoints
         group.MapPost("/uoms", CreateUom).RequirePagePermission("masters.uoms", PagePermissionActions.Create);
         group.MapPost("/uom-conversions", CreateConversion).RequirePagePermission("masters.uom-conversions", PagePermissionActions.Create);
         group.MapPost("/tax-gst", CreateTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Create);
+        group.MapPost("/tax-gst/{taxRuleId:guid}/approve", ApproveTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Approve);
+        group.MapPost("/tax-gst/{taxRuleId:guid}/reject", RejectTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Reject);
         group.MapPost("/commercial-values/preview", (ResolveCommercialValueRequest request) => Results.Ok(CommercialValueSnapshot.Calculate(request.CurrencyCode, request.TaxableValue, request.TaxValue, request.FreightAndOtherCharges, request.DiscountValue, request.RoundingScale)))
             .RequirePagePermission("settings.tax-gst", PagePermissionActions.ViewCommercialValues);
         group.MapPost("/vendor-qualifications", CreateVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Create);
@@ -34,6 +36,8 @@ public static class Rev869AConfigurationEndpoints
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/reject", RejectVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/request-correction", RequestVendorQualificationCorrection).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
+        group.MapGet("/warehouse-condition-locations", ListWarehouseConditionLocations).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.View);
+        group.MapPost("/warehouse-condition-locations/{locationId:guid}/close", CloseWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Deactivate);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         return endpoints;
     }
@@ -46,7 +50,7 @@ public static class Rev869AConfigurationEndpoints
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase)) return Results.Conflict(new { message = "Identity must map to one active login-enabled employee." });
         var organization = request.OrganizationId.Trim().ToUpperInvariant();
-        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
+        if (!StringComparer.Ordinal.Equals(organization, user.OrganizationId)) return Results.Forbid();
         var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
         if (company is null) return Results.Conflict(new { message = "Identity organization must identify one active company." });
         var hasCompanyAssignment = await db.EmployeeCompanyAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
@@ -130,32 +134,30 @@ public static class Rev869AConfigurationEndpoints
         return Results.Created($"/api/v1/rev869a/configuration/uom-conversions/{entity.Id}", new { entity.Id });
     }
 
-    private static async Task<IResult> CreateTax(CreateTaxGstSettingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> CreateTax(CreateTaxGstSettingRequest request, HttpContext http, ITaxGstWorkflowService service, CancellationToken ct)
     {
-        var rates = new[] { request.GstRate, request.CgstRate, request.SgstRate, request.IgstRate, request.CessRate };
-        var organization = request.OrganizationId.Trim();
-        var jurisdiction = MasterEndpointHelpers.NormalizeCode(request.JurisdictionCode);
-        var hsn = MasterEndpointHelpers.NormalizeCode(request.HsnSacCode);
-        var supplierState = MasterEndpointHelpers.NormalizeCode(request.SupplierStateCode);
-        var placeOfSupplyState = MasterEndpointHelpers.NormalizeCode(request.PlaceOfSupplyStateCode);
-        if (!VendorRegistrationTypes.TryParseCanonical(request.VendorRegistrationType, out var registrationType))
-            return Results.BadRequest(new { message = "Vendor registration type must be one of the exact supported values." });
-        var registration = registrationType.ToCanonicalValue();
-        var supply = TaxGstSetting.ResolveSupplyType(supplierState, placeOfSupplyState);
-        var candidate = new TaxGstSetting { OrganizationId = organization, JurisdictionCode = jurisdiction, HsnSacCode = hsn, SupplierStateCode = supplierState, PlaceOfSupplyStateCode = placeOfSupplyState, SupplyType = supply, VendorRegistrationType = registration, GstRate = request.GstRate, CgstRate = request.CgstRate, SgstRate = request.SgstRate, IgstRate = request.IgstRate, CessRate = request.CessRate, IsExempt = request.IsExempt, IsReverseCharge = request.IsReverseCharge, CurrencyCode = request.CurrencyCode.Trim().ToUpperInvariant(), RoundingScale = request.RoundingScale, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
-        if (!rates.All(TaxGstSetting.IsValidRate) || !TaxGstSetting.IsValidRange(request.EffectiveFrom, request.EffectiveTo) || request.RoundingScale is < 0 or > 6 || candidate.CurrencyCode.Length != 3 || string.IsNullOrWhiteSpace(supplierState) || string.IsNullOrWhiteSpace(placeOfSupplyState) || !candidate.HasValidIndiaComponentSplit()) return Results.BadRequest(new { message = "Invalid tax rate, state-based GST component split, effective range, ISO currency code or rounding scale." });
-        var overlap = await db.TaxGstSettings.AnyAsync(x => x.OrganizationId == organization && x.JurisdictionCode == jurisdiction && x.HsnSacCode == hsn && x.SupplierStateCode == supplierState && x.PlaceOfSupplyStateCode == placeOfSupplyState && x.VendorRegistrationType == registration && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
-        if (overlap) return Results.Conflict(new { message = "An overlapping effective tax rule exists." });
-        db.TaxGstSettings.Add(candidate); AddHistory(db, candidate.OrganizationId, nameof(TaxGstSetting), candidate.Id, "CreateVersion", null, candidate, request.Remarks, user);
-        await db.SaveChangesAsync(ct); await audit.WriteAsync("Settings", "CreateTaxGstSetting", nameof(TaxGstSetting), candidate.Id.ToString(), null, candidate, ct);
-        return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{candidate.Id}", new { candidate.Id });
+        if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
+        try { var result = await service.CreateAsync(request, idempotencyKey, ct); return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{result.Id}", result); }
+        catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
+    }
+
+    private static Task<IResult> ApproveTax(Guid taxRuleId, DecideTaxGstSettingRequest request, ITaxGstWorkflowService service, CancellationToken ct) => DecideTax(() => service.ApproveAsync(taxRuleId, request, ct));
+    private static Task<IResult> RejectTax(Guid taxRuleId, DecideTaxGstSettingRequest request, ITaxGstWorkflowService service, CancellationToken ct) => DecideTax(() => service.RejectAsync(taxRuleId, request, ct));
+    private static async Task<IResult> DecideTax(Func<Task<TaxGstWorkflowResult>> action)
+    {
+        try { return Results.Ok(await action()); }
+        catch (KeyNotFoundException) { return Results.NotFound(); }
+        catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        catch (DbUpdateConcurrencyException ex) { return Results.Conflict(new { message = ex.Message }); }
+        catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
     }
 
     private static async Task<IResult> CreateVendorQualification(CreateVendorQualificationRequest request, HttpContext http, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return Results.Unauthorized();
-        var organization = request.OrganizationId.Trim();
+        var organization = request.OrganizationId.Trim().ToUpperInvariant();
         if (!string.Equals(user.OrganizationId, organization, StringComparison.Ordinal))
             return Results.NotFound();
         if (string.IsNullOrWhiteSpace(request.Remarks))
@@ -179,10 +181,13 @@ public static class Rev869AConfigurationEndpoints
         // effective range is blocked. Only a non-overlapping controlled replacement is allowed.
         var overlap = await db.VendorQualifications.AnyAsync(x => x.OrganizationId == organization && x.VendorId == vendor.Id && x.ItemCategoryId == categoryId && x.QualificationCode == qualificationCode && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping vendor qualification exists." });
-        var entity = new VendorQualification { OrganizationId = organization, VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = qualificationCode, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
+        var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive)
+            .Select(x => x.Id).SingleAsync(ct);
+        var entity = new VendorQualification { CompanyId = companyId, OrganizationId = organization, VendorId = vendor.Id, ItemCategoryId = categoryId, QualificationCode = qualificationCode, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, VerificationStatus = MasterApprovalStatuses.PendingApproval, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         db.VendorQualifications.Add(entity);
         db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
         {
+            CompanyId = companyId,
             OrganizationId = entity.OrganizationId,
             EntityType = nameof(VendorQualification),
             EntityId = entity.Id,
@@ -265,6 +270,7 @@ public static class Rev869AConfigurationEndpoints
         var correlation = $"REV869B|QUALIFICATION|{qualification.Id:N}|{qualification.Version}|NORMALIZE";
         db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
         {
+            CompanyId = qualification.CompanyId,
             OrganizationId = qualification.OrganizationId,
             EntityType = nameof(VendorQualification),
             EntityId = qualification.Id,
@@ -406,6 +412,7 @@ public static class Rev869AConfigurationEndpoints
         var correlation = $"REV869B|QUALIFICATION|{qualification.Id:N}|{qualification.Version}|{action.ToUpperInvariant()}";
         db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
         {
+            CompanyId = qualification.CompanyId,
             OrganizationId = qualification.OrganizationId,
             EntityType = nameof(VendorQualification),
             EntityId = qualification.Id,
@@ -452,18 +459,42 @@ public static class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> CreateWarehouseConditionLocation(CreateWarehouseConditionLocationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var warehouse = await db.Warehouses.SingleOrDefaultAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive, ct);
-        var rack = await db.RackBins.SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);
+        var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
+        var companyId=await db.Companies.Where(x=>x.Code==organization&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if(!companyId.HasValue)return Results.Forbid();
+        var warehouse = await db.Warehouses.SingleOrDefaultAsync(x => x.CompanyId==companyId.Value&&x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive, ct);
+        var rack = await db.RackBins.SingleOrDefaultAsync(x => x.CompanyId==companyId.Value&&x.Id == request.RackBinId && x.IsActive, ct);
         var condition = MasterEndpointHelpers.NormalizeCode(request.ConditionCode);
         if (warehouse is null || rack is null || rack.WarehouseId != warehouse.Id || !InventoryConditionCodes.All.Contains(condition, StringComparer.OrdinalIgnoreCase) || !string.Equals(MasterEndpointHelpers.NormalizeCode(rack.MaterialCondition), condition, StringComparison.Ordinal)) return Results.Conflict(new { message = "Warehouse/RackBin/condition mapping is invalid." });
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid warehouse-condition effective range." });
-        var organization = request.OrganizationId.Trim();
+        if (warehouse.CompanyId != rack.CompanyId)
+            return Results.Forbid();
         var overlap = await db.WarehouseConditionLocations.AnyAsync(x => x.OrganizationId == organization && x.WarehouseId == warehouse.Id && x.RackBinId == rack.Id && x.ConditionCode == condition && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping warehouse/RackBin condition mapping exists." });
-        var entity = new WarehouseConditionLocation { OrganizationId = organization, WarehouseId = warehouse.Id, RackBinId = rack.Id, ConditionCode = condition, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
-        db.WarehouseConditionLocations.Add(entity); AddHistory(db, entity.OrganizationId, nameof(WarehouseConditionLocation), entity.Id, "Create", null, entity, request.Remarks, user);
+        var entity = new WarehouseConditionLocation { CompanyId = warehouse.CompanyId, OrganizationId = organization, WarehouseId = warehouse.Id, RackBinId = rack.Id, ConditionCode = condition, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
+        db.WarehouseConditionLocations.Add(entity); AddHistory(db, entity.OrganizationId, nameof(WarehouseConditionLocation), entity.Id, "Create", null, entity, request.Remarks, user, warehouse.CompanyId);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Stores", "CreateWarehouseConditionLocation", nameof(WarehouseConditionLocation), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/warehouse-condition-locations/{entity.Id}", new { entity.Id, locationKey = StoreLocationKey.Derive(warehouse.Id, rack.Id) });
+    }
+
+    private static async Task<IResult> ListWarehouseConditionLocations(string? warehouseCode,string? conditionCode,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
+    {
+        var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
+        if(!string.IsNullOrWhiteSpace(warehouseCode)){var code=MasterEndpointHelpers.NormalizeCode(warehouseCode);query=query.Where(x=>x.Warehouse!.WarehouseCode==code);}
+        if(!string.IsNullOrWhiteSpace(conditionCode)){var condition=MasterEndpointHelpers.NormalizeCode(conditionCode);query=query.Where(x=>x.ConditionCode==condition);}
+        if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
+        var rows=await query.OrderBy(x=>x.Warehouse!.WarehouseCode).ThenBy(x=>x.ConditionCode).ThenBy(x=>x.RackBin!.BinCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.WarehouseId,warehouseCode=x.Warehouse!.WarehouseCode,x.RackBinId,binCode=x.RackBin!.BinCode,x.ConditionCode,x.EffectiveFrom,x.EffectiveTo,x.IsActive,x.Version}).ToListAsync(ct);return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> CloseWarehouseConditionLocation(Guid locationId,CloseWarehouseConditionLocationRequest request,NexaErpDbContext db,ICurrentUser user,IAuditWriter audit,CancellationToken ct)
+    {
+        var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
+        var row=await db.WarehouseConditionLocations.Include(x=>x.Warehouse).Include(x=>x.RackBin).SingleOrDefaultAsync(x=>x.Id==locationId&&x.CompanyId==companyId.Value,ct);if(row is null)return Results.NotFound(new{message="Warehouse condition location not found."});
+        if(row.Version!=request.Version)return Results.Conflict(new{message="Stale record version. Refresh and retry."});if(row.EffectiveTo.HasValue)return Results.Conflict(new{message="This condition-location version is already closed. Create a new version instead."});if(request.EffectiveTo<row.EffectiveFrom)return Results.BadRequest(new{message="Effective To must be on or after Effective From."});
+        var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId.Value&&x.WarehouseConditionLocationId==row.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Condition location cannot be closed while its current stock balance is {balance}. Transfer or issue the stock first."});
+        var before=new{row.EffectiveTo,row.IsActive,row.Version};row.EffectiveTo=request.EffectiveTo;row.Version=checked(row.Version+1);row.UpdatedAt=DateTimeOffset.UtcNow;row.UpdatedBy=user.LoginId;AddHistory(db,row.OrganizationId,nameof(WarehouseConditionLocation),row.Id,"CloseVersion",before,new{row.EffectiveTo,row.IsActive,row.Version},request.Remarks,user,row.CompanyId);await db.SaveChangesAsync(ct);await audit.WriteAsync("Stores","CloseWarehouseConditionLocation",nameof(WarehouseConditionLocation),row.Id.ToString(),before,row,ct);return Results.Ok(new{row.Id,row.EffectiveTo,row.Version});
     }
 
     private static async Task<IResult> CreateQcPolicy(CreateQcInspectionPolicyRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)

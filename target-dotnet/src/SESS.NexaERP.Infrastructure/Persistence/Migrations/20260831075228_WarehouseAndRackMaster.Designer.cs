@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260831075228_WarehouseAndRackMaster")]
+    partial class WarehouseAndRackMaster
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -541,18 +544,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         },
                         new
                         {
-                            Id = new Guid("44000000-0000-0000-0000-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Module = "Sales",
-                            PageKey = "sales.customer-po",
-                            Route = "/sales/customer-po",
-                            Title = "Customer PO",
-                            Version = 0L
-                        },
-                        new
-                        {
                             Id = new Guid("20000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -969,276 +960,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("role_page_permissions", "advance");
 
                     b.HasData(
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000001"),
-                            CanApprove = true,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = true,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = true,
-                            CanReplaceAttachment = true,
-                            CanRequestClarification = true,
-                            CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = true,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = true,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000001"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000002"),
-                            CanApprove = true,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = true,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = true,
-                            CanReplaceAttachment = true,
-                            CanRequestClarification = true,
-                            CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = true,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = true,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000003"),
-                            CanApprove = true,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = true,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = true,
-                            CanReplaceAttachment = true,
-                            CanRequestClarification = true,
-                            CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = true,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = true,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000002"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000004"),
-                            CanApprove = true,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = true,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = true,
-                            CanReplaceAttachment = true,
-                            CanRequestClarification = true,
-                            CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = true,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = true,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("45eb9032-3689-8526-caee-41db0e7e2644"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000005"),
-                            CanApprove = false,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = false,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = false,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000010"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000006"),
-                            CanApprove = false,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = false,
-                            CanDownload = true,
-                            CanExport = false,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = false,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000013"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000007"),
-                            CanApprove = false,
-                            CanCancel = true,
-                            CanCreate = true,
-                            CanDeactivate = false,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
-                            CanVerify = false,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000014"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000008"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = true,
-                            CanExport = true,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = true,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000003"),
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0001-000000000009"),
-                            CanApprove = false,
-                            CanCancel = false,
-                            CanCreate = false,
-                            CanDeactivate = false,
-                            CanDownload = true,
-                            CanExport = false,
-                            CanIssue = false,
-                            CanPrint = true,
-                            CanReject = false,
-                            CanReplaceAttachment = false,
-                            CanRequestClarification = false,
-                            CanRequestRevision = false,
-                            CanResubmit = false,
-                            CanSubmit = false,
-                            CanUpdate = false,
-                            CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = true,
-                            CanViewAuditHistory = true,
-                            CanViewCommercialValues = false,
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            HasFullControl = false,
-                            PageDefinitionId = new Guid("44000000-0000-0000-0000-000000000001"),
-                            RoleId = new Guid("10000000-0000-0000-0000-000000000019"),
-                            Version = 0L
-                        },
                         new
                         {
                             Id = new Guid("99916786-6eca-5a2b-15f2-2d99abdc60db"),
@@ -46986,44 +46707,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Identity.DevelopmentLoginPassword", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("EmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EmployeeId")
-                        .IsUnique();
-
-                    b.ToTable("development_login_passwords", "advance");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Identity.EmployeeIdentityMapping", b =>
                 {
                     b.Property<Guid>("Id")
@@ -47954,88 +47637,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.ItemImage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("item_images", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.ItemVendor", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("VendorId")
-                        .HasColumnType("uuid");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("VendorId");
-
-                    b.HasIndex("ItemId", "VendorId")
-                        .IsUnique();
-
-                    b.ToTable("item_vendors", "advance");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.QcInspectionPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -48717,12 +48318,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
-                    b.Property<string>("AttachmentMetadataJson")
-                        .HasColumnType("text");
-
-                    b.Property<string>("BankMetadataJson")
-                        .HasColumnType("text");
-
                     b.Property<string>("BillingAddress")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -48851,6 +48446,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("Status");
 
+                    b.HasIndex("PanNumber", "LegalCustomerName")
+                        .IsUnique()
+                        .HasFilter("\"PanNumber\" IS NOT NULL");
+
                     b.ToTable("customers", "advance");
                 });
 
@@ -48915,57 +48514,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CustomerId", "AddressType", "SiteName");
 
                     b.ToTable("customer_addresses", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Masters.CustomerAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind");
-
-                    b.ToTable("customer_attachments", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Masters.CustomerContact", b =>
@@ -50192,6 +49740,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("VendorStatus");
 
+                    b.HasIndex("PanNumber", "LegalVendorName")
+                        .IsUnique()
+                        .HasFilter("\"PanNumber\" IS NOT NULL");
+
                     b.ToTable("vendors", "advance");
                 });
 
@@ -50252,57 +49804,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("VendorId", "AddressType");
 
                     b.ToTable("vendor_addresses", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Masters.VendorAttachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind");
-
-                    b.ToTable("vendor_attachments", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Masters.VendorCategory", b =>
@@ -53649,433 +53150,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPoFile", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<byte[]>("Content")
-                        .IsRequired()
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("customer_po_files", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPoOption", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Value")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Kind", "Value")
-                        .IsUnique();
-
-                    b.ToTable("customer_po_options", "advance");
-
-                    b.HasData(
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000001"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "NON AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000002"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Under AMC",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000003"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SERVICE_MODE",
-                            Value = "Dispatch Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000004"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000005"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Service Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000006"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Machine",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000007"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "AMC Charges",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000008"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Spares & Service",
-                            Version = 0L
-                        },
-                        new
-                        {
-                            Id = new Guid("44000000-0000-0000-0002-000000000009"),
-                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
-                            CreatedBy = "migration-sales-customer-po",
-                            IsActive = true,
-                            Kind = "SALES_TYPE",
-                            Value = "Calibration Charges",
-                            Version = 0L
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AmountInWords")
-                        .HasMaxLength(400)
-                        .HasColumnType("character varying(400)");
-
-                    b.Property<decimal?>("CgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("CgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<Guid?>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("CustomerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CustomerName")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<DateOnly?>("CustomerPoDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("CustomerPoNumber")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("DeliveryTerms")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Destination")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateOnly?>("FinalInvoiceDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("FiscalYear")
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<decimal?>("IgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("IgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<DateOnly?>("InvoiceDate")
-                        .HasColumnType("date");
-
-                    b.Property<Guid?>("InvoiceFileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InvoiceFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<string>("InvoiceNumber")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ModeOfDelivery")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("OtherReferences")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("PaymentStatus")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<string>("PaymentTerms")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<Guid?>("PoFileId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PoFileName")
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<string>("PoRecordNumber")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<DateOnly?>("QuoteDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("QuoteNumber")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<string>("ReferenceNumber")
-                        .HasMaxLength(160)
-                        .HasColumnType("character varying(160)");
-
-                    b.Property<string>("Remarks")
-                        .HasColumnType("text");
-
-                    b.Property<decimal?>("RoundOff")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<string>("SalesType")
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<string>("ServiceMode")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<decimal?>("SgstAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("SgstPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<decimal?>("TaxableValue")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<decimal?>("TotalAmountWithGst")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("WorkStatus")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CustomerId");
-
-                    b.HasIndex("CustomerPoNumber");
-
-                    b.HasIndex("FiscalYear");
-
-                    b.HasIndex("PoRecordNumber")
-                        .IsUnique();
-
-                    b.HasIndex("WorkStatus");
-
-                    b.ToTable("customer_purchase_orders", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal?>("Amount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("CustomerPurchaseOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal?>("DiscountPercent")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)");
-
-                    b.Property<DateOnly?>("DueDate")
-                        .HasColumnType("date");
-
-                    b.Property<decimal?>("Quantity")
-                        .HasPrecision(18, 3)
-                        .HasColumnType("numeric(18,3)");
-
-                    b.Property<decimal?>("Rate")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
-                    b.Property<int>("SlNo")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Uom")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CustomerPurchaseOrderId", "SlNo");
-
-                    b.ToTable("customer_purchase_order_lines", "advance");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -57302,17 +56376,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Identity.DevelopmentLoginPassword", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "Employee")
-                        .WithMany()
-                        .HasForeignKey("EmployeeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Employee");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Identity.EmployeeIdentityMapping", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "Employee")
@@ -57386,25 +56449,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Subcategory");
 
                     b.Navigation("UomMaster");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.ItemVendor", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Masters.Vendor", "Vendor")
-                        .WithMany()
-                        .HasForeignKey("VendorId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Item");
-
-                    b.Navigation("Vendor");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.QcInspectionPolicy", b =>
@@ -58616,34 +57660,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("VendorQuotation");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", "Company")
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Masters.Customer", "Customer")
-                        .WithMany()
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Company");
-
-                    b.Navigation("Customer");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", "CustomerPurchaseOrder")
-                        .WithMany("Lines")
-                        .HasForeignKey("CustomerPurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CustomerPurchaseOrder");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ChangedByEmployee")
@@ -59626,11 +58642,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Purchase.VendorQuotation", b =>
-                {
-                    b.Navigation("Lines");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", b =>
                 {
                     b.Navigation("Lines");
                 });
