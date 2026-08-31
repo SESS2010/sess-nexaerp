@@ -110,6 +110,11 @@ public static partial class MasterEndpointHelpers
         return Results.Ok(rows);
     }
 
+    public static async Task<IResult> GetStatusHistoryByIdAsync(NexaErpDbContext db,string masterType,Guid id,CancellationToken cancellationToken)
+    {
+        var rows=await db.MasterStatusHistories.AsNoTracking().Where(x=>x.MasterType==masterType&&x.MasterId==id).OrderByDescending(x=>x.CreatedAt).Select(x=>new MasterStatusHistorySummary(x.Id,x.PreviousStatus,x.NewStatus,x.Reason,x.CreatedAt,x.CorrelationId)).ToListAsync(cancellationToken);return Results.Ok(rows);
+    }
+
     public static async Task<IResult> GetApprovalHistoryAsync(NexaErpDbContext db, string masterType, string code, CancellationToken cancellationToken)
     {
         var rows = await db.MasterApprovalHistories.AsNoTracking()
@@ -118,6 +123,11 @@ public static partial class MasterEndpointHelpers
             .Select(row => new MasterHistorySummary(row.Id, row.Action, row.FromStatus, row.ToStatus, row.Remarks, row.ActorLoginId, row.ActorRoleCode, row.CreatedAt, row.CorrelationId))
             .ToListAsync(cancellationToken);
         return Results.Ok(rows);
+    }
+
+    public static async Task<IResult> GetApprovalHistoryByIdAsync(NexaErpDbContext db,string masterType,Guid id,CancellationToken cancellationToken)
+    {
+        var rows=await db.MasterApprovalHistories.AsNoTracking().Where(x=>x.MasterType==masterType&&x.MasterId==id).OrderByDescending(x=>x.CreatedAt).Select(x=>new MasterHistorySummary(x.Id,x.Action,x.FromStatus,x.ToStatus,x.Remarks,x.ActorLoginId,x.ActorRoleCode,x.CreatedAt,x.CorrelationId)).ToListAsync(cancellationToken);return Results.Ok(rows);
     }
 
     public static async Task<IResult> GetAuditHistoryAsync(NexaErpDbContext db, string entityName, string entityId, CancellationToken cancellationToken, bool redactVendorBankMetadata = false)

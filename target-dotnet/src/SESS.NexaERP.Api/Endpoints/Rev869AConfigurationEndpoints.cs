@@ -36,6 +36,8 @@ public static class Rev869AConfigurationEndpoints
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/reject", RejectVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/request-correction", RequestVendorQualificationCorrection).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
+        group.MapGet("/warehouse-condition-locations", ListWarehouseConditionLocations).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.View);
+        group.MapPost("/warehouse-condition-locations/{locationId:guid}/close", CloseWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Deactivate);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         return endpoints;
     }
@@ -48,7 +50,7 @@ public static class Rev869AConfigurationEndpoints
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase)) return Results.Conflict(new { message = "Identity must map to one active login-enabled employee." });
         var organization = request.OrganizationId.Trim().ToUpperInvariant();
-        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
+        if (!StringComparer.Ordinal.Equals(organization, user.OrganizationId)) return Results.Forbid();
         var company = await db.Companies.SingleOrDefaultAsync(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE", ct);
         if (company is null) return Results.Conflict(new { message = "Identity organization must identify one active company." });
         var hasCompanyAssignment = await db.EmployeeCompanyAssignments.AnyAsync(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE"
@@ -457,14 +459,16 @@ public static class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> CreateWarehouseConditionLocation(CreateWarehouseConditionLocationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var warehouse = await db.Warehouses.SingleOrDefaultAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive, ct);
-        var rack = await db.RackBins.SingleOrDefaultAsync(x => x.Id == request.RackBinId && x.IsActive, ct);
+        var organization = request.OrganizationId.Trim().ToUpperInvariant();
+        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal)) return Results.Forbid();
+        var companyId=await db.Companies.Where(x=>x.Code==organization&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if(!companyId.HasValue)return Results.Forbid();
+        var warehouse = await db.Warehouses.SingleOrDefaultAsync(x => x.CompanyId==companyId.Value&&x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.WarehouseCode) && x.IsActive, ct);
+        var rack = await db.RackBins.SingleOrDefaultAsync(x => x.CompanyId==companyId.Value&&x.Id == request.RackBinId && x.IsActive, ct);
         var condition = MasterEndpointHelpers.NormalizeCode(request.ConditionCode);
         if (warehouse is null || rack is null || rack.WarehouseId != warehouse.Id || !InventoryConditionCodes.All.Contains(condition, StringComparer.OrdinalIgnoreCase) || !string.Equals(MasterEndpointHelpers.NormalizeCode(rack.MaterialCondition), condition, StringComparison.Ordinal)) return Results.Conflict(new { message = "Warehouse/RackBin/condition mapping is invalid." });
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid warehouse-condition effective range." });
-        var organization = request.OrganizationId.Trim().ToUpperInvariant();
-        if (!string.Equals(organization, user.OrganizationId, StringComparison.Ordinal) ||
-            warehouse.CompanyId != rack.CompanyId)
+        if (warehouse.CompanyId != rack.CompanyId)
             return Results.Forbid();
         var overlap = await db.WarehouseConditionLocations.AnyAsync(x => x.OrganizationId == organization && x.WarehouseId == warehouse.Id && x.RackBinId == rack.Id && x.ConditionCode == condition && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping warehouse/RackBin condition mapping exists." });
@@ -472,6 +476,25 @@ public static class Rev869AConfigurationEndpoints
         db.WarehouseConditionLocations.Add(entity); AddHistory(db, entity.OrganizationId, nameof(WarehouseConditionLocation), entity.Id, "Create", null, entity, request.Remarks, user, warehouse.CompanyId);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("Stores", "CreateWarehouseConditionLocation", nameof(WarehouseConditionLocation), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/warehouse-condition-locations/{entity.Id}", new { entity.Id, locationKey = StoreLocationKey.Derive(warehouse.Id, rack.Id) });
+    }
+
+    private static async Task<IResult> ListWarehouseConditionLocations(string? warehouseCode,string? conditionCode,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
+    {
+        var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
+        if(!string.IsNullOrWhiteSpace(warehouseCode)){var code=MasterEndpointHelpers.NormalizeCode(warehouseCode);query=query.Where(x=>x.Warehouse!.WarehouseCode==code);}
+        if(!string.IsNullOrWhiteSpace(conditionCode)){var condition=MasterEndpointHelpers.NormalizeCode(conditionCode);query=query.Where(x=>x.ConditionCode==condition);}
+        if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
+        var rows=await query.OrderBy(x=>x.Warehouse!.WarehouseCode).ThenBy(x=>x.ConditionCode).ThenBy(x=>x.RackBin!.BinCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.WarehouseId,warehouseCode=x.Warehouse!.WarehouseCode,x.RackBinId,binCode=x.RackBin!.BinCode,x.ConditionCode,x.EffectiveFrom,x.EffectiveTo,x.IsActive,x.Version}).ToListAsync(ct);return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> CloseWarehouseConditionLocation(Guid locationId,CloseWarehouseConditionLocationRequest request,NexaErpDbContext db,ICurrentUser user,IAuditWriter audit,CancellationToken ct)
+    {
+        var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
+        var row=await db.WarehouseConditionLocations.Include(x=>x.Warehouse).Include(x=>x.RackBin).SingleOrDefaultAsync(x=>x.Id==locationId&&x.CompanyId==companyId.Value,ct);if(row is null)return Results.NotFound(new{message="Warehouse condition location not found."});
+        if(row.Version!=request.Version)return Results.Conflict(new{message="Stale record version. Refresh and retry."});if(row.EffectiveTo.HasValue)return Results.Conflict(new{message="This condition-location version is already closed. Create a new version instead."});if(request.EffectiveTo<row.EffectiveFrom)return Results.BadRequest(new{message="Effective To must be on or after Effective From."});
+        var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId.Value&&x.WarehouseConditionLocationId==row.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Condition location cannot be closed while its current stock balance is {balance}. Transfer or issue the stock first."});
+        var before=new{row.EffectiveTo,row.IsActive,row.Version};row.EffectiveTo=request.EffectiveTo;row.Version=checked(row.Version+1);row.UpdatedAt=DateTimeOffset.UtcNow;row.UpdatedBy=user.LoginId;AddHistory(db,row.OrganizationId,nameof(WarehouseConditionLocation),row.Id,"CloseVersion",before,new{row.EffectiveTo,row.IsActive,row.Version},request.Remarks,user,row.CompanyId);await db.SaveChangesAsync(ct);await audit.WriteAsync("Stores","CloseWarehouseConditionLocation",nameof(WarehouseConditionLocation),row.Id.ToString(),before,row,ct);return Results.Ok(new{row.Id,row.EffectiveTo,row.Version});
     }
 
     private static async Task<IResult> CreateQcPolicy(CreateQcInspectionPolicyRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)

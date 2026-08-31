@@ -4,6 +4,7 @@ using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Inventory;
+using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -72,9 +73,9 @@ public static class InventoryEndpoints
 
     private static void MapWarehouseEndpoints(RouteGroupBuilder group)
     {
-        group.MapGet("/warehouses", async (NexaErpDbContext db, int? page, int? pageSize, string? search, string? status, string? type, string? sortBy, string? sortDirection, CancellationToken ct) =>
+        group.MapGet("/warehouses", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? status, string? type, string? sortBy, string? sortDirection, CancellationToken ct) =>
         {
-            var p = MasterEndpointHelpers.NormalizePaging(page, pageSize); var q = db.Warehouses.AsNoTracking().AsQueryable();
+            var companyId=await SelectedCompanyId(db,user,ct);var p = MasterEndpointHelpers.NormalizePaging(page, pageSize); var q = db.Warehouses.AsNoTracking().Where(x=>x.CompanyId==companyId);
             if (!string.IsNullOrWhiteSpace(search)) { var s = search.Trim().ToUpperInvariant(); q = q.Where(x => x.WarehouseCode.ToUpper().Contains(s) || x.Name.ToUpper().Contains(s)); }
             if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim()); if (!string.IsNullOrWhiteSpace(type)) q = q.Where(x => x.WarehouseType == type.Trim());
             var total = await q.CountAsync(ct); q = Sort(q, sortBy, sortDirection, x => x.WarehouseCode, x => x.Name, x => x.Status);
@@ -82,26 +83,20 @@ public static class InventoryEndpoints
             return Results.Ok(new PagedResponse<WarehouseSummary>(total, p.PageNumber, p.PageSize, rows));
         }).RequirePagePermission("masters.warehouses", PagePermissionActions.View);
 
-        group.MapGet("/warehouses/{code}", async (string code, NexaErpDbContext db, CancellationToken ct) =>
+        group.MapGet("/warehouses/{code}", async (string code, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
-            var w = await db.Warehouses.AsNoTracking().Include(x => x.ResponsibleEmployee).Include(x => x.Department).SingleOrDefaultAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct);
+            var companyId=await SelectedCompanyId(db,user,ct);var w = await db.Warehouses.AsNoTracking().Include(x => x.ResponsibleEmployee).Include(x => x.Department).SingleOrDefaultAsync(x => x.CompanyId==companyId&&x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct);
             return w is null ? Results.NotFound(new { message = "Warehouse not found." }) : Results.Ok(ToDetail(w));
         }).RequirePagePermission("masters.warehouses", PagePermissionActions.View);
 
-        group.MapPost("/warehouses", async (UpsertWarehouseRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/warehouses", async (UpsertWarehouseRequest r, IWarehouseMasterDataService service, CancellationToken ct) =>
         {
-            var validation = await ValidateWarehouse(r, db, null, ct); if (validation is not null) return validation;
-            var w = new Warehouse(); await Apply(w, r, db, user.LoginId, true, ct); db.Warehouses.Add(w); AddInitialStatus(db, nameof(Warehouse), w.Id, w.WarehouseCode, w.Status, user.LoginId);
-            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateDraft", nameof(Warehouse), w.Id.ToString(), null, w, ct); return Results.Created($"/api/v1/inventory/warehouses/{w.WarehouseCode}", ToDetail(w));
+            try{var result=await service.CreateAsync(r,ct);return Results.Created($"/api/v1/inventory/warehouses/{MasterEndpointHelpers.NormalizeCode(r.WarehouseCode)}",result);}catch(Exception ex){return MasterDataFailure(ex);}
         }).RequirePagePermission("masters.warehouses", PagePermissionActions.Create);
 
-        group.MapPut("/warehouses/{code}", async (string code, UpsertWarehouseRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPut("/warehouses/{code}", async (string code, UpsertWarehouseRequest r, NexaErpDbContext db, ICurrentUser user, IWarehouseMasterDataService service, CancellationToken ct) =>
         {
-            var w = await db.Warehouses.SingleOrDefaultAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (w is null) return Results.NotFound(new { message = "Warehouse not found." });
-            if (w.IsWarehouseCodeLocked && MasterEndpointHelpers.NormalizeCode(r.WarehouseCode) != w.WarehouseCode) return Results.BadRequest(new { message = "Warehouse code is immutable." });
-            if (r.Version is null || r.Version.Value != w.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-            var validation = await ValidateWarehouse(r, db, w.Id, ct); if (validation is not null) return validation; var before = ToDetail(w); await Apply(w, r, db, user.LoginId, false, ct);
-            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "UpdateDraft", nameof(Warehouse), w.Id.ToString(), before, w, ct); return Results.Ok(ToDetail(w));
+            var companyId=await SelectedCompanyId(db,user,ct);var normalized=MasterEndpointHelpers.NormalizeCode(code);var w=await db.Warehouses.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.WarehouseCode==normalized,ct);if(w is null)return Results.NotFound(new{message="Warehouse not found."});if(normalized!=MasterEndpointHelpers.NormalizeCode(r.WarehouseCode))return Results.BadRequest(new{message="Warehouse Code is immutable through this endpoint."});try{var result=await service.UpdateAsync(new MasterDataExistingRecord(w.Id,w.WarehouseCode,w.WarehouseCode,w.Version,new Dictionary<string,string?>()),r,ct);return Results.Ok(result);}catch(Exception ex){return MasterDataFailure(ex);}
         }).RequirePagePermission("masters.warehouses", PagePermissionActions.Update);
 
         MapWarehouseAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
@@ -110,16 +105,16 @@ public static class InventoryEndpoints
         MapWarehouseAction(group, "hold", "Hold", MasterStatuses.OnHold, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
         MapWarehouseAction(group, "reactivate", "Reactivate", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Update);
         MapWarehouseAction(group, "deactivate", "Deactivate", MasterStatuses.Inactive, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
-        group.MapGet("/warehouses/{code}/status-history", (string code, NexaErpDbContext db, CancellationToken ct) => MasterEndpointHelpers.GetStatusHistoryAsync(db, nameof(Warehouse), MasterEndpointHelpers.NormalizeCode(code), ct)).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/warehouses/{code}/approval-history", (string code, NexaErpDbContext db, CancellationToken ct) => MasterEndpointHelpers.GetApprovalHistoryAsync(db, nameof(Warehouse), MasterEndpointHelpers.NormalizeCode(code), ct)).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/warehouses/{code}/audit-history", async (string code, NexaErpDbContext db, CancellationToken ct) => { var id = await db.Warehouses.AsNoTracking().Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code)).Select(x => x.Id.ToString()).SingleOrDefaultAsync(ct); return id is null ? Results.NotFound(new { message = "Warehouse not found." }) : await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(Warehouse), id, ct); }).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/warehouses/{code}/status-history", async(string code,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)=>{var id=await WarehouseId(db,user,code,ct);return id is null?Results.NotFound(new{message="Warehouse not found."}):await MasterEndpointHelpers.GetStatusHistoryByIdAsync(db,nameof(Warehouse),id.Value,ct);}).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/warehouses/{code}/approval-history", async(string code,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)=>{var id=await WarehouseId(db,user,code,ct);return id is null?Results.NotFound(new{message="Warehouse not found."}):await MasterEndpointHelpers.GetApprovalHistoryByIdAsync(db,nameof(Warehouse),id.Value,ct);}).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/warehouses/{code}/audit-history", async (string code, NexaErpDbContext db,ICurrentUser user, CancellationToken ct) => { var id=await WarehouseId(db,user,code,ct); return id is null ? Results.NotFound(new { message = "Warehouse not found." }) : await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(Warehouse), id.Value.ToString(), ct); }).RequirePagePermission("masters.warehouses", PagePermissionActions.ViewAuditHistory);
     }
 
     private static void MapRackBinEndpoints(RouteGroupBuilder group)
     {
-        group.MapGet("/rack-bins", async (NexaErpDbContext db, int? page, int? pageSize, string? search, string? status, string? type, string? warehouseCode, string? sortBy, string? sortDirection, CancellationToken ct) =>
+        group.MapGet("/rack-bins", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? status, string? type, string? warehouseCode, string? sortBy, string? sortDirection, CancellationToken ct) =>
         {
-            var p = MasterEndpointHelpers.NormalizePaging(page, pageSize); var q = db.RackBins.AsNoTracking().Include(x => x.Warehouse).Where(x => x.Warehouse != null).AsQueryable();
+            var companyId=await SelectedCompanyId(db,user,ct);var p = MasterEndpointHelpers.NormalizePaging(page, pageSize); var q = db.RackBins.AsNoTracking().Include(x => x.Warehouse).Where(x => x.CompanyId==companyId&&x.Warehouse != null).AsQueryable();
             if (!string.IsNullOrWhiteSpace(search)) { var s = search.Trim().ToUpperInvariant(); q = q.Where(x => x.BinCode.ToUpper().Contains(s) || x.RackName.ToUpper().Contains(s)); }
             if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim()); if (!string.IsNullOrWhiteSpace(type)) q = q.Where(x => x.LocationType == type.Trim()); if (!string.IsNullOrWhiteSpace(warehouseCode)) { var wh = MasterEndpointHelpers.NormalizeCode(warehouseCode); q = q.Where(x => x.Warehouse!.WarehouseCode == wh); }
             var total = await q.CountAsync(ct); q = Sort(q, sortBy, sortDirection, x => x.BinCode, x => x.RackName, x => x.Status);
@@ -127,28 +122,20 @@ public static class InventoryEndpoints
             return Results.Ok(new PagedResponse<RackBinSummary>(total, p.PageNumber, p.PageSize, rows));
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.View);
 
-        group.MapPost("/rack-bins", async (UpsertRackBinRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPost("/rack-bins", async (UpsertRackBinRequest r, IRackBinMasterDataService service, CancellationToken ct) =>
         {
-            var validation = await ValidateRackBin(r, db, null, ct); if (validation is not null) return validation;
-            var wh = await db.Warehouses.SingleAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(r.WarehouseCode), ct); var b = new RackBin { WarehouseId = wh.Id }; Apply(b, r, user.LoginId, true); db.RackBins.Add(b); AddInitialStatus(db, nameof(RackBin), b.Id, b.BinCode, b.Status, user.LoginId);
-            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "CreateDraft", nameof(RackBin), b.Id.ToString(), null, b, ct); return Results.Created($"/api/v1/inventory/rack-bins/{b.Id}", new { b.Id, b.BinCode, b.Version });
+            try{var result=await service.CreateAsync(r,ct);return Results.Created($"/api/v1/inventory/rack-bins/{result.RecordId}",result);}catch(Exception ex){return MasterDataFailure(ex);}
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.Create);
 
-        group.MapGet("/rack-bins/{id:guid}", async (Guid id, NexaErpDbContext db, CancellationToken ct) =>
+        group.MapGet("/rack-bins/{id:guid}", async (Guid id, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
-            var b = await db.RackBins.AsNoTracking().Include(x => x.Warehouse).SingleOrDefaultAsync(x => x.Id == id, ct);
+            var companyId=await SelectedCompanyId(db,user,ct);var b = await db.RackBins.AsNoTracking().Include(x => x.Warehouse).SingleOrDefaultAsync(x => x.CompanyId==companyId&&x.Id == id, ct);
             return b is null ? Results.NotFound(new { message = "Rack/bin not found." }) : Results.Ok(ToDetail(b));
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.View);
 
-        group.MapPut("/rack-bins/{id:guid}", async (Guid id, UpsertRackBinRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        group.MapPut("/rack-bins/{id:guid}", async (Guid id, UpsertRackBinRequest r, NexaErpDbContext db, ICurrentUser user, IRackBinMasterDataService service, CancellationToken ct) =>
         {
-            var b = await db.RackBins.Include(x => x.Warehouse).SingleOrDefaultAsync(x => x.Id == id, ct); if (b is null) return Results.NotFound(new { message = "Rack/bin not found." });
-            if (r.Version is null || r.Version.Value != b.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-            var requestedWarehouseCode = MasterEndpointHelpers.NormalizeCode(r.WarehouseCode);
-            if (b.Warehouse?.WarehouseCode != requestedWarehouseCode && await db.StockMovements.AnyAsync(x => x.RackBinId == b.Id, ct)) return Results.Conflict(new { message = "Warehouse reassignment is blocked because rack/bin stock history exists." });
-            var validation = await ValidateRackBin(r, db, b.Id, ct); if (validation is not null) return validation;
-            var before = ToDetail(b); var wh = await db.Warehouses.SingleAsync(x => x.WarehouseCode == requestedWarehouseCode, ct); b.WarehouseId = wh.Id; Apply(b, r, user.LoginId, false);
-            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "UpdateDraft", nameof(RackBin), b.Id.ToString(), before, b, ct); return Results.Ok(ToDetail(b));
+            var companyId=await SelectedCompanyId(db,user,ct);var b=await db.RackBins.AsNoTracking().Include(x=>x.Warehouse).SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.Id==id,ct);if(b is null)return Results.NotFound(new{message="Rack/bin not found."});if(MasterEndpointHelpers.NormalizeCode(r.BinCode)!=b.BinCode)return Results.BadRequest(new{message="Bin Code is immutable through this endpoint; Rack Name and Bin / Partition Number may be renamed without changing historical IDs."});if(MasterEndpointHelpers.NormalizeCode(r.WarehouseCode)!=b.Warehouse!.WarehouseCode)return Results.Conflict(new{message="Warehouse assignment is immutable. Deactivate this rack/bin and create it in the other warehouse."});try{var result=await service.UpdateAsync(new MasterDataExistingRecord(b.Id,b.BinCode,b.BinCode,b.Version,new Dictionary<string,string?>()),r,ct);return Results.Ok(result);}catch(Exception ex){return MasterDataFailure(ex);}
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.Update);
         MapRackBinAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
         MapRackBinAction(group, "approve", "Approve", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Approve);
@@ -156,27 +143,30 @@ public static class InventoryEndpoints
         MapRackBinAction(group, "hold", "Hold", MasterStatuses.OnHold, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
         MapRackBinAction(group, "reactivate", "Reactivate", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Update);
         MapRackBinAction(group, "deactivate", "Deactivate", MasterStatuses.Inactive, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
-        group.MapGet("/rack-bins/{id:guid}/status-history", async (Guid id, NexaErpDbContext db, CancellationToken ct) =>
+        group.MapGet("/rack-bins/{id:guid}/status-history", async (Guid id, NexaErpDbContext db,ICurrentUser user, CancellationToken ct) =>
         {
-            var code = await db.RackBins.AsNoTracking().Where(x => x.Id == id).Select(x => x.BinCode).SingleOrDefaultAsync(ct);
-            return code is null ? Results.NotFound(new { message = "Rack/bin not found." }) : await MasterEndpointHelpers.GetStatusHistoryAsync(db, nameof(RackBin), code, ct);
+            return !await OwnsRack(db,user,id,ct)?Results.NotFound(new{message="Rack/bin not found."}):await MasterEndpointHelpers.GetStatusHistoryByIdAsync(db,nameof(RackBin),id,ct);
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/rack-bins/{id:guid}/approval-history", async (Guid id, NexaErpDbContext db, CancellationToken ct) =>
+        group.MapGet("/rack-bins/{id:guid}/approval-history", async (Guid id, NexaErpDbContext db,ICurrentUser user, CancellationToken ct) =>
         {
-            var code = await db.RackBins.AsNoTracking().Where(x => x.Id == id).Select(x => x.BinCode).SingleOrDefaultAsync(ct);
-            return code is null ? Results.NotFound(new { message = "Rack/bin not found." }) : await MasterEndpointHelpers.GetApprovalHistoryAsync(db, nameof(RackBin), code, ct);
+            return !await OwnsRack(db,user,id,ct)?Results.NotFound(new{message="Rack/bin not found."}):await MasterEndpointHelpers.GetApprovalHistoryByIdAsync(db,nameof(RackBin),id,ct);
         }).RequirePagePermission("masters.rack-bins", PagePermissionActions.ViewAuditHistory);
-        group.MapGet("/rack-bins/{id:guid}/audit-history", async (Guid id, NexaErpDbContext db, CancellationToken ct) => await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(RackBin), id.ToString(), ct)).RequirePagePermission("masters.rack-bins", PagePermissionActions.ViewAuditHistory);
+        group.MapGet("/rack-bins/{id:guid}/audit-history", async (Guid id,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)=>!await OwnsRack(db,user,id,ct)?Results.NotFound(new{message="Rack/bin not found."}):await MasterEndpointHelpers.GetAuditHistoryAsync(db,nameof(RackBin),id.ToString(),ct)).RequirePagePermission("masters.rack-bins", PagePermissionActions.ViewAuditHistory);
     }
 
     private static void MapItemAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/items/{{code}}/{route}", async (string code, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
     { var e = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Item not found." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Item), e.ItemCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsItemCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.items", permission);
 
     private static void MapWarehouseAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/warehouses/{{code}}/{route}", async (string code, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
-    { var e = await db.Warehouses.SingleOrDefaultAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Warehouse not found." }); if (route == "deactivate" && await db.StockMovements.AnyAsync(x => x.WarehouseId == e.Id, ct)) return Results.Conflict(new { message = "Warehouse deactivation blocked because stock history exists." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Warehouse), e.WarehouseCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsWarehouseCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.warehouses", permission);
+    { var companyId=await SelectedCompanyId(db,user,ct);var e = await db.Warehouses.SingleOrDefaultAsync(x => x.CompanyId==companyId&&x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Warehouse not found." });if(route=="deactivate"){var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId&&x.WarehouseId==e.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Warehouse cannot be deactivated while its current stock balance is {balance}. Transfer or issue the stock first."});if(await db.RackBins.AnyAsync(x=>x.CompanyId==companyId&&x.WarehouseId==e.Id&&x.IsActive,ct))return Results.Conflict(new{message="Warehouse cannot be deactivated while it has active rack/bins. Deactivate its empty rack/bins first."});}return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Warehouse), e.WarehouseCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsWarehouseCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.warehouses", permission);
 
     private static void MapRackBinAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/rack-bins/{{id:guid}}/{route}", async (Guid id, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
-    { var e = await db.RackBins.SingleOrDefaultAsync(x => x.Id == id, ct); if (e is null) return Results.NotFound(new { message = "Rack/bin not found." }); if (route == "deactivate" && await db.StockMovements.AnyAsync(x => x.RackBinId == e.Id, ct)) return Results.Conflict(new { message = "Rack/bin deactivation blocked because stock history exists." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(RackBin), e.BinCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.rack-bins", permission);
+    { var companyId=await SelectedCompanyId(db,user,ct);var e = await db.RackBins.SingleOrDefaultAsync(x => x.CompanyId==companyId&&x.Id == id, ct); if (e is null) return Results.NotFound(new { message = "Rack/bin not found." });if(route=="deactivate"){var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId&&x.RackBinId==e.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Rack/bin cannot be deactivated while its current stock balance is {balance}. Transfer or issue the stock first."});if(await db.WarehouseConditionLocations.AnyAsync(x=>x.CompanyId==companyId&&x.RackBinId==e.Id&&x.IsActive&&x.EffectiveTo==null,ct))return Results.Conflict(new{message="Rack/bin cannot be deactivated while an open condition-location version uses it. Close that mapping first."});}return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(RackBin), e.BinCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.rack-bins", permission);
+
+    private static async Task<Guid> SelectedCompanyId(NexaErpDbContext db,ICurrentUser user,CancellationToken ct)=>await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>x.Id).SingleAsync(ct);
+    private static async Task<Guid?> WarehouseId(NexaErpDbContext db,ICurrentUser user,string code,CancellationToken ct){var companyId=await SelectedCompanyId(db,user,ct);return await db.Warehouses.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.WarehouseCode==MasterEndpointHelpers.NormalizeCode(code)).Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);}
+    private static async Task<bool> OwnsRack(NexaErpDbContext db,ICurrentUser user,Guid id,CancellationToken ct){var companyId=await SelectedCompanyId(db,user,ct);return await db.RackBins.AsNoTracking().AnyAsync(x=>x.CompanyId==companyId&&x.Id==id,ct);}
+    private static IResult MasterDataFailure(Exception ex)=>ex switch{MasterDataNotFoundException=>Results.NotFound(new{message=ex.Message}),MasterDataConflictException=>Results.Conflict(new{message=ex.Message}),MasterDataValidationException=>Results.BadRequest(new{message=ex.Message}),_=>throw ex};
 
     private static async Task<IResult?> ValidateItem(UpsertItemRequest r, NexaErpDbContext db, Guid? id, CancellationToken ct)
     {

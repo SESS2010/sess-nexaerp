@@ -425,7 +425,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("warehouses");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.WarehouseCode).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.WarehouseCode }).IsUnique();
             entity.HasIndex(x => x.Status);
             entity.HasIndex(x => x.IsActive);
             entity.Property(x => x.WarehouseCode).HasMaxLength(80).IsRequired();
@@ -445,6 +445,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.ToTable("rack_bins");
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.WarehouseId, x.BinCode }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.BinCode }).IsUnique();
             entity.HasIndex(x => x.Status);
             entity.HasIndex(x => x.IsActive);
             entity.Property(x => x.BinCode).HasMaxLength(80).IsRequired();

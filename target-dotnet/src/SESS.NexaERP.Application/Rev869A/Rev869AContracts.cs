@@ -16,5 +16,6 @@ public interface ITaxGstWorkflowService
 public sealed record CreateVendorQualificationRequest(string OrganizationId, string VendorCode, string? ItemCategoryCode, string QualificationCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
 public sealed record ChangeVendorQualificationLifecycleRequest(uint ExpectedVersion, string Remarks);
 public sealed record CreateWarehouseConditionLocationRequest(string OrganizationId, string WarehouseCode, Guid RackBinId, string ConditionCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
+public sealed record CloseWarehouseConditionLocationRequest(DateOnly EffectiveTo, uint Version, string Remarks);
 public sealed record CreateQcInspectionPolicyRequest(string OrganizationId, string? ItemCode, string? ItemCategoryCode, string ParameterCode, string MeasurementUomCode, decimal? LowerLimit, decimal? UpperLimit, string InspectionMethod, int SampleSize, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
 public sealed record ResolveCommercialValueRequest(string CurrencyCode, decimal TaxableValue, decimal TaxValue, decimal FreightAndOtherCharges, decimal DiscountValue, int RoundingScale);
