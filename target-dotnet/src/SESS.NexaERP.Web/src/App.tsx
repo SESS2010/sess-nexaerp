@@ -21,6 +21,8 @@ import { ComparisonListPage } from './features/purchase/ComparisonListPage'
 import { ComparisonDetailPage } from './features/purchase/ComparisonDetailPage'
 import { PurchaseOrderListPage } from './features/purchase/PurchaseOrderListPage'
 import { PurchaseOrderDetailPage } from './features/purchase/PurchaseOrderDetailPage'
+import { GateEntryListPage } from './features/stores/GateEntryListPage'
+import { GateEntryDetailPage } from './features/stores/GateEntryDetailPage'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/vendors', 'Vendor Master'],
@@ -32,6 +34,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/purchase/quotations', 'Vendor Quotations'],
   ['/purchase/comparisons', 'Commercial Comparison'],
   ['/purchase/purchase-orders', 'Purchase Order'],
+  ['/stores/gate-entries', 'Gate Entry'],
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
@@ -44,6 +47,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const title = match ? match[1] : 'Employee Master'
   const inPurchase = location.pathname.startsWith('/purchase')
   const inSales = location.pathname.startsWith('/sales')
+  const inStores = location.pathname.startsWith('/stores')
 
   return (
     <div className="app-shell">
@@ -56,7 +60,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="nav">
-          <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales}>
+          <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores}>
             <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>
             <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>
             <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>
@@ -82,8 +86,8 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="nav-link disabled">Material Follow-up</span>
           </NavSection>
 
-          <NavSection id="stores" label="Stores" defaultOpen={false}>
-            <span className="nav-link disabled">Gate Entry</span>
+          <NavSection id="stores" label="Stores" defaultOpen={inStores}>
+            <NavLink to="/stores/gate-entries" className={navLinkClass}>Gate Entry</NavLink>
             <span className="nav-link disabled">GRN</span>
             <span className="nav-link disabled">QC / Inspection</span>
             <span className="nav-link disabled">MIR / Issue</span>
@@ -130,6 +134,8 @@ export default function App() {
                 <Route path="/purchase/comparisons/:comparisonNumber" element={<ComparisonDetailPage />} />
                 <Route path="/purchase/purchase-orders" element={<PurchaseOrderListPage />} />
                 <Route path="/purchase/purchase-orders/:poNumber" element={<PurchaseOrderDetailPage />} />
+                <Route path="/stores/gate-entries" element={<GateEntryListPage />} />
+                <Route path="/stores/gate-entries/:id" element={<GateEntryDetailPage />} />
               </Routes>
             </Shell>
           </RequireAuth>

@@ -18,6 +18,11 @@ const TONE_BY_VALUE: Record<string, string> = {
   Completed: 'ok',
   'W.I.P': 'info',
   'Not Completed': 'warn',
+  // Stores document states
+  DRAFT: 'muted',
+  FINALIZED: 'ok',
+  Issued: 'ok',
+  QC_HOLD: 'warn',
 }
 
 export function StatusBadge({ value }: { value: string }) {
