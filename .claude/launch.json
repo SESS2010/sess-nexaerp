@@ -2,6 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "nexaerp-api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "target-dotnet/src/SESS.NexaERP.Api"],
+      "port": 5000,
+      "autoPort": false
+    },
+    {
       "name": "nexaerp-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "target-dotnet/src/SESS.NexaERP.Web", "--", "--port", "5174"],
