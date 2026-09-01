@@ -102,7 +102,7 @@ public sealed class PurchaseRequisition : CompanyScopedAuditableEntity
     public string? CustomerReference { get; set; }
     public string Status { get; set; } = PurchaseRequisitionStatuses.Draft;
     public decimal EstimatedTotal { get; set; }
-    public string ApprovalRoute { get; set; } = PurchaseRequisitionApprovalRoutes.Manager;
+    public string ApprovalRoute { get; set; } = "UNSELECTED";
     public int ApprovalCycle { get; set; }
     public int RequiredApprovalStepCount { get; set; }
     public int CompletedApprovalStepCount { get; set; }

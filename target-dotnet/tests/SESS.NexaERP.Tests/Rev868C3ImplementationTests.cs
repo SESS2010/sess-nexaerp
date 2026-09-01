@@ -80,7 +80,16 @@ public sealed class Rev868C3ImplementationTests
     [InlineData(500001, "MANAGER_MD_TD", 3, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
     public void Rev868c3_approval_workflow_boundaries_follow_manager_md_td_chain(decimal amount, string routeCode, int stepCount, string? finalApproverEmployee, string? finalRole)
     {
-        var steps = PurchaseRequisitionEndpoints.ApprovalWorkflowFor(amount);
+        var configured = new[]
+        {
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_ONLY", 0m, 50000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_MD", 50000.01m, 500000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_MD", 50000.01m, 500000m, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_MD_TD", 500000.01m, null, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_MD_TD", 500000.01m, null, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
+            new PurchaseRequisitionEndpoints.ApprovalWorkflowStepDefinition("MANAGER_MD_TD", 500000.01m, null, 3, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)
+        };
+        var steps = PurchaseRequisitionEndpoints.ApprovalWorkflowFor(amount, configured);
 
         Assert.All(steps, step => Assert.Equal(routeCode, step.RouteCode));
         Assert.Equal(stepCount, steps.Count);

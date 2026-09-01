@@ -97,7 +97,6 @@ public static partial class PurchaseRequisitionEndpoints
             pr.EstimatedTotal += total;
             pr.Lines.Add(new PurchaseRequisitionLine { CompanyId = pr.CompanyId, LineNumber = lineNo, ItemId = item.Id, ItemCodeSnapshot = item.ItemCode, ItemNameSnapshot = item.Name, UomSnapshot = item.Uom, SpecificationSnapshot = item.TechnicalSpecification, RequestedQuantity = request.RequestedQuantity, EstimatedUnitPriceSnapshot = request.EstimatedUnitPrice, EstimatedLineTotal = total, RequiredDate = request.RequiredDate, PreferredWarehouseId = warehouseId, ProjectReference = Norm(request.ProjectReference), MachineReference = Norm(request.MachineReference), ServiceReference = Norm(request.ServiceReference), ReservedQuantity = 0, ShortageQuantity = request.RequestedQuantity, ProcurementHandoffQuantity = request.RequestedQuantity, CreatedBy = pr.CreatedBy });
         }
-        pr.ApprovalRoute = await RouteForConfiguredAsync(db, pr.CompanyId, pr.EstimatedTotal, ct);
     }
 
     private static async Task<(string Number, long Sequence)> NextPrNumberAsync(NexaErpDbContext db, Guid companyId, string organizationId, DateOnly requestDate, ICurrentUser user, CancellationToken ct)
@@ -116,25 +115,7 @@ public static partial class PurchaseRequisitionEndpoints
     }
 
     public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string? ApproverRoleCode, string ApproverResolutionType, bool IsActive = true);
-    private static readonly ApprovalRouteDefinition[] DefaultApprovalRoutes =
-    [
-        new(PurchaseRequisitionApprovalRoutes.Manager, 0m, 50000m, null, PurchaseApproverResolutionTypes.DepartmentMapping),
-        new(PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50000.01m, 500000m, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.TechnicalDirector), PurchaseApproverResolutionTypes.FixedRole),
-        new(PurchaseRequisitionApprovalRoutes.ManagingDirector, 500000.01m, null, PurchaseRequisitionApprovalRoutes.ApproverRoleCode(PurchaseRequisitionApprovalRoutes.ManagingDirector), PurchaseApproverResolutionTypes.FixedRole)
-    ];
-
     public sealed record ApprovalWorkflowStepDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, int StepNumber, string ApproverResolutionType, string? ApproverEmployeeCode, string? ApproverRoleCode, bool IsActive = true);
-    private static readonly ApprovalWorkflowStepDefinition[] DefaultApprovalWorkflowSteps =
-    [
-        new("MANAGER_ONLY", 0m, 50000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
-        new("MANAGER_MD", 50000.01m, 500000m, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
-        new("MANAGER_MD", 50000.01m, 500000m, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
-        new("MANAGER_MD_TD", 500000.01m, null, 1, PurchaseApproverResolutionTypes.DepartmentMapping, null, null),
-        new("MANAGER_MD_TD", 500000.01m, null, 2, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.ManagingDirector),
-        new("MANAGER_MD_TD", 500000.01m, null, 3, PurchaseApproverResolutionTypes.ConfiguredRole, null, PurchaseRequisitionApprovalRoutes.TechnicalDirector)
-    ];
-
-    public static IReadOnlyList<ApprovalWorkflowStepDefinition> ApprovalWorkflowFor(decimal total) => ApprovalWorkflowFor(total, DefaultApprovalWorkflowSteps);
     public static IReadOnlyList<ApprovalWorkflowStepDefinition> ApprovalWorkflowFor(decimal total, IEnumerable<ApprovalWorkflowStepDefinition> steps)
     {
         if (total < 0) throw new InvalidOperationException("PR approval amount cannot be negative.");
@@ -147,7 +128,6 @@ public static partial class PurchaseRequisitionEndpoints
         if (matchedRouteCodes.Count != 1) throw new InvalidOperationException($"No single active PR approval workflow is configured for amount {total}.");
         return steps.Where(x => x.IsActive && string.Equals(x.RouteCode, matchedRouteCodes[0], StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.StepNumber).ToList();
     }
-    public static string RouteFor(decimal total) => RouteFor(total, DefaultApprovalRoutes);
     public static string RouteFor(decimal total, IEnumerable<ApprovalRouteDefinition> routes)
     {
         if (total < 0) throw new InvalidOperationException("PR approval amount cannot be negative.");
@@ -157,14 +137,6 @@ public static partial class PurchaseRequisitionEndpoints
             .Select(x => PurchaseRequisitionApprovalRoutes.Normalize(x.RouteCode))
             .ToList();
         return matches.Count == 1 ? matches[0] : throw new InvalidOperationException($"No single active PR approval route is configured for amount {total}.");
-    }
-    private static async Task<string> RouteForConfiguredAsync(NexaErpDbContext db, Guid companyId, decimal total, CancellationToken ct)
-    {
-        var routes = await db.PurchaseApprovalRouteSettings.AsNoTracking()
-            .Where(x => x.CompanyId == companyId && x.IsActive)
-            .Select(x => new ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.ApproverResolutionType, x.IsActive))
-            .ToListAsync(ct);
-        return RouteFor(total, routes.Count == 0 ? DefaultApprovalRoutes : routes);
     }
     public sealed record DepartmentApproverResolution(bool Success, Guid? EmployeeId, string? EmployeeCode, string? EmployeeName, string Message);
     public static bool IsManagerLevelRoleCode(string? roleCode)

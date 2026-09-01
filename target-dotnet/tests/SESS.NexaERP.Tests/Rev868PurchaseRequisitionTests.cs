@@ -5,18 +5,6 @@ namespace SESS.NexaERP.Tests;
 
 public sealed class Rev868PurchaseRequisitionTests
 {
-    [Theory]
-    [InlineData(0, PurchaseRequisitionApprovalRoutes.Manager)]
-    [InlineData(50000, PurchaseRequisitionApprovalRoutes.Manager)]
-    [InlineData(50001, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
-    [InlineData(500000, PurchaseRequisitionApprovalRoutes.TechnicalDirector)]
-    [InlineData(500001, PurchaseRequisitionApprovalRoutes.ManagingDirector)]
-    public void Rev868_amount_based_pr_approval_route_is_configured(decimal total, string expected)
-    {
-        Assert.Equal(expected, PurchaseRequisitionEndpoints.RouteFor(total));
-    }
-
-
     [Fact]
     public void Rev868c2_canonical_route_mapping_separates_route_code_role_code_and_display_label()
     {

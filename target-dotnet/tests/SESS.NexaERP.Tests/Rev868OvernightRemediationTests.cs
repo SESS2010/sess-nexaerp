@@ -178,13 +178,12 @@ public sealed class Rev868OvernightRemediationTests
     }
 
     [Fact]
-    public void Rev868_amount_routing_boundaries_are_exact()
+    public void Rev868_amount_routing_has_no_code_fallback()
     {
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.Manager, PurchaseRequisitionEndpoints.RouteFor(0));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.Manager, PurchaseRequisitionEndpoints.RouteFor(50_000));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(50_001));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(500_000));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.ManagingDirector, PurchaseRequisitionEndpoints.RouteFor(500_001));
+        var helper = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpointHelpers.cs");
+        Assert.DoesNotContain("DefaultApprovalRoutes", helper);
+        Assert.DoesNotContain("DefaultApprovalWorkflowSteps", helper);
+        Assert.DoesNotContain("500000", helper);
     }
 
     [Fact]

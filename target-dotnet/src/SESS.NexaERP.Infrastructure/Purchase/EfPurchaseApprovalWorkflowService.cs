@@ -19,14 +19,20 @@ public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPu
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var companyId = await db.Companies.AsNoTracking()
             .Where(x => x.Code == organizationId && x.IsActive).Select(x => x.Id).SingleAsync(ct);
+        var effectiveAt = DateTimeOffset.UtcNow;
+        var configuredRoutes = await db.PurchaseApprovalRouteSettings.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && x.IsActive && x.MinimumAmount <= amount &&
+                (!x.MaximumAmount.HasValue || amount <= x.MaximumAmount))
+            .ToListAsync(ct);
+        var selectedRoute = SelectRouteSetting(companyId, effectiveAt, amount, configuredRoutes);
         var candidates = await db.PurchaseApprovalWorkflowSteps.AsNoTracking()
-            .Where(x => x.CompanyId == companyId && x.IsActive && x.EffectiveFrom <= today &&
+            .Where(x => x.CompanyId == companyId && x.RouteCode == selectedRoute.RouteCode && x.IsActive && x.EffectiveFrom <= today &&
                 (!x.EffectiveTo.HasValue || x.EffectiveTo >= today) && x.MinimumAmount <= amount &&
                 (!x.MaximumAmount.HasValue || amount <= x.MaximumAmount))
             .OrderBy(x => x.StepNumber).ToListAsync(ct);
         var routes = candidates.Select(x => x.RouteCode).Distinct(StringComparer.Ordinal).ToArray();
         if (routes.Length != 1 || candidates.Count == 0 || candidates.Select(x => x.StepNumber).SequenceEqual(Enumerable.Range(1, candidates.Count)) is false)
-            throw new InvalidOperationException("A single complete effective approval workflow was not found for this amount.");
+            throw new Rev869BConflictException($"Purchase approval configuration is missing or incomplete for company {companyId} at effective time {effectiveAt:O}: purchase_approval_workflow_steps for route {selectedRoute.RouteCode} and amount {amount:0.00} must form one complete, contiguous workflow.");
 
         var steps = new List<PurchaseApprovalWorkflowStepSnapshot>(candidates.Count);
         foreach (var configured in candidates)
@@ -63,6 +69,25 @@ public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPu
         return unsigned with { Identity = identity };
     }
 
+    public static PurchaseApprovalRouteSetting SelectRouteSetting(
+        Guid companyId,
+        DateTimeOffset effectiveAt,
+        decimal amount,
+        IReadOnlyCollection<PurchaseApprovalRouteSetting> matches)
+    {
+        if (amount < 0) throw new Rev869BConflictException("Approval value cannot be negative.");
+        if (matches.Count == 0)
+            throw new Rev869BConflictException($"Purchase approval configuration is missing for company {companyId} at effective time {effectiveAt:O}: no active purchase_approval_route_settings row matches amount {amount:0.00}.");
+        if (matches.Count > 1)
+        {
+            var conflicts = string.Join(", ", matches
+                .OrderBy(x => x.RouteCode, StringComparer.Ordinal)
+                .ThenBy(x => x.Id)
+                .Select(x => $"{x.RouteCode}[{x.Id}]({x.MinimumAmount:0.00}..{(x.MaximumAmount.HasValue ? x.MaximumAmount.Value.ToString("0.00") : "unbounded")})"));
+            throw new Rev869BConflictException($"Purchase approval configuration is ambiguous for company {companyId} at effective time {effectiveAt:O}: conflicting purchase_approval_route_settings rows for amount {amount:0.00}: {conflicts}.");
+        }
+        return matches.Single();
+    }
     public PurchaseApprovalWorkflowSnapshot ReadSnapshot(string snapshotJson)
     {
         PurchaseApprovalWorkflowSnapshot snapshot;

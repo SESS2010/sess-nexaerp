@@ -52,10 +52,12 @@ public sealed class Rev868C1PostgresWorkflowVerificationTests
         await EnsureRouteAsync(db, PurchaseRequisitionApprovalRoutes.TechnicalDirector, 50001, 500000, "technical_director");
         await EnsureRouteAsync(db, PurchaseRequisitionApprovalRoutes.ManagingDirector, 500001, null, "managing_director");
 
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.Manager, PurchaseRequisitionEndpoints.RouteFor(50000));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(50001));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(500000));
-        Assert.Equal(PurchaseRequisitionApprovalRoutes.ManagingDirector, PurchaseRequisitionEndpoints.RouteFor(500001));
+        var configuredRoutes = await db.PurchaseApprovalRouteSettings.AsNoTracking().Where(x => x.IsActive)
+            .Select(x => new PurchaseRequisitionEndpoints.ApprovalRouteDefinition(x.RouteCode, x.MinimumAmount, x.MaximumAmount, x.ApproverRoleCode, x.ApproverResolutionType, x.IsActive)).ToListAsync();
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.Manager, PurchaseRequisitionEndpoints.RouteFor(50000, configuredRoutes));
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(50001, configuredRoutes));
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.TechnicalDirector, PurchaseRequisitionEndpoints.RouteFor(500000, configuredRoutes));
+        Assert.Equal(PurchaseRequisitionApprovalRoutes.ManagingDirector, PurchaseRequisitionEndpoints.RouteFor(500001, configuredRoutes));
 
         var activeRanges = await db.PurchaseApprovalRouteSettings.AsNoTracking().Where(x => x.IsActive).Select(x => new { x.MinimumAmount, x.MaximumAmount }).ToListAsync();
         for (var i = 0; i < activeRanges.Count; i++)
@@ -241,7 +243,7 @@ public sealed class Rev868C1PostgresWorkflowVerificationTests
         }
         pr.Status = PurchaseRequisitionStatuses.Draft;
         pr.EstimatedTotal = requested * estimatedPrice;
-        pr.ApprovalRoute = PurchaseRequisitionEndpoints.RouteFor(pr.EstimatedTotal);
+        pr.ApprovalRoute = "UNSELECTED";
         if (pr.Lines.Count == 0)
         {
             pr.Lines.Add(new PurchaseRequisitionLine { LineNumber = 1, ItemId = itemId, PreferredWarehouseId = warehouseId, ItemCodeSnapshot = "REV868C1-ITEM", ItemNameSnapshot = "REV868C1 Item", UomSnapshot = "NOS", RequiredDate = pr.RequiredByDate, CreatedBy = pr.CreatedBy });
