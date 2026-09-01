@@ -66,4 +66,60 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .ToArray();
         return new(true, employee.Id, primaryDepartments[0], mapping.OrganizationId, employee.EmployeeCode, effectiveRoleCodes, "Employee identity resolved.");
     }
+
+#if DEBUG
+    public async Task<ResolvedEmployeeIdentity> ResolveDevelopmentEmployeeAsync(string employeeCode, string? organizationId, DateOnly onDate, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(employeeCode) || string.IsNullOrWhiteSpace(organizationId))
+            return ResolvedEmployeeIdentity.Failed("Development employee code and organization are required.");
+
+        var normalizedCode = employeeCode.Trim().ToUpperInvariant();
+        var normalizedOrganization = organizationId.Trim().ToUpperInvariant();
+        var company = await db.Companies.AsNoTracking()
+            .Where(x => x.Code == normalizedOrganization && x.IsActive && x.Status == "ACTIVE")
+            .Select(x => new { x.Id, x.Code })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (company is null) return ResolvedEmployeeIdentity.Failed("Development organization is not active.");
+
+        var employees = await db.Employees.AsNoTracking()
+            .Where(x => x.EmployeeCode == normalizedCode)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        if (employees.Count != 1)
+            return ResolvedEmployeeIdentity.Failed(employees.Count == 0 ? "Development employee does not exist." : "Development employee code is ambiguous.");
+
+        var employee = employees[0];
+        var companyAssignments = await db.EmployeeCompanyAssignments.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id && x.IsActive && x.Status == "ACTIVE")
+            .Where(x => x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        if (companyAssignments.Count != 1)
+            return new(false, employee.Id, null, company.Code, employee.EmployeeCode, [], companyAssignments.Count == 0
+                ? "Employee has no active assignment in the requested development company."
+                : "Employee company assignment is ambiguous.");
+
+        var companyAssignment = companyAssignments[0];
+        var primaryDepartments = await db.EmployeeDepartmentAssignments.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && x.EmployeeCompanyAssignmentId == companyAssignment.Id)
+            .Where(x => x.IsActive && x.Status == "ACTIVE" && x.IsPrimary)
+            .Where(x => x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
+            .Select(x => x.DepartmentId)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        if (primaryDepartments.Count != 1)
+            return new(false, employee.Id, null, company.Code, employee.EmployeeCode, [], "Employee must have exactly one active primary department in the requested development company.");
+
+        var roles = await db.EmployeeRoleAssignments.AsNoTracking()
+            .Include(x => x.Role)
+            .Where(x => x.EmployeeId == employee.Id && x.CompanyId == company.Id)
+            .Where(x => x.ApprovalStatus == "SeedApproved" || x.ApprovalStatus == "Approved")
+            .Where(x => x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
+            .Where(x => x.Role != null && x.Role.IsActive)
+            .Select(x => x.Role!.Code)
+            .ToListAsync(cancellationToken);
+        var effectiveRoleCodes = roles.Select(x => x.Trim().ToUpperInvariant()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return new(true, employee.Id, primaryDepartments[0], company.Code, employee.EmployeeCode, effectiveRoleCodes, "Development employee identity resolved.");
+    }
+#endif
 }

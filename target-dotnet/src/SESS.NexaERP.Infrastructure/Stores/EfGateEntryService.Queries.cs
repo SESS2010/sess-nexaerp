@@ -12,20 +12,19 @@ public sealed partial class EfGateEntryService
 {
     public async Task<GateEntryResult?> GetAsync(Guid id,CancellationToken ct)
     {
-        await RequireReceiptOperatorAsync(ct); var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;
-        await RequireScope(gate.PurchaseOrder!.RequestingDepartmentId,gate.PurchaseOrder.DeliveryWarehouseId,gate.PurchaseOrder.OwnerEmployeeId,ct); return Map(gate);
+        var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;
+        return Map(gate);
     }
 
     public async Task<GateEntryListResult> ListAsync(string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken ct)
     {
-        await RequireReceiptOperatorAsync(ct); if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
+        if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
         var q=Query().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(poNumber))q=q.Where(x=>x.PurchaseOrder!.PoNumber==poNumber.Trim().ToUpperInvariant()); if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(from.HasValue)q=q.Where(x=>x.ArrivedAt>=from.Value.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)); if(to.HasValue)q=q.Where(x=>x.ArrivedAt<to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         if(!string.IsNullOrWhiteSpace(state)){var s=state.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("state must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var candidates=await q.OrderByDescending(x=>x.ArrivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct); var result=new List<GateEntryResult>();
-        foreach(var gate in candidates)if((await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),gate.PurchaseOrder!.RequestingDepartmentId,gate.PurchaseOrder.DeliveryWarehouseId,null,gate.PurchaseOrder.OwnerEmployeeId),DateOnly.FromDateTime(DateTime.UtcNow),ct)).Allowed)result.Add(Map(gate));
-        return new(page,pageSize,result);
+        var result=await q.OrderByDescending(x=>x.ArrivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
+        return new(page,pageSize,result.Select(Map).ToList());
     }
 
     private IQueryable<GateEntry> Query()=>db.GateEntries.AsNoTracking().Include(x=>x.PurchaseOrder).Include(x=>x.Lines).Include(x=>x.Vendor);

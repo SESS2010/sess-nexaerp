@@ -14,12 +14,13 @@ namespace SESS.NexaERP.Api.Security;
 public sealed class DevelopmentTokenService
 {
     public const string Audience = "nexaerp-development";
+    public const string ImpersonatedEmployeeCodeClaim = "nexaerp_development_employee_code";
 
     private readonly JsonWebTokenHandler _handler = new();
 
     public SymmetricSecurityKey SigningKey { get; } = new(RandomNumberGenerator.GetBytes(64));
 
-    public string IssueToken(string issuer, string subject, string organizationId, TimeSpan lifetime) =>
+    public string IssueToken(string issuer, string subject, string organizationId, string employeeCode, TimeSpan lifetime) =>
         _handler.CreateToken(new SecurityTokenDescriptor
         {
             Issuer = issuer,
@@ -29,6 +30,7 @@ public sealed class DevelopmentTokenService
             {
                 ["sub"] = subject,
                 ["organization_id"] = organizationId,
+                [ImpersonatedEmployeeCodeClaim] = employeeCode,
             },
             SigningCredentials = new SigningCredentials(SigningKey, SecurityAlgorithms.HmacSha512),
         });

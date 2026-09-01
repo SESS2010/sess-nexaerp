@@ -266,6 +266,8 @@ public static class Rev866SeedData
         var master = page.PageKey.StartsWith("masters.", StringComparison.OrdinalIgnoreCase);
         var identity = page.PageKey.StartsWith("identity.", StringComparison.OrdinalIgnoreCase) || page.PageKey.StartsWith("authorization.", StringComparison.OrdinalIgnoreCase);
         var employeePage = page.PageKey.StartsWith("employees.", StringComparison.OrdinalIgnoreCase);
+        var receiptPage = page.PageKey.Equals("inventory.grn", StringComparison.OrdinalIgnoreCase);
+        var receiptOperatorRole = role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT";
         var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
         var commercial = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_HEAD" or "PURCHASE_HEAD";
         var canOperatePurchase = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "PURCHASE_HEAD" or "STORE_HEAD" or "PURCHASE_EXECUTIVE";
@@ -277,7 +279,9 @@ public static class Rev866SeedData
             || (purchase && role.Code is "PURCHASE_EXECUTIVE")
             || (inventory && role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT")
             || (employeePage && role.Code is "HR_EXECUTIVE");
-        var canCreate = full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory) || (employeePage && canOperateEmployee);
+        var canCreate = receiptPage
+            ? receiptOperatorRole
+            : full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory) || (employeePage && canOperateEmployee);
         var canVerify = full || (inventory && role.Code is "QC_HEAD") || (purchase && role.Code is "PURCHASE_HEAD");
         var canApprove = full || role.Code is "ACCOUNTS_HEAD" && page.PageKey.Contains("commercial", StringComparison.OrdinalIgnoreCase);
 
@@ -296,7 +300,7 @@ public static class Rev866SeedData
             CanRequestClarification = canVerify || canApprove,
             CanRequestRevision = canVerify || canApprove,
             CanResubmit = canCreate,
-            CanCancel = full || canCreate,
+            CanCancel = receiptPage ? receiptOperatorRole : full || canCreate,
             CanDeactivate = full || ((master || employeePage) && role.Code is "IT_MANAGER"),
             CanPrint = canView,
             CanDownload = canView,

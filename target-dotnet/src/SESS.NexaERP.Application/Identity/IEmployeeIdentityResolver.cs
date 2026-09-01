@@ -15,4 +15,7 @@ public sealed record ResolvedEmployeeIdentity(
 public interface IEmployeeIdentityResolver
 {
     Task<ResolvedEmployeeIdentity> ResolveAsync(string issuer, string subject, string? organizationId, DateOnly onDate, CancellationToken cancellationToken);
+#if DEBUG
+    Task<ResolvedEmployeeIdentity> ResolveDevelopmentEmployeeAsync(string employeeCode, string? organizationId, DateOnly onDate, CancellationToken cancellationToken);
+#endif
 }

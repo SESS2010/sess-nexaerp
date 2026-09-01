@@ -15,15 +15,16 @@ public sealed class Rev869ASourceCorrectionTests
         var currentUser = Read("src", "SESS.NexaERP.Api", "Security", "ClaimsCurrentUser.cs");
         var middleware = Read("src", "SESS.NexaERP.Api", "Middleware", "EmployeeIdentityResolutionMiddleware.cs");
         var resolver = Read("src", "SESS.NexaERP.Infrastructure", "Identity", "EfEmployeeIdentityResolver.cs");
+        var productionResolver = resolver[..resolver.IndexOf("#if DEBUG", StringComparison.Ordinal)];
 
         Assert.Contains("EmployeeIdentityResolutionMiddleware.ResolutionItemKey", currentUser);
         Assert.Contains("FindFirstValue(\"iss\")", middleware);
         Assert.Contains("FindFirstValue(\"sub\")", middleware);
-        Assert.Contains("mappings.Count != 1", resolver);
-        Assert.Contains("MasterStatuses.Active", resolver);
+        Assert.Contains("mappings.Count != 1", productionResolver);
+        Assert.Contains("MasterStatuses.Active", productionResolver);
         Assert.DoesNotContain("ClaimTypes.Email", currentUser);
         Assert.DoesNotContain("ClaimTypes.Name", currentUser);
-        Assert.DoesNotContain("EmployeeCode ==", resolver);
+        Assert.DoesNotContain("EmployeeCode ==", productionResolver);
     }
 
     [Fact]

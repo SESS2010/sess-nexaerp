@@ -31,8 +31,9 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
 
         if (grants.Count == 0) return false;
 
-        var requiresExplicitRev869BGrant = normalizedPage is "purchase.rfq" or "purchase.vendor-quotations" or
-            "purchase.technical-verification" or "purchase.commercial-comparisons" or "purchase.po" or "purchase.material-followup" or "purchase.requisition-approvals";
+        var requiresExplicitGrant = normalizedPage is "purchase.rfq" or "purchase.vendor-quotations" or
+            "purchase.technical-verification" or "purchase.commercial-comparisons" or "purchase.po" or "purchase.material-followup" or
+            "purchase.requisition-approvals" or "inventory.grn";
         return grants.Any(grant =>
         {
             var explicitlyGranted = normalizedPermission switch
@@ -60,7 +61,7 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
                 PagePermissionActions.FullControl => grant.HasFullControl,
                 _ => false
             };
-            return explicitlyGranted || grant.HasFullControl && !requiresExplicitRev869BGrant;
+            return explicitlyGranted || grant.HasFullControl && !requiresExplicitGrant;
         });
     }
 }

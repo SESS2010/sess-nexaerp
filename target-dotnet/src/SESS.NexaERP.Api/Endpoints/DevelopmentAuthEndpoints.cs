@@ -1,15 +1,17 @@
 #if DEBUG
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Domain.Audit;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
 /// <summary>
 /// Development-only login endpoints. Compiled exclusively into Debug builds and
-/// mapped only when development authentication is active. Tokens carry the
-/// exact issuer/subject/organization of a real employee identity mapping so the
-/// normal resolution middleware, permission checks and audit trail run unchanged.
+/// mapped only when development authentication is active. Tokens identify an
+/// existing employee and active company assignment; the normal permission and
+/// audit paths then run under that resolved employee identity.
 /// </summary>
 public static class DevelopmentAuthEndpoints
 {
@@ -24,16 +26,19 @@ public static class DevelopmentAuthEndpoints
         group.MapGet("/identities", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var identities = await db.EmployeeIdentityMappings
-                .AsNoTracking()
-                .Where(mapping => mapping.IsActive && mapping.EffectiveFrom <= today && (!mapping.EffectiveTo.HasValue || mapping.EffectiveTo >= today))
-                .Where(mapping => mapping.Employee != null && mapping.Employee.LoginEnabled)
-                .Select(mapping => new
+            var identities = await (from assignment in db.EmployeeCompanyAssignments.AsNoTracking()
+                join employee in db.Employees.AsNoTracking() on assignment.EmployeeId equals employee.Id
+                join company in db.Companies.AsNoTracking() on assignment.CompanyId equals company.Id
+                where assignment.IsActive && assignment.Status == "ACTIVE"
+                    && assignment.EffectiveFrom <= today && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                    && company.IsActive && company.Status == "ACTIVE"
+                select new
                 {
-                    employeeCode = mapping.Employee!.EmployeeCode,
-                    employeeName = mapping.Employee.EmployeeName,
-                    organizationId = mapping.OrganizationId,
+                    employeeCode = employee.EmployeeCode,
+                    employeeName = employee.EmployeeName,
+                    organizationId = company.Code,
                 })
+                .AsNoTracking()
                 .Distinct()
                 .OrderBy(identity => identity.employeeCode)
                 .ThenBy(identity => identity.organizationId)
@@ -43,45 +48,60 @@ public static class DevelopmentAuthEndpoints
 
         group.MapPost("/token", async (DevelopmentTokenRequest request, NexaErpDbContext db, DevelopmentTokenService tokens, CancellationToken cancellationToken) =>
         {
-            var login = (request.LoginId ?? request.EmployeeCode)?.Trim();
-            if (string.IsNullOrWhiteSpace(login))
+            var requestedEmployeeCode = (request.EmployeeCode ?? request.LoginId)?.Trim();
+            if (string.IsNullOrWhiteSpace(requestedEmployeeCode))
             {
-                return Results.BadRequest(new { message = "Login ID (employee ID or official email) is required." });
+                return Results.BadRequest(new { message = "EmployeeCode is required." });
             }
 
-            var code = login.ToUpperInvariant();
-            var email = login.ToLowerInvariant();
+            var code = requestedEmployeeCode.ToUpperInvariant();
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
-            var query = db.EmployeeIdentityMappings
-                .AsNoTracking()
-                .Where(mapping => mapping.IsActive && mapping.EffectiveFrom <= today && (!mapping.EffectiveTo.HasValue || mapping.EffectiveTo >= today))
-                .Where(mapping => mapping.Employee != null
-                    && (mapping.Employee.EmployeeCode == code
-                        || (mapping.Employee.OfficialEmail != null && mapping.Employee.OfficialEmail.ToLower() == email)));
+            var query = from assignment in db.EmployeeCompanyAssignments.AsNoTracking()
+                join employee in db.Employees.AsNoTracking() on assignment.EmployeeId equals employee.Id
+                join company in db.Companies.AsNoTracking() on assignment.CompanyId equals company.Id
+                where employee.EmployeeCode == code
+                    && assignment.IsActive && assignment.Status == "ACTIVE"
+                    && assignment.EffectiveFrom <= today && (!assignment.EffectiveTo.HasValue || assignment.EffectiveTo >= today)
+                    && company.IsActive && company.Status == "ACTIVE"
+                select new { Employee = employee, Company = company };
 
             if (!string.IsNullOrWhiteSpace(request.OrganizationId))
             {
                 var organization = request.OrganizationId.Trim().ToUpperInvariant();
-                query = query.Where(mapping => mapping.OrganizationId == organization);
+                query = query.Where(x => x.Company.Code == organization);
             }
 
             var mapping = await query
-                .OrderBy(mapping => mapping.OrganizationId)
+                .OrderBy(x => x.Company.Code)
                 .Select(mapping => new
                 {
-                    mapping.Issuer,
-                    mapping.Subject,
-                    mapping.OrganizationId,
-                    mapping.Employee!.EmployeeCode,
+                    EmployeeId = mapping.Employee.Id,
+                    mapping.Employee.EmployeeCode,
+                    CompanyId = mapping.Company.Id,
+                    OrganizationId = mapping.Company.Code,
                 })
                 .FirstOrDefaultAsync(cancellationToken);
             if (mapping is null)
             {
-                return Results.NotFound(new { message = $"No active identity mapping exists for login '{login}'." });
+                return Results.NotFound(new { message = $"No active company assignment exists for employee '{code}'." });
             }
 
-
-            var token = tokens.IssueToken(mapping.Issuer, mapping.Subject, mapping.OrganizationId, TimeSpan.FromHours(12));
+            var token = tokens.IssueToken("urn:nexaerp:development", mapping.EmployeeCode, mapping.OrganizationId, mapping.EmployeeCode, TimeSpan.FromHours(12));
+            db.AuditLogs.Add(new AuditLog
+            {
+                CompanyId = mapping.CompanyId,
+                Scope = "COMPANY",
+                Module = "Authentication",
+                Action = "DevelopmentEmployeeImpersonation",
+                EntityName = "Employee",
+                EntityId = mapping.EmployeeId.ToString(),
+                UserLoginId = "DEVELOPMENT_AUTHENTICATION",
+                Result = "Success",
+                CorrelationId = Guid.NewGuid().ToString("N"),
+                AfterJson = JsonSerializer.Serialize(new { requestedEmployeeCode = code, mapping.OrganizationId, expiresInHours = 12 }),
+                CreatedBy = "DEVELOPMENT_AUTHENTICATION",
+            });
+            await db.SaveChangesAsync(cancellationToken);
             return Results.Ok(new
             {
                 token,
