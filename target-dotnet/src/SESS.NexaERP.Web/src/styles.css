@@ -48,6 +48,17 @@ body {
 }
 .nav-link.disabled { @apply cursor-not-allowed text-slate-600 hover:bg-transparent hover:text-slate-600; }
 
+.nav-group { @apply flex flex-col; }
+.nav-section-toggle {
+  @apply flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border-0 bg-transparent
+         px-3 pt-5 pb-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.14em]
+         text-slate-500/90 transition-colors hover:text-slate-300
+         focus-visible:ring-2 focus-visible:ring-blue-500/40;
+}
+.nav-chevron { @apply grid size-4 place-items-center text-slate-500 transition-transform duration-200; }
+.nav-chevron.open { @apply rotate-180 text-slate-400; }
+.nav-group-body { @apply flex flex-col gap-0.5; }
+
 .main { @apply flex min-w-0 flex-1 flex-col; }
 
 .topbar {
@@ -109,6 +120,7 @@ body {
 .table tbody tr:last-child td { @apply border-b-0; }
 .row-click { @apply cursor-pointer transition-colors duration-100; }
 .row-click:hover td { @apply bg-accent-soft; }
+.row-selected td { @apply bg-accent-soft; }
 .table-empty { @apply py-10 text-center text-ink-faint; }
 .mono { @apply font-mono text-[0.92em] tabular-nums; }
 
