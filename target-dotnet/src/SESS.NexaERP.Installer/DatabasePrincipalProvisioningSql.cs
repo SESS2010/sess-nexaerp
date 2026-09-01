@@ -148,6 +148,14 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb) TO nexa_erp_runtime';
           END IF;
+          IF to_regprocedure('advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text) TO nexa_erp_runtime';
+          END IF;
+          IF to_regprocedure('advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text) TO nexa_erp_runtime';
+          END IF;
         END $stores_acl$;
 
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
@@ -252,6 +260,18 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_bootstrap','advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)','EXECUTE')
                   OR has_function_privilege('nexa_erp_migration','advance.replace_gate_entry_draft(uuid,uuid,bigint,text,text,text,timestamptz,jsonb,text,jsonb)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled Gate Entry draft function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text)') IS NOT NULL
+             AND (NOT has_function_privilege('nexa_erp_runtime','advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_migration','advance.finalize_goods_receipt(uuid,uuid,bigint,text,text,text,uuid,text,text)','EXECUTE')) THEN
+            RAISE EXCEPTION 'Controlled GRN finalization function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)') IS NOT NULL
+             AND (NOT has_function_privilege('nexa_erp_runtime','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_migration','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')) THEN
+            RAISE EXCEPTION 'Controlled GRN reversal function ACL is invalid.';
           END IF;
         END $verify$;
         """;

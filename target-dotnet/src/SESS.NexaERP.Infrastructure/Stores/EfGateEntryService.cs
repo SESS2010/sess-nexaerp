@@ -18,7 +18,7 @@ public sealed partial class EfGateEntryService(NexaErpDbContext db,ICurrentUser 
 
     public async Task<GateEntryResult> CreateAsync(CreateGateEntryRequest request,string idempotencyKey,CancellationToken ct)
     {
-        var actor=Actor(); var org=Organization(); var key=Required(idempotencyKey,"Idempotency-Key");
+        var actor=Actor(); await RequireReceiptOperatorAsync(ct); var org=Organization(); var key=Required(idempotencyKey,"Idempotency-Key");
         ValidateBody(request.VendorDcNumber,request.ModeOfTransport,request.ArrivedAt,request.IsoReceiptVerificationJson,request.Lines);
         var fingerprint=Hash(new { PurchaseOrderNumber=Required(request.PurchaseOrderNumber,"PurchaseOrderNumber").ToUpperInvariant(),VendorDcNumber=request.VendorDcNumber.Trim(),VehicleNumber=Trim(request.VehicleNumber),ModeOfTransport=request.ModeOfTransport.Trim(),request.ArrivedAt,IsoReceiptVerificationJson=CanonicalObject(request.IsoReceiptVerificationJson),Lines=request.Lines.OrderBy(x=>x.PurchaseOrderLineId).Select(x=>new{x.PurchaseOrderLineId,x.DeliveredQuantity}) });
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
@@ -42,7 +42,7 @@ public sealed partial class EfGateEntryService(NexaErpDbContext db,ICurrentUser 
 
     public async Task<GateEntryResult> UpdateAsync(Guid id,UpdateGateEntryRequest request,CancellationToken ct)
     {
-        Actor(); var org=Organization(); ValidateBody(request.VendorDcNumber,request.ModeOfTransport,request.ArrivedAt,request.IsoReceiptVerificationJson,request.Lines);
+        Actor(); await RequireReceiptOperatorAsync(ct); var org=Organization(); ValidateBody(request.VendorDcNumber,request.ModeOfTransport,request.ArrivedAt,request.IsoReceiptVerificationJson,request.Lines);
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);
         var company=await Company(org,ct); var gate=await db.GateEntries.AsNoTracking().Include(x=>x.PurchaseOrder).ThenInclude(x=>x!.Lines).Include(x=>x.Lines).SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct)??throw new KeyNotFoundException("Gate Entry was not found.");
         if(gate.Status!="DRAFT")throw new StoresConflictException("A finalized Gate Entry is immutable."); if(gate.Version!=request.Version)throw new DbUpdateConcurrencyException("Gate Entry Version is stale.");
@@ -54,7 +54,7 @@ public sealed partial class EfGateEntryService(NexaErpDbContext db,ICurrentUser 
 
     public async Task<GateEntryResult> FinalizeAsync(Guid id,FinalizeGateEntryRequest request,CancellationToken ct)
     {
-        var actor=Actor(); var org=Organization(); var correlation=Hash($"GATE:FINALIZE:{id}:{Required(request.IdempotencyKey,"IdempotencyKey")}");
+        var actor=Actor(); await RequireReceiptOperatorAsync(ct); var org=Organization(); var correlation=Hash($"GATE:FINALIZE:{id}:{Required(request.IdempotencyKey,"IdempotencyKey")}");
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct); var company=await Company(org,ct);
         var finalizeLock=$"GATE:FINALIZE:{id}";
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({finalizeLock},0))",ct);

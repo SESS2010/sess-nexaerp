@@ -63,6 +63,7 @@ public static class DependencyInjection
         services.AddScoped<IPurchaseApprovalWorkflowService, EfPurchaseApprovalWorkflowService>();
         services.AddScoped<IPurchaseRequisitionWorkflowService, EfPurchaseRequisitionWorkflowService>();
         services.AddScoped<IGateEntryService, EfGateEntryService>();
+        services.AddScoped<IGoodsReceiptService, EfGoodsReceiptService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

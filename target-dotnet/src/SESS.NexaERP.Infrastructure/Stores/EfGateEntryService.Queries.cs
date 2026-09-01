@@ -12,13 +12,13 @@ public sealed partial class EfGateEntryService
 {
     public async Task<GateEntryResult?> GetAsync(Guid id,CancellationToken ct)
     {
-        var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;
+        await RequireReceiptOperatorAsync(ct); var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;
         await RequireScope(gate.PurchaseOrder!.RequestingDepartmentId,gate.PurchaseOrder.DeliveryWarehouseId,gate.PurchaseOrder.OwnerEmployeeId,ct); return Map(gate);
     }
 
     public async Task<GateEntryListResult> ListAsync(string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken ct)
     {
-        if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
+        await RequireReceiptOperatorAsync(ct); if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
         var q=Query().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(poNumber))q=q.Where(x=>x.PurchaseOrder!.PoNumber==poNumber.Trim().ToUpperInvariant()); if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(from.HasValue)q=q.Where(x=>x.ArrivedAt>=from.Value.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)); if(to.HasValue)q=q.Where(x=>x.ArrivedAt<to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
@@ -48,7 +48,8 @@ public sealed partial class EfGateEntryService
     private void AddHistory(GateEntry gate,string? from,string to,string action,string correlation)=>db.StoresDocumentStatusHistories.Add(new StoresDocumentStatusHistory{CompanyId=gate.CompanyId,GateEntryId=gate.Id,FromStatus=from,ToStatus=to,Action=action,ActorEmployeeId=Actor(),ActorRoleCode=ActorRole(),OccurredAt=DateTimeOffset.UtcNow,CorrelationId=correlation});
     private async Task RequireScope(Guid? department,Guid? warehouse,Guid owner,CancellationToken ct){var decision=await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),department,warehouse,null,owner),DateOnly.FromDateTime(DateTime.UtcNow),ct);if(!decision.Allowed)throw new UnauthorizedAccessException("Gate Entry record scope is denied.");}
     private Guid Actor()=>user.IsAuthenticated&&user.EmployeeId.HasValue?user.EmployeeId.Value:throw new UnauthorizedAccessException("A resolved employee identity is required.");
-    private string ActorRole(){foreach(var role in new[]{"STORES_EXECUTIVE","STORES_MANAGER"})if(user.RoleCodes.Contains(role,StringComparer.OrdinalIgnoreCase))return role;throw new UnauthorizedAccessException("STORES_EXECUTIVE or STORES_MANAGER is required.");}
+    private string ActorRole(){foreach(var role in new[]{"STORES_EXECUTIVE","STORES_ASSISTANT"})if(user.RoleCodes.Contains(role,StringComparer.OrdinalIgnoreCase))return role;throw new UnauthorizedAccessException("A Stores receipt operational role is required.");}
+    private async Task RequireReceiptOperatorAsync(CancellationToken ct){var code=await db.Employees.AsNoTracking().Where(x=>x.Id==Actor()).Select(x=>x.EmployeeCode).SingleOrDefaultAsync(ct);if(code is not("SESS-16" or "SESS-35" or "SESS-41"))throw new UnauthorizedAccessException("Gate Entry is restricted to the three settled receipt operators.");}
     private string Organization()=>!string.IsNullOrWhiteSpace(user.OrganizationId)?user.OrganizationId.Trim().ToUpperInvariant():throw new UnauthorizedAccessException("Company scope is required.");
     private async Task<Company> Company(string org,CancellationToken ct)=>await db.Companies.SingleOrDefaultAsync(x=>x.Code==org&&x.IsActive&&x.Status=="ACTIVE",ct)??throw new UnauthorizedAccessException("Selected company is unavailable.");
     private static void ValidateBody(string dc,string mode,DateTimeOffset arrived,string json,IReadOnlyList<GateEntryLineRequest> lines){Required(dc,"VendorDcNumber");Required(mode,"ModeOfTransport");if(arrived==default)throw new StoresValidationException("ArrivedAt is required.");CanonicalObject(json);if(lines is null)throw new StoresValidationException("Lines are required.");}

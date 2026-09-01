@@ -91,7 +91,41 @@ public sealed class GoodsReceiptLine
     public DateOnly InitialWarrantyExpiryDate { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";
+    public List<GoodsReceiptLineLotAllocation> LotAllocations { get; set; } = [];
     public List<GoodsReceiptLineSerial> Serials { get; set; } = [];
+}
+
+public sealed class InventoryLot
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Company? Company { get; set; }
+    public Guid ItemId { get; set; }
+    public Item? Item { get; set; }
+    public Guid VendorId { get; set; }
+    public Vendor? Vendor { get; set; }
+    public string? SupplierLotNumber { get; set; }
+    public string? NormalizedSupplierLotNumber { get; set; }
+    public string? ManufacturerLotNumber { get; set; }
+    public string? NormalizedManufacturerLotNumber { get; set; }
+    public DateOnly? ManufactureDate { get; set; }
+    public DateOnly? ExpiryDate { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
+}
+
+public sealed class GoodsReceiptLineLotAllocation
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid GoodsReceiptLineId { get; set; }
+    public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+    public Guid InventoryLotId { get; set; }
+    public InventoryLot? InventoryLot { get; set; }
+    public int LotOrdinal { get; set; }
+    public decimal Quantity { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
 }
 
 public sealed class InventorySerial
@@ -118,8 +152,10 @@ public sealed class GoodsReceiptLineSerial
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }
-    public Guid InventorySerialId { get; set; }
+    public Guid? InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
+    public Guid GoodsReceiptLineLotAllocationId { get; set; }
+    public GoodsReceiptLineLotAllocation? GoodsReceiptLineLotAllocation { get; set; }
     public int SerialOrdinal { get; set; }
     public string EnteredSerialNumber { get; set; } = string.Empty;
     public string StoredSerialNumberSnapshot { get; set; } = string.Empty;

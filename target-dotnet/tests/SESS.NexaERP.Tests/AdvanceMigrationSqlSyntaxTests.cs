@@ -689,7 +689,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments)<>99 THEN RAISE EXCEPTION 'Expected 99 role assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments)<>101 THEN RAISE EXCEPTION 'Expected 101 role assignments, including the two company-scoped KARTHICK receipt assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_operational_scopes)<>398 THEN RAISE EXCEPTION 'Expected 398 operational scopes.'; END IF;
           IF (SELECT count(*) FROM advance.employee_identity_mappings)<>0 THEN RAISE EXCEPTION 'Fresh chain must have no identity mappings before bootstrap.'; END IF;
           IF (SELECT count(*) FROM advance.purchase_transaction_approval_policies WHERE "IsActive")<>6 THEN RAISE EXCEPTION 'Expected six active approval policies.'; END IF;

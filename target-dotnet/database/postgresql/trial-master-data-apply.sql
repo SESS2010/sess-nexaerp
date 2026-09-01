@@ -39,7 +39,7 @@ DELETE FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemCode" LIKE 'TR
 DELETE FROM advance.vendors WHERE "CreatedBy"='TRIAL_DATA' AND "VendorCode" LIKE 'TRIAL-%';
 DELETE FROM advance.item_subcategories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
 DELETE FROM advance.manufacturers WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
-DELETE FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
+DELETE FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA';
 DELETE FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
 
 INSERT INTO advance.uoms ("Id","Code","Name","MeasurementDimension","QuantityPrecision","IsActive","CreatedAt","CreatedBy","Version") VALUES
@@ -51,12 +51,12 @@ INSERT INTO advance.uoms ("Id","Code","Name","MeasurementDimension","QuantityPre
 ('71000000-0000-0000-0003-000000000006','TRIAL-LOT','TRIAL Lot','COUNT',0,true,now(),'TRIAL_DATA',0);
 
 INSERT INTO advance.item_categories ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version") VALUES
-('71000000-0000-0000-0001-000000000001','TRIAL-ELE','TRIAL Electrical',true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0001-000000000002','TRIAL-REF','TRIAL Refrigeration',true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0001-000000000003','TRIAL-FAS','TRIAL Fasteners',true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0001-000000000004','TRIAL-PLC','TRIAL Controls and PLC',true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0001-000000000005','TRIAL-FAB','TRIAL Fabrication',true,now(),'TRIAL_DATA',0),
-('71000000-0000-0000-0001-000000000006','TRIAL-MEC','TRIAL Mechanical',true,now(),'TRIAL_DATA',0);
+('71000000-0000-0000-0001-000000000001','ELE','TRIAL Electrical',true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0001-000000000002','REF','TRIAL Refrigeration',true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0001-000000000003','FAS','TRIAL Fasteners',true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0001-000000000004','PLC','TRIAL Controls and PLC',true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0001-000000000005','FAB','TRIAL Fabrication',true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0001-000000000006','MEC','TRIAL Mechanical',true,now(),'TRIAL_DATA',0);
 
 INSERT INTO advance.item_subcategories ("Id","CategoryId","Code","Name","IsActive","CreatedAt","CreatedBy","Version") VALUES
 ('71000000-0000-0000-0002-000000000001','71000000-0000-0000-0001-000000000002','TRIAL-REF-CMP','TRIAL Refrigeration Compressors',true,now(),'TRIAL_DATA',0),
@@ -188,7 +188,7 @@ DECLARE actual integer[];
 BEGIN
  SELECT ARRAY[
   (SELECT count(*) FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'),
-  (SELECT count(*) FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'),
+  (SELECT count(*) FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA'),
   (SELECT count(*) FROM advance.item_subcategories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'),
   (SELECT count(*) FROM advance.manufacturers WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%'),
   (SELECT count(*) FROM advance.vendors WHERE "CreatedBy"='TRIAL_DATA' AND "VendorCode" LIKE 'TRIAL-%'),

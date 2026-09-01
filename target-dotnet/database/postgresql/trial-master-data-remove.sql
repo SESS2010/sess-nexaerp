@@ -38,7 +38,7 @@ DELETE FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemCode" LIKE 'TR
 DELETE FROM advance.vendors WHERE "CreatedBy"='TRIAL_DATA' AND "VendorCode" LIKE 'TRIAL-%';
 DELETE FROM advance.item_subcategories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
 DELETE FROM advance.manufacturers WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
-DELETE FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
+DELETE FROM advance.item_categories WHERE "CreatedBy"='TRIAL_DATA';
 DELETE FROM advance.uoms WHERE "CreatedBy"='TRIAL_DATA' AND "Code" LIKE 'TRIAL-%';
 
 DO $verify$

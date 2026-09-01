@@ -37,6 +37,8 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public GoodsReceiptLine? OriginGoodsReceiptLine { get; set; }
     public Guid? InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
+    public Guid? GoodsReceiptLineLotAllocationId { get; set; }
+    public GoodsReceiptLineLotAllocation? GoodsReceiptLineLotAllocation { get; set; }
     public Guid? ReversesStockMovementId { get; set; }
     public StockMovement? ReversesStockMovement { get; set; }
     public string? PostingIdentity { get; set; }

@@ -7,6 +7,8 @@ public sealed partial class NexaErpDbContext
 {
     public DbSet<GoodsReceipt> GoodsReceipts => Set<GoodsReceipt>();
     public DbSet<GoodsReceiptLine> GoodsReceiptLines => Set<GoodsReceiptLine>();
+    public DbSet<InventoryLot> InventoryLots => Set<InventoryLot>();
+    public DbSet<GoodsReceiptLineLotAllocation> GoodsReceiptLineLotAllocations => Set<GoodsReceiptLineLotAllocation>();
     public DbSet<InventorySerial> InventorySerials => Set<InventorySerial>();
     public DbSet<GoodsReceiptLineSerial> GoodsReceiptLineSerials => Set<GoodsReceiptLineSerial>();
 
@@ -18,6 +20,8 @@ public sealed partial class NexaErpDbContext
 
         ConfigureGoodsReceipts(modelBuilder);
         ConfigureGoodsReceiptLines(modelBuilder);
+        ConfigureInventoryLots(modelBuilder);
+        ConfigureGoodsReceiptLineLotAllocations(modelBuilder);
         ConfigureInventorySerials(modelBuilder);
         ConfigureGoodsReceiptLineSerials(modelBuilder);
 
@@ -128,6 +132,51 @@ public sealed partial class NexaErpDbContext
         });
     }
 
+    private static void ConfigureInventoryLots(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<InventoryLot>(entity =>
+        {
+            entity.ToTable("inventory_lots", table =>
+            {
+                table.HasCheckConstraint("CK_inventory_lot_expiry", "\"ManufactureDate\" IS NULL OR \"ExpiryDate\" IS NULL OR \"ExpiryDate\">=\"ManufactureDate\"");
+                table.HasCheckConstraint("CK_inventory_lot_normalized_supplier", "\"NormalizedSupplierLotNumber\" IS NOT DISTINCT FROM CASE WHEN nullif(trim(\"SupplierLotNumber\"),'') IS NULL THEN NULL ELSE upper(trim(regexp_replace(\"SupplierLotNumber\",'[[:space:]]+',' ','g'))) END");
+                table.HasCheckConstraint("CK_inventory_lot_normalized_manufacturer", "\"NormalizedManufacturerLotNumber\" IS NOT DISTINCT FROM CASE WHEN nullif(trim(\"ManufacturerLotNumber\"),'') IS NULL THEN NULL ELSE upper(trim(regexp_replace(\"ManufacturerLotNumber\",'[[:space:]]+',' ','g'))) END");
+            });
+            entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.CompanyId, x.Id });
+            entity.HasIndex(x => new { x.CompanyId, x.ItemId, x.VendorId, x.NormalizedSupplierLotNumber, x.NormalizedManufacturerLotNumber, x.ManufactureDate, x.ExpiryDate })
+                .IsUnique().AreNullsDistinct(false)
+                .HasFilter(@"""NormalizedSupplierLotNumber"" IS NOT NULL OR ""NormalizedManufacturerLotNumber"" IS NOT NULL");
+            entity.Property(x => x.SupplierLotNumber).HasMaxLength(160);
+            entity.Property(x => x.NormalizedSupplierLotNumber).HasMaxLength(160);
+            entity.Property(x => x.ManufacturerLotNumber).HasMaxLength(160);
+            entity.Property(x => x.NormalizedManufacturerLotNumber).HasMaxLength(160);
+            entity.Property(x => x.CreatedBy).IsRequired();
+            entity.HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Vendor).WithMany().HasForeignKey(x => x.VendorId).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureGoodsReceiptLineLotAllocations(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<GoodsReceiptLineLotAllocation>(entity =>
+        {
+            entity.ToTable("goods_receipt_line_lot_allocations", table =>
+            {
+                table.HasCheckConstraint("CK_grn_line_lot_ordinal", "\"LotOrdinal\">0");
+                table.HasCheckConstraint("CK_grn_line_lot_quantity", "\"Quantity\">0");
+            });
+            entity.HasKey(x => x.Id);
+            entity.HasAlternateKey(x => new { x.CompanyId, x.Id });
+            entity.HasIndex(x => new { x.GoodsReceiptLineId, x.LotOrdinal }).IsUnique();
+            entity.HasIndex(x => new { x.GoodsReceiptLineId, x.InventoryLotId }).IsUnique();
+            entity.Property(x => x.Quantity).HasPrecision(24, 6);
+            entity.Property(x => x.CreatedBy).IsRequired();
+            entity.HasOne(x => x.GoodsReceiptLine).WithMany(x => x.LotAllocations).HasForeignKey(x => new { x.CompanyId, x.GoodsReceiptLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.InventoryLot).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventoryLotId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
     private static void ConfigureInventorySerials(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<InventorySerial>(entity =>
@@ -164,6 +213,7 @@ public sealed partial class NexaErpDbContext
             entity.HasIndex(x => new { x.GoodsReceiptLineId, x.InventorySerialId }).IsUnique();
             entity.HasIndex(x => new { x.CompanyId, x.ItemId, x.StoredSerialNumberSnapshot });
             entity.HasIndex(x => x.InventorySerialId);
+            entity.HasIndex(x => x.GoodsReceiptLineLotAllocationId);
             entity.Property(x => x.EnteredSerialNumber).HasMaxLength(200).IsRequired();
             entity.Property(x => x.StoredSerialNumberSnapshot).HasMaxLength(300).IsRequired();
             entity.Property(x => x.ReceiptDisposition).HasMaxLength(30).IsRequired();
@@ -172,6 +222,7 @@ public sealed partial class NexaErpDbContext
             entity.Property(x => x.DisambiguationReason).HasMaxLength(500);
             entity.HasOne(x => x.GoodsReceiptLine).WithMany(x => x.Serials).HasForeignKey(x => new { x.CompanyId, x.GoodsReceiptLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.InventorySerial).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.GoodsReceiptLineLotAllocation).WithMany().HasForeignKey(x => new { x.CompanyId, x.GoodsReceiptLineLotAllocationId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.CapturedByEmployee).WithMany().HasForeignKey(x => x.CapturedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
         });

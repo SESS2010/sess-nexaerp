@@ -55,6 +55,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid mdId;
         Guid verifierId;
         Guid purchaseId;
+        Guid storesId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -76,10 +77,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             mdId = await Employee(seed, "SESS-02");
             verifierId = await Employee(seed, "SESS-05");
             purchaseId = await Employee(seed, "SESS-15");
+            storesId = await Employee(seed, "SESS-35");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
-                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15")
+                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -179,9 +181,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new PurchaseFlowBand("TD", 5000.00m, 5000m, 2, managerId, tdId),
                 new PurchaseFlowBand("MD", 100000.01m, 100000.01m, 2, managerId, mdId)
             };
+            var grns=new List<GoodsReceiptResult>();
             foreach (var band in bands)
-                await RunPurchaseBand(adminClient, client, options, user, band, creatorId, managerId, tdId, mdId,
-                    verifierId, purchaseId, vendor1Id, vendor2Id);
+                grns.Add(await RunPurchaseBand(adminClient, client, options, user, band, creatorId, managerId, tdId, mdId,
+                    verifierId, purchaseId, storesId, vendor1Id, vendor2Id));
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -193,15 +196,43 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.PurchaseOrders.CountAsync());
             Assert.Equal(3, await verify.MaterialFollowUpHandoffs.CountAsync());
             Assert.Equal(3, await verify.GateEntries.CountAsync());
+            Assert.Equal(3, await verify.GoodsReceipts.CountAsync());
+            Assert.Equal(3, await verify.GoodsReceiptLines.CountAsync());
+            Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
+            Assert.Equal(3, await verify.InventoryLots.CountAsync());
+            Assert.Equal(1, await verify.GoodsReceiptLineSerials.CountAsync());
+            Assert.Equal(1, await verify.InventorySerials.CountAsync());
+            Assert.Equal(3, await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="GRN_CUSTODY"));
+            Assert.Equal(3m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
+            Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GoodsReceiptId!=null));
+            Assert.Equal(new[]{"ELE","FAB","FAS","MEC","PLC","REF"},await verify.ItemCategories.Where(x=>x.CreatedBy=="TRIAL_DATA").OrderBy(x=>x.Code).Select(x=>x.Code).ToArrayAsync());
+            var qcLocations=await verify.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="QC_HOLD"&&x.CreatedBy=="TRIAL_DATA").ToListAsync();
+            Assert.Equal(6,qcLocations.Count);
+            Assert.Equal(6,qcLocations.Select(x=>x.RackBinId).Distinct().Count());
+            var qcRackNames=await verify.RackBins.Where(x=>qcLocations.Select(location=>location.RackBinId).Contains(x.Id)).Select(x=>x.RackName).Distinct().ToListAsync();
+            Assert.Equal("TRIAL QC Category Rack",Assert.Single(qcRackNames));
             Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
+
+            var original=grns[0];
+            var reversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
+            Assert.Equal("REVERSAL",reversal.DocumentKind);Assert.Equal(original.Id,reversal.ReversesGoodsReceiptId);Assert.Equal("FINALIZED",reversal.Status);Assert.Equal(2,reversal.History.Count);Assert.Equal("FINALIZED",reversal.History.Last().Action);Assert.NotNull(reversal.StockPostingBatchId);Assert.False(reversal.Replayed);Assert.Empty(reversal.Lines);
+            var reversalBatch=await verify.StockPostingBatches.SingleAsync(x=>x.Id==reversal.StockPostingBatchId);
+            Assert.Equal("REVERSAL",reversalBatch.PostingKind);Assert.Equal(original.StockPostingBatchId,reversalBatch.ReversesPostingBatchId);
+            var originalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==original.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
+            var reversalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==reversal.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
+            Assert.Equal(originalMovements.Count,reversalMovements.Count);Assert.All(reversalMovements,x=>Assert.Equal("REVERSAL",x.MovementLeg));Assert.Equal(originalMovements.Select(x=>x.Id),reversalMovements.Select(x=>x.ReversesStockMovementId!.Value));Assert.Equal(originalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId),reversalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId));
+            Assert.Equal(2m,await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(0m,await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
+            var replayedReversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
+            Assert.True(replayedReversal.Replayed);Assert.Equal(reversal.Id,replayedReversal.Id);Assert.Equal(reversal.StockPostingBatchId,replayedReversal.StockPostingBatchId);Assert.Equal(4,await verify.StockPostingBatches.CountAsync());Assert.Equal(4,await verify.GoodsReceipts.CountAsync());Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
         }
         finally { }
     }
 
-    private static async Task RunPurchaseBand(HttpClient prClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
+    private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
-        Guid verifierId, Guid purchaseId, Guid vendor1Id, Guid vendor2Id)
+        Guid verifierId, Guid purchaseId, Guid storesId, Guid vendor1Id, Guid vendor2Id)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "SOFTWARE_DEVELOPER");
@@ -336,7 +367,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
 
-        user.Set(purchaseId,"SESS-15",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
+        user.Set(storesId,"SESS-35",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
         var poLineId=await Query(options,db=>db.PurchaseOrderLines.Where(x=>x.PurchaseOrderId==po.Id).Select(x=>x.Id).SingleAsync());
         var gate=await Post<GateEntryResult>(prClient,"/api/v1/stores/gate-entries/",
             new CreateGateEntryRequest(po.Number,$"TRIAL-DC-{band.Code}","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,"{\"packagesChecked\":true}",[new(poLineId,1)]),$"{band.Code}-gate-create");
@@ -347,6 +378,33 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
         Assert.Equal("FINALIZED",gate.Status); Assert.Equal(2,gate.History.Count);
         await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
+
+        IReadOnlyList<GoodsReceiptSerialRequest> serials=band.QuoteRate>5000m
+            ? [new(1,1,$"TRIAL-SERIAL-{band.Code}",$"TRIAL-SERIAL-{band.Code}",false,null)] : [];
+        var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=DateTimeOffset.UtcNow;
+        var grn=await Post<GoodsReceiptResult>(prClient,"/api/v1/stores/goods-receipts/",
+            new CreateGoodsReceiptRequest(gate.GateEntryNumber,$"TRIAL-BILL-{band.Code}",billDate,receivedAt,"{\"billChecked\":true}",
+                [new(gate.Lines.Single().Id,[new(1,1,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
+            $"{band.Code}-grn-create");
+        Assert.Equal("DRAFT",grn.Status);Assert.Single(grn.History);Assert.Single(grn.Lines);Assert.Single(grn.Lines[0].Lots);
+        Assert.Equal(billDate.AddMonths(13),grn.Lines[0].WarrantyExpiryDate);Assert.Equal("9025",grn.Lines[0].HsnSacCode);
+        Assert.Equal(band.QuoteRate>5000m?"REQUIRED":"OPTIONAL",grn.Lines[0].SerialCaptureMode);Assert.Empty(grn.Warnings);
+        var draftVersion=grn.Version;
+        grn=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
+        Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
+        if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
+        await using(var evidence=new NexaErpDbContext(options))
+        {
+            Assert.True(await evidence.StockPostingBatches.AnyAsync(x=>x.Id==grn.StockPostingBatchId&&x.GoodsReceiptId==grn.Id&&x.PostingKind=="GRN_CUSTODY"));
+            var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId).ToListAsync();
+            Assert.NotEmpty(movements);Assert.All(movements,x=>{Assert.Equal("QC_HOLD",x.ConditionCode);Assert.NotNull(x.GoodsReceiptLineLotAllocationId);});
+            Assert.Equal(0,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(2,await evidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
+        }
+        var replay=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
+        Assert.True(replay.Replayed);Assert.Equal(grn.StockPostingBatchId,replay.StockPostingBatchId);Assert.Equal(2,replay.History.Count);
+        await using var replayEvidence=new NexaErpDbContext(options);Assert.Single(await replayEvidence.StockPostingBatches.Where(x=>x.GoodsReceiptId==grn.Id).ToListAsync());Assert.Equal(2,await replayEvidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
+        return grn;
     }
 
     private static async Task AssertPrEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction,
@@ -475,6 +533,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();
             app.MapStoresGateEntryEndpoints();
+            app.MapStoresGoodsReceiptEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");
