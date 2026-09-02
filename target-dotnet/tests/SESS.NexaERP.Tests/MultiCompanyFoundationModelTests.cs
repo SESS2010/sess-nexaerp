@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Inventory;
+using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Tests;
@@ -19,8 +20,29 @@ public sealed class MultiCompanyFoundationModelTests
             .Count(x => typeof(CompanyScopedAuditableEntity).IsAssignableFrom(x.ClrType) &&
                         x.ClrType.Namespace != "SESS.NexaERP.Domain.Foundation");
 
-        Assert.Equal(52, existingScoped);
-        Assert.Equal(38, 90 - existingScoped);
+        var foundation2Scoped = db.Model.GetEntityTypes().Count(x =>
+            x.ClrType == typeof(InventoryExternalParty) ||
+            x.ClrType == typeof(InventoryAccountHolder) ||
+            x.ClrType == typeof(InventoryOwnershipAccount) ||
+            x.ClrType == typeof(InventoryCustodyAccount) ||
+            x.ClrType == typeof(InventoryCustodyCase) ||
+            x.ClrType == typeof(InventoryCustodyCaseLine) ||
+            x.ClrType == typeof(InventoryCustodyCaseSourceLink) ||
+            x.ClrType == typeof(InventoryCustodyCaseGateEntryLink) ||
+            x.ClrType == typeof(InventoryCustodyCaseGoodsReceiptLink) ||
+            x.ClrType == typeof(InventoryCustodyCaseDeliveryChallanLink) ||
+            x.ClrType == typeof(InventoryCustodyCasePurchaseOrderLink) ||
+            x.ClrType == typeof(InventoryCustodyCaseCustomerPurchaseOrderLink) ||
+            x.ClrType == typeof(InventoryCustodyCaseJobOrderLink) ||
+            x.ClrType == typeof(InventoryCustodyAssignment) ||
+            x.ClrType == typeof(InventoryCustodyHandoff) ||
+            x.ClrType == typeof(InventoryCustodyHandoffLine) ||
+            x.ClrType == typeof(InventoryOwnershipTransfer) ||
+            x.ClrType == typeof(InventoryOwnershipTransferLine) ||
+            x.ClrType == typeof(InventoryMemoLiabilityEvent));
+        Assert.Equal(19, foundation2Scoped);
+        Assert.Equal(52, existingScoped - foundation2Scoped);
+        Assert.Equal(38, 90 - (existingScoped - foundation2Scoped));
         Assert.Equal(39, MultiCompanyFoundationSeedData.EmployeeCompanyAssignments.Length);
         Assert.All(MultiCompanyFoundationSeedData.EmployeeCompanyAssignments,
             row => Assert.Equal("PAYROLL", row.AssignmentType));

@@ -163,6 +163,11 @@ SELECT ('71000000-0000-0000-0008-'||lpad(sequence_no::text,12,'0'))::uuid,compan
  'TRIAL ONLY - development rack/bin','Active','Approved','TRIAL_DATA',now(),true,now(),'TRIAL_DATA',0
 FROM bin_seed;
 
+INSERT INTO advance.rack_bins
+("Id","CompanyId","WarehouseId","BinCode","RackName","BinNameNumber","Zone","LocationType","MaterialCondition","CapacityQuantity","CapacityUom","Barcode","Description","Status","ApprovalStatus","ApprovedBy","ApprovedAt","IsActive","CreatedAt","CreatedBy","Version") VALUES
+('71000000-0000-0000-0008-000000000023','70000000-0000-0000-0000-000000000001','71000000-0000-0000-0007-000000000001','TRIAL-C01-CUSTOMER-PROPERTY','TRIAL Customer Property Rack','TRIAL Customer Property Rack','TRIAL-CUSTOMER-PROPERTY','CUSTOMER_PROPERTY','CUSTOMER_PROPERTY',1000.000,'TRIAL-NOS','TRIAL-CUSTOMER-PROPERTY-C01','TRIAL ONLY - dedicated customer-owned machines, repair components and warranty returns; never SESS inventory.','Active','Approved','TRIAL_DATA',now(),true,now(),'TRIAL_DATA',0),
+('71000000-0000-0000-0008-000000000024','70000000-0000-0000-0000-000000000002','71000000-0000-0000-0007-000000000002','TRIAL-C02-CUSTOMER-PROPERTY','TRIAL Customer Property Rack','TRIAL Customer Property Rack','TRIAL-CUSTOMER-PROPERTY','CUSTOMER_PROPERTY','CUSTOMER_PROPERTY',1000.000,'TRIAL-NOS','TRIAL-CUSTOMER-PROPERTY-C02','TRIAL ONLY - dedicated customer-owned machines, repair components and warranty returns; never SESS inventory.','Active','Approved','TRIAL_DATA',now(),true,now(),'TRIAL_DATA',0);
+
 WITH c(n,cid,org,wid,available_bin) AS (VALUES
  (1,'70000000-0000-0000-0000-000000000001'::uuid,'SESS_PVT_LTD','71000000-0000-0000-0007-000000000001'::uuid,'71000000-0000-0000-0008-000000000001'::uuid),
  (2,'70000000-0000-0000-0000-000000000002'::uuid,'SESS_PROPRIETORSHIP','71000000-0000-0000-0007-000000000002'::uuid,'71000000-0000-0000-0008-000000000012'::uuid)), loc AS (
@@ -199,7 +204,7 @@ BEGIN
   (SELECT count(*) FROM advance.store_category_routes WHERE "CreatedBy"='TRIAL_DATA'),
   (SELECT count(*) FROM advance.item_company_inventory_settings WHERE "CreatedBy"='TRIAL_DATA')
  ] INTO actual;
- IF actual<>ARRAY[6,6,4,5,15,20,2,22,26,12,0] THEN RAISE EXCEPTION 'Trial-data count mismatch: %, expected {6,6,4,5,15,20,2,22,26,12,0}.',actual; END IF;
+ IF actual<>ARRAY[6,6,4,5,15,20,2,24,26,12,0] THEN RAISE EXCEPTION 'Trial-data count mismatch: %, expected {6,6,4,5,15,20,2,24,26,12,0}.',actual; END IF;
  IF (SELECT count(*) FROM advance.items WHERE "CreatedBy"='TRIAL_DATA' AND "ItemType"='TOOL' AND "IsReturnable")<>1 THEN RAISE EXCEPTION 'Trial data requires exactly one returnable TOOL.'; END IF;
  IF EXISTS(
    SELECT 1
@@ -211,6 +216,7 @@ BEGIN
    WHERE u."CreatedBy"='TRIAL_DATA' AND u."QuantityPrecision"<>expected.precision
  ) THEN RAISE EXCEPTION 'Trial UOM precision does not match the Stores entry/display contract.'; END IF;
  IF EXISTS(SELECT 1 FROM advance.rack_bins rb JOIN advance.warehouses w ON w."Id"=rb."WarehouseId" WHERE rb."CreatedBy"='TRIAL_DATA' AND rb."CompanyId"<>w."CompanyId") THEN RAISE EXCEPTION 'Trial rack-bin company scope mismatch.'; END IF;
+ IF (SELECT count(*) FROM advance.rack_bins WHERE "CreatedBy"='TRIAL_DATA' AND "LocationType"='CUSTOMER_PROPERTY' AND "MaterialCondition"='CUSTOMER_PROPERTY')<>2 THEN RAISE EXCEPTION 'Trial data requires one dedicated customer-property rack per company.'; END IF;
 END $verify$;
 COMMIT;
-\echo 'TRIAL_DATA apply complete: base masters plus 26 condition locations, 12 category routes and no unnecessary serial override.'
+\echo 'TRIAL_DATA apply complete: base masters plus 24 racks (including two dedicated customer-property racks), 26 condition locations, 12 category routes and no unnecessary serial override.'

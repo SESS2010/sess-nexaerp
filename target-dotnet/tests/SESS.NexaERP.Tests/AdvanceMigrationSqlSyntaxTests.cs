@@ -69,7 +69,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         Assert.Contains("'TRIAL_DATA'", apply, StringComparison.Ordinal);
         Assert.Contains("LIKE 'TRIAL-%'", apply, StringComparison.Ordinal);
-        Assert.Contains("ARRAY[6,6,4,5,15,20,2,22,26,12,0]", apply, StringComparison.Ordinal);
+        Assert.Contains("ARRAY[6,6,4,5,15,20,2,24,26,12,0]", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-NOS',0),('TRIAL-SET',0),('TRIAL-LOT',0)", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-KG',3),('TRIAL-MTR',3),('TRIAL-LTR',3)", apply, StringComparison.Ordinal);
         Assert.Contains("principal-provisioned database", apply, StringComparison.Ordinal);

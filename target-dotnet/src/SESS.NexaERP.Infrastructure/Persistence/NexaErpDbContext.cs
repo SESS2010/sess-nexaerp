@@ -81,6 +81,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureStoresPart2(modelBuilder);
         ConfigureStoresPart3A(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
+        ConfigureInventoryOwnershipCustody(modelBuilder);
         ConfigureVendorAttachments(modelBuilder);
         ConfigureCustomerAttachments(modelBuilder);
         ConfigureItemVendors(modelBuilder);

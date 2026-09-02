@@ -1093,3 +1093,16 @@ The user still cannot:
 - use batch/lot or shelf-life tracking, source-less stock adjustments, the calibration register, controlled QC/vendor-certificate attachments, or vendor re-evaluation.
 
 RESULT_REPORTED_PENDING_WITNESS
+## Foundation 2 implementation contract: ownership and custody
+
+Foundation 2 represents ownership independently from physical custody. An inventory account holder may be a SESS company, external customer or vendor, or employee; ownership accounts identify SESS inventory, customer property, supplier-loan stock and demo custody, while custody accounts identify warehouse, rack, employee, vehicle, site or external-party possession. A rack can therefore hold multiple identifiable ownership classes without merging their balances.
+
+Customer property uses explicit custody-case types for other-brand modification, SESS machine warranty return, SESS spare warranty return and removed customer parts. Every case records the customer's inbound returnable DC. A machine may be received before a customer PO, but it remains RECEIVED_AWAITING_COMMERCIAL_AUTHORIZATION; work cannot start until its case or line is backed by the required offer and customer-PO scope. Other-brand work is always chargeable. Warranty scope may be NOT_REQUIRED for free replacement under warranty terms. A line outside PO scope remains unauthorized until a separate offer and PO are linked, so a future Stores issue command can fail closed.
+
+Removed parts retain the customer ownership account. SESS ownership is possible only through an explicit CUSTOMER_BUYBACK ownership transfer with an agreement reference; ownership is never changed by editing an account foreign key. Stores records the due date after management consultation. The due date has no database or application default and carries the employee and timestamp that set it; a later notification slice uses the due-date index to notify Technical Director and Managing Director when overdue.
+
+Supplier-loan stock uses zero SESS inventory value plus append-only memo-liability events. Closing the loan requires both a real supplier purchase order and goods receipt. No ad-hoc payable or free-of-cost conversion path is represented.
+
+### Scanner-first capture contract
+
+Barcode scanning is the primary item and serial capture path. Frontend forms must keep focus on the next expected scan field and treat the scanner's Enter or Tab terminator as “accept this value and advance”. Manual typing remains an accessible fallback, not the default interaction. The API still normalizes and revalidates every scanned value, and finalization—not the browser—enforces item identity and serial uniqueness. USB keyboard-wedge scanners therefore require no scanner-specific server protocol, while later camera or mobile scanners can call the same APIs.
