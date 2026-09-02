@@ -7,6 +7,7 @@ import {
 import { listVendors } from '../../api/vendors'
 import { AddableSelect } from '../../components/AddableSelect'
 import type { ItemDetail, ReferenceLookup, SubcategoryLookup, UpsertItemRequest } from '../../types/item'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -26,7 +27,7 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
   const [selectedVendors, setSelectedVendors] = useState<Set<string>>(new Set())
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   const [form, setForm] = useState({
     itemCode: existing?.ItemCode ?? '',
@@ -93,7 +94,7 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setError(null)
     const optional = (value: string) => (value.trim() ? value.trim() : null)
     try {
       const body: UpsertItemRequest = {
@@ -137,7 +138,7 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
       }
       onSaved(detail.ItemCode)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -290,7 +291,7 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the item." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>

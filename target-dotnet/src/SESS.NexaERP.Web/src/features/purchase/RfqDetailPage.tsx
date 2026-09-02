@@ -11,6 +11,7 @@ import type { VendorOption } from '../../api/purchase'
 import type { RfqDetail } from '../../types/purchase'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 /**
  * Vendors invited from this browser. GET /api/v1/purchase/rfqs/{number} includes
@@ -56,7 +57,7 @@ export function RfqDetailPage() {
 
   const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
   const [vendors, setVendors] = useState<VendorOption[]>([])
@@ -68,14 +69,14 @@ export function RfqDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const detail = await getRfq(rfqNumber)
       setRfq(detail)
       rememberDoc('rfq', detail.RfqNumber)
     } catch (err) {
       setRfq(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the RFQ.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -99,7 +100,7 @@ export function RfqDetailPage() {
       setError('Pick a vendor to invite.')
       return
     }
-    setError('')
+    setError(null)
     setNotice('')
     setInviting(true)
     try {
@@ -125,7 +126,7 @@ export function RfqDetailPage() {
       setNotice(`Vendor invited. Invitation id ${result.Id} — keep it, the API cannot list it back.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to invite the vendor.')
+      setError(err)
     } finally {
       setInviting(false)
     }
@@ -138,7 +139,7 @@ export function RfqDetailPage() {
   if (!rfq) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'RFQ not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="RFQ not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/rfqs')}>
           ‹ Back to RFQ
         </button>
@@ -165,7 +166,7 @@ export function RfqDetailPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
 
       <div className="card">

@@ -23,6 +23,10 @@ import { PurchaseOrderListPage } from './features/purchase/PurchaseOrderListPage
 import { PurchaseOrderDetailPage } from './features/purchase/PurchaseOrderDetailPage'
 import { GateEntryListPage } from './features/stores/GateEntryListPage'
 import { GateEntryDetailPage } from './features/stores/GateEntryDetailPage'
+import { GoodsReceiptListPage } from './features/stores/GoodsReceiptListPage'
+import { GoodsReceiptDetailPage } from './features/stores/GoodsReceiptDetailPage'
+import { QcQueuePage } from './features/qc/QcQueuePage'
+import { QcInspectionPage } from './features/qc/QcInspectionPage'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/vendors', 'Vendor Master'],
@@ -35,6 +39,8 @@ const TITLES: [prefix: string, title: string][] = [
   ['/purchase/comparisons', 'Commercial Comparison'],
   ['/purchase/purchase-orders', 'Purchase Order'],
   ['/stores/gate-entries', 'Gate Entry'],
+  ['/stores/goods-receipts', 'GRN'],
+  ['/qc/inspections', 'QC / Inspection'],
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
@@ -88,8 +94,8 @@ function Shell({ children }: { children: React.ReactNode }) {
 
           <NavSection id="stores" label="Stores" defaultOpen={inStores}>
             <NavLink to="/stores/gate-entries" className={navLinkClass}>Gate Entry</NavLink>
-            <span className="nav-link disabled">GRN</span>
-            <span className="nav-link disabled">QC / Inspection</span>
+            <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>
+            <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>
             <span className="nav-link disabled">MIR / Issue</span>
           </NavSection>
         </nav>
@@ -136,6 +142,10 @@ export default function App() {
                 <Route path="/purchase/purchase-orders/:poNumber" element={<PurchaseOrderDetailPage />} />
                 <Route path="/stores/gate-entries" element={<GateEntryListPage />} />
                 <Route path="/stores/gate-entries/:id" element={<GateEntryDetailPage />} />
+                <Route path="/stores/goods-receipts" element={<GoodsReceiptListPage />} />
+                <Route path="/stores/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
+                <Route path="/qc/inspections" element={<QcQueuePage />} />
+                <Route path="/qc/inspections/:id" element={<QcInspectionPage />} />
               </Routes>
             </Shell>
           </RequireAuth>

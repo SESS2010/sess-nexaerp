@@ -5,6 +5,7 @@ import type { ItemAction } from '../../api/items'
 import type { ItemDetail, ItemVendorLink } from '../../types/item'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const ACTIONS: { action: ItemAction; label: string; from: string[] }[] = [
   { action: 'submit', label: 'Submit', from: ['Draft'] },
@@ -22,12 +23,12 @@ export function ItemDetailPage() {
   const [detail, setDetail] = useState<ItemDetail | null>(null)
   const [vendors, setVendors] = useState<ItemVendorLink[]>([])
   const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
-    setError('')
+    setError(null)
     try {
       const item = await getItem(itemCode)
       setDetail(item)
@@ -39,7 +40,7 @@ export function ItemDetailPage() {
       }
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load item.')
+      setError(err)
     }
   }, [itemCode])
 
@@ -56,7 +57,7 @@ export function ItemDetailPage() {
       await runItemAction(itemCode, action, remarks.trim(), detail.Version)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -89,7 +90,7 @@ export function ItemDetailPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <div className="flex flex-col gap-5 lg:flex-row">

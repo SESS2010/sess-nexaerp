@@ -124,6 +124,18 @@ body {
 .table-empty { @apply py-10 text-center text-ink-faint; }
 .mono { @apply font-mono text-[0.92em] tabular-nums; }
 
+/* Sortable column headers. The <th> keeps its own padding, so the button is
+   flush and inherits the header type styles. */
+.th-sort {
+  @apply -m-0 inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0
+         text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint
+         transition-colors hover:text-ink;
+}
+.th-sort:disabled { @apply cursor-default opacity-60 hover:text-ink-faint; }
+.th-sort.active { @apply text-accent; }
+.th-sort-icon { @apply text-[9px] leading-none opacity-50; }
+.th-sort.active .th-sort-icon { @apply opacity-100; }
+
 /* ---------- Badges ---------- */
 .badge { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold; }
 .badge::before { content: ""; @apply size-1.5 rounded-full bg-current opacity-70; }
@@ -136,6 +148,13 @@ body {
 /* ---------- Alerts ---------- */
 .alert { @apply mb-4 rounded-lg px-4 py-3 text-[13.5px]; }
 .alert-error { @apply border border-red-200 bg-red-50 text-red-700; }
+/* Conflicts (409) are not failures - the server protected data. Amber, not red. */
+.alert-warn { @apply border border-amber-300 bg-amber-50 text-amber-900; }
+.alert-title { @apply mb-1 font-semibold; }
+.alert-body { @apply mb-2 leading-relaxed; }
+.alert-detail { @apply text-[12.5px] text-amber-800/90; }
+.alert-detail summary { @apply cursor-pointer select-none font-medium; }
+.alert-detail p { @apply mt-1 break-words; }
 
 /* ---------- Tabs ---------- */
 .tabs { @apply mb-4 flex gap-1 border-b border-line; }
@@ -167,6 +186,41 @@ body {
 .field { @apply flex flex-col gap-1.5; }
 .field-wide { @apply sm:col-span-2; }
 .modal-actions { @apply mt-2 flex justify-end gap-2.5; }
+
+/* ---------- GRN scanner-first entry ---------- */
+.modal-wide { @apply max-w-[980px]; }
+.scan-toggle { @apply flex items-center gap-2 text-[12.5px] font-medium text-ink-soft; }
+.scan-field { @apply flex flex-col gap-1.5; }
+/* The scan box is the primary input on this form — oversized on purpose, so the
+   storekeeper can see the scan target from arm's length at the receiving bench. */
+.scan-box { @apply h-12 text-[16px] font-mono tracking-wide; }
+.scan-armed { @apply border-accent ring-2 ring-accent/20; }
+.scan-warning { @apply mt-1 block text-[12.5px] font-medium text-red-600; }
+.scan-panel { @apply my-4 rounded-xl border border-accent/30 bg-accent-soft p-4; }
+.doc-context {
+  @apply mb-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-lg border border-line
+         bg-slate-50 px-4 py-2.5 text-[13px];
+}
+.doc-context .field-label { @apply mr-1; }
+.check-grid { @apply grid grid-cols-1 gap-1 text-[13px]; }
+.check-grid label { @apply flex items-center gap-2; }
+
+.grn-line { @apply mb-3 cursor-pointer rounded-xl border border-line bg-white p-4 transition-colors; }
+.grn-line-active { @apply border-accent ring-2 ring-accent/15; }
+.grn-line-head { @apply mb-2 flex flex-wrap items-center gap-3 text-[13.5px]; }
+
+.lot-row { @apply mb-1.5 grid grid-cols-[54px_84px_1fr_1fr_150px_150px_auto] items-center gap-2; }
+.lot-add { @apply mt-1; }
+.lot-chip { @apply text-[12px]; }
+
+.serial-list { @apply mt-3 flex flex-col gap-1.5 border-t border-line pt-3; }
+.serial-row { @apply grid grid-cols-[28px_minmax(90px,auto)_1fr_auto] items-center gap-2 text-[13px]; }
+.serial-row:has(.serial-ack) { @apply grid-cols-[28px_minmax(90px,auto)_1fr_auto_1fr_auto]; }
+.serial-dup { @apply rounded-md bg-red-50 ring-1 ring-red-200; }
+.serial-ordinal { @apply text-right text-ink-faint; }
+.serial-ack { @apply flex items-center gap-1.5 whitespace-nowrap text-[12px] text-amber-800; }
+
+.reverse-panel { @apply mt-6 rounded-xl border border-amber-200 bg-amber-50/50 p-4; }
 .form-section-title {
   @apply mt-3 border-b border-line pb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-accent;
 }

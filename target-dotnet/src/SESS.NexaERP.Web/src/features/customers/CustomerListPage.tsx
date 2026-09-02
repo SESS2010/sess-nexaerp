@@ -5,6 +5,9 @@ import type { CustomerSummary } from '../../types/customer'
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerFormModal } from './CustomerFormModal'
 import { ImportExportBar } from '../../components/ImportExportBar'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
 
 const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected']
 const PAGE_SIZE = 20
@@ -19,8 +22,10 @@ export function CustomerListPage() {
   const [appliedSearch, setAppliedSearch] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
+  // This endpoint sorts on code, name and status only.
+  const { sort, toggleSort } = useSort({ sortBy: 'code', sortDirection: 'asc' }, () => setPage(1))
 
   // /customers?create=1 (e.g. from the Customer PO form) opens the create modal directly.
   useEffect(() => {
@@ -34,19 +39,22 @@ export function CustomerListPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
-      const data = await listCustomers({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
+      const data = await listCustomers({
+        page, pageSize: PAGE_SIZE, search: appliedSearch, status,
+        sortBy: sort.sortBy, sortDirection: sort.sortDirection,
+      })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
       setTotalCount(0)
-      setError(err instanceof Error ? err.message : 'Failed to load customers.')
+      setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, status])
+  }, [page, appliedSearch, status, sort])
 
   useEffect(() => {
     void load()
@@ -98,17 +106,17 @@ export function CustomerListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load customers." />
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Name</th>
+              <SortableHeader label="Code" sortKey="code" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>GSTIN</th>
               <th>PAN</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Approval</th>
               <th>Active</th>
             </tr>

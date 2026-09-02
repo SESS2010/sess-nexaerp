@@ -8,6 +8,7 @@ import { parseBankMetadata } from '../../api/vendors'
 import type { CustomerDetail } from '../../types/customer'
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerFormModal } from './CustomerFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const ACTIONS: { action: CustomerAction; label: string; from: string[] }[] = [
   { action: 'submit', label: 'Submit', from: ['Draft'] },
@@ -31,17 +32,17 @@ const ATTACHMENT_LABELS: { key: 'gstCertificate' | 'bankLeaf' | 'msmeCertificate
 export function CustomerDetailPage() {
   const { customerCode = '' } = useParams()
   const [detail, setDetail] = useState<CustomerDetail | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
-    setError('')
+    setError(null)
     try {
       setDetail(await getCustomer(customerCode))
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load customer.')
+      setError(err)
     }
   }, [customerCode])
 
@@ -54,12 +55,12 @@ export function CustomerDetailPage() {
     const remarks = window.prompt(`${label} — enter remarks (required):`)
     if (!remarks || !remarks.trim()) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       await runCustomerAction(customerCode, action, remarks.trim(), detail.Version)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -95,7 +96,7 @@ export function CustomerDetailPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <div className="card detail-grid">

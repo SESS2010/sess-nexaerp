@@ -4,6 +4,9 @@ import { listItems, listItemCategories } from '../../api/items'
 import type { ItemSummary, ReferenceLookup } from '../../types/item'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
 
 const PAGE_SIZE = 25
 
@@ -17,8 +20,10 @@ export function ItemListPage() {
   const [category, setCategory] = useState('')
   const [categories, setCategories] = useState<ReferenceLookup[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
+  // The items endpoint sorts on code, name and status only.
+  const { sort, toggleSort } = useSort({ sortBy: 'code', sortDirection: 'asc' }, () => setPage(1))
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
@@ -28,19 +33,22 @@ export function ItemListPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
-      const data = await listItems({ page, pageSize: PAGE_SIZE, search: appliedSearch, category })
+      const data = await listItems({
+        page, pageSize: PAGE_SIZE, search: appliedSearch, category,
+        sortBy: sort.sortBy, sortDirection: sort.sortDirection,
+      })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
       setTotalCount(0)
-      setError(err instanceof Error ? err.message : 'Failed to load items.')
+      setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, category])
+  }, [page, appliedSearch, category, sort])
 
   useEffect(() => {
     void load()
@@ -84,19 +92,19 @@ export function ItemListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load items." />
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Name</th>
+              <SortableHeader label="Code" sortKey="code" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Category</th>
               <th>UOM</th>
               <th>Make</th>
               <th>Part number</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
             </tr>
           </thead>
           <tbody>

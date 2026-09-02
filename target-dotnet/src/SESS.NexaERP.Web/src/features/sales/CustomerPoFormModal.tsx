@@ -10,6 +10,7 @@ import { listCustomers } from '../../api/customers'
 import { AddableSelect } from '../../components/AddableSelect'
 import { CustomerSearchSelect } from '../../components/CustomerSearchSelect'
 import type { CustomerPoDetail, CustomerPoLookups, UpsertCustomerPoRequest } from '../../types/customerPo'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -54,7 +55,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
   const [customers, setCustomers] = useState<CustomerOption[]>([])
   const [poFile, setPoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   const [form, setForm] = useState({
     poRecordNumber: existing?.PoRecordNumber ?? '',
@@ -136,7 +137,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     if (!form.customerPoNumber.trim()) { setError('Customer PO number is required.'); return }
     if (!form.customerCode) { setError('Select a customer from the Customer Master.'); return }
     if (mode === 'edit' && !form.revisionReason.trim()) { setError('Revision reason is required.'); return }
@@ -194,7 +195,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
       }
       onSaved(recordNumber)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
       setSaving(false)
     }
   }
@@ -414,7 +415,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
             <div className="field-wide field-hint">Amount in words: {existing.AmountInWords}</div>
           )}
 
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the customer PO." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>

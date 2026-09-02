@@ -22,12 +22,16 @@ export interface VendorListQuery {
   search?: string
   status?: string
   type?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listVendors(query: VendorListQuery): Promise<PagedResponse<VendorSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.type) params.set('type', query.type)

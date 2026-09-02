@@ -13,6 +13,7 @@ import type {
 } from '../../types/stores'
 import { DEFAULT_ISO_VERIFICATION, TRANSPORT_MODES } from '../../types/stores'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface DraftLine {
   purchaseOrderLineId: string
@@ -66,7 +67,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   )
   const [lines, setLines] = useState<DraftLine[]>([])
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   // On edit the PO is fixed; pull its lines straight away so quantities are editable.
   useEffect(() => {
@@ -75,7 +76,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   }, [])
 
   async function loadPo(number: string) {
-    setError('')
+    setError(null)
     setLoadingPo(true)
     try {
       const loaded = await getSourcePurchaseOrder(number.trim().toUpperCase())
@@ -97,7 +98,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
     } catch (err) {
       setPo(null)
       setLines([])
-      setError(err instanceof Error ? err.message : 'Failed to load the purchase order.')
+      setError(err)
     } finally {
       setLoadingPo(false)
     }
@@ -109,7 +110,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
 
     const payloadLines: GateEntryLineRequest[] = lines
       .filter((line) => line.include)
@@ -156,7 +157,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
 
       onSaved(saved)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save the gate entry.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -333,7 +334,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
             </table>
           </div>
 
-          {error && <div className="field-wide alert alert-error">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the gate entry." />
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>

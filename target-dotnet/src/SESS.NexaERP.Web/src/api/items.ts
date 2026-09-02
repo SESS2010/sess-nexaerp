@@ -18,12 +18,16 @@ export interface ItemListQuery {
   search?: string
   status?: string
   category?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listItems(query: ItemListQuery): Promise<PagedResponse<ItemSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.category) params.set('category', query.category)

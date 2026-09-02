@@ -7,6 +7,7 @@ import type { VendorSuppliedItem } from '../../types/item'
 import type { VendorDetail } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 // Which workflow actions make sense from each approval status. The backend is
 // the authority (permission + state checks); this only trims the button row.
@@ -27,18 +28,18 @@ export function VendorDetailPage() {
   const { vendorCode = '' } = useParams()
   const [detail, setDetail] = useState<VendorDetail | null>(null)
   const [suppliedItems, setSuppliedItems] = useState<VendorSuppliedItem[]>([])
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
-    setError('')
+    setError(null)
     try {
       setDetail(await getVendor(vendorCode))
       setSuppliedItems(await getVendorItems(vendorCode).catch(() => []))
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load vendor.')
+      setError(err)
     }
   }, [vendorCode])
 
@@ -51,12 +52,14 @@ export function VendorDetailPage() {
     const remarks = window.prompt(`${label} — enter remarks (required):`)
     if (!remarks || !remarks.trim()) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       await runVendorAction(vendorCode, action, remarks.trim(), detail.Version)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      // Vendor actions send Version, so a 409 here means someone else moved the
+      // record on. ErrorAlert offers the reload instead of raw server text.
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -89,7 +92,7 @@ export function VendorDetailPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <div className="card detail-grid">

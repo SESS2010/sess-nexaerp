@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPurchaseOrder, getComparison, newIdempotencyKey, rememberDoc } from '../../api/purchase'
 import { DocumentRegister } from './DocumentRegister'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 export function PurchaseOrderListPage() {
   const navigate = useNavigate()
@@ -9,21 +10,21 @@ export function PurchaseOrderListPage() {
   const [comparisonNumber, setComparisonNumber] = useState('')
   const [comparisonVersion, setComparisonVersion] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   const loadComparisonVersion = async () => {
-    setError('')
+    setError(null)
     try {
       const comparison = await getComparison(comparisonNumber)
       setComparisonVersion(String(comparison.Version))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read the comparison version.')
+      setError(err)
     }
   }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     if (!comparisonNumber.trim()) {
       setError('Comparison number is required.')
       return
@@ -38,7 +39,7 @@ export function PurchaseOrderListPage() {
       rememberDoc('purchase-order', result.Number)
       navigate(`/purchase/purchase-orders/${encodeURIComponent(result.Number)}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create the purchase order.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -87,7 +88,7 @@ export function PurchaseOrderListPage() {
                   Read current version from the comparison
                 </button>
               </label>
-              {error && <div className="field-wide alert alert-error">{error}</div>}
+              <ErrorAlert error={error} className="field-wide" fallback="Could not open that purchase order." />
               <div className="field-wide modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)} disabled={busy}>
                   Cancel

@@ -13,6 +13,7 @@ import type {
   PurchaseRequisitionLineRequest,
 } from '../../types/purchase'
 import { PR_PRIORITIES } from '../../types/purchase'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface DraftLine {
   itemCode: string
@@ -84,7 +85,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
   )
 
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     listDepartments().then(setDepartments).catch(() => undefined)
@@ -113,7 +114,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
 
     const payloadLines: PurchaseRequisitionLineRequest[] = lines
       .filter((line) => line.itemCode.trim().length > 0)
@@ -179,7 +180,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
 
       onSaved(saved)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save the requisition.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -409,7 +410,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
             </strong>
           </div>
 
-          {error && <div className="field-wide alert alert-error">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the requisition." />
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>

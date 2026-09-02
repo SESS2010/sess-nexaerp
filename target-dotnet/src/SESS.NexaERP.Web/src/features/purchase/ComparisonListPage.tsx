@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createComparison, getRfq, newIdempotencyKey, rememberDoc } from '../../api/purchase'
 import { DocumentRegister } from './DocumentRegister'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 export function ComparisonListPage() {
   const navigate = useNavigate()
@@ -9,21 +10,21 @@ export function ComparisonListPage() {
   const [rfqNumber, setRfqNumber] = useState('')
   const [rfqVersion, setRfqVersion] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   const loadRfqVersion = async () => {
-    setError('')
+    setError(null)
     try {
       const rfq = await getRfq(rfqNumber)
       setRfqVersion(String(rfq.Version))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read the RFQ version.')
+      setError(err)
     }
   }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     if (!rfqNumber.trim()) {
       setError('RFQ number is required.')
       return
@@ -38,7 +39,7 @@ export function ComparisonListPage() {
       rememberDoc('comparison', result.Number)
       navigate(`/purchase/comparisons/${encodeURIComponent(result.Number)}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create the comparison.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -87,7 +88,7 @@ export function ComparisonListPage() {
                   Read current version from the RFQ
                 </button>
               </label>
-              {error && <div className="field-wide alert alert-error">{error}</div>}
+              <ErrorAlert error={error} className="field-wide" fallback="Could not open that comparison." />
               <div className="field-wide modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)} disabled={busy}>
                   Cancel

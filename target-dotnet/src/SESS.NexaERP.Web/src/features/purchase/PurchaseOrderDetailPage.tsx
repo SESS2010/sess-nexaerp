@@ -12,6 +12,7 @@ import {
 import type { PurchaseOrderDetail } from '../../types/purchase'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 type Pane = 'workflow' | 'amend' | 'cancel'
 
@@ -21,7 +22,7 @@ export function PurchaseOrderDetailPage() {
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [pane, setPane] = useState<Pane>('workflow')
   const [busy, setBusy] = useState('')
@@ -35,7 +36,7 @@ export function PurchaseOrderDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const detail = await getPurchaseOrder(poNumber)
       setPo(detail)
@@ -45,7 +46,7 @@ export function PurchaseOrderDetailPage() {
       setWarrantyTerms(detail.WarrantyTermsSnapshot ?? '')
     } catch (err) {
       setPo(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the purchase order.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -65,7 +66,7 @@ export function PurchaseOrderDetailPage() {
 
   const runSimple = async (action: 'submit' | 'issue', label: string) => {
     if (!po || !guardRemarks(label)) return
-    setError(''); setNotice(''); setBusy(action)
+    setError(null); setNotice(''); setBusy(action)
     try {
       const result = await actOnPurchaseOrder(po.PoNumber, action, {
         Remarks: remarks.trim(),
@@ -76,7 +77,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed.`)
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -84,7 +85,7 @@ export function PurchaseOrderDetailPage() {
 
   const runApproval = async (action: 'approve' | 'reject', label: string) => {
     if (!po || !guardRemarks(label)) return
-    setError(''); setNotice(''); setBusy(action)
+    setError(null); setNotice(''); setBusy(action)
     try {
       const result = await approvePurchaseOrder(po.PoNumber, action, {
         Remarks: remarks.trim(),
@@ -96,7 +97,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed.`)
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -104,7 +105,7 @@ export function PurchaseOrderDetailPage() {
 
   const runAmend = async () => {
     if (!po) return
-    setError(''); setNotice('')
+    setError(null); setNotice('')
     if (!amendmentReason.trim()) {
       setError('An amendment must state its reason — the PO is a contract document.')
       return
@@ -123,7 +124,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`Amendment recorded. ${result.Number} is now ${result.Status} at version ${result.Version}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Amendment failed.')
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -131,7 +132,7 @@ export function PurchaseOrderDetailPage() {
 
   const runCancel = async () => {
     if (!po) return
-    setError(''); setNotice('')
+    setError(null); setNotice('')
     if (!cancelReason.trim()) {
       setError('Cancellation needs a written reason.')
       return
@@ -147,7 +148,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`Purchase order cancelled. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cancellation failed.')
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -158,7 +159,7 @@ export function PurchaseOrderDetailPage() {
   if (!po) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Purchase order not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Purchase order not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/purchase-orders')}>
           ‹ Back to purchase orders
         </button>
@@ -191,7 +192,7 @@ export function PurchaseOrderDetailPage() {
         <div className="action-row"><StatusBadge value={po.Status} /></div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {masked && (
         <div className="alert">

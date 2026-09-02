@@ -5,6 +5,9 @@ import type { PurchaseRequisitionSummary } from '../../types/purchase'
 import { PR_STATUSES } from '../../types/purchase'
 import { StatusBadge } from '../employees/StatusBadge'
 import { PurchaseRequisitionFormModal } from './PurchaseRequisitionFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
 
 const PAGE_SIZE = 20
 
@@ -24,35 +27,39 @@ export function PurchaseRequisitionListPage() {
   const [rows, setRows] = useState<PurchaseRequisitionSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
+  // The requisition endpoint sorts on prnumber, requiredby, status and total.
+  const { sort, toggleSort } = useSort({ sortBy: 'prnumber', sortDirection: 'asc' }, () => setPage(1))
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const data = await listPurchaseRequisitions({
         page,
         pageSize: PAGE_SIZE,
         search: appliedSearch,
         status,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
       })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
       setTotalCount(0)
-      setError(err instanceof Error ? err.message : 'Failed to load purchase requisitions.')
+      setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, status])
+  }, [page, appliedSearch, status, sort])
 
   useEffect(() => {
     void load()
@@ -114,21 +121,21 @@ export function PurchaseRequisitionListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load purchase requisitions." />
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>PR Number</th>
+              <SortableHeader label="PR Number" sortKey="prnumber" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Department</th>
               <th>Requester</th>
               <th>Raised</th>
-              <th>Required By</th>
+              <SortableHeader label="Required By" sortKey="requiredby" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Priority</th>
-              <th className="text-right">Estimated (₹)</th>
+              <SortableHeader label="Estimated (₹)" sortKey="total" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Approval Route</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
             </tr>
           </thead>
           <tbody>

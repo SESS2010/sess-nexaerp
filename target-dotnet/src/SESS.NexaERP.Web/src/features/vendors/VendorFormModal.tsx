@@ -5,6 +5,7 @@ import {
 } from '../../api/vendors'
 import type { VendorAttachmentMetadata } from '../../api/vendors'
 import type { UpsertVendorRequest, VendorDetail } from '../../types/vendor'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -45,7 +46,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
     branch: parseBankMetadata(existing?.BankMetadata).branch ?? '',
   })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [existingAttachments] = useState<VendorAttachmentMetadata>(
     () => parseAttachmentMetadata(existing?.AttachmentMetadataJson ?? null),
   )
@@ -70,7 +71,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setError(null)
     const optional = (value: string) => (value.trim() ? value.trim() : null)
     try {
       // Upload any newly selected files first, then reference them from the
@@ -137,7 +138,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         onSaved(detail.VendorCode)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -316,7 +317,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
               <span className="field-hint">Current: {existingAttachments.panCard.fileName}</span>
             )}
           </label>
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the vendor." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>

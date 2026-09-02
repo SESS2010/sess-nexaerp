@@ -5,6 +5,7 @@ import type { ApprovalAction } from '../../api/employees'
 import type { EmployeeDetail, EmployeeHistorySummary } from '../../types/employee'
 import { StatusBadge } from './StatusBadge'
 import { EmployeeFormModal } from './EmployeeFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const APPROVAL_ACTIONS: { action: ApprovalAction; label: string; from: string[] }[] = [
   { action: 'submit', label: 'Submit', from: ['Draft', 'RevisionRequested', 'Rejected'] },
@@ -19,17 +20,17 @@ export function EmployeeDetailPage() {
   const [history, setHistory] = useState<EmployeeHistorySummary[]>([])
   const [historyError, setHistoryError] = useState('')
   const [tab, setTab] = useState<'profile' | 'roles' | 'history'>('profile')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
-    setError('')
+    setError(null)
     try {
       setDetail(await getEmployee(employeeCode))
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load employee.')
+      setError(err)
     }
     try {
       setHistory(await getEmployeeHistory(employeeCode))
@@ -48,12 +49,12 @@ export function EmployeeDetailPage() {
     const remarks = window.prompt(`${label} — enter remarks (required):`)
     if (!remarks || !remarks.trim()) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       await changeApprovalStatus(employeeCode, action, remarks.trim())
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -65,12 +66,12 @@ export function EmployeeDetailPage() {
     const reason = window.prompt(`${enable ? 'Activate' : 'Deactivate'} login — enter reason (required):`)
     if (!reason || !reason.trim()) return
     setBusy(true)
-    setError('')
+    setError(null)
     try {
       await setLoginStatus(employeeCode, enable, reason.trim())
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -106,7 +107,7 @@ export function EmployeeDetailPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <>

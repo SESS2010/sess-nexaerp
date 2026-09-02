@@ -6,6 +6,7 @@ import {
 import type { CustomerAttachmentKind, CustomerAttachmentMetadata } from '../../api/customers'
 import { parseBankMetadata } from '../../api/vendors'
 import type { CustomerDetail, UpsertCustomerRequest } from '../../types/customer'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -55,7 +56,7 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
   )
   const [files, setFiles] = useState<Partial<Record<keyof CustomerAttachmentMetadata, File | null>>>({})
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     if (mode === 'create') {
@@ -72,7 +73,7 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setError(null)
     const optional = (value: string) => (value.trim() ? value.trim() : null)
     try {
       const attachments: CustomerAttachmentMetadata = { ...existingAttachments }
@@ -124,7 +125,7 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
         onSaved(detail.CustomerCode)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -251,7 +252,7 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
             </label>
           ))}
 
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the customer." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving}>

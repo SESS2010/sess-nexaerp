@@ -5,6 +5,7 @@ import type { GateEntryResult, IsoReceiptVerification } from '../../types/stores
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 function yesNo(value: boolean | null | undefined): string {
   if (value === null || value === undefined) return 'Not applicable'
@@ -25,7 +26,7 @@ export function GateEntryDetailPage() {
 
   const [gate, setGate] = useState<GateEntryResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
@@ -33,12 +34,12 @@ export function GateEntryDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       setGate(await getGateEntry(id))
     } catch (err) {
       setGate(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the gate entry.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -50,7 +51,7 @@ export function GateEntryDetailPage() {
 
   const finalize = async () => {
     if (!gate) return
-    setError('')
+    setError(null)
     setNotice('')
     setFinalizing(true)
     try {
@@ -62,7 +63,7 @@ export function GateEntryDetailPage() {
       setConfirmFinalize(false)
       setNotice(`Gate entry finalized. It is now immutable at version ${result.Version}.`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Finalize failed.')
+      setError(err)
     } finally {
       setFinalizing(false)
     }
@@ -73,7 +74,7 @@ export function GateEntryDetailPage() {
   if (!gate) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Gate entry not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Gate entry not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/stores/gate-entries')}>
           ‹ Back to gate entries
         </button>
@@ -107,7 +108,7 @@ export function GateEntryDetailPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {!isDraft && (
         <div className="alert">

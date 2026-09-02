@@ -20,12 +20,16 @@ export interface CustomerListQuery {
   pageSize: number
   search?: string
   status?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listCustomers(query: CustomerListQuery): Promise<PagedResponse<CustomerSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   return api.get<PagedResponse<CustomerSummary>>(`${BASE}?${params.toString()}`)

@@ -11,6 +11,7 @@ import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail } from '../../types/purchase'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface ActionDefinition {
   action: ComparisonAction
@@ -40,7 +41,7 @@ export function ComparisonDetailPage() {
 
   const [comparison, setComparison] = useState<ComparisonDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
   const [quotationId, setQuotationId] = useState('')
@@ -53,14 +54,14 @@ export function ComparisonDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const detail = await getComparison(comparisonNumber)
       setComparison(detail)
       rememberDoc('comparison', detail.ComparisonNumber)
     } catch (err) {
       setComparison(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the comparison.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -72,7 +73,7 @@ export function ComparisonDetailPage() {
 
   const recommend = async () => {
     if (!comparison) return
-    setError('')
+    setError(null)
     setNotice('')
     if (!quotationId.trim()) {
       setError('Pick the winning vendor quotation id to recommend.')
@@ -98,7 +99,7 @@ export function ComparisonDetailPage() {
       setRecommendationRemarks('')
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record the recommendation.')
+      setError(err)
     } finally {
       setRecommending(false)
     }
@@ -106,7 +107,7 @@ export function ComparisonDetailPage() {
 
   const runAction = async (definition: ActionDefinition) => {
     if (!comparison) return
-    setError('')
+    setError(null)
     setNotice('')
     if (!remarks.trim()) {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
@@ -123,7 +124,7 @@ export function ComparisonDetailPage() {
       setNotice(`${definition.label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${definition.label} failed.`)
+      setError(err)
     } finally {
       setBusy(null)
     }
@@ -134,7 +135,7 @@ export function ComparisonDetailPage() {
   if (!comparison) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Comparison not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Comparison not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/comparisons')}>
           ‹ Back to comparisons
         </button>
@@ -166,7 +167,7 @@ export function ComparisonDetailPage() {
         <div className="action-row"><StatusBadge value={comparison.Status} /></div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {masked && (
         <div className="alert">

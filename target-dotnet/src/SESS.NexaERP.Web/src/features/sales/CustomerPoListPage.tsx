@@ -3,6 +3,7 @@ import { getCustomerPo, getCustomerPoLookups, listCustomerPos } from '../../api/
 import type { CustomerPoDetail, CustomerPoLookups, CustomerPoSummary } from '../../types/customerPo'
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerPoFormModal } from './CustomerPoFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const PAGE_SIZE = 20
 
@@ -27,7 +28,7 @@ export function CustomerPoListPage() {
   const [fiscalYear, setFiscalYear] = useState('')
   const [lookups, setLookups] = useState<CustomerPoLookups | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editing, setEditing] = useState<CustomerPoDetail | null>(null)
 
@@ -35,7 +36,7 @@ export function CustomerPoListPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const data = await listCustomerPos({ page, pageSize: PAGE_SIZE, search: appliedSearch, workStatus, fiscalYear })
       setRows(data.Items)
@@ -43,7 +44,7 @@ export function CustomerPoListPage() {
     } catch (err) {
       setRows([])
       setTotalCount(0)
-      setError(err instanceof Error ? err.message : 'Failed to load customer POs.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -66,7 +67,7 @@ export function CustomerPoListPage() {
     try {
       setEditing(await getCustomerPo(poRecordNumber))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load record.')
+      setError(err)
     }
   }
 
@@ -109,7 +110,7 @@ export function CustomerPoListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load customer POs." />
 
       <div className="table-wrap">
         <table className="table">

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { createEmployee, createEmployeeLookup, getEmployeeLookups, updateEmployee } from '../../api/employees'
 import { AddableSelect } from '../../components/AddableSelect'
 import type { EmployeeDetail, EmployeeMasterLookups } from '../../types/employee'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -29,7 +30,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
     remarks: '',
   })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     getEmployeeLookups()
@@ -46,7 +47,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
           }))
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load master lookups.'))
+      .catch((err) => setError(err))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -56,7 +57,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       const shared = {
         EmployeeName: form.employeeName,
@@ -74,7 +75,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
         : await updateEmployee(existing!.EmployeeCode, { ...shared, Reason: form.remarks })
       onSaved(detail)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -163,7 +164,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">{mode === 'create' ? 'Remarks *' : 'Reason for update *'}</span>
             <textarea className="input" required rows={2} value={form.remarks} onChange={set('remarks')} />
           </label>
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the employee." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={saving || !lookups}>

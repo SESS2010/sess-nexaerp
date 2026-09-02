@@ -4,6 +4,7 @@ import { listEmployees } from '../../api/employees'
 import type { EmployeeSummary } from '../../types/employee'
 import { StatusBadge } from './StatusBadge'
 import { EmployeeFormModal } from './EmployeeFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const STATUS_OPTIONS = ['', 'Active', 'Inactive']
 const PAGE_SIZE = 20
@@ -16,18 +17,18 @@ export function EmployeeListPage() {
   const [appliedSearch, setAppliedSearch] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const data = await listEmployees({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
       setRows(data)
     } catch (err) {
       setRows([])
-      setError(err instanceof Error ? err.message : 'Failed to load employees.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -80,7 +81,7 @@ export function EmployeeListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load employees." />
 
       <div className="table-wrap">
         <table className="table">

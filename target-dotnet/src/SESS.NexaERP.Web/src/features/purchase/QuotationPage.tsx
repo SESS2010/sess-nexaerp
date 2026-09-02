@@ -11,6 +11,7 @@ import { getStoredToken } from '../../api/client'
 import type { QuotationLineRequest, RfqDetail, RfqLine } from '../../types/purchase'
 import { QUOTATION_SUBMISSION_SOURCES, VENDOR_REGISTRATION_TYPES } from '../../types/purchase'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface DraftQuoteLine {
   rfqLine: RfqLine
@@ -86,7 +87,7 @@ export function QuotationPage() {
   const [verifying, setVerifying] = useState(false)
 
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
   const grandTotal = useMemo(
@@ -95,7 +96,7 @@ export function QuotationPage() {
   )
 
   const loadRfq = async () => {
-    setError('')
+    setError(null)
     setNotice('')
     setLoadingRfq(true)
     try {
@@ -120,7 +121,7 @@ export function QuotationPage() {
     } catch (err) {
       setRfq(null)
       setLines([])
-      setError(err instanceof Error ? err.message : 'Failed to load the RFQ.')
+      setError(err)
     } finally {
       setLoadingRfq(false)
     }
@@ -132,7 +133,7 @@ export function QuotationPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     setNotice('')
 
     if (!invitationId.trim()) {
@@ -195,14 +196,14 @@ export function QuotationPage() {
       setVerifyVersion(String(result.Version))
       setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record the quotation.')
+      setError(err)
     } finally {
       setSaving(false)
     }
   }
 
   const runVerification = async () => {
-    setError('')
+    setError(null)
     setNotice('')
     if (!verifyQuotationNumber.trim() || !verifyLineId.trim()) {
       setError('Technical verification needs both a quotation number and a quotation line id.')
@@ -221,7 +222,7 @@ export function QuotationPage() {
       setVerifyVersion(String(result.Version))
       setNotice(`Technical verification recorded. ${result.Number} is now ${result.Status}.`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Technical verification failed.')
+      setError(err)
     } finally {
       setVerifying(false)
     }
@@ -244,7 +245,7 @@ export function QuotationPage() {
       anchor.click()
       URL.revokeObjectURL(url)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download the attachment.')
+      setError(err)
     }
   }
 
@@ -267,7 +268,7 @@ export function QuotationPage() {
         so a recorded quotation cannot be reopened here.
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
 
       <div className="card">

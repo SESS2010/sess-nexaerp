@@ -664,113 +664,156 @@ All routes start `/api/v1/rev869a/configuration`, require authentication and com
 
 `OrganizationPolicy` exposes `Id`, `CompanyId`, `OrganizationId`, `PolicyCode`, `PolicyValue`, `EffectiveFrom`, `EffectiveTo`, `IsActive`, `Version`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, and `UpdatedBy`. `Uom` exposes `Id`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`, and audit/version fields.
 
-## 11. Planned Stores API — NOT YET IMPLEMENTED
+## 11. Stores API — Gate Entry and GRN are IMPLEMENTED; the rest is planned
 
-**Every endpoint in sections 11–14 is a planned contract for mock-data frontend development. Calling it against the current backend returns `404`.** The database schema exists, but the application service and HTTP routes do not.
+**Corrected 2026-09-02 against the shipped source.** Gate Entry (`StoresGateEntryEndpoints.cs`, `GateEntryContracts.cs`) and GRN (`StoresGoodsReceiptEndpoints.cs`, `GoodsReceiptContracts.cs`, `EfGoodsReceiptService.cs`) are live on `main`. Sections 11.3, 12 and 13.3 onward remain planned and still return `404`.
 
-These contracts carry forward schema-design section 7. No Stores request accepts `CompanyId`; the server derives it from the session. Every planned POST and PUT command requires `Idempotency-Key`; draft PUT routes also require `Version`. Finalized documents are immutable. A correction uses the stated reversal/correction route, never PUT. All list/detail routes are company- and record-scoped.
+The shapes below are transcribed from the C# records, not from design intent. Where this document previously disagreed with the code, the code was treated as the authority.
 
-Planned page keys are part of this frontend contract and must be seeded with the implementation:
+No Stores request accepts `CompanyId`; the server derives it from the session. Finalized documents are immutable — a correction uses the reversal route, never `PUT`.
+
+**Idempotency is not uniform, and the difference is load-bearing:**
+
+| Route | Where the idempotency key goes |
+|---|---|
+| `POST /gate-entries` | `Idempotency-Key` **HTTP header** (400 if absent) |
+| `POST /goods-receipts` | `Idempotency-Key` **HTTP header** (400 if absent) |
+| `POST .../finalize` | `IdempotencyKey` **body field** |
+| `POST .../reverse` | `IdempotencyKey` **body field** |
+| `PUT` routes | none; `Version` only |
+
+Page keys actually enforced by the shipped endpoints:
 
 | Page key | Screens |
 |---|---|
 | `stores.gate-entry` | Gate entries |
-| `stores.goods-receipts` | GRN, serial capture, receipt position |
-| `stores.item-inventory-settings` | Company item settings/barcodes |
-| `qc.inspections` | QC queue, inspection and corrections |
-| `stores.category-routes` | QC/category routing |
-| `stores.job-orders` | Minimal job orders |
-| `stores.material-issue-requests` | Issue requests and posting |
-| `stores.delivery-challans` | DC, dispatch and returns |
-| `notifications.inbox` | Current user's notifications |
-| `notifications.admin` | Event/delivery administration |
-| `stores.stock-ledger` | Ledger, balances, batches and serial trace |
-| `settings.business-rules` | Effective-dated business configuration |
+| `inventory.grn` | GRN, serial capture, lot allocation |
 
-### 11.1 Planned Gate Entry shape
+> The earlier draft of this document named the GRN page key `stores.goods-receipts`. The shipped endpoints use **`inventory.grn`** (`StoresGoodsReceiptEndpoints.cs`, `private const string Page`). Read paths require `View` only; write paths additionally apply the receipt-operator check.
 
-Create request:
+Page keys for QC, category routes, job orders, issue requests, delivery challans, notifications, stock ledger and business rules remain planned and unseeded.
+
+### 11.1 Gate Entry shape (IMPLEMENTED)
+
+Create request — note `PurchaseOrderNumber` is a **string**, not an id:
 
 ```json
 {
-  "PurchaseOrderId":"861840b7-19b7-4e0a-8af5-f5fac14e909a", "VendorDcNumber":"VDC-8821",
+  "PurchaseOrderNumber":"PO-2026-0042", "VendorDcNumber":"VDC-8821",
   "VehicleNumber":"KA01AB1234", "ModeOfTransport":"ROAD", "ArrivedAt":"2026-08-27T09:15:00Z",
-  "IsoReceiptVerificationJson":{"SchemaVersion":1,"PoCopyVerified":true,"VendorDcVerified":true,"PackageCondition":"GOOD"},
+  "IsoReceiptVerificationJson":"{\"SchemaVersion\":1,\"PoCopyVerified\":true}",
   "Lines":[{"PurchaseOrderLineId":"68c1d771-baa2-44c2-b1e4-677ab7cdb814","DeliveredQuantity":2.000000}]
 }
 ```
+
+`IsoReceiptVerificationJson` is a **JSON string**, not a nested object. The server canonicalises it.
+
+Update request is the same minus `PurchaseOrderNumber`, plus `"Version":1`.
+Finalize request is `{ "Version":1, "IdempotencyKey":"..." }`.
 
 Detail response:
 
 ```json
 {
-  "Id":"51e0b93c-51c9-487e-84c2-8e75649f2967", "GateEntryNumber":"GE-2026-0042", "DocumentKind":"NORMAL",
-  "ReversesGateEntryId":null, "ReversalReason":null, "PurchaseOrderId":"861840b7-19b7-4e0a-8af5-f5fac14e909a",
-  "VendorId":"fd43c5d3-85bd-4a06-bcd0-484cab82b75d", "VendorNameSnapshot":"Cold Parts India Pvt Ltd",
+  "Id":"51e0b93c-51c9-487e-84c2-8e75649f2967", "GateEntryNumber":"GE-2026-0042",
+  "PurchaseOrderNumber":"PO-2026-0042", "PurchaseOrderId":"861840b7-19b7-4e0a-8af5-f5fac14e909a",
+  "VendorId":"fd43c5d3-85bd-4a06-bcd0-484cab82b75d", "VendorName":"Cold Parts India Pvt Ltd",
   "VendorDcNumber":"VDC-8821", "VehicleNumber":"KA01AB1234", "ModeOfTransport":"ROAD",
-  "ArrivedAt":"2026-08-27T09:15:00Z", "ReceivedByEmployeeId":"145e2c65-3f72-4ef3-b7d0-9f323404298c",
-  "IsoReceiptVerificationJson":{"SchemaVersion":1,"PoCopyVerified":true,"VendorDcVerified":true,"PackageCondition":"GOOD"},
-  "Status":"DRAFT", "FinalizedAt":null, "FinalizedByEmployeeId":null, "Version":1,
-  "Lines":[{"Id":"eed2de10-08bc-44c9-9064-7b54740e56c3", "LineNumber":1,
-    "PurchaseOrderLineId":"68c1d771-baa2-44c2-b1e4-677ab7cdb814", "ItemId":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb",
-    "ItemCodeSnapshot":"COMP-001", "UomSnapshot":"NOS", "DeliveredQuantity":2.000000}]
+  "ArrivedAt":"2026-08-27T09:15:00Z", "IsoReceiptVerificationJson":"{...}",
+  "Status":"DRAFT", "Version":1,
+  "Lines":[{"Id":"eed2de10-08bc-44c9-9064-7b54740e56c3","LineNumber":1,
+    "PurchaseOrderLineId":"68c1d771-baa2-44c2-b1e4-677ab7cdb814","ItemId":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb",
+    "ItemCode":"COMP-001","Uom":"NOS","DeliveredQuantity":2.000000}],
+  "History":[{"FromStatus":null,"ToStatus":"DRAFT","Action":"CREATED",
+    "ActorEmployeeId":"145e2c65-3f72-4ef3-b7d0-9f323404298c","ActorRoleCode":"STORES_EXECUTIVE",
+    "OccurredAt":"2026-08-27T09:15:04Z"}]
 }
 ```
 
-### 11.2 Planned GRN and serial shapes
+> Corrections against the earlier draft: fields are `VendorName` not `VendorNameSnapshot`, `ItemCode` not `ItemCodeSnapshot`, `Uom` not `UomSnapshot`. There is **no** `DocumentKind`, `ReversesGateEntryId`, `ReversalReason`, `ReceivedByEmployeeId`, `FinalizedAt` or `FinalizedByEmployeeId` on the response. `History[]` is returned and was previously undocumented. **Gate Entry has no reversal endpoint** — only create, update, finalize, get and list exist.
 
-Create-from-Gate request:
+### 11.2 GRN and serial shapes (IMPLEMENTED)
 
-```json
-{
-  "VendorBillNumber":"CPI-2026-991", "VendorBillDate":"2026-08-26", "ReceivedAt":"2026-08-27T09:45:00Z",
-  "IsoReceiptVerificationJson":{"SchemaVersion":1,"BillVerified":true,"QuantityVerified":true,"CertificatesReceived":false},
-  "Lines":[{"GateEntryLineId":"eed2de10-08bc-44c9-9064-7b54740e56c3","LineValue":440000.00}]
-}
-```
-
-GRN detail response:
+Create request — the GRN is addressed by **Gate Entry number**, and every line carries lot allocations:
 
 ```json
 {
-  "Id":"1b238680-6b8c-45f0-b528-725248c63aa7", "GrnNumber":"GRN-2026-0042", "DocumentKind":"NORMAL",
-  "ReversesGoodsReceiptId":null, "ReversalReason":null, "GateEntryId":"51e0b93c-51c9-487e-84c2-8e75649f2967",
-  "PurchaseOrderId":"861840b7-19b7-4e0a-8af5-f5fac14e909a", "VendorId":"fd43c5d3-85bd-4a06-bcd0-484cab82b75d",
-  "VendorNameSnapshot":"Cold Parts India Pvt Ltd", "VendorBillNumber":"CPI-2026-991", "VendorBillDate":"2026-08-26",
-  "VendorDcNumberSnapshot":"VDC-8821", "ModeOfTransportSnapshot":"ROAD", "ReceivedAt":"2026-08-27T09:45:00Z",
-  "IsoReceiptVerificationJson":{"SchemaVersion":1,"BillVerified":true,"QuantityVerified":true,"CertificatesReceived":false},
-  "ConfigurationSnapshotJson":{"SchemaVersion":1,"SerialThreshold":{"Value":5000.00},"QcCompletionDays":{"Value":2}},
-  "ConfigurationSnapshotHash":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "QcCompletionDaysSnapshot":2, "QcDueAt":"2026-08-29T10:00:00Z", "Status":"DRAFT", "Version":1,
+  "GateEntryNumber":"GE-2026-0042",
+  "VendorBillNumber":"CPI-2026-991", "VendorBillDate":"2026-08-26",
+  "ReceivedAt":"2026-08-27T09:45:00Z",
+  "IsoReceiptVerificationJson":"{\"SchemaVersion\":1,\"BillVerified\":true}",
   "Lines":[{
-    "Id":"417c075c-d69e-4bdd-b538-fbedf85852d7", "LineNumber":1, "GateEntryLineId":"eed2de10-08bc-44c9-9064-7b54740e56c3",
-    "PurchaseOrderLineId":"68c1d771-baa2-44c2-b1e4-677ab7cdb814", "ItemId":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb",
-    "ItemCodeSnapshot":"COMP-001", "ItemNameSnapshot":"Semi-hermetic compressor", "ItemCategoryCodeSnapshot":"REFRIGERATION",
-    "HsnSacCodeSnapshot":"84143000", "GstPercentageSnapshot":18.0000, "ModelSnapshot":"4NES-14Y",
-    "ManufacturerPartNumberSnapshot":"4NES-14Y-40P", "ManufacturerMakeSnapshot":"BITZER", "UomSnapshot":"NOS",
-    "PoOrderedQuantitySnapshot":2.000000, "PriorEffectiveReceivedQuantitySnapshot":0.000000, "RemainingPoQuantitySnapshot":2.000000,
-    "DeliveredQuantitySnapshot":2.000000, "ReceivedQuantity":2.000000, "ExcessRejectedQuantity":0.000000,
-    "ExcessDisposition":null, "LineValueSnapshot":440000.00, "UnitRateSnapshot":220000.00,
-    "SerialThresholdValueSnapshot":5000.00, "SerialCaptureModeSnapshot":"REQUIRED",
-    "BillWarrantyLimitDate":"2027-09-26", "InitialWarrantyExpiryDate":"2027-09-26",
-    "Serials":[{"InventorySerialId":"673797d5-5647-44ac-8445-b237ef76ee09", "SerialOrdinal":1,
-      "EnteredSerialNumber":"A12345", "StoredSerialNumberSnapshot":"A12345", "ReceiptDisposition":"QC_INSPECTION",
-      "DisambiguationApplied":false,"DuplicateWarningAcknowledged":false}]
+    "GateEntryLineId":"eed2de10-08bc-44c9-9064-7b54740e56c3",
+    "Lots":[{"LotOrdinal":1,"Quantity":2.000000,"SupplierLotNumber":"L-77",
+      "ManufacturerLotNumber":null,"ManufactureDate":"2026-06-01","ExpiryDate":null}],
+    "Serials":[
+      {"SerialOrdinal":1,"LotOrdinal":1,"EnteredSerialNumber":"A12345",
+       "StoredSerialNumber":"A12345","DuplicateWarningAcknowledged":false,"DisambiguationReason":null},
+      {"SerialOrdinal":2,"LotOrdinal":1,"EnteredSerialNumber":"A12346",
+       "StoredSerialNumber":"A12346","DuplicateWarningAcknowledged":false,"DisambiguationReason":null}]
   }]
 }
 ```
 
-Serial validation request/response:
+Update is the same minus `GateEntryNumber`, plus `"Version":1`. Finalize is `{ "Version":1, "IdempotencyKey":"..." }`. Reverse is `{ "Version":2, "Reason":"...", "IdempotencyKey":"..." }`.
+
+Detail response:
 
 ```json
 {
-  "Request":{"Lines":[{"GoodsReceiptLineId":"417c075c-d69e-4bdd-b538-fbedf85852d7",
-    "Serials":[{"SerialOrdinal":1,"EnteredSerialNumber":"A12345","StoredSerialNumber":"A12345/2026-27/BITZER",
-      "DuplicateWarningAcknowledged":true,"DisambiguationReason":"Duplicate supplier serial; FY and make appended"}]}]},
-  "Response":{"IsValid":true,"Warnings":[{"Code":"DUPLICATE_SERIAL","EnteredSerialNumber":"A12345",
-    "Message":"StoredSerialNumber must be unique; the disambiguated value is available."}],"Errors":[]}
+  "Id":"1b238680-6b8c-45f0-b528-725248c63aa7", "GrnNumber":"GRN-2026-0042", "DocumentKind":"NORMAL",
+  "ReversesGoodsReceiptId":null, "ReversalReason":null,
+  "GateEntryNumber":"GE-2026-0042", "GateEntryId":"51e0b93c-51c9-487e-84c2-8e75649f2967",
+  "PurchaseOrderNumber":"PO-2026-0042", "PurchaseOrderId":"861840b7-19b7-4e0a-8af5-f5fac14e909a",
+  "VendorId":"fd43c5d3-85bd-4a06-bcd0-484cab82b75d", "VendorName":"Cold Parts India Pvt Ltd",
+  "VendorBillNumber":"CPI-2026-991", "VendorBillDate":"2026-08-26",
+  "VendorDcNumber":"VDC-8821", "ModeOfTransport":"ROAD", "ReceivedAt":"2026-08-27T09:45:00Z",
+  "IsoReceiptVerificationJson":"{...}", "Status":"DRAFT", "Version":1,
+  "StockPostingBatchId":null, "Replayed":false,
+  "Warnings":["Duplicate serial 'A12345' must be made unique before finalization."],
+  "Lines":[{
+    "Id":"417c075c-d69e-4bdd-b538-fbedf85852d7", "LineNumber":1,
+    "GateEntryLineId":"eed2de10-08bc-44c9-9064-7b54740e56c3",
+    "PurchaseOrderLineId":"68c1d771-baa2-44c2-b1e4-677ab7cdb814",
+    "ItemId":"3501e490-33ae-47f8-b9dc-da7c04aaf4bb", "ItemCode":"COMP-001",
+    "ItemName":"Semi-hermetic compressor", "ItemCategoryCode":"REF",
+    "HsnSacCode":"84143000", "GstPercentage":18.0000, "Model":"4NES-14Y",
+    "ManufacturerPartNumber":"4NES-14Y-40P", "Uom":"NOS",
+    "ReceivedQuantity":2.000000, "UnitRate":220000.00,
+    "SerialCaptureMode":"REQUIRED", "WarrantyExpiryDate":"2027-09-26",
+    "QcHoldConditionLocationId":"cd872f83-ce52-4415-b93d-fe9e91ee78c3",
+    "Lots":[{"Id":"...","InventoryLotId":"...","LotOrdinal":1,"Quantity":2.000000,
+      "SupplierLotNumber":"L-77","ManufacturerLotNumber":null,
+      "ManufactureDate":"2026-06-01","ExpiryDate":null}],
+    "Serials":[{"Id":"...","InventorySerialId":null,"SerialOrdinal":1,"LotOrdinal":1,
+      "EnteredSerialNumber":"A12345","StoredSerialNumber":"A12345",
+      "DuplicateWarningAcknowledged":false,"DisambiguationReason":null}]
+  }],
+  "History":[{"FromStatus":null,"ToStatus":"DRAFT","Action":"CREATED",
+    "ActorEmployeeId":"...","ActorRoleCode":"STORES_EXECUTIVE","OccurredAt":"2026-08-27T09:45:02Z"}]
 }
 ```
+
+> Corrections against the earlier draft: the create request takes `GateEntryNumber`, not `GateEntryId`. Lines carry `Lots[]` and `Serials[]`; there is **no** `LineValue` field. Response line fields drop the `Snapshot` suffix. The response does **not** carry `ConfigurationSnapshotJson`, `ConfigurationSnapshotHash`, `QcCompletionDaysSnapshot`, `QcDueAt`, `PoOrderedQuantitySnapshot`, `PriorEffectiveReceivedQuantitySnapshot`, `RemainingPoQuantitySnapshot`, `DeliveredQuantitySnapshot`, `ExcessRejectedQuantity`, `ExcessDisposition`, `SerialThresholdValueSnapshot`, `BillWarrantyLimitDate` or the `Snapshot`-suffixed category field. It **does** carry `StockPostingBatchId`, `Replayed`, `Warnings[]` and `History[]`, none of which were documented. `ReceiptDisposition`, `StoredSerialNumberSnapshot` and `DisambiguationApplied` are not on the serial result; `Id`, `LotOrdinal` and `DisambiguationReason` are.
+
+**Serial validation has no endpoint.** The earlier draft specified `POST /goods-receipts/{id}/serials/validate`; it does not exist. Duplicates are returned as the top-level `Warnings[]` string array on every GRN read, computed against both the document's own serials and `inventory_serials` for the company. Finalize is refused by a database exception while any duplicate is unresolved.
+
+**Rules the server enforces, verified in `EfGoodsReceiptService.cs`:**
+
+| Rule | Behaviour |
+|---|---|
+| Gate Entry status | must be `FINALIZED`, else `409 "GRN requires a finalized Gate Entry."` |
+| Purchase Order status | must be `Issued`, else `409` |
+| Over-receipt | `409 "Gate Entry line {n} exceeds the remaining PO quantity; over-receipt is refused."` — ordered minus prior effective received |
+| Lot totals | lot quantities must equal the received quantity, else `400` |
+| Serial count | `SerialCaptureMode` `REQUIRED` demands exactly one serial per received unit; `OPTIONAL` demands none or a complete set |
+| Serial-to-lot | serials must reconcile by lot allocation |
+| Serial threshold | `REQUIRED` when `UnitRate >` the effective `SerialCaptureThreshold` rule, unless `ItemCompanyInventorySettings.SerialCaptureMode` overrides it |
+| Warranty | `WarrantyExpiryDate` = `VendorBillDate` + 13 months, server-computed |
+| Changed serial | a `StoredSerialNumber` differing from `EnteredSerialNumber` requires both `DuplicateWarningAcknowledged` and a `DisambiguationReason`, else `400` |
+| Item category | the item's category code must be exactly three characters and have an effective `StoreCategoryRoute`, else `409` |
+| Immutability | a finalized GRN rejects `PUT` with `409`; the only path back is `/reverse` |
+
 
 ### 11.3 Planned QC shape
 
@@ -939,40 +982,48 @@ Create configuration version request:
 
 Only `TECHNICAL_DIRECTOR`, `MANAGING_DIRECTOR`, and `IT_MANAGER` may append configuration versions. New documents resolve the effective value and snapshot the value/version; submitted/in-flight documents retain their snapshot.
 
-## 13. Planned Stores endpoint catalog — NOT YET IMPLEMENTED
+## 13. Stores endpoint catalog — 13.1 and 13.2 are IMPLEMENTED; 13.3 onward is planned
 
-All paths in this section are relative to `/api/v1/stores`. GET requests have no body. `DraftCommand` is `{ "Version":1, "Remarks":"Ready to finalize" }`; `ReversalCommand` is `{ "Version":2, "Reason":"Incorrect quantity" }`. Commands require `Idempotency-Key` even when the example body does not repeat it. Expected endpoint errors are the common envelope plus the stated business conflicts.
+All paths in this section are relative to `/api/v1/stores`. GET requests have no body. Sections 13.3 onward remain planned and return `404`.
 
-### 13.1 Gate Entry
+**Corrected 2026-09-02.** The Gate Entry and GRN tables below are transcribed from the shipped route registrations. Error bodies from these two groups are `{ "message": "..." }` — they do **not** use the standard `{ Type, Title, Status, Code, Detail, TraceId, Errors }` envelope described in section 3.1. Clients must read `message` as well as `Detail`.
+
+### 13.1 Gate Entry (IMPLEMENTED)
+
+Page key `stores.gate-entry`.
 
 | Method and route | Request | Success response | Permission | Errors |
 |---|---|---|---|---|
-| `GET /gate-entries?purchaseOrderId=&vendorId=&from=&to=&status=&page=&pageSize=` | none | `PagedResponse<GateEntrySummary>` | `stores.gate-entry:View` | invalid filter `400` |
-| `GET /gate-entries/{id}` | none | Gate Entry detail in 11.1 plus history and `GoodsReceiptId` | `stores.gate-entry:View` | `404` |
-| `POST /gate-entries` | create body in 11.1 | `201` Gate Entry detail | `stores.gate-entry:Create` | PO/company/vendor/quantity `400/409` |
-| `PUT /gate-entries/{id}` | create body plus `Version` | `200` Gate Entry detail | `stores.gate-entry:Update` | finalized/stale `409` |
-| `POST /gate-entries/{id}/finalize` | `DraftCommand` | finalized Gate Entry detail | `stores.gate-entry:Submit` | missing lines/ineligible PO/stale `409` |
-| `POST /gate-entries/{id}/reversals` | `ReversalCommand` | `201` finalized reversal detail | `stores.gate-entry:Cancel` | downstream not reversed/already reversed `409` |
+| `GET /gate-entries?purchaseOrderNumber=&vendorId=&from=&to=&state=&page=&pageSize=` | none | `{ Page, PageSize, Items[] }` | `stores.gate-entry:View` | `400` |
+| `GET /gate-entries/{id}` | none | Gate Entry detail in 11.1 | `stores.gate-entry:View` | `404` |
+| `POST /gate-entries/` | create body in 11.1, `Idempotency-Key` header | `200` Gate Entry detail | `stores.gate-entry:Create` | missing key `400`; PO/vendor/quantity `400/409` |
+| `PUT /gate-entries/{id}` | update body plus `Version` | `200` Gate Entry detail | `stores.gate-entry:Update` | finalized/stale `409` |
+| `POST /gate-entries/{id}/finalize` | `{ Version, IdempotencyKey }` | `200` finalized detail | `stores.gate-entry:Submit` | missing lines/ineligible PO/stale `409` |
 
-`GateEntrySummary` contains `Id`, `GateEntryNumber`, `PurchaseOrderId`, `PoNumber`, `VendorId`, `VendorNameSnapshot`, `VendorDcNumber`, `ArrivedAt`, `Status`, `DocumentKind`, `Version`.
+> Corrections against the earlier draft: the list filter is `purchaseOrderNumber` (string) and `state`, not `purchaseOrderId` and `status`. The list response is `{ Page, PageSize, Items }` with **no `TotalCount`**. Create returns `200`, not `201`. There is **no** `POST /gate-entries/{id}/reversals` route, and no `GateEntrySummary` type — the list returns full detail objects.
 
 ### 13.2 GRN, serials and barcode
 
+GRN is implemented under page key **`inventory.grn`**. The item-inventory-settings and barcode routes below remain planned.
+
 | Method and route | Request | Success response | Permission | Errors |
 |---|---|---|---|---|
-| `GET /goods-receipts?gateEntryId=&purchaseOrderId=&vendorId=&billNumber=&from=&to=&status=&page=&pageSize=` | none | `PagedResponse<GoodsReceiptSummary>` | `stores.goods-receipts:View` | invalid filter `400` |
-| `GET /goods-receipts/{id}` | none | GRN detail in 11.2 plus posting/QC links | `stores.goods-receipts:View` | `404` |
-| `POST /gate-entries/{gateEntryId}/goods-receipt` | create body in 11.2 | `201` GRN detail | `stores.goods-receipts:Create` | Gate not finalized/used; bill duplicate `409` |
-| `PUT /goods-receipts/{id}` | create fields, lines/serials and `Version` | `200` GRN detail | `stores.goods-receipts:Update` | finalized/stale `409` |
-| `POST /goods-receipts/{id}/serials/validate` | serial-validation request in 11.2 | validation response in 11.2 | `stores.goods-receipts:Update` | malformed quantity/serial `400` |
-| `POST /goods-receipts/{id}/finalize` | `DraftCommand` | finalized detail with `StockPostingBatchId` | `stores.goods-receipts:Submit` | no bill/serial mismatch/PO cap/routing `409` |
-| `POST /goods-receipts/{id}/reversals` | `ReversalCommand` | `201` finalized reversal with posting batch | `stores.goods-receipts:Cancel` | downstream QC/DC prevents reversal `409` |
-| `GET /purchase-orders/{poId}/receipt-position` | none | `ReceiptPosition` below | `stores.goods-receipts:View` | `404` |
-| `GET /items/{itemId}/inventory-setting` | none | `ItemInventorySetting` below | `stores.item-inventory-settings:View` | item `404` |
-| `POST /items/{itemId}/erp-barcode` | `{ "Reason":"Create ERP barcode" }` | `201 ItemInventorySetting` | `stores.item-inventory-settings:Create` | already allocated `409` |
-| `PUT /items/{itemId}/serial-capture-mode` | `{ "SerialCaptureModeOverride":"REQUIRED", "Reason":"Always serialize compressors", "Version":2 }` | updated setting | `stores.item-inventory-settings:Update` | invalid mode/stale `400/409` |
-| `GET /items/{itemId}/barcode-label` | none | `{ "Barcode":"SESS-REF-000042", "Symbology":"CODE_128", "LabelText":"COMP-001", "MimeType":"application/pdf", "SuggestedFileName":"COMP-001-barcode.pdf", "ContentBase64":"JVBERi0xLjQK" }` | `stores.item-inventory-settings:Print` | no barcode `404` |
-| `GET /items/{itemId}/change-history` | none | `ControlledChangeHistory[]` | `stores.item-inventory-settings:ViewAuditHistory` | `404` |
+| `GET /goods-receipts?grnNumber=&gateEntryNumber=&vendorId=&status=&page=&pageSize=` | none | `{ Page, PageSize, Items[] }` | `inventory.grn:View` | `400` |
+| `GET /goods-receipts/{id}` | none | GRN detail in 11.2 | `inventory.grn:View` | `404` |
+| `POST /goods-receipts/` | create body in 11.2, `Idempotency-Key` header | `200` GRN detail | `inventory.grn:Create` | missing key `400`; gate not finalized / over-receipt / lot mismatch `400/409` |
+| `PUT /goods-receipts/{id}` | update body plus `Version` | `200` GRN detail | `inventory.grn:Update` | finalized/stale `409` |
+| `POST /goods-receipts/{id}/finalize` | `{ Version, IdempotencyKey }` | `200` detail with `StockPostingBatchId` | `inventory.grn:Submit` | unresolved duplicate serial / stale `409` |
+| `POST /goods-receipts/{id}/reverse` | `{ Version, Reason, IdempotencyKey }` | `200` reversal detail | `inventory.grn:Cancel` | downstream QC/DC prevents reversal `409` |
+| `GET /purchase-orders/{poId}/receipt-position` | none | `ReceiptPosition` below | planned | **not implemented** |
+| `GET /items/{itemId}/inventory-setting` | none | `ItemInventorySetting` below | planned | **not implemented** |
+| `POST /items/{itemId}/erp-barcode` | `{ "Reason":"Create ERP barcode" }` | `201 ItemInventorySetting` | planned | **not implemented** |
+| `PUT /items/{itemId}/serial-capture-mode` | `{ SerialCaptureModeOverride, Reason, Version }` | updated setting | planned | **not implemented** |
+| `GET /items/{itemId}/barcode-label` | none | label payload | planned | **not implemented** |
+| `GET /items/{itemId}/change-history` | none | `ControlledChangeHistory[]` | planned | **not implemented** |
+
+> Corrections against the earlier draft: create is `POST /goods-receipts/`, not `POST /gate-entries/{gateEntryId}/goods-receipt`. Reversal is `/reverse`, not `/reversals`. The permission page key is `inventory.grn`, not `stores.goods-receipts`. `POST /goods-receipts/{id}/serials/validate` does not exist — see 11.2. List filters are `grnNumber` and `gateEntryNumber`; there is no `purchaseOrderId`, `billNumber`, `from` or `to` filter, and the response carries **no `TotalCount`**. Create and reverse return `200`, not `201`.
+
+> **Open item for the backend.** Both list responses omit `TotalCount`, so a page-count pager cannot be built and the UI has to fall back to a short-page heuristic that is wrong when the row count is an exact multiple of the page size. Every master list returns `{ TotalCount, PageNumber, PageSize, Items }`; these two should match it.
 
 ```json
 {
@@ -983,6 +1034,7 @@ All paths in this section are relative to `/api/v1/stores`. GET requests have no
     "ErpBarcode":"SESS-REF-000042","SerialCaptureModeOverride":"REQUIRED","EffectiveSerialCaptureMode":"REQUIRED","Version":2}
 }
 ```
+
 
 ### 13.3 QC and category routing
 
@@ -1131,11 +1183,11 @@ Rejected/not-imported submitted values and error attempted values expire after 9
 
 1. Bootstrap with `/session/me`; namespace all caches by `CompanyId` and clear them on company change.
 2. Generate TypeScript models with the PascalCase names in this document. Do not infer shapes from database names, camelCase legacy responses, or ORM navigation properties.
-3. Gate buttons by the exact `PageKey:Action` permission received from the application's permission model; backend authorization remains authoritative.
+3. Gate buttons by the exact `PageKey:Action` permission received from the application's permission model; backend authorization remains authoritative. **No endpoint currently serves this to a non-administrator** — `/session/me` returns `RoleCodes[]` only, and `/authorization/role-page-permissions` is gated behind `authorization.role-pages:View`. See section 15.
 4. Preserve `Version` from the last GET and handle `409 CONCURRENCY_CONFLICT` with reload/diff, never an automatic overwrite.
 5. Generate one UUID idempotency key per user intent, retain it across network retries, and generate a new key only for a new intent.
 6. Treat all money/quantity values as decimal strings internally if the JavaScript number range would lose precision; serialize them as JSON numbers.
-7. Mock planned Stores endpoints with the exact shapes and lifecycle states above. Keep them behind an API adapter so replacing mocks with live HTTP does not alter screen models.
+7. Gate Entry and GRN are live — call them, do not mock them. Mock only the endpoints still marked planned (QC, job orders, issue requests, delivery challans, notifications, stock ledger, item inventory settings), and keep those behind an API adapter so replacing mocks with live HTTP does not alter screen models.
 8. Do not implement client-side shortcuts around Gate Entry → GRN → QC → Stock, approval, reversal, notification, or immutable-document rules.
 
 ## 15. Known backend alignment work
@@ -1146,5 +1198,13 @@ This document is the intended stable contract. Global PascalCase HTTP serializat
 - normalize the three legacy pagination exceptions identified in 3.2, or retain them as explicitly versioned exceptions;
 - add `Version` concurrency to employee mutations or keep the documented exception visible;
 - implement and permission-seed every planned Stores route before removing the NOT YET IMPLEMENTED marker.
+
+Raised 2026-09-02 while correcting sections 11 and 13 against the shipped code:
+
+- **No effective-permission endpoint for ordinary users.** Checklist item 3 above cannot be implemented. `/session/me` returns `RoleCodes[]`; `/authorization/role-page-permissions` requires `authorization.role-pages:View`, so a storekeeper receives `403`. A frontend permission model therefore has no source of truth other than a hardcoded role matrix, which is precisely what broke when `inventory.grn:Create` was narrowed from ten roles to two. Needed: an authenticated-only route returning the current employee's page permissions for the active company, already unioned across their roles with `HasFullControl` flattened server-side.
+- **Employee list returns a bare array.** Every other master list returns `{ TotalCount, PageNumber, PageSize, Items }`. `GET /api/v1/employees` does not, so the client cannot compute a page count.
+- **Stores list responses omit `TotalCount`.** `GET /stores/gate-entries` and `GET /stores/goods-receipts` return `{ Page, PageSize, Items }` only. Same consequence as above.
+- **Stores error bodies bypass the section 3.1 envelope.** Both Stores groups return `{ "message": "..." }`. Either normalize them or document the exception permanently.
+- **`POST /purchase-requisitions/{n}/submit` fail-closed 409 messages are developer-facing.** They embed company GUIDs, ISO timestamps and table names. The refusal is correct; the wording is not usable by a requester without a client-side translation layer.
 
 These are contract-alignment items, not authorization for code or migration work in this document-only task.

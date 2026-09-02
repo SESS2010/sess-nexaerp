@@ -5,6 +5,9 @@ import type { VendorSummary } from '../../types/vendor'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
 import { ImportExportBar } from '../../components/ImportExportBar'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
 
 const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected', 'Blacklisted']
 const PAGE_SIZE = 20
@@ -18,26 +21,31 @@ export function VendorListPage() {
   const [appliedSearch, setAppliedSearch] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
+  // The vendors endpoint sorts on code, name and status only.
+  const { sort, toggleSort } = useSort({ sortBy: 'code', sortDirection: 'asc' }, () => setPage(1))
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
-      const data = await listVendors({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
+      const data = await listVendors({
+        page, pageSize: PAGE_SIZE, search: appliedSearch, status,
+        sortBy: sort.sortBy, sortDirection: sort.sortDirection,
+      })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
       setTotalCount(0)
-      setError(err instanceof Error ? err.message : 'Failed to load vendors.')
+      setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, status])
+  }, [page, appliedSearch, status, sort])
 
   useEffect(() => {
     void load()
@@ -89,17 +97,17 @@ export function VendorListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load vendors." />
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Name</th>
+              <SortableHeader label="Code" sortKey="code" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>GSTIN</th>
               <th>PAN</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Approval</th>
               <th>Active</th>
             </tr>

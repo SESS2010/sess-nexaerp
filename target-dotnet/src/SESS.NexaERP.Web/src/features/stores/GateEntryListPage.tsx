@@ -6,6 +6,7 @@ import { GATE_ENTRY_STATES } from '../../types/stores'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 const PAGE_SIZE = 25
 
@@ -19,12 +20,12 @@ export function GateEntryListPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const data = await listGateEntries({
         page,
@@ -37,7 +38,7 @@ export function GateEntryListPage() {
       setRows(data.Items ?? [])
     } catch (err) {
       setRows([])
-      setError(err instanceof Error ? err.message : 'Failed to load gate entries.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -95,7 +96,7 @@ export function GateEntryListPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load gate entries." />
 
       <div className="table-wrap">
         <table className="table">

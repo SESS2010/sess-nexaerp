@@ -14,6 +14,7 @@ import type {
 import { StatusBadge } from '../employees/StatusBadge'
 import { PurchaseRequisitionFormModal } from './PurchaseRequisitionFormModal'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface ActionDefinition {
   action: PurchaseRequisitionAction
@@ -98,7 +99,7 @@ export function PurchaseRequisitionDetailPage() {
   const [statusHistory, setStatusHistory] = useState<PurchaseRequisitionHistorySummary[]>([])
   const [approvalHistory, setApprovalHistory] = useState<PurchaseRequisitionHistorySummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [remarks, setRemarks] = useState('')
   const [busy, setBusy] = useState<PurchaseRequisitionAction | null>(null)
@@ -106,12 +107,12 @@ export function PurchaseRequisitionDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       setDetail(await getPurchaseRequisition(prNumber))
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the requisition.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -131,7 +132,7 @@ export function PurchaseRequisitionDetailPage() {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
       return
     }
-    setError('')
+    setError(null)
     setNotice('')
     setBusy(definition.action)
     try {
@@ -144,7 +145,9 @@ export function PurchaseRequisitionDetailPage() {
       setNotice(`${definition.label} succeeded. Status is now ${updated.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${definition.label} failed.`)
+      // A 409 here is the fail-closed approval-configuration refusal or a stale
+      // Version; ErrorAlert turns both into something the requester can act on.
+      setError(err)
     } finally {
       setBusy(null)
     }
@@ -157,7 +160,7 @@ export function PurchaseRequisitionDetailPage() {
   if (!detail) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Requisition not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Requisition not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/requisitions')}>
           ‹ Back to list
         </button>
@@ -190,7 +193,7 @@ export function PurchaseRequisitionDetailPage() {
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
 
       <div className="card">
