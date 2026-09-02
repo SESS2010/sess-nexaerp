@@ -80,7 +80,7 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
         if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100.");var company=await Company(ct);var q=ReceiptQuery().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(grnNumber))q=q.Where(x=>x.GrnNumber==grnNumber.Trim().ToUpperInvariant());if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntry!.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(!string.IsNullOrWhiteSpace(status)){var s=status.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("status must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var candidates=await q.OrderByDescending(x=>x.ReceivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(page,pageSize,results);
+        var total=await q.CountAsync(ct);var candidates=await q.OrderByDescending(x=>x.ReceivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(total,page,pageSize,results);
     }
 
     private async Task<List<GoodsReceiptLine>> BuildLines(GoodsReceipt receipt,GateEntry gate,IReadOnlyList<GoodsReceiptLineRequest> input,Guid companyId,Guid actor,CancellationToken ct)

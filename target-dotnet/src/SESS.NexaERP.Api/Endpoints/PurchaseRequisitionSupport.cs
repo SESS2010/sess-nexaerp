@@ -117,23 +117,23 @@ public static partial class PurchaseRequisitionEndpoints
         return result;
     }
 
-    private static async Task<IResult> Reservations(NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, CancellationToken ct)
+    private static async Task<IResult> Reservations(NexaErpDbContext db, ICurrentUser user, string? reservationNumber, int? page, int? pageSize, CancellationToken ct)
     {
         var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
         var allowedPrIds = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Select(x => x.Id);
-        var q = db.StockReservations.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId)).Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.ReservationNumber);
+        var q = db.StockReservations.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId));if(!string.IsNullOrWhiteSpace(reservationNumber)){var number=reservationNumber.Trim().ToUpperInvariant();q=q.Where(x=>x.ReservationNumber==number);}var ordered=q.Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.ReservationNumber);
         var total = await q.CountAsync(ct);
-        var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new StockReservationSummary(x.Id, x.ReservationNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.ReservedQuantity, x.Status)).ToListAsync(ct);
+        var rows = await ordered.Skip(p.Skip).Take(p.PageSize).Select(x => new StockReservationSummary(x.Id, x.ReservationNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.ReservedQuantity, x.Status)).ToListAsync(ct);
         return Results.Ok(new PagedResponse<StockReservationSummary>(total, p.PageNumber, p.PageSize, rows));
     }
 
-    private static async Task<IResult> Handoffs(NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, CancellationToken ct)
+    private static async Task<IResult> Handoffs(NexaErpDbContext db, ICurrentUser user, string? handoffNumber, int? page, int? pageSize, CancellationToken ct)
     {
         var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
         var allowedPrIds = Scope(db.PurchaseRequisitions.AsNoTracking(), user, db).Select(x => x.Id);
-        var q = db.PurchaseRequirementHandoffs.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId)).Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.HandoffNumber);
+        var q = db.PurchaseRequirementHandoffs.AsNoTracking().Where(x => allowedPrIds.Contains(x.PurchaseRequisitionId));if(!string.IsNullOrWhiteSpace(handoffNumber)){var number=handoffNumber.Trim().ToUpperInvariant();q=q.Where(x=>x.HandoffNumber==number);}var ordered=q.Include(x => x.PurchaseRequisition).Include(x => x.PurchaseRequisitionLine).Include(x => x.Warehouse).Include(x => x.RackBin).OrderBy(x => x.HandoffNumber);
         var total = await q.CountAsync(ct);
-        var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => new PurchaseRequirementHandoffSummary(x.Id, x.HandoffNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.HandoffQuantity, x.Status)).ToListAsync(ct);
+        var rows = await ordered.Skip(p.Skip).Take(p.PageSize).Select(x => new PurchaseRequirementHandoffSummary(x.Id, x.HandoffNumber, x.PurchaseRequisition!.PrNumber, x.PurchaseRequisitionLine!.LineNumber, x.PurchaseRequisitionLine.ItemCodeSnapshot, x.Warehouse!.WarehouseCode, x.RackBin == null ? null : x.RackBin.BinCode, x.HandoffQuantity, x.Status)).ToListAsync(ct);
         return Results.Ok(new PagedResponse<PurchaseRequirementHandoffSummary>(total, p.PageNumber, p.PageSize, rows));
     }
 }

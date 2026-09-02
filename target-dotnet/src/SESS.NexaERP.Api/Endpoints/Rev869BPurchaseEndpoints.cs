@@ -10,7 +10,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class Rev869BPurchaseEndpoints
+public static partial class Rev869BPurchaseEndpoints
 {
     public static IEndpointRouteBuilder MapRev869BPurchaseEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -34,7 +34,12 @@ public static class Rev869BPurchaseEndpoints
         group.MapPost("/purchase-orders/{number}/reject", (string number, Rev869BPoApprovalActionRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.RejectPurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Reject);
         group.MapPost("/purchase-orders/{number}/cancel", (string number, Rev869BCancelPurchaseOrderRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.CancelPurchaseOrderAsync(number, r, ct), h, ct)).RequirePagePermission("purchase.po", PagePermissionActions.Cancel);
         group.MapPost("/material-followup/{id:guid}/transition", (Guid id, Rev869BMaterialFollowUpTransitionRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.TransitionMaterialFollowUpAsync(id, r, ct), h, ct)).RequirePagePermission("purchase.material-followup", PagePermissionActions.Update);
+        group.MapGet("/rfqs", ListRfqs).RequirePagePermission("purchase.rfq", PagePermissionActions.View);
+        group.MapGet("/quotations", ListQuotations).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.View);
+        group.MapGet("/comparisons", ListComparisons).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.View);
+        group.MapGet("/purchase-orders", ListPurchaseOrders).RequirePagePermission("purchase.po", PagePermissionActions.View);
         group.MapGet("/rfqs/{number}", GetRfq).RequirePagePermission("purchase.rfq", PagePermissionActions.View);
+        group.MapGet("/quotations/{number}", GetQuotation).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.View);
         group.MapGet("/comparisons/{number}", GetComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.View);
         group.MapGet("/purchase-orders/{number}", GetPo).RequirePagePermission("purchase.po", PagePermissionActions.View);
         group.MapGet("/quotations/{number}/attachment", GetQuotationAttachment).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Download);
@@ -72,11 +77,19 @@ public static class Rev869BPurchaseEndpoints
             new { row.QuotationNumber, organizationId = row.OrganizationId, evidencePresent = true }, ct);
         return Results.Ok(new { row.QuotationNumber, row.AttachmentObjectKey, row.AttachmentSha256, row.SubmissionSource, row.ReceivedAt });
     }
-    private static async Task<IResult> GetFollowUp(int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> GetFollowUp(string? handoffNumber, int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
-        if (!user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId)) return await Denied(audit, "purchase.material-followup", "list", user, ct);
-        var pageNumber = page ?? 1; var take = pageSize ?? 50; if (pageNumber < 1 || take is < 1 or > 100) return Results.BadRequest(new { message = "page must be positive and pageSize must be 1-100." });
-        var rows = await db.MaterialFollowUpHandoffs.AsNoTracking().Where(x => x.PurchaseOrder!.OrganizationId == user.OrganizationId && x.PurchaseOrder.IsCurrentVersion && x.PurchaseOrder.Status == Rev869BStatuses.Issued).OrderBy(x => x.HandoffAt).ThenBy(x => x.Id).Skip((pageNumber - 1) * take).Take(take).Select(x => new { x.Id, x.HandoffNumber, x.PurchaseOrderId, x.PurchaseOrderLineId, x.OrderedQuantitySnapshot, x.Status, x.HandoffAt, DepartmentId = x.PurchaseOrder!.RequestingDepartmentId, WarehouseId = x.PurchaseOrder.DeliveryWarehouseId, OwnerId = x.PurchaseOrder.OwnerEmployeeId }).ToListAsync(ct); var allowed = new List<object>(); foreach (var row in rows) if (await Allowed(user, scopes, user.OrganizationId, row.DepartmentId, row.WarehouseId, row.OwnerId, ct)) allowed.Add(row); else await audit.WriteAsync("Security", "Denied", "purchase.material-followup", row.Id.ToString(), null, new { reason = "Record scope denied", user.RoleCode }, ct); return Results.Ok(new { page = pageNumber, pageSize = take, items = allowed });
+        var pageNumber = page ?? 1; var take = pageSize ?? 50;
+        if (pageNumber < 1 || take is < 1 or > 100) return Results.BadRequest(new { message = "page must be positive and pageSize must be 1-100." });
+        var purchaseOrderIds = ScopePurchaseOrders(db.PurchaseOrders.AsNoTracking(), db, user)
+            .Where(x => x.IsCurrentVersion && x.Status == Rev869BStatuses.Issued).Select(x => x.Id);
+        var query = db.MaterialFollowUpHandoffs.AsNoTracking().Where(x => purchaseOrderIds.Contains(x.PurchaseOrderId));
+        if (!string.IsNullOrWhiteSpace(handoffNumber)) { var number = handoffNumber.Trim().ToUpperInvariant(); query = query.Where(x => x.HandoffNumber == number); }
+        var total = await query.CountAsync(ct);
+        var rows = await query.OrderBy(x => x.HandoffAt).ThenBy(x => x.Id).Skip((pageNumber - 1) * take).Take(take)
+            .Select(x => new MaterialFollowUpListItem(x.Id, x.HandoffNumber, x.PurchaseOrderId, x.PurchaseOrderLineId,
+                x.OrderedQuantitySnapshot, x.Status, x.HandoffAt)).ToListAsync(ct);
+        return Results.Ok(new PagedResponse<MaterialFollowUpListItem>(total, pageNumber, take, rows));
     }
     private static async Task<IResult> Denied(IAuditWriter audit, string page, string record, ICurrentUser user, CancellationToken ct) { await audit.WriteAsync("Security", "Denied", page, record, null, new { reason = "Record scope denied", user.RoleCode }, ct); return Results.Forbid(); }
     private static async Task<IResult> Missing(IAuditWriter audit, string page, string record, ICurrentUser user, CancellationToken ct) { await audit.WriteAsync("Security", "Denied", page, record, null, new { reason = "Scoped record missing or denied", user.RoleCode }, ct); return Results.NotFound(); }

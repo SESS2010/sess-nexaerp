@@ -236,6 +236,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "SOFTWARE_DEVELOPER");
+        var employeePage=await Get<PagedResponse<SESS.NexaERP.Application.Employees.EmployeeSummary>>(prClient,"/api/v1/employees?page=1&pageSize=1");
+        Assert.True(employeePage.TotalCount>1);var employee=Assert.Single(employeePage.Items);
+        using(var stale=await prClient.PutAsJsonAsync($"/api/v1/employees/{employee.EmployeeCode}",new SESS.NexaERP.Application.Employees.UpdateEmployeeRequest(
+            employee.EmployeeName,employee.EmployeeType,employee.Grade,"NOT_USED","NOT_USED","NOT_USED",null,null,null,"Concurrency witness",employee.Version+1)))
+            Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);
         var pr = await Post<PurchaseRequisitionDetail>(prClient, "/api/v1/purchase/requisitions",
             new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "IT", "SESS-12", required, "NORMAL",
                 $"TRIAL {band.Code} full Purchase flow", "TRIAL-WH-C01", null, null, null, null, null,
@@ -290,6 +295,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             invitations.Add(invitation.Id);
             await AssertTransactionEvidence(options, "RFQInvitation", invitation.Id, "InviteVendor");
         }
+        var rfqList=await Get<PagedResponse<RfqListItem>>(client,$"/api/v1/purchase/rfqs?rfqNumber={rfq.Number}&vendorId={vendor1Id}&sortBy=date&sortDirection=desc");
+        Assert.Equal(1,rfqList.TotalCount);Assert.Equal(rfq.Id,Assert.Single(rfqList.Items).Id);
         var rfqLineId = await Query(options, db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
         var quotations = new List<Rev869BDocumentResult>();
         for (var index = 0; index < invitations.Count; index++)
@@ -306,6 +313,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             quotations.Add(quote);
             await AssertTransactionEvidence(options, "VendorQuotation", quote.Id, "SubmitQuotation");
         }
+        var quotationList=await Get<PagedResponse<QuotationListItem>>(client,$"/api/v1/purchase/quotations?quotationNumber={quotations[0].Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,quotationList.TotalCount);Assert.Equal(quotations[0].Id,Assert.Single(quotationList.Items).Id);
+        var quotationDetail=await Get<JsonElement>(client,$"/api/v1/purchase/quotations/{quotations[0].Number}");
+        Assert.Equal(quotations[0].Number,quotationDetail.GetProperty("QuotationNumber").GetString());
         user.Set(verifierId, "SESS-05", "TECHNICAL_ENGINEER");
         foreach (var quote in quotations)
         {
@@ -338,6 +349,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        var comparisonList=await Get<PagedResponse<ComparisonListItem>>(client,$"/api/v1/purchase/comparisons?comparisonNumber={comparison.Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,comparisonList.TotalCount);Assert.Equal(comparison.Id,Assert.Single(comparisonList.Items).Id);
         await AssertApprovalActors(options, "CMP", comparison.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -366,6 +379,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, $"{band.Code}-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
+        var poList=await Get<PagedResponse<PurchaseOrderListItem>>(client,$"/api/v1/purchase/purchase-orders?purchaseOrderNumber={po.Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,poList.TotalCount);Assert.Equal(po.Id,Assert.Single(poList.Items).Id);
+        var followups=await Get<PagedResponse<MaterialFollowUpListItem>>(client,"/api/v1/purchase/material-followup?pageSize=100");
+        Assert.Contains(followups.Items,x=>x.PurchaseOrderId==po.Id);
 
         user.Set(storesId,"SESS-35",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
         var poLineId=await Query(options,db=>db.PurchaseOrderLines.Where(x=>x.PurchaseOrderId==po.Id).Select(x=>x.Id).SingleAsync());
@@ -374,7 +391,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("DRAFT",gate.Status); Assert.Single(gate.History);
         gate=await Put<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}",new UpdateGateEntryRequest(gate.VendorDcNumber,"TRIAL-VEHICLE-EDITED","ROAD",gate.ArrivedAt,"{\"packagesChecked\":true,\"edited\":true}",[new(poLineId,1)],gate.Version));
         var detail=await Get<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}"); Assert.Equal("TRIAL-VEHICLE-EDITED",detail.VehicleNumber);
-        var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?purchaseOrderNumber={po.Number}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);
+        var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?gateEntryNumber={gate.GateEntryNumber}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);Assert.Equal(1,list.TotalCount);
         gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
         Assert.Equal("FINALIZED",gate.Status); Assert.Equal(2,gate.History.Count);
         await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
@@ -393,6 +410,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         grn=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
+        var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");
+        Assert.Equal(1,grnList.TotalCount);Assert.Equal(grn.Id,Assert.Single(grnList.Items).Id);
         await using(var evidence=new NexaErpDbContext(options))
         {
             Assert.True(await evidence.StockPostingBatches.AnyAsync(x=>x.Id==grn.StockPostingBatchId&&x.GoodsReceiptId==grn.Id&&x.PostingKind=="GRN_CUSTODY"));
@@ -539,6 +558,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapRev869AConfigurationEndpoints();
+            app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();
             app.MapStoresGateEntryEndpoints();

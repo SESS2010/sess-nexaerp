@@ -27,7 +27,8 @@ public sealed record RolePagePermissionSummary(
     bool CanReplaceAttachment,
     bool CanViewCommercialValues,
     bool CanViewAuditHistory,
-    bool HasFullControl);
+    bool HasFullControl,
+    uint Version);
 
 public sealed record UpsertRolePagePermissionRequest(
     string RoleCode,
@@ -51,4 +52,5 @@ public sealed record UpsertRolePagePermissionRequest(
     bool CanReplaceAttachment,
     bool CanViewCommercialValues,
     bool CanViewAuditHistory,
-    bool HasFullControl);
+    bool HasFullControl,
+    uint? Version = null);

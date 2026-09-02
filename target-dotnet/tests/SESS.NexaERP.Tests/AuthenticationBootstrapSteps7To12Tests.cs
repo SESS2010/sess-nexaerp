@@ -113,6 +113,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
         Assert.Equal("SESS-12", session.EmployeeCode);
         Assert.Equal("SESS_PVT_LTD", session.OrganizationId);
         Assert.Equal(["IT_MANAGER"], session.RoleCodes);
+        Assert.Equal(["employees.master:view"], session.Permissions);
         Assert.Equal(TestIssuer, session.IdentityIssuer);
         Assert.Equal(TestSubject, session.IdentitySubject);
     }
@@ -172,7 +173,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
     }
     private sealed class FakeSessionService : ISessionService
     {
-        public Task<SessionMe> GetCurrentAsync(CancellationToken ct) => Task.FromResult(new SessionMe(Guid.Parse("90000000-0000-0000-0000-000000000012"), "SESS-12", "SURANTHER P", Guid.Parse("70000000-0000-0000-0000-000000000001"), "SESS_PVT_LTD", Guid.Parse("50000000-0000-0000-0000-000000000001"), "IT", ["IT_MANAGER"], TestIssuer, TestSubject));
+        public Task<SessionMe> GetCurrentAsync(CancellationToken ct) => Task.FromResult(new SessionMe(Guid.Parse("90000000-0000-0000-0000-000000000012"), "SESS-12", "SURANTHER P", Guid.Parse("70000000-0000-0000-0000-000000000001"), "SESS_PVT_LTD", Guid.Parse("50000000-0000-0000-0000-000000000001"), "IT", ["IT_MANAGER"], ["employees.master:view"], TestIssuer, TestSubject));
     }
     private sealed class HeaderCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
     {
@@ -197,7 +198,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
     }
     private sealed class EmptyAuditHistory : IAuditHistoryService
     {
-        public Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(string? module, int page, int pageSize, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<AuditLogSummary>>([]);
+        public Task<PagedResponse<AuditLogSummary>> GetCompanyHistoryAsync(string? module, int page, int pageSize, CancellationToken ct) =>
+            Task.FromResult(new PagedResponse<AuditLogSummary>(0, page, pageSize, []));
     }
 }

@@ -22,7 +22,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/purchase/requisitions").WithTags("Purchase Requisitions").RequireAuthorization();
 
-        group.MapGet("", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
+        group.MapGet("", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? prNumber, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
         {
             var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
             var q = Scope(db.PurchaseRequisitions.AsNoTracking().Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee), user, db);
@@ -32,6 +32,7 @@ public static partial class PurchaseRequisitionEndpoints
                 q = q.Where(x => x.PrNumber.ToUpper().Contains(s) || x.PurposeJustification.ToUpper().Contains(s));
             }
             if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim());
+            if (!string.IsNullOrWhiteSpace(prNumber)) q = q.Where(x => x.PrNumber == NormalizePr(prNumber));
             q = Sort(q, sortBy, sortDirection);
             var total = await q.CountAsync(ct);
             var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => ToSummary(x)).ToListAsync(ct);

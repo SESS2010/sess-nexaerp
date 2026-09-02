@@ -117,7 +117,7 @@ public sealed record GoodsReceiptResult(
     IReadOnlyList<GoodsReceiptLineResult> Lines,
     IReadOnlyList<GoodsReceiptHistoryResult> History);
 
-public sealed record GoodsReceiptListResult(int Page, int PageSize, IReadOnlyList<GoodsReceiptResult> Items);
+public sealed record GoodsReceiptListResult(int TotalCount, int PageNumber, int PageSize, IReadOnlyList<GoodsReceiptResult> Items);
 
 public interface IGoodsReceiptService
 {

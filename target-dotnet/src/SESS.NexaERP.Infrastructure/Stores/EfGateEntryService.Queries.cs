@@ -16,15 +16,16 @@ public sealed partial class EfGateEntryService
         return Map(gate);
     }
 
-    public async Task<GateEntryListResult> ListAsync(string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken ct)
+    public async Task<GateEntryListResult> ListAsync(string? gateEntryNumber,string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken ct)
     {
         if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
         var q=Query().Where(x=>x.CompanyId==company.Id);
+        if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());
         if(!string.IsNullOrWhiteSpace(poNumber))q=q.Where(x=>x.PurchaseOrder!.PoNumber==poNumber.Trim().ToUpperInvariant()); if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(from.HasValue)q=q.Where(x=>x.ArrivedAt>=from.Value.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)); if(to.HasValue)q=q.Where(x=>x.ArrivedAt<to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         if(!string.IsNullOrWhiteSpace(state)){var s=state.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("state must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var result=await q.OrderByDescending(x=>x.ArrivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
-        return new(page,pageSize,result.Select(Map).ToList());
+        var total=await q.CountAsync(ct);var result=await q.OrderByDescending(x=>x.ArrivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
+        return new(total,page,pageSize,result.Select(Map).ToList());
     }
 
     private IQueryable<GateEntry> Query()=>db.GateEntries.AsNoTracking().Include(x=>x.PurchaseOrder).Include(x=>x.Lines).Include(x=>x.Vendor);

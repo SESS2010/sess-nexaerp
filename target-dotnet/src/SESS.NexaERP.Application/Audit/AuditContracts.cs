@@ -1,3 +1,5 @@
+using SESS.NexaERP.Application.Common;
+
 namespace SESS.NexaERP.Application.Audit;
 
 public sealed record AuditLogSummary(
@@ -13,7 +15,7 @@ public sealed record AuditLogSummary(
 
 public interface IAuditHistoryService
 {
-    Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(
+    Task<PagedResponse<AuditLogSummary>> GetCompanyHistoryAsync(
         string? module,
         int page,
         int pageSize,

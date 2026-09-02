@@ -15,7 +15,7 @@ public static class StoresGateEntryEndpoints
         g.MapPut("/{id:guid}",async(Guid id,UpdateGateEntryRequest r,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.UpdateAsync(id,r,ct),h)).RequirePagePermission(Page,PagePermissionActions.Update);
         g.MapPost("/{id:guid}/finalize",async(Guid id,FinalizeGateEntryRequest r,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.FinalizeAsync(id,r,ct),h)).RequirePagePermission(Page,PagePermissionActions.Submit);
         g.MapGet("/{id:guid}",async(Guid id,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(async()=>await s.GetAsync(id,ct)??throw new KeyNotFoundException("Gate Entry was not found."),h)).RequirePagePermission(Page,PagePermissionActions.View);
-        g.MapGet("/",async(string? purchaseOrderNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int? page,int? pageSize,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ListAsync(purchaseOrderNumber,vendorId,from,to,state,page??1,pageSize??50,ct),h)).RequirePagePermission(Page,PagePermissionActions.View);
+        g.MapGet("/",async(string? gateEntryNumber,string? purchaseOrderNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int? page,int? pageSize,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ListAsync(gateEntryNumber,purchaseOrderNumber,vendorId,from,to,state,page??1,pageSize??50,ct),h)).RequirePagePermission(Page,PagePermissionActions.View);
         return endpoints;
     }
     private static string HeaderKey(HttpContext h)=>h.Request.Headers.TryGetValue("Idempotency-Key",out var v)&&!string.IsNullOrWhiteSpace(v)?v.ToString():throw new StoresValidationException("Idempotency-Key header is required.");

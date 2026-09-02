@@ -11,7 +11,8 @@ public sealed record EmployeeSummary(
     string JobDesignation,
     string Status,
     bool LoginEnabled,
-    string ApprovalStatus);
+    string ApprovalStatus,
+    uint Version);
 
 public sealed record EmployeeDetail(
     Guid Id,
@@ -29,7 +30,8 @@ public sealed record EmployeeDetail(
     string? MobileNumber,
     bool LoginEnabled,
     string ApprovalStatus,
-    IReadOnlyList<EmployeeRoleSummary> Roles);
+    IReadOnlyList<EmployeeRoleSummary> Roles,
+    uint Version);
 
 public sealed record CreateEmployeeRequest(
     string EmployeeCode,
@@ -54,11 +56,12 @@ public sealed record UpdateEmployeeRequest(
     DateOnly? DateOfJoining,
     string? OfficialEmail,
     string? MobileNumber,
-    string Reason);
+    string Reason,
+    uint Version);
 
-public sealed record EmployeeApprovalRequest(string Remarks);
+public sealed record EmployeeApprovalRequest(string Remarks, uint Version);
 
-public sealed record LoginStatusRequest(string Reason);
+public sealed record LoginStatusRequest(string Reason, uint Version);
 
 public sealed record AssignEmployeeRoleRequest(string RoleCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
 

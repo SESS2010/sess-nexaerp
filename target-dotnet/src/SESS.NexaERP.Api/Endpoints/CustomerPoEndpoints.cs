@@ -56,6 +56,7 @@ public static class CustomerPoEndpoints
         var sales = endpoints.MapGroup("/api/v1/sales").WithTags("Sales").RequireAuthorization();
 
         sales.MapGet("/customer-pos", async (NexaErpDbContext db, ICurrentUser currentUser, int? page, int? pageSize, string? search,
+            string? poRecordNumber, string? customerPoNumber,
             string? workStatus, string? salesType, string? serviceMode, string? fiscalYear,
             CancellationToken ct) =>
         {
@@ -72,6 +73,8 @@ public static class CustomerPoEndpoints
                     || (po.Customer != null && po.Customer.Name.ToUpper().Contains(term))
                     || (po.QuoteNumber != null && po.QuoteNumber.ToUpper().Contains(term)));
             }
+            if (!string.IsNullOrWhiteSpace(poRecordNumber)) query = query.Where(po => po.PoRecordNumber == poRecordNumber.Trim().ToUpperInvariant());
+            if (!string.IsNullOrWhiteSpace(customerPoNumber)) query = query.Where(po => po.CustomerPoNumber == customerPoNumber.Trim());
             if (!string.IsNullOrWhiteSpace(workStatus)) query = query.Where(po => po.WorkStatus == workStatus.Trim());
             if (!string.IsNullOrWhiteSpace(salesType)) query = query.Where(po => po.SalesType == salesType.Trim());
             if (!string.IsNullOrWhiteSpace(serviceMode)) query = query.Where(po => po.ServiceMode == serviceMode.Trim());

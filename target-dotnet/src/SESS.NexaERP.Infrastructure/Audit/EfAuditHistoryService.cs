@@ -7,7 +7,7 @@ namespace SESS.NexaERP.Infrastructure.Audit;
 
 public sealed class EfAuditHistoryService(NexaErpDbContext db, ICurrentUser currentUser) : IAuditHistoryService
 {
-    public async Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(
+    public async Task<PagedResponse<AuditLogSummary>> GetCompanyHistoryAsync(
         string? module,
         int page,
         int pageSize,
@@ -31,12 +31,14 @@ public sealed class EfAuditHistoryService(NexaErpDbContext db, ICurrentUser curr
             query = query.Where(log => log.Module == normalizedModule);
         }
 
-        return await query
+        var total = await query.CountAsync(cancellationToken);
+        var rows = await query
             .OrderByDescending(log => log.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(log => new AuditLogSummary(log.Id, log.Module, log.Action, log.EntityName, log.EntityId,
                 log.UserLoginId, log.Result, log.CorrelationId, log.CreatedAt))
             .ToListAsync(cancellationToken);
+        return new PagedResponse<AuditLogSummary>(total, page, pageSize, rows);
     }
 }

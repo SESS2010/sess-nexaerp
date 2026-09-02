@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Identity;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -14,15 +15,18 @@ public static class IdentityEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/identity").WithTags("Identity").RequireAuthorization();
 
-        group.MapGet("/roles", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/roles", async (NexaErpDbContext db, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
-            var roles = await db.Roles
-                .AsNoTracking()
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var query = db.Roles.AsNoTracking();
+            var total = await query.CountAsync(cancellationToken);
+            var roles = await query
                 .OrderBy(role => role.Code)
+                .Skip(paging.Skip).Take(paging.PageSize)
                 .Select(role => new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(roles);
+            return Results.Ok(new PagedResponse<RoleSummary>(total, paging.PageNumber, paging.PageSize, roles));
         }).RequirePagePermission("identity.roles", PagePermissionActions.View);
 
         group.MapPost("/roles", async (CreateRoleRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
@@ -52,12 +56,16 @@ public static class IdentityEndpoints
             return Results.Created($"/api/v1/identity/roles/{role.Id}", new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive));
         }).RequirePagePermission("identity.roles", PagePermissionActions.Create);
 
-        group.MapGet("/users", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/users", async (NexaErpDbContext db, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
-            var users = await db.UserAccounts
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var query = db.UserAccounts
                 .AsNoTracking()
-                .Include(user => user.Role)
+                .Include(user => user.Role);
+            var total = await query.CountAsync(cancellationToken);
+            var users = await query
                 .OrderBy(user => user.LoginId)
+                .Skip(paging.Skip).Take(paging.PageSize)
                 .Select(user => new UserAccountSummary(
                     user.Id,
                     user.LoginId,
@@ -69,7 +77,7 @@ public static class IdentityEndpoints
                     user.IsActive))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(users);
+            return Results.Ok(new PagedResponse<UserAccountSummary>(total, paging.PageNumber, paging.PageSize, users));
         }).RequirePagePermission("identity.users", PagePermissionActions.View);
 
         group.MapPost("/users", async (CreateUserAccountRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>

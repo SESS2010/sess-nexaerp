@@ -17,6 +17,7 @@ public sealed record SessionMe(
     Guid DepartmentId,
     string DepartmentCode,
     IReadOnlyList<string> RoleCodes,
+    IReadOnlyList<string> Permissions,
     string IdentityIssuer,
     string IdentitySubject);
 
