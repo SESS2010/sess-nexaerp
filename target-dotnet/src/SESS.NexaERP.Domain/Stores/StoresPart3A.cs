@@ -12,6 +12,8 @@ public sealed class QcInspection
     public string InspectionNumber { get; set; } = string.Empty;
     public Guid? GoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+    public Guid? GoodsReceiptLineLotAllocationId { get; set; }
+    public GoodsReceiptLineLotAllocation? GoodsReceiptLineLotAllocation { get; set; }
     public Guid? DeliveryChallanLineId { get; set; }
     public DeliveryChallanLine? DeliveryChallanLine { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -36,7 +38,7 @@ public sealed class QcInspectionRevision : CompanyScopedAuditableEntity
     public decimal InspectedQuantity { get; set; }
     public decimal AcceptedQuantity { get; set; }
     public decimal RejectedQuantity { get; set; }
-    public decimal InspectionShortfallRejectedQuantity { get; set; }
+    public decimal DiscrepancyPendingQuantity { get; set; }
     public string Decision { get; set; } = string.Empty;
     public Guid? AcceptedConditionLocationId { get; set; }
     public WarehouseConditionLocation? AcceptedConditionLocation { get; set; }

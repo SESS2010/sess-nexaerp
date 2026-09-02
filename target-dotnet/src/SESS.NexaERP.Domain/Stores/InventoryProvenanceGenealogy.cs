@@ -291,6 +291,10 @@ public sealed class InventoryConcessionAllocationSerial
     public InventoryConcessionAllocation? InventoryConcessionAllocation { get; set; }
     public Guid InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
+    public Guid RejectedProvenanceLayerId { get; set; }
+    public InventoryProvenanceLayer? RejectedProvenanceLayer { get; set; }
+    public Guid? AcceptedProvenanceLayerId { get; set; }
+    public InventoryProvenanceLayer? AcceptedProvenanceLayer { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";
 }

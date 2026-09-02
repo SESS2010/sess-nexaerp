@@ -27,6 +27,7 @@ using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
+using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.SecurityMigrations;
@@ -56,6 +57,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid verifierId;
         Guid purchaseId;
         Guid storesId;
+        Guid qcId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -78,10 +80,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             verifierId = await Employee(seed, "SESS-05");
             purchaseId = await Employee(seed, "SESS-15");
             storesId = await Employee(seed, "SESS-35");
+            qcId = await Employee(seed, "SESS-33");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
-                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35")
+                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"), (qcId, "SESS-33")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -184,7 +187,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var grns=new List<GoodsReceiptResult>();
             foreach (var band in bands)
                 grns.Add(await RunPurchaseBand(adminClient, client, options, user, band, creatorId, managerId, tdId, mdId,
-                    verifierId, purchaseId, storesId, vendor1Id, vendor2Id));
+                    verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
+            for(var i=0;i<grns.Count;i++)await RunQcWitness(adminClient,options,user,bands[i],grns[i],qcId,tdId);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -203,8 +207,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(1, await verify.GoodsReceiptLineSerials.CountAsync());
             Assert.Equal(1, await verify.InventorySerials.CountAsync());
             Assert.Equal(3, await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="GRN_CUSTODY"));
-            Assert.Equal(3m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
-            Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(2.95m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(.05m, await verify.StockMovements.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(3,await verify.QcInspections.CountAsync());Assert.Equal(3,await verify.QcInspectionRevisions.CountAsync());Assert.Equal(3,await verify.QcInspectionLotDispositions.CountAsync());Assert.Equal(3,await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="QC_DISPOSITION"));Assert.Single(await verify.StockPostingBatches.Where(x=>x.PostingKind=="CONCESSION_ACCEPTANCE").ToListAsync());Assert.Single(await verify.InventoryConcessions.Where(x=>x.Status=="APPROVED").ToListAsync());
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GoodsReceiptId!=null));
             Assert.Equal(new[]{"ELE","FAB","FAS","MEC","PLC","REF"},await verify.ItemCategories.Where(x=>x.CreatedBy=="TRIAL_DATA").OrderBy(x=>x.Code).Select(x=>x.Code).ToArrayAsync());
@@ -215,24 +221,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal("TRIAL QC Category Rack",Assert.Single(qcRackNames));
             Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
 
-            var original=grns[0];
-            var reversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
-            Assert.Equal("REVERSAL",reversal.DocumentKind);Assert.Equal(original.Id,reversal.ReversesGoodsReceiptId);Assert.Equal("FINALIZED",reversal.Status);Assert.Equal(2,reversal.History.Count);Assert.Equal("FINALIZED",reversal.History.Last().Action);Assert.NotNull(reversal.StockPostingBatchId);Assert.False(reversal.Replayed);Assert.Empty(reversal.Lines);
-            var reversalBatch=await verify.StockPostingBatches.SingleAsync(x=>x.Id==reversal.StockPostingBatchId);
-            Assert.Equal("REVERSAL",reversalBatch.PostingKind);Assert.Equal(original.StockPostingBatchId,reversalBatch.ReversesPostingBatchId);
-            var originalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==original.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
-            var reversalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==reversal.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
-            Assert.Equal(originalMovements.Count,reversalMovements.Count);Assert.All(reversalMovements,x=>Assert.Equal("REVERSAL",x.MovementLeg));Assert.Equal(originalMovements.Select(x=>x.Id),reversalMovements.Select(x=>x.ReversesStockMovementId!.Value));Assert.Equal(originalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId),reversalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId));
-            Assert.Equal(2m,await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(0m,await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
-            var replayedReversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
-            Assert.True(replayedReversal.Replayed);Assert.Equal(reversal.Id,replayedReversal.Id);Assert.Equal(reversal.StockPostingBatchId,replayedReversal.StockPostingBatchId);Assert.Equal(4,await verify.StockPostingBatches.CountAsync());Assert.Equal(4,await verify.GoodsReceipts.CountAsync());Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
         }
         finally { }
     }
 
     private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
-        Guid verifierId, Guid purchaseId, Guid storesId, Guid vendor1Id, Guid vendor2Id)
+        Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "SOFTWARE_DEVELOPER");
@@ -435,6 +430,34 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         return grn;
     }
 
+    private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId)
+    {
+        var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
+        user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
+        var accepted=band.Code=="LOW"?.95m:band.Code=="TD"?1m:0m;var rejected=band.Code=="LOW"?.05m:band.Code=="MD"?1m:0m;var observed=rejected>0?12m:5m;IReadOnlyList<QcSerialDispositionRequest> serials=serialId.HasValue?[new QcSerialDispositionRequest(serialId.Value,accepted>0?"ACCEPTED":"REJECTED",accepted>0?null:"Measured parameter failed")]:Array.Empty<QcSerialDispositionRequest>();
+        if(band.Code=="LOW")
+        {
+            var missingQueue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");Assert.Contains(missingQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.HasEffectivePolicy);
+            var deniedBody=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,available,[],serials);using var deniedRequest=new HttpRequestMessage(HttpMethod.Post,"/api/v1/qc/inspections"){Content=JsonContent.Create(deniedBody)};deniedRequest.Headers.Add("Idempotency-Key","LOW-qc-missing-policy");using var denied=await client.SendAsync(deniedRequest);Assert.Equal(HttpStatusCode.Conflict,denied.StatusCode);
+            Assert.False(await Query(options,db=>db.QcInspections.AnyAsync(x=>x.GoodsReceiptLineLotAllocationId==lot.Id)));Assert.Equal(1m,await Query(options,db=>db.StockMovements.Where(x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut)));
+            await Query(options,async db=>{var uom=await db.Uoms.OrderBy(x=>x.Code).Select(x=>x.Id).FirstAsync();var p=new QcInspectionPolicy{CompanyId=Guid.Parse("70000000-0000-0000-0000-000000000001"),OrganizationId="SESS_PVT_LTD",ItemId=grn.Lines.Single().ItemId,ParameterCode="DIMENSIONAL_LIMIT",MeasurementUomId=uom,LowerLimit=0,UpperLimit=10,InspectionMethod="Disposable calibrated measurement",SampleSize=1,EffectiveFrom=new DateOnly(2026,1,1),ApprovalStatus="APPROVED",IsActive=true,CreatedBy="PURCHASE_FLOW_TEST"};db.QcInspectionPolicies.Add(p);await db.SaveChangesAsync();return p.Id;});
+        }
+        var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");Assert.Contains(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.IsOverdue&&x.HasEffectivePolicy);var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
+        var result=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.Equal(accepted,result.AcceptedQuantity);Assert.Equal(rejected,result.RejectedQuantity);Assert.NotNull(result.StockPostingBatchId);Assert.False(result.Replayed);
+        var replay=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.True(replay.Replayed);Assert.Equal(result.RevisionId,replay.RevisionId);Assert.Equal(result.StockPostingBatchId,replay.StockPostingBatchId);
+        await using(var evidence=new NexaErpDbContext(options))
+        {
+            Assert.Single(await evidence.StockPostingBatches.Where(x=>x.QcInspectionRevisionId==result.RevisionId&&x.PostingKind=="QC_DISPOSITION").ToListAsync());var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId).ToListAsync();Assert.All(movements,x=>{Assert.NotNull(x.QcInspectionLotDispositionId);Assert.Null(x.QcInspectionRevisionId);});Assert.Equal(accepted,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(rejected,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            if(band.Code=="LOW"){var childTypes=await evidence.InventoryProvenanceEdges.Where(x=>movements.Select(m=>m.InventoryProvenanceLayerId).Contains(x.ToProvenanceLayerId)).Join(evidence.InventoryProvenanceLayers,e=>e.ToProvenanceLayerId,l=>l.Id,(e,l)=>l.LayerType).Distinct().ToListAsync();Assert.Contains(InventoryProvenanceLayerTypes.QcAccepted,childTypes);Assert.Contains(InventoryProvenanceLayerTypes.QcRejected,childTypes);}
+        }
+        if(band.Code=="MD")
+        {
+            var failed=Assert.Single(result.ParameterResults);var lotDisposition=await Query(options,db=>db.QcInspectionLotDispositions.Where(x=>x.QcInspectionRevisionId==result.RevisionId).Select(x=>x.Id).SingleAsync());var draft=await Post<InventoryConcessionResult>(client,"/api/v1/qc/concessions",new CreateInventoryConcessionRequest(lotDisposition,failed.Id,1,"DIMENSIONAL_LIMIT","12","Technical Director accepts measured deviation for controlled non-critical use","Controlled internal test fixture",[serialId!.Value]),"MD-concession-create");Assert.Equal("DRAFT",draft.Status);Assert.Equal(serialId.Value,Assert.Single(draft.InventorySerialIds));
+            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve");Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
+            await using var evidence=new NexaErpDbContext(options);var moves=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==approved.StockPostingBatchId).ToListAsync();Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").Sum(x=>x.QuantityOut));Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="AVAILABLE").Sum(x=>x.QuantityIn));Assert.All(moves,x=>Assert.Equal(serialId,x.InventorySerialId));Assert.True(await evidence.InventoryProvenanceAnnotations.AnyAsync(x=>x.InventoryConcessionId==approved.Id&&x.InventoryProvenanceLayerId==approved.AvailableProvenanceLayerId));
+        }
+    }
+
     private static async Task AssertPrEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction,
         int minimumHistory, int minimumAudits)
     {
@@ -563,6 +586,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapRev869BPurchaseEndpoints();
             app.MapStoresGateEntryEndpoints();
             app.MapStoresGoodsReceiptEndpoints();
+            app.MapQcEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");

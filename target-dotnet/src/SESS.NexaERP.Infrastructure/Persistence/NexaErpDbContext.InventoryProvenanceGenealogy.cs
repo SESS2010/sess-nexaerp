@@ -207,7 +207,7 @@ public sealed partial class NexaErpDbContext
             entity.ToTable("qc_inspection_lot_dispositions", table =>
             {
                 table.HasCheckConstraint("CK_qc_inspection_lot_dispositions_quantities", @"""InspectedQuantity"" > 0 AND ""AcceptedQuantity"" >= 0 AND ""RejectedQuantity"" >= 0 AND ""DiscrepancyPendingQuantity"" >= 0 AND ""AcceptedQuantity"" + ""RejectedQuantity"" + ""DiscrepancyPendingQuantity"" = ""InspectedQuantity""");
-                table.HasCheckConstraint("CK_qc_inspection_lot_dispositions_decision", @"(""Disposition""='ACCEPTED' AND ""AcceptedQuantity"">0 AND ""RejectedQuantity""=0 AND ""DiscrepancyPendingQuantity""=0) OR (""Disposition""='REJECTED' AND ""RejectedQuantity"">0 AND ""AcceptedQuantity""=0 AND ""DiscrepancyPendingQuantity""=0) OR (""Disposition""='DISCREPANCY_PENDING' AND ""DiscrepancyPendingQuantity"">0 AND ""AcceptedQuantity""=0 AND ""RejectedQuantity""=0)");
+                table.HasCheckConstraint("CK_qc_inspection_lot_dispositions_decision", @"(""Disposition""='ACCEPTED' AND ""AcceptedQuantity"">0 AND ""RejectedQuantity""=0 AND ""DiscrepancyPendingQuantity""=0) OR (""Disposition""='REJECTED' AND ""RejectedQuantity"">0 AND ""AcceptedQuantity""=0 AND ""DiscrepancyPendingQuantity""=0) OR (""Disposition""='PARTIAL_ACCEPTED' AND ""AcceptedQuantity"">0 AND ""RejectedQuantity"">0 AND ""DiscrepancyPendingQuantity""=0) OR (""Disposition""='DISCREPANCY_PENDING' AND ""DiscrepancyPendingQuantity"">0)");
             });
             entity.HasKey(x => x.Id); entity.HasAlternateKey(x => new { x.CompanyId, x.Id });
             entity.HasIndex(x => new { x.CompanyId, x.QcInspectionRevisionId, x.GoodsReceiptLineLotAllocationId }).IsUnique();
@@ -268,8 +268,11 @@ public sealed partial class NexaErpDbContext
             entity.ToTable("inventory_concession_allocation_serials"); entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.InventoryConcessionAllocationId, x.InventorySerialId }).IsUnique();
             entity.HasIndex(x => new { x.CompanyId, x.InventorySerialId }).IsUnique();
+            entity.HasIndex(x => x.AcceptedProvenanceLayerId).IsUnique().HasFilter(@"""AcceptedProvenanceLayerId"" IS NOT NULL");
             entity.HasOne(x => x.InventoryConcessionAllocation).WithMany(x => x.Serials).HasForeignKey(x => new { x.CompanyId, x.InventoryConcessionAllocationId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.InventorySerial).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.RejectedProvenanceLayer).WithMany().HasForeignKey(x => new { x.CompanyId, x.RejectedProvenanceLayerId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.AcceptedProvenanceLayer).WithMany().HasForeignKey(x => new { x.CompanyId, x.AcceptedProvenanceLayerId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
