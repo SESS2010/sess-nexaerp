@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Metadata;
-using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
 
@@ -34,18 +33,13 @@ public sealed class Foundation2InventoryOwnershipCustodyTests
     ];
 
     [Fact]
-    public void ModelContainsTheCompleteFoundation2SetWithoutChangingStockMovements()
+    public void ModelContainsTheCompleteFoundation2Set()
     {
         using var db = Context();
         var model = db.GetService<IDesignTimeModel>().Model;
         foreach (var table in Tables)
             Assert.Contains(model.GetEntityTypes(), entity => entity.GetTableName() == table);
 
-        var movement = model.FindEntityType(typeof(StockMovement))!;
-        Assert.Null(movement.FindProperty("OwnershipAccountId"));
-        Assert.Null(movement.FindProperty("CustodyAssignmentId"));
-        Assert.Null(movement.FindProperty("InventoryProvenanceLayerId"));
-        Assert.Null(movement.FindProperty("CustodyCaseLineId"));
     }
 
     [Fact]

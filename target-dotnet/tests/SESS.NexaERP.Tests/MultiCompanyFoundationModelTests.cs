@@ -40,9 +40,13 @@ public sealed class MultiCompanyFoundationModelTests
             x.ClrType == typeof(InventoryOwnershipTransfer) ||
             x.ClrType == typeof(InventoryOwnershipTransferLine) ||
             x.ClrType == typeof(InventoryMemoLiabilityEvent));
+        var foundation3Scoped = db.Model.GetEntityTypes().Count(x =>
+            x.ClrType == typeof(InventoryTransformation) ||
+            x.ClrType == typeof(InventoryConcession));
         Assert.Equal(19, foundation2Scoped);
-        Assert.Equal(52, existingScoped - foundation2Scoped);
-        Assert.Equal(38, 90 - (existingScoped - foundation2Scoped));
+        Assert.Equal(2, foundation3Scoped);
+        Assert.Equal(52, existingScoped - foundation2Scoped - foundation3Scoped);
+        Assert.Equal(38, 90 - (existingScoped - foundation2Scoped - foundation3Scoped));
         Assert.Equal(39, MultiCompanyFoundationSeedData.EmployeeCompanyAssignments.Length);
         Assert.All(MultiCompanyFoundationSeedData.EmployeeCompanyAssignments,
             row => Assert.Equal("PAYROLL", row.AssignmentType));

@@ -397,7 +397,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             Assert.True(await evidence.StockPostingBatches.AnyAsync(x=>x.Id==grn.StockPostingBatchId&&x.GoodsReceiptId==grn.Id&&x.PostingKind=="GRN_CUSTODY"));
             var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId).ToListAsync();
-            Assert.NotEmpty(movements);Assert.All(movements,x=>{Assert.Equal("QC_HOLD",x.ConditionCode);Assert.NotNull(x.GoodsReceiptLineLotAllocationId);});
+            Assert.NotEmpty(movements);Assert.All(movements,x=>
+            {
+                Assert.Equal(2,x.LedgerSchemaVersion);
+                Assert.NotEqual(Guid.Empty,x.OwnershipAccountId);
+                Assert.NotEqual(Guid.Empty,x.CustodyAssignmentId);
+                Assert.NotEqual(Guid.Empty,x.InventoryProvenanceLayerId);
+                Assert.Equal("QC_HOLD",x.ConditionCode);
+                Assert.NotNull(x.GoodsReceiptLineLotAllocationId);
+                Assert.NotNull(x.InventoryLotId);
+            });
             Assert.Equal(0,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(2,await evidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
         }

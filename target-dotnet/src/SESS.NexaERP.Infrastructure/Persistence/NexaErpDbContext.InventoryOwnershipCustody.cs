@@ -257,6 +257,7 @@ public sealed partial class NexaErpDbContext
         {
             entity.ToTable("inventory_custody_handoff_lines", table =>
                 table.HasCheckConstraint("CK_inventory_custody_handoff_lines_quantity", @"""Quantity"" > 0"));
+            entity.HasAlternateKey(x => new { x.CompanyId, x.Id });
             entity.HasIndex(x => new { x.CompanyId, x.CustodyHandoffId, x.LineNumber }).IsUnique();
             entity.Property(x => x.Quantity).HasPrecision(18, 6);
             entity.HasOne(x => x.CustodyHandoff).WithMany(x => x.Lines)
@@ -307,6 +308,7 @@ public sealed partial class NexaErpDbContext
         {
             entity.ToTable("inventory_ownership_transfer_lines", table =>
                 table.HasCheckConstraint("CK_inventory_ownership_transfer_lines_quantity", @"""Quantity"" > 0"));
+            entity.HasAlternateKey(x => new { x.CompanyId, x.Id });
             entity.HasIndex(x => new { x.CompanyId, x.OwnershipTransferId, x.LineNumber }).IsUnique();
             entity.Property(x => x.Quantity).HasPrecision(18, 6);
             entity.HasOne(x => x.OwnershipTransfer).WithMany(x => x.Lines)

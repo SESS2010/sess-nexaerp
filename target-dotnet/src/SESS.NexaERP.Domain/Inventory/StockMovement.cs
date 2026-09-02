@@ -17,7 +17,7 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public decimal QuantityIn { get; set; }
     public decimal QuantityOut { get; set; }
     public DateOnly PostingDate { get; set; }
-    public short LedgerSchemaVersion { get; set; } = 1;
+    public short LedgerSchemaVersion { get; set; } = 2;
     public Guid? WarehouseConditionLocationId { get; set; }
     public WarehouseConditionLocation? WarehouseConditionLocation { get; set; }
     public string? ConditionCode { get; set; }
@@ -35,10 +35,32 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public DeliveryChallanLine? DeliveryChallanLine { get; set; }
     public Guid? OriginGoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? OriginGoodsReceiptLine { get; set; }
+    public Guid OwnershipAccountId { get; set; }
+    public InventoryOwnershipAccount? OwnershipAccount { get; set; }
+    public Guid CustodyAssignmentId { get; set; }
+    public InventoryCustodyAssignment? CustodyAssignment { get; set; }
+    public Guid InventoryProvenanceLayerId { get; set; }
+    public InventoryProvenanceLayer? InventoryProvenanceLayer { get; set; }
+    public Guid? CustodyCaseLineId { get; set; }
+    public InventoryCustodyCaseLine? CustodyCaseLine { get; set; }
+    public Guid? InventoryLotId { get; set; }
+    public InventoryLot? InventoryLot { get; set; }
     public Guid? InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
     public Guid? GoodsReceiptLineLotAllocationId { get; set; }
     public GoodsReceiptLineLotAllocation? GoodsReceiptLineLotAllocation { get; set; }
+    public Guid? QcInspectionLotDispositionId { get; set; }
+    public QcInspectionLotDisposition? QcInspectionLotDisposition { get; set; }
+    public Guid? InventoryCustodyHandoffLineId { get; set; }
+    public InventoryCustodyHandoffLine? InventoryCustodyHandoffLine { get; set; }
+    public Guid? InventoryOwnershipTransferLineId { get; set; }
+    public InventoryOwnershipTransferLine? InventoryOwnershipTransferLine { get; set; }
+    public Guid? InventoryTransformationInputId { get; set; }
+    public InventoryTransformationInput? InventoryTransformationInput { get; set; }
+    public Guid? InventoryTransformationOutputId { get; set; }
+    public InventoryTransformationOutput? InventoryTransformationOutput { get; set; }
+    public Guid? InventoryConcessionAllocationId { get; set; }
+    public InventoryConcessionAllocation? InventoryConcessionAllocation { get; set; }
     public Guid? ReversesStockMovementId { get; set; }
     public StockMovement? ReversesStockMovement { get; set; }
     public string? PostingIdentity { get; set; }
