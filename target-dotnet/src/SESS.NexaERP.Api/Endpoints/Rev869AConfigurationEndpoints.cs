@@ -39,6 +39,7 @@ public static class Rev869AConfigurationEndpoints
         group.MapGet("/warehouse-condition-locations", ListWarehouseConditionLocations).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.View);
         group.MapPost("/warehouse-condition-locations/{locationId:guid}/close", CloseWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Deactivate);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
+        group.MapGet("/qc-inspection-policies", ListQcPolicies).RequirePagePermission("qc.inspection-policies", PagePermissionActions.View);
         return endpoints;
     }
 
@@ -500,19 +501,31 @@ public static class Rev869AConfigurationEndpoints
     private static async Task<IResult> CreateQcPolicy(CreateQcInspectionPolicyRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.ItemCode) == string.IsNullOrWhiteSpace(request.ItemCategoryCode) || request.SampleSize <= 0 || (request.LowerLimit.HasValue && request.UpperLimit.HasValue && request.UpperLimit < request.LowerLimit)) return Results.BadRequest(new { message = "QC policy requires exactly one item/category, valid limits and positive sample size." });
+        var organization=request.OrganizationId.Trim().ToUpperInvariant();if(!string.Equals(organization,user.OrganizationId,StringComparison.Ordinal))return Results.Forbid();
+        var companyId=await db.Companies.Where(x=>x.Code==organization&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
         Guid? itemId = null; Guid? categoryId = null;
         if (!string.IsNullOrWhiteSpace(request.ItemCode)) itemId = await db.Items.Where(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(request.ItemCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (!string.IsNullOrWhiteSpace(request.ItemCategoryCode)) categoryId = await db.ItemCategories.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.ItemCategoryCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         var uomId = await db.Uoms.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.MeasurementUomCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if ((!itemId.HasValue && !categoryId.HasValue) || !uomId.HasValue) return Results.Conflict(new { message = "Active QC item/category and measurement UOM are required." });
         if (request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Invalid QC policy effective range." });
-        var organization = request.OrganizationId.Trim(); var parameter = MasterEndpointHelpers.NormalizeCode(request.ParameterCode);
-        var overlap = await db.QcInspectionPolicies.AnyAsync(x => x.OrganizationId == organization && x.ItemId == itemId && x.ItemCategoryId == categoryId && x.ParameterCode == parameter && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
+        var parameter = MasterEndpointHelpers.NormalizeCode(request.ParameterCode);
+        var overlap = await db.QcInspectionPolicies.AnyAsync(x => x.CompanyId==companyId.Value&&x.OrganizationId == organization && x.ItemId == itemId && x.ItemCategoryId == categoryId && x.ParameterCode == parameter && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping QC policy exists." });
-        var entity = new QcInspectionPolicy { OrganizationId = organization, ItemId = itemId, ItemCategoryId = categoryId, ParameterCode = parameter, MeasurementUomId = uomId.Value, LowerLimit = request.LowerLimit, UpperLimit = request.UpperLimit, InspectionMethod = request.InspectionMethod.Trim(), SampleSize = request.SampleSize, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
-        db.QcInspectionPolicies.Add(entity); AddHistory(db, entity.OrganizationId, nameof(QcInspectionPolicy), entity.Id, "CreateVersion", null, entity, request.Remarks, user);
+        var entity = new QcInspectionPolicy { CompanyId=companyId.Value, OrganizationId = organization, ItemId = itemId, ItemCategoryId = categoryId, ParameterCode = parameter, MeasurementUomId = uomId.Value, LowerLimit = request.LowerLimit, UpperLimit = request.UpperLimit, InspectionMethod = request.InspectionMethod.Trim(), SampleSize = request.SampleSize, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
+        db.QcInspectionPolicies.Add(entity); AddHistory(db, entity.OrganizationId, nameof(QcInspectionPolicy), entity.Id, "CreateVersion", null, entity, request.Remarks, user,companyId.Value);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("QC", "CreateInspectionPolicy", nameof(QcInspectionPolicy), entity.Id.ToString(), null, entity, ct);
         return Results.Created($"/api/v1/rev869a/configuration/qc-inspection-policies/{entity.Id}", new { entity.Id });
+    }
+
+    private static async Task<IResult> ListQcPolicies(Guid? itemId,Guid? categoryId,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
+    {
+        var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
+        if(itemId.HasValue)query=query.Where(x=>x.ItemId==itemId.Value);
+        if(categoryId.HasValue)query=query.Where(x=>x.ItemCategoryId==categoryId.Value);
+        if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.ApprovalStatus==MasterApprovalStatuses.Approved&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
+        var rows=await query.Include(x=>x.MeasurementUom).OrderBy(x=>x.ParameterCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.ParameterCode,MeasurementUomCode=x.MeasurementUom!.Code,x.LowerLimit,x.UpperLimit,x.InspectionMethod,x.SampleSize}).ToListAsync(ct);return Results.Ok(rows);
     }
 
     private static async Task RollbackCommandAttemptAsync(

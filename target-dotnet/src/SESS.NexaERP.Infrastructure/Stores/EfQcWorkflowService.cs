@@ -17,14 +17,17 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<PagedResponse<QcQueueItem>> QueueAsync(int page,int pageSize,CancellationToken ct)
+    public async Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId,string? grnNumber,bool overdueOnly,int page,int pageSize,CancellationToken ct)
     {
         RequireQcManager(); if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
-        var company=await Company(ct);var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.GoodsReceiptLineLotAllocations.AsNoTracking()
+        var company=await Company(ct);var now=DateTimeOffset.UtcNow;var today=DateOnly.FromDateTime(now.UtcDateTime);var query=db.GoodsReceiptLineLotAllocations.AsNoTracking()
             .Where(a=>a.CompanyId==company.Id&&a.GoodsReceiptLine!.GoodsReceipt!.Status=="FINALIZED"&&!db.QcInspections.Any(i=>i.CompanyId==company.Id&&i.GoodsReceiptLineLotAllocationId==a.Id));
+        if(allocationId.HasValue)query=query.Where(a=>a.Id==allocationId.Value);
+        if(!string.IsNullOrWhiteSpace(grnNumber)){var normalized=grnNumber.Trim().ToUpperInvariant();query=query.Where(a=>a.GoodsReceiptLine!.GoodsReceipt!.GrnNumber==normalized);}
+        if(overdueOnly)query=query.Where(a=>a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt.AddDays(a.GoodsReceiptLine.GoodsReceipt.QcCompletionDaysSnapshot)<now);
         var total=await query.CountAsync(ct);var rows=await query.Include(a=>a.InventoryLot).Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.GoodsReceipt).Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.Item)
             .OrderBy(a=>a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt).ThenBy(a=>a.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var items=new List<QcQueueItem>();
-        foreach(var a in rows){var line=a.GoodsReceiptLine!;var receipt=line.GoodsReceipt!;var has=await EffectivePolicies(company.Id,line.ItemId,line.ItemCategoryIdSnapshot,today).AnyAsync(ct);var age=Math.Max(0,today.DayNumber-DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime).DayNumber);items.Add(new(a.Id,receipt.GrnNumber,line.Id,line.LineNumber,a.LotOrdinal,line.ItemId,line.ItemCodeSnapshot,line.ItemNameSnapshot,a.InventoryLotId,a.InventoryLot!.SupplierLotNumber,a.Quantity,receipt.ReceivedAt,age,receipt.QcCompletionDaysSnapshot,age>receipt.QcCompletionDaysSnapshot,has,has?"EFFECTIVE_POLICY":"MISSING_POLICY_QC_HOLD"));}
+        foreach(var a in rows){var line=a.GoodsReceiptLine!;var receipt=line.GoodsReceipt!;var has=await EffectivePolicies(company.Id,line.ItemId,line.ItemCategoryIdSnapshot,today).AnyAsync(ct);var age=Math.Max(0,today.DayNumber-DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime).DayNumber);items.Add(new(a.Id,receipt.GrnNumber,line.Id,line.LineNumber,a.LotOrdinal,line.ItemId,line.ItemCodeSnapshot,line.ItemNameSnapshot,a.InventoryLotId,a.InventoryLot!.SupplierLotNumber,a.Quantity,receipt.ReceivedAt,age,receipt.QcCompletionDaysSnapshot,receipt.ReceivedAt.AddDays(receipt.QcCompletionDaysSnapshot)<now,has,has?"EFFECTIVE_POLICY":"MISSING_POLICY_QC_HOLD"));}
         return new(total,page,pageSize,items);
     }
 

@@ -120,7 +120,7 @@ public static partial class PurchaseRequisitionEndpoints
         sequence.LastNumber++;
         sequence.UpdatedBy = user.LoginId;
         sequence.UpdatedAt = DateTimeOffset.UtcNow;
-        return ($"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000001}", sequence.LastNumber);
+        return ($"{sequence.Prefix}-{financialYear}-{sequence.LastNumber:000000}", sequence.LastNumber);
     }
 
     public sealed record ApprovalRouteDefinition(string RouteCode, decimal MinimumAmount, decimal? MaximumAmount, string? ApproverRoleCode, string ApproverResolutionType, bool IsActive = true);

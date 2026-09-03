@@ -88,9 +88,11 @@ public static class Rev869ASeedData
         var canView = director || purchaseManager || storesManager || qcManager || executive || accounts;
         var canCreate = director || (purchaseManager && (uom || tax || vendor)) || (storesManager && (uom || stores)) || (qcManager && qc);
         var canVerify = director || accounts && (tax || vendor) || storesManager && stores || qcManager && qc;
-        // QC_MANAGER owns inspection control, but the settled authority matrix reserves
-        // approval for the four named business approvers. QC must never receive CanApprove.
-        var canApprove = code == Rev869ARoleCodes.ManagingDirector;
+        // QC_MANAGER owns inspection control; concession decisions are reserved to
+        // TECHNICAL_DIRECTOR alone. QC_MANAGER and MANAGING_DIRECTOR must not receive QC approval.
+        var canApprove = qc
+            ? code == Rev869ARoleCodes.TechnicalDirector
+            : code == Rev869ARoleCodes.ManagingDirector;
         if (identity) { canCreate = code == Rev869ARoleCodes.ManagingDirector; canVerify = director; canApprove = code == Rev869ARoleCodes.ManagingDirector; }
         return new RolePagePermission
         {
@@ -98,7 +100,7 @@ public static class Rev869ASeedData
             CanView = canView, CanCreate = canCreate, CanUpdate = canCreate, CanSubmit = canCreate,
             CanVerify = canVerify, CanApprove = canApprove, CanReject = canVerify && !qcManager || canApprove,
             CanRequestClarification = canVerify || canApprove, CanRequestRevision = canVerify && !qcManager || canApprove,
-            CanResubmit = canCreate, CanCancel = canCreate, CanDeactivate = canApprove,
+            CanResubmit = canCreate, CanCancel = qc ? code == Rev869ARoleCodes.TechnicalDirector : canCreate, CanDeactivate = qc ? false : canApprove,
             CanPrint = canView, CanDownload = canView, CanExport = director || accounts,
             CanUploadAttachment = canCreate, CanReplaceAttachment = false,
             CanViewCommercialValues = director || purchaseManager || accounts,

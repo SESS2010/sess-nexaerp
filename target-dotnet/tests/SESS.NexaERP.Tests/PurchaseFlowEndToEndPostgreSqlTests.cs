@@ -208,7 +208,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             foreach (var band in bands)
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
-            for(var i=0;i<grns.Count;i++)await RunQcWitness(adminClient,options,user,bands[i],grns[i],qcId,tdId);
+            for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -266,12 +266,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new PurchaseRequisitionActionRequest(null, pr.Version, $"{band.Code}-pr-submit"));
         Assert.Equal(PurchaseRequisitionStatuses.Submitted, pr.Status);
         await AssertPrEvidence(options, pr.Id, "Submit", 2, 2);
-        pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
+        using(var refused=await prClient.PostAsJsonAsync($"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
+            new PurchaseRequisitionActionRequest("Requester must not verify",pr.Version,$"{band.Code}-pr-self-verify")))
+            Assert.Equal(HttpStatusCode.Forbidden,refused.StatusCode);
+        user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
             new PurchaseRequisitionActionRequest("Department verified", pr.Version, $"{band.Code}-pr-verify"));
         Assert.Equal(PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         await AssertPrEvidence(options, pr.Id, "DepartmentVerify", 3, 3);
 
-        user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         var managerQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
             $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
         Assert.Equal(pr.Id, Assert.Single(managerQueue.Items).Id);

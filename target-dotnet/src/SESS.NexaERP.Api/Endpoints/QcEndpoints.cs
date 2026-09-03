@@ -11,7 +11,7 @@ public static class QcEndpoints
     public static IEndpointRouteBuilder MapQcEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var g=endpoints.MapGroup("/api/v1/qc").WithTags("Stores - QC and Concessions").RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope);
-        g.MapGet("/queue",async(int? page,int? pageSize,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.QueueAsync(page??1,pageSize??50,ct),h)).RequirePagePermission(Page,PagePermissionActions.View);
+        g.MapGet("/queue",async(Guid? allocationId,string? grnNumber,bool? overdueOnly,int? page,int? pageSize,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.QueueAsync(allocationId,grnNumber,overdueOnly==true,page??1,pageSize??50,ct),h)).RequirePagePermission(Page,PagePermissionActions.View);
         g.MapPost("/inspections",async(FinalizeQcInspectionRequest r,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.FinalizeAsync(r,HeaderKey(h),ct),h)).RequirePagePermission(Page,PagePermissionActions.Create);
         g.MapPost("/inspections/{number}/corrections",async(string number,CorrectQcInspectionRequest r,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.CorrectAsync(number,r,HeaderKey(h),ct),h)).RequirePagePermission(Page,PagePermissionActions.Update);
         g.MapGet("/inspections/{number}",async(string number,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(async()=>await s.GetAsync(number,ct)??throw new KeyNotFoundException("QC inspection was not found."),h)).RequirePagePermission(Page,PagePermissionActions.View);

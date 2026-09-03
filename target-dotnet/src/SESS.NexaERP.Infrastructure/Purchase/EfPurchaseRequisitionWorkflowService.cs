@@ -84,6 +84,7 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         ValidateRequest(request, pr.Version, action is "Resubmit" or "Cancel" or "Hold");
         if (requiredStatus is not null && pr.Status != requiredStatus)
             throw new Rev869BConflictException($"Invalid PR status sequence. Required: {requiredStatus}.");
+        if (action == "DepartmentVerify") await RequireMappedDepartmentVerifierAsync(pr, ct);
         var correlation = Correlation(request, action);
         if (await db.PurchaseRequisitionStatusHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct))
             return ToDetail(pr);
@@ -119,6 +120,16 @@ public sealed class EfPurchaseRequisitionWorkflowService(
 
     private Guid RequireActor() => user.IsAuthenticated && user.EmployeeId.HasValue && !string.IsNullOrWhiteSpace(user.OrganizationId)
         ? user.EmployeeId.Value : throw new UnauthorizedAccessException("Authenticated employee identity and organization are required.");
+    private async Task RequireMappedDepartmentVerifierAsync(PurchaseRequisition pr, CancellationToken ct)
+    {
+        var actor=RequireActor();
+        if(actor==pr.RequesterEmployeeId||actor==pr.CreatorEmployeeId)throw new UnauthorizedAccessException("The requester cannot department-verify their own purchase requisition.");
+        if(!pr.RequestingDepartmentId.HasValue)throw new Rev869BConflictException("Requesting department is required for department verification.");
+        var today=DateOnly.FromDateTime(DateTime.UtcNow);var mappings=await db.DepartmentApprovalMappings.AsNoTracking().Where(x=>x.CompanyId==pr.CompanyId&&x.DepartmentId==pr.RequestingDepartmentId.Value&&x.ApprovalRouteCode==PurchaseRequisitionApprovalRoutes.Manager&&x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today)).Take(2).ToListAsync(ct);
+        if(mappings.Count!=1)throw new Rev869BConflictException("A single effective department approval mapping is required for department verification.");
+        var mapping=mappings[0];
+        if(mapping.PrimaryApproverEmployeeId!=actor||!user.RoleCodes.Contains(mapping.ApproverRoleCode,StringComparer.OrdinalIgnoreCase))throw new UnauthorizedAccessException("Department verification is restricted to the effective mapped department approver.");
+    }
     private IQueryable<PurchaseRequisition> Scoped(IQueryable<PurchaseRequisition> query)
     {
         _ = RequireActor();

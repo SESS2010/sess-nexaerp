@@ -115,7 +115,7 @@ public sealed record InventoryConcessionResult(
 
 public interface IQcWorkflowService
 {
-    Task<PagedResponse<QcQueueItem>> QueueAsync(int page, int pageSize, CancellationToken cancellationToken);
+    Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId, string? grnNumber, bool overdueOnly, int page, int pageSize, CancellationToken cancellationToken);
     Task<QcInspectionResult> FinalizeAsync(FinalizeQcInspectionRequest request, string idempotencyKey, CancellationToken cancellationToken);
     Task<QcInspectionResult> CorrectAsync(string inspectionNumber, CorrectQcInspectionRequest request, string idempotencyKey, CancellationToken cancellationToken);
     Task<QcInspectionResult?> GetAsync(string inspectionNumber, CancellationToken cancellationToken);
