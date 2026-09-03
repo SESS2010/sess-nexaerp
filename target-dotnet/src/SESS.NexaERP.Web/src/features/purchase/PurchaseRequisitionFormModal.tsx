@@ -32,7 +32,7 @@ function emptyLine(requiredDate: string): DraftLine {
     itemCode: '',
     itemName: '',
     quantity: '1',
-    unitPrice: '0',
+    unitPrice: '',
     requiredDate,
     preferredWarehouseCode: '',
   }
@@ -130,6 +130,10 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
 
     if (payloadLines.length === 0) {
       setError('Add at least one line with an item code.')
+      return
+    }
+    if (payloadLines.some((line) => !Number.isFinite(line.EstimatedUnitPrice) || line.EstimatedUnitPrice <= 0)) {
+      setError('Every line requires an estimated rate greater than zero.')
       return
     }
     if (!purpose.trim()) {
@@ -346,6 +350,10 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     </td>
                     <td>
                       <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
                         className="input text-right mono"
                         value={line.quantity}
                         onChange={(event) => setLine(index, { quantity: event.target.value })}
@@ -353,6 +361,10 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     </td>
                     <td>
                       <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
                         className="input text-right mono"
                         value={line.unitPrice}
                         onChange={(event) => setLine(index, { unitPrice: event.target.value })}

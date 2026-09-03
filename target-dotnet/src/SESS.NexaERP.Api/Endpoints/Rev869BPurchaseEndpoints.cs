@@ -102,7 +102,7 @@ public static partial class Rev869BPurchaseEndpoints
             => await audit.WriteAsync("Security", "Denied", kind, http.Request.Path, null,
                 new { reason, user.RoleCode, user.EmployeeId, user.OrganizationId, method = http.Request.Method, correlationId = http.TraceIdentifier }, ct);
         try { return Results.Ok(await action()); }
-        catch (UnauthorizedAccessException ex) { await AuditDenied(ex.Message, "Authorization"); return user.IsAuthenticated ? Results.Forbid() : Results.Unauthorized(); }
+        catch (UnauthorizedAccessException ex) { await AuditDenied(ex.Message, "Authorization"); return user.IsAuthenticated ? Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status403Forbidden) : Results.Unauthorized(); }
         catch (DbUpdateConcurrencyException ex) { await AuditDenied("Concurrent command rejected.", "Concurrency"); return Results.Conflict(new { message = ex.Message }); }
         catch (Rev869BNotFoundException ex) { await AuditDenied("Scoped record missing or denied.", "RecordScope"); return Results.NotFound(new { message = ex.Message }); }
         catch (Rev869BValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }

@@ -46,13 +46,15 @@ public sealed class ApprovalConfigurationPart2Tests
         foreach (var manager in new[] { "PRODUCTION_MANAGER", "ACCOUNTS_MANAGER" })
         {
             var rows = permissions.Where(x => roles.TryGetValue(x.RoleId, out var code) && code == manager).ToArray();
-            Assert.Equal(new[] { "purchase.commercial-comparisons", "purchase.po", "purchase.requisition-approvals" },
+            Assert.Equal(new[] { "purchase.commercial-comparisons", "purchase.po", "purchase.requisition-approvals", "purchase.requisitions" },
                 rows.Select(x => pages[x.PageDefinitionId]).OrderBy(x => x).ToArray());
             Assert.All(rows, row =>
             {
+                var pageKey = pages[row.PageDefinitionId];
                 Assert.True(row.CanView && row.CanApprove && row.CanReject && row.CanRequestRevision &&
                             row.CanViewCommercialValues && row.CanViewAuditHistory);
-                Assert.False(row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue || row.CanVerify ||
+                Assert.Equal(pageKey == "purchase.requisitions", row.CanVerify);
+                Assert.False(row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue ||
                              row.CanRequestClarification || row.CanResubmit || row.CanCancel || row.CanDeactivate ||
                              row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment ||
                              row.CanReplaceAttachment || row.HasFullControl);

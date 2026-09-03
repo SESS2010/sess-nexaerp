@@ -29,7 +29,6 @@ import type {
   SubmitQuotationRequest,
   TechnicalVerificationRequest,
 } from '../types/purchase'
-import type { ItemSummary } from '../types/item'
 
 const PR_BASE = '/api/v1/purchase/requisitions'
 
@@ -130,46 +129,18 @@ export function listPurchaseHandoffs(
   )
 }
 
-// --- Lookups the PR form needs. These live on other modules; there is no
-// dedicated purchase lookups endpoint, so we borrow the master ones. ---
-
-interface EmployeeMasterLookups {
-  Departments: PurchaseLookupOption[]
-  Skills: PurchaseLookupOption[]
-  Designations: PurchaseLookupOption[]
-}
-
 export async function listDepartments(): Promise<PurchaseLookupOption[]> {
-  const lookups = await api.get<EmployeeMasterLookups>('/api/v1/employees/lookups')
-  return lookups.Departments ?? []
-}
-
-interface WarehouseSummary {
-  Id: string
-  WarehouseCode: string
-  Name: string
-  WarehouseType: string
-  Location: string | null
-  Status: string
-  ApprovalStatus: string
-  IsActive: boolean
-  Version: number
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/departments`)
 }
 
 export async function listWarehouseOptions(): Promise<PurchaseLookupOption[]> {
-  const page = await api.get<PagedResponse<WarehouseSummary>>(
-    '/api/v1/inventory/warehouses?page=1&pageSize=200',
-  )
-  return page.Items.filter((w) => w.IsActive).map((w) => ({ Code: w.WarehouseCode, Name: w.Name }))
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/warehouses`)
 }
 
 export async function searchItems(search: string): Promise<PurchaseLookupOption[]> {
-  const params = new URLSearchParams({ page: '1', pageSize: '25' })
+  const params = new URLSearchParams()
   if (search) params.set('search', search)
-  const page = await api.get<PagedResponse<ItemSummary>>(
-    `/api/v1/inventory/items?${params.toString()}`,
-  )
-  return page.Items.map((i) => ({ Code: i.ItemCode, Name: i.Name }))
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/items?${params.toString()}`)
 }
 
 // --- RFQ ---------------------------------------------------------------

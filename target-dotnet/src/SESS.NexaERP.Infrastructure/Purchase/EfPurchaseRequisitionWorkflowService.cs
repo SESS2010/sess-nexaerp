@@ -35,7 +35,7 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         var pr = await Scoped(IncludeDetail(db.PurchaseRequisitions)).SingleOrDefaultAsync(x => x.PrNumber == Normalize(number), ct)
             ?? throw new Rev869BNotFoundException("Purchase requisition not found.");
         if (pr.Status != PurchaseRequisitionStatuses.PendingApproval) throw new Rev869BConflictException("PR must be pending approval.");
-        ValidateRequest(request, pr.Version);
+        ValidateRequest(request, pr.Version, action is "Reject" or "RequestRevision");
         var priorEmployee = pr.CompletedApprovalStepCount == 1
             ? await db.PurchaseRequisitionApprovalHistories.AsNoTracking()
                 .Where(x => x.PurchaseRequisitionId == pr.Id && x.ApprovalCycle == pr.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve")
@@ -81,7 +81,7 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var pr = await Scoped(IncludeDetail(db.PurchaseRequisitions)).SingleOrDefaultAsync(x => x.PrNumber == Normalize(number), ct)
             ?? throw new Rev869BNotFoundException("Purchase requisition not found.");
-        ValidateRequest(request, pr.Version);
+        ValidateRequest(request, pr.Version, action is "Resubmit" or "Cancel" or "Hold");
         if (requiredStatus is not null && pr.Status != requiredStatus)
             throw new Rev869BConflictException($"Invalid PR status sequence. Required: {requiredStatus}.");
         var correlation = Correlation(request, action);
@@ -89,6 +89,8 @@ public sealed class EfPurchaseRequisitionWorkflowService(
             return ToDetail(pr);
         if (action is "Submit" or "Resubmit")
         {
+            if (pr.Lines.Count == 0 || pr.Lines.Any(x => x.EstimatedUnitPriceSnapshot <= 0))
+                throw new Rev869BValidationException("Every PR line requires an estimated rate greater than zero before submission.");
             if (!pr.RequestingDepartmentId.HasValue) throw new Rev869BConflictException("Requesting department is required for approval workflow selection.");
             var snapshot = await workflow.SelectAndSnapshotAsync(pr.OrganizationId, pr.RequestingDepartmentId.Value, pr.EstimatedTotal, ct);
             pr.ApprovalRoute = snapshot.RouteCode;
@@ -108,10 +110,10 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         return ToDetail(await ReloadAsync(pr.Id, ct));
     }
 
-    private void ValidateRequest(PurchaseRequisitionActionRequest request, uint currentVersion)
+    private void ValidateRequest(PurchaseRequisitionActionRequest request, uint currentVersion, bool remarksRequired)
     {
         _ = RequireActor();
-        if (string.IsNullOrWhiteSpace(request.Remarks)) throw new Rev869BValidationException("Remarks are required.");
+        if (remarksRequired && string.IsNullOrWhiteSpace(request.Remarks)) throw new Rev869BValidationException("Remarks are required for this action.");
         if (request.Version != currentVersion) throw new Rev869BConflictException("Stale record version. Refresh and retry.");
     }
 
@@ -119,15 +121,8 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         ? user.EmployeeId.Value : throw new UnauthorizedAccessException("Authenticated employee identity and organization are required.");
     private IQueryable<PurchaseRequisition> Scoped(IQueryable<PurchaseRequisition> query)
     {
-        var employeeId = RequireActor();
-        query = query.Where(x => x.OrganizationId == user.OrganizationId);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var scopes = db.EmployeeOperationalScopes.Where(x => x.OrganizationId == user.OrganizationId && x.EmployeeId == employeeId && x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today));
-        if (user.RoleCodes.Any(Rev869ARoleCodes.IsExplicitCrossScopeRole) && scopes.Any(x => x.AllowsPrivilegedCrossScope)) return query;
-        return query.Where(pr => scopes.Any(scope =>
-            (!scope.DepartmentId.HasValue || scope.DepartmentId == pr.RequestingDepartmentId) &&
-            (!scope.WarehouseId.HasValue || scope.WarehouseId == pr.DeliveryWarehouseId) &&
-            !scope.RackBinId.HasValue && (!scope.OwnRecordsOnly || pr.RequesterEmployeeId == employeeId)));
+        _ = RequireActor();
+        return PurchaseRequisitionVisibility.Apply(query, user, db);
     }
 
     private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) =>
@@ -135,12 +130,12 @@ public sealed class EfPurchaseRequisitionWorkflowService(
     private async Task<PurchaseRequisition> ReloadAsync(Guid id, CancellationToken ct) => await IncludeDetail(db.PurchaseRequisitions.AsNoTracking()).SingleAsync(x => x.Id == id, ct);
     private static string Normalize(string value) => value.Trim().ToUpperInvariant();
     private static string Correlation(PurchaseRequisitionActionRequest request, string action) => string.IsNullOrWhiteSpace(request.IdempotencyKey) ? $"REV868_{action}_{Guid.NewGuid():N}" : request.IdempotencyKey.Trim();
-    private void SetStatus(PurchaseRequisition pr, string next, string reason, string correlation, string? roleCode = null)
+    private void SetStatus(PurchaseRequisition pr, string next, string? reason, string correlation, string? roleCode = null)
     {
         var previous = pr.Status; pr.Status = next; pr.UpdatedBy = user.LoginId; pr.UpdatedAt = DateTimeOffset.UtcNow;
-        db.PurchaseRequisitionStatusHistories.Add(new PurchaseRequisitionStatusHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, PreviousStatus = previous, NewStatus = next, Reason = reason.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = roleCode ?? user.RoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
+        db.PurchaseRequisitionStatusHistories.Add(new PurchaseRequisitionStatusHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, PreviousStatus = previous, NewStatus = next, Reason = reason?.Trim() ?? string.Empty, ActorLoginId = user.LoginId, ActorRoleCode = roleCode ?? user.RoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
     }
-    private void AddApproval(PurchaseRequisition pr, string action, string from, string to, string remarks, string correlation, PurchaseApprovalDecision decision) =>
-        db.PurchaseRequisitionApprovalHistories.Add(new PurchaseRequisitionApprovalHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = decision.RouteCode, ApprovalCycle = decision.ApprovalCycle, StepNumber = decision.StepNumber, RequiredApprovalStepCount = decision.RequiredStepCount, ResolvedEmployeeId = decision.ResolvedEmployeeId, ResolvedRoleCode = decision.ResolvedRoleCode, SnapshotIdentity = decision.SnapshotIdentity, Remarks = remarks.Trim(), ActorLoginId = user.LoginId, ActorRoleCode = decision.ResolvedRoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
+    private void AddApproval(PurchaseRequisition pr, string action, string from, string to, string? remarks, string correlation, PurchaseApprovalDecision decision) =>
+        db.PurchaseRequisitionApprovalHistories.Add(new PurchaseRequisitionApprovalHistory { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, PrNumber = pr.PrNumber, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = decision.RouteCode, ApprovalCycle = decision.ApprovalCycle, StepNumber = decision.StepNumber, RequiredApprovalStepCount = decision.RequiredStepCount, ResolvedEmployeeId = decision.ResolvedEmployeeId, ResolvedRoleCode = decision.ResolvedRoleCode, SnapshotIdentity = decision.SnapshotIdentity, Remarks = remarks?.Trim() ?? string.Empty, ActorLoginId = user.LoginId, ActorRoleCode = decision.ResolvedRoleCode, CorrelationId = correlation, CreatedBy = user.LoginId });
     private static PurchaseRequisitionDetail ToDetail(PurchaseRequisition x) => new(x.Id, x.PrNumber, x.OrganizationId, x.RequestingDepartment?.Name ?? string.Empty, x.RequesterEmployee?.EmployeeCode ?? string.Empty, x.RequestDate, x.RequiredByDate, x.Priority, x.PurposeJustification, x.DeliveryWarehouse?.WarehouseCode ?? string.Empty, x.CostCentre, x.ProjectReference, x.ServiceReference, x.WorkOrderReference, x.CustomerReference, x.CustomerPurchaseOrderId, x.CustomerPurchaseOrder?.PoRecordNumber, x.Status, x.ApprovalRoute, x.EstimatedTotal, x.Version, x.Lines.OrderBy(l => l.LineNumber).Select(l => new PurchaseRequisitionLineSummary(l.Id, l.LineNumber, l.ItemCodeSnapshot, l.ItemNameSnapshot, l.UomSnapshot, l.RequestedQuantity, l.EstimatedUnitPriceSnapshot, l.EstimatedLineTotal, l.OnHandSnapshot, l.ActiveReservedSnapshot, l.AvailableSnapshot, l.ReservedQuantity, l.ShortageQuantity, l.ProcurementHandoffQuantity, l.LineStatus)).ToList());
 }

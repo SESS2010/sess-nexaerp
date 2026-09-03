@@ -22,6 +22,10 @@ public static partial class PurchaseRequisitionEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/purchase/requisitions").WithTags("Purchase Requisitions").RequireAuthorization();
 
+        group.MapGet("/lookups/departments", DepartmentLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
+        group.MapGet("/lookups/warehouses", WarehouseLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
+        group.MapGet("/lookups/items", ItemLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
+
         group.MapGet("", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? prNumber, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
         {
             var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
@@ -99,6 +103,6 @@ public static partial class PurchaseRequisitionEndpoints
         catch (Rev869BValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }
         catch (Rev869BNotFoundException ex) { return Results.NotFound(new { message = ex.Message }); }
         catch (Rev869BConflictException ex) { return Results.Conflict(new { message = ex.Message }); }
-        catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        catch (UnauthorizedAccessException ex) { return Results.Json(new { message = ex.Message }, statusCode: StatusCodes.Status403Forbidden); }
     }
 }

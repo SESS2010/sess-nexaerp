@@ -90,7 +90,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
                 .ExecuteUpdateAsync(x => x.SetProperty(e => e.LoginEnabled, true));
             seed.EmployeeIdentityMappings.AddRange(identities.Select(x => Mapping(companyId, x.Item1, x.Item2)));
-            seed.EmployeeOperationalScopes.AddRange(identities.Select(x => new EmployeeOperationalScope
+            seed.EmployeeOperationalScopes.AddRange(identities
+                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId)
+                .Select(x => new EmployeeOperationalScope
             {
                 CompanyId = companyId, OrganizationId = "SESS_PVT_LTD", EmployeeId = x.Item1,
                 DepartmentId = departmentId, WarehouseId = warehouseId, OwnRecordsOnly = false,
@@ -127,8 +129,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }.ConnectionString;
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
         await using var runtimeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user);
+        await using var approvalHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user, useRealPagePermissions: true);
         var adminClient = adminHost.Client;
         var client = runtimeHost.Client;
+        var approvalClient = approvalHost.Client;
 
         try
         {
@@ -184,9 +188,25 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new PurchaseFlowBand("TD", 5000.00m, 5000m, 2, managerId, tdId),
                 new PurchaseFlowBand("MD", 100000.01m, 100000.01m, 2, managerId, mdId)
             };
+            user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseExecutive);
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/departments"));
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/warehouses"));
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/items"));
+
+            user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+            using (var refused = await approvalClient.PostAsJsonAsync("/api/v1/purchase/requisitions",
+                new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "PRODUCTION", "SESS-01",
+                    DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30), "NORMAL",
+                    "Must be rejected outside requester scope", "TRIAL-WH-C01", null, null, null, null, null,
+                    [new("TRIAL-ITEM-001", 1, 100m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30),
+                        "TRIAL-WH-C01", null, null, null)])))
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            }
+
             var grns=new List<GoodsReceiptResult>();
             foreach (var band in bands)
-                grns.Add(await RunPurchaseBand(adminClient, client, options, user, band, creatorId, managerId, tdId, mdId,
+                grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(adminClient,options,user,bands[i],grns[i],qcId,tdId);
 
@@ -225,7 +245,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         finally { }
     }
 
-    private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
+    private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
         Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id)
     {
@@ -243,7 +263,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(PurchaseRequisitionStatuses.Draft, pr.Status);
         await AssertPrEvidence(options, pr.Id, "CreateDraft", 1, 1);
         pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/submit",
-            new PurchaseRequisitionActionRequest("Submitted", pr.Version, $"{band.Code}-pr-submit"));
+            new PurchaseRequisitionActionRequest(null, pr.Version, $"{band.Code}-pr-submit"));
         Assert.Equal(PurchaseRequisitionStatuses.Submitted, pr.Status);
         await AssertPrEvidence(options, pr.Id, "Submit", 2, 2);
         pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
@@ -252,14 +272,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await AssertPrEvidence(options, pr.Id, "DepartmentVerify", 3, 3);
 
         user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
-        pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
+        var managerQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
+            $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
+        Assert.Equal(pr.Id, Assert.Single(managerQueue.Items).Id);
+        Assert.Equal(pr.Id, (await Get<PurchaseRequisitionDetail>(approvalClient,
+            $"/api/v1/purchase/requisitions/{pr.PrNumber}")).Id);
+        pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
             new PurchaseRequisitionActionRequest("Level 1 approved", pr.Version, $"{band.Code}-pr-approve-1"));
         Assert.Equal(band.RequiredSteps == 1 ? PurchaseRequisitionStatuses.StockCheckPending : PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         if (band.Level2EmployeeId.HasValue)
         {
             var role = band.Level2EmployeeId == tdId ? Rev869ARoleCodes.TechnicalDirector : Rev869ARoleCodes.ManagingDirector;
             user.Set(band.Level2EmployeeId.Value, role == Rev869ARoleCodes.TechnicalDirector ? "SESS-01" : "SESS-02", role);
-            pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
+            var level2Queue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
+                $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
+            Assert.Equal(pr.Id, Assert.Single(level2Queue.Items).Id);
+            pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
                 new PurchaseRequisitionActionRequest("Level 2 approved", pr.Version, $"{band.Code}-pr-approve-2"));
         }
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, pr.Status);
@@ -344,6 +372,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
+            Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
         var comparisonList=await Get<PagedResponse<ComparisonListItem>>(client,$"/api/v1/purchase/comparisons?comparisonNumber={comparison.Number}&vendorId={vendor1Id}");
         Assert.Equal(1,comparisonList.TotalCount);Assert.Equal(comparison.Id,Assert.Single(comparisonList.Items).Id);
         await AssertApprovalActors(options, "CMP", comparison.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
@@ -554,7 +584,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         public HttpClient Client { get; } = client;
 
-        public static async Task<PurchaseFlowHost> StartAsync(string connectionString, TaxWorkflowUser user)
+        public static async Task<PurchaseFlowHost> StartAsync(
+            string connectionString,
+            TaxWorkflowUser user,
+            bool useRealPagePermissions = false)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -574,7 +607,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.AddInfrastructure(builder.Configuration);
             builder.Services.AddSingleton<ICurrentUser>(user);
             builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowAllowingScope>();
-            builder.Services.AddSingleton<IPagePermissionService, PurchaseFlowAllowingPermissions>();
+            if (!useRealPagePermissions)
+                builder.Services.AddSingleton<IPagePermissionService, PurchaseFlowAllowingPermissions>();
             var app = builder.Build();
             app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
             app.UseMiddleware<ExceptionHandlingMiddleware>();

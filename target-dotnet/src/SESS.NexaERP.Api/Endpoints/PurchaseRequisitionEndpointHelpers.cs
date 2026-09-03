@@ -5,6 +5,7 @@ using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Purchase;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
@@ -14,16 +15,24 @@ public static partial class PurchaseRequisitionEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.OrganizationId) || string.IsNullOrWhiteSpace(request.RequestingDepartmentCode) || string.IsNullOrWhiteSpace(request.RequesterEmployeeCode) || string.IsNullOrWhiteSpace(request.DeliveryWarehouseCode) || string.IsNullOrWhiteSpace(request.PurposeJustification)) return Results.BadRequest(new { message = "Organization, department, requester, delivery warehouse and purpose are required." });
         if (!string.IsNullOrWhiteSpace(user.OrganizationId) && !string.Equals(request.OrganizationId.Trim(), user.OrganizationId, StringComparison.OrdinalIgnoreCase)) return Results.Forbid();
+        if (!user.EmployeeId.HasValue) return Results.Unauthorized();
+        var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
+        var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (companyId is null) return Results.BadRequest(new { message = "Active organization not found." });
         if (request.CustomerPurchaseOrderId is { } customerPoId)
         {
-            var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
-            var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
-            if (companyId is null || !await db.CustomerPurchaseOrders.AnyAsync(x => x.Id == customerPoId && x.CompanyId == companyId.Value, ct))
+            if (!await db.CustomerPurchaseOrders.AnyAsync(x => x.Id == customerPoId && x.CompanyId == companyId.Value, ct))
                 return Results.BadRequest(new { message = "Customer PO was not found in the current company." });
         }
-        if (!await db.Departments.AnyAsync(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode), ct)) return Results.BadRequest(new { message = "Requesting department not found." });
-        if (!await db.Employees.AnyAsync(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode), ct)) return Results.BadRequest(new { message = "Requester employee not found." });
-        if (!await db.Warehouses.AnyAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive, ct)) return Results.BadRequest(new { message = "Active delivery warehouse not found." });
+        var departmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (departmentId is null) return Results.BadRequest(new { message = "Requesting department not found." });
+        var requesterId = await db.Employees.Where(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode) && x.Status.ToUpper() == "ACTIVE").Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (requesterId is null) return Results.BadRequest(new { message = "Requester employee not found." });
+        if (requesterId.Value != user.EmployeeId.Value) return Results.BadRequest(new { message = "Requester must be the authenticated employee raising the requisition." });
+        var warehouseId = await db.Warehouses.Where(x => x.CompanyId == companyId.Value && x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+        if (warehouseId is null) return Results.BadRequest(new { message = "Active delivery warehouse not found in the current company." });
+        if (!await PurchaseRequisitionVisibility.CanCreateAsync(user, db, departmentId.Value, warehouseId.Value, ct))
+            return Results.Json(new { message = "Cannot create a purchase requisition outside your active department and warehouse scope." }, statusCode: StatusCodes.Status403Forbidden);
         return await ValidateLines(request.Lines, db, ct);
     }
 
@@ -44,7 +53,7 @@ public static partial class PurchaseRequisitionEndpoints
         {
             lineNo++;
             if (string.IsNullOrWhiteSpace(line.ItemCode)) return Results.BadRequest(new { message = $"Line {lineNo}: Item Master reference is required. Use controlled New Item Request for missing items." });
-            if (line.RequestedQuantity <= 0 || line.EstimatedUnitPrice < 0) return Results.BadRequest(new { message = $"Line {lineNo}: requested quantity must be positive and estimated price cannot be negative." });
+            if (line.RequestedQuantity <= 0 || line.EstimatedUnitPrice <= 0) return Results.BadRequest(new { message = $"Line {lineNo}: requested quantity and estimated rate are required and must be greater than zero." });
             var itemCode = MasterEndpointHelpers.NormalizeCode(line.ItemCode);
             if (!await db.Items.AnyAsync(x => x.ItemCode == itemCode && x.IsActive, ct)) return Results.BadRequest(new { message = $"Line {lineNo}: active Item Master record not found. New item request is required." });
             if (!string.IsNullOrWhiteSpace(line.PreferredWarehouseCode) && !await db.Warehouses.AnyAsync(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(line.PreferredWarehouseCode) && x.IsActive, ct)) return Results.BadRequest(new { message = $"Line {lineNo}: active preferred warehouse not found." });
@@ -188,21 +197,8 @@ public static partial class PurchaseRequisitionEndpoints
     }
     private static string FinancialYear(DateOnly date) => date.Month >= 4 ? $"{date.Year}-{(date.Year + 1) % 100:00}" : $"{date.Year - 1}-{date.Year % 100:00}";
     private static bool CanApproveRoute(string role, string route) { var normalizedRole = role.Trim().ToUpperInvariant(); return PurchaseRequisitionApprovalRoutes.Normalize(route) switch { PurchaseRequisitionApprovalRoutes.Manager => normalizedRole.Contains("MANAGER", StringComparison.OrdinalIgnoreCase) || normalizedRole is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR", PurchaseRequisitionApprovalRoutes.TechnicalDirector => normalizedRole is "TECHNICAL_DIRECTOR" or "ADMIN", PurchaseRequisitionApprovalRoutes.ManagingDirector => normalizedRole is "MANAGING_DIRECTOR" or "MD" or "ADMIN", _ => false }; }
-    private static IQueryable<PurchaseRequisition> Scope(IQueryable<PurchaseRequisition> query, ICurrentUser user, NexaErpDbContext db)
-    {
-        if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId)) return query.Where(_ => false);
-        query = query.Where(x => x.OrganizationId == user.OrganizationId);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var employeeId = user.EmployeeId.Value;
-        var role = Rev869ARoleCodes.Normalize(user.RoleCode);
-        var scopes = db.EmployeeOperationalScopes.Where(x => x.OrganizationId == user.OrganizationId && x.EmployeeId == employeeId && x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today));
-        if (Rev869ARoleCodes.IsExplicitCrossScopeRole(role) && scopes.Any(x => x.AllowsPrivilegedCrossScope)) return query;
-        return query.Where(pr => scopes.Any(scope =>
-            (!scope.DepartmentId.HasValue || scope.DepartmentId == pr.RequestingDepartmentId) &&
-            (!scope.WarehouseId.HasValue || scope.WarehouseId == pr.DeliveryWarehouseId) &&
-            !scope.RackBinId.HasValue &&
-            (!scope.OwnRecordsOnly || pr.RequesterEmployeeId == employeeId)));
-    }
+    private static IQueryable<PurchaseRequisition> Scope(IQueryable<PurchaseRequisition> query, ICurrentUser user, NexaErpDbContext db) =>
+        PurchaseRequisitionVisibility.Apply(query, user, db);
     private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) => query.Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee).Include(x => x.DeliveryWarehouse).Include(x => x.CustomerPurchaseOrder).Include(x => x.Lines).ThenInclude(x => x.Item);
     private static IQueryable<PurchaseRequisition> Sort(IQueryable<PurchaseRequisition> q, string? sortBy, string? dir) => (sortBy?.Trim().ToLowerInvariant(), dir?.Trim().ToLowerInvariant()) switch { ("requiredby", "desc") => q.OrderByDescending(x => x.RequiredByDate), ("requiredby", _) => q.OrderBy(x => x.RequiredByDate), ("status", "desc") => q.OrderByDescending(x => x.Status), ("status", _) => q.OrderBy(x => x.Status), ("total", "desc") => q.OrderByDescending(x => x.EstimatedTotal), ("total", _) => q.OrderBy(x => x.EstimatedTotal), ("prnumber", "desc") => q.OrderByDescending(x => x.PrNumber), _ => q.OrderBy(x => x.PrNumber) };
     private static string NormalizePr(string value) => value.Trim().ToUpperInvariant();

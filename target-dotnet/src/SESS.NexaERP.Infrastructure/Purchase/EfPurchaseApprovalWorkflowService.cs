@@ -113,9 +113,9 @@ public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPu
         if (requestedStep == 2 && priorStepEmployeeId == actorEmployeeId)
             throw new UnauthorizedAccessException("Level 2 approver must differ from level 1.");
         if (step.EmployeeId != actorEmployeeId)
-            throw new UnauthorizedAccessException("The workflow step's exact named employee is required.");
+            throw new UnauthorizedAccessException($"This approval step is awaiting {step.EmployeeCode} ({step.RoleCode}).");
         if (!actorRoleCodes.Any(x => string.Equals(x.Trim(), step.RoleCode, StringComparison.OrdinalIgnoreCase)))
-            throw new UnauthorizedAccessException("The workflow step's exact named role is required.");
+            throw new UnauthorizedAccessException($"This approval step is awaiting {step.EmployeeCode} with role {step.RoleCode}.");
         var completed = requestedStep;
         return new(approvalCycle, requestedStep, snapshot.Steps.Count, completed,
             completed == snapshot.Steps.Count, step.EmployeeId, step.RoleCode, snapshot.RouteCode, snapshot.Identity);

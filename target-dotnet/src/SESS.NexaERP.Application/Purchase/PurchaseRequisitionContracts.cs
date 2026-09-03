@@ -6,7 +6,9 @@ public sealed record CreatePurchaseRequisitionRequest(string OrganizationId, str
 
 public sealed record UpdatePurchaseRequisitionRequest(DateOnly RequiredByDate, string Priority, string PurposeJustification, string DeliveryWarehouseCode, string? CostCentre, string? ProjectReference, string? ServiceReference, string? WorkOrderReference, string? CustomerReference, IReadOnlyList<PurchaseRequisitionLineRequest> Lines, uint Version, Guid? CustomerPurchaseOrderId = null);
 
-public sealed record PurchaseRequisitionActionRequest(string Remarks, uint Version, string? IdempotencyKey = null);
+public sealed record PurchaseRequisitionActionRequest(string? Remarks, uint Version, string? IdempotencyKey = null);
+
+public sealed record PurchaseRequisitionLookupOption(string Code, string Name);
 
 public sealed record StockCheckLocationRequest(int LineNumber, string WarehouseCode, string? RackBinCode = null);
 

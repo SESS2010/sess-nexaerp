@@ -259,7 +259,7 @@ public sealed class AdvanceBaselineSeedConstraintTests
         Assert.Equal(8, permissions.Count(row => row.CreatedBy == "migration-rev869a"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-rev869b"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-item-reference-masters"));
-        Assert.Equal(1219, AdvanceSeedData.RolePagePermissions.Count);
+        Assert.Equal(1221, AdvanceSeedData.RolePagePermissions.Count);
     }
 
     private static NexaErpDbContext CreateContext()
