@@ -267,7 +267,9 @@ public static class Rev866SeedData
         var identity = page.PageKey.StartsWith("identity.", StringComparison.OrdinalIgnoreCase) || page.PageKey.StartsWith("authorization.", StringComparison.OrdinalIgnoreCase);
         var employeePage = page.PageKey.StartsWith("employees.", StringComparison.OrdinalIgnoreCase);
         var receiptPage = page.PageKey.Equals("inventory.grn", StringComparison.OrdinalIgnoreCase);
+        var stockCheckPage = page.PageKey.Equals("stores.stock-check", StringComparison.OrdinalIgnoreCase);
         var receiptOperatorRole = role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT";
+        var stockCheckRole = role.Code is "STORES_EXECUTIVE" or "STORE_HEAD";
         var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
         var commercial = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_HEAD" or "PURCHASE_HEAD";
         var canOperatePurchase = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "PURCHASE_HEAD" or "STORE_HEAD" or "PURCHASE_EXECUTIVE";
@@ -275,14 +277,14 @@ public static class Rev866SeedData
         var canOperateMaster = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "PURCHASE_HEAD" or "STORE_HEAD" or "SALES_HEAD";
         var canOperateEmployee = role.Code is "ADMIN" or "MD" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "HR_EXECUTIVE";
         var canAdministerIdentity = role.Code == "IT_MANAGER" && page.PageKey is "identity.roles" or "identity.users";
-        var canView = full || audit || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
+        var canView = full || audit || stockCheckPage && stockCheckRole || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
             || (purchase && role.Code is "PURCHASE_EXECUTIVE")
             || (inventory && role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT")
             || (employeePage && role.Code is "HR_EXECUTIVE");
         var canCreate = receiptPage
             ? receiptOperatorRole
             : full || (master && canOperateMaster) || (purchase && canOperatePurchase) || (inventory && canOperateInventory) || (employeePage && canOperateEmployee);
-        var canVerify = full || (inventory && role.Code is "QC_HEAD") || (purchase && role.Code is "PURCHASE_HEAD");
+        var canVerify = full || stockCheckPage && stockCheckRole || (inventory && role.Code is "QC_HEAD") || (purchase && role.Code is "PURCHASE_HEAD");
         var canApprove = full || role.Code is "ACCOUNTS_HEAD" && page.PageKey.Contains("commercial", StringComparison.OrdinalIgnoreCase);
 
         return new RolePagePermission
@@ -296,9 +298,9 @@ public static class Rev866SeedData
             CanSubmit = canCreate,
             CanVerify = canVerify,
             CanApprove = canApprove,
-            CanReject = canVerify || canApprove,
-            CanRequestClarification = canVerify || canApprove,
-            CanRequestRevision = canVerify || canApprove,
+            CanReject = stockCheckPage && stockCheckRole ? false : canVerify || canApprove,
+            CanRequestClarification = stockCheckPage && stockCheckRole ? false : canVerify || canApprove,
+            CanRequestRevision = stockCheckPage && stockCheckRole ? false : canVerify || canApprove,
             CanResubmit = canCreate,
             CanCancel = receiptPage ? receiptOperatorRole : full || canCreate,
             CanDeactivate = full || ((master || employeePage) && role.Code is "IT_MANAGER"),

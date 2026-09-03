@@ -30,7 +30,15 @@ public static partial class PurchaseRequisitionEndpoints
         foreach (var line in pr.Lines.OrderBy(x => x.LineNumber))
         {
             if (line.ItemId is null) return Results.BadRequest(new { message = $"Line {line.LineNumber} requires controlled New Item Request before PR stock check." });
-            var locations = await ResolveLocations(line, pr, request, db, ct);
+            List<StockLocation> locations;
+            try
+            {
+                locations = await ResolveLocations(line, pr, request, db, ct);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { message = ex.Message });
+            }
             if (locations.Count == 0) return Results.BadRequest(new { message = $"Line {line.LineNumber}: at least one active stock-check warehouse is required." });
             var checkedAt = DateTimeOffset.UtcNow;
             var totalOnHand = 0m;
@@ -103,7 +111,7 @@ public static partial class PurchaseRequisitionEndpoints
         var result = new List<StockLocation>();
         foreach (var input in requested)
         {
-            if (string.IsNullOrWhiteSpace(input.RackBinCode)) throw new InvalidOperationException($"Line {line.LineNumber}: a physical Rack/Bin is required for reservation.");
+            if (string.IsNullOrWhiteSpace(input.RackBinCode)) throw new InvalidOperationException($"Line {line.LineNumber}: a physical Rack/Bin is required.");
             var warehouseCode = MasterEndpointHelpers.NormalizeCode(input.WarehouseCode);
             var rackBinCode = MasterEndpointHelpers.NormalizeCode(input.RackBinCode);
             var mapping = await db.WarehouseConditionLocations.AsNoTracking()
