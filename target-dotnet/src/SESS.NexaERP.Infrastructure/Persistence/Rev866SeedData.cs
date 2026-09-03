@@ -268,8 +268,10 @@ public static class Rev866SeedData
         var employeePage = page.PageKey.StartsWith("employees.", StringComparison.OrdinalIgnoreCase);
         var receiptPage = page.PageKey.Equals("inventory.grn", StringComparison.OrdinalIgnoreCase);
         var stockCheckPage = page.PageKey.Equals("stores.stock-check", StringComparison.OrdinalIgnoreCase);
+        var rackBinLookupPage = page.PageKey.Equals("masters.rack-bins", StringComparison.OrdinalIgnoreCase);
         var receiptOperatorRole = role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT";
         var stockCheckRole = role.Code is "STORES_EXECUTIVE" or "STORE_HEAD";
+        var stockCheckRackBinLookupOnly = rackBinLookupPage && role.Code is "STORES_EXECUTIVE";
         var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
         var commercial = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_HEAD" or "PURCHASE_HEAD";
         var canOperatePurchase = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "PURCHASE_HEAD" or "STORE_HEAD" or "PURCHASE_EXECUTIVE";
@@ -277,7 +279,7 @@ public static class Rev866SeedData
         var canOperateMaster = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "PURCHASE_HEAD" or "STORE_HEAD" or "SALES_HEAD";
         var canOperateEmployee = role.Code is "ADMIN" or "MD" or "MANAGING_DIRECTOR" or "IT_MANAGER" or "HR_EXECUTIVE";
         var canAdministerIdentity = role.Code == "IT_MANAGER" && page.PageKey is "identity.roles" or "identity.users";
-        var canView = full || audit || stockCheckPage && stockCheckRole || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
+        var canView = full || audit || stockCheckRole && (stockCheckPage || rackBinLookupPage) || (foundationMatrixRole && !identity && (master || purchase || inventory || page.PageKey == "audit.history"))
             || (purchase && role.Code is "PURCHASE_EXECUTIVE")
             || (inventory && role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT")
             || (employeePage && role.Code is "HR_EXECUTIVE");
@@ -304,8 +306,8 @@ public static class Rev866SeedData
             CanResubmit = canCreate,
             CanCancel = receiptPage ? receiptOperatorRole : full || canCreate,
             CanDeactivate = full || ((master || employeePage) && role.Code is "IT_MANAGER"),
-            CanPrint = canView,
-            CanDownload = canView,
+            CanPrint = canView && !stockCheckRackBinLookupOnly,
+            CanDownload = canView && !stockCheckRackBinLookupOnly,
             CanExport = canView && foundationMatrixRole && role.Code is not "CUSTOMER" and not "VENDOR",
             CanUploadAttachment = canCreate,
             CanReplaceAttachment = canCreate,
