@@ -24,10 +24,10 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
             .Select(x => x.Code).SingleOrDefaultAsync(cancellationToken)
             ?? throw new UnauthorizedAccessException("The resolved primary department is unavailable.");
 
-        var permissions = await ResolvePermissionsAsync(currentUser.RoleCodes, cancellationToken);
+        var permissions = await ResolvePermissionsAsync([currentUser.ActingRoleCode], cancellationToken);
         return new SessionMe(employee.Id, employee.EmployeeCode, employee.EmployeeName, company.Id, company.Code,
             currentUser.DepartmentId.Value, departmentCode, currentUser.RoleCodes.Order(StringComparer.Ordinal).ToArray(), permissions,
-            currentUser.IdentityIssuer!, currentUser.IdentitySubject!);
+            currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.PrimaryRoleCode, currentUser.ActingRoleCode);
     }
 
     private async Task<IReadOnlyList<string>> ResolvePermissionsAsync(IReadOnlyCollection<string> roleCodes, CancellationToken ct)

@@ -42,9 +42,12 @@ public static class Rev869BCommandContextAuthorizer
         string? selectedRoleCode = null)
     {
         RequirePrincipal(user, organization);
-        var actorRole = string.IsNullOrWhiteSpace(selectedRoleCode) ? user.RoleCode : selectedRoleCode.Trim();
-        if (!user.RoleCodes.Any(x => string.Equals(x.Trim(), actorRole, StringComparison.OrdinalIgnoreCase)))
-            throw new UnauthorizedAccessException("Selected command role is not effective for the current employee.");
+        var actorRole = user.ActingRoleCode;
+        if (string.IsNullOrWhiteSpace(actorRole) || string.Equals(actorRole, "none", StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("An effective acting role is required for a controlled command.");
+        if (!string.IsNullOrWhiteSpace(selectedRoleCode) &&
+            !string.Equals(selectedRoleCode.Trim(), actorRole, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("The command role does not match the validated request acting role.");
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("REV869B command attempts require an active service-owned business transaction.");
         db.Database.AutoSavepointsEnabled = false;

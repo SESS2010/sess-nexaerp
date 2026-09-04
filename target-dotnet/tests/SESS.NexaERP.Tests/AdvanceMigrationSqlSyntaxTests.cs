@@ -729,7 +729,29 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments)<>101 THEN RAISE EXCEPTION 'Expected 101 role assignments, including the two company-scoped KARTHICK receipt assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments)<>107 THEN RAISE EXCEPTION 'Expected 107 role assignments after confirmed Phase 2 assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_company_role_profiles)<>84 THEN RAISE EXCEPTION 'Expected 84 active-employee company role profiles.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_company_role_profiles WHERE "ConfigurationStatus"='CONFIGURED')<>20 THEN RAISE EXCEPTION 'Expected 20 configured confirmed-primary profiles.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_company_role_profiles WHERE "ConfigurationStatus"='PENDING')<>64 THEN RAISE EXCEPTION 'Expected 64 pending-primary profiles without inferred proposals.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignment_events)<>22 THEN RAISE EXCEPTION 'Expected 22 immutable baseline role events.'; END IF;
+          IF EXISTS (
+            SELECT 1 FROM advance.employee_company_role_profiles p
+            LEFT JOIN advance.employee_role_assignments a ON a."Id"=p."PrimaryRoleAssignmentId"
+              AND a."CompanyId"=p."CompanyId" AND a."EmployeeId"=p."EmployeeId"
+              AND a."IsPrimary" AND a."ApprovalStatus" IN ('Approved','SeedApproved')
+            WHERE p."ConfigurationStatus"='CONFIGURED' AND a."Id" IS NULL
+          ) THEN RAISE EXCEPTION 'A configured profile lacks its exact primary assignment.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE e."EmployeeCode"='SESS-41' AND r."Code"='STORES_MANAGER' AND a."IsPrimary")<>2
+            THEN RAISE EXCEPTION 'KARTHICK must hold primary STORES_MANAGER in both companies.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE e."EmployeeCode"='SESS-28' AND r."Code"='SERVICE_COORDINATOR' AND NOT a."IsPrimary")<>2
+            THEN RAISE EXCEPTION 'VENKAT RAV SESS-28 must hold secondary SERVICE_COORDINATOR in both companies.'; END IF;
+          IF EXISTS (SELECT 1 FROM advance.audit_logs WHERE "ActorRoleCode"='')
+            THEN RAISE EXCEPTION 'Audit rows must record an acting-role value.'; END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='EX_employee_role_assignment_no_overlap' AND condeferrable)
+            OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='EX_employee_role_assignment_one_primary' AND condeferrable)
+            THEN RAISE EXCEPTION 'Deferrable role overlap constraints are missing.'; END IF;
           IF (SELECT count(*) FROM advance.employee_operational_scopes)<>398 THEN RAISE EXCEPTION 'Expected 398 operational scopes.'; END IF;
           IF (SELECT count(*) FROM advance.employee_identity_mappings)<>0 THEN RAISE EXCEPTION 'Fresh chain must have no identity mappings before bootstrap.'; END IF;
           IF (SELECT count(*) FROM advance.purchase_transaction_approval_policies WHERE "IsActive")<>6 THEN RAISE EXCEPTION 'Expected six active approval policies.'; END IF;

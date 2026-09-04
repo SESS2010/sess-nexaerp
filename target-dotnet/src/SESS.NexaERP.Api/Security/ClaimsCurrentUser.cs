@@ -12,7 +12,11 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
 
     public string LoginId => Resolution?.Success == true && !string.IsNullOrWhiteSpace(IdentitySubject) ? IdentitySubject! : "unauthenticated";
     public IReadOnlyList<string> RoleCodes => Resolution?.Success == true ? Resolution.RoleCodes : [];
-    public string RoleCode => RoleCodes.Count == 1 ? RoleCodes[0] : "none";
+    public string RoleCode => Resolution?.Success == true
+        ? Resolution.ActingRoleCode ?? Resolution.PrimaryRoleCode ?? (RoleCodes.Count == 1 ? RoleCodes[0] : "none")
+        : "none";
+    public string? PrimaryRoleCode => Resolution?.Success == true ? Resolution.PrimaryRoleCode : null;
+    public string ActingRoleCode => RoleCode;
     public string? OrganizationId => Resolution?.Success == true ? Resolution.OrganizationId : null;
     public bool IsAuthenticated => Context?.User.Identity?.IsAuthenticated == true && Resolution?.Success == true;
     public string? IdentityIssuer => ClaimValue("iss");

@@ -122,6 +122,18 @@ public sealed class AdvanceBaselineSeedConstraintTests
             [("employee_company_assignments", "CK_employee_company_assignment_type")] = new(
                 @"""AssignmentType"" IN ('PAYROLL','WORK')",
                 row => StringValue(row, "AssignmentType") is "PAYROLL" or "WORK"),
+            [("employee_role_assignments", "CK_employee_role_assignment_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("employee_role_assignments", "CK_employee_role_assignment_type")] = new(
+                @"""AssignmentType"" IN ('PERMANENT','TEMPORARY','COVER')",
+                row => StringValue(row, "AssignmentType") is "PERMANENT" or "TEMPORARY" or "COVER"),
+            [("employee_role_assignments", "CK_employee_role_assignment_end_metadata")] = new(
+                @"""EffectiveTo"" IS NULL OR ""AssignmentType"" IN ('TEMPORARY','COVER') OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)",
+                row => Value(row, "EffectiveTo") is null ||
+                    StringValue(row, "AssignmentType") is "TEMPORARY" or "COVER" ||
+                    (Value(row, "EndReason") is string reason && !string.IsNullOrWhiteSpace(reason) &&
+                     Value(row, "EndedAt") is not null && Value(row, "EndedBy") is string endedBy && !string.IsNullOrWhiteSpace(endedBy))),
             [("employee_department_assignments", "CK_employee_department_assignment_dates")] = new(
                 @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
                 row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),

@@ -67,7 +67,7 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task Any_effective_database_role_can_grant_page_permission()
+    public async Task Held_secondary_role_requires_explicit_acting_role_to_grant_page_permission()
     {
         await using var host = await TestHost.StartAsync((role, permission) =>
             role == "TECHNICAL_DIRECTOR" && permission == PagePermissionActions.View);
@@ -75,6 +75,7 @@ public sealed class AuthorizationIntegrationTests
         using var client = new HttpClient { BaseAddress = host.BaseAddress };
         client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.UserHeader, "SESS-001");
         client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.RoleHeader, "STORES_ASSISTANT,TECHNICAL_DIRECTOR");
+        client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.ActingRoleHeader, "TECHNICAL_DIRECTOR");
         var response = await client.GetAsync("/employee-list");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -230,7 +231,8 @@ public sealed class AuthorizationIntegrationTests
             .Select(role => role.ToUpperInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        public string RoleCode => RoleCodes.Count == 1 ? RoleCodes[0] : "none";
+        public string ActingRoleCode => Principal.FindFirstValue("acting_role")?.ToUpperInvariant() ?? (RoleCodes.Count == 1 ? RoleCodes[0] : "none");
+        public string RoleCode => ActingRoleCode;
         public string? OrganizationId => Principal.FindFirstValue("organization_id") ?? "SESS";
         public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
         public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("90000000-0000-0000-0000-000000000001") : null;
@@ -272,6 +274,7 @@ public sealed class TestOnlyAuthenticationHandler(
     public const string UserHeader = "X-Test-User";
     public const string RoleHeader = "X-Test-Role";
     public const string OrganizationHeader = "X-Test-Organization";
+    public const string ActingRoleHeader = "X-SESS-Acting-Role";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -287,6 +290,11 @@ public sealed class TestOnlyAuthenticationHandler(
             new(ClaimTypes.Name, userValues.ToString()),
             new(ClaimTypes.Role, roleValues.ToString())
         };
+
+        if (Request.Headers.TryGetValue(ActingRoleHeader, out var actingRoleValues))
+        {
+            claims.Add(new Claim("acting_role", actingRoleValues.ToString()));
+        }
 
         if (Request.Headers.TryGetValue(OrganizationHeader, out var organizationValues))
         {

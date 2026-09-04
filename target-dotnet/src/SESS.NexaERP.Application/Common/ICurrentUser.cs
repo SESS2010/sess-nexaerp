@@ -8,6 +8,8 @@ public interface ICurrentUser
         string.IsNullOrWhiteSpace(RoleCode) || string.Equals(RoleCode, "none", StringComparison.OrdinalIgnoreCase)
             ? []
             : [RoleCode];
+    string? PrimaryRoleCode => null;
+    string ActingRoleCode => RoleCode;
     string? OrganizationId { get; }
     bool IsAuthenticated { get; }
     string? IdentityIssuer => null;

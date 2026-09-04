@@ -46,7 +46,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
         currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
             RequireOrganization(), operation, idempotencyKey, request);
-        currentActorRoleCode = IsApprovalOperation(operation) ? null : operationalRoles.Resolve(operation, user.RoleCodes);
+        currentActorRoleCode = IsApprovalOperation(operation) ? null : operationalRoles.Resolve(operation, [user.ActingRoleCode]);
         var scope = new Rev869BTransactionScope(this,
             await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct));
         currentCompanyId = await db.Companies.AsNoTracking()
@@ -186,7 +186,9 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     {
         if (!IsApprovalOperation(currentCommandEnvelope?.Operation ?? string.Empty))
             throw new InvalidOperationException("Only approval commands may take their role from a workflow step.");
-        currentActorRoleCode = roleCode;
+        if (!string.Equals(roleCode, user.ActingRoleCode, StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("The selected acting role does not match the required approval workflow role.");
+        currentActorRoleCode = user.ActingRoleCode;
     }
     private Task WriteAuditAsync(string module, string action, string entityType, string entityId, object? before, object? after, CancellationToken ct) =>
         audit.WriteAsync(module, action, entityType, entityId,

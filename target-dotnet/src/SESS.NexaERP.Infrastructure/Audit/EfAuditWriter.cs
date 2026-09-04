@@ -31,6 +31,7 @@ public sealed class EfAuditWriter(NexaErpDbContext dbContext, ICurrentUser curre
             EntityName = entityName,
             EntityId = entityId,
             UserLoginId = currentUser.LoginId,
+            ActorRoleCode = currentUser.RoleCode,
             Result = string.Equals(action, "Denied", StringComparison.OrdinalIgnoreCase) ? "Failure" : "Success",
             CorrelationId = Guid.NewGuid().ToString("N"),
             BeforeJson = before is null ? null : JsonSerializer.Serialize(before, JsonOptions),

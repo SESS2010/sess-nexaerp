@@ -7,7 +7,9 @@ public sealed record ResolvedEmployeeIdentity(
     string? OrganizationId,
     string? EmployeeCode,
     IReadOnlyList<string> RoleCodes,
-    string Message)
+    string Message,
+    string? PrimaryRoleCode = null,
+    string? ActingRoleCode = null)
 {
     public static ResolvedEmployeeIdentity Failed(string message) => new(false, null, null, null, null, [], message);
 }

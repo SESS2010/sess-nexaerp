@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Identity;
+using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -64,7 +65,25 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
-        return new(true, employee.Id, primaryDepartments[0], mapping.OrganizationId, employee.EmployeeCode, effectiveRoleCodes, "Employee identity resolved.");
+        var primaryRoleCode = await ResolvePrimaryRoleCodeAsync(mapping.CompanyId, employee.Id, onDate, cancellationToken);
+        return new(true, employee.Id, primaryDepartments[0], mapping.OrganizationId, employee.EmployeeCode, effectiveRoleCodes, "Employee identity resolved.", primaryRoleCode);
+    }
+
+    private async Task<string?> ResolvePrimaryRoleCodeAsync(Guid companyId, Guid employeeId, DateOnly onDate, CancellationToken cancellationToken)
+    {
+        var primaryRoles = await db.EmployeeCompanyRoleProfiles.AsNoTracking()
+            .Where(profile => profile.CompanyId == companyId && profile.EmployeeId == employeeId &&
+                profile.ConfigurationStatus == EmployeeRoleProfileStatuses.Configured)
+            .Where(profile => profile.PrimaryRoleAssignment != null &&
+                profile.PrimaryRoleAssignment.IsPrimary &&
+                (profile.PrimaryRoleAssignment.ApprovalStatus == "SeedApproved" || profile.PrimaryRoleAssignment.ApprovalStatus == "Approved") &&
+                profile.PrimaryRoleAssignment.EffectiveFrom <= onDate &&
+                (!profile.PrimaryRoleAssignment.EffectiveTo.HasValue || profile.PrimaryRoleAssignment.EffectiveTo.Value >= onDate) &&
+                profile.PrimaryRoleAssignment.Role != null && profile.PrimaryRoleAssignment.Role.IsActive)
+            .Select(profile => profile.PrimaryRoleAssignment!.Role!.Code)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        return primaryRoles.Count == 1 ? primaryRoles[0].Trim().ToUpperInvariant() : null;
     }
 
 #if DEBUG
@@ -119,7 +138,8 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Select(x => x.Role!.Code)
             .ToListAsync(cancellationToken);
         var effectiveRoleCodes = roles.Select(x => x.Trim().ToUpperInvariant()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        return new(true, employee.Id, primaryDepartments[0], company.Code, employee.EmployeeCode, effectiveRoleCodes, "Development employee identity resolved.");
+        var primaryRoleCode = await ResolvePrimaryRoleCodeAsync(company.Id, employee.Id, onDate, cancellationToken);
+        return new(true, employee.Id, primaryDepartments[0], company.Code, employee.EmployeeCode, effectiveRoleCodes, "Development employee identity resolved.", primaryRoleCode);
     }
 #endif
 }

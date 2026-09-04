@@ -95,7 +95,7 @@ public sealed class QcFrontendApiCorrectionTests
         Assert.Contains("actor==pr.RequesterEmployeeId||actor==pr.CreatorEmployeeId", source);
         Assert.Contains("x.ApprovalRouteCode==PurchaseRequisitionApprovalRoutes.Manager", source);
         Assert.Contains("mapping.PrimaryApproverEmployeeId!=actor", source);
-        Assert.Contains("user.RoleCodes.Contains(mapping.ApproverRoleCode", source);
+        Assert.Contains("string.Equals(user.ActingRoleCode,mapping.ApproverRoleCode", source);
     }
 
     private static RolePagePermission Permission(string roleCode)

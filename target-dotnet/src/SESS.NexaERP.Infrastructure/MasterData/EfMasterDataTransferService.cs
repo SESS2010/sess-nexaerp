@@ -413,7 +413,7 @@ public sealed class EfMasterDataTransferService(
     {
         foreach (var role in definition.OperationalRolePriority)
         {
-            if (!user.RoleCodes.Contains(role, StringComparer.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(user.ActingRoleCode, role, StringComparison.OrdinalIgnoreCase)) continue;
             if (await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Create, cancellationToken)
                 && await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Update, cancellationToken))
                 return role;

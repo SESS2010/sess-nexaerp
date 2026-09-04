@@ -18,19 +18,19 @@ public static class PagePermissionEndpointFilter
                 await audit.WriteAsync("Security", "Denied", "Identity", pageKey, null, new { reason = "Authenticated employee identity is unresolved", permission }, httpContext.RequestAborted);
                 return Results.Unauthorized();
             }
-            if (currentUser.RoleCodes.Count == 0)
+            if (string.IsNullOrWhiteSpace(currentUser.ActingRoleCode) || string.Equals(currentUser.ActingRoleCode, "none", StringComparison.OrdinalIgnoreCase))
             {
                 await audit.WriteAsync("Security", "Denied", "Role", pageKey, null, new { reason = "Role is unresolved", currentUser.EmployeeId, permission }, httpContext.RequestAborted);
                 return Results.Forbid();
             }
 
             var permissions = httpContext.RequestServices.GetRequiredService<IPagePermissionService>();
-            var allowed = await permissions.HasPermissionAsync(currentUser.RoleCodes, pageKey, permission, httpContext.RequestAborted);
+            var allowed = await permissions.HasPermissionAsync([currentUser.ActingRoleCode], pageKey, permission, httpContext.RequestAborted);
             if (!allowed)
             {
                 await audit.WriteAsync("Security", "Denied", pageKey, permission, null, new
                 {
-                    roleCodes = currentUser.RoleCodes,
+                    actingRoleCode = currentUser.ActingRoleCode,
                     currentUser.EmployeeId,
                     pageKey,
                     permission,

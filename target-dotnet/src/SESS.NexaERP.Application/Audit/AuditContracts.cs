@@ -11,7 +11,8 @@ public sealed record AuditLogSummary(
     string UserLoginId,
     string Result,
     string CorrelationId,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string ActorRoleCode = "");
 
 public interface IAuditHistoryService
 {

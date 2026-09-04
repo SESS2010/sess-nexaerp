@@ -76,7 +76,8 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
         Assert.Contains("x.CompanyId == mapping.CompanyId", resolver);
         Assert.Contains("organization_id", middleware);
         Assert.Contains("org_id", middleware);
-        Assert.DoesNotContain("role", middleware, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("FindFirstValue(\"role\")", middleware, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("X-SESS-Acting-Role", middleware, StringComparison.Ordinal);
         Assert.DoesNotContain("group", middleware, StringComparison.OrdinalIgnoreCase);
     }
 

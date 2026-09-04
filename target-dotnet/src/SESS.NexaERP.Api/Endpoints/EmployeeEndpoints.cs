@@ -9,7 +9,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class EmployeeEndpoints
+public static partial class EmployeeEndpoints
 {
     public static IEndpointRouteBuilder MapEmployeeEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -241,43 +241,36 @@ public static class EmployeeEndpoints
             .RequirePagePermission("employees.master", PagePermissionActions.Deactivate);
 
         group.MapPost("/{employeeCode}/roles", async (string employeeCode, AssignEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Remarks))
-            {
-                return Results.BadRequest(new { message = "Remarks are required for role assignment." });
-            }
+            await AssignRoleAsync(employeeCode, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
 
-            var employee = await db.Employees.SingleOrDefaultAsync(existing => existing.EmployeeCode == NormalizeEmployeeCode(employeeCode), cancellationToken);
-            var roleCode = request.RoleCode.Trim().ToUpperInvariant();
-            var role = await db.Roles.SingleOrDefaultAsync(existing => existing.Code == roleCode && existing.IsActive, cancellationToken);
-            if (employee is null || role is null)
-            {
-                return Results.BadRequest(new { message = "Valid employee and active ERP role are required." });
-            }
+        group.MapPost("/{employeeCode}/roles/temporary-cover", async (string employeeCode, TemporaryRoleCoverRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await AssignTemporaryCoverAsync(employeeCode, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
 
-            var duplicate = await db.EmployeeRoleAssignments.AnyAsync(existing => existing.EmployeeId == employee.Id && existing.RoleId == role.Id && existing.EffectiveTo == null, cancellationToken);
-            if (duplicate)
-            {
-                return Results.Conflict(new { message = "Active employee-role mapping already exists." });
-            }
+        group.MapPost("/{employeeCode}/roles/promote", async (string employeeCode, PromoteEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await ChangePrimaryRoleAsync(employeeCode, request.NewRoleCode, request.EffectiveOn, request.KeepPreviousRoleAsSecondary, request.Remarks, request.ProfileVersion, "PROMOTION", null, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
 
-            var assignment = new EmployeeRoleAssignment
-            {
-                EmployeeId = employee.Id,
-                RoleId = role.Id,
-                EffectiveFrom = request.EffectiveFrom,
-                EffectiveTo = request.EffectiveTo,
-                ApprovalStatus = "PendingApproval",
-                Remarks = request.Remarks.Trim(),
-                CreatedBy = currentUser.LoginId
-            };
-            db.EmployeeRoleAssignments.Add(assignment);
-            db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = "AssignRole", FromStatus = "None", ToStatus = "PendingApproval", Remarks = $"{role.Code}: {request.Remarks.Trim()}", CreatedBy = currentUser.LoginId });
-            await db.SaveChangesAsync(cancellationToken);
-            await audit.WriteAsync("Employees", "AssignRole", nameof(EmployeeRoleAssignment), assignment.Id.ToString(), null, assignment, cancellationToken);
+        group.MapPost("/{employeeCode}/roles/transfer", async (string employeeCode, TransferEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await ChangePrimaryRoleAsync(employeeCode, request.NewRoleCode, request.EffectiveOn, request.KeepPreviousRoleAsSecondary, request.Remarks, request.ProfileVersion, "TRANSFER", null, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
 
-            return Results.Created($"/api/v1/employees/{employee.EmployeeCode}/roles/{assignment.Id}", new EmployeeRoleSummary(assignment.Id, role.Code, role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks));
-        }).RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
+        group.MapPost("/{employeeCode}/roles/change-primary", async (string employeeCode, ChangePrimaryRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await ChangePrimaryRoleAsync(employeeCode, null, request.EffectiveOn, request.KeepPreviousRoleAsSecondary, request.Remarks, request.ProfileVersion, "CHANGE_PRIMARY", request.AssignmentId, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
+
+        group.MapPost("/{employeeCode}/roles/{assignmentId:guid}/end", async (string employeeCode, Guid assignmentId, EndEmployeeRoleAssignmentRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await EndRoleAssignmentAsync(employeeCode, assignmentId, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
+
+        group.MapGet("/{employeeCode}/role-profile", async (string employeeCode, NexaErpDbContext db, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+            await GetRoleProfileAsync(employeeCode, db, currentUser, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.View);
+
+        group.MapGet("/{employeeCode}/role-events", async (string employeeCode, NexaErpDbContext db, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+            await GetRoleEventsAsync(employeeCode, db, currentUser, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.ViewAuditHistory);
 
         group.MapGet("/{employeeCode}/roles", async (string employeeCode, NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
@@ -292,7 +285,7 @@ public static class EmployeeEndpoints
                 .Include(assignment => assignment.Role)
                 .Where(assignment => assignment.EmployeeId == employee.Id)
                 .OrderByDescending(assignment => assignment.EffectiveFrom)
-                .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks))
+                .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks, assignment.AssignmentType, assignment.IsPrimary, assignment.EndReason, assignment.EndedAt, assignment.EndedBy, assignment.Version))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(roles);
@@ -388,7 +381,7 @@ public static class EmployeeEndpoints
             .Include(assignment => assignment.Role)
             .Where(assignment => assignment.EmployeeId == employee.Id)
             .OrderBy(assignment => assignment.Role!.Code)
-            .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks))
+            .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks, assignment.AssignmentType, assignment.IsPrimary, assignment.EndReason, assignment.EndedAt, assignment.EndedBy, assignment.Version))
             .ToListAsync(cancellationToken);
 
         var departmentName = employee.Department?.Name ?? await db.Departments.Where(department => department.Id == employee.DepartmentId).Select(department => department.Name).SingleAsync(cancellationToken);

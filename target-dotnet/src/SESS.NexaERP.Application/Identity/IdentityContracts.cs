@@ -60,7 +60,9 @@ public sealed record SessionMe(
     IReadOnlyList<string> RoleCodes,
     IReadOnlyList<string> Permissions,
     string IdentityIssuer,
-    string IdentitySubject);
+    string IdentitySubject,
+    string? PrimaryRoleCode = null,
+    string? ActingRoleCode = null);
 
 public interface ISessionService
 {
