@@ -53,7 +53,7 @@ public sealed class Part2ApiGapContractTests
         var identity = Read("src", "SESS.NexaERP.Api", "Endpoints", "IdentityEndpoints.cs");
         var authorization = Read("src", "SESS.NexaERP.Api", "Endpoints", "AuthorizationEndpoints.cs");
         var audit = Read("src", "SESS.NexaERP.Infrastructure", "Audit", "EfAuditHistoryService.cs");
-        Assert.Equal(2, Count(identity, "new PagedResponse<"));
+        Assert.Equal(3, Count(identity, "new PagedResponse<"));
         Assert.Equal(2, Count(authorization, "PagedResponse<"));
         Assert.Contains("new PagedResponse<AuditLogSummary>", audit, StringComparison.Ordinal);
     }

@@ -690,7 +690,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string Part2Assertions = """
         DO $assert$
         BEGIN
-          IF (SELECT count(*) FROM advance.roles)<>45 THEN RAISE EXCEPTION 'Expected 45 roles.'; END IF;
+          IF (SELECT count(*) FROM advance.roles)<>49 THEN RAISE EXCEPTION 'Expected 49 roles.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations)<>98 THEN RAISE EXCEPTION 'Expected 98 company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>80 THEN RAISE EXCEPTION 'Expected 80 enabled company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles WHERE "Audience"='LEGACY_ALIAS' AND NOT "IsEmployeeAssignable" AND "ReplacementRoleId" IS NOT NULL)<>8
+            THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
+          IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
+            THEN RAISE EXCEPTION 'Expected 2 external portal roles.'; END IF;
+          IF EXISTS (SELECT 1 FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+            WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER'))
+            THEN RAISE EXCEPTION 'New catalogue roles must have no permissions.'; END IF;
           IF EXISTS (
             SELECT expected."RoleCode",expected."PageKey"
             FROM (VALUES

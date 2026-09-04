@@ -59,7 +59,7 @@ public static class Rev866SeedData
         Row("SESS-039", "THIRUNAVUKKARASU", "Refrigeration", "Engineer/Technical", "REFRIGERATION / MECHANICAL ENGINEER", "TECHNICAL_ENGINEER")
     ];
 
-    public static IReadOnlyList<Role> AdditionalEmployeeRoles =>
+    public static IReadOnlyList<Role> AdditionalEmployeeRoles { get; } =
     [
         Role("TECHNICAL_DIRECTOR", "Technical Director", true),
         Role("MANAGING_DIRECTOR", "Managing Director", true),

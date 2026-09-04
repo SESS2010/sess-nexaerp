@@ -159,6 +159,22 @@ public sealed class AdvanceBaselineSeedConstraintTests
             [("business_rule_configuration_versions", "CK_business_rule_configuration_version_number")] = new(
                 "\"VersionNumber\" > 0",
                 row => Convert.ToInt32(Value(row, "VersionNumber"), CultureInfo.InvariantCulture) > 0),
+            [("company_role_activations", "CK_company_role_activation_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("roles", "CK_roles_audience")] = new(
+                @"""Audience"" IN ('INTERNAL_EMPLOYEE','EXTERNAL_PORTAL','LEGACY_ALIAS','SYSTEM_SECURITY')",
+                row => StringValue(row, "Audience") is "INTERNAL_EMPLOYEE" or "EXTERNAL_PORTAL" or "LEGACY_ALIAS" or "SYSTEM_SECURITY"),
+            [("roles", "CK_roles_business_area_canonical")] = new(
+                @"""BusinessArea"" = upper(btrim(""BusinessArea""))",
+                row => StringValue(row, "BusinessArea") == StringValue(row, "BusinessArea").Trim().ToUpperInvariant()),
+            [("roles", "CK_roles_assignable_audience")] = new(
+                @"""IsEmployeeAssignable"" = FALSE OR ""Audience"" = 'INTERNAL_EMPLOYEE'",
+                row => !Convert.ToBoolean(Value(row, "IsEmployeeAssignable"), CultureInfo.InvariantCulture) || StringValue(row, "Audience") == "INTERNAL_EMPLOYEE"),
+            [("roles", "CK_roles_replacement")] = new(
+                @"(""Audience"" = 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NOT NULL) OR (""Audience"" <> 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NULL)",
+                row => StringValue(row, "Audience") == "LEGACY_ALIAS"
+                    ? Value(row, "ReplacementRoleId") is not null : Value(row, "ReplacementRoleId") is null),
             [("roles", "CK_roles_code_canonical")] = new(
                 "\"Code\" = upper(btrim(\"Code\"))",
                 row => StringValue(row, "Code") == StringValue(row, "Code").Trim().ToUpperInvariant())

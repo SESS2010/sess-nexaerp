@@ -43,10 +43,11 @@ public sealed class EffectiveRoleAuthorizationTests
         Assert.DoesNotContain("AdminOnly", identity, StringComparison.Ordinal);
         Assert.DoesNotContain("MasterDataWrite", program, StringComparison.Ordinal);
         Assert.DoesNotContain("InventoryWrite", program, StringComparison.Ordinal);
-        Assert.Equal(2, identity.Split("identity.roles", StringSplitOptions.None).Length - 1);
+        Assert.Equal(6, identity.Split("identity.roles", StringSplitOptions.None).Length - 1);
         Assert.Equal(2, identity.Split("identity.users", StringSplitOptions.None).Length - 1);
-        Assert.Equal(2, identity.Split("PagePermissionActions.View", StringSplitOptions.None).Length - 1);
+        Assert.Equal(4, identity.Split("PagePermissionActions.View", StringSplitOptions.None).Length - 1);
         Assert.Equal(2, identity.Split("PagePermissionActions.Create", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, identity.Split("PagePermissionActions.Update", StringSplitOptions.None).Length - 1);
     }
 
     private static DefaultHttpContext ContextWithResolution(
