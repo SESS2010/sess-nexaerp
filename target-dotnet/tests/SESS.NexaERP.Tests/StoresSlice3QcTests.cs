@@ -41,6 +41,17 @@ public sealed class StoresSlice3QcTests
         Assert.Contains("/api/v1/qc",endpoints);Assert.Contains("/queue",endpoints);Assert.Contains("/corrections",endpoints);Assert.Contains("/concessions",endpoints);
     }
 
+    [Fact]
+    public void QcReadModelsExposeMandatoryDownstreamIdentifiers()
+    {
+        var contract=Read("src","SESS.NexaERP.Application","Stores","QcContracts.cs");
+        var service=Read("src","SESS.NexaERP.Infrastructure","Stores","EfQcWorkflowService.cs");
+        Assert.Contains("IReadOnlyList<Guid> InventorySerialIds",contract);
+        Assert.Contains("Guid QcInspectionLotDispositionId",contract);
+        Assert.Contains("x.GoodsReceiptLineLotAllocationId==a.Id&&x.InventorySerialId.HasValue",service);
+        Assert.Contains("x.QcInspectionRevisionId==revision.Id).Select(x=>x.Id).SingleAsync",service);
+    }
+
     private static string Read(params string[] parts)=>File.ReadAllText(Path.Combine([Root,..parts]));
     private static string FindRoot(){var d=new DirectoryInfo(AppContext.BaseDirectory);while(d is not null&&!File.Exists(Path.Combine(d.FullName,"SESS.NexaERP.slnx")))d=d.Parent;return d?.FullName??throw new DirectoryNotFoundException("Repository root not found.");}
 }
