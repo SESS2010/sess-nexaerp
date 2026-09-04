@@ -499,7 +499,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("purchase_requisitions");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.PrNumber).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.PrNumber }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.FinancialYear, x.PrSequence }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
             entity.HasIndex(x => x.RequiredByDate);

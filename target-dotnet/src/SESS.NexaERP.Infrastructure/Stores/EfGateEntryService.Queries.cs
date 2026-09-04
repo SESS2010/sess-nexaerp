@@ -10,6 +10,31 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 
 public sealed partial class EfGateEntryService
 {
+    public async Task<IReadOnlyList<GateEntryPurchaseOrderCandidate>> ListPurchaseOrderCandidatesAsync(CancellationToken ct)
+    {
+        Actor();
+        await RequireReceiptOperatorAsync(ct);
+        var organization = Organization();
+        var company = await Company(organization, ct);
+        var purchaseOrders = await db.PurchaseOrders.AsNoTracking().Include(x => x.Vendor).Include(x => x.Lines)
+            .Where(x => x.CompanyId == company.Id && x.OrganizationId == organization &&
+                x.IsCurrentVersion && x.Status == Rev869BStatuses.Issued)
+            .OrderBy(x => x.PoNumber).ToListAsync(ct);
+        var result = new List<GateEntryPurchaseOrderCandidate>();
+        foreach (var po in purchaseOrders)
+        {
+            var decision = await scopes.AuthorizeAsync(Actor(), ActorRole(),
+                new RecordScopeTarget(organization, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId),
+                DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            if (!decision.Allowed) continue;
+            result.Add(new GateEntryPurchaseOrderCandidate(po.Id, po.PoNumber, po.VendorId,
+                po.Vendor?.Name ?? po.VendorId.ToString(), po.Lines.OrderBy(x => x.LineNumber)
+                    .Select(x => new GateEntryPurchaseOrderLineCandidate(x.Id, x.LineNumber, x.ItemId,
+                        x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity)).ToList()));
+        }
+        return result;
+    }
+
     public async Task<GateEntryResult?> GetAsync(Guid id,CancellationToken ct)
     {
         var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;

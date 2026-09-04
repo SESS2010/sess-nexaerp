@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260904061416_StoresMaterialFollowUpUpdateGrant")]
+    partial class StoresMaterialFollowUpUpdateGrant
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -22919,7 +22922,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanUpdate = false,
                             CanUploadAttachment = false,
                             CanVerify = false,
-                            CanView = true,
+                            CanView = false,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -22996,10 +22999,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanCancel = false,
                             CanCreate = false,
                             CanDeactivate = false,
-                            CanDownload = true,
+                            CanDownload = false,
                             CanExport = false,
                             CanIssue = false,
-                            CanPrint = true,
+                            CanPrint = false,
                             CanReject = false,
                             CanReplaceAttachment = false,
                             CanRequestClarification = false,
@@ -23008,8 +23011,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanSubmit = false,
                             CanUpdate = false,
                             CanUploadAttachment = false,
-                            CanVerify = true,
-                            CanView = true,
+                            CanVerify = false,
+                            CanView = false,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -32794,7 +32797,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanViewCommercialValues = true,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
-                            HasFullControl = false,
+                            HasFullControl = true,
                             PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000008"),
                             RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
                             Version = 0L
@@ -51925,6 +51928,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DeliveryWarehouseId");
 
+                    b.HasIndex("PrNumber")
+                        .IsUnique();
+
                     b.HasIndex("RequesterEmployeeId");
 
                     b.HasIndex("RequestingDepartmentId");
@@ -51932,9 +51938,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("RequiredByDate");
 
                     b.HasIndex("CompanyId", "OrganizationId");
-
-                    b.HasIndex("CompanyId", "PrNumber")
-                        .IsUnique();
 
                     b.HasIndex("CustomerPurchaseOrderId", "CompanyId");
 

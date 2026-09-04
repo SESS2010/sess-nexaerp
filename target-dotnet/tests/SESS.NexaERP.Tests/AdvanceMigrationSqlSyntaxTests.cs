@@ -307,6 +307,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
         server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
     }
@@ -603,6 +604,36 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        """;
+
+    private const string MultiCompanyPrNumberAssertions = """
+        INSERT INTO advance.purchase_requisitions
+          ("Id","CompanyId","PrNumber","FinancialYear","PrSequence","OrganizationId",
+           "RequestDate","RequiredByDate","Priority","PurposeJustification","Status",
+           "EstimatedTotal","ApprovalRoute","ApprovalCycle","RequiredApprovalStepCount",
+           "CompletedApprovalStepCount","ApprovalWorkflowSnapshotJson","CreatorEmployeeId",
+           "IsActive","CreatedAt","CreatedBy","Version")
+        SELECT md5('MULTI_COMPANY_PR_NUMBER|'||c."Code")::uuid,c."Id",
+               'PR-26-27-000001','26-27',1,c."Code",DATE '2026-09-04',
+               DATE '2026-09-05','Normal','Cross-company number regression','Draft',
+               0,'UNSELECTED',0,0,0,'{}'::jsonb,e."Id",true,
+               TIMESTAMPTZ '2026-09-04 00:00:00+00','MULTI_COMPANY_PR_NUMBER',0
+        FROM advance.companies c
+        CROSS JOIN LATERAL (
+          SELECT "Id" FROM advance.employees WHERE upper("Status")='ACTIVE'
+          ORDER BY "EmployeeCode" LIMIT 1
+        ) e
+        WHERE c."Code" IN ('SESS_PVT_LTD','SESS_PROPRIETORSHIP');
+        DO $assert$
+        BEGIN
+          IF (SELECT count(*) FROM advance.purchase_requisitions
+              WHERE "CreatedBy"='MULTI_COMPANY_PR_NUMBER'
+                AND "PrNumber"='PR-26-27-000001')<>2 THEN
+            RAISE EXCEPTION 'The same generated PR number must be accepted once in each company.';
+          END IF;
+        END $assert$;
+        DELETE FROM advance.purchase_requisitions
+        WHERE "CreatedBy"='MULTI_COMPANY_PR_NUMBER';
         """;
 
     private const string NoManagedRoleAssertions = """

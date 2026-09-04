@@ -11,6 +11,7 @@ public static class StoresGateEntryEndpoints
     public static IEndpointRouteBuilder MapStoresGateEntryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var g=endpoints.MapGroup("/api/v1/stores/gate-entries").WithTags("Stores - Gate Entries").RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope);
+        g.MapGet("/purchase-order-candidates",async(IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ListPurchaseOrderCandidatesAsync(ct),h)).RequirePagePermission(Page,PagePermissionActions.Create);
         g.MapPost("/",async(CreateGateEntryRequest r,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.CreateAsync(r,HeaderKey(h),ct),h)).RequirePagePermission(Page,PagePermissionActions.Create);
         g.MapPut("/{id:guid}",async(Guid id,UpdateGateEntryRequest r,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.UpdateAsync(id,r,ct),h)).RequirePagePermission(Page,PagePermissionActions.Update);
         g.MapPost("/{id:guid}/finalize",async(Guid id,FinalizeGateEntryRequest r,IGateEntryService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.FinalizeAsync(id,r,ct),h)).RequirePagePermission(Page,PagePermissionActions.Submit);

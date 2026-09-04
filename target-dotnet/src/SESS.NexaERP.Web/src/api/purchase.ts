@@ -36,6 +36,7 @@ export interface PurchaseRequisitionListQuery {
   page: number
   pageSize: number
   search?: string
+  prNumber?: string
   status?: string
   sortBy?: string
   sortDirection?: string
@@ -48,6 +49,7 @@ export function listPurchaseRequisitions(
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
+  if (query.prNumber) params.set('prNumber', query.prNumber)
   if (query.status) params.set('status', query.status)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
@@ -131,6 +133,22 @@ export function listPurchaseHandoffs(
 
 export async function listDepartments(): Promise<PurchaseLookupOption[]> {
   return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/departments`)
+}
+
+export function listStockCheckRequisitions(
+  query: PurchaseRequisitionListQuery,
+): Promise<PagedResponse<PurchaseRequisitionSummary>> {
+  const params = new URLSearchParams()
+  params.set('page', String(query.page))
+  params.set('pageSize', String(query.pageSize))
+  if (query.search) params.set('search', query.search)
+  if (query.prNumber) params.set('prNumber', query.prNumber)
+  if (query.status) params.set('status', query.status)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
+  return api.get<PagedResponse<PurchaseRequisitionSummary>>(
+    `/api/v1/stores/stock-check/requisitions?${params.toString()}`,
+  )
 }
 
 export async function listWarehouseOptions(): Promise<PurchaseLookupOption[]> {

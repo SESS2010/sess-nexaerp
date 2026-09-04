@@ -104,7 +104,8 @@ public static class Rev869ASeedData
             CanPrint = canView, CanDownload = canView, CanExport = director || accounts,
             CanUploadAttachment = canCreate, CanReplaceAttachment = false,
             CanViewCommercialValues = director || purchaseManager || accounts,
-            CanViewAuditHistory = director || canVerify || canApprove, HasFullControl = code == Rev869ARoleCodes.ManagingDirector,
+            CanViewAuditHistory = director || canVerify || canApprove,
+            HasFullControl = code == Rev869ARoleCodes.ManagingDirector && !qc,
             CreatedAt = SeedTime, CreatedBy = "migration-rev869a"
         };
     }

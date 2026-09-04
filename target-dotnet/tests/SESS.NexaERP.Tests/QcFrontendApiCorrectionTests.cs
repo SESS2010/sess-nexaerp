@@ -32,6 +32,7 @@ public sealed class QcFrontendApiCorrectionTests
         var permission = Permission(Rev869ARoleCodes.ManagingDirector);
         Assert.False(permission.CanApprove);
         Assert.False(permission.CanCancel);
+        Assert.False(permission.HasFullControl);
     }
 
     [Fact]

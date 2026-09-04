@@ -7,6 +7,7 @@ public sealed class TechnicalDirectorDecisionTests
 {
     [Theory]
     [InlineData("STORES_EXECUTIVE")]
+    [InlineData("STORES_ASSISTANT")]
     [InlineData("STORE_HEAD")]
     public void StoresOperatorsCanViewAndVerifyStockCheck(string roleCode)
     {
@@ -26,14 +27,14 @@ public sealed class TechnicalDirectorDecisionTests
         var roles = FoundationSeedData.Roles.Concat(Rev866SeedData.AdditionalEmployeeRoles)
             .Concat(Rev869ASeedData.Roles).ToArray();
         var rackBinPage = FoundationSeedData.Pages.Single(x => x.PageKey == "masters.rack-bins");
-        foreach (var roleCode in new[] { "STORES_EXECUTIVE", "STORE_HEAD" })
+        foreach (var roleCode in new[] { "STORES_EXECUTIVE", "STORES_ASSISTANT", "STORE_HEAD" })
         {
             var role = roles.Single(x => x.Code == roleCode);
             RolePagePermission permission = Rev866SeedData.RolePagePermissions
                 .Single(x => x.RoleId == role.Id && x.PageDefinitionId == rackBinPage.Id);
 
             Assert.True(permission.CanView);
-            if (roleCode == "STORES_EXECUTIVE")
+            if (roleCode is "STORES_EXECUTIVE" or "STORES_ASSISTANT")
             {
                 Assert.False(permission.CanPrint);
                 Assert.False(permission.CanDownload);

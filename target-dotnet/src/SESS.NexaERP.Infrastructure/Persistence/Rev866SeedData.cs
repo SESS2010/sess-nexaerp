@@ -270,8 +270,8 @@ public static class Rev866SeedData
         var stockCheckPage = page.PageKey.Equals("stores.stock-check", StringComparison.OrdinalIgnoreCase);
         var rackBinLookupPage = page.PageKey.Equals("masters.rack-bins", StringComparison.OrdinalIgnoreCase);
         var receiptOperatorRole = role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT";
-        var stockCheckRole = role.Code is "STORES_EXECUTIVE" or "STORE_HEAD";
-        var stockCheckRackBinLookupOnly = rackBinLookupPage && role.Code is "STORES_EXECUTIVE";
+        var stockCheckRole = role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT" or "STORE_HEAD";
+        var stockCheckRackBinLookupOnly = rackBinLookupPage && role.Code is "STORES_EXECUTIVE" or "STORES_ASSISTANT";
         var foundationMatrixRole = FoundationSeedData.Roles.Any(seedRole => seedRole.Code == role.Code);
         var commercial = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_HEAD" or "PURCHASE_HEAD";
         var canOperatePurchase = role.Code is "ADMIN" or "MD" or "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "PURCHASE_HEAD" or "STORE_HEAD" or "PURCHASE_EXECUTIVE";

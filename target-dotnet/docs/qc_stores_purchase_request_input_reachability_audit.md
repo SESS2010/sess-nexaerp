@@ -13,9 +13,9 @@ Operator-authored facts such as remarks, reasons, measurements, dates, quantitie
 - 42 request records audited: 8 QC, 11 Stores, 6 Purchase Requisition, and 17 REV869B Purchase.
 - The two reported QC gaps are fixed. All eight QC request records are now source-complete without granting QC_MANAGER access to inventory.grn.
 - Purchase Requisition is source-complete for all six request records.
-- Stores has one role-specific blocking case.
-- REV869B Purchase has five read-model blocking cases. Material follow-up also has an independent permission grant defect.
-- No database migration is required. Expected database row changes are zero inserts, zero updates, and zero deletes.
+- The one Stores and five REV869B Purchase read-model gaps are fixed with command-permission-compatible projections.
+- Material follow-up Update now matches its existing service role guard: STORES_MANAGER and STORES_EXECUTIVE only.
+- The seed migration expects exactly two updated permission rows in Up and two in Down, with zero inserts and zero deletes.
 
 ## QC
 
@@ -34,8 +34,8 @@ Operator-authored facts such as remarks, reasons, measurements, dates, quantitie
 
 | Request record | Mandatory server-derived inputs | Readable source | Result |
 | --- | --- | --- | --- |
-| GateEntryLineRequest | PurchaseOrderLineId and deliverable quantity context | GET /api/v1/purchase/purchase-orders/{number} | Gap for STORES_ASSISTANT; Pass for STORES_EXECUTIVE |
-| CreateGateEntryRequest | PurchaseOrderNumber and line IDs | Purchase Order list/detail | Gap: STORES_ASSISTANT can create inventory.grn documents but cannot view purchase.po, so this role cannot construct the request |
+| GateEntryLineRequest | PurchaseOrderLineId and deliverable quantity context | GET /api/v1/stores/gate-entries/purchase-order-candidates under inventory.grn Create | Fixed |
+| CreateGateEntryRequest | PurchaseOrderNumber and line IDs | Scoped issued-PO candidates under the command permission | Fixed |
 | UpdateGateEntryRequest | Gate Entry ID, line IDs, Version | Gate Entry list/detail on inventory.grn | Pass |
 | FinalizeGateEntryRequest | Gate Entry ID and Version | Gate Entry list/detail | Pass |
 | GoodsReceiptLotRequest | no server-derived identity; lot ordinal and captured lot facts are operator-authored | Gate Entry quantity context plus receiving evidence | Pass |
@@ -46,7 +46,7 @@ Operator-authored facts such as remarks, reasons, measurements, dates, quantitie
 | FinalizeGoodsReceiptRequest | GRN ID and Version | Goods Receipt list/detail | Pass |
 | ReverseGoodsReceiptRequest | GRN ID and Version | Goods Receipt list/detail | Pass |
 
-Required correction for the Stores gap: expose a scoped issued-PO candidate projection, including PO number and line IDs, under inventory.grn Create. Do not grant STORES_ASSISTANT general purchase.po visibility merely to obtain two identifiers.
+The Stores correction does not grant STORES_ASSISTANT purchase.po visibility. It exposes only current issued POs accepted by Gate Entry creation, preserves employee receipt-operator and record-scope checks, and returns the PO/line identifiers needed by the request.
 
 ## Purchase Requisition
 
@@ -65,12 +65,12 @@ Required correction for the Stores gap: expose a scoped issued-PO candidate proj
 | --- | --- | --- | --- |
 | Rev869BRfqSourceLineRequest | PurchaseRequirementHandoffId and available quantity | GET requisition handoffs, readable by PURCHASE_EXECUTIVE | Pass |
 | Rev869BCreateRfqRequest | handoff IDs | Requisition handoff list | Pass |
-| Rev869BInviteVendorRequest | VendorId and RfqVersion | RFQ detail returns Version; no vendor candidate/read endpoint is available to PURCHASE_EXECUTIVE | Gap: VendorId |
+| Rev869BInviteVendorRequest | VendorId and RfqVersion | GET RFQ vendor candidates under purchase.rfq Submit; RFQ detail/list returns Version | Fixed |
 | Rev869BQuotationLineRequest | RequestForQuotationLineId and RFQ quantity context | RFQ detail returns line IDs and quantities | Pass |
-| Rev869BSubmitQuotationRequest | invitation path ID, InvitationVersion, RFQ line IDs, previous quotation version when revising | Invite POST returns its ID/version only; no readable endpoint returns invitations. RFQ and quotation reads cover the remaining derived inputs | Gap: invitation ID and Version |
+| Rev869BSubmitQuotationRequest | invitation path ID, InvitationVersion, RFQ line IDs, previous quotation version when revising | GET RFQ invitations under vendor-quotations Create returns invitation ID/version, current quotation version, and RFQ line IDs | Fixed |
 | Rev869BTechnicalVerificationRequest | VendorQuotationLineId and QuotationVersion | Quotation detail | Pass |
-| Rev869BCreateComparisonRequest | RfqNumber and RfqVersion | RFQ detail exists, but PURCHASE_MANAGER has commercial-comparisons Create and no RFQ View | Gap: permission-compatible RFQ candidate projection |
-| Rev869BRecommendComparisonRequest | VendorQuotationId and comparison Version | Comparison detail returns Version and quotation-line IDs, but not their parent VendorQuotationId; PURCHASE_MANAGER cannot read quotations | Gap: VendorQuotationId |
+| Rev869BCreateComparisonRequest | RfqNumber and RfqVersion | GET comparison RFQ candidates under commercial-comparisons Create returns scoped RFQs with current technically compliant same-currency quotations | Fixed |
+| Rev869BRecommendComparisonRequest | VendorQuotationId and comparison Version | Comparison detail now returns VendorQuotationId on every line in commercial and masked output | Fixed |
 | Rev869BApprovalActionRequest | comparison Version | Comparison detail, readable by approval actors | Pass |
 | Rev869BPoApprovalActionRequest | PO Version | PO detail, readable by approval actors | Pass |
 | Rev869BCreatePurchaseOrderRequest | ComparisonNumber and ComparisonVersion | Comparison list/detail | Pass |
@@ -79,6 +79,13 @@ Required correction for the Stores gap: expose a scoped issued-PO candidate proj
 | Rev869BAmendPurchaseOrderRequest | PO Version and existing commercial terms for editing | PO detail with commercial visibility for PURCHASE_MANAGER | Pass |
 | Rev869BReviseRejectedPurchaseOrderRequest | rejected PO Version and existing terms | Current rejected PO detail | Pass |
 | Rev869BCancelPurchaseOrderRequest | PO Version | PO detail | Pass |
-| Rev869BMaterialFollowUpTransitionRequest | handoff path ID, current status, Version | Material follow-up list returns ID and status but omits Version | Gap: Version; independently, the seed matrix grants no role purchase.material-followup Update |
+| Rev869BMaterialFollowUpTransitionRequest | handoff path ID, current status, Version | Material follow-up list returns ID, status, and Version; STORES_MANAGER and STORES_EXECUTIVE hold Update | Fixed |
 
-Required Purchase corrections are narrow command-support read models: eligible RFQ vendors, RFQ invitations with versions, comparison candidate RFQs for PURCHASE_MANAGER, parent VendorQuotationId on comparison output, and Version on material follow-up output. None requires widening a master, RFQ, quotation, PO, GRN, or QC page permission.
+All Purchase corrections are narrow command-support read models. No master, RFQ, quotation, PO, GRN, or QC read permission was widened to compensate for a missing field.
+
+## Correction verification
+
+- PostgreSQL: the full migration chain applied and reverted on a fresh disposable PostgreSQL cluster, exercising the cluster guard in both directions. The owner database was not used.
+- Expected migration rows: Up updates 2 existing role-page-permission rows; Down updates the same 2 rows. Both directions insert 0 and delete 0 rows.
+- Debug: 779 tests total = 721 safe tests passed + 58 explicit opt-in tests not run.
+- Release: 777 tests total = 719 safe tests passed + 58 explicit opt-in tests not run.

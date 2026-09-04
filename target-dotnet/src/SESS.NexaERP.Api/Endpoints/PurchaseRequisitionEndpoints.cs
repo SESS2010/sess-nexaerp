@@ -21,27 +21,19 @@ public static partial class PurchaseRequisitionEndpoints
     public static IEndpointRouteBuilder MapPurchaseRequisitionEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/purchase/requisitions").WithTags("Purchase Requisitions").RequireAuthorization();
+        var stockCheckGroup = endpoints.MapGroup("/api/v1/stores/stock-check").WithTags("Stores Stock Check").RequireAuthorization();
 
         group.MapGet("/lookups/departments", DepartmentLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
         group.MapGet("/lookups/warehouses", WarehouseLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
         group.MapGet("/lookups/items", ItemLookups).RequirePagePermission(PageRequisitions, PagePermissionActions.Create);
 
-        group.MapGet("", async (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? prNumber, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
-        {
-            var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-            var q = Scope(db.PurchaseRequisitions.AsNoTracking().Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee), user, db);
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var s = search.Trim().ToUpperInvariant();
-                q = q.Where(x => x.PrNumber.ToUpper().Contains(s) || x.PurposeJustification.ToUpper().Contains(s));
-            }
-            if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim());
-            if (!string.IsNullOrWhiteSpace(prNumber)) q = q.Where(x => x.PrNumber == NormalizePr(prNumber));
-            q = Sort(q, sortBy, sortDirection);
-            var total = await q.CountAsync(ct);
-            var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => ToSummary(x)).ToListAsync(ct);
-            return Results.Ok(new PagedResponse<PurchaseRequisitionSummary>(total, p.PageNumber, p.PageSize, rows));
-        }).RequirePagePermission(PageRequisitions, PagePermissionActions.View);
+        group.MapGet("", (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? prNumber, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
+            ListRequisitions(db, user, page, pageSize, search, prNumber, status, sortBy, sortDirection, false, ct))
+            .RequirePagePermission(PageRequisitions, PagePermissionActions.View);
+
+        stockCheckGroup.MapGet("/requisitions", (NexaErpDbContext db, ICurrentUser user, int? page, int? pageSize, string? search, string? prNumber, string? status, string? sortBy, string? sortDirection, CancellationToken ct) =>
+            ListRequisitions(db, user, page, pageSize, search, prNumber, status, sortBy, sortDirection, true, ct))
+            .RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
 
         group.MapGet("/{prNumber}", async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
@@ -95,6 +87,38 @@ public static partial class PurchaseRequisitionEndpoints
         group.MapGet("/reservations", Reservations).RequirePagePermission(PageReservations, PagePermissionActions.View);
         group.MapGet("/handoffs", Handoffs).RequirePagePermission(PageHandoff, PagePermissionActions.View);
         return endpoints;
+    }
+
+    private static async Task<IResult> ListRequisitions(
+        NexaErpDbContext db,
+        ICurrentUser user,
+        int? page,
+        int? pageSize,
+        string? search,
+        string? prNumber,
+        string? status,
+        string? sortBy,
+        string? sortDirection,
+        bool stockCheckPendingOnly,
+        CancellationToken ct)
+    {
+        var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+        var q = Scope(db.PurchaseRequisitions.AsNoTracking()
+            .Include(x => x.RequestingDepartment)
+            .Include(x => x.RequesterEmployee), user, db);
+        if (stockCheckPendingOnly)
+            q = q.Where(x => x.Status == PurchaseRequisitionStatuses.StockCheckPending);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToUpperInvariant();
+            q = q.Where(x => x.PrNumber.ToUpper().Contains(s) || x.PurposeJustification.ToUpper().Contains(s));
+        }
+        if (!string.IsNullOrWhiteSpace(status)) q = q.Where(x => x.Status == status.Trim());
+        if (!string.IsNullOrWhiteSpace(prNumber)) q = q.Where(x => x.PrNumber == NormalizePr(prNumber));
+        q = Sort(q, sortBy, sortDirection);
+        var total = await q.CountAsync(ct);
+        var rows = await q.Skip(p.Skip).Take(p.PageSize).Select(x => ToSummary(x)).ToListAsync(ct);
+        return Results.Ok(new PagedResponse<PurchaseRequisitionSummary>(total, p.PageNumber, p.PageSize, rows));
     }
 
     private static async Task<IResult> RunWorkflow(Func<Task<PurchaseRequisitionDetail>> command)
