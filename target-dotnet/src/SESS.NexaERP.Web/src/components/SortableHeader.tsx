@@ -8,6 +8,11 @@ interface Props {
   onSort: (sortKey: string) => void
   /** Disables the control while a request is in flight. */
   disabled?: boolean
+  /**
+   * False when the endpoint behind this list cannot sort yet. The column then
+   * renders as a plain header rather than a control that silently does nothing.
+   */
+  sortable?: boolean
 }
 
 /**
@@ -19,7 +24,13 @@ interface Props {
  * sends an unsupported `sortBy` silently falls back to the default order and
  * looks broken to the user.
  */
-export function SortableHeader({ label, sortKey, sort, onSort, disabled }: Props) {
+export function SortableHeader({ label, sortKey, sort, onSort, disabled, sortable = true }: Props) {
+  // A header that looks clickable but cannot reorder anything is worse than a
+  // plain one: the user clicks, nothing moves, and they distrust the screen.
+  if (!sortable) {
+    return <th>{label}</th>
+  }
+
   const active = sort.sortBy === sortKey
   const ascending = sort.sortDirection === 'asc'
 

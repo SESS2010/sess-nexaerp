@@ -33,7 +33,7 @@ export function ConcessionPage() {
   const { number = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can, hasRole, me } = useSession()
+  const { can, hasFullAuthorityRole, me } = useSession()
   const prefill = (location.state as { prefill?: CreatePrefill } | null)?.prefill
 
   const [lookup, setLookup] = useState('')
@@ -67,7 +67,11 @@ export function ConcessionPage() {
   // Approve/reject (qc.inspection-policies:approve) and reverse (…:cancel) both
   // need a direct TECHNICAL_DIRECTOR role (DecideConcession / ReverseConcessionAsync
   // → RequireTechnicalDirector). The creator may never decide their own concession.
-  const isTd = hasRole('TECHNICAL_DIRECTOR')
+  //
+  // All three are SUPPORT-denied operations, so the role must be held with full
+  // authority: RequireRole drops SUPPORT assignments for approve/reject/cancel/
+  // reverse, and a SUPPORT-held TECHNICAL_DIRECTOR would get a 403 here.
+  const isTd = hasFullAuthorityRole('TECHNICAL_DIRECTOR')
 
   const load = useCallback(async (value: string) => {
     if (!value) return

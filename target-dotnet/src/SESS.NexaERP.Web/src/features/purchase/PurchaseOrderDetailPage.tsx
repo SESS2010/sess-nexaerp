@@ -20,7 +20,7 @@ type Pane = 'workflow' | 'amend' | 'cancel'
 export function PurchaseOrderDetailPage() {
   const { poNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can, hasRole, hasFullAuthorityRole } = useSession()
 
   // Every command below is on purchase.po, where full-control is not a
   // wildcard, so each action is checked on its own. The roles are the ones
@@ -30,9 +30,11 @@ export function PurchaseOrderDetailPage() {
   const canReject = can(PAGE_KEYS.purchaseOrders, 'reject')
   const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue') && hasRole('PURCHASE_MANAGER')
   const canAmend = can(PAGE_KEYS.purchaseOrders, 'update') && hasRole('PURCHASE_MANAGER')
+  // Cancel is SUPPORT-denied, so the director role has to be held with full
+  // authority; a SUPPORT-held directorship is refused by RequireRole.
   const canCancel =
     can(PAGE_KEYS.purchaseOrders, 'cancel') &&
-    (hasRole('TECHNICAL_DIRECTOR') || hasRole('MANAGING_DIRECTOR'))
+    (hasFullAuthorityRole('TECHNICAL_DIRECTOR') || hasFullAuthorityRole('MANAGING_DIRECTOR'))
   const canWorkflow = canSubmit || canApprove || canReject || canIssue
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)

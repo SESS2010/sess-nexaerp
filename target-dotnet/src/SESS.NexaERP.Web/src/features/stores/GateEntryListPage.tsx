@@ -11,6 +11,13 @@ import { SortableHeader } from '../../components/SortableHeader'
 import { useSort } from '../../hooks/useSort'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
+/**
+ * Server-side sorting for this register is not available yet: the
+ * /api/v1/stores/gate-entries list endpoint accepts no sortBy or
+ * sortDirection. Set to true once the backend takes them.
+ */
+const SORTABLE = false
+
 const PAGE_SIZE = 25
 
 export function GateEntryListPage() {
@@ -20,8 +27,14 @@ export function GateEntryListPage() {
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   // Arrival order is what the register reads as "current" — newest gate entry
-  // on top. The endpoint does not honour sortBy yet; the keys below are the
-  // lowercase row-DTO field names the backend will accept once it does.
+  // on top, which is the order the endpoint already returns.
+  //
+  // GET /api/v1/stores/gate-entries takes no sortBy/sortDirection, so the
+  // columns are rendered as plain headers until it does. The keys below are the
+  // lowercase row-DTO field names the backend will accept once the parameters
+  // are added; flip SORTABLE to true then and nothing else needs to change.
+  // The list is paged server-side, so sorting the fetched page in the browser
+  // would reorder 50 rows out of a much longer register and read as a bug.
   const { sort, toggleSort } = useSort({ sortBy: 'arrivedat', sortDirection: 'desc' }, () => setPage(1))
   const [gateNumber, setGateNumber] = useState('')
   const [appliedGate, setAppliedGate] = useState('')
@@ -137,15 +150,15 @@ export function GateEntryListPage() {
         <table className="table">
           <thead>
             <tr>
-              <SortableHeader label="Gate Entry" sortKey="gateentrynumber" sort={sort} onSort={toggleSort} disabled={loading} />
-              <SortableHeader label="PO number" sortKey="purchaseordernumber" sort={sort} onSort={toggleSort} disabled={loading} />
-              <SortableHeader label="Vendor" sortKey="vendorname" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Gate Entry" sortKey="gateentrynumber" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
+              <SortableHeader label="PO number" sortKey="purchaseordernumber" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
+              <SortableHeader label="Vendor" sortKey="vendorname" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
               <th>Vendor DC</th>
               <th>Vehicle</th>
               <th>Transport</th>
-              <SortableHeader label="Arrived at" sortKey="arrivedat" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Arrived at" sortKey="arrivedat" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
               <th className="text-right">Lines</th>
-              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
             </tr>
           </thead>
           <tbody>

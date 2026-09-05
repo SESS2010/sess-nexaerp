@@ -15,6 +15,12 @@ export interface SessionMe {
   Permissions: string[]
   IdentityIssuer: string
   IdentitySubject: string
+  /**
+   * The subset of RoleCodes the employee holds with full authority — that is,
+   * through a FULL or TEMPORARY assignment rather than a SUPPORT one. A role
+   * held only as SUPPORT appears in RoleCodes but not here.
+   */
+  FullAuthorityRoleCodes: string[]
 }
 
 interface SessionState {
@@ -35,7 +41,30 @@ interface SessionState {
    * role on top of the page grant (e.g. QC_MANAGER, TECHNICAL_DIRECTOR).
    */
   hasRole: (role: string) => boolean
+  /**
+   * True when the session holds the role through a FULL or TEMPORARY
+   * assignment. Use it instead of hasRole for the four actions a SUPPORT
+   * assignment may never take — approve, reject, cancel and reverse — because
+   * the server resolves those against the same list and answers 403 to a
+   * SUPPORT holder.
+   */
+  hasFullAuthorityRole: (role: string) => boolean
 }
+
+/**
+ * Actions a SUPPORT assignment can never take. Mirrors SupportDeniedActions in
+ * SESS.NexaERP.Application/Common/RoleAuthorityResolution.cs — keep the two
+ * lists identical, or a button appears that the server will refuse.
+ */
+export const SUPPORT_DENIED_ACTIONS: ReadonlySet<string> = new Set([
+  'approve',
+  'reject',
+  'cancel',
+  'reverse',
+  'deactivate',
+  'permission-configuration',
+  'role-administration',
+])
 
 const SessionContext = createContext<SessionState | null>(null)
 
@@ -99,9 +128,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [me],
   )
 
+  const hasFullAuthorityRole = useCallback(
+    (role: string) => {
+      if (!me) return true
+      const wanted = role.trim().toUpperCase()
+      // Older sessions predate the field; fall back to RoleCodes so the control
+      // behaves exactly as it did before rather than vanishing.
+      const codes = me.FullAuthorityRoleCodes ?? me.RoleCodes
+      return codes.some((code) => code.trim().toUpperCase() === wanted)
+    },
+    [me],
+  )
+
   const value = useMemo<SessionState>(
-    () => ({ me, loading, error, reload, can, hasRole }),
-    [me, loading, error, reload, can, hasRole],
+    () => ({ me, loading, error, reload, can, hasRole, hasFullAuthorityRole }),
+    [me, loading, error, reload, can, hasRole, hasFullAuthorityRole],
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
