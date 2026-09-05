@@ -84,7 +84,14 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         var denied = Assert.Throws<UnauthorizedAccessException>(() => user.RequireRole("approve", "TECHNICAL_DIRECTOR"));
         Assert.Contains("Required role: TECHNICAL_DIRECTOR", denied.Message, StringComparison.Ordinal);
         foreach (var verb in new[] { "approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration" })
+        {
             Assert.True(RoleAuthorityResolution.IsSupportDenied(verb));
+            Assert.False(RoleAuthorityResolution.CanAssignmentExercise("SUPPORT", verb));
+        }
+        foreach (var verb in new[] { "view", "create", "update", "submit" })
+            Assert.True(RoleAuthorityResolution.CanAssignmentExercise("SUPPORT", verb));
+        Assert.True(RoleAuthorityResolution.CanAssignmentExercise("FULL", "approve"));
+        Assert.True(RoleAuthorityResolution.CanAssignmentExercise("TEMPORARY", "approve"));
         Assert.Equal(
             new[] { "approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration" },
             RoleAuthorityResolution.SupportDeniedActions);

@@ -12,11 +12,10 @@ public static class RoleAuthorityResolution
     {
         if (sufficientRoles.Length == 0) throw new ArgumentException("At least one sufficient role is required.", nameof(sufficientRoles));
         var normalized = sufficientRoles.Select(x => x.Trim().ToUpperInvariant()).Distinct(StringComparer.Ordinal).ToArray();
-        var deniedToSupport = IsSupportDenied(operation);
         var candidate = user.EffectiveRoleAssignments
             .Where(x => x.AssignmentId != Guid.Empty &&
                 normalized.Contains(x.RoleCode.Trim().ToUpperInvariant(), StringComparer.Ordinal) &&
-                (!deniedToSupport || !string.Equals(x.AssignmentType, "SUPPORT", StringComparison.OrdinalIgnoreCase)))
+                CanAssignmentExercise(x.AssignmentType, operation))
             .OrderBy(x => PrivilegeRank(x.RoleCode))
             .ThenBy(x => AssignmentRank(x.AssignmentType))
             .ThenBy(x => x.AssignmentId)
@@ -39,6 +38,10 @@ public static class RoleAuthorityResolution
             normalized.StartsWith(x, StringComparison.Ordinal) ||
             normalized.EndsWith(":" + x, StringComparison.Ordinal));
     }
+
+    public static bool CanAssignmentExercise(string assignmentType, string operation) =>
+        !string.Equals(assignmentType.Trim(), "SUPPORT", StringComparison.OrdinalIgnoreCase) ||
+        !IsSupportDenied(operation);
 
     private static int AssignmentRank(string type) => type.Trim().ToUpperInvariant() switch
     {

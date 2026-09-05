@@ -49,7 +49,13 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
         {
             var hasFullAuthority = fullRoles.Contains(grant.Code);
             var broadFullControl = hasFullAuthority && grant.HasFullControl && !explicitPages.Contains(grant.PageKey);
-            void Add(bool granted, string action) { if ((hasFullAuthority && granted) || broadFullControl) resolved.Add($"{grant.PageKey}:{action}"); }
+            var assignmentType = hasFullAuthority ? "FULL" : "SUPPORT";
+            void Add(bool granted, string action)
+            {
+                var permission = $"{grant.PageKey}:{action}";
+                if ((granted || broadFullControl) && RoleAuthorityResolution.CanAssignmentExercise(assignmentType, permission))
+                    resolved.Add(permission);
+            }
             if (grant.CanView || broadFullControl) resolved.Add($"{grant.PageKey}:{PagePermissionActions.View}"); Add(grant.CanCreate, PagePermissionActions.Create);
             Add(grant.CanUpdate, PagePermissionActions.Update); Add(grant.CanSubmit, PagePermissionActions.Submit);
             Add(grant.CanIssue, PagePermissionActions.Issue); Add(grant.CanVerify, PagePermissionActions.Verify);
