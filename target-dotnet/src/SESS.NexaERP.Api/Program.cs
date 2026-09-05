@@ -16,6 +16,10 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
+#if DEBUG
+DevelopmentControlledCommandPath.Configure(builder.Configuration, builder.Environment);
+#endif
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
 builder.Services.AddScoped<ICurrentUser, ClaimsCurrentUser>();

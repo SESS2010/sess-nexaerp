@@ -38,7 +38,8 @@ public sealed class DatabaseRuntimePrincipalGuardTests
         Assert.Contains("if (settingIsPresent)", guard, StringComparison.Ordinal);
         Assert.Contains("must not be present in a Release build", guard, StringComparison.Ordinal);
         Assert.Contains("allowDevelopmentSuperuser && !environment.IsDevelopment()", guard, StringComparison.Ordinal);
-        Assert.Equal(2, Count(guard, "logger.LogCritical("));
+        Assert.Equal(3, Count(guard, "logger.LogCritical("));
+        Assert.Contains("Debug-only controlled-command database principals are active", guard, StringComparison.Ordinal);
         Assert.Contains("allowDevelopmentSuperuser && evidence.IsSuperuser", guard, StringComparison.Ordinal);
     }
 

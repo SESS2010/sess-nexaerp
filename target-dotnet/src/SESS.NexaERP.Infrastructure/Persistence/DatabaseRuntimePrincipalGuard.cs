@@ -62,6 +62,20 @@ public sealed class DatabaseRuntimePrincipalGuard(
         if (evidence.IsStrictRuntimePrincipal)
             return;
 
+#if DEBUG
+        if (DevelopmentControlledCommandPath.IsEnabled(configuration, environment))
+        {
+            if (!evidence.IsStrictControlledCommandRuntimePrincipal)
+                throw new InvalidOperationException(
+                    "Development controlled-command startup requires the real nexa_rev869b_app_runtime session principal with no administrative capability or ownership.");
+            await DevelopmentControlledCommandPath.ValidateAuditPrincipalAsync(configuration, cancellationToken);
+            logger.LogCritical(
+                "SECURITY WARNING: Debug-only controlled-command database principals are active for execution instance {ExecutionInstanceId}.",
+                DevelopmentControlledCommandPath.ExecutionInstanceId);
+            return;
+        }
+#endif
+
         if (allowDevelopmentSuperuser && evidence.IsSuperuser)
         {
             logger.LogCritical(
@@ -125,5 +139,13 @@ public sealed class DatabaseRuntimePrincipalGuard(
             string.Equals(CurrentUser, ExpectedRuntimePrincipal, StringComparison.Ordinal) &&
             !IsSuperuser && !CanCreateDatabase && !CanCreateRole && !CanReplicate &&
             !CanBypassRowLevelSecurity && !IsDatabaseOwner && !IsAdvanceSchemaOwner && !IsOwnerRoleMember;
+
+#if DEBUG
+        public bool IsStrictControlledCommandRuntimePrincipal =>
+            string.Equals(SessionUser, "nexa_rev869b_app_runtime", StringComparison.Ordinal) &&
+            string.Equals(CurrentUser, "nexa_rev869b_app_runtime", StringComparison.Ordinal) &&
+            !IsSuperuser && !CanCreateDatabase && !CanCreateRole && !CanReplicate &&
+            !CanBypassRowLevelSecurity && !IsDatabaseOwner && !IsAdvanceSchemaOwner && !IsOwnerRoleMember;
+#endif
     }
 }
