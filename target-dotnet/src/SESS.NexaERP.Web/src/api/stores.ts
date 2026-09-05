@@ -17,22 +17,34 @@ export function newIdempotencyKey(prefix: string): string {
 export interface GateEntryListQuery {
   page: number
   pageSize: number
+  /** Exact document number; the server upper-cases it. */
+  gateEntryNumber?: string
   purchaseOrderNumber?: string
   vendorId?: string
   from?: string
   to?: string
   state?: string
+  /**
+   * Lowercase row-DTO field name (gateentrynumber, purchaseordernumber,
+   * vendorname, arrivedat, status). The gate-entry list endpoint does not
+   * read these yet, so the server ignores them until its sort support lands.
+   */
+  sortBy?: string
+  sortDirection?: 'asc' | 'desc'
 }
 
 export function listGateEntries(query: GateEntryListQuery): Promise<GateEntryListResult> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.gateEntryNumber) params.set('gateEntryNumber', query.gateEntryNumber)
   if (query.purchaseOrderNumber) params.set('purchaseOrderNumber', query.purchaseOrderNumber)
   if (query.vendorId) params.set('vendorId', query.vendorId)
   if (query.from) params.set('from', query.from)
   if (query.to) params.set('to', query.to)
   if (query.state) params.set('state', query.state)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   return api.get<GateEntryListResult>(`${BASE}/?${params.toString()}`)
 }
 

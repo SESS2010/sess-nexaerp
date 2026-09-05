@@ -11,6 +11,7 @@ import { AddableSelect } from '../../components/AddableSelect'
 import { CustomerSearchSelect } from '../../components/CustomerSearchSelect'
 import type { CustomerPoDetail, CustomerPoLookups, UpsertCustomerPoRequest } from '../../types/customerPo'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -49,8 +50,43 @@ function inr(value: number | null): string {
   return value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+interface LookupSelectProps {
+  label: string
+  value: string
+  options: string[]
+  onChange: (value: string) => void
+}
+
+/**
+ * Plain dropdown rendered in place of AddableSelect when the session lacks
+ * sales.customer-po:create — the quick-add ("+") posts to
+ * /customer-pos/options, which requires Create. The select itself stays.
+ */
+function LookupSelect({ label, value, options, onChange }: LookupSelectProps) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <select className="input" value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Select…</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  )
+}
+
 export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props) {
   const navigate = useNavigate()
+  const { can } = useSession()
+  // CustomerPoEndpoints.cs: POST /customer-pos -> Create, PUT /customer-pos/{n} -> Update.
+  const canSave = can(PAGE_KEYS.customerPo, mode === 'create' ? 'create' : 'update')
+  // POST /customer-pos/options (quick-add) requires Create in both form modes.
+  const canAddOption = can(PAGE_KEYS.customerPo, 'create')
+  // POST /customer-pos/{n}/file requires UploadAttachment on top of Create/Update.
+  const canUpload = can(PAGE_KEYS.customerPo, 'upload-attachment')
+  // GET /customer-pos/{n}/file requires View (the backend does not use Download here).
+  const canDownload = can(PAGE_KEYS.customerPo, 'view')
+  // "+ Add New Customer" lands on CustomerFormModal, whose save is POST /masters/customers -> Create.
+  const canAddCustomer = can(PAGE_KEYS.customers, 'create')
   const [lookups, setLookups] = useState<CustomerPoLookups | null>(null)
   const [customers, setCustomers] = useState<CustomerOption[]>([])
   const [poFile, setPoFile] = useState<File | null>(null)
@@ -224,14 +260,16 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
                 onSelect={(option) => setForm((prev) => ({ ...prev, customerCode: option.CustomerCode, customerName: option.Name }))}
                 onText={(name) => setForm((prev) => ({ ...prev, customerCode: '', customerName: name }))}
               />
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ whiteSpace: 'nowrap' }}
-                onClick={() => navigate('/customers?create=1')}
-              >
-                + Add New Customer
-              </button>
+              {canAddCustomer && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ whiteSpace: 'nowrap' }}
+                  onClick={() => navigate('/customers?create=1')}
+                >
+                  + Add New Customer
+                </button>
+              )}
             </div>
           </div>
 
@@ -252,22 +290,40 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
             <span className="field-label">Quote date</span>
             <input className="input" type="date" value={form.quoteDate} onChange={set('quoteDate')} />
           </label>
-          <AddableSelect
-            label="Mode of service"
-            value={form.serviceMode}
-            options={(lookups?.ServiceModes ?? []).map((m) => ({ value: m, label: m }))}
-            onChange={(value) => setForm((prev) => ({ ...prev, serviceMode: value }))}
-            onCreate={(name) => addOption('SERVICE_MODE', 'ServiceModes')(name)}
-            addHint="Adds the new mode of service to the dropdown for every PO."
-          />
-          <AddableSelect
-            label="Sales type"
-            value={form.salesType}
-            options={(lookups?.SalesTypes ?? []).map((t) => ({ value: t, label: t }))}
-            onChange={(value) => setForm((prev) => ({ ...prev, salesType: value }))}
-            onCreate={(name) => addOption('SALES_TYPE', 'SalesTypes')(name)}
-            addHint="Adds the new sales type to the dropdown for every PO."
-          />
+          {canAddOption ? (
+            <AddableSelect
+              label="Mode of service"
+              value={form.serviceMode}
+              options={(lookups?.ServiceModes ?? []).map((m) => ({ value: m, label: m }))}
+              onChange={(value) => setForm((prev) => ({ ...prev, serviceMode: value }))}
+              onCreate={(name) => addOption('SERVICE_MODE', 'ServiceModes')(name)}
+              addHint="Adds the new mode of service to the dropdown for every PO."
+            />
+          ) : (
+            <LookupSelect
+              label="Mode of service"
+              value={form.serviceMode}
+              options={lookups?.ServiceModes ?? []}
+              onChange={(value) => setForm((prev) => ({ ...prev, serviceMode: value }))}
+            />
+          )}
+          {canAddOption ? (
+            <AddableSelect
+              label="Sales type"
+              value={form.salesType}
+              options={(lookups?.SalesTypes ?? []).map((t) => ({ value: t, label: t }))}
+              onChange={(value) => setForm((prev) => ({ ...prev, salesType: value }))}
+              onCreate={(name) => addOption('SALES_TYPE', 'SalesTypes')(name)}
+              addHint="Adds the new sales type to the dropdown for every PO."
+            />
+          ) : (
+            <LookupSelect
+              label="Sales type"
+              value={form.salesType}
+              options={lookups?.SalesTypes ?? []}
+              onChange={(value) => setForm((prev) => ({ ...prev, salesType: value }))}
+            />
+          )}
           <label className="field">
             <span className="field-label">Work status</span>
             <select className="input" value={form.workStatus} onChange={set('workStatus')}>
@@ -316,16 +372,20 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
                       <td><input className="input" type="number" min="0" max="100" step="0.01" style={{ width: 80 }} value={line.discountPercent} onChange={setLine(index, 'discountPercent')} /></td>
                       <td className="text-right mono">{inr(lineAmount(line))}</td>
                       <td>
-                        <button type="button" className="btn btn-ghost" onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>✕</button>
+                        {canSave && (
+                          <button type="button" className="btn btn-ghost" onClick={() => setLines((prev) => prev.filter((_, i) => i !== index))}>✕</button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <button type="button" className="btn btn-ghost mt-2" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
-              + Add line
-            </button>
+            {canSave && (
+              <button type="button" className="btn btn-ghost mt-2" onClick={() => setLines((prev) => [...prev, emptyLine()])}>
+                + Add line
+              </button>
+            )}
           </div>
 
           {lines.length > 0 && (
@@ -381,24 +441,30 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
             <span className="field-label">Dispatched through / delivery mode</span>
             <input className="input" value={form.modeOfDelivery} onChange={set('modeOfDelivery')} placeholder="e.g. Courier & Mail" />
           </label>
-          <label className="field">
-            <span className="field-label">PO copy (PDF, max 10 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept="application/pdf"
-              onChange={(event) => setPoFile(event.target.files?.[0] ?? null)}
-            />
-            {!poFile && existing?.PoFileName && (
-              <span className="field-hint">
-                Current: {existing.PoFileName}{' '}
-                <a href="#" onClick={(event) => { event.preventDefault(); void downloadCustomerPoFile(existing.PoRecordNumber, existing.PoFileName ?? '') }}>
-                  Download
-                </a>
-              </span>
-            )}
-          </label>
-          {mode === 'edit' && (
+          {(canUpload || existing?.PoFileName) && (
+            <label className="field">
+              <span className="field-label">{canUpload ? 'PO copy (PDF, max 10 MB)' : 'PO copy'}</span>
+              {canUpload && (
+                <input
+                  className="input"
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(event) => setPoFile(event.target.files?.[0] ?? null)}
+                />
+              )}
+              {!poFile && existing?.PoFileName && (
+                <span className="field-hint">
+                  Current: {existing.PoFileName}{' '}
+                  {canDownload && (
+                    <a href="#" onClick={(event) => { event.preventDefault(); downloadCustomerPoFile(existing.PoRecordNumber, existing.PoFileName ?? '').catch(setError) }}>
+                      Download
+                    </a>
+                  )}
+                </span>
+              )}
+            </label>
+          )}
+          {mode === 'edit' && canSave && (
             <label className="field field-wide">
               <span className="field-label">Revision reason *</span>
               <input className="input" required value={form.revisionReason} onChange={set('revisionReason')} />
@@ -418,9 +484,11 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
           <ErrorAlert error={error} className="field-wide" fallback="Could not save the customer PO." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Save Customer PO' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Save Customer PO' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

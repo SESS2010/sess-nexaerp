@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listVendors } from '../../api/vendors'
 import type { VendorSummary } from '../../types/vendor'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
 import { ImportExportBar } from '../../components/ImportExportBar'
@@ -14,6 +15,7 @@ const PAGE_SIZE = 20
 
 export function VendorListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [rows, setRows] = useState<VendorSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -65,9 +67,13 @@ export function VendorListPage() {
         </div>
         <div className="action-row">
           <ImportExportBar masterKey="vendors" onImported={() => void load()} />
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Vendor
-          </button>
+          {/* POST /masters/vendors needs :create, and the form cannot be saved without a
+              GST certificate upload (:upload-attachment), so both are required here. */}
+          {can(PAGE_KEYS.vendors, 'create') && can(PAGE_KEYS.vendors, 'upload-attachment') && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Vendor
+            </button>
+          )}
         </div>
       </div>
 

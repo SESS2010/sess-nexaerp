@@ -28,8 +28,15 @@ import type {
   RecommendComparisonRequest,
   SubmitQuotationRequest,
   TechnicalVerificationRequest,
+  RfqListItem,
+  QuotationListItem,
+  ComparisonListItem,
+  PurchaseOrderListItem,
+  MaterialFollowUpListItem,
+  StockCheckRequest,
+  StockCheckResult,
+  RackBinSummary,
 } from '../types/purchase'
-import type { ItemSummary } from '../types/item'
 
 const PR_BASE = '/api/v1/purchase/requisitions'
 
@@ -37,6 +44,8 @@ export interface PurchaseRequisitionListQuery {
   page: number
   pageSize: number
   search?: string
+  /** Exact PR number (server normalizes case); combines with search. */
+  prNumber?: string
   status?: string
   sortBy?: string
   sortDirection?: string
@@ -49,6 +58,7 @@ export function listPurchaseRequisitions(
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
+  if (query.prNumber) params.set('prNumber', query.prNumber)
   if (query.status) params.set('status', query.status)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
@@ -130,46 +140,22 @@ export function listPurchaseHandoffs(
   )
 }
 
-// --- Lookups the PR form needs. These live on other modules; there is no
-// dedicated purchase lookups endpoint, so we borrow the master ones. ---
+// --- Lookups the PR form needs. Since main 9e97fbf these are served under the
+// requisition group and readable by whoever holds purchase.requisitions:create;
+// departments and warehouses are trimmed to the caller's create scope. ---
 
-interface EmployeeMasterLookups {
-  Departments: PurchaseLookupOption[]
-  Skills: PurchaseLookupOption[]
-  Designations: PurchaseLookupOption[]
+export function listDepartments(): Promise<PurchaseLookupOption[]> {
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/departments`)
 }
 
-export async function listDepartments(): Promise<PurchaseLookupOption[]> {
-  const lookups = await api.get<EmployeeMasterLookups>('/api/v1/employees/lookups')
-  return lookups.Departments ?? []
+export function listWarehouseOptions(): Promise<PurchaseLookupOption[]> {
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/warehouses`)
 }
 
-interface WarehouseSummary {
-  Id: string
-  WarehouseCode: string
-  Name: string
-  WarehouseType: string
-  Location: string | null
-  Status: string
-  ApprovalStatus: string
-  IsActive: boolean
-  Version: number
-}
-
-export async function listWarehouseOptions(): Promise<PurchaseLookupOption[]> {
-  const page = await api.get<PagedResponse<WarehouseSummary>>(
-    '/api/v1/inventory/warehouses?page=1&pageSize=200',
-  )
-  return page.Items.filter((w) => w.IsActive).map((w) => ({ Code: w.WarehouseCode, Name: w.Name }))
-}
-
-export async function searchItems(search: string): Promise<PurchaseLookupOption[]> {
-  const params = new URLSearchParams({ page: '1', pageSize: '25' })
+export function searchItems(search: string): Promise<PurchaseLookupOption[]> {
+  const params = new URLSearchParams()
   if (search) params.set('search', search)
-  const page = await api.get<PagedResponse<ItemSummary>>(
-    `/api/v1/inventory/items?${params.toString()}`,
-  )
-  return page.Items.map((i) => ({ Code: i.ItemCode, Name: i.Name }))
+  return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/items?${params.toString()}`)
 }
 
 // --- RFQ ---------------------------------------------------------------
@@ -376,4 +362,79 @@ export function cancelPurchaseOrder(
   body: CancelPurchaseOrderRequest,
 ): Promise<Rev869BDocumentResult> {
   return api.post<Rev869BDocumentResult>(`${PO_BASE}/${encodeURIComponent(poNumber)}/cancel`, body)
+}
+
+/* ------------------------------------------------------------------ */
+/* REV869B registers — list endpoints (main b0b2a91). All four take the */
+/* same filter set; sortBy accepts status, date or the document number. */
+/* ------------------------------------------------------------------ */
+
+export interface PurchaseDocumentListQuery {
+  page: number
+  pageSize: number
+  /** Exact document number (rfqNumber / quotationNumber / comparisonNumber / purchaseOrderNumber). */
+  number?: string
+  status?: string
+  /** ISO dates (yyyy-mm-dd) on CreatedAt; from must not exceed to. */
+  from?: string
+  to?: string
+  vendorId?: string
+  /** Vendor code or exact name. */
+  vendor?: string
+  sortBy?: string
+  sortDirection?: string
+}
+
+function documentListParams(query: PurchaseDocumentListQuery, numberKey: string): string {
+  const params = new URLSearchParams()
+  params.set('page', String(query.page))
+  params.set('pageSize', String(query.pageSize))
+  if (query.number) params.set(numberKey, query.number)
+  if (query.status) params.set('status', query.status)
+  if (query.from) params.set('from', query.from)
+  if (query.to) params.set('to', query.to)
+  if (query.vendorId) params.set('vendorId', query.vendorId)
+  if (query.vendor) params.set('vendor', query.vendor)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
+  return params.toString()
+}
+
+export function listRfqs(query: PurchaseDocumentListQuery): Promise<PagedResponse<RfqListItem>> {
+  return api.get<PagedResponse<RfqListItem>>(`/api/v1/purchase/rfqs?${documentListParams(query, 'rfqNumber')}`)
+}
+
+export function listQuotations(query: PurchaseDocumentListQuery): Promise<PagedResponse<QuotationListItem>> {
+  return api.get<PagedResponse<QuotationListItem>>(`/api/v1/purchase/quotations?${documentListParams(query, 'quotationNumber')}`)
+}
+
+export function listComparisons(query: PurchaseDocumentListQuery): Promise<PagedResponse<ComparisonListItem>> {
+  return api.get<PagedResponse<ComparisonListItem>>(`/api/v1/purchase/comparisons?${documentListParams(query, 'comparisonNumber')}`)
+}
+
+export function listPurchaseOrders(query: PurchaseDocumentListQuery): Promise<PagedResponse<PurchaseOrderListItem>> {
+  return api.get<PagedResponse<PurchaseOrderListItem>>(`/api/v1/purchase/purchase-orders?${documentListParams(query, 'purchaseOrderNumber')}`)
+}
+
+export function listMaterialFollowUp(page: number, pageSize: number, handoffNumber?: string): Promise<PagedResponse<MaterialFollowUpListItem>> {
+  const params = new URLSearchParams()
+  params.set('page', String(page))
+  params.set('pageSize', String(pageSize))
+  if (handoffNumber) params.set('handoffNumber', handoffNumber)
+  return api.get<PagedResponse<MaterialFollowUpListItem>>(`/api/v1/purchase/material-followup?${params.toString()}`)
+}
+
+// --- Stores stock check (page stores.stock-check, action verify) ------------
+
+export function stockCheckPurchaseRequisition(
+  prNumber: string,
+  body: StockCheckRequest,
+): Promise<StockCheckResult> {
+  return api.post<StockCheckResult>(`${PR_BASE}/${encodeURIComponent(prNumber)}/stock-check`, body)
+}
+
+/** Rack/bins of one warehouse for the stock-check location pick (masters.rack-bins:view). */
+export function listRackBins(warehouseCode: string): Promise<PagedResponse<RackBinSummary>> {
+  const params = new URLSearchParams({ page: '1', pageSize: '200', warehouseCode })
+  return api.get<PagedResponse<RackBinSummary>>(`/api/v1/inventory/rack-bins?${params.toString()}`)
 }

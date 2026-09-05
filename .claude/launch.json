@@ -9,6 +9,13 @@
       "autoPort": false
     },
     {
+      "name": "nexaerp-api-main",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "D:/New_ERP_Project-main-backend/target-dotnet/src/SESS.NexaERP.Api"],
+      "port": 5000,
+      "autoPort": false
+    },
+    {
       "name": "nexaerp-frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "target-dotnet/src/SESS.NexaERP.Web", "--", "--port", "5174"],

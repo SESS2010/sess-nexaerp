@@ -5,13 +5,18 @@ import type { EmployeeSummary } from '../../types/employee'
 import { StatusBadge } from './StatusBadge'
 import { EmployeeFormModal } from './EmployeeFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
 const STATUS_OPTIONS = ['', 'Active', 'Inactive']
 const PAGE_SIZE = 20
 
 export function EmployeeListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [rows, setRows] = useState<EmployeeSummary[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
@@ -19,20 +24,30 @@ export function EmployeeListPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const { sort, toggleSort } = useSort({ sortBy: 'employeecode', sortDirection: 'asc' }, () => setPage(1))
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await listEmployees({ page, pageSize: PAGE_SIZE, search: appliedSearch, status })
-      setRows(data)
+      const data = await listEmployees({
+        page,
+        pageSize: PAGE_SIZE,
+        search: appliedSearch,
+        status,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
+      })
+      setRows(data.Items)
+      setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
+      setTotalCount(0)
       setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, status])
+  }, [page, appliedSearch, status, sort.sortBy, sort.sortDirection])
 
   useEffect(() => {
     void load()
@@ -50,9 +65,11 @@ export function EmployeeListPage() {
           <h1>Employees</h1>
           <p className="page-sub">Employee master with approval workflow and login control</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + New Employee
-        </button>
+        {can(PAGE_KEYS.employees, 'create') && (
+          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            + New Employee
+          </button>
+        )}
       </div>
 
       <div className="toolbar">
@@ -76,8 +93,8 @@ export function EmployeeListPage() {
         <div className="spacer" />
         <div className="pager">
           <button type="button" className="btn btn-ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>‹ Prev</button>
-          <span className="pager-label">Page {page}</span>
-          <button type="button" className="btn btn-ghost" disabled={rows.length < PAGE_SIZE || loading} onClick={() => setPage(page + 1)}>Next ›</button>
+          <span className="pager-label">Page {page} of {Math.max(1, Math.ceil(totalCount / PAGE_SIZE))} · {totalCount} total</span>
+          <button type="button" className="btn btn-ghost" disabled={page * PAGE_SIZE >= totalCount || loading} onClick={() => setPage(page + 1)}>Next ›</button>
         </div>
       </div>
 
@@ -87,15 +104,15 @@ export function EmployeeListPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Code</th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Grade</th>
-              <th>Department</th>
-              <th>Designation</th>
-              <th>Skill</th>
-              <th>Status</th>
-              <th>Approval</th>
+              <SortableHeader label="Code" sortKey="employeecode" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Name" sortKey="employeename" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Type" sortKey="employeetype" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Grade" sortKey="grade" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Department" sortKey="department" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Designation" sortKey="jobdesignation" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Skill" sortKey="skillcategory" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Approval" sortKey="approvalstatus" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Login</th>
             </tr>
           </thead>

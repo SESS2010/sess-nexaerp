@@ -3,6 +3,14 @@
   "profiles": {
     "SESS.NexaERP.Api": {
       "commandName": "Project",
+      "applicationUrl": "http://0.0.0.0:5000",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    },
+    "SESS.NexaERP.Api (localhost only)": {
+      "commandName": "Project",
       "applicationUrl": "http://localhost:5000",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",

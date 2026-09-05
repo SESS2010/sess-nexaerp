@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createRfq, listPurchaseHandoffs, newIdempotencyKey } from '../../api/purchase'
 import type { PurchaseRequirementHandoffSummary, Rev869BDocumentResult } from '../../types/purchase'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface Props {
   onClose: () => void
@@ -16,6 +17,7 @@ function defaultDueAt(): string {
 }
 
 export function RfqCreateModal({ onClose, onCreated }: Props) {
+  const { can, hasRole } = useSession()
   const [handoffs, setHandoffs] = useState<PurchaseRequirementHandoffSummary[]>([])
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [quoteDueAt, setQuoteDueAt] = useState(defaultDueAt())
@@ -34,6 +36,9 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
   }, [])
 
   const selectedCount = useMemo(() => Object.keys(selected).length, [selected])
+
+  // POST /purchase/rfqs → purchase.rfq:create + the PURCHASE_EXECUTIVE role.
+  const canCreateRfq = can(PAGE_KEYS.rfq, 'create') && hasRole('PURCHASE_EXECUTIVE')
 
   const toggle = (handoff: PurchaseRequirementHandoffSummary) => {
     setSelected((prev) => {
@@ -205,9 +210,11 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || loading}>
-              {saving ? 'Creating…' : 'Create RFQ'}
-            </button>
+            {canCreateRfq && (
+              <button type="submit" className="btn btn-primary" disabled={saving || loading}>
+                {saving ? 'Creating…' : 'Create RFQ'}
+              </button>
+            )}
           </div>
         </form>
       </div>

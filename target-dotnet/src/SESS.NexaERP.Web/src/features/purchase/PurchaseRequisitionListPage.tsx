@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useNavigate } from 'react-router-dom'
 import { listPurchaseRequisitions } from '../../api/purchase'
 import type { PurchaseRequisitionSummary } from '../../types/purchase'
 import { PR_STATUSES } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { PurchaseRequisitionFormModal } from './PurchaseRequisitionFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -24,6 +26,10 @@ export function formatDate(value: string | null | undefined): string {
 
 export function PurchaseRequisitionListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
+  // Outcome carried back from the detail page when the record left the
+  // user's visibility after their action (e.g. an approver who just approved).
+  const handoffNotice = (useLocation().state as { notice?: string } | null)?.notice ?? ''
   const [rows, setRows] = useState<PurchaseRequisitionSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -72,6 +78,7 @@ export function PurchaseRequisitionListPage() {
 
   return (
     <div className="page">
+      {handoffNotice && <div className="alert" role="status">{handoffNotice}</div>}
       <div className="page-header">
         <div>
           <h1>Purchase Requisition</h1>
@@ -80,9 +87,11 @@ export function PurchaseRequisitionListPage() {
           </p>
         </div>
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Requisition
-          </button>
+          {can(PAGE_KEYS.requisitions, 'create') && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Requisition
+            </button>
+          )}
         </div>
       </div>
 

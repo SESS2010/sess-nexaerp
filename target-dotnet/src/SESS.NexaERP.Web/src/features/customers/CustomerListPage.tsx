@@ -8,12 +8,14 @@ import { ImportExportBar } from '../../components/ImportExportBar'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { SortableHeader } from '../../components/SortableHeader'
 import { useSort } from '../../hooks/useSort'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
 const STATUS_OPTIONS = ['', 'Draft', 'Pending Approval', 'Active', 'On Hold', 'Inactive', 'Rejected']
 const PAGE_SIZE = 20
 
 export function CustomerListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const [rows, setRows] = useState<CustomerSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -26,14 +28,16 @@ export function CustomerListPage() {
   const [showCreate, setShowCreate] = useState(false)
   // This endpoint sorts on code, name and status only.
   const { sort, toggleSort } = useSort({ sortBy: 'code', sortDirection: 'asc' }, () => setPage(1))
+  // POST / and GET /next-code both require masters.customers:create.
+  const canCreate = can(PAGE_KEYS.customers, 'create')
 
   // /customers?create=1 (e.g. from the Customer PO form) opens the create modal directly.
   useEffect(() => {
     if (searchParams.get('create') === '1') {
-      setShowCreate(true)
+      if (canCreate) setShowCreate(true)
       setSearchParams({}, { replace: true })
     }
-  }, [searchParams, setSearchParams])
+  }, [searchParams, setSearchParams, canCreate])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
@@ -74,9 +78,11 @@ export function CustomerListPage() {
         </div>
         <div className="action-row">
           <ImportExportBar masterKey="customers" onImported={() => void load()} />
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Customer
-          </button>
+          {canCreate && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Customer
+            </button>
+          )}
         </div>
       </div>
 

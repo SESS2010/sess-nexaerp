@@ -13,6 +13,7 @@ import type {
   PurchaseRequisitionLineRequest,
 } from '../../types/purchase'
 import { PR_PRIORITIES } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface DraftLine {
@@ -28,15 +29,23 @@ function today(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Estimated unit rate has no default. An untouched 0 silently drops the
+// requisition into the lowest approval band, so the requester must type it and
+// the API rejects a zero or missing rate at submit.
 function emptyLine(requiredDate: string): DraftLine {
   return {
     itemCode: '',
     itemName: '',
     quantity: '1',
-    unitPrice: '0',
+    unitPrice: '',
     requiredDate,
     preferredWarehouseCode: '',
   }
+}
+
+function isPositiveNumber(value: string): boolean {
+  const n = Number(value)
+  return value.trim().length > 0 && Number.isFinite(n) && n > 0
 }
 
 function blank(value: string): string | null {
@@ -53,7 +62,12 @@ interface Props {
 
 export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved }: Props) {
   const identity = getStoredIdentity()
-  const defaultRequiredBy = existing?.RequiredByDate ?? today()
+  const { can } = useSession()
+  // POST needs purchase.requisitions:create, PUT needs :update.
+  const canSave = can(PAGE_KEYS.requisitions, mode === 'create' ? 'create' : 'update')
+  // Required-by is a real commitment from the requester, so it is not
+  // pre-filled with today on a new draft.
+  const defaultRequiredBy = existing?.RequiredByDate ?? ''
 
   const [departments, setDepartments] = useState<PurchaseLookupOption[]>([])
   const [warehouses, setWarehouses] = useState<PurchaseLookupOption[]>([])
@@ -86,15 +100,18 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  // Lookup failures (typically a 403 on the master read) used to be swallowed,
+  // leaving empty dropdowns with no explanation. They are surfaced here instead.
+  const [lookupError, setLookupError] = useState<unknown>(null)
 
   useEffect(() => {
-    listDepartments().then(setDepartments).catch(() => undefined)
-    listWarehouseOptions().then(setWarehouses).catch(() => undefined)
+    listDepartments().then(setDepartments).catch(setLookupError)
+    listWarehouseOptions().then(setWarehouses).catch(setLookupError)
   }, [])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      searchItems(itemSearch).then(setItemOptions).catch(() => undefined)
+      searchItems(itemSearch).then(setItemOptions).catch(setLookupError)
     }, 250)
     return () => window.clearTimeout(handle)
   }, [itemSearch])
@@ -131,6 +148,17 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
 
     if (payloadLines.length === 0) {
       setError('Add at least one line with an item code.')
+      return
+    }
+    const badLine = lines.findIndex(
+      (line) => line.itemCode.trim().length > 0 && (!isPositiveNumber(line.quantity) || !isPositiveNumber(line.unitPrice)),
+    )
+    if (badLine >= 0) {
+      setError(`Line ${badLine + 1}: quantity and estimated unit rate must both be entered and greater than zero.`)
+      return
+    }
+    if (!requiredByDate) {
+      setError('Required-by date is required.')
       return
     }
     if (!purpose.trim()) {
@@ -234,6 +262,8 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
             <input
               type="date"
               className="input"
+              required
+              min={today()}
               value={requiredByDate}
               onChange={(event) => setRequiredByDate(event.target.value)}
             />
@@ -313,8 +343,8 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
               <thead>
                 <tr>
                   <th style={{ width: '30%' }}>Item *</th>
-                  <th className="text-right">Qty *</th>
-                  <th className="text-right">Est. unit price *</th>
+                  <th className="text-right">Quantity *</th>
+                  <th className="text-right">Est. unit rate (₹) *</th>
                   <th>Required date</th>
                   <th>Preferred warehouse</th>
                   <th className="text-right">Line total</th>
@@ -348,6 +378,13 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     <td>
                       <input
                         className="input text-right mono"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        aria-label={`Line ${index + 1} quantity`}
+                        title="Quantity"
+                        placeholder="Qty"
                         value={line.quantity}
                         onChange={(event) => setLine(index, { quantity: event.target.value })}
                       />
@@ -355,6 +392,13 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     <td>
                       <input
                         className="input text-right mono"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="any"
+                        aria-label={`Line ${index + 1} estimated unit rate`}
+                        title="Estimated unit rate decides the approval band, so it must be entered"
+                        placeholder="Rate"
                         value={line.unitPrice}
                         onChange={(event) => setLine(index, { unitPrice: event.target.value })}
                       />
@@ -410,13 +454,16 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
             </strong>
           </div>
 
+          <ErrorAlert error={lookupError} className="field-wide" fallback="Could not load departments, warehouses or items." />
           <ErrorAlert error={error} className="field-wide" fallback="Could not save the requisition." />
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create draft' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create draft' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

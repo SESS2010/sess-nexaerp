@@ -12,6 +12,7 @@ import type { QuotationLineRequest, RfqDetail, RfqLine } from '../../types/purch
 import { QUOTATION_SUBMISSION_SOURCES, VENDOR_REGISTRATION_TYPES } from '../../types/purchase'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftQuoteLine {
   rfqLine: RfqLine
@@ -50,6 +51,21 @@ function todayLocal(): string {
 }
 
 export function QuotationPage() {
+  const { can, hasRole } = useSession()
+
+  // GET /purchase/rfqs/{number} → purchase.rfq:view (read prerequisite).
+  const canReadRfq = can(PAGE_KEYS.rfq, 'view')
+  // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create
+  // + the PURCHASE_EXECUTIVE role.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create') && hasRole('PURCHASE_EXECUTIVE')
+  // POST /quotations/{number}/technical-verifications →
+  // purchase.technical-verification:verify + TECHNICAL_ENGINEER or TECHNICAL_DIRECTOR.
+  const canVerifyTechnically =
+    can(PAGE_KEYS.technicalVerification, 'verify') &&
+    (hasRole('TECHNICAL_ENGINEER') || hasRole('TECHNICAL_DIRECTOR'))
+  // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
+  const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
+
   // --- source RFQ + invitation ---
   const [rfqNumber, setRfqNumber] = useState('')
   const [invitationId, setInvitationId] = useState('')
@@ -283,12 +299,14 @@ export function QuotationPage() {
               onChange={(event) => setRfqNumber(event.target.value)}
             />
           </label>
-          <div className="field">
-            <span className="field-label">&nbsp;</span>
-            <button type="button" className="btn btn-ghost" disabled={loadingRfq} onClick={() => void loadRfq()}>
-              {loadingRfq ? 'Loading…' : 'Load RFQ lines'}
-            </button>
-          </div>
+          {canReadRfq && (
+            <div className="field">
+              <span className="field-label">&nbsp;</span>
+              <button type="button" className="btn btn-ghost" disabled={loadingRfq} onClick={() => void loadRfq()}>
+                {loadingRfq ? 'Loading…' : 'Load RFQ lines'}
+              </button>
+            </div>
+          )}
           <label className="field">
             <span className="field-label">Invitation id (GUID) *</span>
             <input
@@ -468,9 +486,11 @@ export function QuotationPage() {
           </div>
 
           <div className="action-row" style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving || lines.length === 0}>
-              {saving ? 'Recording…' : 'Record quotation'}
-            </button>
+            {canRecordQuotation && (
+              <button type="submit" className="btn btn-primary" disabled={saving || lines.length === 0}>
+                {saving ? 'Recording…' : 'Record quotation'}
+              </button>
+            )}
             <div className="spacer" />
             <strong>Quoted total: ₹{formatAmount(grandTotal)}</strong>
           </div>
@@ -512,12 +532,16 @@ export function QuotationPage() {
             <textarea className="input" rows={2} value={verifyRemarks} onChange={(e) => setVerifyRemarks(e.target.value)} />
           </label>
           <div className="field-wide action-row">
-            <button type="button" className="btn btn-primary" disabled={verifying} onClick={() => void runVerification()}>
-              {verifying ? 'Recording…' : 'Record verification'}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => void downloadAttachment()}>
-              Download quotation attachment
-            </button>
+            {canVerifyTechnically && (
+              <button type="button" className="btn btn-primary" disabled={verifying} onClick={() => void runVerification()}>
+                {verifying ? 'Recording…' : 'Record verification'}
+              </button>
+            )}
+            {canDownloadAttachment && (
+              <button type="button" className="btn btn-ghost" onClick={() => void downloadAttachment()}>
+                Download quotation attachment
+              </button>
+            )}
           </div>
         </div>
       </div>

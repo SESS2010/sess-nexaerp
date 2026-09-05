@@ -80,9 +80,9 @@ export interface GateEntryResult {
   History: GateEntryHistoryResult[]
 }
 
-/** The list endpoint returns no total count — only the requested page slice. */
 export interface GateEntryListResult {
-  Page: number
+  TotalCount: number
+  PageNumber: number
   PageSize: number
   Items: GateEntryResult[]
 }

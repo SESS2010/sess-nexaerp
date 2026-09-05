@@ -6,10 +6,12 @@ import type { GoodsReceiptResult } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { GoodsReceiptFormModal } from './GoodsReceiptFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 export function GoodsReceiptDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
   const [grn, setGrn] = useState<GoodsReceiptResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -93,6 +95,12 @@ export function GoodsReceiptDetailPage() {
 
   const isDraft = grn.Status === 'DRAFT'
   const hasWarnings = grn.Warnings.length > 0
+  // Every GRN mutation is inventory.grn (explicit-grant page) plus
+  // EfGoodsReceiptService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
+  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
+  const canEdit = can(PAGE_KEYS.grn, 'update') && storesOperator
+  const canFinalize = can(PAGE_KEYS.grn, 'submit') && storesOperator
+  const canReverse = can(PAGE_KEYS.grn, 'cancel') && storesOperator
 
   return (
     <div className="page">
@@ -108,16 +116,20 @@ export function GoodsReceiptDetailPage() {
           {grn.DocumentKind !== 'NORMAL' && <StatusBadge value={grn.DocumentKind} />}
           {isDraft && (
             <>
-              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy || hasWarnings}
-                title={hasWarnings ? 'Resolve the duplicate serial warnings first.' : 'Finalize — the GRN becomes immutable and stock posts to QC hold.'}
-                onClick={finalize}
-              >
-                Finalize
-              </button>
+              {canEdit && (
+                <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+              )}
+              {canFinalize && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy || hasWarnings}
+                  title={hasWarnings ? 'Resolve the duplicate serial warnings first.' : 'Finalize — the GRN becomes immutable and stock posts to QC hold.'}
+                  onClick={finalize}
+                >
+                  Finalize
+                </button>
+              )}
             </>
           )}
         </div>
@@ -130,7 +142,7 @@ export function GoodsReceiptDetailPage() {
         <div className="alert alert-warn" role="alert">
           <div className="alert-title">Duplicate serials must be made unique before finalize</div>
           {grn.Warnings.map((warning) => <p key={warning} className="alert-body mono">{warning}</p>)}
-          {isDraft && <p className="alert-body">Open Edit, change the stored serial (e.g. append the financial year or make), acknowledge the duplicate and record the reason.</p>}
+          {isDraft && canEdit && <p className="alert-body">Open Edit, change the stored serial (e.g. append the financial year or make), acknowledge the duplicate and record the reason.</p>}
         </div>
       )}
 
@@ -235,7 +247,7 @@ export function GoodsReceiptDetailPage() {
         </>
       )}
 
-      {grn.Status === 'FINALIZED' && grn.DocumentKind === 'NORMAL' && (
+      {grn.Status === 'FINALIZED' && grn.DocumentKind === 'NORMAL' && canReverse && (
         <div className="reverse-panel">
           <h2 className="form-section-title">Reverse this GRN</h2>
           <p className="field-hint">

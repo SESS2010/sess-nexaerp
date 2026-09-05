@@ -79,6 +79,17 @@ await using (var startupScope = app.Services.CreateAsyncScope())
         .ValidateAsync();
 }
 
+// Serve the built React frontend (src/SESS.NexaERP.Web -> wwwroot) from the
+// same host and port as the API, so every workstation on the network opens a
+// single URL (http://<server-ip>:5000) and the browser sees a same-origin
+// backend. No CORS policy is needed. In development the Vite dev server can
+// still be used instead; its proxy forwards /api and /health to this host.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+// Routing must run after the static files middleware; otherwise the SPA
+// fallback endpoint claims /assets/* first and the files are never served.
+app.UseRouting();
+
 app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthentication();
@@ -157,6 +168,10 @@ app.MapStoresGateEntryEndpoints();
 app.MapStoresGoodsReceiptEndpoints();
 app.MapAuditEndpoints();
 app.MapEmployeeEndpoints();
+
+// Client-side routing fallback for the SPA. API and health paths are excluded
+// so an unknown API route still returns a 404 error envelope, not index.html.
+app.MapFallbackToFile("{*path:regex(^(?!api/|health/).*$)}", "index.html");
 
 app.Run();
 

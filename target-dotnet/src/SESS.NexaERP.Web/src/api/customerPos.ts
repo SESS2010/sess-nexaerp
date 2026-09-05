@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { ApiError, api, getStoredToken } from './client'
 import type { PagedResponse } from './client'
 import type { CustomerPoDetail, CustomerPoLookups, CustomerPoSummary, UpsertCustomerPoRequest } from '../types/customerPo'
 
@@ -8,10 +8,16 @@ export interface CustomerPoListQuery {
   page: number
   pageSize: number
   search?: string
+  /** Exact internal PO record number (e.g. CPO-…); server upper-cases it. */
+  poRecordNumber?: string
+  /** Exact customer's own PO number. */
+  customerPoNumber?: string
   workStatus?: string
   salesType?: string
   serviceMode?: string
   fiscalYear?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listCustomerPos(query: CustomerPoListQuery): Promise<PagedResponse<CustomerPoSummary>> {
@@ -19,10 +25,14 @@ export function listCustomerPos(query: CustomerPoListQuery): Promise<PagedRespon
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
+  if (query.poRecordNumber) params.set('poRecordNumber', query.poRecordNumber)
+  if (query.customerPoNumber) params.set('customerPoNumber', query.customerPoNumber)
   if (query.workStatus) params.set('workStatus', query.workStatus)
   if (query.salesType) params.set('salesType', query.salesType)
   if (query.serviceMode) params.set('serviceMode', query.serviceMode)
   if (query.fiscalYear) params.set('fiscalYear', query.fiscalYear)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   return api.get<PagedResponse<CustomerPoSummary>>(`${BASE}?${params.toString()}`)
 }
 
@@ -67,7 +77,8 @@ async function uploadPdf(path: string, file: File, version: number, revisionReas
       const errorBody = await response.json()
       message = errorBody.Detail || errorBody.message || message
     } catch { /* keep default */ }
-    throw new Error(message)
+    // ApiError so ErrorAlert renders a 403/409 the same way as api.* calls.
+    throw new ApiError(response.status, message)
   }
   return (await response.json()) as Record<string, string>
 }
@@ -77,7 +88,14 @@ async function downloadPdf(path: string, fileName: string): Promise<void> {
   const token = getStoredToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const response = await fetch(path, { headers })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  if (!response.ok) {
+    let message = `Download failed (${response.status})`
+    try {
+      const errorBody = await response.json()
+      message = errorBody.Detail || errorBody.message || message
+    } catch { /* keep default */ }
+    throw new ApiError(response.status, message)
+  }
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

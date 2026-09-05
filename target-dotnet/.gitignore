@@ -28,3 +28,6 @@ secrets.json
 
 # Local developer scripts with machine-specific secrets
 *.local.ps1
+
+# Built React frontend copied into the API host (npm run build:api)
+src/SESS.NexaERP.Api/wwwroot/

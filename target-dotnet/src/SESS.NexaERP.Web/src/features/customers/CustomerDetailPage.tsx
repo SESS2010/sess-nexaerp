@@ -9,17 +9,24 @@ import type { CustomerDetail } from '../../types/customer'
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerFormModal } from './CustomerFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
-const ACTIONS: { action: CustomerAction; label: string; from: string[] }[] = [
-  { action: 'submit', label: 'Submit', from: ['Draft'] },
-  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'request-clarification', label: 'Request clarification', from: ['Pending Approval'] },
-  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'] },
-  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'] },
-  { action: 'hold', label: 'Hold', from: ['Approved'] },
-  { action: 'reactivate', label: 'Reactivate', from: ['Approved'] },
-  { action: 'deactivate', label: 'Deactivate', from: ['Approved'] },
+// `permission` is the PagePermissionActions value each POST /{code}/{action}
+// route demands in MasterEndpoints.MapCustomerEndpoints: hold is authorised by
+// Deactivate and reactivate by Update; the rest match their action name.
+// Approve is additionally refused (403) by the API when the caller is the
+// customer's creator or last editor (IsSelfApprovalAttempt); CustomerDetail
+// does not expose CreatedBy/UpdatedBy, so that case falls through to ErrorAlert.
+const ACTIONS: { action: CustomerAction; label: string; from: string[]; permission: string }[] = [
+  { action: 'submit', label: 'Submit', from: ['Draft'], permission: 'submit' },
+  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'], permission: 'approve' },
+  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'], permission: 'reject' },
+  { action: 'request-clarification', label: 'Request clarification', from: ['Pending Approval'], permission: 'request-clarification' },
+  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'], permission: 'request-revision' },
+  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'], permission: 'resubmit' },
+  { action: 'hold', label: 'Hold', from: ['Approved'], permission: 'deactivate' },
+  { action: 'reactivate', label: 'Reactivate', from: ['Approved'], permission: 'update' },
+  { action: 'deactivate', label: 'Deactivate', from: ['Approved'], permission: 'deactivate' },
 ]
 
 const ATTACHMENT_LABELS: { key: 'gstCertificate' | 'bankLeaf' | 'msmeCertificate' | 'panCard'; label: string }[] = [
@@ -31,6 +38,7 @@ const ATTACHMENT_LABELS: { key: 'gstCertificate' | 'bankLeaf' | 'msmeCertificate
 
 export function CustomerDetailPage() {
   const { customerCode = '' } = useParams()
+  const { can } = useSession()
   const [detail, setDetail] = useState<CustomerDetail | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -68,6 +76,9 @@ export function CustomerDetailPage() {
 
   const bank = parseBankMetadata(detail?.BankMetadata)
   const attachments = parseCustomerAttachmentMetadata(detail?.AttachmentMetadataJson ?? null)
+  // GET /attachments/{id} requires masters.customers:download; the stored file
+  // name is still shown (as text) without it.
+  const canDownload = can(PAGE_KEYS.customers, 'download')
 
   return (
     <div className="page">
@@ -86,8 +97,10 @@ export function CustomerDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
+            {can(PAGE_KEYS.customers, 'update') && (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.customers, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runAction(item.action, item.label)}>
                 {item.label}
               </button>
@@ -126,13 +139,17 @@ export function CustomerDetailPage() {
             <div key={key} className="detail-field">
               <div className="field-label">{label}</div>
               {attachments[key] ? (
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => void downloadCustomerAttachment(attachments[key]!.id, attachments[key]!.fileName).catch(() => window.alert('Download failed.'))}
-                >
-                  {attachments[key]!.fileName}
-                </button>
+                canDownload ? (
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => void downloadCustomerAttachment(attachments[key]!.id, attachments[key]!.fileName).catch(() => window.alert('Download failed.'))}
+                  >
+                    {attachments[key]!.fileName}
+                  </button>
+                ) : (
+                  <div>{attachments[key]!.fileName}</div>
+                )
               ) : (
                 <div>—</div>
               )}

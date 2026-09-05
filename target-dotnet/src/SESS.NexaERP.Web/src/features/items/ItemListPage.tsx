@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { listItems, listItemCategories } from '../../api/items'
 import type { ItemSummary, ReferenceLookup } from '../../types/item'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -12,6 +13,7 @@ const PAGE_SIZE = 25
 
 export function ItemListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [rows, setRows] = useState<ItemSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
@@ -66,9 +68,11 @@ export function ItemListPage() {
           <h1>Items</h1>
           <p className="page-sub">Item master with vendor linkage ({totalCount} total)</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          + New Item
-        </button>
+        {can(PAGE_KEYS.items, 'create') && (
+          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+            + New Item
+          </button>
+        )}
       </div>
 
       <div className="toolbar">

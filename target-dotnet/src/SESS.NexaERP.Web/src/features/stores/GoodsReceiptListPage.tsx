@@ -6,13 +6,22 @@ import { GOODS_RECEIPT_STATES } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { GoodsReceiptFormModal } from './GoodsReceiptFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 const PAGE_SIZE = 25
 
 export function GoodsReceiptListPage() {
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
   const [rows, setRows] = useState<GoodsReceiptResult[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
+  // Newest receipt first — the register is read as a running arrival log. The
+  // endpoint does not honour sortBy yet; the keys are the lowercase row-DTO
+  // field names the backend will accept once it does.
+  const { sort, toggleSort } = useSort({ sortBy: 'receivedat', sortDirection: 'desc' }, () => setPage(1))
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -33,15 +42,19 @@ export function GoodsReceiptListPage() {
         grnNumber: term.startsWith('GRN') ? term : undefined,
         gateEntryNumber: term && !term.startsWith('GRN') ? term : undefined,
         status: status || undefined,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
       })
       setRows(data.Items ?? [])
+      setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
+      setTotalCount(0)
       setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, status])
+  }, [page, appliedSearch, status, sort])
 
   useEffect(() => {
     void load()
@@ -52,8 +65,13 @@ export function GoodsReceiptListPage() {
     setAppliedSearch(search.trim())
   }
 
-  // The API returns no total count, so "next" is only offered on a full page.
-  const maybeMore = rows.length === PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  // POST /stores/goods-receipts → inventory.grn:create (explicit-grant page, so
+  // full-control does not cover it) plus EfGoodsReceiptService.ActorRole(),
+  // which accepts only STORES_EXECUTIVE / STORES_ASSISTANT.
+  const canCreate =
+    can(PAGE_KEYS.grn, 'create') && (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT'))
 
   return (
     <div className="page">
@@ -65,9 +83,11 @@ export function GoodsReceiptListPage() {
           </p>
         </div>
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New GRN
-          </button>
+          {canCreate && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New GRN
+            </button>
+          )}
         </div>
       </div>
 
@@ -87,8 +107,8 @@ export function GoodsReceiptListPage() {
         <div className="spacer" />
         <div className="pager">
           <button type="button" className="btn btn-ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>‹ Prev</button>
-          <span className="pager-label">Page {page}</span>
-          <button type="button" className="btn btn-ghost" disabled={!maybeMore || loading} onClick={() => setPage(page + 1)}>Next ›</button>
+          <span className="pager-label">Page {page} of {totalPages} · {totalCount} total</span>
+          <button type="button" className="btn btn-ghost" disabled={page >= totalPages || loading} onClick={() => setPage(page + 1)}>Next ›</button>
         </div>
       </div>
 
@@ -98,16 +118,16 @@ export function GoodsReceiptListPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>GRN</th>
-              <th>Gate Entry</th>
-              <th>PO number</th>
-              <th>Vendor</th>
+              <SortableHeader label="GRN" sortKey="grnnumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Gate Entry" sortKey="gateentrynumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="PO number" sortKey="purchaseordernumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Vendor" sortKey="vendorname" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Bill number</th>
-              <th>Bill date</th>
-              <th>Received at</th>
+              <SortableHeader label="Bill date" sortKey="vendorbilldate" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Received at" sortKey="receivedat" sort={sort} onSort={toggleSort} disabled={loading} />
               <th className="text-right">Lines</th>
               <th>Kind</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
             </tr>
           </thead>
           <tbody>

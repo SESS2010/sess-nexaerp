@@ -4,6 +4,9 @@ import type { CustomerPoDetail, CustomerPoLookups, CustomerPoSummary } from '../
 import { StatusBadge } from '../employees/StatusBadge'
 import { CustomerPoFormModal } from './CustomerPoFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
 
 const PAGE_SIZE = 20
 
@@ -19,9 +22,12 @@ function formatDate(value: string | null): string {
 }
 
 export function CustomerPoListPage() {
+  const { can } = useSession()
   const [rows, setRows] = useState<CustomerPoSummary[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
+  // Documents read newest-first, so the ledger defaults to PO date descending.
+  const { sort, toggleSort } = useSort({ sortBy: 'customerpodate', sortDirection: 'desc' }, () => setPage(1))
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
   const [workStatus, setWorkStatus] = useState('')
@@ -38,7 +44,15 @@ export function CustomerPoListPage() {
     setLoading(true)
     setError(null)
     try {
-      const data = await listCustomerPos({ page, pageSize: PAGE_SIZE, search: appliedSearch, workStatus, fiscalYear })
+      const data = await listCustomerPos({
+        page,
+        pageSize: PAGE_SIZE,
+        search: appliedSearch,
+        workStatus,
+        fiscalYear,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
+      })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
     } catch (err) {
@@ -48,7 +62,7 @@ export function CustomerPoListPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, appliedSearch, workStatus, fiscalYear])
+  }, [page, appliedSearch, workStatus, fiscalYear, sort])
 
   useEffect(() => {
     void load()
@@ -79,9 +93,11 @@ export function CustomerPoListPage() {
           <p className="page-sub">PO ledger — sales flow starts when a customer PO is received ({totalCount} total)</p>
         </div>
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Customer PO
-          </button>
+          {can(PAGE_KEYS.customerPo, 'create') && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Customer PO
+            </button>
+          )}
         </div>
       </div>
 
@@ -116,15 +132,15 @@ export function CustomerPoListPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Record</th>
-              <th>Customer PO No</th>
-              <th>PO Date</th>
-              <th>Customer</th>
-              <th>Sales Type</th>
-              <th className="text-right">Amount (₹)</th>
-              <th>Work Status</th>
+              <SortableHeader label="Record" sortKey="porecordnumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Customer PO No" sortKey="customerponumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="PO Date" sortKey="customerpodate" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Customer" sortKey="customername" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Sales Type" sortKey="salestype" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Amount (₹)" sortKey="totalamountwithgst" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Work Status" sortKey="workstatus" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Revision</th>
-              <th>FY</th>
+              <SortableHeader label="FY" sortKey="fiscalyear" sort={sort} onSort={toggleSort} disabled={loading} />
             </tr>
           </thead>
           <tbody>

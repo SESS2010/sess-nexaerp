@@ -94,6 +94,21 @@ export function ErrorAlert({ error, onReload, fallback = 'Something went wrong.'
   const message =
     typeof error === 'string' ? error : error instanceof Error ? error.message : fallback
   const isConflict = error instanceof ApiError && error.status === 409
+  const isForbidden = error instanceof ApiError && error.status === 403
+
+  // A 403 must never be silent: the server text names the permission or the
+  // approver the document is waiting on, which is exactly what the user needs.
+  if (isForbidden) {
+    return (
+      <div className={`alert alert-warn ${className}`.trim()} role="alert">
+        <div className="alert-title">You are not allowed to do this</div>
+        <p className="alert-body">
+          Your role or department does not have the permission this action needs. The server's reason is below; if it names another person, the document is waiting on them, not on you.
+        </p>
+        <p className="alert-detail mono">{message}</p>
+      </div>
+    )
+  }
 
   if (!isConflict) {
     return (

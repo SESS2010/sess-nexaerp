@@ -437,3 +437,111 @@ export interface RecentDoc {
   Number: string
   SeenAt: string
 }
+
+/* ------------------------------------------------------------------ */
+/* REV869B document registers — GET list endpoints (main b0b2a91).     */
+/* Mirrors SESS.NexaERP.Application.Purchase.Rev869BPurchaseReadContracts. */
+/* ------------------------------------------------------------------ */
+
+export interface RfqListItem {
+  Id: string
+  RfqNumber: string
+  QuoteDueAt: string
+  Status: string
+  InvitedVendorCount: number
+  CreatedAt: string
+  Version: number
+}
+
+export interface QuotationListItem {
+  Id: string
+  QuotationNumber: string
+  RfqNumber: string
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  RevisionNumber: number
+  ReceivedAt: string
+  Status: string
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface ComparisonListItem {
+  Id: string
+  ComparisonNumber: string
+  RfqNumber: string
+  SelectedVendorId: string | null
+  SelectedVendorCode: string | null
+  SelectedVendorName: string | null
+  Status: string
+  CreatedAt: string
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface PurchaseOrderListItem {
+  Id: string
+  PurchaseOrderNumber: string
+  RevisionNumber: number
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  Status: string
+  CreatedAt: string
+  IssuedAt: string | null
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface MaterialFollowUpListItem {
+  Id: string
+  HandoffNumber: string
+  PurchaseOrderId: string
+  PurchaseOrderLineId: string
+  OrderedQuantity: number
+  Status: string
+  HandoffAt: string
+}
+
+/* ------------------------------------------------------------------ */
+/* Stores stock check on an approved PR (POST /requisitions/{pr}/stock-check). */
+/* ------------------------------------------------------------------ */
+
+export interface StockCheckLocationRequest {
+  LineNumber: number
+  WarehouseCode: string
+  /** Required — reservation needs a physical rack/bin. */
+  RackBinCode: string | null
+}
+
+export interface StockCheckRequest {
+  Remarks: string
+  Version: number
+  IdempotencyKey: string | null
+  Locations: StockCheckLocationRequest[]
+}
+
+/** Row of GET /api/v1/inventory/rack-bins. */
+export interface RackBinSummary {
+  Id: string
+  WarehouseId: string
+  WarehouseCode: string
+  BinCode: string
+  RackName: string
+  BinNameNumber: string
+  Zone: string | null
+  LocationType: string
+  MaterialCondition: string
+  Status: string
+  ApprovalStatus: string
+  IsActive: boolean
+  Version: number
+}
+
+/** Response of the stock-check POST: the check record, not the PR. */
+export interface StockCheckResult {
+  CheckNumber: string
+  ResultStatus: string
+  PrNumber: string
+}

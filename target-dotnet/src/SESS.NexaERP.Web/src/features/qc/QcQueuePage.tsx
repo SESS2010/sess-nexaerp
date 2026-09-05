@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createQcInspection, getQcInspection, isQcMockMode, listQcQueue } from '../../api/qc'
+import { listQcQueue } from '../../api/qc'
 import type { QcQueueItem } from '../../types/qc'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 const PAGE_SIZE = 25
 
 /**
- * The QC work queue: every GRN line sitting in QC hold, oldest and overdue
- * first. Opening a row creates the inspection on first touch (INITIAL DRAFT
- * revision) or resumes the existing one.
+ * The QC work queue: every GRN lot allocation sitting in QC_HOLD with no
+ * inspection yet, oldest receipt first. Opening a row starts the inspection;
+ * nothing is written until it is finalized.
  */
 export function QcQueuePage() {
   const navigate = useNavigate()
@@ -18,18 +18,15 @@ export function QcQueuePage() {
   const [page, setPage] = useState(1)
   const [overdueOnly, setOverdueOnly] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [opening, setOpening] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [mock, setMock] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await listQcQueue({ page, pageSize: PAGE_SIZE, overdue: overdueOnly || undefined })
+      const data = await listQcQueue({ page, pageSize: PAGE_SIZE })
       setRows(data.Items)
       setTotalCount(data.TotalCount)
-      setMock(isQcMockMode())
     } catch (err) {
       setRows([])
       setTotalCount(0)
@@ -37,27 +34,14 @@ export function QcQueuePage() {
     } finally {
       setLoading(false)
     }
-  }, [page, overdueOnly])
+  }, [page])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const open = async (item: QcQueueItem) => {
-    setError(null)
-    setOpening(item.GoodsReceiptLineId)
-    try {
-      const inspection = item.InspectionId
-        ? await getQcInspection(item.InspectionId)
-        : await createQcInspection(item.GoodsReceiptLineId)
-      navigate(`/qc/inspections/${inspection.Id}`)
-    } catch (err) {
-      setError(err)
-    } finally {
-      setOpening(null)
-    }
-  }
-
+  // The endpoint has no overdue filter; this narrows the loaded page only.
+  const visible = overdueOnly ? rows.filter((row) => row.IsOverdue) : rows
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   return (
@@ -66,25 +50,26 @@ export function QcQueuePage() {
         <div>
           <h1>QC / Inspection</h1>
           <p className="page-sub">
-            GRN lines in QC hold awaiting inspection ({totalCount} pending) — accept moves stock to the routed location, reject to pending-return
+            GRN lots in QC hold awaiting inspection ({totalCount} pending) — accepted stock moves to an AVAILABLE
+            location, rejected to pending-return, discrepancy stays in QC hold
           </p>
+        </div>
+        <div className="action-row">
+          <input
+            className="input search"
+            placeholder="Open inspection by number, e.g. QCI-2627-00001"
+            onKeyDown={(event) => {
+              const value = (event.target as HTMLInputElement).value.trim().toUpperCase()
+              if (event.key === 'Enter' && value) navigate(`/qc/inspections/${encodeURIComponent(value)}`)
+            }}
+          />
         </div>
       </div>
 
-      {mock && (
-        <div className="alert alert-warn" role="status">
-          <div className="alert-title">QC backend (Slice 3) is not live yet — showing local mock data</div>
-          <p className="alert-body">
-            The screen is fully working against a session-local mock so the inspection flow can be exercised and refined.
-            Nothing here is saved to the server. The moment the QC endpoints ship, this banner disappears and the same screen runs live.
-          </p>
-        </div>
-      )}
-
       <div className="toolbar">
         <label className="scan-toggle">
-          <input type="checkbox" checked={overdueOnly} onChange={(event) => { setOverdueOnly(event.target.checked); setPage(1) }} />
-          Overdue only
+          <input type="checkbox" checked={overdueOnly} onChange={(event) => setOverdueOnly(event.target.checked)} />
+          Overdue only (this page)
         </label>
         <div className="spacer" />
         <div className="pager">
@@ -100,44 +85,44 @@ export function QcQueuePage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Source</th>
+              <th>GRN</th>
+              <th>Line / Lot</th>
               <th>Item</th>
-              <th>Category</th>
               <th className="text-right">Qty</th>
-              <th>QC rack</th>
+              <th>Supplier lot</th>
               <th>Received</th>
-              <th>QC due</th>
-              <th className="text-right">Age (h)</th>
+              <th className="text-right">Age (days)</th>
+              <th>Policy</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {loading && <tr><td colSpan={9} className="table-empty">Loading…</td></tr>}
-            {!loading && rows.length === 0 && !error && (
+            {!loading && visible.length === 0 && !error && (
               <tr><td colSpan={9} className="table-empty">Nothing waiting for inspection.</td></tr>
             )}
-            {!loading && rows.map((row) => (
+            {!loading && visible.map((row) => (
               <tr
-                key={row.GoodsReceiptLineId}
+                key={row.GoodsReceiptLineLotAllocationId}
                 className="row-click"
-                onClick={() => opening === null && void open(row)}
+                onClick={() => navigate(`/qc/inspect/${row.GoodsReceiptLineLotAllocationId}`, { state: { item: row } })}
               >
-                <td className="mono">{row.SourceNumber}</td>
+                <td className="mono">{row.GrnNumber}</td>
+                <td className="mono">{row.LineNumber} / {row.LotOrdinal}</td>
                 <td><span className="mono">{row.ItemCode}</span> — {row.ItemName}</td>
-                <td className="mono">{row.CategoryCode}</td>
                 <td className="text-right mono">{row.Quantity}</td>
-                <td className="mono">{row.QcRackCode}</td>
+                <td className="mono">{row.SupplierLotNumber ?? '—'}</td>
                 <td>{new Date(row.ReceivedAt).toLocaleString('en-IN')}</td>
-                <td>{new Date(row.QcDueAt).toLocaleString('en-IN')}</td>
-                <td className="text-right mono">{row.AgeHours.toFixed(0)}</td>
+                <td className="text-right mono">{row.AgeDays} / {row.CompletionLimitDays}</td>
                 <td>
-                  {opening === row.GoodsReceiptLineId
-                    ? <span className="badge badge-muted">Opening…</span>
-                    : row.IsOverdue
-                      ? <span className="badge badge-error">Overdue</span>
-                      : row.InspectionId
-                        ? <span className="badge badge-info">In progress</span>
-                        : <span className="badge badge-muted">Pending</span>}
+                  {row.HasEffectivePolicy
+                    ? <span className="badge badge-info">Policy</span>
+                    : <span className="badge badge-warn" title={row.PolicyResolution}>No policy</span>}
+                </td>
+                <td>
+                  {row.IsOverdue
+                    ? <span className="badge badge-error">Overdue</span>
+                    : <span className="badge badge-muted">Pending</span>}
                 </td>
               </tr>
             ))}

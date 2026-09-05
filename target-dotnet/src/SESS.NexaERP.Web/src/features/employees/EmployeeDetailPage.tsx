@@ -6,16 +6,24 @@ import type { EmployeeDetail, EmployeeHistorySummary } from '../../types/employe
 import { StatusBadge } from './StatusBadge'
 import { EmployeeFormModal } from './EmployeeFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
-const APPROVAL_ACTIONS: { action: ApprovalAction; label: string; from: string[] }[] = [
-  { action: 'submit', label: 'Submit', from: ['Draft', 'RevisionRequested', 'Rejected'] },
-  { action: 'approve', label: 'Approve', from: ['Submitted'] },
-  { action: 'reject', label: 'Reject', from: ['Submitted'] },
-  { action: 'revise', label: 'Request revision', from: ['Submitted', 'Approved'] },
+// GET /{employeeCode}/history is guarded by "employees.audit-history" with
+// PagePermissionActions.ViewAuditHistory (EmployeeEndpoints.cs); not in PAGE_KEYS.
+const PAGE_AUDIT_HISTORY = 'employees.audit-history'
+
+// `permission` is the PagePermissionActions value each route requires on
+// employees.master (Submit, Approve, Reject, RequestRevision).
+const APPROVAL_ACTIONS: { action: ApprovalAction; label: string; from: string[]; permission: string }[] = [
+  { action: 'submit', label: 'Submit', from: ['Draft', 'RevisionRequested', 'Rejected'], permission: 'submit' },
+  { action: 'approve', label: 'Approve', from: ['Submitted'], permission: 'approve' },
+  { action: 'reject', label: 'Reject', from: ['Submitted'], permission: 'reject' },
+  { action: 'revise', label: 'Request revision', from: ['Submitted', 'Approved'], permission: 'request-revision' },
 ]
 
 export function EmployeeDetailPage() {
   const { employeeCode = '' } = useParams()
+  const { can } = useSession()
   const [detail, setDetail] = useState<EmployeeDetail | null>(null)
   const [history, setHistory] = useState<EmployeeHistorySummary[]>([])
   const [historyError, setHistoryError] = useState('')
@@ -46,12 +54,13 @@ export function EmployeeDetailPage() {
   }, [load])
 
   const runApproval = async (action: ApprovalAction, label: string) => {
+    if (!detail) return
     const remarks = window.prompt(`${label} — enter remarks (required):`)
     if (!remarks || !remarks.trim()) return
     setBusy(true)
     setError(null)
     try {
-      await changeApprovalStatus(employeeCode, action, remarks.trim())
+      await changeApprovalStatus(employeeCode, action, remarks.trim(), detail.Version)
       await load()
     } catch (err) {
       setError(err)
@@ -68,7 +77,7 @@ export function EmployeeDetailPage() {
     setBusy(true)
     setError(null)
     try {
-      await setLoginStatus(employeeCode, enable, reason.trim())
+      await setLoginStatus(employeeCode, enable, reason.trim(), detail.Version)
       await load()
     } catch (err) {
       setError(err)
@@ -94,15 +103,20 @@ export function EmployeeDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {APPROVAL_ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
+            {can(PAGE_KEYS.employees, 'update') && (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {APPROVAL_ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.employees, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runApproval(item.action, item.label)}>
                 {item.label}
               </button>
             ))}
-            <button type="button" className={`btn ${detail.LoginEnabled ? 'btn-warn' : 'btn-primary'}`} disabled={busy} onClick={toggleLogin}>
-              {detail.LoginEnabled ? 'Deactivate login' : 'Activate login'}
-            </button>
+            {/* activate-login requires Update, deactivate-login requires Deactivate. */}
+            {can(PAGE_KEYS.employees, detail.LoginEnabled ? 'deactivate' : 'update') && (
+              <button type="button" className={`btn ${detail.LoginEnabled ? 'btn-warn' : 'btn-primary'}`} disabled={busy} onClick={toggleLogin}>
+                {detail.LoginEnabled ? 'Deactivate login' : 'Activate login'}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -114,7 +128,9 @@ export function EmployeeDetailPage() {
           <div className="tabs">
             <button type="button" className={`tab${tab === 'profile' ? ' active' : ''}`} onClick={() => setTab('profile')}>Profile</button>
             <button type="button" className={`tab${tab === 'roles' ? ' active' : ''}`} onClick={() => setTab('roles')}>Roles ({detail.Roles.length})</button>
-            <button type="button" className={`tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>History ({history.length})</button>
+            {can(PAGE_AUDIT_HISTORY, 'view-audit-history') && (
+              <button type="button" className={`tab${tab === 'history' ? ' active' : ''}`} onClick={() => setTab('history')}>History ({history.length})</button>
+            )}
           </div>
 
           {tab === 'profile' && (
@@ -156,7 +172,7 @@ export function EmployeeDetailPage() {
             </div>
           )}
 
-          {tab === 'history' && (
+          {tab === 'history' && can(PAGE_AUDIT_HISTORY, 'view-audit-history') && (
             <div className="table-wrap">
               {historyError && <div className="alert alert-error">{historyError}</div>}
               <table className="table">

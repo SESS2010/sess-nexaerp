@@ -7,6 +7,15 @@ import type { CustomerAttachmentKind, CustomerAttachmentMetadata } from '../../a
 import { parseBankMetadata } from '../../api/vendors'
 import type { CustomerDetail, UpsertCustomerRequest } from '../../types/customer'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
+import {
+  GSTIN_HINT, PAN_HINT, gstinPanMismatch, isValidGstin, isValidPan, normalizeGstin, normalizePan,
+} from '../../utils/indiaTaxIds'
+
+const GSTIN_ERROR =
+  'GSTIN must be 15 characters: 2-digit state code, 10-character PAN, entity code, Z, check character'
+const PAN_ERROR = 'PAN must be 10 characters: 5 letters, 4 digits, 1 letter'
+const GSTIN_PAN_MISMATCH_ERROR = 'GSTIN does not contain the PAN entered'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -25,6 +34,11 @@ const ATTACHMENT_FIELDS: { key: keyof CustomerAttachmentMetadata; kind: Customer
 ]
 
 export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can } = useSession()
+  // POST / and GET /next-code require Create, PUT /{code} requires Update and
+  // POST /attachments requires UploadAttachment (MasterEndpoints*.cs).
+  const canSave = can(PAGE_KEYS.customers, mode === 'create' ? 'create' : 'update')
+  const canUpload = can(PAGE_KEYS.customers, 'upload-attachment')
   const bank = parseBankMetadata(existing?.BankMetadata)
   const [form, setForm] = useState({
     customerCode: existing?.CustomerCode ?? '',
@@ -57,9 +71,12 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
   const [files, setFiles] = useState<Partial<Record<keyof CustomerAttachmentMetadata, File | null>>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  // Without the upload grant the file pickers are hidden and only the fields
+  // that already hold a stored file are listed (read-only file name).
+  const documentFields = ATTACHMENT_FIELDS.filter((field) => canUpload || existingAttachments[field.key])
 
   useEffect(() => {
-    if (mode === 'create') {
+    if (mode === 'create' && canSave) {
       getNextCustomerCode()
         .then((next) => setForm((prev) => ({ ...prev, customerCode: next.CustomerCode })))
         .catch(() => setError('Could not fetch the next customer code. Reload and try again.'))
@@ -70,8 +87,23 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }))
 
+  // Both identifiers stay optional (the backend accepts null); only a non-empty
+  // value is validated. Values are normalised on change, so what is checked here
+  // is exactly what is submitted.
+  const gstinError = form.gstNumber && !isValidGstin(form.gstNumber) ? GSTIN_ERROR : null
+  const panError = form.panNumber && !isValidPan(form.panNumber) ? PAN_ERROR : null
+  // Characters 3-12 of a GSTIN are the PAN of the same entity.
+  const gstinPanError = !gstinError && !panError && gstinPanMismatch(form.gstNumber, form.panNumber)
+    ? GSTIN_PAN_MISMATCH_ERROR
+    : null
+  const taxIdError = gstinError ?? panError ?? gstinPanError
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (taxIdError) {
+      setError(taxIdError)
+      return
+    }
     setSaving(true)
     setError(null)
     const optional = (value: string) => (value.trim() ? value.trim() : null)
@@ -159,11 +191,31 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
           </label>
           <label className="field">
             <span className="field-label">GSTIN</span>
-            <input className="input mono" value={form.gstNumber} onChange={set('gstNumber')} placeholder="15-character GSTIN" />
+            <input
+              className="input mono"
+              value={form.gstNumber}
+              onChange={(event) => setForm((prev) => ({ ...prev, gstNumber: normalizeGstin(event.target.value) }))}
+              placeholder="27AAPFU0939F1ZV"
+              maxLength={15}
+            />
+            {gstinError
+              ? <span className="field-error scan-warning">{gstinError}</span>
+              : gstinPanError
+                ? <span className="field-error scan-warning">{gstinPanError}</span>
+                : <span className="field-hint">{GSTIN_HINT}</span>}
           </label>
           <label className="field">
             <span className="field-label">PAN</span>
-            <input className="input mono" value={form.panNumber} onChange={set('panNumber')} placeholder="10-character PAN" />
+            <input
+              className="input mono"
+              value={form.panNumber}
+              onChange={(event) => setForm((prev) => ({ ...prev, panNumber: normalizePan(event.target.value) }))}
+              placeholder="AAPFU0939F"
+              maxLength={10}
+            />
+            {panError
+              ? <span className="field-error scan-warning">{panError}</span>
+              : <span className="field-hint">{PAN_HINT}</span>}
           </label>
           <label className="field">
             <span className="field-label">Contact person</span>
@@ -236,16 +288,20 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
             <input className="input" value={form.branch} onChange={set('branch')} />
           </label>
 
-          <div className="field-wide form-section-title">Documents (PDF/JPG/PNG, max 5 MB)</div>
-          {ATTACHMENT_FIELDS.map((field) => (
+          {documentFields.length > 0 && (
+            <div className="field-wide form-section-title">{canUpload ? 'Documents (PDF/JPG/PNG, max 5 MB)' : 'Documents'}</div>
+          )}
+          {documentFields.map((field) => (
             <label key={field.kind} className="field">
               <span className="field-label">{field.label}</span>
-              <input
-                className="input"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                onChange={(event) => setFiles((prev) => ({ ...prev, [field.key]: event.target.files?.[0] ?? null }))}
-              />
+              {canUpload && (
+                <input
+                  className="input"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  onChange={(event) => setFiles((prev) => ({ ...prev, [field.key]: event.target.files?.[0] ?? null }))}
+                />
+              )}
               {!files[field.key] && existingAttachments[field.key] && (
                 <span className="field-hint">Current: {existingAttachments[field.key]!.fileName}</span>
               )}
@@ -255,9 +311,11 @@ export function CustomerFormModal({ mode, existing, onClose, onSaved }: Props) {
           <ErrorAlert error={error} className="field-wide" fallback="Could not save the customer." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create customer' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create customer' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

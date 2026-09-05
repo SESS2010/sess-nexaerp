@@ -9,6 +9,7 @@ import {
 } from '../../api/purchase'
 import type { VendorOption } from '../../api/purchase'
 import type { RfqDetail } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -54,6 +55,13 @@ function writeInvitation(rfqNumber: string, invitation: LocalInvitation): LocalI
 export function RfqDetailPage() {
   const { rfqNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
+
+  // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit, and
+  // InviteVendorAsync additionally demands the PURCHASE_EXECUTIVE role. The
+  // vendor picker behind it reads masters.vendors:view.
+  const canInviteVendor =
+    can(PAGE_KEYS.rfq, 'submit') && hasRole('PURCHASE_EXECUTIVE') && can(PAGE_KEYS.vendors, 'view')
 
   const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -88,11 +96,12 @@ export function RfqDetailPage() {
   }, [load, rfqNumber])
 
   useEffect(() => {
+    if (!canInviteVendor) return
     const handle = window.setTimeout(() => {
-      listVendorOptions(vendorSearch).then(setVendors).catch(() => undefined)
+      listVendorOptions(vendorSearch).then(setVendors).catch(setError)
     }, 250)
     return () => window.clearTimeout(handle)
-  }, [vendorSearch])
+  }, [vendorSearch, canInviteVendor])
 
   const invite = async () => {
     if (!rfq) return
@@ -233,6 +242,7 @@ export function RfqDetailPage() {
         </table>
       </div>
 
+      {canInviteVendor && (
       <div className="card">
         <div className="form-section-title">Invite a vendor</div>
         <div className="form-grid">
@@ -272,6 +282,7 @@ export function RfqDetailPage() {
           </div>
         </div>
       </div>
+      )}
 
       <h2>Invitations issued from this browser</h2>
       <div className="alert">

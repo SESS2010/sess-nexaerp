@@ -9,6 +9,7 @@ import {
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -17,13 +18,17 @@ interface ActionDefinition {
   action: ComparisonAction
   label: string
   tone: 'btn-primary' | 'btn-ghost' | 'btn-warn'
+  /** Action name on purchase.commercial-comparisons required by the endpoint. */
+  permission: string
+  /** Role the service demands on top of the page grant, if any. */
+  role?: string
 }
 
 const ACTIONS: ActionDefinition[] = [
-  { action: 'approve', label: 'Approve', tone: 'btn-primary' },
-  { action: 'request-revision', label: 'Request revision', tone: 'btn-warn' },
-  { action: 'reject', label: 'Reject', tone: 'btn-warn' },
-  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost' },
+  { action: 'approve', label: 'Approve', tone: 'btn-primary', permission: 'approve' },
+  { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', permission: 'request-revision' },
+  { action: 'reject', label: 'Reject', tone: 'btn-warn', permission: 'reject' },
+  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost', permission: 'resubmit', role: 'PURCHASE_MANAGER' },
 ]
 
 function prettyJson(value: string | undefined): string {
@@ -38,6 +43,18 @@ function prettyJson(value: string | undefined): string {
 export function ComparisonDetailPage() {
   const { comparisonNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
+
+  // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit
+  // + the PURCHASE_MANAGER role.
+  const canRecommend = can(PAGE_KEYS.comparisons, 'submit') && hasRole('PURCHASE_MANAGER')
+  // Approve / reject / request-revision / resubmit each need their own action
+  // grant on purchase.commercial-comparisons (full-control is not a wildcard here).
+  const allowedActions = ACTIONS.filter(
+    (definition) =>
+      can(PAGE_KEYS.comparisons, definition.permission) &&
+      (definition.role ? hasRole(definition.role) : true),
+  )
 
   const [comparison, setComparison] = useState<ComparisonDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -258,6 +275,7 @@ export function ComparisonDetailPage() {
         </details>
       )}
 
+      {canRecommend && (
       <div className="card">
         <div className="form-section-title">Recommend a vendor</div>
         <div className="form-grid">
@@ -286,7 +304,9 @@ export function ComparisonDetailPage() {
           </div>
         </div>
       </div>
+      )}
 
+      {allowedActions.length > 0 && (
       <div className="card">
         <div className="form-section-title">Approval</div>
         <label className="field field-wide">
@@ -294,7 +314,7 @@ export function ComparisonDetailPage() {
           <textarea className="input" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </label>
         <div className="action-row">
-          {ACTIONS.map((definition) => (
+          {allowedActions.map((definition) => (
             <button
               key={definition.action}
               type="button"
@@ -311,6 +331,7 @@ export function ComparisonDetailPage() {
           and returns a conflict otherwise.
         </p>
       </div>
+      )}
     </div>
   )
 }

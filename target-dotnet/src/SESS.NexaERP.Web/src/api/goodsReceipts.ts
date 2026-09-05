@@ -17,6 +17,14 @@ export interface GoodsReceiptListQuery {
   gateEntryNumber?: string
   vendorId?: string
   status?: string
+  /**
+   * Lowercase row-DTO field name (grnnumber, gateentrynumber,
+   * purchaseordernumber, vendorname, vendorbilldate, receivedat, status).
+   * The GRN list endpoint does not read these yet, so the server ignores them
+   * until its sort support lands.
+   */
+  sortBy?: string
+  sortDirection?: 'asc' | 'desc'
 }
 
 export function listGoodsReceipts(query: GoodsReceiptListQuery): Promise<GoodsReceiptListResult> {
@@ -27,6 +35,8 @@ export function listGoodsReceipts(query: GoodsReceiptListQuery): Promise<GoodsRe
   if (query.gateEntryNumber) params.set('gateEntryNumber', query.gateEntryNumber)
   if (query.vendorId) params.set('vendorId', query.vendorId)
   if (query.status) params.set('status', query.status)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   return api.get<GoodsReceiptListResult>(`${BASE}/?${params.toString()}`)
 }
 

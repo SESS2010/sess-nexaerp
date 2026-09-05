@@ -6,8 +6,17 @@ import {
 } from '../../api/items'
 import { listVendors } from '../../api/vendors'
 import { AddableSelect } from '../../components/AddableSelect'
+import type { AddableOption } from '../../components/AddableSelect'
 import type { ItemDetail, ReferenceLookup, SubcategoryLookup, UpsertItemRequest } from '../../types/item'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { ErrorAlert } from '../../components/ErrorAlert'
+
+// Page keys for the quick-add masters behind the dropdowns; they are not in
+// PAGE_KEYS. Backend constants: ReferenceMasterEndpoints.CategoriesPage,
+// .SubcategoriesPage and .UomsPage.
+const CATEGORIES_PAGE = 'masters.item-categories'
+const SUBCATEGORIES_PAGE = 'masters.item-subcategories'
+const UOMS_PAGE = 'masters.uoms'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -19,6 +28,7 @@ interface Props {
 const ITEM_TYPES = ['RAW_MATERIAL', 'COMPONENT', 'CONSUMABLE', 'SPARE', 'FINISHED_MACHINE', 'TOOL', 'SERVICE_ITEM', 'NON_STOCK']
 
 export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can } = useSession()
   const [categories, setCategories] = useState<ReferenceLookup[]>([])
   const [subcategories, setSubcategories] = useState<SubcategoryLookup[]>([])
   const [uoms, setUoms] = useState<ReferenceLookup[]>([])
@@ -71,6 +81,12 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
       setSubcategories([])
     }
   }, [form.categoryId])
+
+  // masters.items:update also covers the vendor-link PUT; the image POST needs
+  // masters.items:upload-attachment.
+  const canSave = can(PAGE_KEYS.items, mode === 'create' ? 'create' : 'update')
+  const canLinkVendors = can(PAGE_KEYS.items, 'update')
+  const canUploadImage = can(PAGE_KEYS.items, 'upload-attachment')
 
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }))
@@ -132,8 +148,10 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
       }
       const detail = mode === 'create' ? await createItem(body) : await updateItem(existing!.ItemCode, body)
 
-      await setItemVendors(detail.ItemCode, [...selectedVendors])
-      if (imageFile) {
+      if (canLinkVendors) {
+        await setItemVendors(detail.ItemCode, [...selectedVendors])
+      }
+      if (imageFile && canUploadImage) {
         await uploadItemImage(detail.ItemCode, imageFile)
       }
       onSaved(detail.ItemCode)
@@ -160,7 +178,8 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Item name *</span>
             <input className="input" required value={form.name} onChange={set('name')} />
           </label>
-          <AddableSelect
+          <LookupSelect
+            canCreate={can(CATEGORIES_PAGE, 'create')}
             label="Category"
             required
             value={form.categoryId}
@@ -173,7 +192,8 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
               return { value: created.Id, label: created.Name }
             }}
           />
-          <AddableSelect
+          <LookupSelect
+            canCreate={can(SUBCATEGORIES_PAGE, 'create')}
             label="Subcategory"
             value={form.subcategoryId}
             disabled={!form.categoryId}
@@ -193,7 +213,8 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
               {ITEM_TYPES.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
-          <AddableSelect
+          <LookupSelect
+            canCreate={can(UOMS_PAGE, 'create')}
             label="UOM"
             required
             value={form.uom}
@@ -247,16 +268,18 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Estimated price</span>
             <input className="input" type="number" min="0" step="0.01" value={form.price} onChange={set('price')} />
           </label>
-          <label className="field">
-            <span className="field-label">Item image (JPEG/PNG/WebP, max 5 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
-            />
-            {!imageFile && existing?.ImageFileName && <span className="field-hint">Current: {existing.ImageFileName}</span>}
-          </label>
+          {canUploadImage && (
+            <label className="field">
+              <span className="field-label">Item image (JPEG/PNG/WebP, max 5 MB)</span>
+              <input
+                className="input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+              />
+              {!imageFile && existing?.ImageFileName && <span className="field-hint">Current: {existing.ImageFileName}</span>}
+            </label>
+          )}
           <label className="field">
             <span className="field-label">Preferred vendor</span>
             <select className="input" value={form.preferredVendor} onChange={set('preferredVendor')}>
@@ -266,40 +289,86 @@ export function ItemFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-hint">Choose from the selected vendors below.</span>
           </label>
 
-          <div className="field-wide form-section-title">Vendors supplying this item ({selectedVendors.size} selected)</div>
-          <div className="field-wide">
-            <input
-              className="input mb-2 w-full"
-              placeholder="Filter vendors…"
-              value={vendorFilter}
-              onChange={(event) => setVendorFilter(event.target.value)}
-            />
-            <div className="max-h-44 overflow-y-auto rounded-lg border border-line bg-white p-2">
-              {filteredVendors.length === 0 && <div className="p-2 text-[13px] text-ink-faint">No vendors match.</div>}
-              {filteredVendors.map((vendor) => (
-                <label key={vendor.VendorCode} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent-soft">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-blue-700"
-                    checked={selectedVendors.has(vendor.VendorCode)}
-                    onChange={() => toggleVendor(vendor.VendorCode)}
-                  />
-                  <span className="mono text-[12.5px]">{vendor.VendorCode}</span>
-                  <span className="text-[13px]">{vendor.Name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
+          {canLinkVendors && (
+            <>
+              <div className="field-wide form-section-title">Vendors supplying this item ({selectedVendors.size} selected)</div>
+              <div className="field-wide">
+                <input
+                  className="input mb-2 w-full"
+                  placeholder="Filter vendors…"
+                  value={vendorFilter}
+                  onChange={(event) => setVendorFilter(event.target.value)}
+                />
+                <div className="max-h-44 overflow-y-auto rounded-lg border border-line bg-white p-2">
+                  {filteredVendors.length === 0 && <div className="p-2 text-[13px] text-ink-faint">No vendors match.</div>}
+                  {filteredVendors.map((vendor) => (
+                    <label key={vendor.VendorCode} className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent-soft">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-blue-700"
+                        checked={selectedVendors.has(vendor.VendorCode)}
+                        onChange={() => toggleVendor(vendor.VendorCode)}
+                      />
+                      <span className="mono text-[12.5px]">{vendor.VendorCode}</span>
+                      <span className="text-[13px]">{vendor.Name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
           <ErrorAlert error={error} className="field-wide" fallback="Could not save the item." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create item' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create item' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>
     </div>
+  )
+}
+
+interface LookupSelectProps {
+  canCreate: boolean
+  label: string
+  required?: boolean
+  disabled?: boolean
+  value: string
+  options: AddableOption[]
+  placeholder?: string
+  onChange: (value: string) => void
+  onCreate: (name: string, code: string, extra: string) => Promise<AddableOption>
+  extraField?: { label: string; options: string[] }
+  addHint?: string
+}
+
+/**
+ * AddableSelect when the caller may create the backing master record, otherwise
+ * a plain dropdown — the quick-add "+" is hidden rather than disabled.
+ */
+function LookupSelect({ canCreate, ...props }: LookupSelectProps) {
+  if (canCreate) return <AddableSelect {...props} />
+  const { label, required, disabled, value, options, placeholder, onChange } = props
+  return (
+    <label className="field">
+      <span className="field-label">{label}{required ? ' *' : ''}</span>
+      <select
+        className="input"
+        required={required}
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{placeholder ?? 'Select…'}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
   )
 }

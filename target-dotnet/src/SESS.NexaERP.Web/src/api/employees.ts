@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, type PagedResponse } from './client'
 import type {
   CreateEmployeeRequest,
   EmployeeDetail,
@@ -18,15 +18,20 @@ export interface EmployeeListQuery {
   pageSize: number
   search?: string
   status?: string
+  sortBy?: string
+  sortDirection?: 'asc' | 'desc'
 }
 
-export function listEmployees(query: EmployeeListQuery): Promise<EmployeeSummary[]> {
+/** Paged since main b0b2a91: TotalCount/PageNumber/PageSize/Items, each row carrying its Version. */
+export function listEmployees(query: EmployeeListQuery): Promise<PagedResponse<EmployeeSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
-  return api.get<EmployeeSummary[]>(`${BASE}/?${params.toString()}`)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
+  return api.get<PagedResponse<EmployeeSummary>>(`${BASE}/?${params.toString()}`)
 }
 
 export function getEmployeeLookups(): Promise<EmployeeMasterLookups> {
@@ -50,17 +55,22 @@ export function updateEmployee(employeeCode: string, body: UpdateEmployeeRequest
   return api.put<EmployeeDetail>(`${BASE}/${encodeURIComponent(employeeCode)}`, body)
 }
 
-export function changeApprovalStatus(employeeCode: string, action: ApprovalAction, remarks: string) {
-  return api.post<{ EmployeeCode: string; ApprovalStatus: string }>(
+/**
+ * Every state change carries the Version the screen read. The server answers
+ * 409 "Stale employee version" when someone else changed the record first;
+ * the caller reloads and the user decides again on the current state.
+ */
+export function changeApprovalStatus(employeeCode: string, action: ApprovalAction, remarks: string, version: number) {
+  return api.post<{ EmployeeCode: string; ApprovalStatus: string; Version: number }>(
     `${BASE}/${encodeURIComponent(employeeCode)}/${action}`,
-    { Remarks: remarks },
+    { Remarks: remarks, Version: version },
   )
 }
 
-export function setLoginStatus(employeeCode: string, enable: boolean, reason: string) {
-  return api.post<{ EmployeeCode: string; LoginEnabled: boolean; Status: string }>(
+export function setLoginStatus(employeeCode: string, enable: boolean, reason: string, version: number) {
+  return api.post<{ EmployeeCode: string; LoginEnabled: boolean; Status: string; Version: number }>(
     `${BASE}/${encodeURIComponent(employeeCode)}/${enable ? 'activate-login' : 'deactivate-login'}`,
-    { Reason: reason },
+    { Reason: reason, Version: version },
   )
 }
 

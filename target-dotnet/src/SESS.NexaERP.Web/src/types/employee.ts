@@ -13,6 +13,8 @@ export interface EmployeeSummary {
   Status: string
   LoginEnabled: boolean
   ApprovalStatus: string
+  /** Optimistic-concurrency token; every write must send the value it read. */
+  Version: number
 }
 
 export interface EmployeeRoleSummary {
@@ -42,6 +44,7 @@ export interface EmployeeDetail {
   LoginEnabled: boolean
   ApprovalStatus: string
   Roles: EmployeeRoleSummary[]
+  Version: number
 }
 
 export interface EmployeeHistorySummary {
@@ -90,4 +93,6 @@ export interface UpdateEmployeeRequest {
   OfficialEmail: string | null
   MobileNumber: string | null
   Reason: string
+  /** The Version read with the detail; a stale value is refused with 409. */
+  Version: number
 }

@@ -11,9 +11,35 @@ import type {
   PurchaseRequisitionDetail,
   PurchaseRequisitionHistorySummary,
 } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { PurchaseRequisitionFormModal } from './PurchaseRequisitionFormModal'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
+import { ApiError } from '../../api/client'
+
+/**
+ * Who has the PR next, in words a requester or approver understands. The API
+ * does not name the awaited approver on the detail, so this is derived from
+ * the status and the approval route the server chose.
+ */
+function describeNextStep(pr: PurchaseRequisitionDetail): string {
+  switch (pr.Status) {
+    case 'Submitted': return 'Waiting for department verification.'
+    case 'PendingApproval':
+      if (pr.ApprovalRoute === 'DEPARTMENT_THEN_TD') return 'Now with the department approver, then the Technical Director.'
+      if (pr.ApprovalRoute === 'DEPARTMENT_THEN_MD') return 'Now with the department approver, then the Managing Director.'
+      return 'Now with the department approver.'
+    case 'StockCheckPending': return 'Fully approved. Now with Stores for the stock check.'
+    case 'NotAvailable':
+    case 'PartiallyAvailable': return 'Stock checked. Shortage handed to Purchase for RFQ.'
+    case 'FullyAvailable':
+    case 'Reserved': return 'Stock checked. Quantity reserved from stores.'
+    case 'PurchaseHandoffCreated': return 'Handed to Purchase for RFQ.'
+    case 'RevisionRequested': return 'Back with the requester for revision.'
+    case 'Rejected': return 'Rejected. The requester has been informed.'
+    default: return `Status is now ${pr.Status}.`
+  }
+}
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 interface ActionDefinition {
@@ -21,37 +47,56 @@ interface ActionDefinition {
   label: string
   tone: 'btn-primary' | 'btn-ghost' | 'btn-warn'
   requiresRemarks: boolean
+  /** Page key + action the API demands for this transition (RequirePagePermission). */
+  pageKey: string
+  permission: string
 }
+
+// Submit/verify/resubmit/cancel sit on purchase.requisitions; approve, reject,
+// request-revision and hold sit on purchase.requisition-approvals, which is an
+// explicit-grant page (full-control is not a wildcard there).
+const SUBMIT_PERMISSION = { pageKey: PAGE_KEYS.requisitions, permission: 'submit' }
+const VERIFY_PERMISSION = { pageKey: PAGE_KEYS.requisitions, permission: 'verify' }
+const RESUBMIT_PERMISSION = { pageKey: PAGE_KEYS.requisitions, permission: 'resubmit' }
+const CANCEL_PERMISSION = { pageKey: PAGE_KEYS.requisitions, permission: 'cancel' }
+const APPROVE_PERMISSION = { pageKey: PAGE_KEYS.approvals, permission: 'approve' }
+const REJECT_PERMISSION = { pageKey: PAGE_KEYS.approvals, permission: 'reject' }
+const REVISION_PERMISSION = { pageKey: PAGE_KEYS.approvals, permission: 'request-revision' }
+// Hold is gated with PagePermissionActions.Update on the approvals page.
+const HOLD_PERMISSION = { pageKey: PAGE_KEYS.approvals, permission: 'update' }
 
 // The API is the authority on which transition is legal; this list only keeps
 // obviously-wrong buttons off the screen. An unexpected transition still comes
 // back as a 409 with a readable message.
 const ACTIONS_BY_STATUS: Record<string, ActionDefinition[]> = {
   Draft: [
-    { action: 'submit', label: 'Submit for verification', tone: 'btn-primary', requiresRemarks: false },
-    { action: 'cancel', label: 'Cancel', tone: 'btn-warn', requiresRemarks: true },
+    { action: 'submit', label: 'Submit for verification', tone: 'btn-primary', requiresRemarks: false, ...SUBMIT_PERMISSION },
+    { action: 'cancel', label: 'Cancel', tone: 'btn-warn', requiresRemarks: true, ...CANCEL_PERMISSION },
   ],
+  // Approve/reject/request-revision all go through the same server-side decision
+  // path, which refuses anything that is not already PendingApproval. Out of
+  // Submitted the only legal decision is the department verify, so the other
+  // three are not offered here — they could only ever come back as a 409.
   Submitted: [
-    { action: 'verify', label: 'Department verify', tone: 'btn-primary', requiresRemarks: false },
-    { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'reject', label: 'Reject', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true },
+    { action: 'verify', label: 'Department verify', tone: 'btn-primary', requiresRemarks: false, ...VERIFY_PERMISSION },
+    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true, ...HOLD_PERMISSION },
   ],
+  // The verify step moves Submitted straight to PendingApproval, so no PR is
+  // ever left sitting in DepartmentVerified. The status is kept here only so
+  // that a legacy record in it is not stranded without any control; hold is the
+  // one transition the server accepts from any status.
   DepartmentVerified: [
-    { action: 'approve', label: 'Approve', tone: 'btn-primary', requiresRemarks: false },
-    { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'reject', label: 'Reject', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true },
+    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true, ...HOLD_PERMISSION },
   ],
   PendingApproval: [
-    { action: 'approve', label: 'Approve', tone: 'btn-primary', requiresRemarks: false },
-    { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'reject', label: 'Reject', tone: 'btn-warn', requiresRemarks: true },
-    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true },
+    { action: 'approve', label: 'Approve', tone: 'btn-primary', requiresRemarks: false, ...APPROVE_PERMISSION },
+    { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', requiresRemarks: true, ...REVISION_PERMISSION },
+    { action: 'reject', label: 'Reject', tone: 'btn-warn', requiresRemarks: true, ...REJECT_PERMISSION },
+    { action: 'hold', label: 'Hold', tone: 'btn-ghost', requiresRemarks: true, ...HOLD_PERMISSION },
   ],
   RevisionRequested: [
-    { action: 'resubmit', label: 'Resubmit', tone: 'btn-primary', requiresRemarks: true },
-    { action: 'cancel', label: 'Cancel', tone: 'btn-warn', requiresRemarks: true },
+    { action: 'resubmit', label: 'Resubmit', tone: 'btn-primary', requiresRemarks: true, ...RESUBMIT_PERMISSION },
+    { action: 'cancel', label: 'Cancel', tone: 'btn-warn', requiresRemarks: true, ...CANCEL_PERMISSION },
   ],
 }
 
@@ -94,6 +139,7 @@ function HistoryTable({ rows, empty }: { rows: PurchaseRequisitionHistorySummary
 export function PurchaseRequisitionDetailPage() {
   const { prNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can } = useSession()
 
   const [detail, setDetail] = useState<PurchaseRequisitionDetail | null>(null)
   const [statusHistory, setStatusHistory] = useState<PurchaseRequisitionHistorySummary[]>([])
@@ -142,8 +188,23 @@ export function PurchaseRequisitionDetailPage() {
       })
       setDetail(updated)
       setRemarks('')
-      setNotice(`${definition.label} succeeded. Status is now ${updated.Status}.`)
-      void load()
+      const next = describeNextStep(updated)
+      const summary = `${updated.PrNumber} — ${definition.label} recorded. ${next}`
+      setNotice(summary)
+      // An approver's visibility ends with their step: the PR has moved on to
+      // the next person, so a reload comes back 404/403. That is success, not
+      // "not found" — return them to the list with the outcome instead.
+      try {
+        setDetail(await getPurchaseRequisition(updated.PrNumber))
+      } catch (reloadError) {
+        if (reloadError instanceof ApiError && (reloadError.status === 404 || reloadError.status === 403)) {
+          navigate('/purchase/requisitions', { replace: true, state: { notice: `${summary} It is no longer in your queue.` } })
+          return
+        }
+        throw reloadError
+      }
+      getPurchaseRequisitionStatusHistory(prNumber).then(setStatusHistory).catch(() => setStatusHistory([]))
+      getPurchaseRequisitionApprovalHistory(prNumber).then(setApprovalHistory).catch(() => setApprovalHistory([]))
     } catch (err) {
       // A 409 here is the fail-closed approval-configuration refusal or a stale
       // Version; ErrorAlert turns both into something the requester can act on.
@@ -168,8 +229,12 @@ export function PurchaseRequisitionDetailPage() {
     )
   }
 
-  const actions = ACTIONS_BY_STATUS[detail.Status] ?? []
-  const canEdit = EDITABLE_STATUSES.has(detail.Status)
+  // Status decides which transitions make sense; the page grant decides which of
+  // those this user may issue. A control the user cannot issue is not rendered.
+  const actions = (ACTIONS_BY_STATUS[detail.Status] ?? []).filter((definition) =>
+    can(definition.pageKey, definition.permission),
+  )
+  const canEdit = EDITABLE_STATUSES.has(detail.Status) && can(PAGE_KEYS.requisitions, 'update')
 
   return (
     <div className="page">
@@ -187,6 +252,9 @@ export function PurchaseRequisitionDetailPage() {
         </div>
         <div className="action-row">
           <StatusBadge value={detail.Status} />
+          {detail.Status === 'StockCheckPending' && can(PAGE_KEYS.stockCheck, 'verify') && (
+            <Link to={`/stores/stock-check/${encodeURIComponent(detail.PrNumber)}`} className="btn btn-primary">Stock check</Link>
+          )}
           {canEdit && (
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>Edit draft</button>
           )}

@@ -5,27 +5,31 @@ import type { VendorAction } from '../../api/vendors'
 import { getVendorItems } from '../../api/items'
 import type { VendorSuppliedItem } from '../../types/item'
 import type { VendorDetail } from '../../types/vendor'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 // Which workflow actions make sense from each approval status. The backend is
 // the authority (permission + state checks); this only trims the button row.
-const ACTIONS: { action: VendorAction; label: string; from: string[] }[] = [
-  { action: 'submit', label: 'Submit', from: ['Draft'] },
-  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested', 'Verified'] },
-  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested', 'Verified'] },
-  { action: 'request-clarification', label: 'Request clarification', from: ['Pending Approval'] },
-  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'] },
-  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'] },
-  { action: 'hold', label: 'Hold', from: ['Approved'] },
-  { action: 'reactivate', label: 'Reactivate', from: ['Approved'] },
-  { action: 'deactivate', label: 'Deactivate', from: ['Approved'] },
-  { action: 'blacklist', label: 'Blacklist', from: ['Approved'] },
+// `permission` is the masters.vendors action each MapVendorAction route requires
+// (hold/blacklist/deactivate share Deactivate; reactivate uses Update).
+const ACTIONS: { action: VendorAction; label: string; from: string[]; permission: string }[] = [
+  { action: 'submit', label: 'Submit', from: ['Draft'], permission: 'submit' },
+  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested', 'Verified'], permission: 'approve' },
+  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested', 'Verified'], permission: 'reject' },
+  { action: 'request-clarification', label: 'Request clarification', from: ['Pending Approval'], permission: 'request-clarification' },
+  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'], permission: 'request-revision' },
+  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'], permission: 'resubmit' },
+  { action: 'hold', label: 'Hold', from: ['Approved'], permission: 'deactivate' },
+  { action: 'reactivate', label: 'Reactivate', from: ['Approved'], permission: 'update' },
+  { action: 'deactivate', label: 'Deactivate', from: ['Approved'], permission: 'deactivate' },
+  { action: 'blacklist', label: 'Blacklist', from: ['Approved'], permission: 'deactivate' },
 ]
 
 export function VendorDetailPage() {
   const { vendorCode = '' } = useParams()
+  const { can } = useSession()
   const [detail, setDetail] = useState<VendorDetail | null>(null)
   const [suppliedItems, setSuppliedItems] = useState<VendorSuppliedItem[]>([])
   const [error, setError] = useState<unknown>(null)
@@ -82,8 +86,10 @@ export function VendorDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
+            {can(PAGE_KEYS.vendors, 'update') && (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.vendors, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runAction(item.action, item.label)}>
                 {item.label}
               </button>
@@ -120,9 +126,9 @@ export function VendorDetailPage() {
           <Field label="Account number" value={parseBankMetadata(detail.BankMetadata).accountNumber ?? '—'} mono />
           <Field label="IFSC" value={parseBankMetadata(detail.BankMetadata).ifsc ?? '—'} mono />
           <Field label="Branch" value={parseBankMetadata(detail.BankMetadata).branch ?? '—'} />
-          <AttachmentField label="GST certificate" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).gstCertificate} />
-          <AttachmentField label="Bank cheque leaf" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).bankLeaf} />
-          <AttachmentField label="PAN card" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).panCard} />
+          <AttachmentField label="GST certificate" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).gstCertificate} canDownload={can(PAGE_KEYS.vendors, 'download')} />
+          <AttachmentField label="Bank cheque leaf" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).bankLeaf} canDownload={can(PAGE_KEYS.vendors, 'download')} />
+          <AttachmentField label="PAN card" attachment={parseAttachmentMetadata(detail.AttachmentMetadataJson).panCard} canDownload={can(PAGE_KEYS.vendors, 'download')} />
         </div>
       )}
 
@@ -163,11 +169,15 @@ export function VendorDetailPage() {
   )
 }
 
-function AttachmentField({ label, attachment }: { label: string; attachment?: { id: string; fileName: string } }) {
+// Without masters.vendors:download the file name is still shown, just not as a
+// download link (GET /vendors/attachments/{id} requires the grant).
+function AttachmentField({ label, attachment, canDownload }: { label: string; attachment?: { id: string; fileName: string }; canDownload: boolean }) {
   return (
     <div className="detail-field">
       <div className="field-label">{label}</div>
-      {attachment ? (
+      {attachment && !canDownload ? (
+        <div>{attachment.fileName}</div>
+      ) : attachment ? (
         <button
           type="button"
           className="link-button"

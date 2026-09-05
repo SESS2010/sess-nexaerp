@@ -10,6 +10,7 @@ import {
   rememberDoc,
 } from '../../api/purchase'
 import type { PurchaseOrderDetail } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -19,6 +20,20 @@ type Pane = 'workflow' | 'amend' | 'cancel'
 export function PurchaseOrderDetailPage() {
   const { poNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
+
+  // Every command below is on purchase.po, where full-control is not a
+  // wildcard, so each action is checked on its own. The roles are the ones
+  // EfRev869BPurchaseService demands on top of the page grant.
+  const canSubmit = can(PAGE_KEYS.purchaseOrders, 'submit') && hasRole('PURCHASE_MANAGER')
+  const canApprove = can(PAGE_KEYS.purchaseOrders, 'approve')
+  const canReject = can(PAGE_KEYS.purchaseOrders, 'reject')
+  const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue') && hasRole('PURCHASE_MANAGER')
+  const canAmend = can(PAGE_KEYS.purchaseOrders, 'update') && hasRole('PURCHASE_MANAGER')
+  const canCancel =
+    can(PAGE_KEYS.purchaseOrders, 'cancel') &&
+    (hasRole('TECHNICAL_DIRECTOR') || hasRole('MANAGING_DIRECTOR'))
+  const canWorkflow = canSubmit || canApprove || canReject || canIssue
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -170,6 +185,12 @@ export function PurchaseOrderDetailPage() {
   const lines = po.Lines ?? []
   const masked = po.TotalPayableValue === undefined
 
+  // A pane is only offered when the session may act inside it; the selected
+  // pane falls back to the first one that is still allowed.
+  const paneAllowed: Record<Pane, boolean> = { workflow: canWorkflow, amend: canAmend, cancel: canCancel }
+  const availablePanes = (['workflow', 'amend', 'cancel'] as Pane[]).filter((name) => paneAllowed[name])
+  const activePane: Pane | null = paneAllowed[pane] ? pane : availablePanes[0] ?? null
+
   return (
     <div className="page">
       <div className="breadcrumbs">
@@ -271,31 +292,47 @@ export function PurchaseOrderDetailPage() {
         </table>
       </div>
 
-      <div className="tabs" style={{ marginTop: 24 }}>
-        <button type="button" className={`tab${pane === 'workflow' ? ' active' : ''}`} onClick={() => setPane('workflow')}>Workflow</button>
-        <button type="button" className={`tab${pane === 'amend' ? ' active' : ''}`} onClick={() => setPane('amend')}>Amend</button>
-        <button type="button" className={`tab${pane === 'cancel' ? ' active' : ''}`} onClick={() => setPane('cancel')}>Cancel</button>
-      </div>
+      {availablePanes.length > 0 && (
+        <div className="tabs" style={{ marginTop: 24 }}>
+          {canWorkflow && (
+            <button type="button" className={`tab${activePane === 'workflow' ? ' active' : ''}`} onClick={() => setPane('workflow')}>Workflow</button>
+          )}
+          {canAmend && (
+            <button type="button" className={`tab${activePane === 'amend' ? ' active' : ''}`} onClick={() => setPane('amend')}>Amend</button>
+          )}
+          {canCancel && (
+            <button type="button" className={`tab${activePane === 'cancel' ? ' active' : ''}`} onClick={() => setPane('cancel')}>Cancel</button>
+          )}
+        </div>
+      )}
 
-      {pane === 'workflow' && (
+      {activePane === 'workflow' && (
         <div className="card">
           <label className="field field-wide">
             <span className="field-label">Remarks *</span>
             <textarea className="input" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </label>
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => void runSimple('submit', 'Submit')}>
-              {busy === 'submit' ? 'Working…' : 'Submit for approval'}
-            </button>
-            <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runApproval('approve', 'Approve')}>
-              {busy === 'approve' ? 'Working…' : 'Approve'}
-            </button>
-            <button type="button" className="btn btn-warn" disabled={!!busy} onClick={() => void runApproval('reject', 'Reject')}>
-              {busy === 'reject' ? 'Working…' : 'Reject'}
-            </button>
-            <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runSimple('issue', 'Issue')}>
-              {busy === 'issue' ? 'Working…' : 'Issue to vendor'}
-            </button>
+            {canSubmit && (
+              <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => void runSimple('submit', 'Submit')}>
+                {busy === 'submit' ? 'Working…' : 'Submit for approval'}
+              </button>
+            )}
+            {canApprove && (
+              <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runApproval('approve', 'Approve')}>
+                {busy === 'approve' ? 'Working…' : 'Approve'}
+              </button>
+            )}
+            {canReject && (
+              <button type="button" className="btn btn-warn" disabled={!!busy} onClick={() => void runApproval('reject', 'Reject')}>
+                {busy === 'reject' ? 'Working…' : 'Reject'}
+              </button>
+            )}
+            {canIssue && (
+              <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runSimple('issue', 'Issue')}>
+                {busy === 'issue' ? 'Working…' : 'Issue to vendor'}
+              </button>
+            )}
           </div>
           <p className="field-hint">
             Sent with record version {po.Version}. Issue is the point the PO becomes a commitment to
@@ -304,7 +341,7 @@ export function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      {pane === 'amend' && (
+      {activePane === 'amend' && (
         <div className="card">
           <div className="form-grid">
             <label className="field field-wide">
@@ -327,7 +364,7 @@ export function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      {pane === 'cancel' && (
+      {activePane === 'cancel' && (
         <div className="card">
           <label className="field field-wide">
             <span className="field-label">Cancellation reason *</span>

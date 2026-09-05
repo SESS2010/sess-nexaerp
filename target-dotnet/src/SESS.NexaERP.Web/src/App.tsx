@@ -2,7 +2,10 @@ import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSection } from './components/NavSection'
 import { UserMenu } from './components/UserMenu'
 import { LoginPage } from './features/auth/LoginPage'
+import { HomePage } from './features/home/HomePage'
 import { RequireAuth } from './features/auth/RequireAuth'
+import { PAGE_KEYS, SessionProvider, useSession } from './features/auth/SessionContext'
+import { QuotationListPage } from './features/purchase/QuotationListPage'
 import { EmployeeListPage } from './features/employees/EmployeeListPage'
 import { EmployeeDetailPage } from './features/employees/EmployeeDetailPage'
 import { VendorListPage } from './features/vendors/VendorListPage'
@@ -26,7 +29,10 @@ import { GateEntryDetailPage } from './features/stores/GateEntryDetailPage'
 import { GoodsReceiptListPage } from './features/stores/GoodsReceiptListPage'
 import { GoodsReceiptDetailPage } from './features/stores/GoodsReceiptDetailPage'
 import { QcQueuePage } from './features/qc/QcQueuePage'
+import { QcInspectPage } from './features/qc/QcInspectPage'
 import { QcInspectionPage } from './features/qc/QcInspectionPage'
+import { ConcessionPage } from './features/qc/ConcessionPage'
+import { StockCheckPage } from './features/stores/StockCheckPage'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/vendors', 'Vendor Master'],
@@ -38,9 +44,12 @@ const TITLES: [prefix: string, title: string][] = [
   ['/purchase/quotations', 'Vendor Quotations'],
   ['/purchase/comparisons', 'Commercial Comparison'],
   ['/purchase/purchase-orders', 'Purchase Order'],
+  ['/stores/stock-check', 'Stock Check'],
   ['/stores/gate-entries', 'Gate Entry'],
   ['/stores/goods-receipts', 'GRN'],
   ['/qc/inspections', 'QC / Inspection'],
+  ['/qc/inspect', 'QC / Inspection'],
+  ['/qc/concessions', 'QC Concessions'],
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
@@ -50,10 +59,12 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const match = TITLES.find(([prefix]) => location.pathname.startsWith(prefix))
-  const title = match ? match[1] : 'Employee Master'
+  const title = match ? match[1] : 'Home'
   const inPurchase = location.pathname.startsWith('/purchase')
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')
+  // Session permissions ("page:Action") hide screens the role cannot View.
+  const { can } = useSession()
 
   return (
     <div className="app-shell">
@@ -67,15 +78,15 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores}>
-            <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>
-            <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>
-            <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>
-            <NavLink to="/items" className={navLinkClass}>Item Master</NavLink>
+            {can(PAGE_KEYS.employees) && <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>}
+            {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
+            {can(PAGE_KEYS.customers) && <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>}
+            {can(PAGE_KEYS.items) && <NavLink to="/items" className={navLinkClass}>Item Master</NavLink>}
             <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           </NavSection>
 
           <NavSection id="sales" label="Sales" defaultOpen={inSales}>
-            <NavLink to="/sales/customer-po" className={navLinkClass}>Customer PO</NavLink>
+            {can(PAGE_KEYS.customerPo) && <NavLink to="/sales/customer-po" className={navLinkClass}>Customer PO</NavLink>}
             <span className="nav-link disabled">Contract Review</span>
             <span className="nav-link disabled">Contract Confirmation</span>
             <span className="nav-link disabled">Order Acceptance (OA)</span>
@@ -84,18 +95,20 @@ function Shell({ children }: { children: React.ReactNode }) {
           </NavSection>
 
           <NavSection id="purchase" label="Purchase" defaultOpen={inPurchase}>
-            <NavLink to="/purchase/requisitions" className={navLinkClass}>Purchase Requisition</NavLink>
-            <NavLink to="/purchase/rfqs" className={navLinkClass}>RFQ</NavLink>
-            <NavLink to="/purchase/quotations" className={navLinkClass}>Vendor Quotations</NavLink>
-            <NavLink to="/purchase/comparisons" className={navLinkClass}>Comparison</NavLink>
-            <NavLink to="/purchase/purchase-orders" className={navLinkClass}>Purchase Order</NavLink>
+            {can(PAGE_KEYS.requisitions) && <NavLink to="/purchase/requisitions" className={navLinkClass}>Purchase Requisition</NavLink>}
+            {can(PAGE_KEYS.rfq) && <NavLink to="/purchase/rfqs" className={navLinkClass}>RFQ</NavLink>}
+            {can(PAGE_KEYS.quotations) && <NavLink to="/purchase/quotations" className={navLinkClass}>Vendor Quotations</NavLink>}
+            {can(PAGE_KEYS.comparisons) && <NavLink to="/purchase/comparisons" className={navLinkClass}>Comparison</NavLink>}
+            {can(PAGE_KEYS.purchaseOrders) && <NavLink to="/purchase/purchase-orders" className={navLinkClass}>Purchase Order</NavLink>}
             <span className="nav-link disabled">Material Follow-up</span>
           </NavSection>
 
           <NavSection id="stores" label="Stores" defaultOpen={inStores}>
-            <NavLink to="/stores/gate-entries" className={navLinkClass}>Gate Entry</NavLink>
-            <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>
-            <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>
+            {can(PAGE_KEYS.stockCheck, 'verify') && <NavLink to="/stores/stock-check" className={navLinkClass}>Stock Check</NavLink>}
+            {can(PAGE_KEYS.gateEntry) && <NavLink to="/stores/gate-entries" className={navLinkClass}>Gate Entry</NavLink>}
+            {can(PAGE_KEYS.grn) && <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>}
+            {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
+            {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
             <span className="nav-link disabled">MIR / Issue</span>
           </NavSection>
         </nav>
@@ -119,9 +132,11 @@ export default function App() {
         path="*"
         element={
           <RequireAuth>
+            <SessionProvider>
             <Shell>
               <Routes>
-                <Route path="/" element={<Navigate to="/employees" replace />} />
+                <Route path="/" element={<HomePage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
                 <Route path="/employees" element={<EmployeeListPage />} />
                 <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
                 <Route path="/vendors" element={<VendorListPage />} />
@@ -135,19 +150,26 @@ export default function App() {
                 <Route path="/purchase/requisitions/:prNumber" element={<PurchaseRequisitionDetailPage />} />
                 <Route path="/purchase/rfqs" element={<RfqListPage />} />
                 <Route path="/purchase/rfqs/:rfqNumber" element={<RfqDetailPage />} />
-                <Route path="/purchase/quotations" element={<QuotationPage />} />
+                <Route path="/purchase/quotations" element={<QuotationListPage />} />
+                <Route path="/purchase/quotations/new" element={<QuotationPage />} />
                 <Route path="/purchase/comparisons" element={<ComparisonListPage />} />
                 <Route path="/purchase/comparisons/:comparisonNumber" element={<ComparisonDetailPage />} />
                 <Route path="/purchase/purchase-orders" element={<PurchaseOrderListPage />} />
                 <Route path="/purchase/purchase-orders/:poNumber" element={<PurchaseOrderDetailPage />} />
+                <Route path="/stores/stock-check" element={<StockCheckPage />} />
+                <Route path="/stores/stock-check/:prNumber" element={<StockCheckPage />} />
                 <Route path="/stores/gate-entries" element={<GateEntryListPage />} />
                 <Route path="/stores/gate-entries/:id" element={<GateEntryDetailPage />} />
                 <Route path="/stores/goods-receipts" element={<GoodsReceiptListPage />} />
                 <Route path="/stores/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
-                <Route path="/qc/inspections/:id" element={<QcInspectionPage />} />
+                <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
+                <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />
+                <Route path="/qc/concessions" element={<ConcessionPage />} />
+                <Route path="/qc/concessions/:number" element={<ConcessionPage />} />
               </Routes>
             </Shell>
+            </SessionProvider>
           </RequireAuth>
         }
       />

@@ -6,6 +6,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 function yesNo(value: boolean | null | undefined): string {
   if (value === null || value === undefined) return 'Not applicable'
@@ -23,6 +24,7 @@ function parseIso(json: string): IsoReceiptVerification | null {
 export function GateEntryDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
 
   const [gate, setGate] = useState<GateEntryResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -84,6 +86,14 @@ export function GateEntryDetailPage() {
 
   const iso = parseIso(gate.IsoReceiptVerificationJson)
   const isDraft = gate.Status === 'DRAFT'
+  // Every Gate Entry mutation is inventory.grn (an explicit-grant page) plus
+  // EfGateEntryService.ActorRole(), which accepts only STORES_EXECUTIVE / STORES_ASSISTANT.
+  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
+  // Editing re-reads the source PO (purchase.po:view) to list its lines; without that
+  // grant the modal can load nothing and the draft can never be saved.
+  const canEdit =
+    can(PAGE_KEYS.gateEntry, 'update') && storesOperator && can(PAGE_KEYS.purchaseOrders, 'view')
+  const canFinalize = can(PAGE_KEYS.gateEntry, 'submit') && storesOperator
 
   return (
     <div className="page">
@@ -102,7 +112,7 @@ export function GateEntryDetailPage() {
         </div>
         <div className="action-row">
           <StatusBadge value={gate.Status} />
-          {isDraft && (
+          {isDraft && canEdit && (
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>Edit draft</button>
           )}
         </div>
@@ -171,7 +181,7 @@ export function GateEntryDetailPage() {
         </table>
       </div>
 
-      {isDraft && (
+      {isDraft && canFinalize && (
         <div className="card">
           <div className="form-section-title">Finalize</div>
           <p className="field-hint">

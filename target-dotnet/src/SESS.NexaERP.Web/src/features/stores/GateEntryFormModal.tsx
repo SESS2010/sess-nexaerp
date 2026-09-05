@@ -14,6 +14,7 @@ import type {
 import { DEFAULT_ISO_VERIFICATION, TRANSPORT_MODES } from '../../types/stores'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftLine {
   purchaseOrderLineId: string
@@ -53,6 +54,7 @@ interface Props {
 }
 
 export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can, hasRole } = useSession()
   const [poNumber, setPoNumber] = useState(existing?.PurchaseOrderNumber ?? '')
   const [po, setPo] = useState<SourcePurchaseOrder | null>(null)
   const [loadingPo, setLoadingPo] = useState(false)
@@ -164,6 +166,13 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   }
 
   const poUsable = po && po.Status === 'Issued' && po.IsCurrentVersion
+  // POST/PUT /stores/gate-entries → inventory.grn:create / :update (explicit-grant page)
+  // plus EfGateEntryService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
+  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
+  const canSave =
+    can(PAGE_KEYS.gateEntry, mode === 'create' ? 'create' : 'update') && storesOperator
+  // GET /purchase/purchase-orders/{number} → purchase.po:view (also explicit-grant).
+  const canReadPo = can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (
     <div className="modal-backdrop">
@@ -186,7 +195,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
               onChange={(event) => setPoNumber(event.target.value)}
             />
           </label>
-          {mode === 'create' && (
+          {mode === 'create' && canReadPo && (
             <div className="field">
               <span className="field-label">&nbsp;</span>
               <button type="button" className="btn btn-ghost" disabled={loadingPo} onClick={() => void loadPo(poNumber)}>
@@ -338,9 +347,11 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create draft gate entry' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create draft gate entry' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

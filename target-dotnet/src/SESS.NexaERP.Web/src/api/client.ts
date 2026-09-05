@@ -91,9 +91,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let message = `${response.status} ${response.statusText}`
     let code: string | undefined
     let traceId: string | undefined
+    let detailFromServer = false
     try {
       const body = (await response.json()) as StandardErrorEnvelope
       if (body) {
+        detailFromServer = Boolean(body.Detail || body.message)
         message = body.Detail || body.Title || body.message || message
         code = body.Code
         traceId = body.TraceId
@@ -117,7 +119,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         window.location.assign('/login')
       }
     }
-    if (response.status === 403) {
+    if (response.status === 403 && !detailFromServer) {
+      // Only when the server gave no reason. Since main 9e97fbf a refusal
+      // names the awaited approver ("Creator self-approval is prohibited",
+      // "awaiting SESS-01 (TECHNICAL_DIRECTOR)") and that text must reach the user.
       message = 'Permission denied for this page action.'
     }
     throw new ApiError(response.status, message, code, traceId)

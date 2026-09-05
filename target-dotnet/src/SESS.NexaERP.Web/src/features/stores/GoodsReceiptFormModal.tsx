@@ -11,6 +11,7 @@ import type {
 import { DEFAULT_ISO_GRN_VERIFICATION, warrantyFromBillDate } from '../../types/goodsReceipt'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { ScannerInput } from '../../components/ScannerInput'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftLot {
   lotOrdinal: number
@@ -96,7 +97,9 @@ interface Props {
  * visible before submit rather than re-implementing them.
  */
 export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can, hasRole } = useSession()
   const [gates, setGates] = useState<GateEntryResult[]>([])
+  const [gatesTotal, setGatesTotal] = useState(0)
   const [gatesLoading, setGatesLoading] = useState(false)
   const [gate, setGate] = useState<GateEntryResult | null>(null)
   const [gateWarning, setGateWarning] = useState('')
@@ -123,18 +126,14 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
       return
     }
     setGatesLoading(true)
-    // The gate-entry list has no number filter, so page through every finalized
-    // gate rather than matching scans against just the first page. The 10-page
-    // cap (1000 gates) is a runaway guard, not an expected ceiling.
-    ;(async () => {
-      const all: GateEntryResult[] = []
-      for (let pageNo = 1; pageNo <= 10; pageNo++) {
-        const result = await listGateEntries({ page: pageNo, pageSize: 100, state: 'FINALIZED' })
-        all.push(...(result.Items ?? []))
-        if ((result.Items ?? []).length < 100) break
-      }
-      setGates(all)
-    })()
+    // The dropdown is only the fallback for a storekeeper without a scanner,
+    // so the most recent finalized gates are enough; a scan is resolved on the
+    // server by exact number (gateEntryNumber filter), never against this list.
+    listGateEntries({ page: 1, pageSize: 100, state: 'FINALIZED' })
+      .then((result) => {
+        setGates(result.Items ?? [])
+        setGatesTotal(result.TotalCount)
+      })
       .catch((err) => setError(err))
       .finally(() => setGatesLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,13 +202,23 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
   }
 
   const onGateScan = (scanned: string) => {
-    const wanted = scanned.toUpperCase()
-    const found = gates.find((g) => g.GateEntryNumber.toUpperCase() === wanted)
-    if (found) {
-      selectGate(found)
-    } else {
-      setGateWarning(`No finalized Gate Entry '${wanted}' found. A GRN needs a finalized Gate Entry first.`)
-    }
+    const wanted = scanned.trim().toUpperCase()
+    if (!wanted) return
+    // Exact-number lookup on the server: a scan must resolve regardless of how
+    // many gates exist or which page the dropdown happened to load.
+    setGateWarning('')
+    setGatesLoading(true)
+    listGateEntries({ page: 1, pageSize: 1, gateEntryNumber: wanted, state: 'FINALIZED' })
+      .then((result) => {
+        const found = result.Items?.[0]
+        if (found) {
+          selectGate(found)
+        } else {
+          setGateWarning(`No finalized Gate Entry '${wanted}' found. A GRN needs a finalized Gate Entry first.`)
+        }
+      })
+      .catch((err) => setError(err))
+      .finally(() => setGatesLoading(false))
   }
 
   const setLine = (index: number, patch: Partial<DraftLine>) =>
@@ -403,6 +412,11 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   const gateHeader = mode === 'edit' ? existing : gate
   const line = lines[activeLine]
+  // POST/PUT /stores/goods-receipts → inventory.grn:create / :update (explicit-grant
+  // page) plus EfGoodsReceiptService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
+  const canSave =
+    can(PAGE_KEYS.grn, mode === 'create' ? 'create' : 'update') &&
+    (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT'))
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -437,7 +451,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
                   scanMode={scanMode}
                   onScan={onGateScan}
                   warning={gateWarning}
-                  hint={gatesLoading ? 'Loading finalized gate entries…' : `${gates.length} finalized gate entries available`}
+                  hint={gatesLoading ? 'Looking up gate entries…' : `${gatesTotal} finalized gate entries; a scan is matched on the server by exact number`}
                 />
               </div>
               <label className="field field-wide">
@@ -602,9 +616,11 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || (mode === 'create' && !gate)}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create draft GRN' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving || (mode === 'create' && !gate)}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create draft GRN' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

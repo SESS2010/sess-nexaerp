@@ -7,13 +7,24 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 const PAGE_SIZE = 25
 
 export function GateEntryListPage() {
   const navigate = useNavigate()
+  const { can, hasRole } = useSession()
   const [rows, setRows] = useState<GateEntryResult[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
+  // Arrival order is what the register reads as "current" — newest gate entry
+  // on top. The endpoint does not honour sortBy yet; the keys below are the
+  // lowercase row-DTO field names the backend will accept once it does.
+  const { sort, toggleSort } = useSort({ sortBy: 'arrivedat', sortDirection: 'desc' }, () => setPage(1))
+  const [gateNumber, setGateNumber] = useState('')
+  const [appliedGate, setAppliedGate] = useState('')
   const [poNumber, setPoNumber] = useState('')
   const [appliedPo, setAppliedPo] = useState('')
   const [state, setState] = useState('')
@@ -30,26 +41,39 @@ export function GateEntryListPage() {
       const data = await listGateEntries({
         page,
         pageSize: PAGE_SIZE,
+        gateEntryNumber: appliedGate || undefined,
         purchaseOrderNumber: appliedPo || undefined,
         state: state || undefined,
         from: from || undefined,
         to: to || undefined,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
       })
       setRows(data.Items ?? [])
+      setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
+      setTotalCount(0)
       setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedPo, state, from, to])
+  }, [page, appliedGate, appliedPo, state, from, to, sort])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // The API returns no total count, so "next" is only offered on a full page.
-  const maybeMore = rows.length === PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  // POST /stores/gate-entries → inventory.grn:create, plus EfGateEntryService.ActorRole()
+  // which accepts only STORES_EXECUTIVE / STORES_ASSISTANT. The form also has to read the
+  // source PO (purchase.po:view) to list its lines and refuses to save with none, so
+  // without that grant the create flow can never complete.
+  const canCreate =
+    can(PAGE_KEYS.gateEntry, 'create') &&
+    (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')) &&
+    can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (
     <div className="page">
@@ -61,13 +85,24 @@ export function GateEntryListPage() {
           </p>
         </div>
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Gate Entry
-          </button>
+          {canCreate && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Gate Entry
+            </button>
+          )}
         </div>
       </div>
 
       <div className="toolbar">
+        <input
+          className="input search"
+          placeholder="Gate Entry number…"
+          value={gateNumber}
+          onChange={(event) => setGateNumber(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') { setPage(1); setAppliedGate(gateNumber.trim().toUpperCase()) }
+          }}
+        />
         <input
           className="input search"
           placeholder="Filter by PO number…"
@@ -80,7 +115,7 @@ export function GateEntryListPage() {
         <button
           type="button"
           className="btn btn-ghost"
-          onClick={() => { setPage(1); setAppliedPo(poNumber.trim().toUpperCase()) }}
+          onClick={() => { setPage(1); setAppliedGate(gateNumber.trim().toUpperCase()); setAppliedPo(poNumber.trim().toUpperCase()) }}
         >Search</button>
         <select className="input" value={state} onChange={(event) => { setState(event.target.value); setPage(1) }}>
           <option value="">All states</option>
@@ -91,8 +126,8 @@ export function GateEntryListPage() {
         <div className="spacer" />
         <div className="pager">
           <button type="button" className="btn btn-ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>‹ Prev</button>
-          <span className="pager-label">Page {page}</span>
-          <button type="button" className="btn btn-ghost" disabled={!maybeMore || loading} onClick={() => setPage(page + 1)}>Next ›</button>
+          <span className="pager-label">Page {page} of {totalPages} · {totalCount} total</span>
+          <button type="button" className="btn btn-ghost" disabled={page >= totalPages || loading} onClick={() => setPage(page + 1)}>Next ›</button>
         </div>
       </div>
 
@@ -102,15 +137,15 @@ export function GateEntryListPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Gate Entry</th>
-              <th>PO number</th>
-              <th>Vendor</th>
+              <SortableHeader label="Gate Entry" sortKey="gateentrynumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="PO number" sortKey="purchaseordernumber" sort={sort} onSort={toggleSort} disabled={loading} />
+              <SortableHeader label="Vendor" sortKey="vendorname" sort={sort} onSort={toggleSort} disabled={loading} />
               <th>Vendor DC</th>
               <th>Vehicle</th>
               <th>Transport</th>
-              <th>Arrived at</th>
+              <SortableHeader label="Arrived at" sortKey="arrivedat" sort={sort} onSort={toggleSort} disabled={loading} />
               <th className="text-right">Lines</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} />
             </tr>
           </thead>
           <tbody>

@@ -3,23 +3,27 @@ import { Link, useParams } from 'react-router-dom'
 import { fetchItemImageUrl, getItem, getItemVendors, runItemAction } from '../../api/items'
 import type { ItemAction } from '../../api/items'
 import type { ItemDetail, ItemVendorLink } from '../../types/item'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
-const ACTIONS: { action: ItemAction; label: string; from: string[] }[] = [
-  { action: 'submit', label: 'Submit', from: ['Draft'] },
-  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'] },
-  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'] },
-  { action: 'hold', label: 'Hold', from: ['Approved'] },
-  { action: 'reactivate', label: 'Reactivate', from: ['Approved'] },
-  { action: 'deactivate', label: 'Deactivate', from: ['Approved'] },
+// `permission` is the masters.items action the API requires for the route
+// (InventoryEndpoints.MapItemAction): hold -> Deactivate, reactivate -> Update.
+const ACTIONS: { action: ItemAction; label: string; from: string[]; permission: string }[] = [
+  { action: 'submit', label: 'Submit', from: ['Draft'], permission: 'submit' },
+  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'], permission: 'approve' },
+  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'], permission: 'reject' },
+  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'], permission: 'request-revision' },
+  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'], permission: 'resubmit' },
+  { action: 'hold', label: 'Hold', from: ['Approved'], permission: 'deactivate' },
+  { action: 'reactivate', label: 'Reactivate', from: ['Approved'], permission: 'update' },
+  { action: 'deactivate', label: 'Deactivate', from: ['Approved'], permission: 'deactivate' },
 ]
 
 export function ItemDetailPage() {
   const { itemCode = '' } = useParams()
+  const { can } = useSession()
   const [detail, setDetail] = useState<ItemDetail | null>(null)
   const [vendors, setVendors] = useState<ItemVendorLink[]>([])
   const [imageUrl, setImageUrl] = useState<string | null>(null)
@@ -80,8 +84,10 @@ export function ItemDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
+            {can(PAGE_KEYS.items, 'update') && (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.items, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runAction(item.action, item.label)}>
                 {item.label}
               </button>

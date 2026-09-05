@@ -61,7 +61,9 @@ export function LoginPage() {
       })
       setStoredToken(result.Token)
       setStoredIdentity({ employeeCode: result.EmployeeCode, organizationId: result.OrganizationId })
-      navigate('/employees', { replace: true })
+      // Land on the home page, which every role can see; Employee Master is
+      // permission-gated and blanked the first screen for most users.
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed.')
     } finally {
