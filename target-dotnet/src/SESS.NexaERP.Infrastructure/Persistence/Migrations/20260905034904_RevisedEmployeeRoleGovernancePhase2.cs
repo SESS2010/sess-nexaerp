@@ -136,54 +136,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
             migrationBuilder.UpdateData(
                 schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("11744032-08e9-f364-d36f-c12caeff0b02"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("2a23e241-204c-4810-46cd-5f1b0f513434"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("2e2eb9a5-7caa-e157-2099-e3f06e85fbad"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("51a38ab8-5943-e4f6-6140-76dea2057e8b"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("bf16025e-df11-ac0e-785b-4873e1a14af3"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
-                table: "audit_logs",
-                keyColumn: "Id",
-                keyValue: new Guid("bf6ef4ae-fe3a-2861-28d4-88f7708aba51"),
-                columns: new[] { "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType" },
-                values: new object[] { "", null, null });
-
-            migrationBuilder.UpdateData(
-                schema: "advance",
                 table: "employee_role_assignments",
                 keyColumn: "Id",
                 keyValue: new Guid("02702296-3863-8644-c306-ddc2f49e5cca"),

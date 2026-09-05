@@ -14,7 +14,6 @@ internal static class RevisedEmployeeRoleGovernancePhase2Sql
             "EndedBy"=COALESCE(NULLIF("UpdatedBy",''),NULLIF("CreatedBy",''),'historical-migration')
         WHERE "EffectiveTo" IS NOT NULL AND "AssignmentType"<>'TEMPORARY'
           AND ("EndReason" IS NULL OR "EndedAt" IS NULL OR "EndedBy" IS NULL);
-        UPDATE advance.audit_logs SET "ActorRoleCode"='HISTORICAL_UNRECORDED' WHERE "ActorRoleCode"='';
         """;
 
     internal const string Up = """
@@ -285,7 +284,11 @@ internal static class RevisedEmployeeRoleGovernancePhase2Sql
           FOR EACH ROW EXECUTE FUNCTION advance.guard_role_assignment_event_immutable();
 
         DO $f$ BEGIN
-          IF to_regclass('advance.rev869b_command_requests') IS NOT NULL THEN
+          IF to_regclass('advance.rev869b_command_requests') IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_attribute
+               WHERE attrelid=to_regclass('advance.rev869b_command_requests')
+                 AND attname='ActorRoleAssignmentId' AND NOT attisdropped) THEN
             ALTER TABLE advance.rev869b_command_requests ADD COLUMN "ActorRoleAssignmentId" uuid NULL;
             ALTER TABLE advance.rev869b_command_requests
               ADD CONSTRAINT "FK_rev869b_command_request_role_assignment"
@@ -360,9 +363,13 @@ internal static class RevisedEmployeeRoleGovernancePhase2Sql
         DROP FUNCTION IF EXISTS advance.guard_sensitive_audit_assignment();
         DROP FUNCTION IF EXISTS advance.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid);
         DO $f$ BEGIN
-          IF to_regclass('advance.rev869b_command_requests') IS NOT NULL THEN
-            ALTER TABLE advance.rev869b_command_requests DROP CONSTRAINT IF EXISTS "FK_rev869b_command_request_role_assignment";
-            ALTER TABLE advance.rev869b_command_requests DROP COLUMN IF EXISTS "ActorRoleAssignmentId";
+          IF to_regclass('advance.rev869b_command_requests') IS NOT NULL
+             AND EXISTS (
+               SELECT 1 FROM pg_constraint
+               WHERE conrelid=to_regclass('advance.rev869b_command_requests')
+                 AND conname='FK_rev869b_command_request_role_assignment') THEN
+            ALTER TABLE advance.rev869b_command_requests DROP CONSTRAINT "FK_rev869b_command_request_role_assignment";
+            ALTER TABLE advance.rev869b_command_requests DROP COLUMN "ActorRoleAssignmentId";
           END IF;
         END $f$;
         DROP TRIGGER IF EXISTS "TR_employee_role_assignment_event_immutable" ON advance.employee_role_assignment_events;

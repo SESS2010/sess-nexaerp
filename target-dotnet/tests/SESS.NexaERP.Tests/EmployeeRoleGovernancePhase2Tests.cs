@@ -95,6 +95,10 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         var code = File.ReadAllText(migration);
         var sql = RevisedEmployeeRoleGovernancePhase2Sql.Up;
         Assert.Equal(2, Count(code, "PostgreSqlClusterGuard.Require(migrationBuilder)"));
+        Assert.DoesNotMatch(
+            @"migrationBuilder\.UpdateData\(\s*schema: ""advance"",\s*table: ""audit_logs""",
+            code);
+        Assert.DoesNotContain("UPDATE advance.audit_logs", RevisedEmployeeRoleGovernancePhase2Sql.Prepare, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("EX_employee_role_assignment_no_overlap", sql, StringComparison.Ordinal);
         Assert.Contains("resolve_employee_role_authority", sql, StringComparison.Ordinal);
         Assert.Contains("Self role assignment is prohibited", sql, StringComparison.Ordinal);

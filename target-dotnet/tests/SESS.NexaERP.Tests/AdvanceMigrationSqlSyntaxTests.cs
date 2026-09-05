@@ -530,6 +530,51 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     [Fact]
+    public void FullBusinessMigrationTailAppliesAndRevertsWithRev869BGuardsAlreadyActive()
+    {
+        const string rev869A = "0";
+        const string rev869B = "20260824150742_CalibrationPurchasePairItemTypeCorrections";
+        const string principalReady = "20260825092016_AuthenticationBootstrapFoundation";
+        var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
+        var businessOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql(connection).Options;
+        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
+            .UseNpgsql(connection, npgsql =>
+            {
+                npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
+            }).Options;
+        using var business = new NexaErpDbContext(businessOptions);
+        using var security = new Rev869BSecurityDbContext(securityOptions);
+        var businessMigrator = business.GetService<IMigrator>();
+        var securityMigrator = security.GetService<IMigrator>();
+        var latest = business.Database.GetMigrations().Last();
+        var securityMigration = Assert.Single(security.Database.GetMigrations());
+
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("guarded-chain-business-foundation-up.sql",
+            businessMigrator.GenerateScript(rev869A, rev869B));
+        server.Execute("guarded-chain-role-prerequisites.sql", ExternalRolePrerequisites);
+        server.Execute("guarded-chain-security-up.sql",
+            securityMigrator.GenerateScript(rev869A, securityMigration));
+        server.Execute("guarded-chain-pre-principal-tail-up.sql",
+            businessMigrator.GenerateScript(rev869B, principalReady));
+        server.Execute("guarded-chain-runtime-principals.sql",
+            InstallerPasswordSettings + DatabasePrincipalProvisioningSql.Provision +
+            DatabasePrincipalProvisioningSql.Verify);
+        server.Execute("guarded-chain-business-tail-up.sql",
+            businessMigrator.GenerateScript(principalReady, latest));
+        server.Execute("guarded-chain-runtime-acl-reconcile.sql",
+            DatabasePrincipalProvisioningSql.Provision + DatabasePrincipalProvisioningSql.Verify);
+        server.Execute("guarded-chain-business-tail-down.sql",
+            businessMigrator.GenerateScript(latest, rev869B));
+        server.Execute("guarded-chain-security-down.sql",
+            securityMigrator.GenerateScript(securityMigration, rev869A));
+        server.Execute("guarded-chain-business-foundation-down.sql",
+            businessMigrator.GenerateScript(rev869B, rev869A));
+    }
+
+    [Fact]
     public void GeneratedSecurityPackageScriptsAreAcceptedByDisposablePostgreSql()
     {
         var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
@@ -738,8 +783,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
               WHERE e."EmployeeCode"='SESS-28' AND r."Code"='SERVICE_COORDINATOR' AND a."AssignmentType"='SUPPORT' AND a."ApprovalStatus" IN ('Approved','SeedApproved'))<>2
             THEN RAISE EXCEPTION 'VENKAT RAV SESS-28 must hold SUPPORT SERVICE_COORDINATOR in both companies.'; END IF;
-          IF EXISTS (SELECT 1 FROM advance.audit_logs WHERE "ActorRoleCode"='')
-            THEN RAISE EXCEPTION 'Audit rows must record an acting-role value.'; END IF;
+          IF EXISTS (SELECT 1 FROM advance.audit_logs WHERE "ActorRoleCode"<>'' OR "ResolvedRoleAssignmentId" IS NOT NULL OR "ResolvedRoleAssignmentType" IS NOT NULL)
+            THEN RAISE EXCEPTION 'Historical audit rows must retain the untouched role-authority column defaults.'; END IF;
           IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='EX_employee_role_assignment_no_overlap' AND condeferrable)
             THEN RAISE EXCEPTION 'Deferrable role overlap constraint is missing.'; END IF;
           IF (SELECT count(*) FROM advance.employee_operational_scopes)<>398 THEN RAISE EXCEPTION 'Expected 398 operational scopes.'; END IF;
