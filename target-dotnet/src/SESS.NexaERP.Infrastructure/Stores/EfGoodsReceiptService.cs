@@ -75,12 +75,29 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
     public async Task<GoodsReceiptResult?> GetAsync(Guid id,CancellationToken ct)
     {var company=await Company(ct);var receipt=await ReceiptQuery().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct);if(receipt is null)return null;return await Map(receipt,false,ct);}
 
-    public async Task<GoodsReceiptListResult> ListAsync(string? grnNumber,string? gateEntryNumber,Guid? vendorId,string? status,int page,int pageSize,CancellationToken ct)
+    public async Task<GoodsReceiptListResult> ListAsync(string? grnNumber,string? gateEntryNumber,Guid? vendorId,string? status,string? sortBy,string? sortDirection,int page,int pageSize,CancellationToken ct)
     {
         if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100.");var company=await Company(ct);var q=ReceiptQuery().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(grnNumber))q=q.Where(x=>x.GrnNumber==grnNumber.Trim().ToUpperInvariant());if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntry!.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(!string.IsNullOrWhiteSpace(status)){var s=status.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("status must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var total=await q.CountAsync(ct);var candidates=await q.OrderByDescending(x=>x.ReceivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(total,page,pageSize,results);
+        var total=await q.CountAsync(ct);var candidates=await Sort(q,sortBy,sortDirection).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(total,page,pageSize,results);
+    }
+
+    internal static IQueryable<GoodsReceipt> Sort(IQueryable<GoodsReceipt> query,string? sortBy,string? sortDirection)
+    {
+        var descending=string.Equals(sortDirection?.Trim(),"desc",StringComparison.OrdinalIgnoreCase);
+        IOrderedQueryable<GoodsReceipt> ordered=sortBy?.Trim().ToLowerInvariant() switch
+        {
+            "grnnumber"=>descending?query.OrderByDescending(x=>x.GrnNumber):query.OrderBy(x=>x.GrnNumber),
+            "gateentrynumber"=>descending?query.OrderByDescending(x=>x.GateEntry!.GateEntryNumber):query.OrderBy(x=>x.GateEntry!.GateEntryNumber),
+            "purchaseordernumber"=>descending?query.OrderByDescending(x=>x.PurchaseOrder!.PoNumber):query.OrderBy(x=>x.PurchaseOrder!.PoNumber),
+            "vendorname"=>descending?query.OrderByDescending(x=>x.VendorNameSnapshot):query.OrderBy(x=>x.VendorNameSnapshot),
+            "vendorbilldate"=>descending?query.OrderByDescending(x=>x.VendorBillDate):query.OrderBy(x=>x.VendorBillDate),
+            "status"=>descending?query.OrderByDescending(x=>x.Status):query.OrderBy(x=>x.Status),
+            "receivedat"=>descending?query.OrderByDescending(x=>x.ReceivedAt):query.OrderBy(x=>x.ReceivedAt),
+            _=>query.OrderByDescending(x=>x.ReceivedAt)
+        };
+        return ordered.ThenBy(x=>x.Id);
     }
 
     private async Task<List<GoodsReceiptLine>> BuildLines(GoodsReceipt receipt,GateEntry gate,IReadOnlyList<GoodsReceiptLineRequest> input,Guid companyId,Guid actor,CancellationToken ct)

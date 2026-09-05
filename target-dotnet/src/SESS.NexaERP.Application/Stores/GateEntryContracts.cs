@@ -17,7 +17,7 @@ public interface IGateEntryService
     Task<GateEntryResult> UpdateAsync(Guid id,UpdateGateEntryRequest request,CancellationToken cancellationToken);
     Task<GateEntryResult> FinalizeAsync(Guid id,FinalizeGateEntryRequest request,CancellationToken cancellationToken);
     Task<GateEntryResult?> GetAsync(Guid id,CancellationToken cancellationToken);
-    Task<GateEntryListResult> ListAsync(string? gateEntryNumber,string? purchaseOrderNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken cancellationToken);
+    Task<GateEntryListResult> ListAsync(string? gateEntryNumber,string? purchaseOrderNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,string? sortBy,string? sortDirection,int page,int pageSize,CancellationToken cancellationToken);
     Task<IReadOnlyList<GateEntryPurchaseOrderCandidate>> ListPurchaseOrderCandidatesAsync(CancellationToken cancellationToken);
 }
 
