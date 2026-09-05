@@ -1,5 +1,6 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSection } from './components/NavSection'
+import { SessLogo } from './components/SessLogo'
 import { UserMenu } from './components/UserMenu'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
@@ -70,7 +71,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-mark">N</span>
+          <SessLogo />
           <div>
             <div className="brand-name">SESS NexaERP</div>
             <div className="brand-sub">Migration target UI</div>

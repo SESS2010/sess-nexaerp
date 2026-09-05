@@ -22,22 +22,30 @@ body {
 }
 
 /* ---------- Application shell ---------- */
-.app-shell { @apply flex min-h-screen; }
+.app-shell { @apply flex h-screen overflow-hidden; }
 
+/* Fixed rail: scrolls on its own when the menu is long, with the scrollbar hidden. */
 .sidebar {
-  @apply w-60 shrink-0 flex flex-col text-slate-400;
+  @apply w-60 shrink-0 flex h-full flex-col overflow-y-auto overscroll-contain text-slate-400;
   background: linear-gradient(180deg, var(--color-shell) 0%, #101c33 100%);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.sidebar::-webkit-scrollbar { @apply hidden; }
 
-.brand { @apply flex items-center gap-3 px-5 py-5 border-b border-white/[0.06]; }
+.brand {
+  @apply sticky top-0 z-10 flex shrink-0 items-center gap-3 overflow-hidden px-5 py-5 border-b border-white/[0.06];
+  background: var(--color-shell);
+}
 .brand-mark {
-  @apply grid size-9 place-items-center rounded-lg text-[17px] font-bold text-white shadow-lg shadow-blue-900/40;
+  @apply grid size-9 shrink-0 place-items-center rounded-lg text-white shadow-lg shadow-blue-900/40;
   background: linear-gradient(135deg, #2563eb, #1e40af);
 }
+.brand-mark svg { @apply size-full; }
 .brand-name { @apply text-[15px] font-semibold tracking-tight text-white; }
-.brand-sub { @apply text-[10.5px] uppercase tracking-[0.14em] text-slate-500; }
+.brand-sub { @apply truncate text-[10.5px] uppercase tracking-[0.14em] text-slate-500; }
 
-.nav { @apply flex flex-col gap-0.5 px-3 py-4; }
+.nav { @apply flex flex-col gap-0.5 px-3 pb-6 pt-4; }
 .nav-section { @apply px-3 pt-5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-500/90; }
 .nav-link {
   @apply block rounded-lg px-3 py-2 text-[13.5px] font-medium text-slate-300 no-underline
@@ -66,7 +74,8 @@ body {
 .nav-chevron.open { @apply rotate-180 text-slate-400; }
 .nav-group-body { @apply flex flex-col gap-0.5; }
 
-.main { @apply flex min-w-0 flex-1 flex-col; }
+/* The shell fills the viewport; only .content scrolls, so the rail and topbar stay put. */
+.main { @apply flex h-full min-w-0 flex-1 flex-col overflow-hidden; }
 
 .topbar {
   @apply sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line
@@ -74,7 +83,7 @@ body {
 }
 .topbar-title { @apply text-[15px] font-semibold tracking-tight; }
 
-.content { @apply flex-1 overflow-x-auto px-6 py-6 lg:px-8; }
+.content { @apply min-h-0 flex-1 overflow-auto px-6 py-6 lg:px-8; }
 .page { @apply mx-auto max-w-6xl; }
 
 /* ---------- Page header ---------- */
@@ -263,4 +272,7 @@ body {
 
 @media (max-width: 800px) {
   .sidebar { @apply hidden; }
+  .app-shell { @apply h-auto min-h-screen overflow-visible; }
+  .main { @apply h-auto overflow-visible; }
+  .content { @apply overflow-x-auto; }
 }

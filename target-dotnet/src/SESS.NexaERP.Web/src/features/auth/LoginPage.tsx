@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, setStoredIdentity, setStoredToken } from '../../api/client'
+import { SessLogo } from '../../components/SessLogo'
 
 interface DevIdentity {
   EmployeeCode: string
@@ -75,7 +76,7 @@ export function LoginPage() {
     <div className="login-shell">
       <form className="login-card" onSubmit={submit}>
         <div className="login-brand">
-          <span className="brand-mark">N</span>
+          <SessLogo />
           <div>
             <div className="brand-name" style={{ color: 'inherit' }}>SESS NexaERP</div>
             <div className="login-brand-sub">Enterprise Resource Planning</div>
