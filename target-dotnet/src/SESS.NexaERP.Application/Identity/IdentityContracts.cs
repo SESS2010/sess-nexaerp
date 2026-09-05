@@ -61,8 +61,7 @@ public sealed record SessionMe(
     IReadOnlyList<string> Permissions,
     string IdentityIssuer,
     string IdentitySubject,
-    IReadOnlyList<string> FullAuthorityRoleCodes,
-    IReadOnlyList<string> SupportDeniedActions);
+    IReadOnlyList<string> FullAuthorityRoleCodes);
 
 public interface ISessionService
 {

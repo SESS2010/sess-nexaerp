@@ -43,7 +43,8 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         AssertMandatory(typeof(EmployeeRoleSummary), "Id", "RoleCode", "EffectiveFrom", "EffectiveTo", "AssignmentType", "Version");
         AssertMandatory(typeof(EmployeeRolePortfolioSummary), "EmployeeCode", "CompanyCode", "Assignments");
         AssertMandatory(typeof(AuditLogSummary), "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType");
-        AssertMandatory(typeof(SessionMe), "RoleCodes", "FullAuthorityRoleCodes", "SupportDeniedActions");
+        AssertMandatory(typeof(SessionMe), "RoleCodes", "Permissions", "FullAuthorityRoleCodes");
+        Assert.Null(typeof(SessionMe).GetProperty("SupportDeniedActions"));
     }
 
     [Fact]
@@ -95,6 +96,20 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         Assert.Equal(
             new[] { "approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration" },
             RoleAuthorityResolution.SupportDeniedActions);
+    }
+
+    [Fact]
+    public void Session_permissions_and_command_resolution_use_the_same_assignment_authority_policy()
+    {
+        var resolver = File.ReadAllText(Source("src", "SESS.NexaERP.Application", "Common", "RoleAuthorityResolution.cs"));
+        var session = File.ReadAllText(Source("src", "SESS.NexaERP.Infrastructure", "Identity", "EfSessionService.cs"));
+        var contract = File.ReadAllText(Source("src", "SESS.NexaERP.Application", "Identity", "IdentityContracts.cs"));
+        Assert.Contains("CanAssignmentExercise(x.AssignmentType, operation)", resolver, StringComparison.Ordinal);
+        Assert.Contains("RoleAuthorityResolution.CanAssignmentExercise(x, permission)", session, StringComparison.Ordinal);
+        Assert.Contains("currentUser.EffectiveRoleAssignments", session, StringComparison.Ordinal);
+        Assert.DoesNotContain("currentUser.FullAuthorityRoleCodes, cancellationToken", session, StringComparison.Ordinal);
+        Assert.DoesNotContain("SupportDeniedActions", contract, StringComparison.Ordinal);
+        Assert.DoesNotContain("PagePermissionActions.FullControl", session, StringComparison.Ordinal);
     }
 
     [Fact]

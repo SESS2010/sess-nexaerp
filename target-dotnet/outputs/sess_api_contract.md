@@ -74,17 +74,17 @@ Permission: authenticated employee; no page permission. Request body: none.
   "DepartmentCode": "STORES",
   "RoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE"],
   "FullAuthorityRoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER"],
-  "SupportDeniedActions": ["approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration"],
   "Permissions": ["purchase.rfq:view", "purchase.rfq:create"],
   "IdentityIssuer": "https://login.example.com/realms/sess",
   "IdentitySubject": "00u1abc234xyz"
 }
 ```
 
-SupportDeniedActions is emitted from the same server policy used by command and
-page-permission enforcement. Clients must consume this value and must not keep a
-separate denied-action list. FullAuthorityRoleCodes contains currently effective
-FULL and TEMPORARY role codes; SUPPORT role codes remain in RoleCodes only.
+Permissions is the sole UI authorization source. Each value is a concrete
+`page-key:action` capability already filtered by the same assignment-authority
+policy used by command resolution. Clients must not derive button authority from
+RoleCodes or FullAuthorityRoleCodes and must not keep a separate SUPPORT policy.
+FullAuthorityRoleCodes remains display and diagnostic information only.
 
 Errors: `401 AUTHENTICATION_REQUIRED` when the token is absent/invalid or no active employee identity matches; `403 PERMISSION_DENIED` when the identity is valid but its company/scope is inactive.
 
