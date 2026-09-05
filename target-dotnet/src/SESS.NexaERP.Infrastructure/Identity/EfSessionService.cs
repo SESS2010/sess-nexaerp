@@ -27,7 +27,8 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
         var permissions = await ResolvePermissionsAsync(currentUser.RoleCodes, currentUser.FullAuthorityRoleCodes, cancellationToken);
         return new SessionMe(employee.Id, employee.EmployeeCode, employee.EmployeeName, company.Id, company.Code,
             currentUser.DepartmentId.Value, departmentCode, currentUser.RoleCodes.Order(StringComparer.Ordinal).ToArray(), permissions,
-            currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.FullAuthorityRoleCodes);
+            currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.FullAuthorityRoleCodes,
+            RoleAuthorityResolution.SupportDeniedActions);
     }
 
     private async Task<IReadOnlyList<string>> ResolvePermissionsAsync(IReadOnlyCollection<string> roleCodes, IReadOnlyCollection<string> fullAuthorityRoleCodes, CancellationToken ct)

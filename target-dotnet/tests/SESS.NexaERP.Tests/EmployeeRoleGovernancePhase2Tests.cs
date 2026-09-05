@@ -43,7 +43,7 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         AssertMandatory(typeof(EmployeeRoleSummary), "Id", "RoleCode", "EffectiveFrom", "EffectiveTo", "AssignmentType", "Version");
         AssertMandatory(typeof(EmployeeRolePortfolioSummary), "EmployeeCode", "CompanyCode", "Assignments");
         AssertMandatory(typeof(AuditLogSummary), "ActorRoleCode", "ResolvedRoleAssignmentId", "ResolvedRoleAssignmentType");
-        AssertMandatory(typeof(SessionMe), "RoleCodes", "FullAuthorityRoleCodes");
+        AssertMandatory(typeof(SessionMe), "RoleCodes", "FullAuthorityRoleCodes", "SupportDeniedActions");
     }
 
     [Fact]
@@ -85,6 +85,9 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         Assert.Contains("Required role: TECHNICAL_DIRECTOR", denied.Message, StringComparison.Ordinal);
         foreach (var verb in new[] { "approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration" })
             Assert.True(RoleAuthorityResolution.IsSupportDenied(verb));
+        Assert.Equal(
+            new[] { "approve", "reject", "cancel", "reverse", "deactivate", "permission-configuration", "role-administration" },
+            RoleAuthorityResolution.SupportDeniedActions);
     }
 
     [Fact]

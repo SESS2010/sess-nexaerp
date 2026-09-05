@@ -2,11 +2,11 @@ namespace SESS.NexaERP.Application.Common;
 
 public static class RoleAuthorityResolution
 {
-    private static readonly HashSet<string> SupportDeniedActions = new(StringComparer.OrdinalIgnoreCase)
+    public static IReadOnlyList<string> SupportDeniedActions { get; } = Array.AsReadOnly(new[]
     {
         "approve", "reject", "cancel", "reverse", "deactivate",
         "permission-configuration", "role-administration"
-    };
+    });
 
     public static string RequireRole(this ICurrentUser user, string operation, params string[] sufficientRoles)
     {
