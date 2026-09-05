@@ -13,7 +13,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class Rev869AConfigurationEndpoints
+public static partial class Rev869AConfigurationEndpoints
 {
     public static IEndpointRouteBuilder MapRev869AConfigurationEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -21,15 +21,20 @@ public static class Rev869AConfigurationEndpoints
         group.MapGet("/policies", async (NexaErpDbContext db, CancellationToken ct) => Results.Ok(await db.OrganizationPolicies.AsNoTracking().OrderBy(x => x.OrganizationId).ThenBy(x => x.PolicyCode).ToListAsync(ct)))
             .RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
         group.MapPost("/employee-identities", CreateIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
+        group.MapGet("/employee-identities", ListEmployeeIdentities).RequirePagePermission("security.employee-identities", PagePermissionActions.View);
         group.MapPost("/operational-scopes", CreateScope).RequirePagePermission("security.operational-scopes", PagePermissionActions.Create);
+        group.MapGet("/operational-scopes", ListOperationalScopes).RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
         group.MapPost("/uoms", CreateUom).RequirePagePermission("masters.uoms", PagePermissionActions.Create);
         group.MapPost("/uom-conversions", CreateConversion).RequirePagePermission("masters.uom-conversions", PagePermissionActions.Create);
+        group.MapGet("/uom-conversions", ListUomConversions).RequirePagePermission("masters.uom-conversions", PagePermissionActions.View);
         group.MapPost("/tax-gst", CreateTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Create);
+        group.MapGet("/tax-gst", ListTaxGstSettings).RequirePagePermission("settings.tax-gst", PagePermissionActions.View);
         group.MapPost("/tax-gst/{taxRuleId:guid}/approve", ApproveTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Approve);
         group.MapPost("/tax-gst/{taxRuleId:guid}/reject", RejectTax).RequirePagePermission("settings.tax-gst", PagePermissionActions.Reject);
         group.MapPost("/commercial-values/preview", (ResolveCommercialValueRequest request) => Results.Ok(CommercialValueSnapshot.Calculate(request.CurrencyCode, request.TaxableValue, request.TaxValue, request.FreightAndOtherCharges, request.DiscountValue, request.RoundingScale)))
             .RequirePagePermission("settings.tax-gst", PagePermissionActions.ViewCommercialValues);
         group.MapPost("/vendor-qualifications", CreateVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Create);
+        group.MapGet("/vendor-qualifications", ListVendorQualifications).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.View);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/normalize-legacy", NormalizeLegacyVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/verify", VerifyVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
         group.MapPost("/vendor-qualifications/{qualificationId:guid}/approve", ApproveVendorQualification).RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Approve);

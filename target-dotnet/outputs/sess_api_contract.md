@@ -638,6 +638,11 @@ All routes start `/api/v1/rev869a/configuration`, require authentication and com
 | Method and path | Exact request body | Success response | Required page permission | Special errors |
 |---|---|---|---|---|
 | `GET /policies` | none | `OrganizationPolicy[]` | `security.operational-scopes:View` | common |
+| `GET /employee-identities?employeeCode=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<EmployeeIdentityMappingSummary>`; subject is a SHA-256 fingerprint, never the raw login subject | `security.employee-identities:View` | common |
+| `GET /operational-scopes?employeeCode=&departmentCode=&warehouseCode=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<OperationalScopeSummary>` | `security.operational-scopes:View` | common |
+| `GET /uom-conversions?fromUomCode=&toUomCode=&measurementDimension=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<UomConversionSummary>` | `masters.uom-conversions:View` | common |
+| `GET /tax-gst?hsnSacCode=&approvalStatus=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<TaxGstSettingSummary>` | `settings.tax-gst:View` | common |
+| `GET /vendor-qualifications?vendorCode=&itemCategoryCode=&approvalStatus=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<VendorQualificationSummary>` | `masters.vendor-qualifications:View` | common |
 | `POST /employee-identities` | `{ "OrganizationId":"SESS-PVT", "Issuer":"https://login.example.com/realms/sess", "Subject":"00u1abc234xyz", "EmployeeCode":"EMP-0042", "IdentityType":"HUMAN", "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"OIDC mapping" }` | `201 { "Id":"..." }` | `security.employee-identities:Create` | wrong company `403`; invalid/in-use identity `400/409` |
 | `POST /operational-scopes` | `{ "OrganizationId":"SESS-PVT", "EmployeeCode":"EMP-0042", "DepartmentCode":"STORES", "WarehouseCode":"MAIN", "RackBinId":null, "OwnRecordsOnly":false, "AllowsPrivilegedCrossScope":false, "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"Stores scope" }` | `201 { "Id":"..." }` | `security.operational-scopes:Create` | unassigned scope/overlap `409` |
 | `POST /uoms` | `{ "Code":"MTR", "Name":"Metre", "MeasurementDimension":"LENGTH" }` | `201 Uom` | `masters.uoms:Create` | duplicate `409` |
@@ -674,7 +679,7 @@ All routes start `/api/v1/rev869a/configuration`, require authentication and com
 }
 ```
 
-`OrganizationPolicy` exposes `Id`, `CompanyId`, `OrganizationId`, `PolicyCode`, `PolicyValue`, `EffectiveFrom`, `EffectiveTo`, `IsActive`, `Version`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, and `UpdatedBy`. `Uom` exposes `Id`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`, and audit/version fields.
+`OrganizationPolicy` exposes `Id`, `CompanyId`, `OrganizationId`, `PolicyCode`, `PolicyValue`, `EffectiveFrom`, `EffectiveTo`, `IsActive`, `Version`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, and `UpdatedBy`. `Uom` exposes `Id`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`, and audit/version fields. The five configuration list responses use the standard `{ TotalCount, PageNumber, PageSize, Items }` envelope, are restricted to the session company (UOM conversions use their legacy `OrganizationId` boundary), and expose record IDs, effective ranges, latest recorded remarks, lifecycle state, and `Version` for subsequent commands.
 
 ## 11. Planned Stores API — NOT YET IMPLEMENTED
 
