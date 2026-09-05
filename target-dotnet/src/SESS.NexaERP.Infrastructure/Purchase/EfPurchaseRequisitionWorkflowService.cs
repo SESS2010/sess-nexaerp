@@ -128,7 +128,7 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         var today=DateOnly.FromDateTime(DateTime.UtcNow);var mappings=await db.DepartmentApprovalMappings.AsNoTracking().Where(x=>x.CompanyId==pr.CompanyId&&x.DepartmentId==pr.RequestingDepartmentId.Value&&x.ApprovalRouteCode==PurchaseRequisitionApprovalRoutes.Manager&&x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today)).Take(2).ToListAsync(ct);
         if(mappings.Count!=1)throw new Rev869BConflictException("A single effective department approval mapping is required for department verification.");
         var mapping=mappings[0];
-        if(mapping.PrimaryApproverEmployeeId!=actor||!string.Equals(user.ActingRoleCode,mapping.ApproverRoleCode,StringComparison.OrdinalIgnoreCase))throw new UnauthorizedAccessException("Department verification is restricted to the effective mapped department approver.");
+        if(mapping.PrimaryApproverEmployeeId!=actor||!string.Equals(user.RoleCode,mapping.ApproverRoleCode,StringComparison.OrdinalIgnoreCase))throw new UnauthorizedAccessException("Department verification is restricted to the effective mapped department approver.");
     }
     private IQueryable<PurchaseRequisition> Scoped(IQueryable<PurchaseRequisition> query)
     {

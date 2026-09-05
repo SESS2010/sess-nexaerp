@@ -67,7 +67,7 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task Held_secondary_role_requires_explicit_acting_role_to_grant_page_permission()
+    public async Task Held_secondary_role_is_resolved_automatically_for_page_permission()
     {
         await using var host = await TestHost.StartAsync((role, permission) =>
             role == "TECHNICAL_DIRECTOR" && permission == PagePermissionActions.View);
@@ -75,7 +75,6 @@ public sealed class AuthorizationIntegrationTests
         using var client = new HttpClient { BaseAddress = host.BaseAddress };
         client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.UserHeader, "SESS-001");
         client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.RoleHeader, "STORES_ASSISTANT,TECHNICAL_DIRECTOR");
-        client.DefaultRequestHeaders.Add(TestOnlyAuthenticationHandler.ActingRoleHeader, "TECHNICAL_DIRECTOR");
         var response = await client.GetAsync("/employee-list");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -231,8 +230,14 @@ public sealed class AuthorizationIntegrationTests
             .Select(role => role.ToUpperInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        public string ActingRoleCode => Principal.FindFirstValue("acting_role")?.ToUpperInvariant() ?? (RoleCodes.Count == 1 ? RoleCodes[0] : "none");
-        public string RoleCode => ActingRoleCode;
+        private ResolvedRoleAuthority? authority;
+        public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => RoleCodes
+            .Select((role, index) => new EffectiveRoleAssignment(Guid.Parse($"90000000-0000-0000-0000-{index + 1:000000000000}"), role, "FULL")).ToArray();
+        public IReadOnlyList<string> FullAuthorityRoleCodes => RoleCodes;
+        public string RoleCode => authority?.RoleCode ?? "none";
+        public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
+        public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
         public string? OrganizationId => Principal.FindFirstValue("organization_id") ?? "SESS";
         public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
         public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("90000000-0000-0000-0000-000000000001") : null;
@@ -274,7 +279,6 @@ public sealed class TestOnlyAuthenticationHandler(
     public const string UserHeader = "X-Test-User";
     public const string RoleHeader = "X-Test-Role";
     public const string OrganizationHeader = "X-Test-Organization";
-    public const string ActingRoleHeader = "X-SESS-Acting-Role";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
@@ -290,11 +294,6 @@ public sealed class TestOnlyAuthenticationHandler(
             new(ClaimTypes.Name, userValues.ToString()),
             new(ClaimTypes.Role, roleValues.ToString())
         };
-
-        if (Request.Headers.TryGetValue(ActingRoleHeader, out var actingRoleValues))
-        {
-            claims.Add(new Claim("acting_role", actingRoleValues.ToString()));
-        }
 
         if (Request.Headers.TryGetValue(OrganizationHeader, out var organizationValues))
         {

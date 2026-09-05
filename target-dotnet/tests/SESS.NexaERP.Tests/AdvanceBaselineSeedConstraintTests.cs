@@ -126,12 +126,15 @@ public sealed class AdvanceBaselineSeedConstraintTests
                 @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
                 row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
             [("employee_role_assignments", "CK_employee_role_assignment_type")] = new(
-                @"""AssignmentType"" IN ('PERMANENT','TEMPORARY','COVER')",
-                row => StringValue(row, "AssignmentType") is "PERMANENT" or "TEMPORARY" or "COVER"),
+                @"""AssignmentType"" IN ('FULL','SUPPORT','TEMPORARY')",
+                row => StringValue(row, "AssignmentType") is "FULL" or "SUPPORT" or "TEMPORARY"),
+            [("employee_role_assignments", "CK_employee_role_assignment_temporary_end")] = new(
+                @"""AssignmentType"" <> 'TEMPORARY' OR ""EffectiveTo"" IS NOT NULL",
+                row => StringValue(row, "AssignmentType") != "TEMPORARY" || Value(row, "EffectiveTo") is not null),
             [("employee_role_assignments", "CK_employee_role_assignment_end_metadata")] = new(
-                @"""EffectiveTo"" IS NULL OR ""AssignmentType"" IN ('TEMPORARY','COVER') OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)",
+                @"""EffectiveTo"" IS NULL OR ""AssignmentType"" = 'TEMPORARY' OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)",
                 row => Value(row, "EffectiveTo") is null ||
-                    StringValue(row, "AssignmentType") is "TEMPORARY" or "COVER" ||
+                    StringValue(row, "AssignmentType") == "TEMPORARY" ||
                     (Value(row, "EndReason") is string reason && !string.IsNullOrWhiteSpace(reason) &&
                      Value(row, "EndedAt") is not null && Value(row, "EndedBy") is string endedBy && !string.IsNullOrWhiteSpace(endedBy))),
             [("employee_department_assignments", "CK_employee_department_assignment_dates")] = new(

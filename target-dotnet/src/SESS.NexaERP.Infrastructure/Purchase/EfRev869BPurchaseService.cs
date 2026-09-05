@@ -46,7 +46,12 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
         currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
             RequireOrganization(), operation, idempotencyKey, request);
-        currentActorRoleCode = IsApprovalOperation(operation) ? null : operationalRoles.Resolve(operation, [user.ActingRoleCode]);
+        currentActorRoleCode = null;
+        if (!IsApprovalOperation(operation))
+        {
+            var requiredRole = operationalRoles.Resolve(operation, user.RoleCodes);
+            currentActorRoleCode = user.RequireRole(operation, requiredRole);
+        }
         var scope = new Rev869BTransactionScope(this,
             await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct));
         currentCompanyId = await db.Companies.AsNoTracking()
@@ -186,14 +191,14 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     {
         if (!IsApprovalOperation(currentCommandEnvelope?.Operation ?? string.Empty))
             throw new InvalidOperationException("Only approval commands may take their role from a workflow step.");
-        if (!string.Equals(roleCode, user.ActingRoleCode, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(roleCode, user.RoleCode, StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("The selected acting role does not match the required approval workflow role.");
-        currentActorRoleCode = user.ActingRoleCode;
+        currentActorRoleCode = user.RoleCode;
     }
     private Task WriteAuditAsync(string module, string action, string entityType, string entityId, object? before, object? after, CancellationToken ct) =>
         audit.WriteAsync(module, action, entityType, entityId,
-            before is null ? null : new { Value = before, ActingRole = CurrentActorRole() },
-            new { Value = after, ActingRole = CurrentActorRole() }, ct);
+            before is null ? null : new { Value = before, ResolvedRole = CurrentActorRole(), AssignmentId = user.ResolvedRoleAssignmentId },
+            new { Value = after, ResolvedRole = CurrentActorRole(), AssignmentId = user.ResolvedRoleAssignmentId }, ct);
 
     private async Task<uint> ReserveRfqAsync(RequestForQuotation rfq, uint expected, string action, string remarks, string correlation, CancellationToken ct)
     {
@@ -369,7 +374,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private Guid RequireActor() => user.IsAuthenticated && user.EmployeeId.HasValue ? user.EmployeeId.Value : throw new UnauthorizedAccessException("A unique active employee identity mapping is required.");
     private string RequireOrganization() => !string.IsNullOrWhiteSpace(user.OrganizationId) ? user.OrganizationId.Trim() : throw new UnauthorizedAccessException("Organization scope is required.");
     private bool IsRole(string code) => user.RoleCodes.Any(x => Rev869ARoleCodes.Normalize(x) == Rev869ARoleCodes.Normalize(code));
-    private void RequireRole(params string[] allowed) { if (!allowed.Any(IsRole)) throw new UnauthorizedAccessException("Role is not authorized for this operation."); }
+    private void RequireRole(params string[] allowed) { _ = user.RequireRole("command", allowed); }
     private static string NormalizeCurrency(string value) { var code = Required(value, "Currency").ToUpperInvariant(); if (code.Length != 3 || code.Any(x => !char.IsLetter(x))) throw new Rev869BValidationException("ISO 4217 currency code must contain three letters."); return code; }
     private static string Required(string? value, string name) => !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new Rev869BValidationException($"{name} is required.");
     private static string RequiredRemarks(string? value) => Required(value, "Remarks");

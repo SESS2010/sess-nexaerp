@@ -72,7 +72,8 @@ Permission: authenticated employee; no page permission. Request body: none.
   "OrganizationId": "SESS-PVT",
   "DepartmentId": "22222222-2222-2222-2222-222222222222",
   "DepartmentCode": "STORES",
-  "RoleCodes": ["STORES_MANAGER", "QC_MANAGER"],
+  "RoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE"],
+  "FullAuthorityRoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER"],
   "IdentityIssuer": "https://login.example.com/realms/sess",
   "IdentitySubject": "00u1abc234xyz"
 }
@@ -305,12 +306,23 @@ Employee request/response examples:
 | `POST /api/v1/employees/{employeeCode}/revise` | `{ "Remarks":"Correct designation" }` | approval result | `employees.master:RequestRevision` | illegal state `409` |
 | `POST /api/v1/employees/{employeeCode}/activate-login` | `{ "Reason":"Employment active" }` | `{ "EmployeeCode":"EMP-0042", "LoginEnabled":true, "Status":"Active" }` | `employees.master:Update` | `404`, `409` |
 | `POST /api/v1/employees/{employeeCode}/deactivate-login` | `{ "Reason":"Employee exited" }` | login result | `employees.master:Deactivate` | `404`, `409` |
-| `POST /api/v1/employees/{employeeCode}/roles` | `{ "RoleCode":"STORES_MANAGER", "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"Department owner" }` | `201 EmployeeRoleSummary` | `employees.role-mapping:Create` | overlap/unknown role `400` or `409` |
-| `GET /api/v1/employees/{employeeCode}/roles` | none | `EmployeeRoleSummary[]` | `employees.role-mapping:View` | `404` |
+| `POST /api/v1/employees/{employeeCode}/roles` | `AssignEmployeeRoleRequest` | `201 EmployeeRoleSummary` | `employees.role-mapping:Create` plus TD/MD/IT FULL or effective TEMPORARY | self/invalid/overlap `400/403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/temporary-cover` | `TemporaryRoleCoverRequest` | `201 EmployeeRoleSummary` | same as assign | self/invalid/overlap `400/403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/promote` | `PromoteEmployeeRoleRequest` | `EmployeeRolePortfolioSummary` | `employees.role-mapping:Update` plus TD/MD/IT FULL or effective TEMPORARY | self/stale/overlap `403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/transfer` | `TransferEmployeeRoleRequest` | `EmployeeRolePortfolioSummary` | same as promote | self/stale/overlap `403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/{assignmentId}/end` | `EndEmployeeRoleAssignmentRequest` | `EmployeeRoleSummary` | `employees.role-mapping:Update` plus TD/MD/IT FULL or effective TEMPORARY | self/history/stale `403/409` |
+| `GET /api/v1/employees/{employeeCode}/roles` | none | complete `EmployeeRoleSummary[]` history | `employees.role-mapping:View` | `404` |
+| `GET /api/v1/employees/{employeeCode}/role-portfolio` | none | `EmployeeRolePortfolioSummary` for current company | `employees.role-mapping:View` | `404` |
+| `GET /api/v1/employees/{employeeCode}/role-events` | none | `EmployeeRoleAssignmentEventSummary[]` | `employees.role-mapping:ViewAuditHistory` | `404` |
 | `GET /api/v1/employees/{employeeCode}/history` | none | `EmployeeHistorySummary[]` | `employees.audit-history:ViewAuditHistory` | `404` |
 
-`EmployeeSummary` contains `Id`, `EmployeeCode`, `EmployeeName`, `EmployeeType`, `Grade`, `Department`, `SkillCategory`, `JobDesignation`, `Status`, `LoginEnabled`, `ApprovalStatus`. `EmployeeRoleSummary` contains `Id`, `RoleCode`, `RoleName`, `EffectiveFrom`, `EffectiveTo`, `ApprovalStatus`, `Remarks`. `EmployeeHistorySummary` contains `Id`, `Action`, `FromStatus`, `ToStatus`, `Remarks`, `CreatedAt`, `CreatedBy`.
+Creating an employee atomically creates the employee, skill, approval history, current-company `PAYROLL` assignment, and current-company primary department assignment. The employee can then receive runtime role assignments without seed data or a migration; identity/login linking remains a separate security operation.
 
+`EmployeeSummary` contains `Id`, `EmployeeCode`, `EmployeeName`, `EmployeeType`, `Grade`, `Department`, `SkillCategory`, `JobDesignation`, `Status`, `LoginEnabled`, `ApprovalStatus`, `Version`. `EmployeeRoleSummary` contains `Id`, `RoleCode`, `RoleName`, `EffectiveFrom`, `EffectiveTo`, `ApprovalStatus`, `Remarks`, `AssignmentType`, `EndReason`, `EndedAt`, `EndedBy`, `Version`. `AssignmentType` is `FULL`, `SUPPORT`, or `TEMPORARY`; temporary cover requires `EffectiveTo`, expires by date, and needs no removal command.
+
+`AssignEmployeeRoleRequest` is `{ "RoleCode", "AssignmentType", "EffectiveFrom", "EffectiveTo", "Remarks" }`. `TemporaryRoleCoverRequest` is `{ "RoleCode", "EffectiveFrom", "EffectiveTo", "Remarks" }`. Promotion and transfer are `{ "PreviousAssignmentId", "NewRoleCode", "NewAssignmentType", "EffectiveOn", "KeepPreviousAssignment", "Remarks", "PreviousAssignmentVersion" }`; the administrator explicitly decides whether the previous role remains simultaneous. End is `{ "EffectiveTo", "Reason", "Version" }`. Role events expose before/after roles, assignment types and effective dates plus actor employee/login/role and timestamp. Employees may never alter their own assignments; the database enforces this as well as the service.
+
+There is no primary or request-selected acting role. Every effective role is active simultaneously. For each operation the server resolves the least-privileged sufficient effective assignment in the current company, rejects a missing role with `403` naming the required role, and records `ActorRoleCode`, `ResolvedRoleAssignmentId`, and `ResolvedRoleAssignmentType` in the audit trail. `SUPPORT` cannot authorize approve, reject, cancel, reverse, deactivate, permission configuration, or employee-role administration. `EmployeeHistorySummary` contains `Id`, `Action`, `FromStatus`, `ToStatus`, `Remarks`, `CreatedAt`, `CreatedBy`.
 ## 7. Implemented customer, vendor and inventory-master endpoints
 
 ### 7.1 Master object shapes

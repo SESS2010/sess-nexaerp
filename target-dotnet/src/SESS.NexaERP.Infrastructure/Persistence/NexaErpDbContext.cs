@@ -31,7 +31,6 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<EmployeeSkill> EmployeeSkills => Set<EmployeeSkill>();
     public DbSet<EmployeeRoleAssignment> EmployeeRoleAssignments => Set<EmployeeRoleAssignment>();
-    public DbSet<EmployeeCompanyRoleProfile> EmployeeCompanyRoleProfiles => Set<EmployeeCompanyRoleProfile>();
     public DbSet<EmployeeRoleAssignmentEvent> EmployeeRoleAssignmentEvents => Set<EmployeeRoleAssignmentEvent>();
     public DbSet<ReportingRelationship> ReportingRelationships => Set<ReportingRelationship>();
     public DbSet<EmployeeStatusHistory> EmployeeStatusHistories => Set<EmployeeStatusHistory>();
@@ -811,7 +810,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.EntityName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.EntityId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.UserLoginId).HasMaxLength(160).IsRequired();
-            entity.Property(x => x.ActorRoleCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.ActorRoleCode).HasMaxLength(64).IsRequired(); entity.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20);
             entity.Property(x => x.Result).HasMaxLength(40).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.IpAddress).HasMaxLength(80);
@@ -920,13 +919,12 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.ToTable("employee_role_assignments", table =>
             {
                 table.HasCheckConstraint("CK_employee_role_assignment_dates", @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""");
-                table.HasCheckConstraint("CK_employee_role_assignment_type", @"""AssignmentType"" IN ('PERMANENT','TEMPORARY','COVER')");
-                table.HasCheckConstraint("CK_employee_role_assignment_end_metadata", @"""EffectiveTo"" IS NULL OR ""AssignmentType"" IN ('TEMPORARY','COVER') OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)");
+                table.HasCheckConstraint("CK_employee_role_assignment_type", @"""AssignmentType"" IN ('FULL','SUPPORT','TEMPORARY')");
+                table.HasCheckConstraint("CK_employee_role_assignment_temporary_end", @"""AssignmentType"" <> 'TEMPORARY' OR ""EffectiveTo"" IS NOT NULL");
+                table.HasCheckConstraint("CK_employee_role_assignment_end_metadata", @"""EffectiveTo"" IS NULL OR ""AssignmentType"" = 'TEMPORARY' OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)");
             });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.EmployeeId, x.RoleId, x.EffectiveFrom }).IsUnique();
-            entity.HasIndex(x => new { x.CompanyId, x.EmployeeId })
-                .IsUnique().HasFilter(@"""IsPrimary"" AND ""EffectiveTo"" IS NULL AND ""ApprovalStatus"" IN ('Approved','SeedApproved')");
             entity.Property(x => x.AssignmentType).HasMaxLength(20).IsRequired();
             entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
@@ -937,20 +935,6 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         });
 
-        modelBuilder.Entity<EmployeeCompanyRoleProfile>(entity =>
-        {
-            entity.ToTable("employee_company_role_profiles", table =>
-                table.HasCheckConstraint("CK_employee_role_profile_primary",
-                    @"(""ConfigurationStatus"" = 'PENDING' AND ""PrimaryRoleAssignmentId"" IS NULL) OR (""ConfigurationStatus"" = 'CONFIGURED' AND ""PrimaryRoleAssignmentId"" IS NOT NULL)"));
-            entity.HasKey(x => x.Id);
-            entity.HasIndex(x => new { x.CompanyId, x.EmployeeId }).IsUnique();
-            entity.HasIndex(x => x.PrimaryRoleAssignmentId).IsUnique();
-            entity.Property(x => x.ConfigurationStatus).HasMaxLength(20).IsRequired();
-            entity.Property(x => x.Version).IsConcurrencyToken();
-            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(x => x.PrimaryRoleAssignment).WithMany().HasForeignKey(x => x.PrimaryRoleAssignmentId).OnDelete(DeleteBehavior.Restrict);
-        });
-
         modelBuilder.Entity<EmployeeRoleAssignmentEvent>(entity =>
         {
             entity.ToTable("employee_role_assignment_events");
@@ -959,14 +943,16 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.Operation).HasMaxLength(40).IsRequired();
             entity.Property(x => x.FromRoleCode).HasMaxLength(64);
             entity.Property(x => x.ToRoleCode).HasMaxLength(64);
+            entity.Property(x => x.FromAssignmentType).HasMaxLength(20);
+            entity.Property(x => x.ToAssignmentType).HasMaxLength(20);
             entity.Property(x => x.Reason).HasMaxLength(500).IsRequired();
             entity.Property(x => x.ActorLoginId).HasMaxLength(256).IsRequired();
             entity.Property(x => x.ActorRoleCode).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.ActorEmployeeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<EmployeeRoleAssignment>().WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Restrict);
         });
-
         modelBuilder.Entity<ReportingRelationship>(entity =>
         {
             entity.ToTable("reporting_relationships");

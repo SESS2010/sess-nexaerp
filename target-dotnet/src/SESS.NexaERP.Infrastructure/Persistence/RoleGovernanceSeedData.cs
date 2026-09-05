@@ -13,7 +13,9 @@ public static class RoleGovernanceSeedData
         NewRole("99000000-0000-0000-0000-000000000001", "PROJECT_MANAGER", "Project Manager", true),
         NewRole("99000000-0000-0000-0000-000000000002", "SITE_ENGINEER", "Site Engineer", false),
         NewRole("99000000-0000-0000-0000-000000000003", "DISPATCH_COORDINATOR", "Dispatch Coordinator", false),
-        NewRole("99000000-0000-0000-0000-000000000004", "MAINTENANCE_ENGINEER", "Maintenance Engineer", false)
+        NewRole("99000000-0000-0000-0000-000000000004", "MAINTENANCE_ENGINEER", "Maintenance Engineer", false),
+        NewRole("99000000-0000-0000-0000-000000000005", "HR_MANAGER", "HR Manager", true),
+        NewRole("99000000-0000-0000-0000-000000000006", "HOUSEKEEPING_ASSISTANT", "Housekeeping Assistant", false)
     ];
     public static IReadOnlyList<CompanyRoleActivation> CompanyRoleActivations { get; private set; } = [];
     public static IReadOnlyList<Role> KnownRoles { get; private set; } = [];
@@ -62,7 +64,7 @@ public static class RoleGovernanceSeedData
         "SALES_HEAD" or "SALES_ENGINEER" => Internal("SALES"),
         "IT_MANAGER" or "SOFTWARE_DEVELOPER" => Internal("IT"),
         "DOCUMENT_CONTROLLER" => Internal("DOCUMENT_CONTROL"),
-        "ADMIN_EXECUTIVE" or "HR_EXECUTIVE" => Internal("ADMINISTRATION"),
+        "ADMIN_EXECUTIVE" or "HR_EXECUTIVE" or "HR_MANAGER" or "HOUSEKEEPING_ASSISTANT" => Internal("ADMINISTRATION"),
         "BRANCH_MANAGER" or "OPS_ADMIN_NO_HR" or "DEPARTMENT_MANAGER" => Internal("GENERAL"),
         "TECHNICAL_ENGINEER" or "ELECTRICAL_ENGINEER" or "PLC_ENGINEER" or "JUNIOR_ENGINEER" => Internal("ENGINEERING"),
         "PROJECT_MANAGER" or "SITE_ENGINEER" => Internal("PROJECTS"),

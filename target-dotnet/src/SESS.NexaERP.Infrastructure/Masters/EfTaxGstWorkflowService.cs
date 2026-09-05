@@ -18,7 +18,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
     public async Task<TaxGstWorkflowResult> CreateAsync(CreateTaxGstSettingRequest request, string idempotencyKey, CancellationToken ct)
     {
         RequirePrincipal(request.OrganizationId);
-        RequireRole(CreatorRole);
+        var actorRole = user.RequireRole("tax-gst:create", CreatorRole);
         if (string.IsNullOrWhiteSpace(request.Remarks)) throw new InvalidOperationException("Tax-rule creation remarks are required.");
         var company = await db.Companies.AsNoTracking().SingleAsync(x => x.Code == request.OrganizationId && x.IsActive, ct);
         var candidate = Build(request, company.Id, user.EmployeeId!.Value);
@@ -36,7 +36,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         db.TaxGstSettings.Add(candidate);
         AddHistory(candidate, "Create", null, candidate, request.Remarks, 0);
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(candidate.OrganizationId, "CreateTaxGstSetting", idempotencyKey, request);
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, candidate.OrganizationId, envelope, ct, CreatorRole)
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, candidate.OrganizationId, envelope, ct, actorRole)
             ?? throw new InvalidOperationException("The tax-rule command produced no controlled mutation.");
         try
         {
@@ -60,7 +60,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
     private async Task<TaxGstWorkflowResult> DecideAsync(Guid id, DecideTaxGstSettingRequest request, bool approve, CancellationToken ct)
     {
         RequirePrincipal(user.OrganizationId);
-        if (!DecisionRoles.Contains(user.RoleCode, StringComparer.Ordinal)) throw new UnauthorizedAccessException("Tax rules require TECHNICAL_DIRECTOR or MANAGING_DIRECTOR approval authority.");
+        var actorRole = user.RequireRole(approve ? "tax-gst:approve" : "tax-gst:reject", DecisionRoles);
         if (string.IsNullOrWhiteSpace(request.Remarks)) throw new InvalidOperationException("Tax-rule decision remarks are required.");
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var rule = await db.TaxGstSettings.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == user.OrganizationId, ct)
@@ -74,7 +74,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         var before = Snapshot(rule);
         rule.ApprovalStatus = approve ? MasterApprovalStatuses.Approved : MasterApprovalStatuses.Rejected;
         rule.DecisionEmployeeId = user.EmployeeId;
-        rule.DecisionRoleCode = user.RoleCode;
+        rule.DecisionRoleCode = actorRole;
         rule.DecisionAt = DateTimeOffset.UtcNow;
         rule.DecisionRemarks = request.Remarks.Trim();
         rule.IsActive = approve;
@@ -84,7 +84,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         var action = approve ? "Approve" : "Reject";
         AddHistory(rule, action, before, Snapshot(rule), request.Remarks, rule.Version);
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(rule.OrganizationId, action + "TaxGstSetting", request.IdempotencyKey, new { id, request });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, rule.OrganizationId, envelope, ct, user.RoleCode)
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, rule.OrganizationId, envelope, ct, actorRole)
             ?? throw new InvalidOperationException("The tax-rule command produced no controlled mutation.");
         try
         {
@@ -139,7 +139,6 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(organization) ||
             !string.Equals(user.OrganizationId, organization, StringComparison.Ordinal)) throw new UnauthorizedAccessException("An exact company employee identity is required.");
     }
-    private void RequireRole(string role) { if (!string.Equals(user.RoleCode, role, StringComparison.Ordinal)) throw new UnauthorizedAccessException(role + " is required."); }
     private void AddHistory(TaxGstSetting rule, string action, object? before, object after, string remarks, uint version) => db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory
     {
         CompanyId = rule.CompanyId, OrganizationId = rule.OrganizationId, EntityType = nameof(TaxGstSetting), EntityId = rule.Id, Action = action,

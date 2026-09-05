@@ -86,7 +86,7 @@ public sealed class StoresReceiptAuthorizationCorrectionTests
 
         var developmentResolver = Method(resolver, "#if DEBUG", "#endif");
         Assert.Contains("ResolveDevelopmentEmployeeAsync", developmentResolver);
-        Assert.Contains("EmployeeCompanyAssignments", developmentResolver);
+        Assert.Contains("ResolveMappedEmployeeAsync", developmentResolver);
         Assert.DoesNotContain("EmployeeIdentityMappings", developmentResolver);
         Assert.DoesNotContain("LoginEnabled", developmentResolver);
         Assert.Contains("NexaErp:AllowDevelopmentAuthentication", program);

@@ -29,23 +29,6 @@ public sealed class EmployeeIdentityResolutionMiddleware(RequestDelegate next)
                 ? ResolvedEmployeeIdentity.Failed("Exact OIDC issuer and subject are required.")
                 : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
 #endif
-            if (resolution.Success)
-            {
-                var requestedRole = context.Request.Headers["X-SESS-Acting-Role"].FirstOrDefault()?.Trim().ToUpperInvariant();
-                if (!string.IsNullOrWhiteSpace(requestedRole) &&
-                    !resolution.RoleCodes.Contains(requestedRole, StringComparer.Ordinal))
-                {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    await context.Response.WriteAsJsonAsync(new
-                    {
-                        message = "The requested acting role is not currently held by this employee in this company.",
-                        requestedRole
-                    }, context.RequestAborted);
-                    return;
-                }
-
-                resolution = resolution with { ActingRoleCode = requestedRole ?? resolution.PrimaryRoleCode };
-            }
             context.Items[ResolutionItemKey] = resolution;
         }
 

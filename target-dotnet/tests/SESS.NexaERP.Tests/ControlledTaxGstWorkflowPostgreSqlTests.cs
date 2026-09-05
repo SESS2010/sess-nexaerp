@@ -32,12 +32,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid accountsId;
         Guid tdId;
         Guid mdId;
+        IReadOnlyDictionary<string, EffectiveRoleAssignment> roleAssignments;
         await using (var admin = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql(server.ConnectionString).Options))
         {
             accountsId = await admin.Employees.Where(x => x.EmployeeCode == "SESS-14").Select(x => x.Id).SingleAsync();
             tdId = await admin.Employees.Where(x => x.EmployeeCode == "SESS-01").Select(x => x.Id).SingleAsync();
-            mdId = await admin.Employees.Where(x => x.EmployeeCode == "SESS-02").Select(x => x.Id).SingleAsync();
+            mdId = await admin.Employees.Where(x => x.EmployeeCode == "SESS-02").Select(x => x.Id).SingleAsync();            roleAssignments = await admin.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
+                .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
+                .ToDictionaryAsync(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
+                    x => new EffectiveRoleAssignment(x.Id, x.Role!.Code, x.AssignmentType));
             var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
             admin.EmployeeIdentityMappings.AddRange(
                 Mapping(companyId, accountsId, "SESS-14"),
@@ -71,7 +75,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Pooling = false
         }.ConnectionString;
         using var environment = new TaxWorkflowEnvironment(auditConnection);
-        var user = new TaxWorkflowUser(accountsId, "SESS-14", "ACCOUNTS_MANAGER");
+        var user = new TaxWorkflowUser(accountsId, "SESS-14", "ACCOUNTS_MANAGER", roleAssignments);
         var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtime).Options;
 
         Guid approvedId;
@@ -157,27 +161,46 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         VendorRegistrationType.REGULAR.ToCanonicalValue(), 18, 9, 9, 0, 0,
         false, false, "INR", 2, DateOnly.FromDateTime(DateTime.UtcNow), null, "Manual GST portal cross-check required");
 
-    private sealed class TaxWorkflowUser(Guid employeeId, string login, string role) : ICurrentUser
+    private sealed class TaxWorkflowUser : ICurrentUser
     {
-        private IReadOnlyList<string> roles = [role];
-        public Guid CurrentEmployeeId { get; private set; } = employeeId;
-        public string LoginId { get; private set; } = login;
-        public string RoleCode { get; private set; } = role;
-        public IReadOnlyList<string> RoleCodes => roles;
+        private readonly IReadOnlyDictionary<string, EffectiveRoleAssignment> knownAssignments;
+        private IReadOnlyList<EffectiveRoleAssignment> assignments = [];
+        private ResolvedRoleAuthority? authority;
+        private string selectedRole = "none";
+        public TaxWorkflowUser(Guid employeeId, string login, string role,
+            IReadOnlyDictionary<string, EffectiveRoleAssignment>? assignmentsByEmployeeAndRole = null)
+        {
+            knownAssignments = assignmentsByEmployeeAndRole ?? new Dictionary<string, EffectiveRoleAssignment>();
+            Set(employeeId, login, role);
+        }
+        public static string AssignmentKey(Guid employeeId, string roleCode) => $"{employeeId:N}|{roleCode.Trim().ToUpperInvariant()}";
+        public Guid CurrentEmployeeId { get; private set; }
+        public string LoginId { get; private set; } = string.Empty;
+        public string RoleCode => authority?.RoleCode ?? selectedRole;
+        public IReadOnlyList<string> RoleCodes => assignments.Select(x => x.RoleCode).ToArray();
+        public IReadOnlyList<string> FullAuthorityRoleCodes => assignments.Where(x => x.AssignmentType != "SUPPORT").Select(x => x.RoleCode).ToArray();
+        public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => assignments;
+        public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
+        public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
         public string? OrganizationId => "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
         public string? IdentityIssuer => "https://issuer.purchase-flow.test";
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
         public void Set(Guid id, string subject, string roleCode, params string[] effectiveRoles)
         {
             CurrentEmployeeId = id;
             LoginId = subject;
-            RoleCode = roleCode;
-            roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
+            selectedRole = roleCode;
+            authority = null;
+            var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
+            assignments = roles.Distinct(StringComparer.Ordinal).Select(code =>
+                knownAssignments.TryGetValue(AssignmentKey(id, code), out var assignment)
+                    ? assignment
+                    : new EffectiveRoleAssignment(Guid.Empty, code, "FULL")).ToArray();
         }
     }
-
     private sealed class TaxWorkflowEnvironment : IDisposable
     {
         private readonly Dictionary<string, string?> prior = new(StringComparer.Ordinal);

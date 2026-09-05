@@ -262,13 +262,22 @@ public sealed class Rev869BPurchaseBehaviorTests
         public Task SignOutAsync(HttpContext context, string? scheme, AuthenticationProperties? properties) => Task.CompletedTask;
     }
 
-    private sealed record ServiceUser(bool IsAuthenticated, string RoleCode) : ICurrentUser
+    private sealed class ServiceUser(bool isAuthenticated, string roleCode) : ICurrentUser
     {
+        private readonly EffectiveRoleAssignment? assignment = isAuthenticated && !string.Equals(roleCode, "none", StringComparison.OrdinalIgnoreCase)
+            ? new EffectiveRoleAssignment(Guid.Parse("10000000-0000-0000-0000-000000000102"), roleCode, "FULL")
+            : null;
+        private ResolvedRoleAuthority? authority;
+        public bool IsAuthenticated => isAuthenticated;
         public string LoginId => IsAuthenticated ? "service-tester" : "";
+        public string RoleCode => authority?.RoleCode ?? "none";
+        public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => assignment is null ? [] : [assignment];
+        public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
+        public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
         public string? OrganizationId => IsAuthenticated ? "SESS" : null;
         public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("10000000-0000-0000-0000-000000000002") : null;
     }
-
     private sealed record TestCurrentUser(bool IsAuthenticated) : ICurrentUser
     {
         public string LoginId => IsAuthenticated ? "tester" : "";

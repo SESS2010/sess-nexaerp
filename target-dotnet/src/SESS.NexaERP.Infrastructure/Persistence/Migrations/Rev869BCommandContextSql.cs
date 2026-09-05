@@ -55,7 +55,7 @@ internal static class Rev869BCommandContextSql
         END $roles$;
         CREATE TABLE __advance_schema__.rev869b_command_requests(
           "CommandId" uuid PRIMARY KEY,"OrganizationId" text NOT NULL,"Operation" text NOT NULL,"IdempotencyKeySha256" bytea NOT NULL CHECK(octet_length("IdempotencyKeySha256")=32),"RequestSha256" bytea NOT NULL CHECK(octet_length("RequestSha256")=32),
-          "ActorEmployeeId" uuid NOT NULL,"IdentityIssuer" text NOT NULL,"IdentitySubject" text NOT NULL,"ActorRole" text NOT NULL,"RegisteredAt" timestamptz NOT NULL DEFAULT clock_timestamp(),"RegisteredBy" name NOT NULL DEFAULT session_user,
+          "ActorEmployeeId" uuid NOT NULL,"IdentityIssuer" text NOT NULL,"IdentitySubject" text NOT NULL,"ActorRole" text NOT NULL,"ActorRoleAssignmentId" uuid NOT NULL REFERENCES __advance_schema__.employee_role_assignments("Id"),"RegisteredAt" timestamptz NOT NULL DEFAULT clock_timestamp(),"RegisteredBy" name NOT NULL DEFAULT session_user,
           UNIQUE("OrganizationId","Operation","IdempotencyKeySha256"));
         CREATE TABLE __advance_schema__.rev869b_command_attempts(
           "AttemptId" uuid PRIMARY KEY,"CommandId" uuid NOT NULL REFERENCES __advance_schema__.rev869b_command_requests("CommandId"),"AttemptOrdinal" integer NOT NULL CHECK("AttemptOrdinal">0),"ExecutionInstanceId" uuid NOT NULL,
@@ -121,12 +121,37 @@ internal static class Rev869BCommandContextSql
         CREATE TRIGGER "TR_rev869b_purge_events_immutable" BEFORE UPDATE OR DELETE ON __advance_schema__.rev869b_purge_events FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_deny_ledger_mutation();
         CREATE TRIGGER "TR_rev869b_export_rows_immutable" BEFORE UPDATE OR DELETE ON __advance_schema__.rev869b_export_batch_rows FOR EACH ROW EXECUTE FUNCTION __advance_schema__.rev869b_deny_ledger_mutation();
 
-        CREATE FUNCTION __advance_schema__.rev869b_register_command_request(organization text,operation text,idempotency_sha bytea,request_sha bytea,actor_employee uuid,identity_issuer text,identity_subject text,actor_role text)
-        RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,__advance_schema__ AS $f$ DECLARE command_id uuid; existing __advance_schema__.rev869b_command_requests%ROWTYPE; BEGIN
-          IF session_user<>'nexa_rev869b_command_audit' OR organization='' OR operation='' OR octet_length(idempotency_sha)<>32 OR octet_length(request_sha)<>32 THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Exact command request required'; END IF;
-          SELECT * INTO existing FROM __advance_schema__.rev869b_command_requests r WHERE r."OrganizationId"=organization AND r."Operation"=operation AND r."IdempotencyKeySha256"=idempotency_sha FOR UPDATE;
-          IF FOUND THEN IF existing."RequestSha256"<>request_sha OR existing."ActorEmployeeId"<>actor_employee OR existing."IdentityIssuer"<>identity_issuer OR existing."IdentitySubject"<>identity_subject OR existing."ActorRole"<>actor_role THEN RAISE EXCEPTION USING ERRCODE='23505',CONSTRAINT='rev869b_command_request_replay_mismatch',MESSAGE='Idempotency replay mismatch'; END IF; RETURN existing."CommandId"; END IF;
-          command_id:=gen_random_uuid(); INSERT INTO __advance_schema__.rev869b_command_requests VALUES(command_id,organization,operation,idempotency_sha,request_sha,actor_employee,identity_issuer,identity_subject,actor_role,clock_timestamp(),session_user); RETURN command_id;
+        CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_register_command_request(
+          organization text,operation text,idempotency_sha bytea,request_sha bytea,actor_employee uuid,
+          identity_issuer text,identity_subject text,actor_role text,actor_assignment uuid)
+        RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,__advance_schema__ AS $f$
+        DECLARE command_id uuid; existing record; company_id uuid;
+        BEGIN
+          IF session_user<>'nexa_rev869b_command_audit' OR organization='' OR operation=''
+             OR octet_length(idempotency_sha)<>32 OR octet_length(request_sha)<>32 THEN
+            RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Exact assignment-bound command request required';
+          END IF;
+          SELECT "Id" INTO company_id FROM __advance_schema__.companies WHERE "Code"=organization AND "IsActive";
+          IF NOT EXISTS (
+            SELECT 1 FROM __advance_schema__.resolve_employee_role_authority(actor_employee,company_id,CURRENT_DATE,operation,ARRAY[actor_role]) x
+            WHERE x."AssignmentId"=actor_assignment AND x."RoleCode"=actor_role
+          ) THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Resolved command role assignment is not effective.'; END IF;
+          SELECT * INTO existing FROM __advance_schema__.rev869b_command_requests r
+          WHERE r."OrganizationId"=organization AND r."Operation"=operation AND r."IdempotencyKeySha256"=idempotency_sha FOR UPDATE;
+          IF FOUND THEN
+            IF existing."RequestSha256"<>request_sha OR existing."ActorEmployeeId"<>actor_employee OR
+               existing."IdentityIssuer"<>identity_issuer OR existing."IdentitySubject"<>identity_subject OR
+               existing."ActorRole"<>actor_role OR existing."ActorRoleAssignmentId" IS DISTINCT FROM actor_assignment
+            THEN RAISE EXCEPTION USING ERRCODE='23505',CONSTRAINT='rev869b_command_request_replay_mismatch',MESSAGE='Idempotency key reuse mismatch'; END IF;
+            RETURN existing."CommandId";
+          END IF;
+          command_id:=gen_random_uuid();
+          INSERT INTO __advance_schema__.rev869b_command_requests
+            ("CommandId","OrganizationId","Operation","IdempotencyKeySha256","RequestSha256","ActorEmployeeId",
+             "IdentityIssuer","IdentitySubject","ActorRole","ActorRoleAssignmentId","RegisteredAt","RegisteredBy")
+          VALUES(command_id,organization,operation,idempotency_sha,request_sha,actor_employee,identity_issuer,
+            identity_subject,actor_role,actor_assignment,clock_timestamp(),session_user);
+          RETURN command_id;
         END $f$;
         CREATE FUNCTION __advance_schema__.rev869b_start_command_attempt(command_id uuid,execution_instance uuid,service_sha bytea,ownership_sha bytea,runtime_principal name,backend_pid integer,transaction_id bigint)
         RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,__advance_schema__ AS $f$ DECLARE attempt_id uuid:=gen_random_uuid(); ordinal integer; active __advance_schema__.rev869b_command_attempts%ROWTYPE; BEGIN
@@ -541,7 +566,7 @@ internal static class Rev869BCommandContextSql
           IF (SELECT "CatalogueSha256"<>__advance_schema__.rev869b_target_catalogue_fingerprint() FROM __advance_schema__.rev869b_target_catalogue_manifest) IS DISTINCT FROM false THEN RAISE EXCEPTION 'Target catalogue fingerprint mismatch'; END IF;
           WITH expected(role_name,signature) AS (VALUES
             ('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_qualification_provenance_valid(uuid)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)'),('nexa_rev869b_app_runtime','__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid)'),
-            ('nexa_rev869b_command_audit','__advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_reconcile_command_attempt(uuid)'),
+            ('nexa_rev869b_command_audit','__advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid)'),('nexa_rev869b_command_audit','__advance_schema__.rev869b_reconcile_command_attempt(uuid)'),
             ('nexa_rev869b_management_writer','__advance_schema__.rev869b_register_purge_authorization(uuid,uuid,uuid,uuid,uuid,bytea,text,text,timestamp with time zone,integer,bytea,text,bytea,timestamp with time zone)'),('nexa_rev869b_management_writer','__advance_schema__.rev869b_register_export_authorization(uuid,uuid,text,text[],integer,timestamp with time zone,timestamp with time zone)'),
             ('nexa_rev869b_purge_worker','__advance_schema__.rev869b_start_purge(uuid,uuid)'),('nexa_rev869b_purge_worker','__advance_schema__.rev869b_execute_purge(uuid)'),('nexa_rev869b_purge_worker','__advance_schema__.rev869b_reconcile_purge(uuid)'),
             ('nexa_rev869b_purge_audit','__advance_schema__.rev869b_record_purge_failure(uuid,text,text,bytea)'),('nexa_rev869b_purge_audit','__advance_schema__.rev869b_reconcile_purge(uuid)'),
@@ -592,7 +617,7 @@ internal static class Rev869BCommandContextSql
         GRANT SELECT,INSERT,UPDATE ON __advance_schema__.tax_gst_settings,__advance_schema__.vendor_qualifications,__advance_schema__.controlled_configuration_histories,__advance_schema__.request_for_quotations,__advance_schema__.request_for_quotation_lines,__advance_schema__.rfq_vendor_invitations,__advance_schema__.vendor_quotations,__advance_schema__.vendor_quotation_lines,__advance_schema__.quotation_technical_verifications,__advance_schema__.commercial_comparisons,__advance_schema__.commercial_comparison_lines,__advance_schema__.purchase_transaction_status_history,__advance_schema__.purchase_transaction_approval_history,__advance_schema__.purchase_orders,__advance_schema__.purchase_order_lines,__advance_schema__.purchase_order_history,__advance_schema__.material_followup_handoffs,__advance_schema__.purchase_number_sequences TO nexa_rev869b_app_runtime;
         GRANT SELECT,INSERT ON __advance_schema__.audit_logs TO nexa_rev869b_app_runtime;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb),__advance_schema__.rev869b_qualification_provenance_valid(uuid),__advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb),__advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text),__advance_schema__.rev869b_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text),__advance_schema__.rev869b_commit_command_attempt(uuid,bytea,jsonb,uuid) TO nexa_rev869b_app_runtime;
-        GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text),__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint),__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid),__advance_schema__.rev869b_reconcile_command_attempt(uuid) TO nexa_rev869b_command_audit;
+        GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid),__advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint),__advance_schema__.rev869b_record_noncommit_outcome(uuid,uuid,bytea,bytea,text,text,uuid),__advance_schema__.rev869b_reconcile_command_attempt(uuid) TO nexa_rev869b_command_audit;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_register_purge_authorization(uuid,uuid,uuid,uuid,uuid,bytea,text,text,timestamptz,integer,bytea,text,bytea,timestamptz),__advance_schema__.rev869b_register_export_authorization(uuid,uuid,text,text[],integer,timestamptz,timestamptz) TO nexa_rev869b_management_writer;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_start_purge(uuid,uuid),__advance_schema__.rev869b_execute_purge(uuid),__advance_schema__.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_worker;
         GRANT EXECUTE ON FUNCTION __advance_schema__.rev869b_record_purge_failure(uuid,text,text,bytea),__advance_schema__.rev869b_reconcile_purge(uuid) TO nexa_rev869b_purge_audit;
@@ -640,6 +665,7 @@ internal static class Rev869BCommandContextSql
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_command_context_valid(text,uuid,text,text,text);
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_open_command_attempt(uuid,uuid,text,text,text,text,bytea,jsonb);
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_start_command_attempt(uuid,uuid,bytea,bytea,name,integer,bigint);
+        DROP FUNCTION IF EXISTS __advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid);
         DROP FUNCTION IF EXISTS __advance_schema__.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text);
         DROP TABLE IF EXISTS __advance_schema__.rev869b_target_catalogue_manifest;
         DROP TABLE IF EXISTS __advance_schema__.rev869b_export_releases,__advance_schema__.rev869b_export_batch_rows,__advance_schema__.rev869b_export_batches,__advance_schema__.rev869b_export_authorizations;

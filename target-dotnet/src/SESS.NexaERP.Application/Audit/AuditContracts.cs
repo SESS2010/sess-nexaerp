@@ -1,4 +1,4 @@
-using SESS.NexaERP.Application.Common;
+﻿using SESS.NexaERP.Application.Common;
 
 namespace SESS.NexaERP.Application.Audit;
 
@@ -12,7 +12,9 @@ public sealed record AuditLogSummary(
     string Result,
     string CorrelationId,
     DateTimeOffset CreatedAt,
-    string ActorRoleCode = "");
+    string ActorRoleCode = "",
+    Guid? ResolvedRoleAssignmentId = null,
+    string? ResolvedRoleAssignmentType = null);
 
 public interface IAuditHistoryService
 {

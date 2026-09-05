@@ -16,7 +16,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 public static class Rev869BCommandContextAuthorizer
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private const string RegisterCommandRequestSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_register_command_request(@org,@operation,@key,@request,@actor,@issuer,@subject,@role)";
+    private const string RegisterCommandRequestSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_register_command_request(@org,@operation,@key,@request,@actor,@issuer,@subject,@role,@assignment)";
     private const string StartCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_start_command_attempt(@command,@execution,@service,@ownership,@runtime,@backend,@transaction)";
     private const string OpenCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_open_command_attempt({0},{1},{2},{3},{4},{5},{6},{7}::jsonb)";
     private const string CommitCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_commit_command_attempt({0},{1},{2}::jsonb,{3})";
@@ -42,7 +42,9 @@ public static class Rev869BCommandContextAuthorizer
         string? selectedRoleCode = null)
     {
         RequirePrincipal(user, organization);
-        var actorRole = user.ActingRoleCode;
+        var actorRole = user.RoleCode;
+        var actorAssignmentId = user.ResolvedRoleAssignmentId ??
+            throw new UnauthorizedAccessException("A resolved effective role-assignment ID is required for a controlled command.");
         if (string.IsNullOrWhiteSpace(actorRole) || string.Equals(actorRole, "none", StringComparison.OrdinalIgnoreCase))
             throw new UnauthorizedAccessException("An effective acting role is required for a controlled command.");
         if (!string.IsNullOrWhiteSpace(selectedRoleCode) &&
@@ -92,6 +94,7 @@ public static class Rev869BCommandContextAuthorizer
             register.Parameters.AddWithValue("issuer", user.IdentityIssuer!);
             register.Parameters.AddWithValue("subject", user.IdentitySubject!);
             register.Parameters.AddWithValue("role", actorRole);
+            register.Parameters.AddWithValue("assignment", actorAssignmentId);
             commandId = (Guid)(await register.ExecuteScalarAsync(ct) ?? throw new InvalidOperationException("Command request registration returned no identifier."));
 
             if (!Guid.TryParse(Environment.GetEnvironmentVariable("REV869B_EXECUTION_INSTANCE_ID"), out var executionId) || executionId == Guid.Empty)

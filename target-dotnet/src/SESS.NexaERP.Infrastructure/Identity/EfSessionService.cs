@@ -24,18 +24,19 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
             .Select(x => x.Code).SingleOrDefaultAsync(cancellationToken)
             ?? throw new UnauthorizedAccessException("The resolved primary department is unavailable.");
 
-        var permissions = await ResolvePermissionsAsync([currentUser.ActingRoleCode], cancellationToken);
+        var permissions = await ResolvePermissionsAsync(currentUser.RoleCodes, currentUser.FullAuthorityRoleCodes, cancellationToken);
         return new SessionMe(employee.Id, employee.EmployeeCode, employee.EmployeeName, company.Id, company.Code,
             currentUser.DepartmentId.Value, departmentCode, currentUser.RoleCodes.Order(StringComparer.Ordinal).ToArray(), permissions,
-            currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.PrimaryRoleCode, currentUser.ActingRoleCode);
+            currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.FullAuthorityRoleCodes);
     }
 
-    private async Task<IReadOnlyList<string>> ResolvePermissionsAsync(IReadOnlyCollection<string> roleCodes, CancellationToken ct)
+    private async Task<IReadOnlyList<string>> ResolvePermissionsAsync(IReadOnlyCollection<string> roleCodes, IReadOnlyCollection<string> fullAuthorityRoleCodes, CancellationToken ct)
     {
         var roles = roleCodes.Select(x => x.Trim().ToUpperInvariant()).Distinct().ToArray();
+        var fullRoles = fullAuthorityRoleCodes.Select(x => x.Trim().ToUpperInvariant()).Distinct().ToArray();
         var grants = await db.RolePagePermissions.AsNoTracking()
             .Where(x => x.Role != null && x.PageDefinition != null && roles.Contains(x.Role.Code) && x.Role.IsActive && x.PageDefinition.IsActive)
-            .Select(x => new { x.PageDefinition!.PageKey, x.CanView, x.CanCreate, x.CanUpdate, x.CanSubmit, x.CanIssue, x.CanVerify,
+            .Select(x => new { x.Role!.Code, x.PageDefinition!.PageKey, x.CanView, x.CanCreate, x.CanUpdate, x.CanSubmit, x.CanIssue, x.CanVerify,
                 x.CanApprove, x.CanReject, x.CanRequestClarification, x.CanRequestRevision, x.CanResubmit, x.CanCancel, x.CanDeactivate,
                 x.CanPrint, x.CanDownload, x.CanExport, x.CanUploadAttachment, x.CanReplaceAttachment, x.CanViewCommercialValues,
                 x.CanViewAuditHistory, x.HasFullControl })
@@ -45,16 +46,17 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
         var resolved = new HashSet<string>(StringComparer.Ordinal);
         foreach (var grant in grants)
         {
-            var broadFullControl = grant.HasFullControl && !explicitPages.Contains(grant.PageKey);
-            void Add(bool granted, string action) { if (granted || broadFullControl) resolved.Add($"{grant.PageKey}:{action}"); }
-            Add(grant.CanView, PagePermissionActions.View); Add(grant.CanCreate, PagePermissionActions.Create);
+            var hasFullAuthority = fullRoles.Contains(grant.Code);
+            var broadFullControl = hasFullAuthority && grant.HasFullControl && !explicitPages.Contains(grant.PageKey);
+            void Add(bool granted, string action) { if ((hasFullAuthority && granted) || broadFullControl) resolved.Add($"{grant.PageKey}:{action}"); }
+            if (grant.CanView || broadFullControl) resolved.Add($"{grant.PageKey}:{PagePermissionActions.View}"); Add(grant.CanCreate, PagePermissionActions.Create);
             Add(grant.CanUpdate, PagePermissionActions.Update); Add(grant.CanSubmit, PagePermissionActions.Submit);
             Add(grant.CanIssue, PagePermissionActions.Issue); Add(grant.CanVerify, PagePermissionActions.Verify);
             Add(grant.CanApprove, PagePermissionActions.Approve); Add(grant.CanReject, PagePermissionActions.Reject);
             Add(grant.CanRequestClarification, PagePermissionActions.RequestClarification); Add(grant.CanRequestRevision, PagePermissionActions.RequestRevision);
             Add(grant.CanResubmit, PagePermissionActions.Resubmit); Add(grant.CanCancel, PagePermissionActions.Cancel);
-            Add(grant.CanDeactivate, PagePermissionActions.Deactivate); Add(grant.CanPrint, PagePermissionActions.Print);
-            Add(grant.CanDownload, PagePermissionActions.Download); Add(grant.CanExport, PagePermissionActions.Export);
+            Add(grant.CanDeactivate, PagePermissionActions.Deactivate); if (grant.CanPrint || broadFullControl) resolved.Add($"{grant.PageKey}:{PagePermissionActions.Print}");
+            if (grant.CanDownload || broadFullControl) resolved.Add($"{grant.PageKey}:{PagePermissionActions.Download}"); if (grant.CanExport || broadFullControl) resolved.Add($"{grant.PageKey}:{PagePermissionActions.Export}");
             Add(grant.CanUploadAttachment, PagePermissionActions.UploadAttachment); Add(grant.CanReplaceAttachment, PagePermissionActions.ReplaceAttachment);
             Add(grant.CanViewCommercialValues, PagePermissionActions.ViewCommercialValues); Add(grant.CanViewAuditHistory, PagePermissionActions.ViewAuditHistory);
             Add(grant.HasFullControl, PagePermissionActions.FullControl);

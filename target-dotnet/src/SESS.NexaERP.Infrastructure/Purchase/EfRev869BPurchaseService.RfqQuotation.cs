@@ -254,7 +254,7 @@ public sealed partial class EfRev869BPurchaseService
 
     public async Task<Rev869BDocumentResult> VerifyTechnicalAsync(string quotationNumber, Rev869BTechnicalVerificationRequest request, CancellationToken ct)
     {
-        var actor = RequireActor(); RequireRole("TECHNICAL_ENGINEER", Rev869ARoleCodes.TechnicalDirector);
+        var actor = RequireActor(); RequireRole("TECHNICAL_SUPPORT_MANAGER", "TECHNICAL_ENGINEER", Rev869ARoleCodes.TechnicalDirector);
         await using var tx = await BeginTransactionScopeAsync("TechnicalVerification", request.IdempotencyKey,
             new { quotationNumber = quotationNumber.Trim().ToUpperInvariant(), request }, ct);
         var organization = RequireOrganization();

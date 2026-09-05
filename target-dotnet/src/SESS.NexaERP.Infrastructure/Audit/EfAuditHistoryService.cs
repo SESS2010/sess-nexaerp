@@ -37,7 +37,7 @@ public sealed class EfAuditHistoryService(NexaErpDbContext db, ICurrentUser curr
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(log => new AuditLogSummary(log.Id, log.Module, log.Action, log.EntityName, log.EntityId,
-                log.UserLoginId, log.Result, log.CorrelationId, log.CreatedAt, log.ActorRoleCode))
+                log.UserLoginId, log.Result, log.CorrelationId, log.CreatedAt, log.ActorRoleCode, log.ResolvedRoleAssignmentId, log.ResolvedRoleAssignmentType))
             .ToListAsync(cancellationToken);
         return new PagedResponse<AuditLogSummary>(total, page, pageSize, rows);
     }

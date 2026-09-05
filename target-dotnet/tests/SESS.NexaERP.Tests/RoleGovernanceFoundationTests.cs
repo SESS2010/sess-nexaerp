@@ -8,12 +8,12 @@ namespace SESS.NexaERP.Tests;
 public sealed class RoleGovernanceFoundationTests
 {
     [Fact]
-    public void Catalogue_has_49_classified_roles()
+    public void Catalogue_has_51_classified_roles()
     {
         RoleGovernanceSeedData.ApplyToKnownRoles();
         var roles = RoleGovernanceSeedData.KnownRoles.ToDictionary(role => role.Code, StringComparer.Ordinal);
-        Assert.Equal(49, roles.Count);
-        Assert.Equal(38, roles.Values.Count(role => role.Audience == RoleAudiences.InternalEmployee));
+        Assert.Equal(51, roles.Count);
+        Assert.Equal(40, roles.Values.Count(role => role.Audience == RoleAudiences.InternalEmployee));
         Assert.Equal(8, roles.Values.Count(role => role.Audience == RoleAudiences.LegacyAlias));
         Assert.Equal(2, roles.Values.Count(role => role.Audience == RoleAudiences.ExternalPortal));
         Assert.Single(roles.Values, role => role.Audience == RoleAudiences.SystemSecurity);
@@ -40,18 +40,18 @@ public sealed class RoleGovernanceFoundationTests
     }
 
     [Fact]
-    public void Both_companies_receive_49_rows_while_new_roles_receive_no_authority()
+    public void Both_companies_receive_51_rows_while_new_roles_receive_no_authority()
     {
         RoleGovernanceSeedData.ApplyToKnownRoles();
         var rows = RoleGovernanceSeedData.CompanyRoleActivations;
-        Assert.Equal(98, rows.Count);
+        Assert.Equal(102, rows.Count);
         var companies = rows.GroupBy(row => row.CompanyId).ToArray();
         Assert.Equal(2, companies.Length);
-        Assert.All(companies, company => Assert.Equal(49, company.Count()));
-        Assert.All(companies, company => Assert.Equal(40, company.Count(row => row.IsEnabled)));
+        Assert.All(companies, company => Assert.Equal(51, company.Count()));
+        Assert.All(companies, company => Assert.Equal(42, company.Count(row => row.IsEnabled)));
 
         var newRoleIds = RoleGovernanceSeedData.AdditionalRoles.Select(role => role.Id).ToHashSet();
-        Assert.Equal(["DISPATCH_COORDINATOR", "MAINTENANCE_ENGINEER", "PROJECT_MANAGER", "SITE_ENGINEER"],
+        Assert.Equal(["DISPATCH_COORDINATOR", "HOUSEKEEPING_ASSISTANT", "HR_MANAGER", "MAINTENANCE_ENGINEER", "PROJECT_MANAGER", "SITE_ENGINEER"],
             RoleGovernanceSeedData.AdditionalRoles.Select(role => role.Code).Order().ToArray());
         Assert.DoesNotContain(AdvanceSeedData.RolePagePermissions, row => newRoleIds.Contains(row.RoleId));
         Assert.DoesNotContain(Rev866SeedData.EmployeeRoleAssignments, row => newRoleIds.Contains(row.RoleId));

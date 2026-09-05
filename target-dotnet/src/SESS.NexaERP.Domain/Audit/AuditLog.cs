@@ -12,6 +12,8 @@ public sealed class AuditLog : AuditableEntity
     public string EntityId { get; set; } = string.Empty;
     public string UserLoginId { get; set; } = string.Empty;
     public string ActorRoleCode { get; set; } = string.Empty;
+    public Guid? ResolvedRoleAssignmentId { get; set; }
+    public string? ResolvedRoleAssignmentType { get; set; }
     public string Result { get; set; } = "Success";
     public string CorrelationId { get; set; } = string.Empty;
     public string? BeforeJson { get; set; }

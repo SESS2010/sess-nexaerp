@@ -235,7 +235,7 @@ public sealed class EfVendorMasterDataService(
     private async Task<string> ResolveRoleAsync(CancellationToken cancellationToken)
     {
         foreach (var role in RolePriority)
-            if (string.Equals(user.ActingRoleCode, role, StringComparison.OrdinalIgnoreCase)
+            if (string.Equals(user.RoleCode, role, StringComparison.OrdinalIgnoreCase)
                 && await permissions.HasPermissionAsync([role], "masters.vendors", PagePermissionActions.Update, cancellationToken)) return role;
         throw new UnauthorizedAccessException("No deterministic operational role can update vendor master data.");
     }

@@ -121,7 +121,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Pooling = false
         }.ConnectionString;
         using var environment = new TaxWorkflowEnvironment(auditConnection);
-        var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive);
+        var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
+            .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
+            .ToListAsync()).ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
+                x => new EffectiveRoleAssignment(x.Id, x.Role!.Code, x.AssignmentType)));
+        var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive, roleAssignments);
         var runtimeConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
         {
             Username = "nexa_rev869b_app_runtime",
@@ -250,7 +254,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
-        user.Set(creatorId, "SESS-12", "SOFTWARE_DEVELOPER");
+        user.Set(creatorId, "SESS-12", "IT_MANAGER");
         var employeePage=await Get<PagedResponse<SESS.NexaERP.Application.Employees.EmployeeSummary>>(prClient,"/api/v1/employees?page=1&pageSize=1");
         Assert.True(employeePage.TotalCount>1);var employee=Assert.Single(employeePage.Items);
         using(var stale=await prClient.PutAsJsonAsync($"/api/v1/employees/{employee.EmployeeCode}",new SESS.NexaERP.Application.Employees.UpdateEmployeeRequest(
@@ -343,7 +347,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(1,quotationList.TotalCount);Assert.Equal(quotations[0].Id,Assert.Single(quotationList.Items).Id);
         var quotationDetail=await Get<JsonElement>(client,$"/api/v1/purchase/quotations/{quotations[0].Number}");
         Assert.Equal(quotations[0].Number,quotationDetail.GetProperty("QuotationNumber").GetString());
-        user.Set(verifierId, "SESS-05", "TECHNICAL_ENGINEER");
+        user.Set(verifierId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER");
         foreach (var quote in quotations)
         {
             var lineId = await Query(options, db => db.VendorQuotationLines.Where(x => x.VendorQuotationId == quote.Id).Select(x => x.Id).SingleAsync());

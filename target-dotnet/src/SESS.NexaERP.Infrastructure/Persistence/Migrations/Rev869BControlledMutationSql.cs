@@ -5,6 +5,8 @@ internal static class Rev869BControlledMutationSql
     public static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
     internal static string ReconcileExplicitMutationGuard => AdvanceSchemaSql.Expand(
         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_explicit_mutation()"));
+    internal static string ReconcileHistoryAuthority => AdvanceSchemaSql.Expand(
+        ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_history_insert()"));
     internal static string ApprovalConfigurationPart2Up => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(InstallTemplate));
     internal static string ApprovalConfigurationPart2Down => AdvanceSchemaSql.Expand(ApprovalAuthorityFunctions(
         InstallTemplate
@@ -180,9 +182,9 @@ internal static class Rev869BControlledMutationSql
           IF TG_TABLE_NAME='purchase_transaction_status_history' THEN
             authorized:=(
               (NEW."EntityType" IN ('RFQ','RFQInvitation') AND NEW."ActorRoleCode" IN ('PURCHASE_EXECUTIVE','PURCHASE_MANAGER')) OR
-              (NEW."EntityType"='VendorQuotation' AND NEW."Action" IN ('Verify','RejectTechnical','ReserveTechnicalVerification') AND NEW."ActorRoleCode" IN ('TECHNICAL_ENGINEER','TECHNICAL_DIRECTOR')) OR
+              (NEW."EntityType"='VendorQuotation' AND NEW."Action" IN ('Verify','RejectTechnical','ReserveTechnicalVerification') AND NEW."ActorRoleCode" IN ('TECHNICAL_SUPPORT_MANAGER','TECHNICAL_ENGINEER','TECHNICAL_DIRECTOR')) OR
               (NEW."EntityType"='VendorQuotation' AND NEW."Action" NOT IN ('Verify','RejectTechnical','ReserveTechnicalVerification') AND NEW."ActorRoleCode" IN ('PURCHASE_EXECUTIVE','PURCHASE_MANAGER')) OR
-              (NEW."EntityType"='TechnicalVerification' AND NEW."ActorRoleCode" IN ('TECHNICAL_ENGINEER','TECHNICAL_DIRECTOR')) OR
+              (NEW."EntityType"='TechnicalVerification' AND NEW."ActorRoleCode" IN ('TECHNICAL_SUPPORT_MANAGER','TECHNICAL_ENGINEER','TECHNICAL_DIRECTOR')) OR
               (NEW."EntityType"='CommercialComparison' AND NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER') OR
               (NEW."EntityType"='PurchaseOrder' AND NEW."Action" NOT IN ('Approve','Reject','RequestRevision') AND NEW."ActorRoleCode"='PURCHASE_MANAGER') OR
               (NEW."EntityType"='MaterialFollowUp' AND ((NEW."Action"='Handoff' AND NEW."ActorRoleCode"='PURCHASE_MANAGER') OR (NEW."Action"<>'Handoff' AND NEW."ActorRoleCode" IN ('STORES_EXECUTIVE','STORES_MANAGER')))) OR

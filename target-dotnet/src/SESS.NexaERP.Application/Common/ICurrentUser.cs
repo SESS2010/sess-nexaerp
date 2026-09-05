@@ -1,4 +1,7 @@
-namespace SESS.NexaERP.Application.Common;
+﻿namespace SESS.NexaERP.Application.Common;
+
+public sealed record EffectiveRoleAssignment(Guid AssignmentId, string RoleCode, string AssignmentType);
+public sealed record ResolvedRoleAuthority(Guid AssignmentId, string RoleCode, string AssignmentType);
 
 public interface ICurrentUser
 {
@@ -8,8 +11,12 @@ public interface ICurrentUser
         string.IsNullOrWhiteSpace(RoleCode) || string.Equals(RoleCode, "none", StringComparison.OrdinalIgnoreCase)
             ? []
             : [RoleCode];
-    string? PrimaryRoleCode => null;
-    string ActingRoleCode => RoleCode;
+    IReadOnlyList<string> FullAuthorityRoleCodes => [];
+    IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => [];
+    Guid? ResolvedRoleAssignmentId => null;
+    string? ResolvedRoleAssignmentType => null;
+    void SetResolvedRoleAuthority(ResolvedRoleAuthority authority) =>
+        throw new NotSupportedException("This current-user implementation cannot record resolved role authority.");
     string? OrganizationId { get; }
     bool IsAuthenticated { get; }
     string? IdentityIssuer => null;

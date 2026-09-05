@@ -11,8 +11,7 @@ public sealed class EmployeeRoleAssignment : CompanyScopedAuditableEntity
     public Role? Role { get; set; }
     public DateOnly EffectiveFrom { get; set; }
     public DateOnly? EffectiveTo { get; set; }
-    public string AssignmentType { get; set; } = EmployeeRoleAssignmentTypes.Permanent;
-    public bool IsPrimary { get; set; }
+    public string AssignmentType { get; set; } = EmployeeRoleAssignmentTypes.Full;
     public string ApprovalStatus { get; set; } = "SeedApproved";
     public string Remarks { get; set; } = string.Empty;
     public string? EndReason { get; set; }
@@ -22,7 +21,7 @@ public sealed class EmployeeRoleAssignment : CompanyScopedAuditableEntity
 
 public static class EmployeeRoleAssignmentTypes
 {
-    public const string Permanent = "PERMANENT";
+    public const string Full = "FULL";
+    public const string Support = "SUPPORT";
     public const string Temporary = "TEMPORARY";
-    public const string Cover = "COVER";
 }

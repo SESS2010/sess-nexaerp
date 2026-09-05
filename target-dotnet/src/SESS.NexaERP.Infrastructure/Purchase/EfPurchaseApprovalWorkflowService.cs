@@ -151,9 +151,9 @@ public sealed class PurchaseOperationalRoleResolver : IPurchaseOperationalRoleRe
         }
         if (operation.Equals("TechnicalVerification", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var role in new[] { "TECHNICAL_ENGINEER", "TECHNICAL_DIRECTOR" })
+            foreach (var role in new[] { "TECHNICAL_SUPPORT_MANAGER", "TECHNICAL_ENGINEER", "TECHNICAL_DIRECTOR" })
                 if (effectiveRoleCodes.Any(x => string.Equals(x.Trim(), role, StringComparison.OrdinalIgnoreCase))) return role;
-            throw new UnauthorizedAccessException("TECHNICAL_ENGINEER or TECHNICAL_DIRECTOR is required for TechnicalVerification.");
+            throw new UnauthorizedAccessException("TECHNICAL_SUPPORT_MANAGER, TECHNICAL_ENGINEER or TECHNICAL_DIRECTOR is required for TechnicalVerification.");
         }
         if (!Roles.TryGetValue(operation, out var required))
             throw new UnauthorizedAccessException("No deterministic operational role is configured for this command.");

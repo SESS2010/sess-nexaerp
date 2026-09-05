@@ -65,39 +65,34 @@ public sealed record LoginStatusRequest(string Reason, uint Version);
 
 public sealed record AssignEmployeeRoleRequest(
     string RoleCode,
+    string AssignmentType,
     DateOnly EffectiveFrom,
     DateOnly? EffectiveTo,
-    string Remarks,
-    string AssignmentType = "PERMANENT",
-    bool IsPrimary = false,
-    uint? ProfileVersion = null);
+    string Remarks);
 
 public sealed record PromoteEmployeeRoleRequest(
+    Guid PreviousAssignmentId,
     string NewRoleCode,
+    string NewAssignmentType,
     DateOnly EffectiveOn,
-    bool KeepPreviousRoleAsSecondary,
+    bool KeepPreviousAssignment,
     string Remarks,
-    uint ProfileVersion);
+    uint PreviousAssignmentVersion);
 
 public sealed record TransferEmployeeRoleRequest(
+    Guid PreviousAssignmentId,
     string NewRoleCode,
+    string NewAssignmentType,
     DateOnly EffectiveOn,
-    bool KeepPreviousRoleAsSecondary,
+    bool KeepPreviousAssignment,
     string Remarks,
-    uint ProfileVersion);
+    uint PreviousAssignmentVersion);
 
 public sealed record TemporaryRoleCoverRequest(
     string RoleCode,
     DateOnly EffectiveFrom,
     DateOnly EffectiveTo,
     string Remarks);
-
-public sealed record ChangePrimaryRoleRequest(
-    Guid AssignmentId,
-    DateOnly EffectiveOn,
-    bool KeepPreviousRoleAsSecondary,
-    string Remarks,
-    uint ProfileVersion);
 
 public sealed record EndEmployeeRoleAssignmentRequest(
     DateOnly EffectiveTo,
@@ -112,30 +107,31 @@ public sealed record EmployeeRoleSummary(
     DateOnly? EffectiveTo,
     string ApprovalStatus,
     string Remarks,
-    string AssignmentType = "PERMANENT",
-    bool IsPrimary = false,
-    string? EndReason = null,
-    DateTimeOffset? EndedAt = null,
-    string? EndedBy = null,
-    uint Version = 0);
+    string AssignmentType,
+    string? EndReason,
+    DateTimeOffset? EndedAt,
+    string? EndedBy,
+    uint Version);
 
-public sealed record EmployeeRoleProfileSummary(
+public sealed record EmployeeRolePortfolioSummary(
     string EmployeeCode,
     string CompanyCode,
-    string ConfigurationStatus,
-    Guid? PrimaryRoleAssignmentId,
-    string? PrimaryRoleCode,
-    uint Version,
     IReadOnlyList<EmployeeRoleSummary> Assignments);
 
 public sealed record EmployeeRoleAssignmentEventSummary(
     Guid Id,
+    Guid? AssignmentId,
     string Operation,
     string? FromRoleCode,
     string? ToRoleCode,
-    bool? PreviousRoleRetained,
-    DateOnly EffectiveOn,
+    string? FromAssignmentType,
+    string? ToAssignmentType,
+    DateOnly? PreviousEffectiveFrom,
+    DateOnly? PreviousEffectiveTo,
+    DateOnly? NewEffectiveFrom,
+    DateOnly? NewEffectiveTo,
     string Reason,
+    Guid ActorEmployeeId,
     string ActorLoginId,
     string ActorRoleCode,
     DateTimeOffset CreatedAt);

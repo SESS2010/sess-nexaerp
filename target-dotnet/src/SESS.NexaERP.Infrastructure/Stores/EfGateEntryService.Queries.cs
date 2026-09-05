@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Purchase;
@@ -73,7 +74,7 @@ public sealed partial class EfGateEntryService
     private void AddHistory(GateEntry gate,string? from,string to,string action,string correlation)=>db.StoresDocumentStatusHistories.Add(new StoresDocumentStatusHistory{CompanyId=gate.CompanyId,GateEntryId=gate.Id,FromStatus=from,ToStatus=to,Action=action,ActorEmployeeId=Actor(),ActorRoleCode=ActorRole(),OccurredAt=DateTimeOffset.UtcNow,CorrelationId=correlation});
     private async Task RequireScope(Guid? department,Guid? warehouse,Guid owner,CancellationToken ct){var decision=await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),department,warehouse,null,owner),DateOnly.FromDateTime(DateTime.UtcNow),ct);if(!decision.Allowed)throw new UnauthorizedAccessException("Gate Entry record scope is denied.");}
     private Guid Actor()=>user.IsAuthenticated&&user.EmployeeId.HasValue?user.EmployeeId.Value:throw new UnauthorizedAccessException("A resolved employee identity is required.");
-    private string ActorRole(){foreach(var role in new[]{"STORES_EXECUTIVE","STORES_ASSISTANT"})if(string.Equals(user.ActingRoleCode,role,StringComparison.OrdinalIgnoreCase))return role;throw new UnauthorizedAccessException("A Stores receipt operational role is required.");}
+    private string ActorRole()=>user.RequireRole("stores-receipt", "STORES_ASSISTANT", "STORES_EXECUTIVE", "STORES_MANAGER");
     private async Task RequireReceiptOperatorAsync(CancellationToken ct){var code=await db.Employees.AsNoTracking().Where(x=>x.Id==Actor()).Select(x=>x.EmployeeCode).SingleOrDefaultAsync(ct);if(code is not("SESS-16" or "SESS-35" or "SESS-41"))throw new UnauthorizedAccessException("Gate Entry is restricted to the three settled receipt operators.");}
     private string Organization()=>!string.IsNullOrWhiteSpace(user.OrganizationId)?user.OrganizationId.Trim().ToUpperInvariant():throw new UnauthorizedAccessException("Company scope is required.");
     private async Task<Company> Company(string org,CancellationToken ct)=>await db.Companies.SingleOrDefaultAsync(x=>x.Code==org&&x.IsActive&&x.Status=="ACTIVE",ct)??throw new UnauthorizedAccessException("Selected company is unavailable.");

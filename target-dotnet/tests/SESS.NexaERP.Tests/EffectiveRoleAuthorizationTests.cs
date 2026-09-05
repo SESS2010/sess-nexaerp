@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using SESS.NexaERP.Api.Middleware;
 using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Identity;
 
 namespace SESS.NexaERP.Tests;
@@ -22,13 +23,16 @@ public sealed class EffectiveRoleAuthorizationTests
     }
 
     [Fact]
-    public void Exactly_one_effective_database_role_remains_the_legacy_scalar_acting_role()
+    public void Exactly_one_effective_database_role_still_requires_operation_specific_resolution()
     {
         var context = ContextWithResolution(["IT_MANAGER"], new Claim("roles", "MANAGING_DIRECTOR"));
         var currentUser = new ClaimsCurrentUser(new HttpContextAccessor { HttpContext = context });
 
         Assert.Equal(["IT_MANAGER"], currentUser.RoleCodes);
+        Assert.Equal("none", currentUser.RoleCode);
+        Assert.Equal("IT_MANAGER", currentUser.RequireRole("configuration:view", "IT_MANAGER"));
         Assert.Equal("IT_MANAGER", currentUser.RoleCode);
+        Assert.NotNull(currentUser.ResolvedRoleAssignmentId);
     }
 
     [Fact]
@@ -60,6 +64,8 @@ public sealed class EffectiveRoleAuthorizationTests
         {
             User = new ClaimsPrincipal(new ClaimsIdentity(claims, "test"))
         };
+        var assignments = roleCodes.Select((role, index) => new EffectiveRoleAssignment(
+            Guid.Parse($"90000000-0000-0000-0000-{index + 10:D12}"), role, "FULL")).ToArray();
         context.Items[EmployeeIdentityResolutionMiddleware.ResolutionItemKey] = new ResolvedEmployeeIdentity(
             true,
             Guid.Parse("90000000-0000-0000-0000-000000000001"),
@@ -67,7 +73,9 @@ public sealed class EffectiveRoleAuthorizationTests
             "SESS",
             "SESS-01",
             roleCodes,
-            "resolved");
+            "resolved",
+            roleCodes,
+            assignments);
         return context;
     }
 
