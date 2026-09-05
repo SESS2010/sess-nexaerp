@@ -12,13 +12,13 @@ namespace SESS.NexaERP.Infrastructure.Masters;
 public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit) : ITaxGstWorkflowService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private const string CreatorRole = "ACCOUNTS_MANAGER";
+    private static readonly string[] CreatorRoles = OperationRoleContracts.TaxGstCreate;
     private static readonly string[] DecisionRoles = ["TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR"];
 
     public async Task<TaxGstWorkflowResult> CreateAsync(CreateTaxGstSettingRequest request, string idempotencyKey, CancellationToken ct)
     {
         RequirePrincipal(request.OrganizationId);
-        var actorRole = user.RequireRole("tax-gst:create", CreatorRole);
+        var actorRole = user.RequireRole("tax-gst:create", CreatorRoles);
         if (string.IsNullOrWhiteSpace(request.Remarks)) throw new InvalidOperationException("Tax-rule creation remarks are required.");
         var company = await db.Companies.AsNoTracking().SingleAsync(x => x.Code == request.OrganizationId && x.IsActive, ct);
         var candidate = Build(request, company.Id, user.EmployeeId!.Value);
