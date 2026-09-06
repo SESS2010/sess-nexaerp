@@ -22,8 +22,6 @@ internal static class InstallerCommand
 #if DEBUG
         if (args.Length > 0 && args[0] == "authentication-bootstrap-development")
             return DevelopmentAuthenticationBootstrapCommand.RunAsync(args[1..]);
-        if (args.Length > 0 && args[0] == "controlled-command-development-principals")
-            return DevelopmentControlledCommandPrincipalCommand.RunAsync(args[1..]);
 #endif
         return DatabasePrincipalCommand.RunAsync(args);
     }

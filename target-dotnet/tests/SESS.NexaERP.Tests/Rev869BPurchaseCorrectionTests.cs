@@ -9,7 +9,6 @@ using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Authorization;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -125,63 +124,24 @@ public sealed class Rev869BPurchaseCorrectionTests
     }
 
     [Fact]
-    public void RetainedMigrationGeneratedSqlHasExactOfflineSyntaxAndObjectContracts()
+    public void OrdinaryLedgerAndRetirementGenerateOfflineWithExpectedObjectContracts()
     {
-        const string rev869A = "0";
-        const string rev869B = "20260824032638_AdvanceInitialBaseline";
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect")
             .Options;
         using var db = new NexaErpDbContext(options);
         var migrator = db.GetService<IMigrator>();
-        var businessUp = migrator.GenerateScript(rev869A, rev869B);
-        var businessDown = migrator.GenerateScript(rev869B, rev869A);
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(
-                "Host=127.0.0.1;Port=1;Database=rev869b_no_connect;Username=no_connect",
-                npgsql =>
-                {
-                    npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-                })
-            .Options;
-        using var security = new Rev869BSecurityDbContext(securityOptions);
-        var securityMigrator = security.GetService<IMigrator>();
-        var securityMigration = Assert.Single(security.Database.GetMigrations());
-        var up = businessUp + securityMigrator.GenerateScript(rev869A, securityMigration);
-        var down = securityMigrator.GenerateScript(securityMigration, rev869A) + businessDown;
+        var latest = db.Database.GetMigrations().Last();
+        var up = migrator.GenerateScript("0", latest);
+        var down = migrator.GenerateScript(latest, "0");
 
-        Assert.DoesNotContain("rev869b_command_requests", businessUp);
-        Assert.DoesNotContain("nexa_rev869b_security_owner", businessUp);
-
-        Assert.Contains("""CONSTRAINT "CK_purchase_transaction_policy_dates" CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom")""", up);
-        Assert.DoesNotContain("""CHECK ("EffectiveTo" IS NULL OR "EffectiveTo" >= "EffectiveFrom)""", up);
-        var createdRelations = Regex.Matches(up, @"(?im)^CREATE TABLE advance\.(?<name>[a-z0-9_]+)")
-            .Select(x => x.Groups["name"].Value).ToHashSet(StringComparer.Ordinal);
-        foreach (var relation in new[] { "rev869b_command_requests", "rev869b_command_attempts", "rev869b_command_attempt_outcomes", "rev869b_command_receipts", "rev869b_purge_authorizations", "rev869b_purge_attempts", "rev869b_purge_candidates", "rev869b_export_authorizations", "rev869b_export_batches", "rev869b_export_batch_rows", "rev869b_export_releases" })
-            Assert.Contains(relation, createdRelations);
-        Assert.Equal(0, Regex.Matches(up, @"\$rev869b\$").Count % 2);
-        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_extension\$").Count % 2);
-        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_owner\$").Count % 2);
-        Assert.Equal(0, Regex.Matches(up, @"\$rev869b_grant_owner\$").Count % 2);
-        foreach (var function in new[] { "rev869b_register_command_request", "rev869b_start_command_attempt",
-            "rev869b_open_command_attempt", "rev869b_claim_command_context", "rev869b_commit_command_attempt",
-            "rev869b_record_noncommit_outcome", "rev869b_register_purge_authorization", "rev869b_start_purge",
-            "rev869b_execute_purge", "rev869b_register_export_authorization", "rev869b_prepare_export_batch", "rev869b_authorize_export_release",
-            "rev869b_guard_history_insert", "rev869b_guard_qualification_history_insert",
-            "rev869b_require_qualification_history", "rev869b_guard_child_insert",
-            "rev869b_enforce_transition", "rev869b_enforce_quotation_transition" })
-        {
-            Assert.Contains($"FUNCTION advance.{function}", up);
-        }
-        Assert.Contains("SET search_path=pg_catalog,advance", up);
-        Assert.Contains("SET search_path = pg_catalog, advance", up);
-        Assert.True(down.IndexOf("DROP FUNCTION IF EXISTS advance.rev869b_record_export_release_outcome", StringComparison.Ordinal) <
-                    down.IndexOf("DROP TABLE IF EXISTS advance.rev869b_export_releases", StringComparison.Ordinal));
-        Assert.True(down.IndexOf("DROP TABLE IF EXISTS advance.rev869b_command_receipts", StringComparison.Ordinal) <
-                    down.IndexOf("rev869b_command_attempts", StringComparison.Ordinal));
-        Assert.True(down.LastIndexOf("rev869b_command_attempts", StringComparison.Ordinal) <
-                    down.LastIndexOf("rev869b_command_requests", StringComparison.Ordinal));
+        Assert.Contains("CREATE TABLE advance.command_requests", up, StringComparison.Ordinal);
+        Assert.Contains("CREATE TABLE advance.command_receipts", up, StringComparison.Ordinal);
+        Assert.Contains("CREATE TABLE advance.rev869b_retirement_state", up, StringComparison.Ordinal);
+        Assert.Contains("FUNCTION advance.register_command_request", up, StringComparison.Ordinal);
+        Assert.Contains("FUNCTION advance.commit_command_receipt", up, StringComparison.Ordinal);
+        Assert.Contains("Refusing REV869B retirement: partial installation", up, StringComparison.Ordinal);
+        Assert.Contains("DROP TABLE advance.rev869b_retirement_state", down, StringComparison.Ordinal);
         Assert.DoesNotContain("DROP EXTENSION", down, StringComparison.OrdinalIgnoreCase);
     }
 

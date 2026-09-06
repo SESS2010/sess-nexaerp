@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -527,83 +526,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.AssertRejected("reject-returnable-nontool.sql",
             """INSERT INTO advance.items ("Id","ItemCode","IsItemCodeLocked","Name","DetailedDescription","MaterialType","ItemType","IsReturnable","Uom","BaseUomId","GstPercentage","QcRequired","SerialNumberTracking","BatchTracking","ShelfLifeTracking","MinimumStock","MaximumStock","ReorderLevel","Status","ApprovalStatus","IsActive","CreatedAt","CreatedBy","Version") SELECT gen_random_uuid(),'BAD-COMPONENT',false,'Bad','Bad','Legacy','COMPONENT',true,u."Code",u."Id",0,false,false,false,false,0,0,0,'Active','Approved',true,clock_timestamp(),'test',0 FROM advance.uoms u LIMIT 1;""");
         server.Execute("foundation-down.sql", migrator.GenerateScript(migration, "0"));
-    }
-
-    [Fact]
-    public void FullBusinessMigrationTailAppliesAndRevertsWithRev869BGuardsAlreadyActive()
-    {
-        const string rev869A = "0";
-        const string rev869B = "20260824150742_CalibrationPurchasePairItemTypeCorrections";
-        const string principalReady = "20260825092016_AuthenticationBootstrapFoundation";
-        var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
-        var businessOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql(connection).Options;
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(connection, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-            }).Options;
-        using var business = new NexaErpDbContext(businessOptions);
-        using var security = new Rev869BSecurityDbContext(securityOptions);
-        var businessMigrator = business.GetService<IMigrator>();
-        var securityMigrator = security.GetService<IMigrator>();
-        var latest = business.Database.GetMigrations().Last();
-        var securityMigration = Assert.Single(security.Database.GetMigrations());
-
-        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        server.Execute("guarded-chain-business-foundation-up.sql",
-            businessMigrator.GenerateScript(rev869A, rev869B));
-        server.Execute("guarded-chain-role-prerequisites.sql", ExternalRolePrerequisites);
-        server.Execute("guarded-chain-security-up.sql",
-            securityMigrator.GenerateScript(rev869A, securityMigration));
-        server.Execute("guarded-chain-pre-principal-tail-up.sql",
-            businessMigrator.GenerateScript(rev869B, principalReady));
-        server.Execute("guarded-chain-runtime-principals.sql",
-            InstallerPasswordSettings + DatabasePrincipalProvisioningSql.Provision +
-            DatabasePrincipalProvisioningSql.Verify);
-        server.Execute("guarded-chain-business-tail-up.sql",
-            businessMigrator.GenerateScript(principalReady, latest));
-        server.Execute("guarded-chain-runtime-acl-reconcile.sql",
-            DatabasePrincipalProvisioningSql.Provision + DatabasePrincipalProvisioningSql.Verify);
-        server.Execute("guarded-chain-business-tail-down.sql",
-            businessMigrator.GenerateScript(latest, rev869B));
-        server.Execute("guarded-chain-security-down.sql",
-            securityMigrator.GenerateScript(securityMigration, rev869A));
-        server.Execute("guarded-chain-business-foundation-down.sql",
-            businessMigrator.GenerateScript(rev869B, rev869A));
-    }
-
-    [Fact]
-    public void GeneratedSecurityPackageScriptsAreAcceptedByDisposablePostgreSql()
-    {
-        var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
-        var businessOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql(connection).Options;
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(
-                connection,
-                npgsql =>
-                {
-                    npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-                })
-            .Options;
-        using var business = new NexaErpDbContext(businessOptions);
-        using var security = new Rev869BSecurityDbContext(securityOptions);
-        var businessMigrator = business.GetService<IMigrator>();
-        var securityMigrator = security.GetService<IMigrator>();
-        var businessMigrations = business.Database.GetMigrations().ToArray();
-        AssertExpectedBusinessMigrations(businessMigrations);
-        var businessMigration = businessMigrations.Single(x =>
-            x == "20260824150742_CalibrationPurchasePairItemTypeCorrections");
-        var securityMigration = Assert.Single(security.Database.GetMigrations());
-        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
-        server.Execute("external-role-prerequisites.sql", ExternalRolePrerequisites);
-        server.Execute("security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
-        server.Execute("security-down.sql", securityMigrator.GenerateScript(securityMigration, "0"));
-        server.Execute("business-down.sql", businessMigrator.GenerateScript(businessMigration, "0"));
     }
 
     private static void AssertExpectedBusinessMigrations(IEnumerable<string> migrations)

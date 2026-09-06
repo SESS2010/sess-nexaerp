@@ -6,6 +6,59 @@ internal static class Rev869BCommandContextSql
     internal static string Install => AdvanceSchemaSql.Expand(InstallTemplate);
     internal static string ReconcileCommercialSnapshotHelperAcl => BuildCommercialSnapshotHelperAcl(grant: true);
     internal static string RemoveCommercialSnapshotHelperAcl => BuildCommercialSnapshotHelperAcl(grant: false);
+    internal static IReadOnlyList<string> InstalledRelationNames => ExtractObjectNames(InstallTemplate, "CREATE TABLE __advance_schema__.");
+    internal static IReadOnlyList<string> InstalledFunctionNames => ExtractObjectNames(InstallTemplate, "CREATE FUNCTION __advance_schema__.")
+        .Concat(ExtractObjectNames(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__."))
+        .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    internal static IReadOnlyList<string> InstalledTriggerNames => ExtractQuotedObjectNames(InstallTemplate, "CREATE TRIGGER \"");
+    internal static string RetirePreservingEvidence
+    {
+        get
+        {
+            var remove = AdvanceSchemaSql.Expand(RemoveTemplate);
+            var tables = remove.IndexOf("DROP TABLE IF EXISTS advance.rev869b_target_catalogue_manifest", StringComparison.Ordinal);
+            if (tables < 0) throw new InvalidOperationException("REV869B evidence-table teardown marker was not found.");
+            return remove[..tables];
+        }
+    }
+    internal static string RestorePreservedEvidence
+    {
+        get
+        {
+            const string marker = "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_register_command_request(";
+            var start = InstallTemplate.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) throw new InvalidOperationException("REV869B command-function restore marker was not found.");
+            return AdvanceSchemaSql.Expand(InstallTemplate[start..]);
+        }
+    }
+
+    private static IReadOnlyList<string> ExtractObjectNames(string source, string marker)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        var offset = 0;
+        while ((offset = source.IndexOf(marker, offset, StringComparison.Ordinal)) >= 0)
+        {
+            offset += marker.Length;
+            var end = source.IndexOfAny(['(', ' ', '\r', '\n'], offset);
+            if (end < 0) throw new InvalidOperationException($"REV869B object name after {marker} is incomplete.");
+            result.Add(source[offset..end]);
+        }
+        return result.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static IReadOnlyList<string> ExtractQuotedObjectNames(string source, string marker)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        var offset = 0;
+        while ((offset = source.IndexOf(marker, offset, StringComparison.Ordinal)) >= 0)
+        {
+            offset += marker.Length;
+            var end = source.IndexOf('\"', offset);
+            if (end < 0) throw new InvalidOperationException($"REV869B quoted object name after {marker} is incomplete.");
+            result.Add(source[offset..end]);
+        }
+        return result.Order(StringComparer.Ordinal).ToArray();
+    }
 
     private static string BuildCommercialSnapshotHelperAcl(bool grant)
     {
