@@ -10,14 +10,13 @@ using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Infrastructure.Audit;
 using SESS.NexaERP.Infrastructure.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
-    public async Task ControlledTaxWorkflowRunsAgainstDisposablePostgreSqlWithRealEmployeesAndSignedContext()
+    public async Task ControlledTaxWorkflowRunsAgainstDisposablePostgreSqlWithRealEmployeesAndOrdinaryCommandLedger()
     {
         var adminOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -50,31 +49,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await admin.SaveChangesAsync();
         }
 
-        server.Execute("tax-real-security-roles.sql", ExternalRolePrerequisites);
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(server.ConnectionString, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-            }).Options;
-        using (var security = new Rev869BSecurityDbContext(securityOptions))
-        {
-            var securityMigrator = security.GetService<IMigrator>();
-            var securityMigration = Assert.Single(security.Database.GetMigrations());
-            server.Execute("tax-real-security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
-        }
-
+        const string runtimePassword = "ordinary-tax-runtime-123456789";
+        using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         var runtime = new NpgsqlConnectionStringBuilder(server.ConnectionString)
         {
-            Username = "nexa_rev869b_app_runtime",
+            Username = "nexa_erp_runtime",
+            Password = runtimePassword,
             Pooling = false
         }.ConnectionString;
-        var auditConnection = new NpgsqlConnectionStringBuilder(server.ConnectionString)
-        {
-            Username = "nexa_rev869b_command_audit",
-            Pooling = false
-        }.ConnectionString;
-        using var environment = new TaxWorkflowEnvironment(auditConnection);
         var user = new TaxWorkflowUser(accountsId, "SESS-14", "ACCOUNTS_MANAGER", roleAssignments);
         var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtime).Options;
 
@@ -199,26 +182,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 knownAssignments.TryGetValue(AssignmentKey(id, code), out var assignment)
                     ? assignment
                     : new EffectiveRoleAssignment(Guid.Empty, code, "FULL")).ToArray();
-        }
-    }
-    private sealed class TaxWorkflowEnvironment : IDisposable
-    {
-        private readonly Dictionary<string, string?> prior = new(StringComparer.Ordinal);
-        public TaxWorkflowEnvironment(string auditConnection)
-        {
-            Set("REV869B_COMMAND_AUDIT_CONNECTION", auditConnection);
-            Set("REV869B_EXECUTION_INSTANCE_ID", "95000000-0000-0000-0000-000000000001");
-            Set("REV869B_SERVICE_INSTANCE_FINGERPRINT", new string('a', 64));
-            Set("REV869B_OWNERSHIP_LEASE_FINGERPRINT", new string('b', 64));
-        }
-        private void Set(string name, string value)
-        {
-            prior[name] = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, value);
-        }
-        public void Dispose()
-        {
-            foreach (var pair in prior) Environment.SetEnvironmentVariable(pair.Key, pair.Value);
         }
     }
 }

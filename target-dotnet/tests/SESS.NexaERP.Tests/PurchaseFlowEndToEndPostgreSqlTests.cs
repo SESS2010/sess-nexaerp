@@ -30,7 +30,6 @@ using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -102,25 +101,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await seed.SaveChangesAsync();
         }
 
-        server.Execute("purchase-flow-security-roles.sql", ExternalRolePrerequisites);
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(server.ConnectionString, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-            }).Options;
-        using (var security = new Rev869BSecurityDbContext(securityOptions))
-        {
-            var securityMigrator = security.GetService<IMigrator>();
-            var securityMigration = Assert.Single(security.Database.GetMigrations());
-            server.Execute("purchase-flow-security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
-        }
-        var auditConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
-        {
-            Username = "nexa_rev869b_command_audit",
-            Pooling = false
-        }.ConnectionString;
-        using var environment = new TaxWorkflowEnvironment(auditConnection);
+        const string runtimePassword = "ordinary-purchase-runtime-123456789";
+        using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
             .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
             .ToListAsync()).ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
@@ -128,7 +111,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive, roleAssignments);
         var runtimeConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
         {
-            Username = "nexa_rev869b_app_runtime",
+            Username = "nexa_erp_runtime",
+            Password = runtimePassword,
             Pooling = false
         }.ConnectionString;
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
@@ -161,10 +145,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await PostNoResult(client, $"/api/v1/rev869a/configuration/vendor-qualifications/{qualification.Id}/approve",
                     new ChangeVendorQualificationLifecycleRequest(verifiedVersion, "Final qualification approved"),
                     $"fixture-qualification-approve-{vendorCode}");
-                var provenanceSql = string.Concat(
-                    "SELECT advance.rev869b_qualification_provenance_valid('", qualification.Id,
-                    "') AS ", (char)34, "Value", (char)34);
-                var provenance = await Query(options, db => db.Database.SqlQueryRaw<bool>(provenanceSql).SingleAsync());
                 var provenanceFacts = await Query(options, async db =>
                 {
                     var current = await db.VendorQualifications.Where(x => x.Id == qualification.Id)
@@ -174,7 +154,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         .OrderBy(x => x.Version).Select(x => new { x.Action, x.Version, x.ActorLoginId }).ToListAsync();
                     return new { current, histories };
                 });
-                Assert.True(provenance, JsonSerializer.Serialize(provenanceFacts));
+                Assert.NotNull(provenanceFacts.current.VerifiedByEmployeeId);
+                Assert.NotNull(provenanceFacts.current.ApprovedByEmployeeId);
+                Assert.NotEqual(provenanceFacts.current.VerifiedByEmployeeId, provenanceFacts.current.ApprovedByEmployeeId);
+                Assert.Equal(new[] { "Create", "Verify", "Approve" }, provenanceFacts.histories.Select(x => x.Action));
             }
 
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
@@ -244,6 +227,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var qcRackNames=await verify.RackBins.Where(x=>qcLocations.Select(location=>location.RackBinId).Contains(x.Id)).Select(x=>x.RackName).Distinct().ToListAsync();
             Assert.Equal("TRIAL QC Category Rack",Assert.Single(qcRackNames));
             Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
+            var commandCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_requests").SingleAsync();
+            var receiptCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_receipts").SingleAsync();
+            Assert.True(commandCount>0);Assert.Equal(commandCount,receiptCount);
+            var operations=await verify.Database.SqlQueryRaw<string>(@"SELECT DISTINCT ""Operation"" AS ""Value"" FROM advance.command_requests").ToListAsync();
+            Assert.All(new[]{"CreateVendorQualification","VerifyVendorQualification","ApproveVendorQualification",
+                "CreateTaxGstSetting","ApproveTaxGstSetting","CreateRFQ","InviteVendor","SubmitQuotation",
+                "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
+                "CreatePO","SubmitPO","ApprovePO","IssuePO"},operation=>Assert.Contains(operation,operations));
+            var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
+            Assert.NotEmpty(commandAudits);
+            Assert.All(commandAudits,x=>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(x.ActorRoleCode));
+                Assert.NotNull(x.ResolvedRoleAssignmentId);
+            });
 
         }
         finally { }
@@ -587,6 +585,31 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         return port;
     }
 
+    private sealed class OrdinaryPrincipalEnvironment : IDisposable
+    {
+        private readonly Dictionary<string, string?> prior = new(StringComparer.Ordinal);
+
+        public OrdinaryPrincipalEnvironment(string installerConnection, string runtimePassword)
+        {
+            Set("ConnectionStrings__NexaErpInstaller", installerConnection);
+            Set("NexaErp__ExpectedDatabase", "advance_parser");
+            Set("NEXAERP_MIGRATION_PASSWORD", "ordinary-migration-test-123456789");
+            Set("NEXAERP_BOOTSTRAP_PASSWORD", "ordinary-bootstrap-test-123456789");
+            Set("NEXAERP_RUNTIME_PASSWORD", runtimePassword);
+        }
+
+        private void Set(string name, string value)
+        {
+            prior[name] = Environment.GetEnvironmentVariable(name);
+            Environment.SetEnvironmentVariable(name, value);
+        }
+
+        public void Dispose()
+        {
+            foreach (var value in prior) Environment.SetEnvironmentVariable(value.Key, value.Value);
+        }
+    }
+
     private sealed class PurchaseFlowHost(WebApplication app, HttpClient client) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
@@ -598,6 +621,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+            builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {

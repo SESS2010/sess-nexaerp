@@ -2,6 +2,26 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 internal static class Foundation3InventoryProvenanceGenealogySql
 {
+    internal static string BuiltInHashGrnLegPreparation
+    {
+        get
+        {
+            const string startMarker = "CREATE OR REPLACE FUNCTION advance.foundation3_prepare_grn_legs(";
+            const string endMarker = "REVOKE ALL ON FUNCTION advance.foundation3_prepare_grn_legs(uuid,uuid,text,jsonb) FROM PUBLIC;";
+            var start = UpContract.IndexOf(startMarker, StringComparison.Ordinal);
+            var end = UpContract.IndexOf(endMarker, start, StringComparison.Ordinal);
+            if (start < 0 || end < 0) throw new InvalidOperationException("Foundation 3 GRN leg function template was not found.");
+            end += endMarker.Length;
+            var function = UpContract[start..end]
+                .Replace("identity_hash:=encode(public.digest(", "identity_hash:=encode(pg_catalog.sha256(", StringComparison.Ordinal)
+                .Replace("coalesce(serial_id::text,'BULK'),'UTF8'),'sha256'),'hex');",
+                    "coalesce(serial_id::text,'BULK'),'UTF8')),'hex');", StringComparison.Ordinal);
+            if (function.Contains("public.digest", StringComparison.Ordinal))
+                throw new InvalidOperationException("Foundation 3 GRN leg hash dependency was not replaced.");
+            return function;
+        }
+    }
+
     internal const string PreUp = """
         DO $guard$
         BEGIN

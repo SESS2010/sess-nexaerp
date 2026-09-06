@@ -21,6 +21,9 @@ public static class Rev869BCommandContextAuthorizer
     private const string OpenCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_open_command_attempt({0},{1},{2},{3},{4},{5},{6},{7}::jsonb)";
     private const string CommitCommandAttemptSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_commit_command_attempt({0},{1},{2}::jsonb,{3})";
     private const string RecordNoncommitOutcomeSql = "SELECT " + DatabaseSchemas.Advance + ".rev869b_record_noncommit_outcome(@attempt,@execution,@service,@ownership,@state,@category,@outcome)";
+    private const string OrdinaryLedgerExistsSql = "SELECT session_user='nexa_erp_runtime' AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL";
+    private const string RegisterOrdinaryCommandSql = "SELECT " + DatabaseSchemas.Advance + ".register_command_request(@org,@operation,@key,@request,@actor,@issuer,@subject,@role,@assignment)";
+    private const string CommitOrdinaryReceiptSql = "SELECT " + DatabaseSchemas.Advance + ".commit_command_receipt(@command,@business,CAST(@response AS jsonb),@receipt)";
 
     public sealed record CommandEnvelope(string Operation, string IdempotencyKey, string RequestFingerprint)
     {
@@ -35,7 +38,8 @@ public static class Rev869BCommandContextAuthorizer
     }
 
     public readonly record struct CommandAttemptHandle(Guid CommandId, Guid AttemptId, byte[] BusinessFingerprint,
-        Guid ExecutionInstanceId, byte[] ServiceInstanceFingerprint, byte[] OwnershipLeaseFingerprint);
+        Guid ExecutionInstanceId, byte[] ServiceInstanceFingerprint, byte[] OwnershipLeaseFingerprint,
+        bool IsOrdinaryLedger = false);
 
     public static async Task<CommandAttemptHandle?> OpenForPendingChangesAsync(
         NexaErpDbContext db, ICurrentUser user, string organization, CommandEnvelope envelope, CancellationToken ct,
@@ -74,6 +78,14 @@ public static class Rev869BCommandContextAuthorizer
             backendPid = reader.GetInt32(0);
             transactionId = reader.GetInt64(1);
             runtimePrincipal = reader.GetString(2);
+        }
+
+        if (await OrdinaryLedgerAvailableAsync(runtime, transaction, ct))
+        {
+            var ordinaryCommandId = await RegisterOrdinaryCommandAsync(
+                runtime, transaction, user, organization, envelope,
+                idempotencyFingerprint, requestFingerprint, actorRole, actorAssignmentId, ct);
+            return new(ordinaryCommandId, ordinaryCommandId, businessFingerprint, Guid.Empty, [], [], true);
         }
 
         var auditBuilder = RequireIndependentAuditConnection(runtime.ConnectionString);
@@ -135,12 +147,52 @@ public static class Rev869BCommandContextAuthorizer
             executionInstanceId, exactServiceFingerprint, exactOwnershipFingerprint);
     }
 
+    private static async Task<bool> OrdinaryLedgerAvailableAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(OrdinaryLedgerExistsSql, connection, transaction);
+        return await command.ExecuteScalarAsync(ct) is true;
+    }
+
+    private static async Task<Guid> RegisterOrdinaryCommandAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, ICurrentUser user,
+        string organization, CommandEnvelope envelope, byte[] idempotencyFingerprint,
+        byte[] requestFingerprint, string actorRole, Guid actorAssignmentId, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(RegisterOrdinaryCommandSql, connection, transaction);
+        command.Parameters.AddWithValue("org", organization);
+        command.Parameters.AddWithValue("operation", envelope.Operation);
+        command.Parameters.AddWithValue("key", idempotencyFingerprint);
+        command.Parameters.AddWithValue("request", requestFingerprint);
+        command.Parameters.AddWithValue("actor", user.EmployeeId!.Value);
+        command.Parameters.AddWithValue("issuer", user.IdentityIssuer!);
+        command.Parameters.AddWithValue("subject", user.IdentitySubject!);
+        command.Parameters.AddWithValue("role", actorRole);
+        command.Parameters.AddWithValue("assignment", actorAssignmentId);
+        return await command.ExecuteScalarAsync(ct) is Guid commandId && commandId != Guid.Empty
+            ? commandId
+            : throw new InvalidOperationException("Ordinary command registration returned no identifier.");
+    }
+
     public static async Task StageCommittedReceiptAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("A committed receipt must be staged in the exact business transaction.");
         await db.Database.ExecuteSqlRawAsync("SET CONSTRAINTS ALL IMMEDIATE", ct);
         var response = JsonSerializer.Serialize(new { attempt.CommandId, attempt.AttemptId });
+        if (attempt.IsOrdinaryLedger)
+        {
+            var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+            var transaction = (NpgsqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
+            await using var command = new NpgsqlCommand(CommitOrdinaryReceiptSql, connection, transaction);
+            command.Parameters.AddWithValue("command", attempt.CommandId);
+            command.Parameters.AddWithValue("business", attempt.BusinessFingerprint);
+            command.Parameters.AddWithValue("response", response);
+            command.Parameters.AddWithValue("receipt", Guid.NewGuid());
+            if (await command.ExecuteScalarAsync(ct) is not Guid)
+                throw new InvalidOperationException("Ordinary command receipt was not staged.");
+            return;
+        }
         await db.Database.ExecuteSqlInterpolatedAsync(FormattableStringFactory.Create(
             CommitCommandAttemptSql,
             attempt.AttemptId, attempt.BusinessFingerprint, response, Guid.NewGuid()), ct);
@@ -151,6 +203,7 @@ public static class Rev869BCommandContextAuthorizer
     {
         if (terminalState is not ("Rejected" or "RolledBack" or "Abandoned") || string.IsNullOrWhiteSpace(category))
             throw new InvalidOperationException("A minimized Rejected, RolledBack or Abandoned outcome is required.");
+        if (attempt.IsOrdinaryLedger) return;
         var auditBuilder = RequireIndependentAuditConnection(runtimeConnection.ConnectionString);
         await using var audit = new NpgsqlConnection(auditBuilder.ConnectionString);
         await audit.OpenAsync(ct);
