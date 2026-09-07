@@ -50,14 +50,40 @@ public sealed partial class EfMaterialIssueService
         var company = await CompanyAsync(ct);
         var now = DateTimeOffset.UtcNow;
         var query = db.MaterialIssues.AsNoTracking().Where(x =>
-            x.CompanyId == company.Id && x.Status == "ISSUED");
+            x.CompanyId == company.Id && (x.Status == "ISSUED" || x.Status == "PARTIALLY_RETURNED"));
         if (employeeId.HasValue) query = query.Where(x => x.IssuedToEmployeeId == employeeId);
         if (notificationDue == true) query = query.Where(x => x.ReturnDueAt < now);
         if (notificationDue == false) query = query.Where(x => x.ReturnDueAt >= now);
         return await query.OrderBy(x => x.ReturnDueAt).Select(x => new OutstandingEngineerCustodyView(
             x.Id, x.IssueNumber, x.JobOrderId, x.IssuedToEmployeeId,
             x.IssuedToEmployee!.EmployeeCode, x.IssuedAt, x.ReturnDueAt,
-            x.ReturnDueAt < now, x.Lines.Sum(l => l.QuantityBase))).ToListAsync(ct);
+            x.ReturnDueAt < now, x.Lines.Sum(l => l.QuantityBase) -
+                db.MaterialReturnLines.Where(l => l.MaterialReturn!.MaterialIssueId == x.Id &&
+                    l.MaterialReturn.Status == "ACCEPTED").Sum(l => (decimal?)l.ReturnedQuantityBase)!.Value)).ToListAsync(ct);
+    }
+
+    public async Task<MaterialReturnPage> ListReturnsAsync(Guid? materialIssueId, string? status,
+        int page, int pageSize, CancellationToken ct)
+    {
+        var company = await CompanyAsync(ct);
+        page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 200);
+        var query = ReturnQuery().Where(x => x.CompanyId == company.Id);
+        if (materialIssueId.HasValue) query = query.Where(x => x.MaterialIssueId == materialIssueId);
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var value = status.Trim().ToUpperInvariant(); query = query.Where(x => x.Status == value);
+        }
+        var total = await query.CountAsync(ct);
+        var rows = await query.OrderByDescending(x => x.DeclaredAt)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new(total, page, pageSize, rows.Select(x => ReturnView(x, false)).ToList());
+    }
+
+    public async Task<MaterialReturnView?> GetReturnAsync(Guid id, CancellationToken ct)
+    {
+        var company = await CompanyAsync(ct);
+        var row = await ReturnQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
+        return row is null ? null : ReturnView(row, false);
     }
 
     private async Task<MaterialIssueRequestView> RequestViewAsync(MaterialIssueRequest x, CancellationToken ct)
@@ -94,4 +120,14 @@ public sealed partial class EfMaterialIssueService
                 l.OwnershipAccountId, l.FromCustodyAssignmentId, l.ToCustodyAssignmentId,
                 l.InventoryProvenanceLayerId, l.InventoryLotId, l.InventorySerialId,
                 l.WarehouseConditionLocationId)).ToList());
+
+    private static MaterialReturnView ReturnView(MaterialReturn x, bool replayed) =>
+        new(x.Id, x.ReturnNumber, x.MaterialIssueId, x.ReturnedByEmployeeId, x.DeclaredAt,
+            x.Status, x.AcceptedAt, x.AcceptedByEmployeeId, x.StockPostingBatchId, x.Version,
+            replayed, x.ActorRoleCode, x.ResolvedRoleAssignmentId, x.ResolvedRoleAssignmentType,
+            x.AcceptedActorRoleCode, x.AcceptedRoleAssignmentId, x.AcceptedRoleAssignmentType,
+            x.Lines.OrderBy(l => l.LineNumber).Select(l => new MaterialReturnLineView(
+                l.Id, l.MaterialIssueLineId, l.LineNumber, l.ItemId, l.ReturnedQuantityBase,
+                l.ReportedConsumedQuantityBase, l.ReportedStillHeldQuantityBase,
+                l.ScanCode, l.InventorySerialId)).ToList());
 }

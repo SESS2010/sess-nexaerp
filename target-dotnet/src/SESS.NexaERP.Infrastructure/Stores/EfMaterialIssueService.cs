@@ -32,6 +32,12 @@ public sealed partial class EfMaterialIssueService(
         return tracking ? query : query.AsNoTracking();
     }
 
+    private IQueryable<MaterialReturn> ReturnQuery(bool tracking = false)
+    {
+        var query = db.MaterialReturns.Include(x => x.Lines).Include(x => x.MaterialIssue)!.ThenInclude(x => x!.Lines);
+        return tracking ? query : query.AsNoTracking();
+    }
+
     private string Organization() => !string.IsNullOrWhiteSpace(user.OrganizationId)
         ? user.OrganizationId.Trim().ToUpperInvariant()
         : throw new UnauthorizedAccessException("Company scope is required.");

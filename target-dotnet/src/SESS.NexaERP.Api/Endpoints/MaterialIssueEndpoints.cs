@@ -61,6 +61,25 @@ public static class MaterialIssueEndpoints
             IMaterialIssueService service, CancellationToken ct) =>
             service.OutstandingCustodyAsync(employeeId, notificationDue, ct))
             .RequirePagePermission("stores.material-issues", PagePermissionActions.View);
+
+        var returns = endpoints.MapGroup("/api/v1/stores/material-returns")
+            .WithTags("Stores - Material Returns").RequireAuthorization()
+            .AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope);
+        returns.MapGet("/", (Guid? materialIssueId, string? status, int? page, int? pageSize,
+            IMaterialIssueService service, CancellationToken ct) =>
+            service.ListReturnsAsync(materialIssueId, status, page ?? 1, pageSize ?? 50, ct))
+            .RequirePagePermission("stores.material-returns", PagePermissionActions.View);
+        returns.MapGet("/{id:guid}", async (Guid id, IMaterialIssueService service, CancellationToken ct) =>
+            await service.GetReturnAsync(id, ct) is { } value ? Results.Ok(value) : Results.NotFound())
+            .RequirePagePermission("stores.material-returns", PagePermissionActions.View);
+        returns.MapPost("/from-issue/{materialIssueId:guid}", (Guid materialIssueId,
+            CreateMaterialReturn request, IMaterialIssueService service, HttpContext h, CancellationToken ct) =>
+            RunCreated(() => service.CreateReturnAsync(materialIssueId, request, ct), h))
+            .RequirePagePermission("stores.material-returns", PagePermissionActions.Create);
+        returns.MapPost("/{id:guid}/accept", (Guid id, AcceptMaterialReturn request,
+            IMaterialIssueService service, HttpContext h, CancellationToken ct) =>
+            Run(() => service.AcceptReturnAsync(id, request, ct), h))
+            .RequirePagePermission("stores.material-returns", PagePermissionActions.Approve);
         return endpoints;
     }
 

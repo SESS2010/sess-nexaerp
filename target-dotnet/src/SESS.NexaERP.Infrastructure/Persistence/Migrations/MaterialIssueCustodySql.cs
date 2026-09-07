@@ -2,6 +2,21 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 internal static class MaterialIssueCustodySql
 {
+    internal static string ActiveGovernance
+    {
+        get
+        {
+            const string marker = "CREATE FUNCTION advance.guard_material_issue_governance()";
+            const string endMarker = "CREATE TRIGGER trg_material_issue_guard";
+            var start = Up.IndexOf(marker, StringComparison.Ordinal);
+            var end = Up.IndexOf(endMarker, start, StringComparison.Ordinal);
+            return Up[start..end].Replace(
+                "CREATE FUNCTION advance.guard_material_issue_governance()",
+                "CREATE OR REPLACE FUNCTION advance.guard_material_issue_governance()",
+                StringComparison.Ordinal);
+        }
+    }
+
     internal const string Preflight = """
         DO $guard$
         BEGIN

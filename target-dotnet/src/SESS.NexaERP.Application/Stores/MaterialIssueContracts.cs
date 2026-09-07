@@ -42,6 +42,24 @@ public sealed record OutstandingEngineerCustodyView(Guid MaterialIssueId, string
     Guid? JobOrderId, Guid EmployeeId, string EmployeeCode, DateTimeOffset IssuedAt,
     DateTimeOffset ReturnDueAt, bool ReturnNotificationDue, decimal QuantityBase);
 
+public sealed record MaterialReturnLineInput(Guid MaterialIssueLineId, string ScanCode,
+    decimal ReturnedQuantity, decimal ReportedConsumedQuantity, decimal ReportedStillHeldQuantity);
+public sealed record CreateMaterialReturn(DateTimeOffset DeclaredAt,
+    IReadOnlyList<MaterialReturnLineInput> Lines, string IdempotencyKey);
+public sealed record AcceptMaterialReturn(long Version, DateTimeOffset AcceptedAt,
+    string Reason, string IdempotencyKey);
+public sealed record MaterialReturnLineView(Guid Id, Guid MaterialIssueLineId, int LineNumber,
+    Guid ItemId, decimal ReturnedQuantityBase, decimal ReportedConsumedQuantityBase,
+    decimal ReportedStillHeldQuantityBase, string ScanCode, Guid? InventorySerialId);
+public sealed record MaterialReturnView(Guid Id, string ReturnNumber, Guid MaterialIssueId,
+    Guid ReturnedByEmployeeId, DateTimeOffset DeclaredAt, string Status, DateTimeOffset? AcceptedAt,
+    Guid? AcceptedByEmployeeId, Guid? StockPostingBatchId, long Version, bool Replayed,
+    string ActorRoleCode, Guid ResolvedRoleAssignmentId, string ResolvedRoleAssignmentType,
+    string? AcceptedActorRoleCode, Guid? AcceptedRoleAssignmentId,
+    string? AcceptedRoleAssignmentType, IReadOnlyList<MaterialReturnLineView> Lines);
+public sealed record MaterialReturnPage(int Total, int Page, int PageSize,
+    IReadOnlyList<MaterialReturnView> Items);
+
 public interface IMaterialIssueService
 {
     Task<MaterialIssueRequestPage> ListRequestsAsync(string? number, string? status, int page, int pageSize, CancellationToken ct);
@@ -57,4 +75,11 @@ public interface IMaterialIssueService
     Task<MaterialIssueView> IssueAsync(Guid requestId, CreateMaterialIssue request, CancellationToken ct);
     Task<IReadOnlyList<OutstandingEngineerCustodyView>> OutstandingCustodyAsync(
         Guid? employeeId, bool? notificationDue, CancellationToken ct);
+    Task<MaterialReturnPage> ListReturnsAsync(Guid? materialIssueId, string? status,
+        int page, int pageSize, CancellationToken ct);
+    Task<MaterialReturnView?> GetReturnAsync(Guid id, CancellationToken ct);
+    Task<MaterialReturnView> CreateReturnAsync(Guid materialIssueId,
+        CreateMaterialReturn request, CancellationToken ct);
+    Task<MaterialReturnView> AcceptReturnAsync(Guid id,
+        AcceptMaterialReturn request, CancellationToken ct);
 }

@@ -210,6 +210,10 @@ internal static class StoresSlice3QcConcessionSql
 
     internal static string ActiveMovementGuard => BuildMovementGuard();
 
+    internal static string ActiveBatchGuard => BuildBatchGuard();
+
+    internal static string ActiveReconcileGuard => BuildReconcileGuard();
+
     internal static string MaterialIssueAwareMovementGuard => ReplaceRequired(BuildMovementGuard(),
         Q("          ELSIF NEW.~QcInspectionLotDispositionId~ IS NOT NULL THEN"),
         Q("          ELSIF NEW.~QcInspectionLotDispositionId~ IS NOT NULL AND NEW.~MaterialIssueRequestLineId~ IS NULL THEN"));

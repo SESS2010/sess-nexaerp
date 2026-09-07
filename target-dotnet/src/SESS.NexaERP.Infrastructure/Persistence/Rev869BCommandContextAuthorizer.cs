@@ -265,6 +265,14 @@ public static class Rev869BCommandContextAuthorizer
                 history.Action, version, history.FromStatus, history.ToStatus,
                 history.CorrelationId, history.Remarks));
         }
+        foreach (var history in db.ChangeTracker.Entries<MaterialReturnHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<MaterialReturn>(db, history.MaterialReturnId)
+                ?? await NextVersionAsync(db.MaterialReturns, history.MaterialReturnId, ct);
+            result.Add(new("material_return_history", history.Id, nameof(MaterialReturn), history.MaterialReturnId,
+                history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
+        }
         foreach (var alias in db.ChangeTracker.Entries<ItemMergeAlias>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var version = TrackedVersion<Item>(db, alias.SourceItemId) ?? await NextVersionAsync(db.Items, alias.SourceItemId, ct);

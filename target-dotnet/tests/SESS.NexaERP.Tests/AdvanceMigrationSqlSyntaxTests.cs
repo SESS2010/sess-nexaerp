@@ -670,8 +670,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             LEFT JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
             WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER')
             GROUP BY r."Id"
-            HAVING count(p."Id")<>1 OR min(d."PageKey")<>'stores.material-issue-requests')
-            THEN RAISE EXCEPTION 'New catalogue roles may hold only the MIR request permission.'; END IF;
+            HAVING count(p."Id")<>2
+              OR count(p."Id") FILTER (WHERE d."PageKey" IN ('stores.material-issue-requests','stores.material-returns'))<>2)
+            THEN RAISE EXCEPTION 'New catalogue roles must hold only MIR request and Material Return permissions.'; END IF;
           IF EXISTS (
             SELECT expected."RoleCode",expected."PageKey"
             FROM (VALUES

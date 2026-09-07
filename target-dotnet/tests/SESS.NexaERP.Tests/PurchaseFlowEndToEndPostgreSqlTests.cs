@@ -200,7 +200,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
-            await RunMaterialIssueWitness(client, options, user, grns[0], verifierId,
+            await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId);
 
             await using var verify = new NexaErpDbContext(options);
@@ -243,6 +243,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit",
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
+                "MaterialReturn.Create","MaterialReturn.Accept",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
                 operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
@@ -504,7 +505,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     private static async Task RunMaterialIssueWitness(HttpClient client,
-        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn,
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
         Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
@@ -622,6 +623,59 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
+        await CreateIssueAndReturnSerialized(client, options, user, serializedGrn, fixture.UomId,
+            fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
+
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow,
+                [new MaterialReturnLineInput(issue.Lines.Single().Id, "NOT-THE-ISSUED-ITEM", .60m, 0, .35m)],
+                "material-return-bad-scan"), HttpStatusCode.BadRequest);
+        var returnCommand = new CreateMaterialReturn(DateTimeOffset.UtcNow,
+            [new MaterialReturnLineInput(issue.Lines.Single().Id, fixture.ItemCode, .60m, 0, .35m)],
+            "material-return-create");
+        var materialReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/from-issue/{issue.Id}", returnCommand);
+        var returnReplay = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/from-issue/{issue.Id}", returnCommand);
+        Assert.False(materialReturn.Replayed); Assert.True(returnReplay.Replayed);
+        Assert.Equal(materialReturn.Id, returnReplay.Id); Assert.Equal("SUBMITTED", materialReturn.Status);
+        Assert.Equal(0, await Query(options, db => db.StockPostingBatches.CountAsync(x => x.MaterialReturnId == materialReturn.Id)));
+        await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow,
+                [new MaterialReturnLineInput(issue.Lines.Single().Id, fixture.ItemCode, .40m, 0, 0)],
+                "material-return-over"), HttpStatusCode.Conflict);
+
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
+            Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
+        await AssertPostStatus(client, $"/api/v1/stores/material-returns/{materialReturn.Id}/accept",
+            new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
+                "SUPPORT authority must not accept custody", "material-return-support-refused"),
+            HttpStatusCode.Forbidden);
+
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var accept = new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
+            "Scanner-confirmed return accepted into Stores", "material-return-accept");
+        materialReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept);
+        var acceptReplay = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept);
+        Assert.Equal("ACCEPTED", materialReturn.Status); Assert.False(materialReturn.Replayed);
+        Assert.True(acceptReplay.Replayed); Assert.Equal(materialReturn.StockPostingBatchId, acceptReplay.StockPostingBatchId);
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        var consumableReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/from-issue/{consumable.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow,
+                [new MaterialReturnLineInput(consumable.Lines.Single().Id, fixture.ItemCode, .03m, 0, .02m)],
+                "material-return-consumable-create"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        consumableReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/{consumableReturn.Id}/accept",
+            new AcceptMaterialReturn(consumableReturn.Version, DateTimeOffset.UtcNow,
+                "Consumable remainder accepted exactly like any other material", "material-return-consumable-accept"));
+
         await using var evidence = new NexaErpDbContext(options);
         var issueIds = new[] { issue.Id, consumable.Id };
         var batches = await evidence.StockPostingBatches.Where(x => issueIds.Contains(x.MaterialIssueId!.Value)).ToListAsync();
@@ -637,18 +691,90 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Single(pair, x => x.QuantityOut > 0 && x.CustodyAssignment!.CustodyAccount!.CustodyType == "WAREHOUSE");
             Assert.Single(pair, x => x.QuantityIn > 0 && x.CustodyAssignment!.CustodyAccount!.CustodyType == "EMPLOYEE");
         });
-        Assert.Equal(2, await evidence.MaterialIssues.CountAsync());
-        Assert.Equal(2, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "MATERIAL_ISSUE"));
-        Assert.Equal(2, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialIssue.Issue"));
+        Assert.Equal(3, await evidence.MaterialIssues.CountAsync());
+        Assert.Equal(3, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "MATERIAL_ISSUE"));
+        Assert.Equal(3, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialIssue.Issue"));
         Assert.All(await evidence.AuditLogs.Where(x => x.Action == "MaterialIssue.Issue").ToListAsync(), x =>
         {
             Assert.NotNull(x.ResolvedRoleAssignmentId); Assert.Equal(Rev869ARoleCodes.StoresExecutive, x.ActorRoleCode);
         });
+        var returnBatch = await evidence.StockPostingBatches.SingleAsync(x => x.MaterialReturnId == materialReturn.Id);
+        var returnMovements = await evidence.StockMovements.Where(x => x.StockPostingBatchId == returnBatch.Id)
+            .Include(x => x.CustodyAssignment)!.ThenInclude(x => x!.CustodyAccount).ToListAsync();
+        Assert.Equal(2, returnMovements.Count); Assert.Equal(0m, returnMovements.Sum(x => x.QuantityIn - x.QuantityOut));
+        Assert.DoesNotContain(returnMovements, x => x.MovementType == "CONSUMPTION_OUT");
+        Assert.Single(returnMovements.Select(x => x.OwnershipAccountId).Distinct());
+        Assert.Single(returnMovements.Select(x => x.InventoryProvenanceLayerId).Distinct());
+        Assert.Single(returnMovements, x => x.MovementLeg == "RETURN_OUT" &&
+            x.CustodyAssignment!.CustodyAccount!.CustodyType == "EMPLOYEE" && x.QuantityOut == .60m);
+        Assert.Single(returnMovements, x => x.MovementLeg == "RETURN_IN" &&
+            x.CustodyAssignment!.CustodyAccount!.CustodyType == "WAREHOUSE" && x.QuantityIn == .60m);
+        Assert.Equal("PARTIALLY_RETURNED", await evidence.MaterialIssues.Where(x => x.Id == issue.Id).Select(x => x.Status).SingleAsync());
+        Assert.Equal(3, await evidence.MaterialReturns.CountAsync());
+        Assert.Equal(6, await evidence.MaterialReturnHistories.CountAsync());
+        Assert.Equal(3, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialReturn.Accept"));
         var outstanding = await Get<OutstandingEngineerCustodyView[]>(client,
             $"/api/v1/stores/material-issues/outstanding-custody?employeeId={engineerId}");
         Assert.Equal(2, outstanding.Length); Assert.All(outstanding, x => Assert.Equal(engineerId, x.EmployeeId));
+        Assert.Equal(.35m, outstanding.Single(x => x.MaterialIssueId == issue.Id).QuantityBase);
+        Assert.Equal(.02m, outstanding.Single(x => x.MaterialIssueId == consumable.Id).QuantityBase);
     }
 
+    private static async Task CreateIssueAndReturnSerialized(HttpClient client,
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn,
+        Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId)
+    {
+        var receivedLine = grn.Lines.Single();
+        var serial = Assert.Single(receivedLine.Serials);
+        Assert.NotNull(serial.InventorySerialId);
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
+            Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
+        var request = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
+            new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CONSUMABLE_OFFICE", "DEPARTMENT",
+                null, null, null, departmentId, "Serialized custody witness", departmentId,
+                new DateOnly(2026, 9, 8),
+                [new MaterialIssueRequestLineInput(receivedLine.ItemId, uomId, 1m, null, null)],
+                "mir-serialized-create"));
+        request = await Post<MaterialIssueRequestView>(client,
+            $"/api/v1/stores/material-issue-requests/{request.Id}/submit",
+            new MaterialIssueTransitionRequest(request.Version, "Serialized issue submitted", "mir-serialized-submit"));
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        request = await Post<MaterialIssueRequestView>(client,
+            $"/api/v1/stores/material-issue-requests/{request.Id}/approve",
+            new MaterialIssueTransitionRequest(request.Version, "Serialized custody approved", "mir-serialized-approve"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var issue = await Post<MaterialIssueView>(client,
+            $"/api/v1/stores/material-issues/from-request/{request.Id}",
+            new CreateMaterialIssue("mir-serialized-issue", engineerId, DateTimeOffset.UtcNow,
+                [new MaterialIssueScan(request.Lines.Single().Id, serial.StoredSerialNumber,
+                    serial.InventorySerialId, 1m)]));
+
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow,
+                [new MaterialReturnLineInput(issue.Lines.Single().Id, "SERIAL-NEVER-ISSUED", 1m, 0, 0)],
+                "material-return-serial-not-issued"), HttpStatusCode.BadRequest);
+        var materialReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow,
+                [new MaterialReturnLineInput(issue.Lines.Single().Id, serial.StoredSerialNumber, 1m, 0, 0)],
+                "material-return-serial-create"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        materialReturn = await Post<MaterialReturnView>(client,
+            $"/api/v1/stores/material-returns/{materialReturn.Id}/accept",
+            new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
+                "Exact issued serial returned to Stores", "material-return-serial-accept"));
+
+        await using var evidence = new NexaErpDbContext(options);
+        Assert.Equal("RETURNED", await evidence.MaterialIssues.Where(x => x.Id == issue.Id)
+            .Select(x => x.Status).SingleAsync());
+        var movements = await evidence.StockMovements
+            .Where(x => x.StockPostingBatchId == materialReturn.StockPostingBatchId).ToListAsync();
+        Assert.Equal(2, movements.Count);
+        Assert.All(movements, x => Assert.Equal(serial.InventorySerialId, x.InventorySerialId));
+        Assert.DoesNotContain(movements, x => x.MovementType == "CONSUMPTION_OUT");
+    }
     private static async Task<MaterialIssueView> CreateAndIssueConsumable(HttpClient client, TaxWorkflowUser user,
         Guid itemId, Guid uomId, string itemCode, Guid departmentId, Guid engineerId,
         Guid purchaseId, Guid productionId, Guid storesId)

@@ -9,6 +9,9 @@ public sealed partial class NexaErpDbContext
     public DbSet<MaterialIssueLine> MaterialIssueLines => Set<MaterialIssueLine>();
     public DbSet<MaterialIssueExcessDecision> MaterialIssueExcessDecisions => Set<MaterialIssueExcessDecision>();
     public DbSet<MaterialIssueHistory> MaterialIssueHistories => Set<MaterialIssueHistory>();
+    public DbSet<MaterialReturn> MaterialReturns => Set<MaterialReturn>();
+    public DbSet<MaterialReturnLine> MaterialReturnLines => Set<MaterialReturnLine>();
+    public DbSet<MaterialReturnHistory> MaterialReturnHistories => Set<MaterialReturnHistory>();
 
     private static void ConfigureMaterialIssueExecution(ModelBuilder m)
     {
@@ -66,6 +69,68 @@ public sealed partial class NexaErpDbContext
             e.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20).IsRequired();
             e.Property(x => x.CorrelationId).HasMaxLength(100).IsRequired();
             e.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
+        });
+        m.Entity<MaterialReturn>(e => {
+            e.ToTable("material_returns"); e.HasKey(x => x.Id);
+            e.HasAlternateKey(x => new { x.CompanyId, x.Id });
+            e.HasIndex(x => new { x.CompanyId, x.ReturnNumber }).IsUnique();
+            e.HasIndex(x => new { x.CompanyId, x.CreateIdempotencyKey }).IsUnique();
+            e.HasIndex(x => new { x.CompanyId, x.AcceptanceIdempotencyKey }).IsUnique()
+                .HasFilter(@"""AcceptanceIdempotencyKey"" IS NOT NULL");
+            e.HasIndex(x => new { x.CompanyId, x.MaterialIssueId });
+            e.Property(x => x.ReturnNumber).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.Property(x => x.ActorRoleCode).HasMaxLength(100).IsRequired();
+            e.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20).IsRequired();
+            e.Property(x => x.CreateIdempotencyKey).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CreateRequestFingerprint).HasColumnType("character(64)").IsRequired();
+            e.Property(x => x.AcceptedActorRoleCode).HasMaxLength(100);
+            e.Property(x => x.AcceptedRoleAssignmentType).HasMaxLength(20);
+            e.Property(x => x.AcceptanceReason).HasMaxLength(1000);
+            e.Property(x => x.AcceptanceIdempotencyKey).HasMaxLength(100);
+            e.Property(x => x.AcceptanceRequestFingerprint).HasColumnType("character(64)");
+            e.HasOne(x => x.MaterialIssue).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialIssueId })
+                .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ReturnedByEmployee).WithMany().HasForeignKey(x => x.ReturnedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.CreatedByEmployee).WithMany().HasForeignKey(x => x.CreatedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ResolvedRoleAssignment).WithMany().HasForeignKey(x => x.ResolvedRoleAssignmentId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.AcceptedByEmployee).WithMany().HasForeignKey(x => x.AcceptedByEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.AcceptedRoleAssignment).WithMany().HasForeignKey(x => x.AcceptedRoleAssignmentId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.StockPostingBatch).WithMany().HasForeignKey(x => x.StockPostingBatchId).OnDelete(DeleteBehavior.Restrict);
+        });
+        m.Entity<MaterialReturnLine>(e => {
+            e.ToTable("material_return_lines"); e.HasKey(x => x.Id);
+            e.HasAlternateKey(x => new { x.CompanyId, x.Id });
+            e.HasIndex(x => new { x.MaterialReturnId, x.LineNumber }).IsUnique();
+            e.HasIndex(x => new { x.CompanyId, x.InventorySerialId }).IsUnique()
+                .HasFilter(@"""InventorySerialId"" IS NOT NULL");
+            e.HasIndex(x => new { x.CompanyId, x.MaterialIssueLineId });
+            e.Property(x => x.ReturnedQuantityBase).HasPrecision(24, 6);
+            e.Property(x => x.ReportedConsumedQuantityBase).HasPrecision(24, 6);
+            e.Property(x => x.ReportedStillHeldQuantityBase).HasPrecision(24, 6);
+            e.Property(x => x.ScanCode).HasMaxLength(200).IsRequired();
+            e.HasOne(x => x.MaterialReturn).WithMany(x => x.Lines)
+                .HasForeignKey(x => new { x.CompanyId, x.MaterialReturnId })
+                .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.MaterialIssueLine).WithMany()
+                .HasForeignKey(x => new { x.CompanyId, x.MaterialIssueLineId })
+                .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<SESS.NexaERP.Domain.Inventory.Item>().WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<InventorySerial>().WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId })
+                .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        });
+        m.Entity<MaterialReturnHistory>(e => {
+            e.ToTable("material_return_history"); e.HasKey(x => x.Id);
+            e.HasIndex(x => x.CorrelationId).IsUnique();
+            e.Property(x => x.Action).HasMaxLength(30).IsRequired();
+            e.Property(x => x.FromStatus).HasMaxLength(30);
+            e.Property(x => x.ToStatus).HasMaxLength(30).IsRequired();
+            e.Property(x => x.ActorRoleCode).HasMaxLength(100).IsRequired();
+            e.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20).IsRequired();
+            e.Property(x => x.CorrelationId).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Remarks).HasMaxLength(1000).IsRequired();
+            e.HasOne(x => x.MaterialReturn).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialReturnId })
+                .HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

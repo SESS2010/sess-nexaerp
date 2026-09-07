@@ -20,6 +20,7 @@ public sealed partial class NexaErpDbContext
             entity.HasIndex(x => x.ReversesPostingBatchId).IsUnique().HasFilter(@"""PostingKind""='REVERSAL'");
             entity.HasIndex(x => x.GoodsReceiptId); entity.HasIndex(x => x.QcInspectionRevisionId);
             entity.HasIndex(x => x.MaterialIssueRequestId); entity.HasIndex(x => x.MaterialIssueId); entity.HasIndex(x => x.DeliveryChallanId);
+            entity.HasIndex(x => x.MaterialReturnId);
             entity.HasIndex(x => x.InventoryCustodyHandoffId); entity.HasIndex(x => x.InventoryOwnershipTransferId);
             entity.HasIndex(x => x.InventoryTransformationId); entity.HasIndex(x => x.InventoryConcessionId);
             entity.HasIndex(x => new { x.CompanyId, x.PostingDate });
@@ -34,6 +35,7 @@ public sealed partial class NexaErpDbContext
             entity.HasOne(x => x.QcInspectionRevision).WithMany().HasForeignKey(x => new { x.CompanyId, x.QcInspectionRevisionId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.MaterialIssueRequest).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialIssueRequestId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.MaterialIssue).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialIssueId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.MaterialReturn).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialReturnId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.DeliveryChallan).WithMany().HasForeignKey(x => new { x.CompanyId, x.DeliveryChallanId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.InventoryCustodyHandoff).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventoryCustodyHandoffId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.InventoryOwnershipTransfer).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventoryOwnershipTransferId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
@@ -63,6 +65,7 @@ public sealed partial class NexaErpDbContext
             entity.HasIndex(x => new { x.CompanyId, x.InventorySerialId, x.PostingDate, x.Id }).HasFilter(@"""InventorySerialId"" IS NOT NULL");
             entity.HasIndex(x => x.GoodsReceiptLineId); entity.HasIndex(x => x.QcInspectionRevisionId);
             entity.HasIndex(x => x.MaterialIssueRequestLineId); entity.HasIndex(x => x.MaterialIssueLineId); entity.HasIndex(x => x.DeliveryChallanLineId);
+            entity.HasIndex(x => x.MaterialReturnLineId);
             entity.HasIndex(x => x.OriginGoodsReceiptLineId); entity.HasIndex(x => x.StockPostingBatchId);
             entity.HasIndex(x => x.GoodsReceiptLineLotAllocationId);
             entity.HasIndex(x => new { x.CompanyId, x.OwnershipAccountId, x.CustodyAssignmentId, x.InventoryProvenanceLayerId, x.InventoryLotId, x.InventorySerialId });
@@ -76,6 +79,7 @@ public sealed partial class NexaErpDbContext
             entity.HasOne(x => x.QcInspectionRevision).WithMany().HasForeignKey(x => new { x.CompanyId, x.QcInspectionRevisionId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.MaterialIssueRequestLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialIssueRequestLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.MaterialIssueLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialIssueLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.MaterialReturnLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.MaterialReturnLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.DeliveryChallanLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.DeliveryChallanLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.OriginGoodsReceiptLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.OriginGoodsReceiptLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.OwnershipAccount).WithMany().HasForeignKey(x => new { x.CompanyId, x.OwnershipAccountId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
