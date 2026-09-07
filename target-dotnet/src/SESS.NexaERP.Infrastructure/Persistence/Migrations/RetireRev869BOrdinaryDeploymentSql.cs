@@ -33,6 +33,37 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         DROP TABLE advance.rev869b_retirement_state;
         """;
 
+    internal static string RepairAlreadyAppliedOwnership => $$"""
+        DO $repair$
+        DECLARE was_installed boolean; role_count integer; role_name text;
+        BEGIN
+          IF to_regclass('advance.rev869b_retirement_state') IS NULL THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE='Refusing REV869B ownership repair: retirement state is missing.';
+          END IF;
+          SELECT "WasInstalled" INTO STRICT was_installed
+          FROM advance.rev869b_retirement_state WHERE "Id";
+          SELECT count(*) INTO role_count FROM pg_roles WHERE rolname=ANY({{SqlArray(TargetRoles)}});
+
+          IF NOT was_installed AND role_count=0 THEN
+            RETURN;
+          END IF;
+          IF NOT was_installed OR role_count<>{{TargetRoles.Length}} THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE=format('Refusing REV869B ownership repair: partial retired state (was installed %s, roles %s/%s).',
+                was_installed,role_count,{{TargetRoles.Length}});
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_owner') THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE='Refusing REV869B ownership repair: nexa_erp_owner is missing.';
+          END IF;
+
+          FOREACH role_name IN ARRAY {{SqlArray(TargetRoles)}} LOOP
+            EXECUTE format('REASSIGN OWNED BY %I TO nexa_erp_owner',role_name);
+          END LOOP;
+        END $repair$;
+        """;
+
     private static string BuildPreflight()
     {
         var relations = SqlArray(Rev869BCommandContextSql.InstalledRelationNames);
