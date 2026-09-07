@@ -32,7 +32,7 @@ public sealed class Rev869ASourceCorrectionTests
     {
         var filter = Read("src", "SESS.NexaERP.Api", "Security", "EmployeeScopeEndpointFilter.cs");
         var pageFilter = Read("src", "SESS.NexaERP.Api", "Security", "PagePermissionEndpointFilter.cs");
-        var pr = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpointHelpers.cs");
+        var pr = Read("src", "SESS.NexaERP.Infrastructure", "Purchase", "PurchaseRequisitionVisibility.cs");
         var endpoints = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpoints.cs");
 
         Assert.Contains("!user.EmployeeId.HasValue", filter);
@@ -40,6 +40,8 @@ public sealed class Rev869ASourceCorrectionTests
         Assert.Contains("EmployeeScopeEndpointFilter", pageFilter);
         Assert.Contains("return query.Where(_ => false)", pr);
         Assert.Contains("scope.OwnRecordsOnly", pr);
+        Assert.Contains("pr.RequesterEmployeeId == employeeId", pr);
+        Assert.Contains("JsonContains", pr);
         Assert.Contains("Scope(IncludeDetail", endpoints);
         Assert.Contains("History(db, prNumber, user", endpoints);
     }

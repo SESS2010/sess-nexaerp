@@ -5,6 +5,10 @@ internal static class StoresGrnSlice2Sql
     internal static string GuardUp => Guard;
     internal static string Up => BuildPostingFunction(true) + BuildReconcileFunction(true) + BuildDocumentPostingGuard(true) + BuildGoodsReceiptGuard(true) + Install + ReverseInstall;
     internal static string Down => DownGuard + BuildPostingFunction(false) + BuildReconcileFunction(false) + BuildDocumentPostingGuard(false) + BuildGoodsReceiptGuard(false);
+    internal static string BuiltInHashGoodsReceiptGuard => BuildGoodsReceiptGuard(true).Replace(
+        "encode(digest(convert_to(NEW.\"ConfigurationSnapshotJson\"::jsonb::text,'UTF8'),'sha256'),'hex')",
+        "encode(pg_catalog.sha256(convert_to(NEW.\"ConfigurationSnapshotJson\"::jsonb::text,'UTF8')),'hex')",
+        StringComparison.Ordinal);
 
     private static string BuildPostingFunction(bool withLot)
     {

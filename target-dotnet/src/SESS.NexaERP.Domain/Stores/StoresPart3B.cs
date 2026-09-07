@@ -14,6 +14,14 @@ public sealed class StockPostingBatch : CompanyScopedAuditableEntity
     public MaterialIssueRequest? MaterialIssueRequest { get; set; }
     public Guid? DeliveryChallanId { get; set; }
     public DeliveryChallan? DeliveryChallan { get; set; }
+    public Guid? InventoryCustodyHandoffId { get; set; }
+    public InventoryCustodyHandoff? InventoryCustodyHandoff { get; set; }
+    public Guid? InventoryOwnershipTransferId { get; set; }
+    public InventoryOwnershipTransfer? InventoryOwnershipTransfer { get; set; }
+    public Guid? InventoryTransformationId { get; set; }
+    public InventoryTransformation? InventoryTransformation { get; set; }
+    public Guid? InventoryConcessionId { get; set; }
+    public InventoryConcession? InventoryConcession { get; set; }
     public Guid? ReversesPostingBatchId { get; set; }
     public StockPostingBatch? ReversesPostingBatch { get; set; }
     public string ReferenceType { get; set; } = string.Empty;

@@ -190,7 +190,6 @@ internal static class EmployeeMasterRebuild42Sql
         DELETE FROM __advance_schema__.employee_import_history WHERE "ImportBatch"='EMPLOYEE_MASTER_REBUILD_42';
         DELETE FROM __advance_schema__.employee_status_history WHERE "CreatedBy"='EMPLOYEE_MASTER_REBUILD_42';
         DELETE FROM __advance_schema__.employee_approval_history WHERE "CreatedBy"='EMPLOYEE_MASTER_REBUILD_42';
-        DELETE FROM __advance_schema__.audit_logs WHERE "CreatedBy"='EMPLOYEE_MASTER_REBUILD_42';
         UPDATE __advance_schema__.purchase_approval_workflow_steps w SET "ApproverEmployeeCode"=c.old_code,"UpdatedAt"=TIMESTAMPTZ '2026-08-25 00:00:00+00',"UpdatedBy"='EMPLOYEE_MASTER_REBUILD_42_DOWN',"Version"=w."Version"+1 FROM _emr42_codes c WHERE w."ApproverEmployeeCode"=c.new_code;
         DELETE FROM __advance_schema__.employee_company_assignments WHERE "EmployeeId" IN(
         """;

@@ -114,7 +114,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname<>'authentication_bootstrap_state'
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -157,6 +157,41 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text) TO nexa_erp_runtime';
           END IF;
         END $stores_acl$;
+
+        DO $ordinary_command_acl$
+        BEGIN
+          IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL
+             OR to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NOT NULL THEN
+            IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NULL
+               OR to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NULL
+               OR to_regclass('advance.command_requests') IS NULL
+               OR to_regclass('advance.command_receipts') IS NULL THEN
+              RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
+            END IF;
+            REVOKE ALL ON TABLE advance.command_requests,advance.command_receipts
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.commit_command_receipt(uuid,bytea,jsonb,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid) TO nexa_erp_runtime';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.commit_command_receipt(uuid,bytea,jsonb,uuid) TO nexa_erp_runtime';
+            IF to_regprocedure('advance.ordinary_command_context_valid(text,uuid,text,text,text)') IS NULL
+               OR to_regprocedure('advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)') IS NULL THEN
+              RAISE EXCEPTION 'Ordinary command ledger internal authority functions are partially installed.';
+            END IF;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.ordinary_command_context_valid(text,uuid,text,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.ordinary_command_context_valid(text,uuid,text,text,text) TO nexa_erp_runtime';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text) TO nexa_erp_runtime';
+            IF to_regprocedure('advance.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb)') IS NOT NULL THEN
+              EXECUTE 'REVOKE ALL ON FUNCTION advance.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+              EXECUTE 'GRANT EXECUTE ON FUNCTION advance.rev869b_commercial_snapshot_reconciles(uuid,jsonb,jsonb) TO nexa_erp_runtime';
+            END IF;
+            IF to_regprocedure('advance.rev869b_qualification_provenance_valid(uuid)') IS NOT NULL THEN
+              EXECUTE 'REVOKE ALL ON FUNCTION advance.rev869b_qualification_provenance_valid(uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+              EXECUTE 'GRANT EXECUTE ON FUNCTION advance.rev869b_qualification_provenance_valid(uuid) TO nexa_erp_runtime';
+            END IF;
+          END IF;
+        END $ordinary_command_acl$;
 
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON SEQUENCES FROM PUBLIC;
@@ -214,6 +249,8 @@ internal static class DatabasePrincipalProvisioningSql
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
+              AND NOT (c.relname IN ('command_requests','command_receipts')
+                       AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
               AND (NOT has_table_privilege('nexa_erp_runtime',c.oid,'SELECT')
@@ -272,6 +309,41 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_bootstrap','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')
                   OR has_function_privilege('nexa_erp_migration','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled GRN reversal function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL THEN
+            IF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NULL
+               OR to_regclass('advance.command_requests') IS NULL
+               OR to_regclass('advance.command_receipts') IS NULL THEN
+              RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
+            END IF;
+            IF EXISTS (
+              SELECT 1
+              FROM (VALUES ('nexa_erp_runtime'),('nexa_erp_bootstrap'),('nexa_erp_migration')) principal(name)
+              CROSS JOIN (VALUES ('advance.command_requests'),('advance.command_receipts')) ledger(name)
+              WHERE has_table_privilege(principal.name,ledger.name,'SELECT')
+                 OR has_table_privilege(principal.name,ledger.name,'INSERT')
+                 OR has_table_privilege(principal.name,ledger.name,'UPDATE')
+                 OR has_table_privilege(principal.name,ledger.name,'DELETE')) THEN
+              RAISE EXCEPTION 'Managed LOGIN principals must have no command-ledger table access.';
+            END IF;
+            IF NOT has_function_privilege('nexa_erp_runtime','advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.commit_command_receipt(uuid,bytea,jsonb,uuid)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.ordinary_command_context_valid(text,uuid,text,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.commit_command_receipt(uuid,bytea,jsonb,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.commit_command_receipt(uuid,bytea,jsonb,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.ordinary_command_context_valid(text,uuid,text,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.ordinary_command_context_valid(text,uuid,text,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)','EXECUTE') THEN
+              RAISE EXCEPTION 'Ordinary command-ledger function ACL is invalid.';
+            END IF;
+          ELSIF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NOT NULL
+             OR to_regclass('advance.command_requests') IS NOT NULL
+             OR to_regclass('advance.command_receipts') IS NOT NULL THEN
+            RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
           END IF;
         END $verify$;
         """;

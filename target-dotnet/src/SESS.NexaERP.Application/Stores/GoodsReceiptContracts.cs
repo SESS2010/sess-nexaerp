@@ -117,7 +117,7 @@ public sealed record GoodsReceiptResult(
     IReadOnlyList<GoodsReceiptLineResult> Lines,
     IReadOnlyList<GoodsReceiptHistoryResult> History);
 
-public sealed record GoodsReceiptListResult(int Page, int PageSize, IReadOnlyList<GoodsReceiptResult> Items);
+public sealed record GoodsReceiptListResult(int TotalCount, int PageNumber, int PageSize, IReadOnlyList<GoodsReceiptResult> Items);
 
 public interface IGoodsReceiptService
 {
@@ -126,5 +126,5 @@ public interface IGoodsReceiptService
     Task<GoodsReceiptResult> FinalizeAsync(Guid id, FinalizeGoodsReceiptRequest request, CancellationToken cancellationToken);
     Task<GoodsReceiptResult> ReverseAsync(Guid id, ReverseGoodsReceiptRequest request, CancellationToken cancellationToken);
     Task<GoodsReceiptResult?> GetAsync(Guid id, CancellationToken cancellationToken);
-    Task<GoodsReceiptListResult> ListAsync(string? grnNumber, string? gateEntryNumber, Guid? vendorId, string? status, int page, int pageSize, CancellationToken cancellationToken);
+    Task<GoodsReceiptListResult> ListAsync(string? grnNumber, string? gateEntryNumber, Guid? vendorId, string? status, string? sortBy, string? sortDirection, int page, int pageSize, CancellationToken cancellationToken);
 }

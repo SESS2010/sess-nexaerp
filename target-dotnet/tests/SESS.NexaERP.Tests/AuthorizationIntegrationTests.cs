@@ -67,7 +67,7 @@ public sealed class AuthorizationIntegrationTests
     }
 
     [Fact]
-    public async Task Any_effective_database_role_can_grant_page_permission()
+    public async Task Held_secondary_role_is_resolved_automatically_for_page_permission()
     {
         await using var host = await TestHost.StartAsync((role, permission) =>
             role == "TECHNICAL_DIRECTOR" && permission == PagePermissionActions.View);
@@ -230,7 +230,14 @@ public sealed class AuthorizationIntegrationTests
             .Select(role => role.ToUpperInvariant())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        public string RoleCode => RoleCodes.Count == 1 ? RoleCodes[0] : "none";
+        private ResolvedRoleAuthority? authority;
+        public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => RoleCodes
+            .Select((role, index) => new EffectiveRoleAssignment(Guid.Parse($"90000000-0000-0000-0000-{index + 1:000000000000}"), role, "FULL")).ToArray();
+        public IReadOnlyList<string> FullAuthorityRoleCodes => RoleCodes;
+        public string RoleCode => authority?.RoleCode ?? "none";
+        public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
+        public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
         public string? OrganizationId => Principal.FindFirstValue("organization_id") ?? "SESS";
         public bool IsAuthenticated => Principal.Identity?.IsAuthenticated == true;
         public Guid? EmployeeId => IsAuthenticated ? Guid.Parse("90000000-0000-0000-0000-000000000001") : null;

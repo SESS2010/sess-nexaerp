@@ -39,6 +39,7 @@ public sealed class DatabaseRuntimePrincipalGuardTests
         Assert.Contains("must not be present in a Release build", guard, StringComparison.Ordinal);
         Assert.Contains("allowDevelopmentSuperuser && !environment.IsDevelopment()", guard, StringComparison.Ordinal);
         Assert.Equal(2, Count(guard, "logger.LogCritical("));
+        Assert.DoesNotContain("nexa_rev869b_app_runtime", guard, StringComparison.Ordinal);
         Assert.Contains("allowDevelopmentSuperuser && evidence.IsSuperuser", guard, StringComparison.Ordinal);
     }
 

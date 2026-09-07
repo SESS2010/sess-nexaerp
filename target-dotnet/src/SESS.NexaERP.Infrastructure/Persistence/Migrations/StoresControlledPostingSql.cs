@@ -2,6 +2,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 internal static class StoresControlledPostingSql
 {
+    internal static string PostingOnly => Up[..Up.IndexOf(
+        "CREATE FUNCTION advance.replace_gate_entry_draft", StringComparison.Ordinal)];
+
     internal const string Up = """
         DO $guard$ BEGIN
           IF current_setting('server_version_num')::integer < 170000 THEN RAISE EXCEPTION 'Stores controlled posting requires PostgreSQL 17 or later.'; END IF;

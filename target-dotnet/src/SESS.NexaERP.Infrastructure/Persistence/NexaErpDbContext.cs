@@ -13,6 +13,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence;
 public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options) : DbContext(options)
 {
     public DbSet<Role> Roles => Set<Role>();
+    public DbSet<CompanyRoleActivation> CompanyRoleActivations => Set<CompanyRoleActivation>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
     public DbSet<AuthenticationBootstrapState> AuthenticationBootstrapStates => Set<AuthenticationBootstrapState>();
     public DbSet<Customer> Customers => Set<Customer>();
@@ -30,6 +31,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<EmployeeSkill> EmployeeSkills => Set<EmployeeSkill>();
     public DbSet<EmployeeRoleAssignment> EmployeeRoleAssignments => Set<EmployeeRoleAssignment>();
+    public DbSet<EmployeeRoleAssignmentEvent> EmployeeRoleAssignmentEvents => Set<EmployeeRoleAssignmentEvent>();
     public DbSet<ReportingRelationship> ReportingRelationships => Set<ReportingRelationship>();
     public DbSet<EmployeeStatusHistory> EmployeeStatusHistories => Set<EmployeeStatusHistory>();
     public DbSet<EmployeeDepartmentHistory> EmployeeDepartmentHistories => Set<EmployeeDepartmentHistory>();
@@ -66,6 +68,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        RoleGovernanceSeedData.ApplyToKnownRoles();
         modelBuilder.HasDefaultSchema(DatabaseSchemas.Advance);
         ConfigureIdentity(modelBuilder);
         ConfigureMasters(modelBuilder);
@@ -80,7 +83,10 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureStoresPart1(modelBuilder);
         ConfigureStoresPart2(modelBuilder);
         ConfigureStoresPart3A(modelBuilder);
+        ConfigureEstimatedBom(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
+        ConfigureInventoryOwnershipCustody(modelBuilder);
+        ConfigureInventoryProvenanceGenealogy(modelBuilder);
         ConfigureVendorAttachments(modelBuilder);
         ConfigureCustomerAttachments(modelBuilder);
         ConfigureItemVendors(modelBuilder);
@@ -95,12 +101,34 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         modelBuilder.Entity<Role>(entity =>
         {
             entity.ToTable("roles", table =>
-                table.HasCheckConstraint("CK_roles_code_canonical", @"""Code"" = upper(btrim(""Code""))"));
+            {
+                table.HasCheckConstraint("CK_roles_code_canonical", @"""Code"" = upper(btrim(""Code""))");
+                table.HasCheckConstraint("CK_roles_audience", @"""Audience"" IN ('INTERNAL_EMPLOYEE','EXTERNAL_PORTAL','LEGACY_ALIAS','SYSTEM_SECURITY')");
+                table.HasCheckConstraint("CK_roles_business_area_canonical", @"""BusinessArea"" = upper(btrim(""BusinessArea""))");
+                table.HasCheckConstraint("CK_roles_assignable_audience", @"""IsEmployeeAssignable"" = FALSE OR ""Audience"" = 'INTERNAL_EMPLOYEE'");
+                table.HasCheckConstraint("CK_roles_replacement", @"(""Audience"" = 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NOT NULL) OR (""Audience"" <> 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NULL)");
+            });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => x.Code).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.Audience).HasMaxLength(32).IsRequired();
+            entity.Property(x => x.BusinessArea).HasMaxLength(64).IsRequired();
             entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne(x => x.ReplacementRole).WithMany().HasForeignKey(x => x.ReplacementRoleId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CompanyRoleActivation>(entity =>
+        {
+            entity.ToTable("company_role_activations", table =>
+                table.HasCheckConstraint("CK_company_role_activation_dates", @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom"""));
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.CompanyId, x.RoleId, x.EffectiveFrom }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.IsEnabled });
+            entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<SESS.NexaERP.Domain.Foundation.Company>().WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<UserAccount>(entity =>
@@ -497,7 +525,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         {
             entity.ToTable("purchase_requisitions");
             entity.HasKey(x => x.Id);
-            entity.HasIndex(x => x.PrNumber).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.PrNumber }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.FinancialYear, x.PrSequence }).IsUnique();
             entity.HasIndex(x => new { x.OrganizationId, x.Status });
             entity.HasIndex(x => x.RequiredByDate);
@@ -783,6 +811,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.EntityName).HasMaxLength(160).IsRequired();
             entity.Property(x => x.EntityId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.UserLoginId).HasMaxLength(160).IsRequired();
+            entity.Property(x => x.ActorRoleCode).HasMaxLength(64).IsRequired(); entity.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20);
             entity.Property(x => x.Result).HasMaxLength(40).IsRequired();
             entity.Property(x => x.CorrelationId).HasMaxLength(120).IsRequired();
             entity.Property(x => x.IpAddress).HasMaxLength(80);
@@ -888,16 +917,43 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
 
         modelBuilder.Entity<EmployeeRoleAssignment>(entity =>
         {
-            entity.ToTable("employee_role_assignments");
+            entity.ToTable("employee_role_assignments", table =>
+            {
+                table.HasCheckConstraint("CK_employee_role_assignment_dates", @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""");
+                table.HasCheckConstraint("CK_employee_role_assignment_type", @"""AssignmentType"" IN ('FULL','SUPPORT','TEMPORARY')");
+                table.HasCheckConstraint("CK_employee_role_assignment_temporary_end", @"""AssignmentType"" <> 'TEMPORARY' OR ""EffectiveTo"" IS NOT NULL");
+                table.HasCheckConstraint("CK_employee_role_assignment_end_metadata", @"""EffectiveTo"" IS NULL OR ""AssignmentType"" = 'TEMPORARY' OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)");
+            });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.EmployeeId, x.RoleId, x.EffectiveFrom }).IsUnique();
+            entity.Property(x => x.AssignmentType).HasMaxLength(20).IsRequired();
             entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.Remarks).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.EndReason).HasMaxLength(500);
+            entity.Property(x => x.EndedBy).HasMaxLength(256);
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<EmployeeRoleAssignmentEvent>(entity =>
+        {
+            entity.ToTable("employee_role_assignment_events");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.CompanyId, x.EmployeeId, x.CreatedAt });
+            entity.Property(x => x.Operation).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.FromRoleCode).HasMaxLength(64);
+            entity.Property(x => x.ToRoleCode).HasMaxLength(64);
+            entity.Property(x => x.FromAssignmentType).HasMaxLength(20);
+            entity.Property(x => x.ToAssignmentType).HasMaxLength(20);
+            entity.Property(x => x.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(x => x.ActorLoginId).HasMaxLength(256).IsRequired();
+            entity.Property(x => x.ActorRoleCode).HasMaxLength(64).IsRequired();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Employee>().WithMany().HasForeignKey(x => x.ActorEmployeeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<EmployeeRoleAssignment>().WithMany().HasForeignKey(x => x.AssignmentId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<ReportingRelationship>(entity =>
         {
             entity.ToTable("reporting_relationships");
@@ -970,6 +1026,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         modelBuilder.Entity<Role>().HasData(Rev866SeedData.AdditionalEmployeeRoles);
         modelBuilder.Entity<Role>().HasData(AdvanceSeedData.DepartmentManagerRole);
         modelBuilder.Entity<Role>().HasData(MultiCompanyEmployeeAuthorizationPart1SeedData.Roles);
+        modelBuilder.Entity<Role>().HasData(RoleGovernanceSeedData.AdditionalRoles);
+        modelBuilder.Entity<CompanyRoleActivation>().HasData(RoleGovernanceSeedData.CompanyRoleActivations);
         modelBuilder.Entity<RolePagePermission>().HasData(AdvanceSeedData.RolePagePermissions);
         modelBuilder.Entity<Department>().HasData(Rev866SeedData.Departments);
         modelBuilder.Entity<Skill>().HasData(Rev866SeedData.Skills);

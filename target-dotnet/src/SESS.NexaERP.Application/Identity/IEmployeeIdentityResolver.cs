@@ -1,3 +1,5 @@
+﻿using SESS.NexaERP.Application.Common;
+
 namespace SESS.NexaERP.Application.Identity;
 
 public sealed record ResolvedEmployeeIdentity(
@@ -7,7 +9,9 @@ public sealed record ResolvedEmployeeIdentity(
     string? OrganizationId,
     string? EmployeeCode,
     IReadOnlyList<string> RoleCodes,
-    string Message)
+    string Message,
+    IReadOnlyList<string>? FullAuthorityRoleCodes = null,
+    IReadOnlyList<EffectiveRoleAssignment>? EffectiveRoleAssignments = null)
 {
     public static ResolvedEmployeeIdentity Failed(string message) => new(false, null, null, null, null, [], message);
 }

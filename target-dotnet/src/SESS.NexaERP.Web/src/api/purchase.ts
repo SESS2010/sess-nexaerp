@@ -152,6 +152,22 @@ export function listWarehouseOptions(): Promise<PurchaseLookupOption[]> {
   return api.get<PurchaseLookupOption[]>(`${PR_BASE}/lookups/warehouses`)
 }
 
+export function listStockCheckRequisitions(
+  query: PurchaseRequisitionListQuery,
+): Promise<PagedResponse<PurchaseRequisitionSummary>> {
+  const params = new URLSearchParams()
+  params.set('page', String(query.page))
+  params.set('pageSize', String(query.pageSize))
+  if (query.search) params.set('search', query.search)
+  if (query.prNumber) params.set('prNumber', query.prNumber)
+  if (query.status) params.set('status', query.status)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
+  return api.get<PagedResponse<PurchaseRequisitionSummary>>(
+    `/api/v1/stores/stock-check/requisitions?${params.toString()}`,
+  )
+}
+
 export function searchItems(search: string): Promise<PurchaseLookupOption[]> {
   const params = new URLSearchParams()
   if (search) params.set('search', search)

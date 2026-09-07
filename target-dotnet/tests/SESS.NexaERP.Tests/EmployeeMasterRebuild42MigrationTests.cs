@@ -86,6 +86,7 @@ public sealed class EmployeeMasterRebuild42MigrationTests
     {
         var sqlType = Infrastructure.GetType("SESS.NexaERP.Infrastructure.Persistence.Migrations.EmployeeMasterRebuild42Sql", true)!;
         var up = (string)sqlType.GetProperty("Up", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var down = (string)sqlType.GetProperty("Down", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         var dataType = Infrastructure.GetType("SESS.NexaERP.Infrastructure.Persistence.Migrations.EmployeeMasterRebuild42Data", true)!;
         var rosterType = dataType.GetNestedType("RosterRow", BindingFlags.NonPublic)!;
         var rosterProperties = rosterType.GetProperties().Select(x => x.Name).ToArray();
@@ -101,6 +102,7 @@ public sealed class EmployeeMasterRebuild42MigrationTests
         Assert.DoesNotContain(rosterProperties, x => new[] { "Aadhaar", "Aadhar", "Pan", "Uan", "Esi", "BankAccount", "Ifsc", "Mobile", "EmergencyContact" }.Contains(x, StringComparer.OrdinalIgnoreCase));
         Assert.DoesNotContain("ALTER TABLE", up, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("CREATE TABLE", up, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DELETE FROM advance.audit_logs", down, StringComparison.OrdinalIgnoreCase);
     }
 
     private static object[] Rows(string fieldName)

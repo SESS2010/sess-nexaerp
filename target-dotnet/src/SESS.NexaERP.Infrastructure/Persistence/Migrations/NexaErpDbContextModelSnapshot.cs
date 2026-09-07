@@ -34,6 +34,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<string>("ActorRoleCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("AfterJson")
                         .HasColumnType("text");
 
@@ -73,6 +78,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
+
+                    b.Property<Guid?>("ResolvedRoleAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResolvedRoleAssignmentType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("Result")
                         .IsRequired()
@@ -119,6 +131,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("bf16025e-df11-ac0e-785b-4873e1a14af3"),
                             Action = "Import",
+                            ActorRoleCode = "",
                             AfterJson = "{\"employeeCount\":39,\"sourceRevision\":\"REV866\"}",
                             CorrelationId = "REV866C1_EMPLOYEE_IMPORT",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -135,6 +148,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("51a38ab8-5943-e4f6-6140-76dea2057e8b"),
                             Action = "SeedRoleAssignments",
+                            ActorRoleCode = "",
                             AfterJson = "{\"assignmentCount\":40,\"sourceRevision\":\"REV866\"}",
                             CorrelationId = "REV866C1_ROLE_ASSIGNMENT",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -151,6 +165,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("11744032-08e9-f364-d36f-c12caeff0b02"),
                             Action = "SeedInitialStatus",
+                            ActorRoleCode = "",
                             AfterJson = "{\"statusHistoryCount\":39,\"newStatus\":\"Active\"}",
                             CorrelationId = "REV866C1_INITIAL_STATUS",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -167,6 +182,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("2a23e241-204c-4810-46cd-5f1b0f513434"),
                             Action = "Denied",
+                            ActorRoleCode = "",
                             AfterJson = "{\"permission\":\"view\",\"result\":\"denied\",\"sourceRevision\":\"REV866C1\"}",
                             CorrelationId = "REV866C1_PERMISSION_DENIAL",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -183,6 +199,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("2e2eb9a5-7caa-e157-2099-e3f06e85fbad"),
                             Action = "ApprovalStatusChangeEvidence",
+                            ActorRoleCode = "",
                             AfterJson = "{\"approvalStatus\":\"SeedApproved\",\"evidence\":\"corrective checkpoint\"}",
                             BeforeJson = "{\"approvalStatus\":\"SeedApproved\"}",
                             CorrelationId = "REV866C1_EMPLOYEE_STATUS_CHANGE",
@@ -200,6 +217,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("bf6ef4ae-fe3a-2861-28d4-88f7708aba51"),
                             Action = "RoleMappingChangeEvidence",
+                            ActorRoleCode = "",
                             AfterJson = "{\"mapping\":\"seeded approved role mappings preserved\"}",
                             BeforeJson = "{\"mapping\":\"none\"}",
                             CorrelationId = "REV866C1_ROLE_MAPPING_CHANGE",
@@ -5056,10 +5074,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanCancel = false,
                             CanCreate = false,
                             CanDeactivate = false,
-                            CanDownload = false,
-                            CanExport = false,
+                            CanDownload = true,
+                            CanExport = true,
                             CanIssue = false,
-                            CanPrint = false,
+                            CanPrint = true,
                             CanReject = false,
                             CanReplaceAttachment = false,
                             CanRequestClarification = false,
@@ -5068,8 +5086,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanSubmit = false,
                             CanUpdate = false,
                             CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
+                            CanVerify = true,
+                            CanView = true,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -22139,7 +22157,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanUpdate = false,
                             CanUploadAttachment = false,
                             CanVerify = false,
-                            CanView = false,
+                            CanView = true,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -22216,10 +22234,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanCancel = false,
                             CanCreate = false,
                             CanDeactivate = false,
-                            CanDownload = false,
+                            CanDownload = true,
                             CanExport = false,
                             CanIssue = false,
-                            CanPrint = false,
+                            CanPrint = true,
                             CanReject = false,
                             CanReplaceAttachment = false,
                             CanRequestClarification = false,
@@ -22228,8 +22246,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanSubmit = false,
                             CanUpdate = false,
                             CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
+                            CanVerify = true,
+                            CanView = true,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -22919,7 +22937,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanUpdate = false,
                             CanUploadAttachment = false,
                             CanVerify = false,
-                            CanView = false,
+                            CanView = true,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -22996,10 +23014,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanCancel = false,
                             CanCreate = false,
                             CanDeactivate = false,
-                            CanDownload = false,
+                            CanDownload = true,
                             CanExport = false,
                             CanIssue = false,
-                            CanPrint = false,
+                            CanPrint = true,
                             CanReject = false,
                             CanReplaceAttachment = false,
                             CanRequestClarification = false,
@@ -23008,8 +23026,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanSubmit = false,
                             CanUpdate = false,
                             CanUploadAttachment = false,
-                            CanVerify = false,
-                            CanView = false,
+                            CanVerify = true,
+                            CanView = true,
                             CanViewAuditHistory = false,
                             CanViewCommercialValues = false,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
@@ -31003,8 +31021,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("4be63323-a734-943b-8d03-b7d80fd58683"),
                             CanApprove = false,
-                            CanCancel = true,
-                            CanCreate = true,
+                            CanCancel = false,
+                            CanCreate = false,
                             CanDeactivate = false,
                             CanDownload = true,
                             CanExport = false,
@@ -31014,10 +31032,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanReplaceAttachment = false,
                             CanRequestClarification = false,
                             CanRequestRevision = false,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
                             CanVerify = false,
                             CanView = true,
                             CanViewAuditHistory = false,
@@ -32053,7 +32071,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("451ff88f-816b-39fb-0097-18ecd1e752d2"),
                             CanApprove = false,
-                            CanCancel = true,
+                            CanCancel = false,
                             CanCreate = true,
                             CanDeactivate = false,
                             CanDownload = true,
@@ -32443,8 +32461,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("baff3f8c-6e8c-e814-86d6-9431df1251d1"),
                             CanApprove = false,
-                            CanCancel = true,
-                            CanCreate = true,
+                            CanCancel = false,
+                            CanCreate = false,
                             CanDeactivate = false,
                             CanDownload = true,
                             CanExport = true,
@@ -32454,10 +32472,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanReplaceAttachment = false,
                             CanRequestClarification = true,
                             CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
                             CanVerify = true,
                             CanView = true,
                             CanViewAuditHistory = true,
@@ -32532,7 +32550,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("7fa66608-1650-7481-0d97-33b93ff14201"),
-                            CanApprove = false,
+                            CanApprove = true,
                             CanCancel = true,
                             CanCreate = true,
                             CanDeactivate = false,
@@ -32683,8 +32701,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("90b24916-a7da-926c-85db-d40df0bb5cb5"),
                             CanApprove = true,
-                            CanCancel = true,
-                            CanCreate = true,
+                            CanCancel = false,
+                            CanCreate = false,
                             CanDeactivate = true,
                             CanDownload = true,
                             CanExport = true,
@@ -32694,17 +32712,17 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanReplaceAttachment = false,
                             CanRequestClarification = true,
                             CanRequestRevision = true,
-                            CanResubmit = true,
-                            CanSubmit = true,
-                            CanUpdate = true,
-                            CanUploadAttachment = true,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
                             CanVerify = true,
                             CanView = true,
                             CanViewAuditHistory = true,
                             CanViewCommercialValues = true,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
-                            HasFullControl = true,
+                            HasFullControl = false,
                             PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000005"),
                             RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
                             Version = 0L
@@ -32772,10 +32790,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("8c9ccb5e-d2ee-b5c2-70b3-26f0805ab6d3"),
-                            CanApprove = true,
-                            CanCancel = true,
+                            CanApprove = false,
+                            CanCancel = false,
                             CanCreate = true,
-                            CanDeactivate = true,
+                            CanDeactivate = false,
                             CanDownload = true,
                             CanExport = true,
                             CanIssue = false,
@@ -32794,7 +32812,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanViewCommercialValues = true,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
-                            HasFullControl = true,
+                            HasFullControl = false,
                             PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000008"),
                             RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
                             Version = 0L
@@ -33478,13 +33496,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanSubmit = false,
                             CanUpdate = false,
                             CanUploadAttachment = false,
-                            CanVerify = true,
+                            CanVerify = false,
                             CanView = true,
                             CanViewAuditHistory = true,
                             CanViewCommercialValues = true,
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869b",
-                            HasFullControl = true,
+                            HasFullControl = false,
                             PageDefinitionId = new Guid("e6c278a8-9f01-4a07-845a-1aba37ca0e46"),
                             RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
                             Version = 0L
@@ -33596,7 +33614,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanRequestRevision = false,
                             CanResubmit = false,
                             CanSubmit = false,
-                            CanUpdate = false,
+                            CanUpdate = true,
                             CanUploadAttachment = false,
                             CanVerify = false,
                             CanView = true,
@@ -33626,7 +33644,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CanRequestRevision = false,
                             CanResubmit = false,
                             CanSubmit = false,
-                            CanUpdate = false,
+                            CanUpdate = true,
                             CanUploadAttachment = false,
                             CanVerify = false,
                             CanView = true,
@@ -33936,6 +33954,96 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             CreatedBy = "migration-approval-configuration-part2",
                             HasFullControl = false,
                             PageDefinitionId = new Guid("20000000-0000-0000-0000-000000000012"),
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("84000000-0000-0000-0000-000000000007"),
+                            CanApprove = true,
+                            CanCancel = false,
+                            CanCreate = false,
+                            CanDeactivate = false,
+                            CanDownload = false,
+                            CanExport = false,
+                            CanIssue = false,
+                            CanPrint = false,
+                            CanReject = true,
+                            CanReplaceAttachment = false,
+                            CanRequestClarification = false,
+                            CanRequestRevision = true,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
+                            CanVerify = true,
+                            CanView = true,
+                            CanViewAuditHistory = true,
+                            CanViewCommercialValues = true,
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-approval-configuration-part2",
+                            HasFullControl = false,
+                            PageDefinitionId = new Guid("20000000-0000-0000-0000-000000000022"),
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("84000000-0000-0000-0000-000000000008"),
+                            CanApprove = true,
+                            CanCancel = false,
+                            CanCreate = false,
+                            CanDeactivate = false,
+                            CanDownload = false,
+                            CanExport = false,
+                            CanIssue = false,
+                            CanPrint = false,
+                            CanReject = true,
+                            CanReplaceAttachment = false,
+                            CanRequestClarification = false,
+                            CanRequestRevision = true,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
+                            CanVerify = true,
+                            CanView = true,
+                            CanViewAuditHistory = true,
+                            CanViewCommercialValues = true,
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-approval-configuration-part2",
+                            HasFullControl = false,
+                            PageDefinitionId = new Guid("20000000-0000-0000-0000-000000000022"),
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("84000000-0000-0000-0000-000000000009"),
+                            CanApprove = false,
+                            CanCancel = false,
+                            CanCreate = true,
+                            CanDeactivate = false,
+                            CanDownload = true,
+                            CanExport = false,
+                            CanIssue = false,
+                            CanPrint = true,
+                            CanReject = false,
+                            CanReplaceAttachment = false,
+                            CanRequestClarification = false,
+                            CanRequestRevision = false,
+                            CanResubmit = false,
+                            CanSubmit = false,
+                            CanUpdate = false,
+                            CanUploadAttachment = false,
+                            CanVerify = false,
+                            CanView = true,
+                            CanViewAuditHistory = true,
+                            CanViewCommercialValues = true,
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-service-permission-alignment",
+                            HasFullControl = false,
+                            PageDefinitionId = new Guid("40000000-0000-0000-0000-000000000005"),
                             RoleId = new Guid("83000000-0000-0000-0000-000000000002"),
                             Version = 0L
                         },
@@ -39984,6 +40092,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)");
 
+                    b.Property<string>("AssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
@@ -40002,6 +40115,17 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("EndedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EndedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<string>("Remarks")
                         .IsRequired()
@@ -40034,13 +40158,23 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "EmployeeId", "RoleId", "EffectiveFrom")
                         .IsUnique();
 
-                    b.ToTable("employee_role_assignments", "advance");
+                    b.ToTable("employee_role_assignments", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_employee_role_assignment_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_employee_role_assignment_end_metadata", "\"EffectiveTo\" IS NULL OR \"AssignmentType\" = 'TEMPORARY' OR (\"EndReason\" IS NOT NULL AND length(btrim(\"EndReason\")) > 0 AND \"EndedAt\" IS NOT NULL AND \"EndedBy\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_employee_role_assignment_temporary_end", "\"AssignmentType\" <> 'TEMPORARY' OR \"EffectiveTo\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_employee_role_assignment_type", "\"AssignmentType\" IN ('FULL','SUPPORT','TEMPORARY')");
+                        });
 
                     b.HasData(
                         new
                         {
                             Id = new Guid("9e1e368d-3c82-60cf-f522-7758004d3e88"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40054,6 +40188,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("ec95b2c0-4bb6-9b59-3e5e-6fd16ce97ba3"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40067,6 +40202,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("30e7eac7-1101-ffde-70c0-6edd20ed4c01"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40080,6 +40216,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("ae3c6d06-5d8c-fa88-ae24-4dcf2ddbfacb"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40093,6 +40230,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("3b6fe413-e8d3-3c0e-52a0-2425db151f48"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40106,6 +40244,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("8c3e4b9b-6be9-9fa3-9c81-fa47f23b5818"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40119,6 +40258,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("8b8c5e6b-cc4d-4386-50a3-32fb3d776860"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40132,6 +40272,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("157d94ff-a39e-3fa4-3a54-f6f8d05cab62"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40145,6 +40286,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("9ac81cf0-423b-97a8-08e7-d3797a7410c7"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40158,6 +40300,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("c3aa8842-31de-0d93-71b8-ba5e8895a534"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40171,6 +40314,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("270a811f-0564-a4b0-8f4f-0b47118d3134"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40184,6 +40328,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("a79e4f09-112d-57e5-4f17-00066b3e6d22"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40197,6 +40342,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("a7552ac8-23f1-9ed4-6de8-669d08054e0a"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40210,6 +40356,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("87dd003b-f6f7-fb19-9f89-c395683c8fa0"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40223,6 +40370,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("4a1b90a5-9797-0fd0-0e6d-58785e981854"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40236,6 +40384,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("8ee5108f-6a19-af67-0562-ee708ebd6a05"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40249,6 +40398,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("98804443-54b0-2474-7acb-ffc54410e33e"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40262,6 +40412,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("25c10527-28a2-e600-82d2-3b1b767af269"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40275,6 +40426,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("f03cb56e-0797-3443-b51a-d28205fcdfa7"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40288,6 +40440,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("8b4828cc-bbf0-05df-0f27-a3d789052b82"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40301,6 +40454,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("02702296-3863-8644-c306-ddc2f49e5cca"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40314,6 +40468,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("53f3f0b9-de8b-4119-3668-01c751a3d52a"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40327,6 +40482,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("6d4b74b6-5611-c8f5-0ba5-48be51fd6996"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40340,6 +40496,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("18da9f7c-3049-52e3-b76c-c4238cedb213"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40353,6 +40510,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("a2bc7e87-56b4-0478-d29d-c329f7eb060a"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40366,6 +40524,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("261e0ee9-c1a4-6f18-a3fc-461add06916b"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40379,6 +40538,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("67461916-89e1-fe39-e460-39d2d341d242"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40392,6 +40552,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("e6cf6f13-4f3a-56c8-dbed-608f3b596b6e"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40405,6 +40566,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("8c7733c4-1a45-970b-a81b-dbf5aa781ef0"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40418,6 +40580,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("babde2dc-2cd6-83b4-eea4-84c5886b436e"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40431,6 +40594,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("6c56b8eb-3f8a-4940-df22-5e8002b262da"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40444,6 +40608,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("5554a0f5-85f0-d477-ea7b-f3a6cd1ed121"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40457,6 +40622,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("205cd7e9-b79c-4600-f9c9-561e15e2be9f"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40470,6 +40636,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("ad9892ac-7d0f-89fc-8aec-be5f65860079"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40483,6 +40650,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("3b51f513-0e8e-7677-b138-19bc0d9c4150"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40496,6 +40664,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("1b5c6764-7dcd-6f19-0097-61b87603b5eb"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40509,6 +40678,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("d278c271-c2e2-00a7-a70b-ca058dc2af0e"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40522,6 +40692,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("2e2b854a-f965-2a71-21c3-96738e3cb840"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40535,6 +40706,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("a260b451-c377-907d-ba80-fb03af55ebc0"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40548,6 +40720,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         {
                             Id = new Guid("068427ee-6fc5-8182-b61c-24b2b3187867"),
                             ApprovalStatus = "SeedApproved",
+                            AssignmentType = "FULL",
                             CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
@@ -40557,6 +40730,109 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             RoleId = new Guid("80c408fe-3f95-ba8a-54b2-d0eee2374adf"),
                             Version = 0L
                         });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignmentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorLoginId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ActorRoleCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("AssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly>("EffectiveOn")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FromAssignmentType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("FromRoleCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateOnly?>("NewEffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("NewEffectiveTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateOnly?>("PreviousEffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PreviousEffectiveTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ToAssignmentType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ToRoleCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("ActorEmployeeId");
+
+                    b.HasIndex("AssignmentId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("CompanyId", "EmployeeId", "CreatedAt");
+
+                    b.ToTable("employee_role_assignment_events", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Employees.EmployeeSkill", b =>
@@ -46986,6 +47262,1294 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Identity.CompanyRoleActivation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Remarks")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("CompanyId", "IsEnabled");
+
+                    b.HasIndex("CompanyId", "RoleId", "EffectiveFrom")
+                        .IsUnique();
+
+                    b.ToTable("company_role_activations", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_company_role_activation_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("e1f11928-a860-468b-df5b-932a0e6638d8"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "System-security role is not available for employee assignment.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("c673462d-93d0-c8d0-0fb0-664bd11c1b30"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("93c2da5a-bb31-93ab-224a-014acd125ea4"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("28b232b2-c7e7-b6ef-144a-dc14b3501cb6"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("effb1576-1688-c529-25c6-dbcd0b4c8a69"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9bfde4b6-c12f-59de-ee52-8c726d623914"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000006"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("a1005141-868e-731f-d6bf-222477b4965e"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000007"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("774e3f95-2df7-7f0b-ac4a-78854227787d"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000008"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("892ef128-6898-e8d7-178d-55ba1e888ec9"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000009"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("3929fa42-c107-4af2-746d-b89d83e7110d"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000010"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("51969676-7bf9-6717-6d3c-2bb7f06ff6b9"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000011"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("82c9fb0f-b875-e273-110e-92dd788b0e8e"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000012"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("fa209def-18ee-27ea-3cc0-4b1d43a98987"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000013"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("a5d3d568-72f7-1ea6-2c30-7b34e8ba2308"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000014"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("d6b6850b-2e79-cc91-af6c-63f1edbeebfc"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000015"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("4d522616-d391-d521-eddf-dff7ef2084f8"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000016"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("eef7b770-9976-c811-8f74-1ab290b838a3"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000017"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("42b4a61e-e6a5-b6bc-c325-8361240f8e12"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000018"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9dcf93a1-93f6-fd45-c00a-72e54f822e81"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000019"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("be53cf8d-de89-dbd4-3e65-22c84219d39e"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000020"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("82e27f5a-bb17-fff6-c5ac-e9ea1921f8c4"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("45eb9032-3689-8526-caee-41db0e7e2644"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("cbd983a2-64ad-d343-1274-841a69ed5a7e"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9b47993d-39b4-9524-d610-ba513be233c8"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("07d53aa2-c266-4802-4786-9723d800e29d"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("1d2ea40d-765a-6d44-e3f7-0d4b04b87178"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("003197d6-a07b-a658-1014-0d84c68d2355"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("3ef5c967-70b5-bd81-7f2b-4453da944078"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("327c54ec-84f0-0eca-2123-cb9068b2c13b"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("38d3cf9c-c757-dc52-317a-87050a1bdf99"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("5442cb40-3a0a-943e-9781-7186eea78069"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("0d08f567-4d7b-2b1d-49af-9380c7e6d443"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("23e39915-e02a-82aa-18f9-10ea329fad00"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("eea735d7-f5f8-1d10-b1c2-2887d95e3bc9"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("0a769058-1bab-5087-26b9-d33415b000e5"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("259fbb60-a827-d0ad-29f5-59c5ba6e85d0"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("81701251-a033-5850-5bb4-f4bf1b16920b"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("b9997f8e-9bc0-88b1-4887-37b4461b419a"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("e177df2e-c5f3-adb4-fbc9-11973c0d68ac"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("2cc4a72e-1e6e-9eb7-3da5-201d57d5354b"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("80c408fe-3f95-ba8a-54b2-d0eee2374adf"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("59ed8ca7-1fa4-6950-566b-6138dddcdb93"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("1f1855b2-8479-8ef1-f3a6-ce49d5abe0b3"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("b6ccdd44-04e5-75c4-b939-712939daa9f3"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("4dd5b229-c6a0-e45e-dd6c-ef6529087d05"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9d23c112-2a6d-d5da-d6b1-cce1bdc206bb"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("d52152b0-05b4-18f9-4201-1f7066af4c76"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("29d81764-482d-0df7-3b1f-46537b636c34"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("c4133420-c386-9452-93a7-484e18105372"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("382bf734-289c-f155-303b-6d093e06b93d"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("97cf9b49-ae40-a8a5-e20b-acc199601716"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("8bac6e66-9ec1-54b6-6a97-9efe48a1db82"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("5108e629-77d1-c7f2-90ee-cca43777210e"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("621a646c-ff91-4b6e-1c91-f983361d003e"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("3899757d-fabc-c0b3-4cc4-a2440b0c06d8"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("d050273a-e669-bf1a-6da4-c5f2b7121c06"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("ca2f2621-e633-1823-f952-521139c18257"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e60237ff-eb63-43e4-c065-1196309a2a1b"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9ca7b4b1-5f38-11aa-bf20-3fa70faf095a"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("3c7819b4-b023-fbf8-3c40-365b01486873"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("67edbd9a-8979-1562-c9e2-072b5027482d"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("fced8dec-6d7f-4355-a271-56c9a58073ba"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("4d8738ff-cb9e-6366-4bff-2f72bdc7fd15"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e7d283fa-a993-ef89-d923-671db0278dec"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("baafc608-12b4-7c34-c610-4fd7922ff0a0"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("309e1bd0-3004-54f5-18d3-9ae547241fc3"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000006"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("20d9d088-2922-8700-add8-1249a9379c85"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "System-security role is not available for employee assignment.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("1f28ad7c-e576-33f7-7bf2-d8eea9464100"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e0526661-0024-40a9-83a6-557092d4b999"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("07578821-63aa-57ee-d602-0c0576959546"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("115ca643-312c-7cc0-d06c-6aecd3bf34a1"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("efda872e-15db-95a4-5684-36b9f9642111"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000006"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("bb328758-9b25-f075-510c-4a0f1db5439d"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000007"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("289ca9c3-1591-b1db-51e6-841c896778cc"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000008"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("f1023862-ba80-52e5-80a8-f0acc682e550"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000009"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("6a3aefd6-a739-9b14-f883-1ee3fc5ac7e7"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000010"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("50263011-50ed-5065-6dc9-d8ef3ba76751"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000011"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("ca2fa898-2c8a-e53d-2a48-434dd026ef61"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000012"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("1a10766b-439d-76b3-5b2c-608014fff634"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000013"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("dd35f006-270c-7357-6a38-d665e9207171"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000014"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("c7a4df1d-7879-773f-f1ff-64d412245e62"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000015"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("facd5f31-1ade-1b88-0e9c-52a7a613147c"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000016"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("cbc48396-c7b8-6db3-4942-1aad83eae561"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000017"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("6408e272-342a-536c-6b22-0b20c00d83e7"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000018"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e966f370-7c12-826b-ff0d-25a4d4de9e1b"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000019"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("7b07feaf-fdf7-8ea0-61b9-c6354bc3b778"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("10000000-0000-0000-0000-000000000020"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("7045bf21-800e-3260-a187-90de51c23bac"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("45eb9032-3689-8526-caee-41db0e7e2644"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("54d3bf4b-f403-ba08-2998-ba288a41b409"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("642a7c9d-7aad-ba44-6b4e-2d0f3237cf6f"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("07d53aa2-c266-4802-4786-9723d800e29d"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("c6f8f0fa-6c73-92f5-f328-c54734caefe3"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("003197d6-a07b-a658-1014-0d84c68d2355"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("3a487f6a-2191-8464-135f-07a457bf22f6"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("327c54ec-84f0-0eca-2123-cb9068b2c13b"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("d428d57d-75fa-463b-eb38-9fba26368a83"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("b0d6e0e5-f154-8700-7417-f8bbd4768a42"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("a8e8793d-65bd-e2c3-2902-cf2095055699"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("23e39915-e02a-82aa-18f9-10ea329fad00"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("a75c71cf-840d-fa83-5876-a76a3182d80b"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("0a769058-1bab-5087-26b9-d33415b000e5"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("27f94d9e-3a2a-aa6a-aeb4-2813b096da3a"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("81701251-a033-5850-5bb4-f4bf1b16920b"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("66488b2e-e3ef-ecce-4052-7ef559d345c8"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("e177df2e-c5f3-adb4-fbc9-11973c0d68ac"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("4aac9eac-1f44-c94e-4d75-e83decb6cd38"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("80c408fe-3f95-ba8a-54b2-d0eee2374adf"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("11a6df95-da5a-564d-5923-ed0c24b89bb0"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("1f1855b2-8479-8ef1-f3a6-ce49d5abe0b3"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e8e2cf43-a6b9-da3b-ec0c-0dba503e3710"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("4dd5b229-c6a0-e45e-dd6c-ef6529087d05"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e9795083-9407-bbbb-18ea-6ebdd091f888"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("d52152b0-05b4-18f9-4201-1f7066af4c76"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("72eea07b-41b9-5f92-92b3-80fe2ab1c871"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("c4133420-c386-9452-93a7-484e18105372"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("a8ccc26e-6ef5-04c9-de7b-e980eddb0954"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("97cf9b49-ae40-a8a5-e20b-acc199601716"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9cf30cb4-6f4d-430a-2d7e-a4ebc1e282ca"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = false,
+                            Remarks = "Legacy alias retained for history; use the replacement role.",
+                            RoleId = new Guid("5108e629-77d1-c7f2-90ee-cca43777210e"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e71ae68b-6273-fe45-6d54-bc3a3d2a380b"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("0053a1de-6583-1c72-b511-73b01767defd"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("47d44a53-71f9-5cee-9700-d3f35a513d45"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("9b4e11b1-2452-525a-be47-7303d5520269"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("d0849ed6-0db5-75ec-3ee0-3778a014e191"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("30000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("d9ffc4cb-8ab1-0b82-df33-5955337e2955"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("6724d5cc-e60c-fab5-d692-b59ff6c2e028"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("83000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("991176b7-16a7-cebf-cb6a-fda68151eab2"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000001"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("bffacf8f-5c3a-8af3-254c-32118c3f17c7"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000002"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("85ef1056-23f6-ec5a-d6af-4ab55e8c7bfc"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000003"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("76ad8a4d-e0a9-e3b5-18ee-3b4adb5a3936"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000004"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("6df52711-626c-db3a-b9ec-3d3d4f6a7208"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000005"),
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("e1b594f1-a72f-a0b3-15f0-6adc277a4457"),
+                            CompanyId = new Guid("70000000-0000-0000-0000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            EffectiveFrom = new DateOnly(2026, 9, 4),
+                            IsEnabled = true,
+                            Remarks = "Initial company role catalogue.",
+                            RoleId = new Guid("99000000-0000-0000-0000-000000000006"),
+                            Version = 0L
+                        });
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Identity.EmployeeIdentityMapping", b =>
                 {
                     b.Property<Guid>("Id")
@@ -47074,6 +48638,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("BusinessArea")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -47089,6 +48663,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsEmployeeAssignable")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsPrivileged")
                         .HasColumnType("boolean");
 
@@ -47096,6 +48673,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("ReplacementRoleId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -47112,19 +48692,32 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
+                    b.HasIndex("ReplacementRoleId");
+
                     b.ToTable("roles", "advance", t =>
                         {
+                            t.HasCheckConstraint("CK_roles_assignable_audience", "\"IsEmployeeAssignable\" = FALSE OR \"Audience\" = 'INTERNAL_EMPLOYEE'");
+
+                            t.HasCheckConstraint("CK_roles_audience", "\"Audience\" IN ('INTERNAL_EMPLOYEE','EXTERNAL_PORTAL','LEGACY_ALIAS','SYSTEM_SECURITY')");
+
+                            t.HasCheckConstraint("CK_roles_business_area_canonical", "\"BusinessArea\" = upper(btrim(\"BusinessArea\"))");
+
                             t.HasCheckConstraint("CK_roles_code_canonical", "\"Code\" = upper(btrim(\"Code\"))");
+
+                            t.HasCheckConstraint("CK_roles_replacement", "(\"Audience\" = 'LEGACY_ALIAS' AND \"ReplacementRoleId\" IS NOT NULL) OR (\"Audience\" <> 'LEGACY_ALIAS' AND \"ReplacementRoleId\" IS NULL)");
                         });
 
                     b.HasData(
                         new
                         {
                             Id = new Guid("30000000-0000-0000-0000-000000000001"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PURCHASE",
                             Code = "PURCHASE_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Purchase Manager",
                             Version = 0L
@@ -47132,10 +48725,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("30000000-0000-0000-0000-000000000002"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "STORES",
                             Code = "STORES_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Stores Manager",
                             Version = 0L
@@ -47143,10 +48739,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("30000000-0000-0000-0000-000000000003"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "QUALITY",
                             Code = "QC_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "QC Manager",
                             Version = 0L
@@ -47154,10 +48753,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("30000000-0000-0000-0000-000000000004"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "QUALITY",
                             Code = "QC_INSPECTOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-rev869a",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "QC Inspector",
                             Version = 0L
@@ -47165,10 +48767,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000001"),
+                            Audience = "SYSTEM_SECURITY",
+                            BusinessArea = "SECURITY",
                             Code = "ADMIN",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Administrator",
                             Version = 0L
@@ -47176,76 +48781,103 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000002"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "MANAGEMENT",
                             Code = "MD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Managing Director / CFO",
+                            ReplacementRoleId = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000003"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "ACCOUNTS",
                             Code = "ACCOUNTS_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Accounts Head",
+                            ReplacementRoleId = new Guid("83000000-0000-0000-0000-000000000002"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000004"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "PURCHASE",
                             Code = "PURCHASE_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Purchase Head",
+                            ReplacementRoleId = new Guid("30000000-0000-0000-0000-000000000001"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000005"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "STORES",
                             Code = "STORE_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Store Head",
+                            ReplacementRoleId = new Guid("30000000-0000-0000-0000-000000000002"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000006"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "PRODUCTION",
                             Code = "PRODUCTION_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "Production Head",
+                            ReplacementRoleId = new Guid("83000000-0000-0000-0000-000000000001"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000007"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "QUALITY",
                             Code = "QC_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = true,
                             Name = "QC Head",
+                            ReplacementRoleId = new Guid("30000000-0000-0000-0000-000000000003"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000008"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "DESIGN",
                             Code = "DESIGN_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Design Head",
                             Version = 0L
@@ -47253,10 +48885,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000009"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SERVICE",
                             Code = "SERVICE_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Service Head",
                             Version = 0L
@@ -47264,10 +48899,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000010"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SALES",
                             Code = "SALES_HEAD",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Sales Head",
                             Version = 0L
@@ -47275,10 +48913,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000011"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SERVICE",
                             Code = "SERVICE_COORDINATOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Service Coordinator",
                             Version = 0L
@@ -47286,10 +48927,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000012"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SERVICE",
                             Code = "SERVICE_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Service Engineer",
                             Version = 0L
@@ -47297,10 +48941,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000013"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SALES",
                             Code = "SALES_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Sales Engineer",
                             Version = 0L
@@ -47308,10 +48955,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000014"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "IT",
                             Code = "IT_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "IT Manager",
                             Version = 0L
@@ -47319,10 +48969,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000015"),
+                            Audience = "EXTERNAL_PORTAL",
+                            BusinessArea = "EXTERNAL",
                             Code = "CUSTOMER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = false,
                             Name = "Customer Portal User",
                             Version = 0L
@@ -47330,10 +48983,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000016"),
+                            Audience = "EXTERNAL_PORTAL",
+                            BusinessArea = "EXTERNAL",
                             Code = "VENDOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = false,
                             Name = "Vendor Portal User",
                             Version = 0L
@@ -47341,10 +48997,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000017"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "DOCUMENT_CONTROL",
                             Code = "DOCUMENT_CONTROLLER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Document Controller",
                             Version = 0L
@@ -47352,21 +49011,28 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000018"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "DOCUMENT_CONTROL",
                             Code = "DCC",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = false,
                             Name = "DCC / Document Controller",
+                            ReplacementRoleId = new Guid("10000000-0000-0000-0000-000000000017"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000019"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "GENERAL",
                             Code = "BRANCH_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Branch Manager",
                             Version = 0L
@@ -47374,10 +49040,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("10000000-0000-0000-0000-000000000020"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "GENERAL",
                             Code = "OPS_ADMIN_NO_HR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Operational Admin without HR",
                             Version = 0L
@@ -47385,10 +49054,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("45eb9032-3689-8526-caee-41db0e7e2644"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "MANAGEMENT",
                             Code = "TECHNICAL_DIRECTOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Technical Director",
                             Version = 0L
@@ -47396,10 +49068,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("03325f4f-c6d4-b3f3-f4b3-11b728c275da"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "MANAGEMENT",
                             Code = "MANAGING_DIRECTOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Managing Director",
                             Version = 0L
@@ -47407,10 +49082,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("07d53aa2-c266-4802-4786-9723d800e29d"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "SERVICE",
                             Code = "TECHNICAL_SUPPORT_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Technical Support Manager",
                             Version = 0L
@@ -47418,10 +49096,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("003197d6-a07b-a658-1014-0d84c68d2355"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ACCOUNTS",
                             Code = "ACCOUNTS_ASSISTANT",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Accounts Assistant",
                             Version = 0L
@@ -47429,10 +49110,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("327c54ec-84f0-0eca-2123-cb9068b2c13b"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "IT",
                             Code = "SOFTWARE_DEVELOPER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Software Developer",
                             Version = 0L
@@ -47440,10 +49124,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("46899b83-f5d7-793d-f008-5b15bcf06b17"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PURCHASE",
                             Code = "PURCHASE_EXECUTIVE",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Purchase Executive",
                             Version = 0L
@@ -47451,10 +49138,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("8481d263-cb63-6bc1-76ac-b4c2a56fc1c5"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "STORES",
                             Code = "STORES_EXECUTIVE",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Stores Executive",
                             Version = 0L
@@ -47462,10 +49152,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("23e39915-e02a-82aa-18f9-10ea329fad00"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "STORES",
                             Code = "STORES_ASSISTANT",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Stores Assistant",
                             Version = 0L
@@ -47473,10 +49166,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("0a769058-1bab-5087-26b9-d33415b000e5"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ADMINISTRATION",
                             Code = "HR_EXECUTIVE",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "HR Executive",
                             Version = 0L
@@ -47484,10 +49180,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("81701251-a033-5850-5bb4-f4bf1b16920b"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ADMINISTRATION",
                             Code = "ADMIN_EXECUTIVE",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Admin Executive",
                             Version = 0L
@@ -47495,10 +49194,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("e177df2e-c5f3-adb4-fbc9-11973c0d68ac"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PRODUCTION",
                             Code = "PRODUCTION_COORDINATOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Production Coordinator",
                             Version = 0L
@@ -47506,10 +49208,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("80c408fe-3f95-ba8a-54b2-d0eee2374adf"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ENGINEERING",
                             Code = "TECHNICAL_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Technical Engineer",
                             Version = 0L
@@ -47517,10 +49222,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("1f1855b2-8479-8ef1-f3a6-ce49d5abe0b3"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ENGINEERING",
                             Code = "ELECTRICAL_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Electrical Engineer",
                             Version = 0L
@@ -47528,10 +49236,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("4dd5b229-c6a0-e45e-dd6c-ef6529087d05"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ENGINEERING",
                             Code = "PLC_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "PLC Engineer",
                             Version = 0L
@@ -47539,10 +49250,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("d52152b0-05b4-18f9-4201-1f7066af4c76"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "DESIGN",
                             Code = "DESIGN_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Design Engineer",
                             Version = 0L
@@ -47550,10 +49264,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("c4133420-c386-9452-93a7-484e18105372"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ENGINEERING",
                             Code = "JUNIOR_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Junior Engineer",
                             Version = 0L
@@ -47561,10 +49278,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("97cf9b49-ae40-a8a5-e20b-acc199601716"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PRODUCTION",
                             Code = "PRODUCTION_OPERATOR",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = false,
                             Name = "Production Operator",
                             Version = 0L
@@ -47572,21 +49292,28 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("5108e629-77d1-c7f2-90ee-cca43777210e"),
+                            Audience = "LEGACY_ALIAS",
+                            BusinessArea = "IT",
                             Code = "SOFTWARE_ENGINEER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration",
                             IsActive = true,
+                            IsEmployeeAssignable = false,
                             IsPrivileged = false,
                             Name = "Software Engineer",
+                            ReplacementRoleId = new Guid("327c54ec-84f0-0eca-2123-cb9068b2c13b"),
                             Version = 0L
                         },
                         new
                         {
                             Id = new Guid("30000000-0000-0000-0000-000000000005"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "GENERAL",
                             Code = "DEPARTMENT_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "advance-baseline",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Department Manager",
                             Version = 0L
@@ -47594,10 +49321,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("83000000-0000-0000-0000-000000000001"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PRODUCTION",
                             Code = "PRODUCTION_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-multi-company-employee-authorization-part1",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Production Manager",
                             Version = 0L
@@ -47605,12 +49335,99 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         new
                         {
                             Id = new Guid("83000000-0000-0000-0000-000000000002"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ACCOUNTS",
                             Code = "ACCOUNTS_MANAGER",
                             CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             CreatedBy = "migration-multi-company-employee-authorization-part1",
                             IsActive = true,
+                            IsEmployeeAssignable = true,
                             IsPrivileged = true,
                             Name = "Accounts Manager",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000001"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PROJECTS",
+                            Code = "PROJECT_MANAGER",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = true,
+                            Name = "Project Manager",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000002"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "PROJECTS",
+                            Code = "SITE_ENGINEER",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = false,
+                            Name = "Site Engineer",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000003"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "LOGISTICS",
+                            Code = "DISPATCH_COORDINATOR",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = false,
+                            Name = "Dispatch Coordinator",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000004"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "MAINTENANCE",
+                            Code = "MAINTENANCE_ENGINEER",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = false,
+                            Name = "Maintenance Engineer",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000005"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ADMINISTRATION",
+                            Code = "HR_MANAGER",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = true,
+                            Name = "HR Manager",
+                            Version = 0L
+                        },
+                        new
+                        {
+                            Id = new Guid("99000000-0000-0000-0000-000000000006"),
+                            Audience = "INTERNAL_EMPLOYEE",
+                            BusinessArea = "ADMINISTRATION",
+                            Code = "HOUSEKEEPING_ASSISTANT",
+                            CreatedAt = new DateTimeOffset(new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            CreatedBy = "migration-role-governance-foundation",
+                            IsActive = true,
+                            IsEmployeeAssignable = true,
+                            IsPrivileged = false,
+                            Name = "Housekeeping Assistant",
                             Version = 0L
                         });
                 });
@@ -48243,6 +50060,12 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<Guid>("CustodyAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("DeliveryChallanLineId")
                         .HasColumnType("uuid");
 
@@ -48252,7 +50075,28 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("GoodsReceiptLineLotAllocationId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("InventoryConcessionAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryCustodyHandoffLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryOwnershipTransferLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryProvenanceLayerId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("InventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryTransformationInputId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryTransformationOutputId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("ItemId")
@@ -48261,7 +50105,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<short>("LedgerSchemaVersion")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("smallint")
-                        .HasDefaultValue((short)1);
+                        .HasDefaultValue((short)2);
 
                     b.Property<Guid?>("MaterialIssueRequestLineId")
                         .HasColumnType("uuid");
@@ -48278,12 +50122,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("OriginGoodsReceiptLineId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("OwnershipAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateOnly>("PostingDate")
                         .HasColumnType("date");
 
                     b.Property<string>("PostingIdentity")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("QcInspectionLotDispositionId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("QcInspectionRevisionId")
                         .HasColumnType("uuid");
@@ -48339,15 +50189,31 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId");
 
+                    b.HasIndex("CustodyCaseLineId");
+
                     b.HasIndex("DeliveryChallanLineId");
 
                     b.HasIndex("GoodsReceiptLineId");
 
                     b.HasIndex("GoodsReceiptLineLotAllocationId");
 
+                    b.HasIndex("InventoryConcessionAllocationId");
+
+                    b.HasIndex("InventoryCustodyHandoffLineId");
+
+                    b.HasIndex("InventoryLotId");
+
+                    b.HasIndex("InventoryOwnershipTransferLineId");
+
+                    b.HasIndex("InventoryTransformationInputId");
+
+                    b.HasIndex("InventoryTransformationOutputId");
+
                     b.HasIndex("MaterialIssueRequestLineId");
 
                     b.HasIndex("OriginGoodsReceiptLineId");
+
+                    b.HasIndex("QcInspectionLotDispositionId");
 
                     b.HasIndex("QcInspectionRevisionId");
 
@@ -48361,11 +50227,29 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("WarehouseId");
 
+                    b.HasIndex("CompanyId", "CustodyAssignmentId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseLineId");
+
                     b.HasIndex("CompanyId", "DeliveryChallanLineId");
 
                     b.HasIndex("CompanyId", "GoodsReceiptLineId");
 
                     b.HasIndex("CompanyId", "GoodsReceiptLineLotAllocationId");
+
+                    b.HasIndex("CompanyId", "InventoryConcessionAllocationId");
+
+                    b.HasIndex("CompanyId", "InventoryCustodyHandoffLineId");
+
+                    b.HasIndex("CompanyId", "InventoryLotId");
+
+                    b.HasIndex("CompanyId", "InventoryOwnershipTransferLineId");
+
+                    b.HasIndex("CompanyId", "InventoryProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationInputId");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationOutputId");
 
                     b.HasIndex("CompanyId", "MaterialIssueRequestLineId");
 
@@ -48374,6 +50258,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "PostingIdentity")
                         .IsUnique()
                         .HasFilter("\"PostingIdentity\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "QcInspectionLotDispositionId");
 
                     b.HasIndex("CompanyId", "QcInspectionRevisionId");
 
@@ -48396,7 +50282,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "ItemId", "WarehouseConditionLocationId", "PostingDate", "Id");
 
-                    b.ToTable("stock_movements", "advance");
+                    b.HasIndex("CompanyId", "OwnershipAccountId", "CustodyAssignmentId", "InventoryProvenanceLayerId", "InventoryLotId", "InventorySerialId");
+
+                    b.ToTable("stock_movements", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_stock_movements_foundation3_schema", "\"LedgerSchemaVersion\" = 2");
+
+                            t.HasCheckConstraint("CK_stock_movements_lot_allocation_identity", "\"GoodsReceiptLineLotAllocationId\" IS NULL OR \"InventoryLotId\" IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Inventory.Warehouse", b =>
@@ -51789,9 +53682,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("DeliveryWarehouseId");
 
-                    b.HasIndex("PrNumber")
-                        .IsUnique();
-
                     b.HasIndex("RequesterEmployeeId");
 
                     b.HasIndex("RequestingDepartmentId");
@@ -51799,6 +53689,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("RequiredByDate");
 
                     b.HasIndex("CompanyId", "OrganizationId");
+
+                    b.HasIndex("CompanyId", "PrNumber")
+                        .IsUnique();
 
                     b.HasIndex("CustomerPurchaseOrderId", "CompanyId");
 
@@ -54699,6 +56592,206 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("delivery_challan_lines", "advance");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ApprovedRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BomNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("CurrentRevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("JobOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "BomNumber")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "JobOrderId")
+                        .IsUnique();
+
+                    b.ToTable("estimated_boms", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBomLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("EstimatedBomRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("UomId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("UomId");
+
+                    b.HasIndex("CompanyId", "EstimatedBomRevisionId");
+
+                    b.HasIndex("CompanyId", "ItemId");
+
+                    b.HasIndex("EstimatedBomRevisionId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("estimated_bom_lines", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBomRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovalReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("EstimatedBomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("PreparedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RevisionReason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByEmployeeId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("PreparedByEmployeeId");
+
+                    b.HasIndex("CompanyId", "EstimatedBomId");
+
+                    b.HasIndex("CompanyId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("EstimatedBomId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("estimated_bom_revisions", "advance");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.GateEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -55431,6 +57524,987 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryAccountHolder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ExternalPartyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HolderCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid?>("HolderCompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HolderNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("HolderType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.HasIndex("HolderCompanyId");
+
+                    b.HasIndex("CompanyId", "ExternalPartyId");
+
+                    b.HasIndex("CompanyId", "HolderCode")
+                        .IsUnique();
+
+                    b.ToTable("inventory_account_holders", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_account_holders_identity", "(\"HolderType\" = 'COMPANY' AND \"HolderCompanyId\" IS NOT NULL AND \"ExternalPartyId\" IS NULL AND \"EmployeeId\" IS NULL)\n                   OR (\"HolderType\" = 'EXTERNAL_PARTY' AND \"HolderCompanyId\" IS NULL AND \"ExternalPartyId\" IS NOT NULL AND \"EmployeeId\" IS NULL)\n                   OR (\"HolderType\" = 'EMPLOYEE' AND \"HolderCompanyId\" IS NULL AND \"ExternalPartyId\" IS NULL AND \"EmployeeId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_account_holders_type", "\"HolderType\" IN ('COMPANY','EXTERNAL_PARTY','EMPLOYEE')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcessionNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CreatedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DecidedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DecidedRoleCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("FailedParameterSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("IntendedUse")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("MeasuredValueSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("QcInspectionLotDispositionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("QcInspectionParameterResultId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("QcInspectionRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("character(64)");
+
+                    b.Property<decimal>("RequestedQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid?>("ReversesConcessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("TechnicalAcceptanceReason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CreatedByEmployeeId");
+
+                    b.HasIndex("DecidedByEmployeeId");
+
+                    b.HasIndex("ReversesConcessionId")
+                        .IsUnique()
+                        .HasFilter("\"ReversesConcessionId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "ConcessionNumber")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "QcInspectionLotDispositionId");
+
+                    b.HasIndex("CompanyId", "QcInspectionParameterResultId");
+
+                    b.HasIndex("CompanyId", "QcInspectionRevisionId");
+
+                    b.HasIndex("CompanyId", "ReversesConcessionId");
+
+                    b.ToTable("inventory_concessions", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_concessions_decision", "(\"Status\"='DRAFT' AND \"DecidedByEmployeeId\" IS NULL AND \"DecidedRoleCode\" IS NULL AND \"DecidedAt\" IS NULL AND \"DecisionReason\" IS NULL) OR (\"Status\"<>'DRAFT' AND \"DecidedByEmployeeId\" IS NOT NULL AND \"DecidedRoleCode\"='TECHNICAL_DIRECTOR' AND \"DecidedAt\" IS NOT NULL AND length(btrim(\"DecisionReason\"))>0 AND \"DecidedByEmployeeId\"<>\"CreatedByEmployeeId\")");
+
+                            t.HasCheckConstraint("CK_inventory_concessions_fingerprint", "\"RequestFingerprint\" ~ '^[0-9a-fA-F]{64}$'");
+
+                            t.HasCheckConstraint("CK_inventory_concessions_quantity", "\"RequestedQuantity\" > 0");
+
+                            t.HasCheckConstraint("CK_inventory_concessions_reversal", "(\"Status\"='REVERSED' AND \"ReversesConcessionId\" IS NOT NULL) OR (\"Status\"<>'REVERSED' AND \"ReversesConcessionId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_concessions_status", "\"Status\" IN ('DRAFT','APPROVED','REJECTED','REVERSED')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AcceptedProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("GoodsReceiptLineLotAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryConcessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("RejectedProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcceptedProvenanceLayerId")
+                        .IsUnique()
+                        .HasFilter("\"AcceptedProvenanceLayerId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "AcceptedProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "GoodsReceiptLineLotAllocationId");
+
+                    b.HasIndex("CompanyId", "InventoryLotId");
+
+                    b.HasIndex("CompanyId", "RejectedProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventoryConcessionId", "GoodsReceiptLineLotAllocationId")
+                        .IsUnique();
+
+                    b.ToTable("inventory_concession_allocations", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_concession_allocations_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocationSerial", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AcceptedProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("InventoryConcessionAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RejectedProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcceptedProvenanceLayerId")
+                        .IsUnique()
+                        .HasFilter("\"AcceptedProvenanceLayerId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "AcceptedProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventorySerialId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "RejectedProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventoryConcessionAllocationId", "InventorySerialId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_inventory_concession_allocation_serials_CompanyId_Inventor~1");
+
+                    b.ToTable("inventory_concession_allocation_serials", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid>("AccountHolderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CustodyType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("RackBinId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SiteReference")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("VehicleReference")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "AccountCode")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "AccountHolderId");
+
+                    b.HasIndex("RackBinId", "CompanyId");
+
+                    b.HasIndex("WarehouseId", "CompanyId");
+
+                    b.ToTable("inventory_custody_accounts", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_accounts_location", "(\"RackBinId\" IS NULL OR \"WarehouseId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_custody_accounts_type", "\"CustodyType\" IN ('WAREHOUSE','EMPLOYEE','VEHICLE','SITE','VENDOR','CUSTOMER','OTHER')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AssignedQuantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<string>("AssignmentReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsCurrent")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("RackBinId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "CustodyAccountId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseLineId")
+                        .IsUnique()
+                        .HasFilter("\"IsCurrent\"");
+
+                    b.HasIndex("RackBinId", "CompanyId");
+
+                    b.HasIndex("WarehouseId", "CompanyId");
+
+                    b.ToTable("inventory_custody_assignments", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_assignments_current", "(\"IsCurrent\" AND \"EffectiveTo\" IS NULL) OR (NOT \"IsCurrent\" AND \"EffectiveTo\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_custody_assignments_location", "\"RackBinId\" IS NULL OR \"WarehouseId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_inventory_custody_assignments_period", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_inventory_custody_assignments_quantity", "\"AssignedQuantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CaseNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("CaseType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("ClosureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("CommercialAuthorizationStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomerInstructionReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("CustomerPurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("DueDateSetAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DueDateSetByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ExternalPartyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("InboundReturnableDcDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InboundReturnableDcNumber")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("OfferReference")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OwnershipAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustomerPurchaseOrderId");
+
+                    b.HasIndex("DueDateSetByEmployeeId");
+
+                    b.HasIndex("CompanyId", "CaseNumber")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "CustodyAccountId");
+
+                    b.HasIndex("CompanyId", "ExternalPartyId");
+
+                    b.HasIndex("CompanyId", "OwnershipAccountId");
+
+                    b.HasIndex("CompanyId", "Status", "DueDate");
+
+                    b.ToTable("inventory_custody_cases", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_cases_commercial_status", "\"CommercialAuthorizationStatus\" IN ('NOT_REQUIRED','AWAITING_OFFER','AWAITING_CUSTOMER_PO','AUTHORIZED')");
+
+                            t.HasCheckConstraint("CK_inventory_custody_cases_due_date_evidence", "(\"DueDate\" IS NULL AND \"DueDateSetByEmployeeId\" IS NULL AND \"DueDateSetAt\" IS NULL)\n                   OR (\"DueDate\" IS NOT NULL AND \"DueDateSetByEmployeeId\" IS NOT NULL AND \"DueDateSetAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_custody_cases_other_brand_chargeable", "\"CaseType\" <> 'CUSTOMER_OTHER_BRAND_MODIFICATION' OR \"CommercialAuthorizationStatus\" <> 'NOT_REQUIRED'");
+
+                            t.HasCheckConstraint("CK_inventory_custody_cases_status", "\"Status\" IN ('RECEIVED','RECEIVED_AWAITING_COMMERCIAL_AUTHORIZATION','AUTHORIZED_FOR_WORK','IN_WORK','READY_FOR_RETURN','RETURNED','CLOSED')");
+
+                            t.HasCheckConstraint("CK_inventory_custody_cases_type", "\"CaseType\" IN ('CUSTOMER_OTHER_BRAND_MODIFICATION','CUSTOMER_SESS_MACHINE_WARRANTY','CUSTOMER_SESS_SPARE_WARRANTY','CUSTOMER_REMOVED_PART','SUPPLIER_LOAN','DEMO_CUSTODY')");
+
+                            t.HasCheckConstraint("CK_inventory_custody_cases_work_authorization", "\"Status\" IN ('RECEIVED','RECEIVED_AWAITING_COMMERCIAL_AUTHORIZATION')\n                   OR \"CommercialAuthorizationStatus\" IN ('NOT_REQUIRED','AUTHORIZED')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommercialScopeStatus")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustomerPurchaseOrderLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DescriptionSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ExternalAssetIdentifier")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OfferReference")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("OwnershipAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<string>("ScopeDecisionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("SerialNumberSnapshot")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("UomCodeSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UomId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustomerPurchaseOrderLineId");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("UomId");
+
+                    b.HasIndex("CompanyId", "OwnershipAccountId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_custody_case_lines", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_case_lines_identity", "\"ItemId\" IS NOT NULL OR NULLIF(btrim(\"ExternalAssetIdentifier\"), '') IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_inventory_custody_case_lines_quantity", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_inventory_custody_case_lines_scope", "\"CommercialScopeStatus\" IN ('NOT_REQUIRED','AWAITING_AUTHORIZATION','AUTHORIZED','OUT_OF_SCOPE')");
+
+                            t.HasCheckConstraint("CK_inventory_custody_case_lines_scope_evidence", "\"CommercialScopeStatus\" <> 'AUTHORIZED' OR \"CustomerPurchaseOrderLineId\" IS NOT NULL OR NULLIF(btrim(\"OfferReference\"), '') IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyCaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LinkRole")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "CustodyCaseLineId");
+
+                    b.ToTable((string)null);
+
+                    b.UseTpcMappingStrategy();
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoff", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("FromCustodyAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("HandedOverAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HandedOverByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HandoffNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("ReceivedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ToCustodyAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("HandedOverByEmployeeId");
+
+                    b.HasIndex("ReceivedByEmployeeId");
+
+                    b.HasIndex("CompanyId", "FromCustodyAccountId");
+
+                    b.HasIndex("CompanyId", "HandoffNumber")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "ToCustodyAccountId");
+
+                    b.ToTable("inventory_custody_handoffs", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_handoffs_accounts", "\"FromCustodyAccountId\" <> \"ToCustodyAccountId\"");
+
+                            t.HasCheckConstraint("CK_inventory_custody_handoffs_completion", "(\"Status\" = 'DRAFT' AND \"HandedOverAt\" IS NULL AND \"HandedOverByEmployeeId\" IS NULL)\n                   OR (\"Status\" <> 'DRAFT' AND \"HandedOverAt\" IS NOT NULL AND \"HandedOverByEmployeeId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_custody_handoffs_status", "\"Status\" IN ('DRAFT','COMPLETED','REVERSED')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoffLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustodyHandoffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("FromCustodyAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<Guid>("ToCustodyAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustodyCaseLineId");
+
+                    b.HasIndex("FromCustodyAssignmentId");
+
+                    b.HasIndex("ToCustodyAssignmentId");
+
+                    b.HasIndex("CompanyId", "CustodyHandoffId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_custody_handoff_lines", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_custody_handoff_lines_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryExternalParty", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PartyCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("PartyNameSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("PartyType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("VendorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("VendorId");
+
+                    b.HasIndex("CompanyId", "CustomerId")
+                        .IsUnique()
+                        .HasFilter("\"CustomerId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "PartyCode")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "VendorId")
+                        .IsUnique()
+                        .HasFilter("\"VendorId\" IS NOT NULL");
+
+                    b.ToTable("inventory_external_parties", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_external_parties_identity", "(\"PartyType\" = 'CUSTOMER' AND \"CustomerId\" IS NOT NULL AND \"VendorId\" IS NULL)\n                   OR (\"PartyType\" = 'VENDOR' AND \"VendorId\" IS NOT NULL AND \"CustomerId\" IS NULL)\n                   OR (\"PartyType\" = 'OTHER' AND \"CustomerId\" IS NULL AND \"VendorId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_external_parties_type", "\"PartyType\" IN ('CUSTOMER','VENDOR','OTHER')");
+                        });
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryLot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -55497,6 +58571,632 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryLotAttributeRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AttributesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ChangeReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecordedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SupersedesRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecordedByEmployeeId");
+
+                    b.HasIndex("SupersedesRevisionId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesRevisionId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "InventoryLotId")
+                        .IsUnique()
+                        .HasFilter("\"EffectiveTo\" IS NULL");
+
+                    b.HasIndex("CompanyId", "SupersedesRevisionId");
+
+                    b.HasIndex("CompanyId", "InventoryLotId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_lot_attribute_revisions", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_lot_attribute_revisions_json", "jsonb_typeof(\"AttributesJson\") = 'object'");
+
+                            t.HasCheckConstraint("CK_inventory_lot_attribute_revisions_period", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" > \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_inventory_lot_attribute_revisions_revision", "\"RevisionNumber\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryMemoLiabilityEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorRoleCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<Guid>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("GoodsReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("MemoValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OwnershipAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("ReversesEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("ActorEmployeeId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustodyCaseLineId");
+
+                    b.HasIndex("GoodsReceiptId");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.HasIndex("ReversesEventId");
+
+                    b.HasIndex("CompanyId", "CorrelationId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "OwnershipAccountId", "OccurredAt");
+
+                    b.ToTable("inventory_memo_liability_events", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_memo_liability_events_close", "\"EventType\" <> 'LOAN_CLOSED_AGAINST_PO_GRN' OR (\"PurchaseOrderId\" IS NOT NULL AND \"GoodsReceiptId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_memo_liability_events_quantity", "\"Quantity\" > 0");
+
+                            t.HasCheckConstraint("CK_inventory_memo_liability_events_reversal", "(\"EventType\" = 'REVERSAL' AND \"ReversesEventId\" IS NOT NULL)\n                   OR (\"EventType\" <> 'REVERSAL' AND \"ReversesEventId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_memo_liability_events_type", "\"EventType\" IN ('LOAN_RECEIVED','LOAN_CONSUMED_PENDING_PROCUREMENT','LOAN_CLOSED_AGAINST_PO_GRN','REVERSAL')");
+
+                            t.HasCheckConstraint("CK_inventory_memo_liability_events_value", "\"MemoValue\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid>("AccountHolderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("InventoryValuationBasis")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("OwnershipType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "AccountCode")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "AccountHolderId");
+
+                    b.ToTable("inventory_ownership_accounts", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_ownership_accounts_type", "\"OwnershipType\" IN ('SESS_INVENTORY','CUSTOMER_PROPERTY','SUPPLIER_LOAN','DEMO_CUSTODY')");
+
+                            t.HasCheckConstraint("CK_inventory_ownership_accounts_valuation", "(\"OwnershipType\" = 'SESS_INVENTORY' AND \"InventoryValuationBasis\" = 'FIFO')\n                   OR (\"OwnershipType\" <> 'SESS_INVENTORY' AND \"InventoryValuationBasis\" = 'ZERO_MEMO')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgreementReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovedRoleCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("FromOwnershipAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ToOwnershipAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TransferNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("TransferType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByEmployeeId");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CompanyId", "FromOwnershipAccountId");
+
+                    b.HasIndex("CompanyId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "ToOwnershipAccountId");
+
+                    b.HasIndex("CompanyId", "TransferNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_ownership_transfers", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_ownership_transfers_accounts", "\"FromOwnershipAccountId\" <> \"ToOwnershipAccountId\"");
+
+                            t.HasCheckConstraint("CK_inventory_ownership_transfers_approval", "(\"Status\" = 'DRAFT' AND \"ApprovedByEmployeeId\" IS NULL AND \"ApprovedAt\" IS NULL AND \"ApprovedRoleCode\" IS NULL)\n                   OR (\"Status\" <> 'DRAFT' AND \"ApprovedByEmployeeId\" IS NOT NULL AND \"ApprovedAt\" IS NOT NULL AND \"ApprovedRoleCode\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_ownership_transfers_buyback", "\"TransferType\" <> 'CUSTOMER_BUYBACK' OR NULLIF(btrim(\"AgreementReference\"), '') IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_inventory_ownership_transfers_status", "\"Status\" IN ('DRAFT','APPROVED','POSTED','REVERSED')");
+
+                            t.HasCheckConstraint("CK_inventory_ownership_transfers_type", "\"TransferType\" IN ('CUSTOMER_BUYBACK','CUSTOMER_INSTRUCTION','INTERCOMPANY_ACCEPTANCE','SUPPLIER_LOAN_CONVERSION','CAPITALIZATION')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransferLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OwnershipTransferId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CustodyCaseLineId");
+
+                    b.HasIndex("CompanyId", "OwnershipTransferId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_ownership_transfer_lines", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_ownership_transfer_lines_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceAnnotation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnnotationCode")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("AnnotationType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("InheritedFromAnnotationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryConcessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "InheritedFromAnnotationId");
+
+                    b.HasIndex("CompanyId", "InventoryConcessionId");
+
+                    b.HasIndex("CompanyId", "InventoryProvenanceLayerId", "AnnotationType", "AnnotationCode")
+                        .IsUnique();
+
+                    b.ToTable("inventory_provenance_annotations", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_provenance_annotations_json", "jsonb_typeof(\"DetailsJson\")='object'");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceEdge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AllocationBasis")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EdgeType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("FromProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryTransformationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("ToProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationId");
+
+                    b.HasIndex("CompanyId", "ToProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "FromProvenanceLayerId", "ToProvenanceLayerId", "EdgeType")
+                        .IsUnique();
+
+                    b.ToTable("inventory_provenance_edges", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_provenance_edges_distinct", "\"FromProvenanceLayerId\" <> \"ToProvenanceLayerId\"");
+
+                            t.HasCheckConstraint("CK_inventory_provenance_edges_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityHash")
+                        .IsRequired()
+                        .HasColumnType("character(64)");
+
+                    b.Property<Guid?>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LayerType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<decimal>("QuantityCreated")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UomId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("UomId");
+
+                    b.HasIndex("CompanyId", "IdentityHash")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "InventoryLotId");
+
+                    b.HasIndex("CompanyId", "InventorySerialId");
+
+                    b.HasIndex("CompanyId", "ItemId", "InventoryLotId", "InventorySerialId");
+
+                    b.ToTable("inventory_provenance_layers", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_provenance_layers_hash", "\"IdentityHash\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_inventory_provenance_layers_quantity", "\"QuantityCreated\" > 0");
+
+                            t.HasCheckConstraint("CK_inventory_provenance_layers_status", "\"Status\" IN ('ACTIVE','REVERSED')");
+
+                            t.HasCheckConstraint("CK_inventory_provenance_layers_type", "\"LayerType\" IN ('RECEIPT','QC_ACCEPTED','QC_REJECTED','CONCESSION_ACCEPTED','CUSTODY','TRANSFORMATION_OUTPUT','RETURN','ADJUSTMENT')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("InventoryProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OriginRole")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("CompanyId", "Id");
+
+                    b.HasIndex("CompanyId", "InventoryProvenanceLayerId", "OriginRole")
+                        .IsUnique();
+
+                    b.ToTable((string)null);
+
+                    b.UseTpcMappingStrategy();
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerial", b =>
                 {
                     b.Property<Guid>("Id")
@@ -55546,6 +59246,397 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("inventory_serials", "advance", t =>
                         {
                             t.HasCheckConstraint("CK_inventory_serial_values", "length(trim(\"StoredSerialNumber\"))>0 AND length(trim(\"NormalizedStoredSerialNumber\"))>0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorRoleCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("JobOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("ReversesEventId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorEmployeeId");
+
+                    b.HasIndex("ReversesEventId")
+                        .IsUnique()
+                        .HasFilter("\"ReversesEventId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "CorrelationId")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "JobOrderId");
+
+                    b.HasIndex("CompanyId", "ReversesEventId");
+
+                    b.ToTable("inventory_serial_genealogy_events", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_serial_genealogy_events_reversal", "(\"EventType\"='REVERSAL' AND \"ReversesEventId\" IS NOT NULL) OR (\"EventType\"<>'REVERSAL' AND \"ReversesEventId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_serial_genealogy_events_type", "\"EventType\" IN ('CREATED','FITTED','REMOVED','REPLACED','TRANSFORMED','CORRECTED','CONCESSION_ACCEPTED','REVERSAL')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("FromInventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("FromProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventorySerialGenealogyEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RelationType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("ToInventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ToProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "FromInventorySerialId");
+
+                    b.HasIndex("CompanyId", "FromProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "ToInventorySerialId");
+
+                    b.HasIndex("CompanyId", "ToProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventorySerialGenealogyEventId", "RelationType");
+
+                    b.ToTable("inventory_serial_genealogy_links", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_serial_genealogy_links_identity", "\"FromInventorySerialId\" IS NOT NULL OR \"ToInventorySerialId\" IS NOT NULL OR \"FromProvenanceLayerId\" IS NOT NULL OR \"ToProvenanceLayerId\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_inventory_serial_genealogy_links_layer_distinct", "\"FromProvenanceLayerId\" IS NULL OR \"ToProvenanceLayerId\" IS NULL OR \"FromProvenanceLayerId\" <> \"ToProvenanceLayerId\"");
+
+                            t.HasCheckConstraint("CK_inventory_serial_genealogy_links_serial_distinct", "\"FromInventorySerialId\" IS NULL OR \"ToInventorySerialId\" IS NULL OR \"FromInventorySerialId\" <> \"ToInventorySerialId\"");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialIdentityRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ChangeReason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EffectiveFrom")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveTo")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("InventorySerialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NormalizedSerialNumberSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RecordedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StoredSerialNumberSnapshot")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("SupersedesRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecordedByEmployeeId");
+
+                    b.HasIndex("SupersedesRevisionId")
+                        .IsUnique()
+                        .HasFilter("\"SupersedesRevisionId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "InventorySerialId")
+                        .IsUnique()
+                        .HasFilter("\"EffectiveTo\" IS NULL");
+
+                    b.HasIndex("CompanyId", "SupersedesRevisionId");
+
+                    b.HasIndex("CompanyId", "InventorySerialId", "RevisionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("IX_inventory_serial_identity_revisions_CompanyId_InventorySer~1");
+
+                    b.ToTable("inventory_serial_identity_revisions", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_serial_identity_revisions_normalized", "length(btrim(\"NormalizedSerialNumberSnapshot\")) > 0");
+
+                            t.HasCheckConstraint("CK_inventory_serial_identity_revisions_period", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" > \"EffectiveFrom\"");
+
+                            t.HasCheckConstraint("CK_inventory_serial_identity_revisions_revision", "\"RevisionNumber\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset?>("PostedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PostedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("character(64)");
+
+                    b.Property<Guid?>("ReversesTransformationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("TransformationNumber")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("TransformationType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("PostedByEmployeeId");
+
+                    b.HasIndex("ReversesTransformationId")
+                        .IsUnique()
+                        .HasFilter("\"ReversesTransformationId\" IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("CompanyId", "ReversesTransformationId");
+
+                    b.HasIndex("CompanyId", "TransformationNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_transformations", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_transformations_fingerprint", "\"RequestFingerprint\" ~ '^[0-9a-fA-F]{64}$'");
+
+                            t.HasCheckConstraint("CK_inventory_transformations_posting", "(\"Status\"='DRAFT' AND \"PostedAt\" IS NULL AND \"PostedByEmployeeId\" IS NULL) OR (\"Status\"<>'DRAFT' AND \"PostedAt\" IS NOT NULL AND \"PostedByEmployeeId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_inventory_transformations_status", "\"Status\" IN ('DRAFT','POSTED','REVERSED')");
+
+                            t.HasCheckConstraint("CK_inventory_transformations_type", "\"TransformationType\" IN ('KIT_ASSEMBLY','KIT_DISASSEMBLY','REPACK','UOM_CONVERSION','SUBASSEMBLY')");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformationInput", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("InventoryProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryTransformationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "InventoryProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_transformation_inputs", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_transformation_inputs_quantity", "\"Quantity\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformationOutput", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("InventoryTransformationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OutputProvenanceLayerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("UomId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ItemId");
+
+                    b.HasIndex("OutputProvenanceLayerId")
+                        .IsUnique();
+
+                    b.HasIndex("UomId");
+
+                    b.HasIndex("CompanyId", "InventoryLotId");
+
+                    b.HasIndex("CompanyId", "OutputProvenanceLayerId");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationId", "LineNumber")
+                        .IsUnique();
+
+                    b.ToTable("inventory_transformation_outputs", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_inventory_transformation_outputs_quantity", "\"Quantity\" > 0");
                         });
                 });
 
@@ -56183,6 +60274,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("GoodsReceiptLineId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("GoodsReceiptLineLotAllocationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("InspectionNumber")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -56193,17 +60287,88 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("DeliveryChallanLineId")
                         .IsUnique();
 
-                    b.HasIndex("GoodsReceiptLineId")
-                        .IsUnique();
+                    b.HasIndex("GoodsReceiptLineId");
 
                     b.HasIndex("CompanyId", "DeliveryChallanLineId");
 
                     b.HasIndex("CompanyId", "GoodsReceiptLineId");
 
+                    b.HasIndex("CompanyId", "GoodsReceiptLineLotAllocationId")
+                        .IsUnique()
+                        .HasFilter("\"GoodsReceiptLineLotAllocationId\" IS NOT NULL");
+
                     b.HasIndex("CompanyId", "InspectionNumber")
                         .IsUnique();
 
                     b.ToTable("qc_inspections", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspectionLotDisposition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AcceptedQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DestinationConditionLocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("DiscrepancyPendingQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<string>("Disposition")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("GoodsReceiptLineLotAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("InspectedQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("InventoryLotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("QcInspectionRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("RejectedQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "DestinationConditionLocationId");
+
+                    b.HasIndex("CompanyId", "GoodsReceiptLineLotAllocationId");
+
+                    b.HasIndex("CompanyId", "InventoryLotId", "Disposition");
+
+                    b.HasIndex("CompanyId", "QcInspectionRevisionId", "GoodsReceiptLineLotAllocationId")
+                        .IsUnique();
+
+                    b.ToTable("qc_inspection_lot_dispositions", "advance", t =>
+                        {
+                            t.HasCheckConstraint("CK_qc_inspection_lot_dispositions_decision", "(\"Disposition\"='ACCEPTED' AND \"AcceptedQuantity\">0 AND \"RejectedQuantity\"=0 AND \"DiscrepancyPendingQuantity\"=0) OR (\"Disposition\"='REJECTED' AND \"RejectedQuantity\">0 AND \"AcceptedQuantity\"=0 AND \"DiscrepancyPendingQuantity\"=0) OR (\"Disposition\"='PARTIAL_ACCEPTED' AND \"AcceptedQuantity\">0 AND \"RejectedQuantity\">0 AND \"DiscrepancyPendingQuantity\"=0) OR (\"Disposition\"='DISCREPANCY_PENDING' AND \"DiscrepancyPendingQuantity\">0)");
+
+                            t.HasCheckConstraint("CK_qc_inspection_lot_dispositions_quantities", "\"InspectedQuantity\" > 0 AND \"AcceptedQuantity\" >= 0 AND \"RejectedQuantity\" >= 0 AND \"DiscrepancyPendingQuantity\" >= 0 AND \"AcceptedQuantity\" + \"RejectedQuantity\" + \"DiscrepancyPendingQuantity\" = \"InspectedQuantity\"");
+                        });
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspectionParameterResult", b =>
@@ -56285,8 +60450,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasAlternateKey("CompanyId", "Id");
-
                     b.HasIndex("MeasurementUomIdSnapshot");
 
                     b.HasIndex("ObservedByEmployeeId");
@@ -56335,6 +60498,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
 
+                    b.Property<decimal>("DiscrepancyPendingQuantity")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
                     b.Property<string>("FallbackReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -56356,10 +60523,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("InspectionCompletedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("InspectionShortfallRejectedQuantity")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
 
                     b.Property<DateTimeOffset>("InspectionStartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -56525,6 +60688,18 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("InventoryConcessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryCustodyHandoffId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryOwnershipTransferId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("InventoryTransformationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("MaterialIssueRequestId")
                         .HasColumnType("uuid");
 
@@ -56583,6 +60758,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GoodsReceiptId");
 
+                    b.HasIndex("InventoryConcessionId");
+
+                    b.HasIndex("InventoryCustodyHandoffId");
+
+                    b.HasIndex("InventoryOwnershipTransferId");
+
+                    b.HasIndex("InventoryTransformationId");
+
                     b.HasIndex("MaterialIssueRequestId");
 
                     b.HasIndex("PostedByEmployeeId");
@@ -56599,6 +60782,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "IdempotencyKey")
                         .IsUnique();
+
+                    b.HasIndex("CompanyId", "InventoryConcessionId");
+
+                    b.HasIndex("CompanyId", "InventoryCustodyHandoffId");
+
+                    b.HasIndex("CompanyId", "InventoryOwnershipTransferId");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationId");
 
                     b.HasIndex("CompanyId", "MaterialIssueRequestId");
 
@@ -56853,6 +61044,150 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseCustomerPurchaseOrderLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("CustomerPurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CustomerPurchaseOrderId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_customer_purchase_order_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseDeliveryChallanLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("DeliveryChallanId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("DeliveryChallanId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_delivery_challan_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseGateEntryLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("GateEntryId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("GateEntryId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_gate_entry_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseGoodsReceiptLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("GoodsReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("GoodsReceiptId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_goods_receipt_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseJobOrderLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("JobOrderId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("JobOrderId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_job_order_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCasePurchaseOrderLink", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink");
+
+                    b.Property<Guid>("PurchaseOrderId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.HasIndex("CompanyId", "CustodyCaseId", "LinkRole");
+
+                    b.ToTable("inventory_custody_case_purchase_order_links", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceConcessionAllocationOrigin", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin");
+
+                    b.Property<Guid>("InventoryConcessionAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CompanyId", "InventoryConcessionAllocationId");
+
+                    b.ToTable("inventory_provenance_concession_allocation_origins", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceCustodyCaseLineOrigin", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin");
+
+                    b.Property<Guid>("CustodyCaseLineId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CustodyCaseLineId");
+
+                    b.ToTable("inventory_provenance_custody_case_line_origins", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceGoodsReceiptLotOrigin", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin");
+
+                    b.Property<Guid>("GoodsReceiptLineLotAllocationId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CompanyId", "GoodsReceiptLineLotAllocationId");
+
+                    b.ToTable("inventory_provenance_goods_receipt_lot_origins", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceQcDispositionOrigin", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin");
+
+                    b.Property<Guid>("QcInspectionLotDispositionId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CompanyId", "QcInspectionLotDispositionId");
+
+                    b.ToTable("inventory_provenance_qc_disposition_origins", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceTransformationOutputOrigin", b =>
+                {
+                    b.HasBaseType("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin");
+
+                    b.Property<Guid>("InventoryTransformationOutputId")
+                        .HasColumnType("uuid");
+
+                    b.HasIndex("CompanyId", "InventoryTransformationOutputId");
+
+                    b.ToTable("inventory_provenance_transformation_output_origins", "advance");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Audit.AuditLog", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
@@ -57024,6 +61359,32 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Employee");
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignmentEvent", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", null)
+                        .WithMany()
+                        .HasForeignKey("ActorEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", null)
+                        .WithMany()
+                        .HasForeignKey("AssignmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Employees.EmployeeSkill", b =>
@@ -57427,6 +61788,23 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Identity.CompanyRoleActivation", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Identity.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Identity.EmployeeIdentityMapping", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "Employee")
@@ -57443,6 +61821,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Identity.Role", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Identity.Role", "ReplacementRole")
+                        .WithMany()
+                        .HasForeignKey("ReplacementRoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ReplacementRole");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Identity.UserAccount", b =>
@@ -57594,6 +61982,19 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasForeignKey("WarehouseId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", "CustodyAssignment")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyAssignmentId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyCaseLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SESS.NexaERP.Domain.Stores.DeliveryChallanLine", "DeliveryChallanLine")
                         .WithMany()
                         .HasForeignKey("CompanyId", "DeliveryChallanLineId")
@@ -57612,9 +62013,52 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", "InventoryConcessionAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryConcessionAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoffLine", "InventoryCustodyHandoffLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryCustodyHandoffLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransferLine", "InventoryOwnershipTransferLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryOwnershipTransferLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "InventoryProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "InventorySerial")
                         .WithMany()
                         .HasForeignKey("CompanyId", "InventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformationInput", "InventoryTransformationInput")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryTransformationInputId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformationOutput", "InventoryTransformationOutput")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryTransformationOutputId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
@@ -57627,6 +62071,19 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLine", "OriginGoodsReceiptLine")
                         .WithMany()
                         .HasForeignKey("CompanyId", "OriginGoodsReceiptLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "OwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionLotDisposition", "QcInspectionLotDisposition")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionLotDispositionId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
@@ -57654,19 +62111,41 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("CustodyAssignment");
+
+                    b.Navigation("CustodyCaseLine");
+
                     b.Navigation("DeliveryChallanLine");
 
                     b.Navigation("GoodsReceiptLine");
 
                     b.Navigation("GoodsReceiptLineLotAllocation");
 
+                    b.Navigation("InventoryConcessionAllocation");
+
+                    b.Navigation("InventoryCustodyHandoffLine");
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("InventoryOwnershipTransferLine");
+
+                    b.Navigation("InventoryProvenanceLayer");
+
                     b.Navigation("InventorySerial");
+
+                    b.Navigation("InventoryTransformationInput");
+
+                    b.Navigation("InventoryTransformationOutput");
 
                     b.Navigation("Item");
 
                     b.Navigation("MaterialIssueRequestLine");
 
                     b.Navigation("OriginGoodsReceiptLine");
+
+                    b.Navigation("OwnershipAccount");
+
+                    b.Navigation("QcInspectionLotDisposition");
 
                     b.Navigation("QcInspectionRevision");
 
@@ -58952,6 +63431,85 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("WeightUom");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "JobOrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("JobOrder");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBomLine", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
+                        .WithMany()
+                        .HasForeignKey("UomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.EstimatedBomRevision", "EstimatedBomRevision")
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "EstimatedBomRevisionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("EstimatedBomRevision");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Uom");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBomRevision", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ApprovedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("ApprovedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "PreparedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("PreparedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.EstimatedBom", "EstimatedBom")
+                        .WithMany("Revisions")
+                        .HasForeignKey("CompanyId", "EstimatedBomId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ApprovedByEmployee");
+
+                    b.Navigation("EstimatedBom");
+
+                    b.Navigation("PreparedByEmployee");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.GateEntry", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
@@ -59256,6 +63814,493 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Item");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryAccountHolder", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", "HolderCompany")
+                        .WithMany()
+                        .HasForeignKey("HolderCompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryExternalParty", "ExternalParty")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ExternalPartyId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Employee");
+
+                    b.Navigation("ExternalParty");
+
+                    b.Navigation("HolderCompany");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcession", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "CreatedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("CreatedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "DecidedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("DecidedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionLotDisposition", "QcInspectionLotDisposition")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionLotDispositionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionParameterResult", "QcInspectionParameterResult")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionParameterResultId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionRevision", "QcInspectionRevision")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionRevisionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcession", "ReversesConcession")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ReversesConcessionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CreatedByEmployee");
+
+                    b.Navigation("DecidedByEmployee");
+
+                    b.Navigation("QcInspectionLotDisposition");
+
+                    b.Navigation("QcInspectionParameterResult");
+
+                    b.Navigation("QcInspectionRevision");
+
+                    b.Navigation("ReversesConcession");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "AcceptedProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "AcceptedProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLineLotAllocation", "GoodsReceiptLineLotAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GoodsReceiptLineLotAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcession", "InventoryConcession")
+                        .WithMany("Allocations")
+                        .HasForeignKey("CompanyId", "InventoryConcessionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "RejectedProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RejectedProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_concession_allocations_inventory_provenance_laye~1");
+
+                    b.Navigation("AcceptedProvenanceLayer");
+
+                    b.Navigation("GoodsReceiptLineLotAllocation");
+
+                    b.Navigation("InventoryConcession");
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("RejectedProvenanceLayer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocationSerial", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "AcceptedProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "AcceptedProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", "InventoryConcessionAllocation")
+                        .WithMany("Serials")
+                        .HasForeignKey("CompanyId", "InventoryConcessionAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "InventorySerial")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "RejectedProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "RejectedProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_concession_allocation_serials_inventory_provenan~1");
+
+                    b.Navigation("AcceptedProvenanceLayer");
+
+                    b.Navigation("InventoryConcessionAllocation");
+
+                    b.Navigation("InventorySerial");
+
+                    b.Navigation("RejectedProvenanceLayer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryAccountHolder", "AccountHolder")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "AccountHolderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
+                        .WithMany()
+                        .HasForeignKey("RackBinId", "CompanyId")
+                        .HasPrincipalKey("Id", "CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId", "CompanyId")
+                        .HasPrincipalKey("Id", "CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AccountHolder");
+
+                    b.Navigation("RackBin");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", "CustodyAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyCaseLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.RackBin", "RackBin")
+                        .WithMany()
+                        .HasForeignKey("RackBinId", "CompanyId")
+                        .HasPrincipalKey("Id", "CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Warehouse", "Warehouse")
+                        .WithMany()
+                        .HasForeignKey("WarehouseId", "CompanyId")
+                        .HasPrincipalKey("Id", "CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustodyAccount");
+
+                    b.Navigation("CustodyCaseLine");
+
+                    b.Navigation("RackBin");
+
+                    b.Navigation("Warehouse");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCase", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", "CustomerPurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("CustomerPurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "DueDateSetByEmployee")
+                        .WithMany()
+                        .HasForeignKey("DueDateSetByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", "CustodyAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryExternalParty", "ExternalParty")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ExternalPartyId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "OwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CustodyAccount");
+
+                    b.Navigation("CustomerPurchaseOrder");
+
+                    b.Navigation("DueDateSetByEmployee");
+
+                    b.Navigation("ExternalParty");
+
+                    b.Navigation("OwnershipAccount");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", "CustomerPurchaseOrderLine")
+                        .WithMany()
+                        .HasForeignKey("CustomerPurchaseOrderLineId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
+                        .WithMany()
+                        .HasForeignKey("UomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCase", "CustodyCase")
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "CustodyCaseId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "OwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CustodyCase");
+
+                    b.Navigation("CustomerPurchaseOrderLine");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("OwnershipAccount");
+
+                    b.Navigation("Uom");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseSourceLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCase", "CustodyCase")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyCaseId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "CustodyCaseId", "CustodyCaseLineId")
+                        .HasPrincipalKey("CompanyId", "CustodyCaseId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_inventory_custody_case_customer_purchase_order_links_inven~1");
+
+                    b.Navigation("CustodyCase");
+
+                    b.Navigation("CustodyCaseLine");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoff", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "HandedOverByEmployee")
+                        .WithMany()
+                        .HasForeignKey("HandedOverByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ReceivedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("ReceivedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", "FromCustodyAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FromCustodyAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAccount", "ToCustodyAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ToCustodyAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_custody_handoffs_inventory_custody_accounts_Comp~1");
+
+                    b.Navigation("FromCustodyAccount");
+
+                    b.Navigation("HandedOverByEmployee");
+
+                    b.Navigation("ReceivedByEmployee");
+
+                    b.Navigation("ToCustodyAccount");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoffLine", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CustodyCaseLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", "FromCustodyAssignment")
+                        .WithMany()
+                        .HasForeignKey("FromCustodyAssignmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", "ToCustodyAssignment")
+                        .WithMany()
+                        .HasForeignKey("ToCustodyAssignmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_custody_handoff_lines_inventory_custody_assignme~1");
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoff", "CustodyHandoff")
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "CustodyHandoffId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CustodyCaseLine");
+
+                    b.Navigation("CustodyHandoff");
+
+                    b.Navigation("FromCustodyAssignment");
+
+                    b.Navigation("ToCustodyAssignment");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryExternalParty", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Vendor", "Vendor")
+                        .WithMany()
+                        .HasForeignKey("VendorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Vendor");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryLot", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", "Company")
@@ -59283,6 +64328,273 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Vendor");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryLotAttributeRevision", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "RecordedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("RecordedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLotAttributeRevision", "SupersedesRevision")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SupersedesRevisionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("RecordedByEmployee");
+
+                    b.Navigation("SupersedesRevision");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryMemoLiabilityEvent", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ActorEmployee")
+                        .WithMany()
+                        .HasForeignKey("ActorEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CustodyCaseLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceipt", "GoodsReceipt")
+                        .WithMany()
+                        .HasForeignKey("GoodsReceiptId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Purchase.PurchaseOrder", "PurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryMemoLiabilityEvent", "ReversesEvent")
+                        .WithMany()
+                        .HasForeignKey("ReversesEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "OwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ActorEmployee");
+
+                    b.Navigation("CustodyCaseLine");
+
+                    b.Navigation("GoodsReceipt");
+
+                    b.Navigation("OwnershipAccount");
+
+                    b.Navigation("PurchaseOrder");
+
+                    b.Navigation("ReversesEvent");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryAccountHolder", "AccountHolder")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "AccountHolderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AccountHolder");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransfer", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ApprovedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("ApprovedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "FromOwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FromOwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipAccount", "ToOwnershipAccount")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ToOwnershipAccountId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_ownership_transfers_inventory_ownership_accounts~1");
+
+                    b.Navigation("ApprovedByEmployee");
+
+                    b.Navigation("FromOwnershipAccount");
+
+                    b.Navigation("ToOwnershipAccount");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransferLine", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CustodyCaseLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransfer", "OwnershipTransfer")
+                        .WithMany("Lines")
+                        .HasForeignKey("CompanyId", "OwnershipTransferId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CustodyCaseLine");
+
+                    b.Navigation("OwnershipTransfer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceAnnotation", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceAnnotation", "InheritedFromAnnotation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InheritedFromAnnotationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcession", "InventoryConcession")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryConcessionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "InventoryProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("InheritedFromAnnotation");
+
+                    b.Navigation("InventoryConcession");
+
+                    b.Navigation("InventoryProvenanceLayer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceEdge", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "FromProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FromProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformation", "InventoryTransformation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryTransformationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "ToProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ToProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_provenance_edges_inventory_provenance_layers_Com~1");
+
+                    b.Navigation("FromProvenanceLayer");
+
+                    b.Navigation("InventoryTransformation");
+
+                    b.Navigation("ToProvenanceLayer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
+                        .WithMany()
+                        .HasForeignKey("UomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "InventorySerial")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("InventorySerial");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("Uom");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "InventoryProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("InventoryProvenanceLayer");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerial", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", "Company")
@@ -59308,6 +64620,197 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("FirstCapturedByEmployee");
 
                     b.Navigation("Item");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyEvent", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ActorEmployee")
+                        .WithMany()
+                        .HasForeignKey("ActorEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "JobOrderId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyEvent", "ReversesEvent")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ReversesEventId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("ActorEmployee");
+
+                    b.Navigation("JobOrder");
+
+                    b.Navigation("ReversesEvent");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "FromInventorySerial")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FromInventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "FromProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "FromProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerialGenealogyEvent", "InventorySerialGenealogyEvent")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventorySerialGenealogyEventId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "ToInventorySerial")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ToInventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_inventory_serial_genealogy_links_inventory_serials_Company~1");
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "ToProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ToProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_inventory_serial_genealogy_links_inventory_provenance_laye~1");
+
+                    b.Navigation("FromInventorySerial");
+
+                    b.Navigation("FromProvenanceLayer");
+
+                    b.Navigation("InventorySerialGenealogyEvent");
+
+                    b.Navigation("ToInventorySerial");
+
+                    b.Navigation("ToProvenanceLayer");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventorySerialIdentityRevision", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "RecordedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("RecordedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "InventorySerial")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventorySerialId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerialIdentityRevision", "SupersedesRevision")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "SupersedesRevisionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("InventorySerial");
+
+                    b.Navigation("RecordedByEmployee");
+
+                    b.Navigation("SupersedesRevision");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformation", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "PostedByEmployee")
+                        .WithMany()
+                        .HasForeignKey("PostedByEmployeeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformation", "ReversesTransformation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "ReversesTransformationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("PostedByEmployee");
+
+                    b.Navigation("ReversesTransformation");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformationInput", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "InventoryProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformation", "InventoryTransformation")
+                        .WithMany("Inputs")
+                        .HasForeignKey("CompanyId", "InventoryTransformationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("InventoryProvenanceLayer");
+
+                    b.Navigation("InventoryTransformation");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformationOutput", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
+                        .WithMany()
+                        .HasForeignKey("ItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
+                        .WithMany()
+                        .HasForeignKey("UomId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformation", "InventoryTransformation")
+                        .WithMany("Outputs")
+                        .HasForeignKey("CompanyId", "InventoryTransformationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "OutputProvenanceLayer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OutputProvenanceLayerId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("InventoryTransformation");
+
+                    b.Navigation("Item");
+
+                    b.Navigation("OutputProvenanceLayer");
+
+                    b.Navigation("Uom");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ItemCompanyInventorySetting", b =>
@@ -59481,9 +64984,56 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLineLotAllocation", "GoodsReceiptLineLotAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GoodsReceiptLineLotAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("DeliveryChallanLine");
 
                     b.Navigation("GoodsReceiptLine");
+
+                    b.Navigation("GoodsReceiptLineLotAllocation");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspectionLotDisposition", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Inventory.WarehouseConditionLocation", "DestinationConditionLocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "DestinationConditionLocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLineLotAllocation", "GoodsReceiptLineLotAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GoodsReceiptLineLotAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryLotId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionRevision", "QcInspectionRevision")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionRevisionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DestinationConditionLocation");
+
+                    b.Navigation("GoodsReceiptLineLotAllocation");
+
+                    b.Navigation("InventoryLot");
+
+                    b.Navigation("QcInspectionRevision");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspectionParameterResult", b =>
@@ -59638,6 +65188,30 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcession", "InventoryConcession")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryConcessionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoff", "InventoryCustodyHandoff")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryCustodyHandoffId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransfer", "InventoryOwnershipTransfer")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryOwnershipTransferId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformation", "InventoryTransformation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryTransformationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueRequest", "MaterialIssueRequest")
                         .WithMany()
                         .HasForeignKey("CompanyId", "MaterialIssueRequestId")
@@ -59659,6 +65233,14 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("DeliveryChallan");
 
                     b.Navigation("GoodsReceipt");
+
+                    b.Navigation("InventoryConcession");
+
+                    b.Navigation("InventoryCustodyHandoff");
+
+                    b.Navigation("InventoryOwnershipTransfer");
+
+                    b.Navigation("InventoryTransformation");
 
                     b.Navigation("MaterialIssueRequest");
 
@@ -59801,6 +65383,133 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("QcInspectionRevision");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseCustomerPurchaseOrderLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", "CustomerPurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("CustomerPurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CustomerPurchaseOrder");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseDeliveryChallanLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.DeliveryChallan", "DeliveryChallan")
+                        .WithMany()
+                        .HasForeignKey("DeliveryChallanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DeliveryChallan");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseGateEntryLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GateEntry", "GateEntry")
+                        .WithMany()
+                        .HasForeignKey("GateEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("GateEntry");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseGoodsReceiptLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceipt", "GoodsReceipt")
+                        .WithMany()
+                        .HasForeignKey("GoodsReceiptId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("GoodsReceipt");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseJobOrderLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
+                        .WithMany()
+                        .HasForeignKey("JobOrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("JobOrder");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCasePurchaseOrderLink", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Purchase.PurchaseOrder", "PurchaseOrder")
+                        .WithMany()
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseOrder");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceConcessionAllocationOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", "InventoryConcessionAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryConcessionAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_provenance_concession_allocation_origins_invento~1");
+
+                    b.Navigation("InventoryConcessionAllocation");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceCustodyCaseLineOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyCaseLine", "CustodyCaseLine")
+                        .WithMany()
+                        .HasForeignKey("CustodyCaseLineId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CustodyCaseLine");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceGoodsReceiptLotOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLineLotAllocation", "GoodsReceiptLineLotAllocation")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "GoodsReceiptLineLotAllocationId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("GoodsReceiptLineLotAllocation");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceQcDispositionOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionLotDisposition", "QcInspectionLotDisposition")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "QcInspectionLotDispositionId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("QcInspectionLotDisposition");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryProvenanceTransformationOutputOrigin", b =>
+                {
+                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryTransformationOutput", "InventoryTransformationOutput")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "InventoryTransformationOutputId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_inventory_provenance_transformation_output_origins_invento~1");
+
+                    b.Navigation("InventoryTransformationOutput");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Masters.MasterImportBatch", b =>
                 {
                     b.Navigation("RowResults");
@@ -59855,6 +65564,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
+                {
+                    b.Navigation("Revisions");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBomRevision", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.GateEntry", b =>
                 {
                     b.Navigation("Lines");
@@ -59870,6 +65589,38 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("LotAllocations");
 
                     b.Navigation("Serials");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcession", b =>
+                {
+                    b.Navigation("Allocations");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryConcessionAllocation", b =>
+                {
+                    b.Navigation("Serials");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyCase", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryCustodyHandoff", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryOwnershipTransfer", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.InventoryTransformation", b =>
+                {
+                    b.Navigation("Inputs");
+
+                    b.Navigation("Outputs");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssueRequest", b =>

@@ -98,10 +98,21 @@ internal static class AuthenticationBootstrapCeremonySql
              OR EXISTS (SELECT 1 FROM __advance_schema__.employee_identity_mappings WHERE "Issuer"=v_issuer AND "Subject"=v_subject AND "IsActive") THEN
             RAISE EXCEPTION 'Authentication bootstrap refuses pre-existing or partial identity mappings.';
           END IF;
-          IF EXISTS (SELECT 1 FROM __advance_schema__.employee_role_assignments
-                     WHERE "EmployeeId"=v_employee."Id" AND "RoleId"=v_role."Id"
-                       AND "EffectiveFrom"<=current_date AND ("EffectiveTo" IS NULL OR "EffectiveTo">=current_date)) THEN
-            RAISE EXCEPTION 'Authentication bootstrap refuses a pre-existing or partial IT_MANAGER assignment.';
+          IF (SELECT count(*) FROM __advance_schema__.employee_role_assignments
+              WHERE "EmployeeId"=v_employee."Id" AND "RoleId"=v_role."Id"
+                AND "ApprovalStatus" IN ('Approved','SeedApproved')
+                AND "EffectiveFrom"<=current_date AND ("EffectiveTo" IS NULL OR "EffectiveTo">=current_date))
+             NOT IN (0,v_company_count) THEN
+            RAISE EXCEPTION 'Authentication bootstrap refuses a partial IT_MANAGER assignment.';
+          END IF;
+          IF EXISTS (
+            SELECT 1 FROM __advance_schema__.employee_role_assignments
+            WHERE "EmployeeId"=v_employee."Id" AND "RoleId"=v_role."Id"
+              AND "ApprovalStatus" IN ('Approved','SeedApproved')
+              AND "EffectiveFrom"<=current_date AND ("EffectiveTo" IS NULL OR "EffectiveTo">=current_date)
+              AND "CreatedBy"<>'migration-employee-role-governance-phase2'
+          ) THEN
+            RAISE EXCEPTION 'Authentication bootstrap refuses an unrecognized pre-existing IT_MANAGER assignment.';
           END IF;
 
           UPDATE __advance_schema__.employees SET "LoginEnabled"=true,"UpdatedAt"=v_now,
@@ -116,18 +127,25 @@ internal static class AuthenticationBootstrapCeremonySql
             AND a."EffectiveFrom"<=current_date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=current_date);
 
           INSERT INTO __advance_schema__.employee_role_assignments
-            ("Id","CompanyId","EmployeeId","RoleId","EffectiveFrom","ApprovalStatus","Remarks","CreatedAt","CreatedBy","Version")
-          SELECT gen_random_uuid(),c."Id",v_employee."Id",v_role."Id",current_date,'SeedApproved',
+            ("Id","CompanyId","EmployeeId","RoleId","EffectiveFrom","AssignmentType","IsPrimary",
+             "ApprovalStatus","Remarks","CreatedAt","CreatedBy","Version")
+          SELECT gen_random_uuid(),c."Id",v_employee."Id",v_role."Id",current_date,'PERMANENT',true,'SeedApproved',
                  'One-time first administrator bootstrap',v_now,'AUTHENTICATION_BOOTSTRAP_INSTALLER',0
           FROM __advance_schema__.companies c
           JOIN __advance_schema__.employee_company_assignments a ON a."CompanyId"=c."Id" AND a."EmployeeId"=v_employee."Id"
           WHERE c."IsActive" AND c."Status"='ACTIVE' AND a."IsActive" AND a."Status"='ACTIVE'
-            AND a."EffectiveFrom"<=current_date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=current_date);
+            AND a."EffectiveFrom"<=current_date AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=current_date)
+            AND NOT EXISTS (
+              SELECT 1 FROM __advance_schema__.employee_role_assignments existing
+              WHERE existing."CompanyId"=c."Id" AND existing."EmployeeId"=v_employee."Id"
+                AND existing."RoleId"=v_role."Id" AND existing."ApprovalStatus" IN ('Approved','SeedApproved')
+                AND existing."EffectiveFrom"<=current_date
+                AND (existing."EffectiveTo" IS NULL OR existing."EffectiveTo">=current_date));
 
           INSERT INTO __advance_schema__.audit_logs
-            ("Id","CompanyId","Scope","Module","Action","EntityName","EntityId","UserLoginId","Result","CorrelationId","CreatedAt","CreatedBy","Version","AfterJson")
+            ("Id","CompanyId","Scope","Module","Action","EntityName","EntityId","UserLoginId","ActorRoleCode","Result","CorrelationId","CreatedAt","CreatedBy","Version","AfterJson")
           SELECT gen_random_uuid(),c."Id",'COMPANY','Security','AuthenticationBootstrap','EmployeeIdentityMapping',v_employee."Id"::text,
-                 'nexa_erp_bootstrap','Success','AUTH_BOOTSTRAP_'||replace(c."Id"::text,'-',''),v_now,'AUTHENTICATION_BOOTSTRAP_INSTALLER',0,
+                 'nexa_erp_bootstrap','IT_MANAGER','Success','AUTH_BOOTSTRAP_'||replace(c."Id"::text,'-',''),v_now,'AUTHENTICATION_BOOTSTRAP_INSTALLER',0,
                  jsonb_build_object('employeeCode','SESS-12','roleCode','IT_MANAGER','organizationId',c."Code")::text
           FROM __advance_schema__.companies c
           JOIN __advance_schema__.employee_company_assignments a ON a."CompanyId"=c."Id" AND a."EmployeeId"=v_employee."Id"

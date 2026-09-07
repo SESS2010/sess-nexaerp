@@ -377,6 +377,10 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     </td>
                     <td>
                       <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
                         className="input text-right mono"
                         type="number"
                         inputMode="decimal"
@@ -391,6 +395,10 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                     </td>
                     <td>
                       <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
                         className="input text-right mono"
                         type="number"
                         inputMode="decimal"

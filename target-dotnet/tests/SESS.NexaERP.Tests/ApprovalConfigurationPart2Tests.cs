@@ -36,7 +36,7 @@ public sealed class ApprovalConfigurationPart2Tests
     public void ManagerPermissionsAreNarrowAndPurchaseManagerCanNeverApprove()
     {
         var permissions = AdvanceSeedData.RolePagePermissions;
-        var pages = FoundationSeedData.Pages.Concat(Rev869BSeedData.Pages).ToDictionary(x => x.Id, x => x.PageKey);
+        var pages = FoundationSeedData.Pages.Concat(Rev869ASeedData.Pages).Concat(Rev869BSeedData.Pages).ToDictionary(x => x.Id, x => x.PageKey);
         var roles = FoundationSeedData.Roles.Concat(Rev866SeedData.AdditionalEmployeeRoles).Concat(Rev869ASeedData.Roles)
             .ToDictionary(x => x.Id, x => x.Code);
         roles[Guid.Parse("83000000-0000-0000-0000-000000000001")] = "PRODUCTION_MANAGER";
@@ -46,13 +46,24 @@ public sealed class ApprovalConfigurationPart2Tests
         foreach (var manager in new[] { "PRODUCTION_MANAGER", "ACCOUNTS_MANAGER" })
         {
             var rows = permissions.Where(x => roles.TryGetValue(x.RoleId, out var code) && code == manager).ToArray();
-            Assert.Equal(new[] { "purchase.commercial-comparisons", "purchase.po", "purchase.requisition-approvals" },
-                rows.Select(x => pages[x.PageDefinitionId]).OrderBy(x => x).ToArray());
+            var expectedPages = manager == "ACCOUNTS_MANAGER"
+                ? new[] { "purchase.commercial-comparisons", "purchase.po", "purchase.requisition-approvals", "purchase.requisitions", "settings.tax-gst" }
+                : new[] { "purchase.commercial-comparisons", "purchase.po", "purchase.requisition-approvals", "purchase.requisitions" };
+            Assert.Equal(expectedPages, rows.Select(x => pages[x.PageDefinitionId]).OrderBy(x => x).ToArray());
             Assert.All(rows, row =>
             {
+                var pageKey = pages[row.PageDefinitionId];
+                if (pageKey == "settings.tax-gst")
+                {
+                    Assert.True(row.CanView && row.CanCreate && row.CanPrint && row.CanDownload &&
+                                row.CanViewCommercialValues && row.CanViewAuditHistory);
+                    Assert.False(row.CanApprove || row.CanReject || row.HasFullControl);
+                    return;
+                }
                 Assert.True(row.CanView && row.CanApprove && row.CanReject && row.CanRequestRevision &&
                             row.CanViewCommercialValues && row.CanViewAuditHistory);
-                Assert.False(row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue || row.CanVerify ||
+                Assert.Equal(pageKey == "purchase.requisitions", row.CanVerify);
+                Assert.False(row.CanCreate || row.CanUpdate || row.CanSubmit || row.CanIssue ||
                              row.CanRequestClarification || row.CanResubmit || row.CanCancel || row.CanDeactivate ||
                              row.CanPrint || row.CanDownload || row.CanExport || row.CanUploadAttachment ||
                              row.CanReplaceAttachment || row.HasFullControl);
@@ -61,7 +72,7 @@ public sealed class ApprovalConfigurationPart2Tests
 
         var purchaseManagerRows = permissions.Where(x => roles.TryGetValue(x.RoleId, out var code) &&
                                                           code == "PURCHASE_MANAGER" &&
-                                                          pages.ContainsKey(x.PageDefinitionId)).ToArray();
+                                                          pages.TryGetValue(x.PageDefinitionId, out var pageKey) && pageKey is "purchase.commercial-comparisons" or "purchase.po").ToArray();
         Assert.Equal(2, purchaseManagerRows.Length);
         Assert.All(purchaseManagerRows, row =>
             Assert.False(row.CanApprove || row.CanReject || row.CanRequestRevision || row.CanCancel ||

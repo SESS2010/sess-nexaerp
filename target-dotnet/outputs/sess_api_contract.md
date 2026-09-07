@@ -72,11 +72,19 @@ Permission: authenticated employee; no page permission. Request body: none.
   "OrganizationId": "SESS-PVT",
   "DepartmentId": "22222222-2222-2222-2222-222222222222",
   "DepartmentCode": "STORES",
-  "RoleCodes": ["STORES_MANAGER", "QC_MANAGER"],
+  "RoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE"],
+  "FullAuthorityRoleCodes": ["PURCHASE_EXECUTIVE", "PURCHASE_MANAGER"],
+  "Permissions": ["purchase.rfq:view", "purchase.rfq:create"],
   "IdentityIssuer": "https://login.example.com/realms/sess",
   "IdentitySubject": "00u1abc234xyz"
 }
 ```
+
+Permissions is the sole UI authorization source. Each value is a concrete
+`page-key:action` capability already filtered by the same assignment-authority
+policy used by command resolution. Clients must not derive button authority from
+RoleCodes or FullAuthorityRoleCodes and must not keep a separate SUPPORT policy.
+FullAuthorityRoleCodes remains display and diagnostic information only.
 
 Errors: `401 AUTHENTICATION_REQUIRED` when the token is absent/invalid or no active employee identity matches; `403 PERMISSION_DENIED` when the identity is valid but its company/scope is inactive.
 
@@ -305,12 +313,23 @@ Employee request/response examples:
 | `POST /api/v1/employees/{employeeCode}/revise` | `{ "Remarks":"Correct designation" }` | approval result | `employees.master:RequestRevision` | illegal state `409` |
 | `POST /api/v1/employees/{employeeCode}/activate-login` | `{ "Reason":"Employment active" }` | `{ "EmployeeCode":"EMP-0042", "LoginEnabled":true, "Status":"Active" }` | `employees.master:Update` | `404`, `409` |
 | `POST /api/v1/employees/{employeeCode}/deactivate-login` | `{ "Reason":"Employee exited" }` | login result | `employees.master:Deactivate` | `404`, `409` |
-| `POST /api/v1/employees/{employeeCode}/roles` | `{ "RoleCode":"STORES_MANAGER", "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"Department owner" }` | `201 EmployeeRoleSummary` | `employees.role-mapping:Create` | overlap/unknown role `400` or `409` |
-| `GET /api/v1/employees/{employeeCode}/roles` | none | `EmployeeRoleSummary[]` | `employees.role-mapping:View` | `404` |
+| `POST /api/v1/employees/{employeeCode}/roles` | `AssignEmployeeRoleRequest` | `201 EmployeeRoleSummary` | `employees.role-mapping:Create` plus TD/MD/IT FULL or effective TEMPORARY | self/invalid/overlap `400/403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/temporary-cover` | `TemporaryRoleCoverRequest` | `201 EmployeeRoleSummary` | same as assign | self/invalid/overlap `400/403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/promote` | `PromoteEmployeeRoleRequest` | `EmployeeRolePortfolioSummary` | `employees.role-mapping:Update` plus TD/MD/IT FULL or effective TEMPORARY | self/stale/overlap `403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/transfer` | `TransferEmployeeRoleRequest` | `EmployeeRolePortfolioSummary` | same as promote | self/stale/overlap `403/409` |
+| `POST /api/v1/employees/{employeeCode}/roles/{assignmentId}/end` | `EndEmployeeRoleAssignmentRequest` | `EmployeeRoleSummary` | `employees.role-mapping:Update` plus TD/MD/IT FULL or effective TEMPORARY | self/history/stale `403/409` |
+| `GET /api/v1/employees/{employeeCode}/roles` | none | complete `EmployeeRoleSummary[]` history | `employees.role-mapping:View` | `404` |
+| `GET /api/v1/employees/{employeeCode}/role-portfolio` | none | `EmployeeRolePortfolioSummary` for current company | `employees.role-mapping:View` | `404` |
+| `GET /api/v1/employees/{employeeCode}/role-events` | none | `EmployeeRoleAssignmentEventSummary[]` | `employees.role-mapping:ViewAuditHistory` | `404` |
 | `GET /api/v1/employees/{employeeCode}/history` | none | `EmployeeHistorySummary[]` | `employees.audit-history:ViewAuditHistory` | `404` |
 
-`EmployeeSummary` contains `Id`, `EmployeeCode`, `EmployeeName`, `EmployeeType`, `Grade`, `Department`, `SkillCategory`, `JobDesignation`, `Status`, `LoginEnabled`, `ApprovalStatus`. `EmployeeRoleSummary` contains `Id`, `RoleCode`, `RoleName`, `EffectiveFrom`, `EffectiveTo`, `ApprovalStatus`, `Remarks`. `EmployeeHistorySummary` contains `Id`, `Action`, `FromStatus`, `ToStatus`, `Remarks`, `CreatedAt`, `CreatedBy`.
+Creating an employee atomically creates the employee, skill, approval history, current-company `PAYROLL` assignment, and current-company primary department assignment. The employee can then receive runtime role assignments without seed data or a migration; identity/login linking remains a separate security operation.
 
+`EmployeeSummary` contains `Id`, `EmployeeCode`, `EmployeeName`, `EmployeeType`, `Grade`, `Department`, `SkillCategory`, `JobDesignation`, `Status`, `LoginEnabled`, `ApprovalStatus`, `Version`. `EmployeeRoleSummary` contains `Id`, `RoleCode`, `RoleName`, `EffectiveFrom`, `EffectiveTo`, `ApprovalStatus`, `Remarks`, `AssignmentType`, `EndReason`, `EndedAt`, `EndedBy`, `Version`. `AssignmentType` is `FULL`, `SUPPORT`, or `TEMPORARY`; temporary cover requires `EffectiveTo`, expires by date, and needs no removal command.
+
+`AssignEmployeeRoleRequest` is `{ "RoleCode", "AssignmentType", "EffectiveFrom", "EffectiveTo", "Remarks" }`. `TemporaryRoleCoverRequest` is `{ "RoleCode", "EffectiveFrom", "EffectiveTo", "Remarks" }`. Promotion and transfer are `{ "PreviousAssignmentId", "NewRoleCode", "NewAssignmentType", "EffectiveOn", "KeepPreviousAssignment", "Remarks", "PreviousAssignmentVersion" }`; the administrator explicitly decides whether the previous role remains simultaneous. End is `{ "EffectiveTo", "Reason", "Version" }`. Role events expose before/after roles, assignment types and effective dates plus actor employee/login/role and timestamp. Employees may never alter their own assignments; the database enforces this as well as the service.
+
+There is no primary or request-selected acting role. Every effective role is active simultaneously. For each operation the server resolves the least-privileged sufficient effective assignment in the current company, rejects a missing role with `403` naming the required role, and records `ActorRoleCode`, `ResolvedRoleAssignmentId`, and `ResolvedRoleAssignmentType` in the audit trail. `SUPPORT` cannot authorize approve, reject, cancel, reverse, deactivate, permission configuration, or employee-role administration. `EmployeeHistorySummary` contains `Id`, `Action`, `FromStatus`, `ToStatus`, `Remarks`, `CreatedAt`, `CreatedBy`.
 ## 7. Implemented customer, vendor and inventory-master endpoints
 
 ### 7.1 Master object shapes
@@ -626,6 +645,11 @@ All routes start `/api/v1/rev869a/configuration`, require authentication and com
 | Method and path | Exact request body | Success response | Required page permission | Special errors |
 |---|---|---|---|---|
 | `GET /policies` | none | `OrganizationPolicy[]` | `security.operational-scopes:View` | common |
+| `GET /employee-identities?employeeCode=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<EmployeeIdentityMappingSummary>`; subject is a SHA-256 fingerprint, never the raw login subject | `security.employee-identities:View` | common |
+| `GET /operational-scopes?employeeCode=&departmentCode=&warehouseCode=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<OperationalScopeSummary>` | `security.operational-scopes:View` | common |
+| `GET /uom-conversions?fromUomCode=&toUomCode=&measurementDimension=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<UomConversionSummary>` | `masters.uom-conversions:View` | common |
+| `GET /tax-gst?hsnSacCode=&approvalStatus=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<TaxGstSettingSummary>` | `settings.tax-gst:View` | common |
+| `GET /vendor-qualifications?vendorCode=&itemCategoryCode=&approvalStatus=&effectiveOnly=&page=&pageSize=` | none | `PagedResponse<VendorQualificationSummary>` | `masters.vendor-qualifications:View` | common |
 | `POST /employee-identities` | `{ "OrganizationId":"SESS-PVT", "Issuer":"https://login.example.com/realms/sess", "Subject":"00u1abc234xyz", "EmployeeCode":"EMP-0042", "IdentityType":"HUMAN", "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"OIDC mapping" }` | `201 { "Id":"..." }` | `security.employee-identities:Create` | wrong company `403`; invalid/in-use identity `400/409` |
 | `POST /operational-scopes` | `{ "OrganizationId":"SESS-PVT", "EmployeeCode":"EMP-0042", "DepartmentCode":"STORES", "WarehouseCode":"MAIN", "RackBinId":null, "OwnRecordsOnly":false, "AllowsPrivilegedCrossScope":false, "EffectiveFrom":"2026-08-27", "EffectiveTo":null, "Remarks":"Stores scope" }` | `201 { "Id":"..." }` | `security.operational-scopes:Create` | unassigned scope/overlap `409` |
 | `POST /uoms` | `{ "Code":"MTR", "Name":"Metre", "MeasurementDimension":"LENGTH" }` | `201 Uom` | `masters.uoms:Create` | duplicate `409` |
@@ -662,7 +686,7 @@ All routes start `/api/v1/rev869a/configuration`, require authentication and com
 }
 ```
 
-`OrganizationPolicy` exposes `Id`, `CompanyId`, `OrganizationId`, `PolicyCode`, `PolicyValue`, `EffectiveFrom`, `EffectiveTo`, `IsActive`, `Version`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, and `UpdatedBy`. `Uom` exposes `Id`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`, and audit/version fields.
+`OrganizationPolicy` exposes `Id`, `CompanyId`, `OrganizationId`, `PolicyCode`, `PolicyValue`, `EffectiveFrom`, `EffectiveTo`, `IsActive`, `Version`, `CreatedAt`, `CreatedBy`, `UpdatedAt`, and `UpdatedBy`. `Uom` exposes `Id`, `Code`, `Name`, `MeasurementDimension`, `QuantityPrecision`, `IsActive`, and audit/version fields. The five configuration list responses use the standard `{ TotalCount, PageNumber, PageSize, Items }` envelope, are restricted to the session company (UOM conversions use their legacy `OrganizationId` boundary), and expose record IDs, effective ranges, latest recorded remarks, lifecycle state, and `Version` for subsequent commands.
 
 ## 11. Stores API — Gate Entry and GRN are IMPLEMENTED; the rest is planned
 

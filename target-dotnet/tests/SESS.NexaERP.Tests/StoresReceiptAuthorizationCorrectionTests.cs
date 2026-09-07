@@ -20,7 +20,7 @@ public sealed class StoresReceiptAuthorizationCorrectionTests
         var gateList = Method(gateQueries, "public async Task<GateEntryListResult> ListAsync", "private IQueryable<GateEntry> Query");
         AssertReadOnly(gateGet);
         AssertReadOnly(gateList);
-        Assert.Equal(3, Count(gateCommands, "RequireReceiptOperatorAsync(ct)"));
+        Assert.Equal(4, Count(gateCommands + gateQueries, "RequireReceiptOperatorAsync(ct)"));
         Assert.Contains("CreateAsync", gateCommands);
         Assert.Contains("UpdateAsync", gateCommands);
         Assert.Contains("FinalizeAsync", gateCommands);
@@ -86,7 +86,7 @@ public sealed class StoresReceiptAuthorizationCorrectionTests
 
         var developmentResolver = Method(resolver, "#if DEBUG", "#endif");
         Assert.Contains("ResolveDevelopmentEmployeeAsync", developmentResolver);
-        Assert.Contains("EmployeeCompanyAssignments", developmentResolver);
+        Assert.Contains("ResolveMappedEmployeeAsync", developmentResolver);
         Assert.DoesNotContain("EmployeeIdentityMappings", developmentResolver);
         Assert.DoesNotContain("LoginEnabled", developmentResolver);
         Assert.Contains("NexaErp:AllowDevelopmentAuthentication", program);

@@ -212,6 +212,7 @@ internal static class DatabasePrincipalCommand
         Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>\n   or: SESS.NexaERP.Installer master-import-retention purge"
 #if DEBUG
             + "\n   or: SESS.NexaERP.Installer authentication-bootstrap-development --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
+            + "\n   or: SESS.NexaERP.Installer controlled-command-development-principals <status|provision|remove>"
 #endif
         );
 

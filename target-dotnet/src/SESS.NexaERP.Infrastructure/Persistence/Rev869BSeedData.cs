@@ -71,7 +71,7 @@ public static class Rev869BSeedData
         var canView = director || purchaseManager && (comparison || po) || purchaseExecutive && (rfq || quote) ||
             technicalVerifier && (rfq || quote || technical) || stores && (po || followUp) || accounts && (comparison || po);
         var canCreate = purchaseExecutive && (rfq || quote) || purchaseManager && (comparison || po) || technicalVerifier && technical;
-        var canUpdate = purchaseManager && po || purchaseExecutive && (rfq || quote) || technicalVerifier && technical;
+        var canUpdate = purchaseManager && po || purchaseExecutive && (rfq || quote) || technicalVerifier && technical || stores && followUp;
         var canSubmit = purchaseExecutive && (rfq || quote) || purchaseManager && (comparison || po) || technicalVerifier && technical;
         var canVerify = technicalVerifier && technical || director && (technical || comparison);
         var canApprove = director && (comparison || po);

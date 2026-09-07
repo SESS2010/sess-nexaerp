@@ -96,6 +96,7 @@ public static class DevelopmentAuthEndpoints
                 EntityName = "Employee",
                 EntityId = mapping.EmployeeId.ToString(),
                 UserLoginId = "DEVELOPMENT_AUTHENTICATION",
+                ActorRoleCode = "DEVELOPMENT_AUTHENTICATION",
                 Result = "Success",
                 CorrelationId = Guid.NewGuid().ToString("N"),
                 AfterJson = JsonSerializer.Serialize(new { requestedEmployeeCode = code, mapping.OrganizationId, expiresInHours = 12 }),

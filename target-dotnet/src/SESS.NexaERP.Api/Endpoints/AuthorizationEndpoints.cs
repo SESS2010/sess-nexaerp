@@ -15,16 +15,19 @@ public static class AuthorizationEndpoints
             .WithTags("Authorization")
             .RequireAuthorization();
 
-        group.MapGet("/pages", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/pages", async (NexaErpDbContext db, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
-            var pages = await db.PageDefinitions
-                .AsNoTracking()
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var query = db.PageDefinitions.AsNoTracking();
+            var total = await query.CountAsync(cancellationToken);
+            var pages = await query
                 .OrderBy(page => page.Module)
                 .ThenBy(page => page.PageKey)
+                .Skip(paging.Skip).Take(paging.PageSize)
                 .Select(page => new PageDefinitionSummary(page.Id, page.PageKey, page.Module, page.Title, page.Route, page.IsActive))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(pages);
+            return Results.Ok(new SESS.NexaERP.Application.Common.PagedResponse<PageDefinitionSummary>(total, paging.PageNumber, paging.PageSize, pages));
         }).RequirePagePermission("authorization.pages", PagePermissionActions.View);
 
         group.MapPost("/pages", async (CreatePageDefinitionRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
@@ -55,8 +58,9 @@ public static class AuthorizationEndpoints
             return Results.Created($"/api/v1/authorization/pages/{pageDefinition.Id}", new PageDefinitionSummary(pageDefinition.Id, pageDefinition.PageKey, pageDefinition.Module, pageDefinition.Title, pageDefinition.Route, pageDefinition.IsActive));
         }).RequirePagePermission("authorization.pages", PagePermissionActions.Create);
 
-        group.MapGet("/role-page-permissions", async (NexaErpDbContext db, string? roleCode, CancellationToken cancellationToken) =>
+        group.MapGet("/role-page-permissions", async (NexaErpDbContext db, string? roleCode, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
             var normalizedRole = string.IsNullOrWhiteSpace(roleCode) ? null : roleCode.Trim().ToUpperInvariant();
             var query = db.RolePagePermissions
                 .AsNoTracking()
@@ -69,13 +73,15 @@ public static class AuthorizationEndpoints
                 query = query.Where(permission => permission.Role != null && permission.Role.Code == normalizedRole);
             }
 
+            var total = await query.CountAsync(cancellationToken);
             var permissions = await query
                 .OrderBy(permission => permission.Role!.Code)
                 .ThenBy(permission => permission.PageDefinition!.PageKey)
+                .Skip(paging.Skip).Take(paging.PageSize)
                 .Select(permission => ToSummary(permission, permission.Role == null ? string.Empty : permission.Role.Code, permission.PageDefinition == null ? string.Empty : permission.PageDefinition.PageKey))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(permissions);
+            return Results.Ok(new SESS.NexaERP.Application.Common.PagedResponse<RolePagePermissionSummary>(total, paging.PageNumber, paging.PageSize, permissions));
         }).RequirePagePermission("authorization.role-pages", PagePermissionActions.View);
 
         group.MapPut("/role-page-permissions", async (UpsertRolePagePermissionRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
@@ -102,9 +108,15 @@ public static class AuthorizationEndpoints
                 };
                 db.RolePagePermissions.Add(permission);
             }
+            else if (!request.Version.HasValue || request.Version.Value != permission.Version)
+            {
+                return Results.Conflict(new { message = "Stale role-page permission version. Refresh and retry." });
+            }
 
             Apply(permission, request);
-            await db.SaveChangesAsync(cancellationToken);
+            try { await db.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Role-page permission changed concurrently. Refresh and retry." }); }
+            await db.Entry(permission).ReloadAsync(cancellationToken);
             await audit.WriteAsync("Authorization", "Upsert", nameof(RolePagePermission), permission.Id.ToString(), before, permission, cancellationToken);
 
             return Results.Ok(ToSummary(permission, role.Code, page.PageKey));
@@ -136,7 +148,8 @@ public static class AuthorizationEndpoints
         permission.CanReplaceAttachment,
         permission.CanViewCommercialValues,
         permission.CanViewAuditHistory,
-        permission.HasFullControl);
+        permission.HasFullControl,
+        permission.Version);
 
     private static object Snapshot(RolePagePermission permission) => new
     {

@@ -27,9 +27,9 @@ using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
+using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -56,6 +56,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid verifierId;
         Guid purchaseId;
         Guid storesId;
+        Guid qcId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -78,16 +79,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             verifierId = await Employee(seed, "SESS-05");
             purchaseId = await Employee(seed, "SESS-15");
             storesId = await Employee(seed, "SESS-35");
+            qcId = await Employee(seed, "SESS-33");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
-                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35")
+                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"), (qcId, "SESS-33")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
                 .ExecuteUpdateAsync(x => x.SetProperty(e => e.LoginEnabled, true));
             seed.EmployeeIdentityMappings.AddRange(identities.Select(x => Mapping(companyId, x.Item1, x.Item2)));
-            seed.EmployeeOperationalScopes.AddRange(identities.Select(x => new EmployeeOperationalScope
+            seed.EmployeeOperationalScopes.AddRange(identities
+                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId)
+                .Select(x => new EmployeeOperationalScope
             {
                 CompanyId = companyId, OrganizationId = "SESS_PVT_LTD", EmployeeId = x.Item1,
                 DepartmentId = departmentId, WarehouseId = warehouseId, OwnRecordsOnly = false,
@@ -97,35 +101,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await seed.SaveChangesAsync();
         }
 
-        server.Execute("purchase-flow-security-roles.sql", ExternalRolePrerequisites);
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(server.ConnectionString, npgsql =>
-            {
-                npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-            }).Options;
-        using (var security = new Rev869BSecurityDbContext(securityOptions))
-        {
-            var securityMigrator = security.GetService<IMigrator>();
-            var securityMigration = Assert.Single(security.Database.GetMigrations());
-            server.Execute("purchase-flow-security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
-        }
-        var auditConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
-        {
-            Username = "nexa_rev869b_command_audit",
-            Pooling = false
-        }.ConnectionString;
-        using var environment = new TaxWorkflowEnvironment(auditConnection);
-        var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive);
+        const string runtimePassword = "ordinary-purchase-runtime-123456789";
+        using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
+            .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
+            .ToListAsync()).ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
+                x => new EffectiveRoleAssignment(x.Id, x.Role!.Code, x.AssignmentType)));
+        var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive, roleAssignments);
         var runtimeConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
         {
-            Username = "nexa_rev869b_app_runtime",
+            Username = "nexa_erp_runtime",
+            Password = runtimePassword,
             Pooling = false
         }.ConnectionString;
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
         await using var runtimeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user);
+        await using var approvalHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user, useRealPagePermissions: true);
         var adminClient = adminHost.Client;
         var client = runtimeHost.Client;
+        var approvalClient = approvalHost.Client;
 
         try
         {
@@ -150,10 +145,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await PostNoResult(client, $"/api/v1/rev869a/configuration/vendor-qualifications/{qualification.Id}/approve",
                     new ChangeVendorQualificationLifecycleRequest(verifiedVersion, "Final qualification approved"),
                     $"fixture-qualification-approve-{vendorCode}");
-                var provenanceSql = string.Concat(
-                    "SELECT advance.rev869b_qualification_provenance_valid('", qualification.Id,
-                    "') AS ", (char)34, "Value", (char)34);
-                var provenance = await Query(options, db => db.Database.SqlQueryRaw<bool>(provenanceSql).SingleAsync());
                 var provenanceFacts = await Query(options, async db =>
                 {
                     var current = await db.VendorQualifications.Where(x => x.Id == qualification.Id)
@@ -163,7 +154,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         .OrderBy(x => x.Version).Select(x => new { x.Action, x.Version, x.ActorLoginId }).ToListAsync();
                     return new { current, histories };
                 });
-                Assert.True(provenance, JsonSerializer.Serialize(provenanceFacts));
+                Assert.NotNull(provenanceFacts.current.VerifiedByEmployeeId);
+                Assert.NotNull(provenanceFacts.current.ApprovedByEmployeeId);
+                Assert.NotEqual(provenanceFacts.current.VerifiedByEmployeeId, provenanceFacts.current.ApprovedByEmployeeId);
+                Assert.Equal(new[] { "Create", "Verify", "Approve" }, provenanceFacts.histories.Select(x => x.Action));
             }
 
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
@@ -181,10 +175,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new PurchaseFlowBand("TD", 5000.00m, 5000m, 2, managerId, tdId),
                 new PurchaseFlowBand("MD", 100000.01m, 100000.01m, 2, managerId, mdId)
             };
+            user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseExecutive);
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/departments"));
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/warehouses"));
+            Assert.NotEmpty(await Get<PurchaseRequisitionLookupOption[]>(approvalClient, "/api/v1/purchase/requisitions/lookups/items"));
+
+            user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+            using (var refused = await approvalClient.PostAsJsonAsync("/api/v1/purchase/requisitions",
+                new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "PRODUCTION", "SESS-01",
+                    DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30), "NORMAL",
+                    "Must be rejected outside requester scope", "TRIAL-WH-C01", null, null, null, null, null,
+                    [new("TRIAL-ITEM-001", 1, 100m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30),
+                        "TRIAL-WH-C01", null, null, null)])))
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            }
+
             var grns=new List<GoodsReceiptResult>();
             foreach (var band in bands)
-                grns.Add(await RunPurchaseBand(adminClient, client, options, user, band, creatorId, managerId, tdId, mdId,
-                    verifierId, purchaseId, storesId, vendor1Id, vendor2Id));
+                grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
+                    verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
+            for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -203,8 +214,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(1, await verify.GoodsReceiptLineSerials.CountAsync());
             Assert.Equal(1, await verify.InventorySerials.CountAsync());
             Assert.Equal(3, await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="GRN_CUSTODY"));
-            Assert.Equal(3m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
-            Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(2.95m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(.05m, await verify.StockMovements.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(3,await verify.QcInspections.CountAsync());Assert.Equal(3,await verify.QcInspectionRevisions.CountAsync());Assert.Equal(3,await verify.QcInspectionLotDispositions.CountAsync());Assert.Equal(3,await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="QC_DISPOSITION"));Assert.Single(await verify.StockPostingBatches.Where(x=>x.PostingKind=="CONCESSION_ACCEPTANCE").ToListAsync());Assert.Single(await verify.InventoryConcessions.Where(x=>x.Status=="APPROVED").ToListAsync());
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GoodsReceiptId!=null));
             Assert.Equal(new[]{"ELE","FAB","FAS","MEC","PLC","REF"},await verify.ItemCategories.Where(x=>x.CreatedBy=="TRIAL_DATA").OrderBy(x=>x.Code).Select(x=>x.Code).ToArrayAsync());
@@ -214,28 +227,37 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var qcRackNames=await verify.RackBins.Where(x=>qcLocations.Select(location=>location.RackBinId).Contains(x.Id)).Select(x=>x.RackName).Distinct().ToListAsync();
             Assert.Equal("TRIAL QC Category Rack",Assert.Single(qcRackNames));
             Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
+            var commandCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_requests").SingleAsync();
+            var receiptCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_receipts").SingleAsync();
+            Assert.True(commandCount>0);Assert.Equal(commandCount,receiptCount);
+            var operations=await verify.Database.SqlQueryRaw<string>(@"SELECT DISTINCT ""Operation"" AS ""Value"" FROM advance.command_requests").ToListAsync();
+            Assert.All(new[]{"CreateVendorQualification","VerifyVendorQualification","ApproveVendorQualification",
+                "CreateTaxGstSetting","ApproveTaxGstSetting","CreateRFQ","InviteVendor","SubmitQuotation",
+                "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
+                "CreatePO","SubmitPO","ApprovePO","IssuePO"},operation=>Assert.Contains(operation,operations));
+            var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
+            Assert.NotEmpty(commandAudits);
+            Assert.All(commandAudits,x=>
+            {
+                Assert.False(string.IsNullOrWhiteSpace(x.ActorRoleCode));
+                Assert.NotNull(x.ResolvedRoleAssignmentId);
+            });
 
-            var original=grns[0];
-            var reversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
-            Assert.Equal("REVERSAL",reversal.DocumentKind);Assert.Equal(original.Id,reversal.ReversesGoodsReceiptId);Assert.Equal("FINALIZED",reversal.Status);Assert.Equal(2,reversal.History.Count);Assert.Equal("FINALIZED",reversal.History.Last().Action);Assert.NotNull(reversal.StockPostingBatchId);Assert.False(reversal.Replayed);Assert.Empty(reversal.Lines);
-            var reversalBatch=await verify.StockPostingBatches.SingleAsync(x=>x.Id==reversal.StockPostingBatchId);
-            Assert.Equal("REVERSAL",reversalBatch.PostingKind);Assert.Equal(original.StockPostingBatchId,reversalBatch.ReversesPostingBatchId);
-            var originalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==original.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
-            var reversalMovements=await verify.StockMovements.Where(x=>x.StockPostingBatchId==reversal.StockPostingBatchId).OrderBy(x=>x.BatchLineOrdinal).ToListAsync();
-            Assert.Equal(originalMovements.Count,reversalMovements.Count);Assert.All(reversalMovements,x=>Assert.Equal("REVERSAL",x.MovementLeg));Assert.Equal(originalMovements.Select(x=>x.Id),reversalMovements.Select(x=>x.ReversesStockMovementId!.Value));Assert.Equal(originalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId),reversalMovements.Select(x=>x.GoodsReceiptLineLotAllocationId));
-            Assert.Equal(2m,await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(0m,await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
-            var replayedReversal=await Post<GoodsReceiptResult>(adminClient,$"/api/v1/stores/goods-receipts/{original.Id}/reverse",new ReverseGoodsReceiptRequest(original.Version,"TRIAL correction before QC","LOW-grn-reverse"));
-            Assert.True(replayedReversal.Replayed);Assert.Equal(reversal.Id,replayedReversal.Id);Assert.Equal(reversal.StockPostingBatchId,replayedReversal.StockPostingBatchId);Assert.Equal(4,await verify.StockPostingBatches.CountAsync());Assert.Equal(4,await verify.GoodsReceipts.CountAsync());Assert.Single(await verify.AuditLogs.Where(x=>x.EntityId==reversal.Id.ToString()&&x.Action=="ReverseGoodsReceipt").ToListAsync());
         }
         finally { }
     }
 
-    private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
+    private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
-        Guid verifierId, Guid purchaseId, Guid storesId, Guid vendor1Id, Guid vendor2Id)
+        Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
-        user.Set(creatorId, "SESS-12", "SOFTWARE_DEVELOPER");
+        user.Set(creatorId, "SESS-12", "IT_MANAGER");
+        var employeePage=await Get<PagedResponse<SESS.NexaERP.Application.Employees.EmployeeSummary>>(prClient,"/api/v1/employees?page=1&pageSize=1");
+        Assert.True(employeePage.TotalCount>1);var employee=Assert.Single(employeePage.Items);
+        using(var stale=await prClient.PutAsJsonAsync($"/api/v1/employees/{employee.EmployeeCode}",new SESS.NexaERP.Application.Employees.UpdateEmployeeRequest(
+            employee.EmployeeName,employee.EmployeeType,employee.Grade,"NOT_USED","NOT_USED","NOT_USED",null,null,null,"Concurrency witness",employee.Version+1)))
+            Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);
         var pr = await Post<PurchaseRequisitionDetail>(prClient, "/api/v1/purchase/requisitions",
             new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "IT", "SESS-12", required, "NORMAL",
                 $"TRIAL {band.Code} full Purchase flow", "TRIAL-WH-C01", null, null, null, null, null,
@@ -243,23 +265,34 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(PurchaseRequisitionStatuses.Draft, pr.Status);
         await AssertPrEvidence(options, pr.Id, "CreateDraft", 1, 1);
         pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/submit",
-            new PurchaseRequisitionActionRequest("Submitted", pr.Version, $"{band.Code}-pr-submit"));
+            new PurchaseRequisitionActionRequest(null, pr.Version, $"{band.Code}-pr-submit"));
         Assert.Equal(PurchaseRequisitionStatuses.Submitted, pr.Status);
         await AssertPrEvidence(options, pr.Id, "Submit", 2, 2);
-        pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
+        using(var refused=await prClient.PostAsJsonAsync($"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
+            new PurchaseRequisitionActionRequest("Requester must not verify",pr.Version,$"{band.Code}-pr-self-verify")))
+            Assert.Equal(HttpStatusCode.Forbidden,refused.StatusCode);
+        user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
             new PurchaseRequisitionActionRequest("Department verified", pr.Version, $"{band.Code}-pr-verify"));
         Assert.Equal(PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         await AssertPrEvidence(options, pr.Id, "DepartmentVerify", 3, 3);
 
-        user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
-        pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
+        var managerQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
+            $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
+        Assert.Equal(pr.Id, Assert.Single(managerQueue.Items).Id);
+        Assert.Equal(pr.Id, (await Get<PurchaseRequisitionDetail>(approvalClient,
+            $"/api/v1/purchase/requisitions/{pr.PrNumber}")).Id);
+        pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
             new PurchaseRequisitionActionRequest("Level 1 approved", pr.Version, $"{band.Code}-pr-approve-1"));
         Assert.Equal(band.RequiredSteps == 1 ? PurchaseRequisitionStatuses.StockCheckPending : PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         if (band.Level2EmployeeId.HasValue)
         {
             var role = band.Level2EmployeeId == tdId ? Rev869ARoleCodes.TechnicalDirector : Rev869ARoleCodes.ManagingDirector;
             user.Set(band.Level2EmployeeId.Value, role == Rev869ARoleCodes.TechnicalDirector ? "SESS-01" : "SESS-02", role);
-            pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
+            var level2Queue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
+                $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
+            Assert.Equal(pr.Id, Assert.Single(level2Queue.Items).Id);
+            pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
                 new PurchaseRequisitionActionRequest("Level 2 approved", pr.Version, $"{band.Code}-pr-approve-2"));
         }
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, pr.Status);
@@ -290,6 +323,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             invitations.Add(invitation.Id);
             await AssertTransactionEvidence(options, "RFQInvitation", invitation.Id, "InviteVendor");
         }
+        var rfqList=await Get<PagedResponse<RfqListItem>>(client,$"/api/v1/purchase/rfqs?rfqNumber={rfq.Number}&vendorId={vendor1Id}&sortBy=date&sortDirection=desc");
+        Assert.Equal(1,rfqList.TotalCount);Assert.Equal(rfq.Id,Assert.Single(rfqList.Items).Id);
         var rfqLineId = await Query(options, db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
         var quotations = new List<Rev869BDocumentResult>();
         for (var index = 0; index < invitations.Count; index++)
@@ -306,7 +341,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             quotations.Add(quote);
             await AssertTransactionEvidence(options, "VendorQuotation", quote.Id, "SubmitQuotation");
         }
-        user.Set(verifierId, "SESS-05", "TECHNICAL_ENGINEER");
+        var quotationList=await Get<PagedResponse<QuotationListItem>>(client,$"/api/v1/purchase/quotations?quotationNumber={quotations[0].Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,quotationList.TotalCount);Assert.Equal(quotations[0].Id,Assert.Single(quotationList.Items).Id);
+        var quotationDetail=await Get<JsonElement>(client,$"/api/v1/purchase/quotations/{quotations[0].Number}");
+        Assert.Equal(quotations[0].Number,quotationDetail.GetProperty("QuotationNumber").GetString());
+        user.Set(verifierId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER");
         foreach (var quote in quotations)
         {
             var lineId = await Query(options, db => db.VendorQuotationLines.Where(x => x.VendorQuotationId == quote.Id).Select(x => x.Id).SingleAsync());
@@ -338,6 +377,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
+            Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
+        var comparisonList=await Get<PagedResponse<ComparisonListItem>>(client,$"/api/v1/purchase/comparisons?comparisonNumber={comparison.Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,comparisonList.TotalCount);Assert.Equal(comparison.Id,Assert.Single(comparisonList.Items).Id);
         await AssertApprovalActors(options, "CMP", comparison.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -366,6 +409,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, $"{band.Code}-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
+        var poList=await Get<PagedResponse<PurchaseOrderListItem>>(client,$"/api/v1/purchase/purchase-orders?purchaseOrderNumber={po.Number}&vendorId={vendor1Id}");
+        Assert.Equal(1,poList.TotalCount);Assert.Equal(po.Id,Assert.Single(poList.Items).Id);
+        var followups=await Get<PagedResponse<MaterialFollowUpListItem>>(client,"/api/v1/purchase/material-followup?pageSize=100");
+        Assert.Contains(followups.Items,x=>x.PurchaseOrderId==po.Id);
 
         user.Set(storesId,"SESS-35",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
         var poLineId=await Query(options,db=>db.PurchaseOrderLines.Where(x=>x.PurchaseOrderId==po.Id).Select(x=>x.Id).SingleAsync());
@@ -374,7 +421,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("DRAFT",gate.Status); Assert.Single(gate.History);
         gate=await Put<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}",new UpdateGateEntryRequest(gate.VendorDcNumber,"TRIAL-VEHICLE-EDITED","ROAD",gate.ArrivedAt,"{\"packagesChecked\":true,\"edited\":true}",[new(poLineId,1)],gate.Version));
         var detail=await Get<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}"); Assert.Equal("TRIAL-VEHICLE-EDITED",detail.VehicleNumber);
-        var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?purchaseOrderNumber={po.Number}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);
+        var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?gateEntryNumber={gate.GateEntryNumber}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);Assert.Equal(1,list.TotalCount);
         gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
         Assert.Equal("FINALIZED",gate.Status); Assert.Equal(2,gate.History.Count);
         await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
@@ -393,11 +440,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         grn=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
+        var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");
+        Assert.Equal(1,grnList.TotalCount);Assert.Equal(grn.Id,Assert.Single(grnList.Items).Id);
         await using(var evidence=new NexaErpDbContext(options))
         {
             Assert.True(await evidence.StockPostingBatches.AnyAsync(x=>x.Id==grn.StockPostingBatchId&&x.GoodsReceiptId==grn.Id&&x.PostingKind=="GRN_CUSTODY"));
             var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId).ToListAsync();
-            Assert.NotEmpty(movements);Assert.All(movements,x=>{Assert.Equal("QC_HOLD",x.ConditionCode);Assert.NotNull(x.GoodsReceiptLineLotAllocationId);});
+            Assert.NotEmpty(movements);Assert.All(movements,x=>
+            {
+                Assert.Equal(2,x.LedgerSchemaVersion);
+                Assert.NotEqual(Guid.Empty,x.OwnershipAccountId);
+                Assert.NotEqual(Guid.Empty,x.CustodyAssignmentId);
+                Assert.NotEqual(Guid.Empty,x.InventoryProvenanceLayerId);
+                Assert.Equal("QC_HOLD",x.ConditionCode);
+                Assert.NotNull(x.GoodsReceiptLineLotAllocationId);
+                Assert.NotNull(x.InventoryLotId);
+            });
             Assert.Equal(0,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(2,await evidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
         }
@@ -405,6 +463,34 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(replay.Replayed);Assert.Equal(grn.StockPostingBatchId,replay.StockPostingBatchId);Assert.Equal(2,replay.History.Count);
         await using var replayEvidence=new NexaErpDbContext(options);Assert.Single(await replayEvidence.StockPostingBatches.Where(x=>x.GoodsReceiptId==grn.Id).ToListAsync());Assert.Equal(2,await replayEvidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
         return grn;
+    }
+
+    private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId)
+    {
+        var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
+        user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
+        var accepted=band.Code=="LOW"?.95m:band.Code=="TD"?1m:0m;var rejected=band.Code=="LOW"?.05m:band.Code=="MD"?1m:0m;var observed=rejected>0?12m:5m;IReadOnlyList<QcSerialDispositionRequest> serials=serialId.HasValue?[new QcSerialDispositionRequest(serialId.Value,accepted>0?"ACCEPTED":"REJECTED",accepted>0?null:"Measured parameter failed")]:Array.Empty<QcSerialDispositionRequest>();
+        if(band.Code=="LOW")
+        {
+            var missingQueue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");Assert.Contains(missingQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.HasEffectivePolicy);
+            var deniedBody=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,available,[],serials);using var deniedRequest=new HttpRequestMessage(HttpMethod.Post,"/api/v1/qc/inspections"){Content=JsonContent.Create(deniedBody)};deniedRequest.Headers.Add("Idempotency-Key","LOW-qc-missing-policy");using var denied=await client.SendAsync(deniedRequest);Assert.Equal(HttpStatusCode.Conflict,denied.StatusCode);
+            Assert.False(await Query(options,db=>db.QcInspections.AnyAsync(x=>x.GoodsReceiptLineLotAllocationId==lot.Id)));Assert.Equal(1m,await Query(options,db=>db.StockMovements.Where(x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut)));
+            await Query(options,async db=>{var uom=await db.Uoms.OrderBy(x=>x.Code).Select(x=>x.Id).FirstAsync();var p=new QcInspectionPolicy{CompanyId=Guid.Parse("70000000-0000-0000-0000-000000000001"),OrganizationId="SESS_PVT_LTD",ItemId=grn.Lines.Single().ItemId,ParameterCode="DIMENSIONAL_LIMIT",MeasurementUomId=uom,LowerLimit=0,UpperLimit=10,InspectionMethod="Disposable calibrated measurement",SampleSize=1,EffectiveFrom=new DateOnly(2026,1,1),ApprovalStatus="APPROVED",IsActive=true,CreatedBy="PURCHASE_FLOW_TEST"};db.QcInspectionPolicies.Add(p);await db.SaveChangesAsync();return p.Id;});
+        }
+        var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");var queueItem=Assert.Single(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.IsOverdue&&x.HasEffectivePolicy);if(serialId.HasValue)Assert.Equal(serialId.Value,Assert.Single(queueItem.InventorySerialIds));var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
+        var result=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.Equal(accepted,result.AcceptedQuantity);Assert.Equal(rejected,result.RejectedQuantity);Assert.NotNull(result.StockPostingBatchId);Assert.False(result.Replayed);
+        var replay=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.True(replay.Replayed);Assert.Equal(result.RevisionId,replay.RevisionId);Assert.Equal(result.StockPostingBatchId,replay.StockPostingBatchId);
+        await using(var evidence=new NexaErpDbContext(options))
+        {
+            Assert.Single(await evidence.StockPostingBatches.Where(x=>x.QcInspectionRevisionId==result.RevisionId&&x.PostingKind=="QC_DISPOSITION").ToListAsync());var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId).ToListAsync();Assert.All(movements,x=>{Assert.NotNull(x.QcInspectionLotDispositionId);Assert.Null(x.QcInspectionRevisionId);});Assert.Equal(accepted,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(rejected,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            if(band.Code=="LOW"){var childTypes=await evidence.InventoryProvenanceEdges.Where(x=>movements.Select(m=>m.InventoryProvenanceLayerId).Contains(x.ToProvenanceLayerId)).Join(evidence.InventoryProvenanceLayers,e=>e.ToProvenanceLayerId,l=>l.Id,(e,l)=>l.LayerType).Distinct().ToListAsync();Assert.Contains(InventoryProvenanceLayerTypes.QcAccepted,childTypes);Assert.Contains(InventoryProvenanceLayerTypes.QcRejected,childTypes);}
+        }
+        if(band.Code=="MD")
+        {
+            var failed=Assert.Single(result.ParameterResults);var concessionSerialId=Assert.Single(result.SerialDispositions).InventorySerialId;var draft=await Post<InventoryConcessionResult>(client,"/api/v1/qc/concessions",new CreateInventoryConcessionRequest(result.QcInspectionLotDispositionId,failed.Id,1,"DIMENSIONAL_LIMIT","12","Technical Director accepts measured deviation for controlled non-critical use","Controlled internal test fixture",[concessionSerialId]),"MD-concession-create");Assert.Equal("DRAFT",draft.Status);Assert.Equal(concessionSerialId,Assert.Single(draft.InventorySerialIds));
+            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve");Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
+            await using var evidence=new NexaErpDbContext(options);var moves=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==approved.StockPostingBatchId).ToListAsync();Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").Sum(x=>x.QuantityOut));Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="AVAILABLE").Sum(x=>x.QuantityIn));Assert.All(moves,x=>Assert.Equal(serialId,x.InventorySerialId));Assert.True(await evidence.InventoryProvenanceAnnotations.AnyAsync(x=>x.InventoryConcessionId==approved.Id&&x.InventoryProvenanceLayerId==approved.AvailableProvenanceLayerId));
+        }
     }
 
     private static async Task AssertPrEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction,
@@ -499,14 +585,43 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         return port;
     }
 
+    private sealed class OrdinaryPrincipalEnvironment : IDisposable
+    {
+        private readonly Dictionary<string, string?> prior = new(StringComparer.Ordinal);
+
+        public OrdinaryPrincipalEnvironment(string installerConnection, string runtimePassword)
+        {
+            Set("ConnectionStrings__NexaErpInstaller", installerConnection);
+            Set("NexaErp__ExpectedDatabase", "advance_parser");
+            Set("NEXAERP_MIGRATION_PASSWORD", "ordinary-migration-test-123456789");
+            Set("NEXAERP_BOOTSTRAP_PASSWORD", "ordinary-bootstrap-test-123456789");
+            Set("NEXAERP_RUNTIME_PASSWORD", runtimePassword);
+        }
+
+        private void Set(string name, string value)
+        {
+            prior[name] = Environment.GetEnvironmentVariable(name);
+            Environment.SetEnvironmentVariable(name, value);
+        }
+
+        public void Dispose()
+        {
+            foreach (var value in prior) Environment.SetEnvironmentVariable(value.Key, value.Value);
+        }
+    }
+
     private sealed class PurchaseFlowHost(WebApplication app, HttpClient client) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
 
-        public static async Task<PurchaseFlowHost> StartAsync(string connectionString, TaxWorkflowUser user)
+        public static async Task<PurchaseFlowHost> StartAsync(
+            string connectionString,
+            TaxWorkflowUser user,
+            bool useRealPagePermissions = false)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+            builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -523,17 +638,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.AddInfrastructure(builder.Configuration);
             builder.Services.AddSingleton<ICurrentUser>(user);
             builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowAllowingScope>();
-            builder.Services.AddSingleton<IPagePermissionService, PurchaseFlowAllowingPermissions>();
+            if (!useRealPagePermissions)
+                builder.Services.AddSingleton<IPagePermissionService, PurchaseFlowAllowingPermissions>();
             var app = builder.Build();
             app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
             app.UseMiddleware<ExceptionHandlingMiddleware>();
             app.UseAuthentication();
             app.UseAuthorization();
             app.MapRev869AConfigurationEndpoints();
+            app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();
             app.MapStoresGateEntryEndpoints();
             app.MapStoresGoodsReceiptEndpoints();
+            app.MapQcEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");

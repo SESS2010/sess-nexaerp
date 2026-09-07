@@ -73,10 +73,11 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
         var resolver = Read("src", "SESS.NexaERP.Infrastructure", "Identity", "EfEmployeeIdentityResolver.cs");
         var middleware = Read("src", "SESS.NexaERP.Api", "Middleware", "EmployeeIdentityResolutionMiddleware.cs");
         Assert.Contains("x.OrganizationId == normalizedOrganization", resolver);
-        Assert.Contains("x.CompanyId == mapping.CompanyId", resolver);
+        Assert.Contains("x.CompanyId == companyId", resolver);
         Assert.Contains("organization_id", middleware);
         Assert.Contains("org_id", middleware);
-        Assert.DoesNotContain("role", middleware, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("FindFirstValue(\"role\")", middleware, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-SESS-Acting-Role", middleware, StringComparison.Ordinal);
         Assert.DoesNotContain("group", middleware, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -113,6 +114,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
         Assert.Equal("SESS-12", session.EmployeeCode);
         Assert.Equal("SESS_PVT_LTD", session.OrganizationId);
         Assert.Equal(["IT_MANAGER"], session.RoleCodes);
+        Assert.Equal(["employees.master:view"], session.Permissions);
         Assert.Equal(TestIssuer, session.IdentityIssuer);
         Assert.Equal(TestSubject, session.IdentitySubject);
     }
@@ -172,7 +174,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
     }
     private sealed class FakeSessionService : ISessionService
     {
-        public Task<SessionMe> GetCurrentAsync(CancellationToken ct) => Task.FromResult(new SessionMe(Guid.Parse("90000000-0000-0000-0000-000000000012"), "SESS-12", "SURANTHER P", Guid.Parse("70000000-0000-0000-0000-000000000001"), "SESS_PVT_LTD", Guid.Parse("50000000-0000-0000-0000-000000000001"), "IT", ["IT_MANAGER"], TestIssuer, TestSubject));
+        public Task<SessionMe> GetCurrentAsync(CancellationToken ct) => Task.FromResult(new SessionMe(Guid.Parse("90000000-0000-0000-0000-000000000012"), "SESS-12", "SURANTHER P", Guid.Parse("70000000-0000-0000-0000-000000000001"), "SESS_PVT_LTD", Guid.Parse("50000000-0000-0000-0000-000000000001"), "IT", ["IT_MANAGER"], ["employees.master:view"], TestIssuer, TestSubject, ["IT_MANAGER"]));
     }
     private sealed class HeaderCurrentUser(IHttpContextAccessor accessor) : ICurrentUser
     {
@@ -197,7 +199,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
     }
     private sealed class EmptyAuditHistory : IAuditHistoryService
     {
-        public Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(string? module, int page, int pageSize, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<AuditLogSummary>>([]);
+        public Task<PagedResponse<AuditLogSummary>> GetCompanyHistoryAsync(string? module, int page, int pageSize, CancellationToken ct) =>
+            Task.FromResult(new PagedResponse<AuditLogSummary>(0, page, pageSize, []));
     }
 }

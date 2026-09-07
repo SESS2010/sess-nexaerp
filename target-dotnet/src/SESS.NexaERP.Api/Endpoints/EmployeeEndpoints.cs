@@ -5,11 +5,12 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Employees;
 using SESS.NexaERP.Domain.Employees;
+using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class EmployeeEndpoints
+public static partial class EmployeeEndpoints
 {
     public static IEndpointRouteBuilder MapEmployeeEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -19,7 +20,7 @@ public static class EmployeeEndpoints
 
         group.MapGet("/", async (NexaErpDbContext db, int? page, int? pageSize, string? search, string? status, CancellationToken cancellationToken) =>
         {
-            var paging = Paging.Normalize(page, pageSize);
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
             var query = db.Employees
                 .AsNoTracking()
                 .Include(employee => employee.Department)
@@ -38,25 +39,35 @@ public static class EmployeeEndpoints
                 query = query.Where(employee => employee.Status == normalizedStatus);
             }
 
-            var employees = await query
+            var total = await query.CountAsync(cancellationToken);
+            var pageEmployees = await query
                 .OrderBy(employee => employee.EmployeeCode)
                 .Skip(paging.Skip)
-                .Take(paging.Take)
-                .Select(employee => new EmployeeSummary(
+                .Take(paging.PageSize)
+                .ToListAsync(cancellationToken);
+            var employeeIds = pageEmployees.Select(employee => employee.Id).ToArray();
+            var skillRows = await db.EmployeeSkills.AsNoTracking()
+                .Where(skill => employeeIds.Contains(skill.EmployeeId))
+                .OrderBy(skill => skill.Id)
+                .Select(skill => new { skill.EmployeeId, SkillName = skill.Skill!.Name })
+                .ToListAsync(cancellationToken);
+            var skillsByEmployee = skillRows.GroupBy(x => x.EmployeeId)
+                .ToDictionary(group => group.Key, group => group.Select(x => x.SkillName).FirstOrDefault() ?? string.Empty);
+            var employees = pageEmployees.Select(employee => new EmployeeSummary(
                     employee.Id,
                     employee.EmployeeCode,
                     employee.EmployeeName,
                     employee.EmployeeType,
                     employee.Grade,
                     employee.Department == null ? string.Empty : employee.Department.Name,
-                    db.EmployeeSkills.Where(skill => skill.EmployeeId == employee.Id).Select(skill => skill.Skill!.Name).FirstOrDefault() ?? string.Empty,
+                    skillsByEmployee.GetValueOrDefault(employee.Id, string.Empty),
                     employee.Designation == null ? string.Empty : employee.Designation.Name,
                     employee.Status,
                     employee.LoginEnabled,
-                    employee.ApprovalStatus))
-                .ToListAsync(cancellationToken);
+                    employee.ApprovalStatus,
+                    employee.Version)).ToList();
 
-            return Results.Ok(employees);
+            return Results.Ok(new PagedResponse<EmployeeSummary>(total, paging.PageNumber, paging.PageSize, employees));
         }).RequirePagePermission("employees.master", PagePermissionActions.View);
 
         group.MapGet("/lookups", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
@@ -116,6 +127,13 @@ public static class EmployeeEndpoints
                 return Results.BadRequest(new { message = "Valid department, skill and designation are required." });
             }
 
+            var company = await db.Companies.SingleOrDefaultAsync(existing =>
+                existing.Code == currentUser.OrganizationId && existing.IsActive, cancellationToken);
+            if (company is null)
+            {
+                return Results.BadRequest(new { message = "The authenticated company is not active." });
+            }
+
             var employee = new Employee
             {
                 EmployeeCode = code,
@@ -138,6 +156,21 @@ public static class EmployeeEndpoints
             db.Employees.Add(employee);
             db.EmployeeSkills.Add(new EmployeeSkill { EmployeeId = employee.Id, SkillId = masters.Value.Skill.Id, CreatedBy = currentUser.LoginId });
             db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = "Create", FromStatus = "None", ToStatus = "Draft", Remarks = request.Remarks.Trim(), CreatedBy = currentUser.LoginId });
+            var assignmentStart = request.DateOfJoining ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var companyAssignment = new EmployeeCompanyAssignment
+            {
+                CompanyId = company.Id, EmployeeId = employee.Id, AssignmentType = "PAYROLL",
+                EmployeeCode = employee.EmployeeCode, EmploymentType = employee.EmployeeType,
+                EffectiveFrom = assignmentStart, Status = "ACTIVE", IsActive = true, CreatedBy = currentUser.LoginId
+            };
+            db.EmployeeCompanyAssignments.Add(companyAssignment);
+            db.EmployeeDepartmentAssignments.Add(new EmployeeDepartmentAssignment
+            {
+                CompanyId = company.Id, EmployeeCompanyAssignmentId = companyAssignment.Id,
+                DepartmentId = masters.Value.Department.Id, DesignationId = masters.Value.Designation.Id,
+                AssignmentType = "PRIMARY", EffectiveFrom = assignmentStart, IsPrimary = true,
+                Status = "ACTIVE", IsActive = true, CreatedBy = currentUser.LoginId
+            });
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Employees", "Create", nameof(Employee), employee.Id.ToString(), null, employee, cancellationToken);
 
@@ -155,6 +188,10 @@ public static class EmployeeEndpoints
             if (employee is null)
             {
                 return Results.NotFound(new { message = "Employee not found." });
+            }
+            if (request.Version != employee.Version)
+            {
+                return Results.Conflict(new { message = "Stale employee version. Refresh and retry." });
             }
 
             var masters = await ResolveMastersAsync(db, request.DepartmentCode, request.SkillCode, request.DesignationCode, cancellationToken);
@@ -188,74 +225,70 @@ public static class EmployeeEndpoints
             }
 
             db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = "Update", FromStatus = employee.ApprovalStatus, ToStatus = employee.ApprovalStatus, Remarks = request.Reason.Trim(), CreatedBy = currentUser.LoginId });
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Conflict(new { message = "Employee was changed by another user. Refresh and retry." });
+            }
+            await db.Entry(employee).ReloadAsync(cancellationToken);
             await audit.WriteAsync("Employees", "Update", nameof(Employee), employee.Id.ToString(), before, employee, cancellationToken);
 
             return Results.Ok(await ToDetailAsync(employee, db, cancellationToken));
         }).RequirePagePermission("employees.master", PagePermissionActions.Update);
 
         group.MapPost("/{employeeCode}/submit", async (string employeeCode, EmployeeApprovalRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeApprovalStatusAsync(employeeCode, "Submit", "Submitted", request.Remarks, db, currentUser, audit, cancellationToken))
+            await ChangeApprovalStatusAsync(employeeCode, "Submit", "Submitted", request.Remarks, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.Submit);
 
         group.MapPost("/{employeeCode}/approve", async (string employeeCode, EmployeeApprovalRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeApprovalStatusAsync(employeeCode, "Approve", "Approved", request.Remarks, db, currentUser, audit, cancellationToken))
+            await ChangeApprovalStatusAsync(employeeCode, "Approve", "Approved", request.Remarks, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.Approve);
 
         group.MapPost("/{employeeCode}/reject", async (string employeeCode, EmployeeApprovalRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeApprovalStatusAsync(employeeCode, "Reject", "Rejected", request.Remarks, db, currentUser, audit, cancellationToken))
+            await ChangeApprovalStatusAsync(employeeCode, "Reject", "Rejected", request.Remarks, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.Reject);
 
         group.MapPost("/{employeeCode}/revise", async (string employeeCode, EmployeeApprovalRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeApprovalStatusAsync(employeeCode, "RequestRevision", "RevisionRequested", request.Remarks, db, currentUser, audit, cancellationToken))
+            await ChangeApprovalStatusAsync(employeeCode, "RequestRevision", "RevisionRequested", request.Remarks, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.RequestRevision);
 
         group.MapPost("/{employeeCode}/activate-login", async (string employeeCode, LoginStatusRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeLoginAsync(employeeCode, true, request.Reason, db, currentUser, audit, cancellationToken))
+            await ChangeLoginAsync(employeeCode, true, request.Reason, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.Update);
 
         group.MapPost("/{employeeCode}/deactivate-login", async (string employeeCode, LoginStatusRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-            await ChangeLoginAsync(employeeCode, false, request.Reason, db, currentUser, audit, cancellationToken))
+            await ChangeLoginAsync(employeeCode, false, request.Reason, request.Version, db, currentUser, audit, cancellationToken))
             .RequirePagePermission("employees.master", PagePermissionActions.Deactivate);
 
         group.MapPost("/{employeeCode}/roles", async (string employeeCode, AssignEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Remarks))
-            {
-                return Results.BadRequest(new { message = "Remarks are required for role assignment." });
-            }
+            await AssignRoleAsync(employeeCode, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
 
-            var employee = await db.Employees.SingleOrDefaultAsync(existing => existing.EmployeeCode == NormalizeEmployeeCode(employeeCode), cancellationToken);
-            var roleCode = request.RoleCode.Trim().ToUpperInvariant();
-            var role = await db.Roles.SingleOrDefaultAsync(existing => existing.Code == roleCode && existing.IsActive, cancellationToken);
-            if (employee is null || role is null)
-            {
-                return Results.BadRequest(new { message = "Valid employee and active ERP role are required." });
-            }
+        group.MapPost("/{employeeCode}/roles/temporary-cover", async (string employeeCode, TemporaryRoleCoverRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await AssignTemporaryCoverAsync(employeeCode, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
 
-            var duplicate = await db.EmployeeRoleAssignments.AnyAsync(existing => existing.EmployeeId == employee.Id && existing.RoleId == role.Id && existing.EffectiveTo == null, cancellationToken);
-            if (duplicate)
-            {
-                return Results.Conflict(new { message = "Active employee-role mapping already exists." });
-            }
+        group.MapPost("/{employeeCode}/roles/promote", async (string employeeCode, PromoteEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await ChangeRoleAssignmentAsync(employeeCode, request.PreviousAssignmentId, request.NewRoleCode, request.NewAssignmentType, request.EffectiveOn, request.KeepPreviousAssignment, request.Remarks, request.PreviousAssignmentVersion, "PROMOTION", db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
 
-            var assignment = new EmployeeRoleAssignment
-            {
-                EmployeeId = employee.Id,
-                RoleId = role.Id,
-                EffectiveFrom = request.EffectiveFrom,
-                EffectiveTo = request.EffectiveTo,
-                ApprovalStatus = "PendingApproval",
-                Remarks = request.Remarks.Trim(),
-                CreatedBy = currentUser.LoginId
-            };
-            db.EmployeeRoleAssignments.Add(assignment);
-            db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = "AssignRole", FromStatus = "None", ToStatus = "PendingApproval", Remarks = $"{role.Code}: {request.Remarks.Trim()}", CreatedBy = currentUser.LoginId });
-            await db.SaveChangesAsync(cancellationToken);
-            await audit.WriteAsync("Employees", "AssignRole", nameof(EmployeeRoleAssignment), assignment.Id.ToString(), null, assignment, cancellationToken);
+        group.MapPost("/{employeeCode}/roles/transfer", async (string employeeCode, TransferEmployeeRoleRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await ChangeRoleAssignmentAsync(employeeCode, request.PreviousAssignmentId, request.NewRoleCode, request.NewAssignmentType, request.EffectiveOn, request.KeepPreviousAssignment, request.Remarks, request.PreviousAssignmentVersion, "TRANSFER", db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
+        group.MapPost("/{employeeCode}/roles/{assignmentId:guid}/end", async (string employeeCode, Guid assignmentId, EndEmployeeRoleAssignmentRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            await EndRoleAssignmentAsync(employeeCode, assignmentId, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.Update);
 
-            return Results.Created($"/api/v1/employees/{employee.EmployeeCode}/roles/{assignment.Id}", new EmployeeRoleSummary(assignment.Id, role.Code, role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks));
-        }).RequirePagePermission("employees.role-mapping", PagePermissionActions.Create);
+        group.MapGet("/{employeeCode}/role-portfolio", async (string employeeCode, NexaErpDbContext db, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+            await GetRolePortfolioAsync(employeeCode, db, currentUser, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.View);
+
+        group.MapGet("/{employeeCode}/role-events", async (string employeeCode, NexaErpDbContext db, ICurrentUser currentUser, CancellationToken cancellationToken) =>
+            await GetRoleEventsAsync(employeeCode, db, currentUser, cancellationToken))
+            .RequirePagePermission("employees.role-mapping", PagePermissionActions.ViewAuditHistory);
 
         group.MapGet("/{employeeCode}/roles", async (string employeeCode, NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
@@ -270,7 +303,7 @@ public static class EmployeeEndpoints
                 .Include(assignment => assignment.Role)
                 .Where(assignment => assignment.EmployeeId == employee.Id)
                 .OrderByDescending(assignment => assignment.EffectiveFrom)
-                .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks))
+                .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks, assignment.AssignmentType, assignment.EndReason, assignment.EndedAt, assignment.EndedBy, assignment.Version))
                 .ToListAsync(cancellationToken);
 
             return Results.Ok(roles);
@@ -297,7 +330,7 @@ public static class EmployeeEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> ChangeApprovalStatusAsync(string employeeCode, string action, string newStatus, string remarks, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
+    private static async Task<IResult> ChangeApprovalStatusAsync(string employeeCode, string action, string newStatus, string remarks, uint version, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(remarks))
         {
@@ -309,6 +342,7 @@ public static class EmployeeEndpoints
         {
             return Results.NotFound(new { message = "Employee not found." });
         }
+        if (version != employee.Version) return Results.Conflict(new { message = "Stale employee version. Refresh and retry." });
 
         var before = new { employee.ApprovalStatus };
         var oldStatus = employee.ApprovalStatus;
@@ -316,12 +350,14 @@ public static class EmployeeEndpoints
         employee.UpdatedAt = DateTimeOffset.UtcNow;
         employee.UpdatedBy = currentUser.LoginId;
         db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = action, FromStatus = oldStatus, ToStatus = newStatus, Remarks = remarks.Trim(), CreatedBy = currentUser.LoginId });
-        await db.SaveChangesAsync(cancellationToken);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Employee changed concurrently. Refresh and retry." }); }
+        await db.Entry(employee).ReloadAsync(cancellationToken);
         await audit.WriteAsync("Employees", action, nameof(Employee), employee.Id.ToString(), before, employee, cancellationToken);
-        return Results.Ok(new { employee.EmployeeCode, employee.ApprovalStatus });
+        return Results.Ok(new { employee.EmployeeCode, employee.ApprovalStatus, employee.Version });
     }
 
-    private static async Task<IResult> ChangeLoginAsync(string employeeCode, bool enabled, string reason, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
+    private static async Task<IResult> ChangeLoginAsync(string employeeCode, bool enabled, string reason, uint version, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
@@ -333,6 +369,7 @@ public static class EmployeeEndpoints
         {
             return Results.NotFound(new { message = "Employee not found." });
         }
+        if (version != employee.Version) return Results.Conflict(new { message = "Stale employee version. Refresh and retry." });
 
         var before = new { employee.LoginEnabled, employee.Status };
         var oldStatus = employee.Status;
@@ -341,9 +378,11 @@ public static class EmployeeEndpoints
         employee.UpdatedAt = DateTimeOffset.UtcNow;
         employee.UpdatedBy = currentUser.LoginId;
         db.EmployeeStatusHistories.Add(new EmployeeStatusHistory { EmployeeId = employee.Id, OldStatus = oldStatus, NewStatus = employee.Status, Reason = reason.Trim(), CreatedBy = currentUser.LoginId });
-        await db.SaveChangesAsync(cancellationToken);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { return Results.Conflict(new { message = "Employee changed concurrently. Refresh and retry." }); }
+        await db.Entry(employee).ReloadAsync(cancellationToken);
         await audit.WriteAsync("Employees", enabled ? "ActivateLogin" : "DeactivateLogin", nameof(Employee), employee.Id.ToString(), before, employee, cancellationToken);
-        return Results.Ok(new { employee.EmployeeCode, employee.LoginEnabled, employee.Status });
+        return Results.Ok(new { employee.EmployeeCode, employee.LoginEnabled, employee.Status, employee.Version });
     }
 
     private static async Task<EmployeeDetail> ToDetailAsync(Employee employee, NexaErpDbContext db, CancellationToken cancellationToken)
@@ -360,12 +399,12 @@ public static class EmployeeEndpoints
             .Include(assignment => assignment.Role)
             .Where(assignment => assignment.EmployeeId == employee.Id)
             .OrderBy(assignment => assignment.Role!.Code)
-            .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks))
+            .Select(assignment => new EmployeeRoleSummary(assignment.Id, assignment.Role == null ? string.Empty : assignment.Role.Code, assignment.Role == null ? string.Empty : assignment.Role.Name, assignment.EffectiveFrom, assignment.EffectiveTo, assignment.ApprovalStatus, assignment.Remarks, assignment.AssignmentType, assignment.EndReason, assignment.EndedAt, assignment.EndedBy, assignment.Version))
             .ToListAsync(cancellationToken);
 
         var departmentName = employee.Department?.Name ?? await db.Departments.Where(department => department.Id == employee.DepartmentId).Select(department => department.Name).SingleAsync(cancellationToken);
         var designationName = employee.Designation?.Name ?? await db.Designations.Where(designation => designation.Id == employee.DesignationId).Select(designation => designation.Name).SingleAsync(cancellationToken);
-        return new EmployeeDetail(employee.Id, employee.EmployeeCode, employee.EmployeeName, employee.OriginalImportedName, employee.EmployeeType, employee.Grade, departmentName, skillNames, designationName, employee.Status, employee.DateOfJoining, employee.OfficialEmail, employee.MobileNumber, employee.LoginEnabled, employee.ApprovalStatus, roles);
+        return new EmployeeDetail(employee.Id, employee.EmployeeCode, employee.EmployeeName, employee.OriginalImportedName, employee.EmployeeType, employee.Grade, departmentName, skillNames, designationName, employee.Status, employee.DateOfJoining, employee.OfficialEmail, employee.MobileNumber, employee.LoginEnabled, employee.ApprovalStatus, roles, employee.Version);
     }
 
     private static async Task<(Department Department, Skill Skill, Designation Designation)?> ResolveMastersAsync(NexaErpDbContext db, string departmentCode, string skillCode, string designationCode, CancellationToken cancellationToken)

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Purchase;
@@ -10,21 +11,62 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 
 public sealed partial class EfGateEntryService
 {
+    public async Task<IReadOnlyList<GateEntryPurchaseOrderCandidate>> ListPurchaseOrderCandidatesAsync(CancellationToken ct)
+    {
+        Actor();
+        await RequireReceiptOperatorAsync(ct);
+        var organization = Organization();
+        var company = await Company(organization, ct);
+        var purchaseOrders = await db.PurchaseOrders.AsNoTracking().Include(x => x.Vendor).Include(x => x.Lines)
+            .Where(x => x.CompanyId == company.Id && x.OrganizationId == organization &&
+                x.IsCurrentVersion && x.Status == Rev869BStatuses.Issued)
+            .OrderBy(x => x.PoNumber).ToListAsync(ct);
+        var result = new List<GateEntryPurchaseOrderCandidate>();
+        foreach (var po in purchaseOrders)
+        {
+            var decision = await scopes.AuthorizeAsync(Actor(), ActorRole(),
+                new RecordScopeTarget(organization, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId),
+                DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            if (!decision.Allowed) continue;
+            result.Add(new GateEntryPurchaseOrderCandidate(po.Id, po.PoNumber, po.VendorId,
+                po.Vendor?.Name ?? po.VendorId.ToString(), po.Lines.OrderBy(x => x.LineNumber)
+                    .Select(x => new GateEntryPurchaseOrderLineCandidate(x.Id, x.LineNumber, x.ItemId,
+                        x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity)).ToList()));
+        }
+        return result;
+    }
+
     public async Task<GateEntryResult?> GetAsync(Guid id,CancellationToken ct)
     {
         var company=await Company(Organization(),ct); var gate=await Query().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct); if(gate is null)return null;
         return Map(gate);
     }
 
-    public async Task<GateEntryListResult> ListAsync(string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,int page,int pageSize,CancellationToken ct)
+    public async Task<GateEntryListResult> ListAsync(string? gateEntryNumber,string? poNumber,Guid? vendorId,DateOnly? from,DateOnly? to,string? state,string? sortBy,string? sortDirection,int page,int pageSize,CancellationToken ct)
     {
         if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100."); var company=await Company(Organization(),ct);
         var q=Query().Where(x=>x.CompanyId==company.Id);
+        if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());
         if(!string.IsNullOrWhiteSpace(poNumber))q=q.Where(x=>x.PurchaseOrder!.PoNumber==poNumber.Trim().ToUpperInvariant()); if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(from.HasValue)q=q.Where(x=>x.ArrivedAt>=from.Value.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)); if(to.HasValue)q=q.Where(x=>x.ArrivedAt<to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
         if(!string.IsNullOrWhiteSpace(state)){var s=state.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("state must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var result=await q.OrderByDescending(x=>x.ArrivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
-        return new(page,pageSize,result.Select(Map).ToList());
+        var total=await q.CountAsync(ct);var result=await Sort(q,sortBy,sortDirection).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
+        return new(total,page,pageSize,result.Select(Map).ToList());
+    }
+
+    internal static IQueryable<GateEntry> Sort(IQueryable<GateEntry> query,string? sortBy,string? sortDirection)
+    {
+        var descending=string.Equals(sortDirection?.Trim(),"desc",StringComparison.OrdinalIgnoreCase);
+        IOrderedQueryable<GateEntry> ordered=sortBy?.Trim().ToLowerInvariant() switch
+        {
+            "gateentrynumber"=>descending?query.OrderByDescending(x=>x.GateEntryNumber):query.OrderBy(x=>x.GateEntryNumber),
+            "purchaseordernumber"=>descending?query.OrderByDescending(x=>x.PurchaseOrder!.PoNumber):query.OrderBy(x=>x.PurchaseOrder!.PoNumber),
+            "vendorname"=>descending?query.OrderByDescending(x=>x.VendorNameSnapshot):query.OrderBy(x=>x.VendorNameSnapshot),
+            "status"=>descending?query.OrderByDescending(x=>x.Status):query.OrderBy(x=>x.Status),
+            "arrivedat"=>descending?query.OrderByDescending(x=>x.ArrivedAt):query.OrderBy(x=>x.ArrivedAt),
+            _=>query.OrderByDescending(x=>x.ArrivedAt)
+        };
+        return ordered.ThenBy(x=>x.Id);
     }
 
     private IQueryable<GateEntry> Query()=>db.GateEntries.AsNoTracking().Include(x=>x.PurchaseOrder).Include(x=>x.Lines).Include(x=>x.Vendor);
@@ -47,7 +89,7 @@ public sealed partial class EfGateEntryService
     private void AddHistory(GateEntry gate,string? from,string to,string action,string correlation)=>db.StoresDocumentStatusHistories.Add(new StoresDocumentStatusHistory{CompanyId=gate.CompanyId,GateEntryId=gate.Id,FromStatus=from,ToStatus=to,Action=action,ActorEmployeeId=Actor(),ActorRoleCode=ActorRole(),OccurredAt=DateTimeOffset.UtcNow,CorrelationId=correlation});
     private async Task RequireScope(Guid? department,Guid? warehouse,Guid owner,CancellationToken ct){var decision=await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),department,warehouse,null,owner),DateOnly.FromDateTime(DateTime.UtcNow),ct);if(!decision.Allowed)throw new UnauthorizedAccessException("Gate Entry record scope is denied.");}
     private Guid Actor()=>user.IsAuthenticated&&user.EmployeeId.HasValue?user.EmployeeId.Value:throw new UnauthorizedAccessException("A resolved employee identity is required.");
-    private string ActorRole(){foreach(var role in new[]{"STORES_EXECUTIVE","STORES_ASSISTANT"})if(user.RoleCodes.Contains(role,StringComparer.OrdinalIgnoreCase))return role;throw new UnauthorizedAccessException("A Stores receipt operational role is required.");}
+    private string ActorRole()=>user.RequireRole("stores-receipt", "STORES_ASSISTANT", "STORES_EXECUTIVE", "STORES_MANAGER");
     private async Task RequireReceiptOperatorAsync(CancellationToken ct){var code=await db.Employees.AsNoTracking().Where(x=>x.Id==Actor()).Select(x=>x.EmployeeCode).SingleOrDefaultAsync(ct);if(code is not("SESS-16" or "SESS-35" or "SESS-41"))throw new UnauthorizedAccessException("Gate Entry is restricted to the three settled receipt operators.");}
     private string Organization()=>!string.IsNullOrWhiteSpace(user.OrganizationId)?user.OrganizationId.Trim().ToUpperInvariant():throw new UnauthorizedAccessException("Company scope is required.");
     private async Task<Company> Company(string org,CancellationToken ct)=>await db.Companies.SingleOrDefaultAsync(x=>x.Code==org&&x.IsActive&&x.Status=="ACTIVE",ct)??throw new UnauthorizedAccessException("Selected company is unavailable.");

@@ -471,7 +471,7 @@ public sealed partial class NexaErpDbContext
     private static void ConfigureCompanyScope(ModelBuilder modelBuilder)
     {
         foreach (var entityType in modelBuilder.Model.GetEntityTypes()
-                     .Where(entityType => typeof(CompanyScopedAuditableEntity).IsAssignableFrom(entityType.ClrType)))
+                     .Where(entityType => typeof(CompanyScopedAuditableEntity).IsAssignableFrom(entityType.ClrType) && entityType.BaseType is null))
         {
             var entity = modelBuilder.Entity(entityType.ClrType);
             entity.HasIndex(nameof(CompanyScopedAuditableEntity.CompanyId));

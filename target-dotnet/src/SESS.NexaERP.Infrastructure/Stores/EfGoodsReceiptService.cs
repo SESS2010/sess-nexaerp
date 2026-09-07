@@ -75,12 +75,29 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
     public async Task<GoodsReceiptResult?> GetAsync(Guid id,CancellationToken ct)
     {var company=await Company(ct);var receipt=await ReceiptQuery().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct);if(receipt is null)return null;return await Map(receipt,false,ct);}
 
-    public async Task<GoodsReceiptListResult> ListAsync(string? grnNumber,string? gateEntryNumber,Guid? vendorId,string? status,int page,int pageSize,CancellationToken ct)
+    public async Task<GoodsReceiptListResult> ListAsync(string? grnNumber,string? gateEntryNumber,Guid? vendorId,string? status,string? sortBy,string? sortDirection,int page,int pageSize,CancellationToken ct)
     {
         if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100.");var company=await Company(ct);var q=ReceiptQuery().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(grnNumber))q=q.Where(x=>x.GrnNumber==grnNumber.Trim().ToUpperInvariant());if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntry!.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
         if(!string.IsNullOrWhiteSpace(status)){var s=status.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("status must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
-        var candidates=await q.OrderByDescending(x=>x.ReceivedAt).ThenBy(x=>x.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(page,pageSize,results);
+        var total=await q.CountAsync(ct);var candidates=await Sort(q,sortBy,sortDirection).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var results=new List<GoodsReceiptResult>();foreach(var receipt in candidates)results.Add(await Map(receipt,false,ct));return new(total,page,pageSize,results);
+    }
+
+    internal static IQueryable<GoodsReceipt> Sort(IQueryable<GoodsReceipt> query,string? sortBy,string? sortDirection)
+    {
+        var descending=string.Equals(sortDirection?.Trim(),"desc",StringComparison.OrdinalIgnoreCase);
+        IOrderedQueryable<GoodsReceipt> ordered=sortBy?.Trim().ToLowerInvariant() switch
+        {
+            "grnnumber"=>descending?query.OrderByDescending(x=>x.GrnNumber):query.OrderBy(x=>x.GrnNumber),
+            "gateentrynumber"=>descending?query.OrderByDescending(x=>x.GateEntry!.GateEntryNumber):query.OrderBy(x=>x.GateEntry!.GateEntryNumber),
+            "purchaseordernumber"=>descending?query.OrderByDescending(x=>x.PurchaseOrder!.PoNumber):query.OrderBy(x=>x.PurchaseOrder!.PoNumber),
+            "vendorname"=>descending?query.OrderByDescending(x=>x.VendorNameSnapshot):query.OrderBy(x=>x.VendorNameSnapshot),
+            "vendorbilldate"=>descending?query.OrderByDescending(x=>x.VendorBillDate):query.OrderBy(x=>x.VendorBillDate),
+            "status"=>descending?query.OrderByDescending(x=>x.Status):query.OrderBy(x=>x.Status),
+            "receivedat"=>descending?query.OrderByDescending(x=>x.ReceivedAt):query.OrderBy(x=>x.ReceivedAt),
+            _=>query.OrderByDescending(x=>x.ReceivedAt)
+        };
+        return ordered.ThenBy(x=>x.Id);
     }
 
     private async Task<List<GoodsReceiptLine>> BuildLines(GoodsReceipt receipt,GateEntry gate,IReadOnlyList<GoodsReceiptLineRequest> input,Guid companyId,Guid actor,CancellationToken ct)
@@ -131,12 +148,12 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
     private RecordScopeTarget Target(PurchaseOrder po)=>new(Organization(),po.RequestingDepartmentId,po.DeliveryWarehouseId,null,po.OwnerEmployeeId);
     private async Task<Company> Company(CancellationToken ct)=>await db.Companies.SingleOrDefaultAsync(x=>x.Code==Organization()&&x.IsActive&&x.Status=="ACTIVE",ct)??throw new UnauthorizedAccessException("Selected company is unavailable.");
     private Guid Actor()=>user.IsAuthenticated&&user.EmployeeId.HasValue?user.EmployeeId.Value:throw new UnauthorizedAccessException("A resolved employee identity is required.");
-    private string ActorRole(){foreach(var role in new[]{"STORES_EXECUTIVE","STORES_ASSISTANT"})if(user.RoleCodes.Contains(role,StringComparer.OrdinalIgnoreCase))return role;throw new UnauthorizedAccessException("A Stores receipt operational role is required.");}
+    private string ActorRole()=>user.RequireRole("stores-receipt", "STORES_ASSISTANT", "STORES_EXECUTIVE", "STORES_MANAGER");
     private async Task RequireReceiptOperatorAsync(CancellationToken ct){var code=await db.Employees.AsNoTracking().Where(x=>x.Id==Actor()).Select(x=>x.EmployeeCode).SingleOrDefaultAsync(ct);if(code is not("SESS-16" or "SESS-35" or "SESS-41"))throw new UnauthorizedAccessException("GRN is restricted to the three settled receipt operators.");}
     private string Organization()=>!string.IsNullOrWhiteSpace(user.OrganizationId)?user.OrganizationId.Trim().ToUpperInvariant():throw new UnauthorizedAccessException("Company scope is required.");
     private static void ValidateHeader(string bill,DateOnly date,DateTimeOffset received,string iso,IReadOnlyList<GoodsReceiptLineRequest> lines){Required(bill,"VendorBillNumber");if(date==default)throw new StoresValidationException("VendorBillDate is required.");if(received==default)throw new StoresValidationException("ReceivedAt is required.");CanonicalObject(iso);if(lines is null)throw new StoresValidationException("Lines are required.");}
     private static object CanonicalLines(IReadOnlyList<GoodsReceiptLineRequest> lines)=>lines.OrderBy(x=>x.GateEntryLineId).Select(x=>new{x.GateEntryLineId,Lots=x.Lots.OrderBy(l=>l.LotOrdinal),Serials=x.Serials.OrderBy(s=>s.SerialOrdinal)});
-    private async Task<string> JsonbHash(string json,CancellationToken ct)=>await db.Database.SqlQuery<string>($"SELECT encode(digest(convert_to({json}::jsonb::text,'UTF8'),'sha256'),'hex') AS \"Value\"").SingleAsync(ct);
+    private async Task<string> JsonbHash(string json,CancellationToken ct)=>await db.Database.SqlQuery<string>($"SELECT encode(pg_catalog.sha256(convert_to({json}::jsonb::text,'UTF8')),'hex') AS \"Value\"").SingleAsync(ct);
     private static T JsonScalar<T>(string json){using var doc=JsonDocument.Parse(json);return JsonSerializer.Deserialize<T>(doc.RootElement.GetRawText(),JsonOptions)!;}
     private static string CanonicalObject(string value){try{using var doc=JsonDocument.Parse(Required(value,"JSON"));if(doc.RootElement.ValueKind!=JsonValueKind.Object)throw new StoresValidationException("JSON value must be an object.");return JsonSerializer.Serialize(doc.RootElement,JsonOptions);}catch(JsonException){throw new StoresValidationException("JSON value must be valid JSON.");}}
     private static string Hash(object value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value is string s?s:JsonSerializer.Serialize(value,JsonOptions)))).ToLowerInvariant();

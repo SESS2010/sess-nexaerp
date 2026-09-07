@@ -122,6 +122,21 @@ public sealed class AdvanceBaselineSeedConstraintTests
             [("employee_company_assignments", "CK_employee_company_assignment_type")] = new(
                 @"""AssignmentType"" IN ('PAYROLL','WORK')",
                 row => StringValue(row, "AssignmentType") is "PAYROLL" or "WORK"),
+            [("employee_role_assignments", "CK_employee_role_assignment_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("employee_role_assignments", "CK_employee_role_assignment_type")] = new(
+                @"""AssignmentType"" IN ('FULL','SUPPORT','TEMPORARY')",
+                row => StringValue(row, "AssignmentType") is "FULL" or "SUPPORT" or "TEMPORARY"),
+            [("employee_role_assignments", "CK_employee_role_assignment_temporary_end")] = new(
+                @"""AssignmentType"" <> 'TEMPORARY' OR ""EffectiveTo"" IS NOT NULL",
+                row => StringValue(row, "AssignmentType") != "TEMPORARY" || Value(row, "EffectiveTo") is not null),
+            [("employee_role_assignments", "CK_employee_role_assignment_end_metadata")] = new(
+                @"""EffectiveTo"" IS NULL OR ""AssignmentType"" = 'TEMPORARY' OR (""EndReason"" IS NOT NULL AND length(btrim(""EndReason"")) > 0 AND ""EndedAt"" IS NOT NULL AND ""EndedBy"" IS NOT NULL)",
+                row => Value(row, "EffectiveTo") is null ||
+                    StringValue(row, "AssignmentType") == "TEMPORARY" ||
+                    (Value(row, "EndReason") is string reason && !string.IsNullOrWhiteSpace(reason) &&
+                     Value(row, "EndedAt") is not null && Value(row, "EndedBy") is string endedBy && !string.IsNullOrWhiteSpace(endedBy))),
             [("employee_department_assignments", "CK_employee_department_assignment_dates")] = new(
                 @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
                 row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
@@ -159,6 +174,22 @@ public sealed class AdvanceBaselineSeedConstraintTests
             [("business_rule_configuration_versions", "CK_business_rule_configuration_version_number")] = new(
                 "\"VersionNumber\" > 0",
                 row => Convert.ToInt32(Value(row, "VersionNumber"), CultureInfo.InvariantCulture) > 0),
+            [("company_role_activations", "CK_company_role_activation_dates")] = new(
+                @"""EffectiveTo"" IS NULL OR ""EffectiveTo"" >= ""EffectiveFrom""",
+                row => DateOrderIsValid(row, "EffectiveFrom", "EffectiveTo")),
+            [("roles", "CK_roles_audience")] = new(
+                @"""Audience"" IN ('INTERNAL_EMPLOYEE','EXTERNAL_PORTAL','LEGACY_ALIAS','SYSTEM_SECURITY')",
+                row => StringValue(row, "Audience") is "INTERNAL_EMPLOYEE" or "EXTERNAL_PORTAL" or "LEGACY_ALIAS" or "SYSTEM_SECURITY"),
+            [("roles", "CK_roles_business_area_canonical")] = new(
+                @"""BusinessArea"" = upper(btrim(""BusinessArea""))",
+                row => StringValue(row, "BusinessArea") == StringValue(row, "BusinessArea").Trim().ToUpperInvariant()),
+            [("roles", "CK_roles_assignable_audience")] = new(
+                @"""IsEmployeeAssignable"" = FALSE OR ""Audience"" = 'INTERNAL_EMPLOYEE'",
+                row => !Convert.ToBoolean(Value(row, "IsEmployeeAssignable"), CultureInfo.InvariantCulture) || StringValue(row, "Audience") == "INTERNAL_EMPLOYEE"),
+            [("roles", "CK_roles_replacement")] = new(
+                @"(""Audience"" = 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NOT NULL) OR (""Audience"" <> 'LEGACY_ALIAS' AND ""ReplacementRoleId"" IS NULL)",
+                row => StringValue(row, "Audience") == "LEGACY_ALIAS"
+                    ? Value(row, "ReplacementRoleId") is not null : Value(row, "ReplacementRoleId") is null),
             [("roles", "CK_roles_code_canonical")] = new(
                 "\"Code\" = upper(btrim(\"Code\"))",
                 row => StringValue(row, "Code") == StringValue(row, "Code").Trim().ToUpperInvariant())
@@ -259,7 +290,7 @@ public sealed class AdvanceBaselineSeedConstraintTests
         Assert.Equal(8, permissions.Count(row => row.CreatedBy == "migration-rev869a"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-rev869b"));
         Assert.Equal(3, permissions.Count(row => row.CreatedBy == "migration-item-reference-masters"));
-        Assert.Equal(1219, AdvanceSeedData.RolePagePermissions.Count);
+        Assert.Equal(1222, AdvanceSeedData.RolePagePermissions.Count);
     }
 
     private static NexaErpDbContext CreateContext()

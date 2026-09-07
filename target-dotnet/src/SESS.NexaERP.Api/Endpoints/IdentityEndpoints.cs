@@ -2,27 +2,41 @@ using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Identity;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class IdentityEndpoints
+public static partial class IdentityEndpoints
 {
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/identity").WithTags("Identity").RequireAuthorization();
 
-        group.MapGet("/roles", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/roles", async (NexaErpDbContext db, int? page, int? pageSize, CancellationToken cancellationToken) =>
         {
-            var roles = await db.Roles
-                .AsNoTracking()
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var query = db.Roles.AsNoTracking();
+            var total = await query.CountAsync(cancellationToken);
+            var roles = await query
                 .OrderBy(role => role.Code)
-                .Select(role => new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive))
+                .Skip(paging.Skip).Take(paging.PageSize)
+                .Select(role => new RoleSummary(
+                    role.Id,
+                    role.Code,
+                    role.Name,
+                    role.IsPrivileged,
+                    role.IsActive,
+                    role.Audience,
+                    role.BusinessArea,
+                    role.IsEmployeeAssignable,
+                    role.ReplacementRole == null ? null : role.ReplacementRole.Code,
+                    role.Version))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(roles);
+            return Results.Ok(new PagedResponse<RoleSummary>(total, paging.PageNumber, paging.PageSize, roles));
         }).RequirePagePermission("identity.roles", PagePermissionActions.View);
 
         group.MapPost("/roles", async (CreateRoleRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
@@ -49,15 +63,74 @@ public static class IdentityEndpoints
             await db.SaveChangesAsync(cancellationToken);
             await audit.WriteAsync("Identity", "Create", nameof(Role), role.Id.ToString(), null, role, cancellationToken);
 
-            return Results.Created($"/api/v1/identity/roles/{role.Id}", new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive));
+            return Results.Created($"/api/v1/identity/roles/{role.Id}",
+                new RoleSummary(role.Id, role.Code, role.Name, role.IsPrivileged, role.IsActive, role.Audience, role.BusinessArea, role.IsEmployeeAssignable, null, role.Version));
         }).RequirePagePermission("identity.roles", PagePermissionActions.Create);
 
-        group.MapGet("/users", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
+        group.MapGet("/role-governance/options", () => Results.Ok(new
         {
-            var users = await db.UserAccounts
+            audiences = RoleAudienceOptions,
+            businessAreas = RoleBusinessAreaOptions,
+            rules = new
+            {
+                legacyAliasRequiresReplacement = true,
+                onlyInternalEmployeeRolesAreEmployeeAssignable = true
+            }
+        })).RequirePagePermission("identity.roles", PagePermissionActions.View);
+
+        group.MapGet("/role-governance/company-activations", async (NexaErpDbContext db, ICurrentUser currentUser, int? page, int? pageSize, CancellationToken cancellationToken) =>
+        {
+            if (string.IsNullOrWhiteSpace(currentUser.OrganizationId))
+            {
+                return Results.Unauthorized();
+            }
+
+            var company = await db.Companies.AsNoTracking()
+                .SingleOrDefaultAsync(row => row.Code == currentUser.OrganizationId && row.IsActive, cancellationToken);
+            if (company is null)
+            {
+                return Results.BadRequest(new { message = "The current company could not be resolved." });
+            }
+
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var total = await db.Roles.CountAsync(cancellationToken);
+            var roles = await db.Roles.AsNoTracking().OrderBy(row => row.Code)
+                .Skip(paging.Skip).Take(paging.PageSize).ToListAsync(cancellationToken);
+            var activations = await db.CompanyRoleActivations.AsNoTracking()
+                .Where(row => row.CompanyId == company.Id)
+                .GroupBy(row => row.RoleId)
+                .Select(group => group.OrderByDescending(row => row.EffectiveFrom).First())
+                .ToDictionaryAsync(row => row.RoleId, cancellationToken);
+            var items = roles.Select(role =>
+            {
+                activations.TryGetValue(role.Id, out var activation);
+                return new CompanyRoleActivationSummary(role.Id, role.Code, role.Name, role.Audience, role.BusinessArea,
+                    role.IsEmployeeAssignable, activation?.Id, activation?.IsEnabled ?? false, activation?.EffectiveFrom,
+                    activation?.EffectiveTo, activation?.Remarks ?? string.Empty, activation?.Version);
+            }).ToList();
+
+            return Results.Ok(new PagedResponse<CompanyRoleActivationSummary>(total, paging.PageNumber, paging.PageSize, items));
+        }).RequirePagePermission("identity.roles", PagePermissionActions.View);
+
+        group.MapPut("/roles/{roleCode}/governance",
+            async (string roleCode, UpdateRoleGovernanceRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
+                await UpdateRoleGovernanceAsync(roleCode, request, db, user, audit, ct))
+            .RequirePagePermission("identity.roles", PagePermissionActions.Update);
+        group.MapPut("/role-governance/company-activations/{roleCode}",
+            async (string roleCode, UpdateCompanyRoleActivationRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
+                await UpdateCompanyRoleActivationAsync(roleCode, request, db, user, audit, ct))
+            .RequirePagePermission("identity.roles", PagePermissionActions.Update);
+
+        group.MapGet("/users", async (NexaErpDbContext db, int? page, int? pageSize, CancellationToken cancellationToken) =>
+        {
+            var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+            var query = db.UserAccounts
                 .AsNoTracking()
-                .Include(user => user.Role)
+                .Include(user => user.Role);
+            var total = await query.CountAsync(cancellationToken);
+            var users = await query
                 .OrderBy(user => user.LoginId)
+                .Skip(paging.Skip).Take(paging.PageSize)
                 .Select(user => new UserAccountSummary(
                     user.Id,
                     user.LoginId,
@@ -69,7 +142,7 @@ public static class IdentityEndpoints
                     user.IsActive))
                 .ToListAsync(cancellationToken);
 
-            return Results.Ok(users);
+            return Results.Ok(new PagedResponse<UserAccountSummary>(total, paging.PageNumber, paging.PageSize, users));
         }).RequirePagePermission("identity.users", PagePermissionActions.View);
 
         group.MapPost("/users", async (CreateUserAccountRequest request, NexaErpDbContext db, IAuditWriter audit, CancellationToken cancellationToken) =>
@@ -112,6 +185,18 @@ public static class IdentityEndpoints
 
         return endpoints;
     }
+
+    private static readonly string[] RoleAudienceOptions =
+    [
+        RoleAudiences.InternalEmployee, RoleAudiences.ExternalPortal,
+        RoleAudiences.LegacyAlias, RoleAudiences.SystemSecurity
+    ];
+
+    private static readonly string[] RoleBusinessAreaOptions =
+    [
+        "ACCOUNTS", "ADMINISTRATION", "DESIGN", "DOCUMENT_CONTROL", "ENGINEERING", "EXTERNAL", "GENERAL", "IT",
+        "LOGISTICS", "MAINTENANCE", "MANAGEMENT", "PRODUCTION", "PROJECTS", "PURCHASE", "QUALITY", "SALES", "SECURITY", "SERVICE", "STORES"
+    ];
 
     private static string NormalizeCode(string value) => value.Trim().ToUpperInvariant();
 

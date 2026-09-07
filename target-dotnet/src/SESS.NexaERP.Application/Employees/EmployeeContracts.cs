@@ -1,4 +1,4 @@
-﻿namespace SESS.NexaERP.Application.Employees;
+namespace SESS.NexaERP.Application.Employees;
 
 public sealed record EmployeeSummary(
     Guid Id,
@@ -11,7 +11,8 @@ public sealed record EmployeeSummary(
     string JobDesignation,
     string Status,
     bool LoginEnabled,
-    string ApprovalStatus);
+    string ApprovalStatus,
+    uint Version);
 
 public sealed record EmployeeDetail(
     Guid Id,
@@ -29,7 +30,8 @@ public sealed record EmployeeDetail(
     string? MobileNumber,
     bool LoginEnabled,
     string ApprovalStatus,
-    IReadOnlyList<EmployeeRoleSummary> Roles);
+    IReadOnlyList<EmployeeRoleSummary> Roles,
+    uint Version);
 
 public sealed record CreateEmployeeRequest(
     string EmployeeCode,
@@ -54,16 +56,85 @@ public sealed record UpdateEmployeeRequest(
     DateOnly? DateOfJoining,
     string? OfficialEmail,
     string? MobileNumber,
-    string Reason);
+    string Reason,
+    uint Version);
 
-public sealed record EmployeeApprovalRequest(string Remarks);
+public sealed record EmployeeApprovalRequest(string Remarks, uint Version);
 
-public sealed record LoginStatusRequest(string Reason);
+public sealed record LoginStatusRequest(string Reason, uint Version);
 
-public sealed record AssignEmployeeRoleRequest(string RoleCode, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string Remarks);
+public sealed record AssignEmployeeRoleRequest(
+    string RoleCode,
+    string AssignmentType,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo,
+    string Remarks);
 
-public sealed record EmployeeRoleSummary(Guid Id, string RoleCode, string RoleName, DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, string Remarks);
+public sealed record PromoteEmployeeRoleRequest(
+    Guid PreviousAssignmentId,
+    string NewRoleCode,
+    string NewAssignmentType,
+    DateOnly EffectiveOn,
+    bool KeepPreviousAssignment,
+    string Remarks,
+    uint PreviousAssignmentVersion);
 
+public sealed record TransferEmployeeRoleRequest(
+    Guid PreviousAssignmentId,
+    string NewRoleCode,
+    string NewAssignmentType,
+    DateOnly EffectiveOn,
+    bool KeepPreviousAssignment,
+    string Remarks,
+    uint PreviousAssignmentVersion);
+
+public sealed record TemporaryRoleCoverRequest(
+    string RoleCode,
+    DateOnly EffectiveFrom,
+    DateOnly EffectiveTo,
+    string Remarks);
+
+public sealed record EndEmployeeRoleAssignmentRequest(
+    DateOnly EffectiveTo,
+    string Reason,
+    uint Version);
+
+public sealed record EmployeeRoleSummary(
+    Guid Id,
+    string RoleCode,
+    string RoleName,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo,
+    string ApprovalStatus,
+    string Remarks,
+    string AssignmentType,
+    string? EndReason,
+    DateTimeOffset? EndedAt,
+    string? EndedBy,
+    uint Version);
+
+public sealed record EmployeeRolePortfolioSummary(
+    string EmployeeCode,
+    string CompanyCode,
+    IReadOnlyList<EmployeeRoleSummary> Assignments);
+
+public sealed record EmployeeRoleAssignmentEventSummary(
+    Guid Id,
+    Guid? AssignmentId,
+    string Operation,
+    string? FromRoleCode,
+    string? ToRoleCode,
+    string? FromAssignmentType,
+    string? ToAssignmentType,
+    DateOnly? PreviousEffectiveFrom,
+    DateOnly? PreviousEffectiveTo,
+    DateOnly? NewEffectiveFrom,
+    DateOnly? NewEffectiveTo,
+    string Reason,
+    Guid ActorEmployeeId,
+    string ActorLoginId,
+    string ActorRoleCode,
+    DateTimeOffset CreatedAt);
 public sealed record MasterLookupItem(string Code, string Name);
 
 public sealed record EmployeeMasterLookups(

@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
-using SESS.NexaERP.SecurityMigrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -69,7 +68,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         Assert.Contains("'TRIAL_DATA'", apply, StringComparison.Ordinal);
         Assert.Contains("LIKE 'TRIAL-%'", apply, StringComparison.Ordinal);
-        Assert.Contains("ARRAY[6,6,4,5,15,20,2,22,26,12,0]", apply, StringComparison.Ordinal);
+        Assert.Contains("ARRAY[6,6,4,5,15,20,2,24,26,12,0]", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-NOS',0),('TRIAL-SET',0),('TRIAL-LOT',0)", apply, StringComparison.Ordinal);
         Assert.Contains("('TRIAL-KG',3),('TRIAL-MTR',3),('TRIAL-LTR',3)", apply, StringComparison.Ordinal);
         Assert.Contains("principal-provisioned database", apply, StringComparison.Ordinal);
@@ -307,6 +306,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
         server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
         server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
     }
@@ -528,38 +528,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("foundation-down.sql", migrator.GenerateScript(migration, "0"));
     }
 
-    [Fact]
-    public void GeneratedSecurityPackageScriptsAreAcceptedByDisposablePostgreSql()
-    {
-        var connection = "Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect";
-        var businessOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
-            .UseNpgsql(connection).Options;
-        var securityOptions = new DbContextOptionsBuilder<Rev869BSecurityDbContext>()
-            .UseNpgsql(
-                connection,
-                npgsql =>
-                {
-                    npgsql.MigrationsAssembly(typeof(Rev869BSecurityDbContext).Assembly.FullName);
-                    npgsql.MigrationsHistoryTable("__EFMigrationsHistory_Rev869BSecurity", "advance");
-                })
-            .Options;
-        using var business = new NexaErpDbContext(businessOptions);
-        using var security = new Rev869BSecurityDbContext(securityOptions);
-        var businessMigrator = business.GetService<IMigrator>();
-        var securityMigrator = security.GetService<IMigrator>();
-        var businessMigrations = business.Database.GetMigrations().ToArray();
-        AssertExpectedBusinessMigrations(businessMigrations);
-        var businessMigration = businessMigrations.Single(x =>
-            x == "20260824150742_CalibrationPurchasePairItemTypeCorrections");
-        var securityMigration = Assert.Single(security.Database.GetMigrations());
-        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        server.Execute("business-up.sql", businessMigrator.GenerateScript("0", businessMigration));
-        server.Execute("external-role-prerequisites.sql", ExternalRolePrerequisites);
-        server.Execute("security-up.sql", securityMigrator.GenerateScript("0", securityMigration));
-        server.Execute("security-down.sql", securityMigrator.GenerateScript(securityMigration, "0"));
-        server.Execute("business-down.sql", businessMigrator.GenerateScript(businessMigration, "0"));
-    }
-
     private static void AssertExpectedBusinessMigrations(IEnumerable<string> migrations)
     {
         var actual = migrations.ToHashSet(StringComparer.Ordinal);
@@ -603,6 +571,36 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        """;
+
+    private const string MultiCompanyPrNumberAssertions = """
+        INSERT INTO advance.purchase_requisitions
+          ("Id","CompanyId","PrNumber","FinancialYear","PrSequence","OrganizationId",
+           "RequestDate","RequiredByDate","Priority","PurposeJustification","Status",
+           "EstimatedTotal","ApprovalRoute","ApprovalCycle","RequiredApprovalStepCount",
+           "CompletedApprovalStepCount","ApprovalWorkflowSnapshotJson","CreatorEmployeeId",
+           "IsActive","CreatedAt","CreatedBy","Version")
+        SELECT md5('MULTI_COMPANY_PR_NUMBER|'||c."Code")::uuid,c."Id",
+               'PR-26-27-000001','26-27',1,c."Code",DATE '2026-09-04',
+               DATE '2026-09-05','Normal','Cross-company number regression','Draft',
+               0,'UNSELECTED',0,0,0,'{}'::jsonb,e."Id",true,
+               TIMESTAMPTZ '2026-09-04 00:00:00+00','MULTI_COMPANY_PR_NUMBER',0
+        FROM advance.companies c
+        CROSS JOIN LATERAL (
+          SELECT "Id" FROM advance.employees WHERE upper("Status")='ACTIVE'
+          ORDER BY "EmployeeCode" LIMIT 1
+        ) e
+        WHERE c."Code" IN ('SESS_PVT_LTD','SESS_PROPRIETORSHIP');
+        DO $assert$
+        BEGIN
+          IF (SELECT count(*) FROM advance.purchase_requisitions
+              WHERE "CreatedBy"='MULTI_COMPANY_PR_NUMBER'
+                AND "PrNumber"='PR-26-27-000001')<>2 THEN
+            RAISE EXCEPTION 'The same generated PR number must be accepted once in each company.';
+          END IF;
+        END $assert$;
+        DELETE FROM advance.purchase_requisitions
+        WHERE "CreatedBy"='MULTI_COMPANY_PR_NUMBER';
         """;
 
     private const string NoManagedRoleAssertions = """
@@ -659,7 +657,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string Part2Assertions = """
         DO $assert$
         BEGIN
-          IF (SELECT count(*) FROM advance.roles)<>45 THEN RAISE EXCEPTION 'Expected 45 roles.'; END IF;
+          IF (SELECT count(*) FROM advance.roles)<>51 THEN RAISE EXCEPTION 'Expected 51 roles.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations)<>102 THEN RAISE EXCEPTION 'Expected 102 company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>84 THEN RAISE EXCEPTION 'Expected 84 enabled company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles WHERE "Audience"='LEGACY_ALIAS' AND NOT "IsEmployeeAssignable" AND "ReplacementRoleId" IS NOT NULL)<>8
+            THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
+          IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
+            THEN RAISE EXCEPTION 'Expected 2 external portal roles.'; END IF;
+          IF EXISTS (SELECT 1 FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+            WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER'))
+            THEN RAISE EXCEPTION 'New catalogue roles must have no permissions.'; END IF;
           IF EXISTS (
             SELECT expected."RoleCode",expected."PageKey"
             FROM (VALUES
@@ -689,7 +696,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments)<>101 THEN RAISE EXCEPTION 'Expected 101 role assignments, including the two company-scoped KARTHICK receipt assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments)<>159 THEN RAISE EXCEPTION 'Expected 159 retained role assignment history rows.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "ApprovalStatus" IN ('Approved','SeedApproved') AND "EffectiveFrom"<=DATE '2026-09-05' AND ("EffectiveTo" IS NULL OR "EffectiveTo">=DATE '2026-09-05'))<>118 THEN RAISE EXCEPTION 'Expected 118 effective confirmed assignments.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignment_events)<>148 THEN RAISE EXCEPTION 'Expected 148 immutable role history events.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE e."EmployeeCode"='SESS-41' AND r."Code"='STORES_MANAGER' AND a."AssignmentType"='FULL' AND a."ApprovalStatus" IN ('Approved','SeedApproved'))<>2
+            THEN RAISE EXCEPTION 'KARTHICK must hold FULL STORES_MANAGER in both companies.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE e."EmployeeCode"='SESS-28' AND r."Code"='SERVICE_COORDINATOR' AND a."AssignmentType"='SUPPORT' AND a."ApprovalStatus" IN ('Approved','SeedApproved'))<>2
+            THEN RAISE EXCEPTION 'VENKAT RAV SESS-28 must hold SUPPORT SERVICE_COORDINATOR in both companies.'; END IF;
+          IF EXISTS (SELECT 1 FROM advance.audit_logs WHERE "ActorRoleCode"<>'' OR "ResolvedRoleAssignmentId" IS NOT NULL OR "ResolvedRoleAssignmentType" IS NOT NULL)
+            THEN RAISE EXCEPTION 'Historical audit rows must retain the untouched role-authority column defaults.'; END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='EX_employee_role_assignment_no_overlap' AND condeferrable)
+            THEN RAISE EXCEPTION 'Deferrable role overlap constraint is missing.'; END IF;
           IF (SELECT count(*) FROM advance.employee_operational_scopes)<>398 THEN RAISE EXCEPTION 'Expected 398 operational scopes.'; END IF;
           IF (SELECT count(*) FROM advance.employee_identity_mappings)<>0 THEN RAISE EXCEPTION 'Fresh chain must have no identity mappings before bootstrap.'; END IF;
           IF (SELECT count(*) FROM advance.purchase_transaction_approval_policies WHERE "IsActive")<>6 THEN RAISE EXCEPTION 'Expected six active approval policies.'; END IF;

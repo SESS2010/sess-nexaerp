@@ -1,3 +1,5 @@
+﻿using SESS.NexaERP.Application.Common;
+
 namespace SESS.NexaERP.Application.Audit;
 
 public sealed record AuditLogSummary(
@@ -9,11 +11,14 @@ public sealed record AuditLogSummary(
     string UserLoginId,
     string Result,
     string CorrelationId,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string ActorRoleCode = "",
+    Guid? ResolvedRoleAssignmentId = null,
+    string? ResolvedRoleAssignmentType = null);
 
 public interface IAuditHistoryService
 {
-    Task<IReadOnlyList<AuditLogSummary>> GetCompanyHistoryAsync(
+    Task<PagedResponse<AuditLogSummary>> GetCompanyHistoryAsync(
         string? module,
         int page,
         int pageSize,
