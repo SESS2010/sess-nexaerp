@@ -33,7 +33,7 @@ export function ConcessionPage() {
   const { number = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can, hasFullAuthorityRole, me } = useSession()
+  const { can, me } = useSession()
   const prefill = (location.state as { prefill?: CreatePrefill } | null)?.prefill
 
   const [lookup, setLookup] = useState('')
@@ -64,14 +64,9 @@ export function ConcessionPage() {
   const [serialIds, setSerialIds] = useState('')
   const keyRef = useRef<{ fingerprint: string; key: string } | null>(null)
 
-  // Approve/reject (qc.inspection-policies:approve) and reverse (…:cancel) both
-  // need a direct TECHNICAL_DIRECTOR role (DecideConcession / ReverseConcessionAsync
-  // → RequireTechnicalDirector). The creator may never decide their own concession.
-  //
-  // All three are SUPPORT-denied operations, so the role must be held with full
-  // authority: RequireRole drops SUPPORT assignments for approve/reject/cancel/
-  // reverse, and a SUPPORT-held TECHNICAL_DIRECTOR would get a 403 here.
-  const isTd = hasFullAuthorityRole('TECHNICAL_DIRECTOR')
+  // Approve/reject are qc.inspection-policies:approve and reverse is …:cancel;
+  // the session's Permissions already exclude both for anyone the service
+  // would refuse. The creator may never decide their own concession.
 
   const load = useCallback(async (value: string) => {
     if (!value) return
@@ -164,10 +159,10 @@ export function ConcessionPage() {
   }
 
   // The creator is refused by the server (UnauthorizedAccessException); when the
-  // session is not loaded yet the control stays visible, like can()/hasRole().
+  // session is not loaded yet nothing is offered, like can().
   const notCreator = !me || !concession || concession.CreatedByEmployeeId !== me.EmployeeId
-  const canDecide = concession?.Status === 'DRAFT' && can(PAGE_KEYS.qc, 'approve') && isTd && notCreator
-  const canReverse = concession?.Status === 'APPROVED' && can(PAGE_KEYS.qc, 'cancel') && isTd
+  const canDecide = concession?.Status === 'DRAFT' && can(PAGE_KEYS.qc, 'approve') && notCreator
+  const canReverse = concession?.Status === 'APPROVED' && can(PAGE_KEYS.qc, 'cancel')
 
   return (
     <div className="page">

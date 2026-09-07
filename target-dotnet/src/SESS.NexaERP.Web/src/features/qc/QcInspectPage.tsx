@@ -17,7 +17,7 @@ export function QcInspectPage() {
   const { allocationId = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [item, setItem] = useState<QcQueueItem | null>((location.state as { item?: QcQueueItem } | null)?.item ?? null)
   const [serials, setSerials] = useState<QcSerialSource[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,7 +80,8 @@ export function QcInspectPage() {
     }
   }
 
-  const canFinalize = can(PAGE_KEYS.qc, 'create') && hasRole('QC_MANAGER')
+  // POST /qc/inspections → qc.inspection-policies:create.
+  const canFinalize = can(PAGE_KEYS.qc, 'create')
 
   if (loading) return <div className="page"><p>Loading…</p></div>
   if (!item || serials === null) {

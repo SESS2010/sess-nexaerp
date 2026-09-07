@@ -21,18 +21,15 @@ const COLUMNS: RegisterColumn<QuotationListItem>[] = [
  */
 export function QuotationListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
 
   // /purchase/quotations/new hosts two separate grants: recording a quotation
-  // (purchase.vendor-quotations:create + PURCHASE_EXECUTIVE) and technical
-  // verification (purchase.technical-verification:verify + TECHNICAL_ENGINEER
-  // or TECHNICAL_DIRECTOR). It is the only in-app entry point for both, so the
-  // button is shown when either grant is held; the page itself gates each
-  // control separately.
-  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create') && hasRole('PURCHASE_EXECUTIVE')
-  const canVerifyTechnically =
-    can(PAGE_KEYS.technicalVerification, 'verify') &&
-    (hasRole('TECHNICAL_ENGINEER') || hasRole('TECHNICAL_DIRECTOR'))
+  // (purchase.vendor-quotations:create) and technical verification
+  // (purchase.technical-verification:verify). It is the only in-app entry
+  // point for both, so the button is shown when either grant is held; the
+  // page itself gates each control separately.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
+  const canVerifyTechnically = can(PAGE_KEYS.technicalVerification, 'verify')
 
   return (
     <PurchaseDocumentRegister

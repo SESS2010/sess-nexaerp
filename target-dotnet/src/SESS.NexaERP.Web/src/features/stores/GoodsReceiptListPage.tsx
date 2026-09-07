@@ -11,29 +11,23 @@ import { useSort } from '../../hooks/useSort'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 /**
- * Server-side sorting for this register is not available yet: the
- * /api/v1/stores/goods-receipts list endpoint accepts no sortBy or
- * sortDirection. Set to true once the backend takes them.
+ * GET /api/v1/stores/goods-receipts sorts server-side on grnnumber,
+ * gateentrynumber, purchaseordernumber, vendorname, vendorbilldate, receivedat
+ * and status (StoresListSortingTests).
  */
-const SORTABLE = false
+const SORTABLE = true
 
 const PAGE_SIZE = 25
 
 export function GoodsReceiptListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [rows, setRows] = useState<GoodsReceiptResult[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
-  // Newest receipt first — the register is read as a running arrival log, which
-  // is the order the endpoint already returns.
-  //
-  // GET /api/v1/stores/goods-receipts takes no sortBy/sortDirection, so the
-  // columns are rendered as plain headers until it does. The keys are the
-  // lowercase row-DTO field names the backend will accept once the parameters
-  // are added; flip SORTABLE to true then and nothing else needs to change.
-  // The list is paged server-side, so sorting the fetched page in the browser
-  // would reorder one page out of a much longer register and read as a bug.
+  // Newest receipt first — the register is read as a running arrival log. The
+  // list is paged server-side, so every sort goes to the endpoint; reordering
+  // one fetched page in the browser would read as a bug.
   const { sort, toggleSort } = useSort({ sortBy: 'receivedat', sortDirection: 'desc' }, () => setPage(1))
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
@@ -80,11 +74,8 @@ export function GoodsReceiptListPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
-  // POST /stores/goods-receipts → inventory.grn:create (explicit-grant page, so
-  // full-control does not cover it) plus EfGoodsReceiptService.ActorRole(),
-  // which accepts only STORES_EXECUTIVE / STORES_ASSISTANT.
-  const canCreate =
-    can(PAGE_KEYS.grn, 'create') && (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT'))
+  // POST /stores/goods-receipts → inventory.grn:create.
+  const canCreate = can(PAGE_KEYS.grn, 'create')
 
   return (
     <div className="page">

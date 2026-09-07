@@ -11,7 +11,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 export function GoodsReceiptDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [grn, setGrn] = useState<GoodsReceiptResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -95,12 +95,10 @@ export function GoodsReceiptDetailPage() {
 
   const isDraft = grn.Status === 'DRAFT'
   const hasWarnings = grn.Warnings.length > 0
-  // Every GRN mutation is inventory.grn (explicit-grant page) plus
-  // EfGoodsReceiptService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
-  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
-  const canEdit = can(PAGE_KEYS.grn, 'update') && storesOperator
-  const canFinalize = can(PAGE_KEYS.grn, 'submit') && storesOperator
-  const canReverse = can(PAGE_KEYS.grn, 'cancel') && storesOperator
+  // Every GRN mutation is an action on inventory.grn.
+  const canEdit = can(PAGE_KEYS.grn, 'update')
+  const canFinalize = can(PAGE_KEYS.grn, 'submit')
+  const canReverse = can(PAGE_KEYS.grn, 'cancel')
 
   return (
     <div className="page">

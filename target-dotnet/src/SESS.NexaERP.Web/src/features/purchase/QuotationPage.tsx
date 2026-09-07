@@ -51,18 +51,15 @@ function todayLocal(): string {
 }
 
 export function QuotationPage() {
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
 
   // GET /purchase/rfqs/{number} → purchase.rfq:view (read prerequisite).
   const canReadRfq = can(PAGE_KEYS.rfq, 'view')
-  // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create
-  // + the PURCHASE_EXECUTIVE role.
-  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create') && hasRole('PURCHASE_EXECUTIVE')
+  // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
   // POST /quotations/{number}/technical-verifications →
-  // purchase.technical-verification:verify + TECHNICAL_ENGINEER or TECHNICAL_DIRECTOR.
-  const canVerifyTechnically =
-    can(PAGE_KEYS.technicalVerification, 'verify') &&
-    (hasRole('TECHNICAL_ENGINEER') || hasRole('TECHNICAL_DIRECTOR'))
+  // purchase.technical-verification:verify.
+  const canVerifyTechnically = can(PAGE_KEYS.technicalVerification, 'verify')
   // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
   const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
 

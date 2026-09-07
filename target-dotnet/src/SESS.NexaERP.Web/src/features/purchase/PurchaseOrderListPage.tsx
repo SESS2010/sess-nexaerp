@@ -18,16 +18,15 @@ const COLUMNS: RegisterColumn<PurchaseOrderListItem>[] = [
 
 export function PurchaseOrderListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [showCreate, setShowCreate] = useState(false)
   const [comparisonNumber, setComparisonNumber] = useState('')
   const [comparisonVersion, setComparisonVersion] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  // POST /purchase/purchase-orders → purchase.po:create, and
-  // CreatePurchaseOrderAsync additionally demands the PURCHASE_MANAGER role.
-  const canCreatePo = can(PAGE_KEYS.purchaseOrders, 'create') && hasRole('PURCHASE_MANAGER')
+  // POST /purchase/purchase-orders → purchase.po:create.
+  const canCreatePo = can(PAGE_KEYS.purchaseOrders, 'create')
   // The version lookup reads GET /purchase/comparisons/{number} →
   // purchase.commercial-comparisons:view.
   const canReadComparison = can(PAGE_KEYS.comparisons, 'view')

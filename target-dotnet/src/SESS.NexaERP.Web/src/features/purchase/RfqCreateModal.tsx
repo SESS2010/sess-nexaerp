@@ -17,7 +17,7 @@ function defaultDueAt(): string {
 }
 
 export function RfqCreateModal({ onClose, onCreated }: Props) {
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [handoffs, setHandoffs] = useState<PurchaseRequirementHandoffSummary[]>([])
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [quoteDueAt, setQuoteDueAt] = useState(defaultDueAt())
@@ -37,8 +37,8 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
 
   const selectedCount = useMemo(() => Object.keys(selected).length, [selected])
 
-  // POST /purchase/rfqs → purchase.rfq:create + the PURCHASE_EXECUTIVE role.
-  const canCreateRfq = can(PAGE_KEYS.rfq, 'create') && hasRole('PURCHASE_EXECUTIVE')
+  // POST /purchase/rfqs → purchase.rfq:create.
+  const canCreateRfq = can(PAGE_KEYS.rfq, 'create')
 
   const toggle = (handoff: PurchaseRequirementHandoffSummary) => {
     setSelected((prev) => {

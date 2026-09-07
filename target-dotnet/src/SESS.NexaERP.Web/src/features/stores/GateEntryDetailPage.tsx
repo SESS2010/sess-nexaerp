@@ -24,7 +24,7 @@ function parseIso(json: string): IsoReceiptVerification | null {
 export function GateEntryDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
 
   const [gate, setGate] = useState<GateEntryResult | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,14 +86,11 @@ export function GateEntryDetailPage() {
 
   const iso = parseIso(gate.IsoReceiptVerificationJson)
   const isDraft = gate.Status === 'DRAFT'
-  // Every Gate Entry mutation is inventory.grn (an explicit-grant page) plus
-  // EfGateEntryService.ActorRole(), which accepts only STORES_EXECUTIVE / STORES_ASSISTANT.
-  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
-  // Editing re-reads the source PO (purchase.po:view) to list its lines; without that
-  // grant the modal can load nothing and the draft can never be saved.
-  const canEdit =
-    can(PAGE_KEYS.gateEntry, 'update') && storesOperator && can(PAGE_KEYS.purchaseOrders, 'view')
-  const canFinalize = can(PAGE_KEYS.gateEntry, 'submit') && storesOperator
+  // Every Gate Entry mutation is an action on inventory.grn. Editing re-reads
+  // the source PO (purchase.po:view) to list its lines; without that grant the
+  // modal can load nothing and the draft can never be saved.
+  const canEdit = can(PAGE_KEYS.gateEntry, 'update') && can(PAGE_KEYS.purchaseOrders, 'view')
+  const canFinalize = can(PAGE_KEYS.gateEntry, 'submit')
 
   return (
     <div className="page">

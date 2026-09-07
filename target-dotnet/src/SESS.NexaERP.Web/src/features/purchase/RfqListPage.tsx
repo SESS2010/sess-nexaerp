@@ -17,12 +17,11 @@ const COLUMNS: RegisterColumn<RfqListItem>[] = [
 
 export function RfqListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [showCreate, setShowCreate] = useState(false)
 
-  // POST /purchase/rfqs → purchase.rfq:create, and CreateRfqAsync additionally
-  // demands the PURCHASE_EXECUTIVE role.
-  const canCreateRfq = can(PAGE_KEYS.rfq, 'create') && hasRole('PURCHASE_EXECUTIVE')
+  // POST /purchase/rfqs → purchase.rfq:create.
+  const canCreateRfq = can(PAGE_KEYS.rfq, 'create')
 
   return (
     <PurchaseDocumentRegister

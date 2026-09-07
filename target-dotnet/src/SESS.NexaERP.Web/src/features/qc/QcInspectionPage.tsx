@@ -17,7 +17,7 @@ export function QcInspectionPage() {
   const { number = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [inspection, setInspection] = useState<QcInspectionResult | null>(null)
   const [serials, setSerials] = useState<QcSerialSource[]>([])
   const [hasPolicy, setHasPolicy] = useState(false)
@@ -90,11 +90,10 @@ export function QcInspectionPage() {
     }
   }
 
-  // POST /qc/inspections/{number}/corrections: qc.inspection-policies:update plus a
-  // direct QC_MANAGER role (CorrectAsync → FinalizeCore → RequireQcManager).
-  const canCorrect = can(PAGE_KEYS.qc, 'update') && hasRole('QC_MANAGER')
+  // POST /qc/inspections/{number}/corrections → qc.inspection-policies:update.
+  const canCorrect = can(PAGE_KEYS.qc, 'update')
   // The link only navigates, but it lands on the concession create form
-  // (POST /api/v1/qc/concessions → qc.inspection-policies:create, no role check).
+  // (POST /api/v1/qc/concessions → qc.inspection-policies:create).
   const canRaiseConcession = can(PAGE_KEYS.qc, 'create')
 
   if (loading && !inspection) return <div className="page"><p>Loading…</p></div>

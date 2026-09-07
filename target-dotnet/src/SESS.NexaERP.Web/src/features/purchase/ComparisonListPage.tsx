@@ -18,17 +18,15 @@ const COLUMNS: RegisterColumn<ComparisonListItem>[] = [
 
 export function ComparisonListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [showCreate, setShowCreate] = useState(false)
   const [rfqNumber, setRfqNumber] = useState('')
   const [rfqVersion, setRfqVersion] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  // POST /purchase/comparisons → purchase.commercial-comparisons:create, and
-  // CreateComparisonAsync additionally demands the PURCHASE_MANAGER role.
-  const canCreateComparison =
-    can(PAGE_KEYS.comparisons, 'create') && hasRole('PURCHASE_MANAGER')
+  // POST /purchase/comparisons → purchase.commercial-comparisons:create.
+  const canCreateComparison = can(PAGE_KEYS.comparisons, 'create')
   // The version lookup reads GET /purchase/rfqs/{number} → purchase.rfq:view.
   const canReadRfq = can(PAGE_KEYS.rfq, 'view')
 

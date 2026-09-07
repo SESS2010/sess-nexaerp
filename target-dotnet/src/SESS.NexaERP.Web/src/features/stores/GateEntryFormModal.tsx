@@ -54,7 +54,7 @@ interface Props {
 }
 
 export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) {
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [poNumber, setPoNumber] = useState(existing?.PurchaseOrderNumber ?? '')
   const [po, setPo] = useState<SourcePurchaseOrder | null>(null)
   const [loadingPo, setLoadingPo] = useState(false)
@@ -166,12 +166,9 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   }
 
   const poUsable = po && po.Status === 'Issued' && po.IsCurrentVersion
-  // POST/PUT /stores/gate-entries → inventory.grn:create / :update (explicit-grant page)
-  // plus EfGateEntryService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
-  const storesOperator = hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')
-  const canSave =
-    can(PAGE_KEYS.gateEntry, mode === 'create' ? 'create' : 'update') && storesOperator
-  // GET /purchase/purchase-orders/{number} → purchase.po:view (also explicit-grant).
+  // POST/PUT /stores/gate-entries → inventory.grn:create / :update.
+  const canSave = can(PAGE_KEYS.gateEntry, mode === 'create' ? 'create' : 'update')
+  // GET /purchase/purchase-orders/{number} → purchase.po:view.
   const canReadPo = can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (

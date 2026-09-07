@@ -55,13 +55,11 @@ function writeInvitation(rfqNumber: string, invitation: LocalInvitation): LocalI
 export function RfqDetailPage() {
   const { rfqNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
 
-  // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit, and
-  // InviteVendorAsync additionally demands the PURCHASE_EXECUTIVE role. The
-  // vendor picker behind it reads masters.vendors:view.
-  const canInviteVendor =
-    can(PAGE_KEYS.rfq, 'submit') && hasRole('PURCHASE_EXECUTIVE') && can(PAGE_KEYS.vendors, 'view')
+  // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit. The vendor
+  // picker behind it reads masters.vendors:view.
+  const canInviteVendor = can(PAGE_KEYS.rfq, 'submit') && can(PAGE_KEYS.vendors, 'view')
 
   const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [loading, setLoading] = useState(true)

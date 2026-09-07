@@ -20,15 +20,13 @@ interface ActionDefinition {
   tone: 'btn-primary' | 'btn-ghost' | 'btn-warn'
   /** Action name on purchase.commercial-comparisons required by the endpoint. */
   permission: string
-  /** Role the service demands on top of the page grant, if any. */
-  role?: string
 }
 
 const ACTIONS: ActionDefinition[] = [
   { action: 'approve', label: 'Approve', tone: 'btn-primary', permission: 'approve' },
   { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', permission: 'request-revision' },
   { action: 'reject', label: 'Reject', tone: 'btn-warn', permission: 'reject' },
-  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost', permission: 'resubmit', role: 'PURCHASE_MANAGER' },
+  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost', permission: 'resubmit' },
 ]
 
 function prettyJson(value: string | undefined): string {
@@ -43,18 +41,13 @@ function prettyJson(value: string | undefined): string {
 export function ComparisonDetailPage() {
   const { comparisonNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
 
-  // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit
-  // + the PURCHASE_MANAGER role.
-  const canRecommend = can(PAGE_KEYS.comparisons, 'submit') && hasRole('PURCHASE_MANAGER')
+  // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
+  const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
   // Approve / reject / request-revision / resubmit each need their own action
-  // grant on purchase.commercial-comparisons (full-control is not a wildcard here).
-  const allowedActions = ACTIONS.filter(
-    (definition) =>
-      can(PAGE_KEYS.comparisons, definition.permission) &&
-      (definition.role ? hasRole(definition.role) : true),
-  )
+  // grant on purchase.commercial-comparisons.
+  const allowedActions = ACTIONS.filter((definition) => can(PAGE_KEYS.comparisons, definition.permission))
 
   const [comparison, setComparison] = useState<ComparisonDetail | null>(null)
   const [loading, setLoading] = useState(true)

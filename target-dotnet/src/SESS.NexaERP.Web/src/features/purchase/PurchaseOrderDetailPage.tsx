@@ -20,21 +20,17 @@ type Pane = 'workflow' | 'amend' | 'cancel'
 export function PurchaseOrderDetailPage() {
   const { poNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can, hasRole, hasFullAuthorityRole } = useSession()
+  const { can } = useSession()
 
-  // Every command below is on purchase.po, where full-control is not a
-  // wildcard, so each action is checked on its own. The roles are the ones
-  // EfRev869BPurchaseService demands on top of the page grant.
-  const canSubmit = can(PAGE_KEYS.purchaseOrders, 'submit') && hasRole('PURCHASE_MANAGER')
+  // Every command below is its own action on purchase.po; the session's
+  // Permissions already reflect the role and assignment type the service
+  // will accept, so each button is simply present or absent.
+  const canSubmit = can(PAGE_KEYS.purchaseOrders, 'submit')
   const canApprove = can(PAGE_KEYS.purchaseOrders, 'approve')
   const canReject = can(PAGE_KEYS.purchaseOrders, 'reject')
-  const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue') && hasRole('PURCHASE_MANAGER')
-  const canAmend = can(PAGE_KEYS.purchaseOrders, 'update') && hasRole('PURCHASE_MANAGER')
-  // Cancel is SUPPORT-denied, so the director role has to be held with full
-  // authority; a SUPPORT-held directorship is refused by RequireRole.
-  const canCancel =
-    can(PAGE_KEYS.purchaseOrders, 'cancel') &&
-    (hasFullAuthorityRole('TECHNICAL_DIRECTOR') || hasFullAuthorityRole('MANAGING_DIRECTOR'))
+  const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue')
+  const canAmend = can(PAGE_KEYS.purchaseOrders, 'update')
+  const canCancel = can(PAGE_KEYS.purchaseOrders, 'cancel')
   const canWorkflow = canSubmit || canApprove || canReject || canIssue
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)

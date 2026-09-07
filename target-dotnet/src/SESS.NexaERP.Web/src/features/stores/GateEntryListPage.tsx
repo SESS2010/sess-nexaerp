@@ -12,29 +12,22 @@ import { useSort } from '../../hooks/useSort'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 /**
- * Server-side sorting for this register is not available yet: the
- * /api/v1/stores/gate-entries list endpoint accepts no sortBy or
- * sortDirection. Set to true once the backend takes them.
+ * GET /api/v1/stores/gate-entries sorts server-side on gateentrynumber,
+ * purchaseordernumber, vendorname, arrivedat and status (StoresListSortingTests).
  */
-const SORTABLE = false
+const SORTABLE = true
 
 const PAGE_SIZE = 25
 
 export function GateEntryListPage() {
   const navigate = useNavigate()
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [rows, setRows] = useState<GateEntryResult[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
   // Arrival order is what the register reads as "current" — newest gate entry
-  // on top, which is the order the endpoint already returns.
-  //
-  // GET /api/v1/stores/gate-entries takes no sortBy/sortDirection, so the
-  // columns are rendered as plain headers until it does. The keys below are the
-  // lowercase row-DTO field names the backend will accept once the parameters
-  // are added; flip SORTABLE to true then and nothing else needs to change.
-  // The list is paged server-side, so sorting the fetched page in the browser
-  // would reorder 50 rows out of a much longer register and read as a bug.
+  // on top. The list is paged server-side, so every sort goes to the endpoint;
+  // reordering one fetched page in the browser would read as a bug.
   const { sort, toggleSort } = useSort({ sortBy: 'arrivedat', sortDirection: 'desc' }, () => setPage(1))
   const [gateNumber, setGateNumber] = useState('')
   const [appliedGate, setAppliedGate] = useState('')
@@ -79,14 +72,10 @@ export function GateEntryListPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
-  // POST /stores/gate-entries → inventory.grn:create, plus EfGateEntryService.ActorRole()
-  // which accepts only STORES_EXECUTIVE / STORES_ASSISTANT. The form also has to read the
-  // source PO (purchase.po:view) to list its lines and refuses to save with none, so
-  // without that grant the create flow can never complete.
-  const canCreate =
-    can(PAGE_KEYS.gateEntry, 'create') &&
-    (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT')) &&
-    can(PAGE_KEYS.purchaseOrders, 'view')
+  // POST /stores/gate-entries → inventory.grn:create. The form also has to read
+  // the source PO (purchase.po:view) to list its lines and refuses to save with
+  // none, so without that grant the create flow can never complete.
+  const canCreate = can(PAGE_KEYS.gateEntry, 'create') && can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (
     <div className="page">

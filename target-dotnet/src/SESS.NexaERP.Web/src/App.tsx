@@ -65,7 +65,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')
   // Session permissions ("page:Action") hide screens the role cannot View.
-  const { can } = useSession()
+  // Until they are known the navigation stays empty rather than flashing
+  // links that vanish a moment later.
+  const { can, loading } = useSession()
 
   return (
     <div className="app-shell">
@@ -78,6 +80,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="nav">
+          {loading ? <span className="nav-link disabled">Loading session…</span> : null}
           <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores}>
             {can(PAGE_KEYS.employees) && <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>}
             {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}

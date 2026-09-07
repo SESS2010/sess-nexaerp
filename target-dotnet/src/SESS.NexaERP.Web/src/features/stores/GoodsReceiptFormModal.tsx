@@ -97,7 +97,7 @@ interface Props {
  * visible before submit rather than re-implementing them.
  */
 export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Props) {
-  const { can, hasRole } = useSession()
+  const { can } = useSession()
   const [gates, setGates] = useState<GateEntryResult[]>([])
   const [gatesTotal, setGatesTotal] = useState(0)
   const [gatesLoading, setGatesLoading] = useState(false)
@@ -412,11 +412,8 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   const gateHeader = mode === 'edit' ? existing : gate
   const line = lines[activeLine]
-  // POST/PUT /stores/goods-receipts → inventory.grn:create / :update (explicit-grant
-  // page) plus EfGoodsReceiptService.ActorRole() = STORES_EXECUTIVE or STORES_ASSISTANT.
-  const canSave =
-    can(PAGE_KEYS.grn, mode === 'create' ? 'create' : 'update') &&
-    (hasRole('STORES_EXECUTIVE') || hasRole('STORES_ASSISTANT'))
+  // POST/PUT /stores/goods-receipts → inventory.grn:create / :update.
+  const canSave = can(PAGE_KEYS.grn, mode === 'create' ? 'create' : 'update')
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
