@@ -108,6 +108,8 @@ public sealed class JobOrder : CompanyScopedAuditableEntity
     public DateOnly? PlannedCompletionDate { get; set; }
     public DateOnly? InstallationDate { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
+    public Guid? PinnedProductionBomRevisionId { get; set; }
+    public ProductionBomRevision? PinnedProductionBomRevision { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestFingerprint { get; set; } = string.Empty;
 }

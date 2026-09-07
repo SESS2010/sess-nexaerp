@@ -172,7 +172,7 @@ public static class Rev869BCommandContextAuthorizer
             throw new UnauthorizedAccessException("An exact authenticated OIDC issuer/subject employee identity is required.");
     }
 
-    private static async Task<List<OperationSlot>> CollectSlotsAsync(NexaErpDbContext db, CancellationToken ct)
+    internal static async Task<List<OperationSlot>> CollectSlotsAsync(NexaErpDbContext db, CancellationToken ct)
     {
         var result = new List<OperationSlot>();
         foreach (var history in db.ChangeTracker.Entries<PurchaseTransactionStatusHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
@@ -229,6 +229,30 @@ public static class Rev869BCommandContextAuthorizer
             result.Add(new("estimated_bom_history", history.Id, nameof(EstimatedBom), history.EstimatedBomId,
                 history.Action, version, history.FromStatus, history.ToStatus, history.CorrelationId, history.Remarks));
         }
+        foreach (var history in db.ChangeTracker.Entries<ProductionEngineeringHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            if (history.ProductionBomId.HasValue && history.ProductionBomRevisionId.HasValue)
+            {
+                var version = TrackedVersion<ProductionBomRevision>(db, history.ProductionBomRevisionId.Value)
+                    ?? await NextVersionAsync(db.ProductionBomRevisions, history.ProductionBomRevisionId.Value, ct);
+                result.Add(new("production_engineering_history", history.Id, nameof(ProductionBom),
+                    history.ProductionBomId.Value, history.Action, version, history.FromStatus, history.ToStatus,
+                    history.CorrelationId, history.Remarks));
+                continue;
+            }
+
+            if (history.EngineeringDocumentId.HasValue && history.EngineeringDocumentRevisionId.HasValue)
+            {
+                var version = TrackedVersion<EngineeringDocumentRevision>(db, history.EngineeringDocumentRevisionId.Value)
+                    ?? await NextVersionAsync(db.EngineeringDocumentRevisions, history.EngineeringDocumentRevisionId.Value, ct);
+                result.Add(new("production_engineering_history", history.Id, nameof(EngineeringDocument),
+                    history.EngineeringDocumentId.Value, history.Action, version, history.FromStatus, history.ToStatus,
+                    history.CorrelationId, history.Remarks));
+                continue;
+            }
+
+            throw new InvalidOperationException("Production engineering history must identify exactly one revision target.");
+        }
         foreach (var alias in db.ChangeTracker.Entries<ItemMergeAlias>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var version = TrackedVersion<Item>(db, alias.SourceItemId) ?? await NextVersionAsync(db.Items, alias.SourceItemId, ct);
@@ -254,6 +278,6 @@ public static class Rev869BCommandContextAuthorizer
     private static Task<long> NextVersionAsync<T>(IQueryable<T> query, Guid id, CancellationToken ct) where T : AuditableEntity =>
         query.Where(x => x.Id == id).Select(x => checked((long)x.Version + 1L)).SingleAsync(ct);
 
-    private sealed record OperationSlot(string ClaimKind, Guid HistoryId, string EntityType, Guid EntityId,
+    internal sealed record OperationSlot(string ClaimKind, Guid HistoryId, string EntityType, Guid EntityId,
         string Operation, long ParentVersion, string? FromStatus, string ToStatus, string Correlation, string Remarks);
 }
