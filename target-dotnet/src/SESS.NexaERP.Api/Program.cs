@@ -148,6 +148,7 @@ app.MapMasterEndpoints();
 app.MapReferenceMasterEndpoints();
 app.MapMasterDataTransferEndpoints();
 app.MapInventoryEndpoints();
+app.MapEstimatedBomEndpoints();
 app.MapItemVendorEndpoints();
 app.MapCustomerPoEndpoints();
 app.MapPurchaseRequisitionEndpoints();

@@ -25,9 +25,29 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
             ?? throw new UnauthorizedAccessException("The resolved primary department is unavailable.");
 
         var permissions = await ResolvePermissionsAsync(currentUser.EffectiveRoleAssignments, cancellationToken);
+        var employeePermissions = await ResolveEmployeePermissionsAsync(company.Id, employee.Id, cancellationToken);
+        permissions = permissions.Concat(employeePermissions).Concat(RoleAuthorityResolution.UniversalEmployeePermissions)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         return new SessionMe(employee.Id, employee.EmployeeCode, employee.EmployeeName, company.Id, company.Code,
             currentUser.DepartmentId.Value, departmentCode, currentUser.RoleCodes.Order(StringComparer.Ordinal).ToArray(), permissions,
             currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.FullAuthorityRoleCodes);
+    }
+
+    private async Task<IReadOnlyList<string>> ResolveEmployeePermissionsAsync(Guid companyId, Guid employeeId, CancellationToken ct)
+    {
+        var grants = await db.EmployeePagePermissions.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && x.EmployeeId == employeeId && x.PageDefinition != null && x.PageDefinition.IsActive)
+            .Select(x => new { x.PageDefinition!.PageKey, x.CanView, x.CanCreate, x.CanUpdate, x.CanSubmit, x.CanDownload, x.CanViewAuditHistory })
+            .ToListAsync(ct);
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var grant in grants)
+        {
+            void Add(bool value, string action) { if (value) result.Add(grant.PageKey + ":" + action); }
+            Add(grant.CanView, PagePermissionActions.View); Add(grant.CanCreate, PagePermissionActions.Create);
+            Add(grant.CanUpdate, PagePermissionActions.Update); Add(grant.CanSubmit, PagePermissionActions.Submit);
+            Add(grant.CanDownload, PagePermissionActions.Download); Add(grant.CanViewAuditHistory, PagePermissionActions.ViewAuditHistory);
+        }
+        return result.Order(StringComparer.Ordinal).ToArray();
     }
 
     private async Task<IReadOnlyList<string>> ResolvePermissionsAsync(IReadOnlyCollection<EffectiveRoleAssignment> assignments, CancellationToken ct)

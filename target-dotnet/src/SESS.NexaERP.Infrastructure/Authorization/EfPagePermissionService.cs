@@ -64,4 +64,30 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
             return explicitlyGranted || grant.HasFullControl && !requiresExplicitGrant;
         });
     }
+
+    public async Task<bool> HasEmployeePermissionAsync(string organizationCode, Guid employeeId, string pageKey, string permission, CancellationToken cancellationToken)
+    {
+        var page = pageKey.Trim().ToLowerInvariant();
+        var action = permission.Trim().ToLowerInvariant();
+        var organization = organizationCode.Trim().ToUpperInvariant();
+        var companyId = await db.Companies.AsNoTracking().Where(x => x.Code == organization && x.IsActive)
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(cancellationToken);
+        if (!companyId.HasValue) return false;
+        var grant = await db.EmployeePagePermissions.AsNoTracking()
+            .Where(x => x.CompanyId == companyId.Value && x.EmployeeId == employeeId &&
+                x.PageDefinition != null && x.PageDefinition.PageKey == page && x.PageDefinition.IsActive)
+            .Select(x => new { x.CanView, x.CanCreate, x.CanUpdate, x.CanSubmit, x.CanDownload, x.CanViewAuditHistory })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (grant is null) return false;
+        return action switch
+        {
+            PagePermissionActions.View => grant.CanView,
+            PagePermissionActions.Create => grant.CanCreate,
+            PagePermissionActions.Update => grant.CanUpdate,
+            PagePermissionActions.Submit => grant.CanSubmit,
+            PagePermissionActions.Download => grant.CanDownload,
+            PagePermissionActions.ViewAuditHistory => grant.CanViewAuditHistory,
+            _ => false
+        };
+    }
 }
