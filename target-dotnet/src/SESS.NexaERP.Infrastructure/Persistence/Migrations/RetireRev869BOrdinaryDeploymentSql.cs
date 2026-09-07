@@ -4,7 +4,8 @@ internal static class RetireRev869BOrdinaryDeploymentSql
 {
     private static readonly string[] TargetRoles =
     [
-        "nexa_rev869b_security_owner", "nexa_rev869b_app_runtime", "nexa_rev869b_command_audit",
+        "nexa_rev869b_security_owner", "nexa_rev869b_lifecycle_administrator",
+        "nexa_rev869b_app_runtime", "nexa_rev869b_command_audit",
         "nexa_rev869b_management_writer", "nexa_rev869b_purge_worker", "nexa_rev869b_purge_audit",
         "nexa_rev869b_export_service", "nexa_rev869b_target_verifier"
     ];
@@ -12,6 +13,7 @@ internal static class RetireRev869BOrdinaryDeploymentSql
     internal static string Up => BuildPreflight() + WrapWhenInstalled(
         Rev869BControlledMutationSql.Remove + Environment.NewLine +
         Rev869BCommandContextSql.RetirePreservingEvidence + Environment.NewLine +
+        ReassignRetiredOwnership + Environment.NewLine +
         RevokeRetiredRoleAccess) + """
 
         DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON advance.vendor_qualifications;
@@ -29,6 +31,37 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         Rev869BControlledMutationSql.Install) + """
 
         DROP TABLE advance.rev869b_retirement_state;
+        """;
+
+    internal static string RepairAlreadyAppliedOwnership => $$"""
+        DO $repair$
+        DECLARE was_installed boolean; role_count integer; role_name text;
+        BEGIN
+          IF to_regclass('advance.rev869b_retirement_state') IS NULL THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE='Refusing REV869B ownership repair: retirement state is missing.';
+          END IF;
+          SELECT "WasInstalled" INTO STRICT was_installed
+          FROM advance.rev869b_retirement_state WHERE "Id";
+          SELECT count(*) INTO role_count FROM pg_roles WHERE rolname=ANY({{SqlArray(TargetRoles)}});
+
+          IF NOT was_installed AND role_count=0 THEN
+            RETURN;
+          END IF;
+          IF NOT was_installed OR role_count<>{{TargetRoles.Length}} THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE=format('Refusing REV869B ownership repair: partial retired state (was installed %s, roles %s/%s).',
+                was_installed,role_count,{{TargetRoles.Length}});
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_owner') THEN
+            RAISE EXCEPTION USING ERRCODE='55000',
+              MESSAGE='Refusing REV869B ownership repair: nexa_erp_owner is missing.';
+          END IF;
+
+          FOREACH role_name IN ARRAY {{SqlArray(TargetRoles)}} LOOP
+            EXECUTE format('REASSIGN OWNED BY %I TO nexa_erp_owner',role_name);
+          END LOOP;
+        END $repair$;
         """;
 
     private static string BuildPreflight()
@@ -100,6 +133,14 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + Environment.NewLine +
         "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + Environment.NewLine +
         "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";";
+
+    private static readonly string ReassignRetiredOwnership =
+        "DO $ownership_target$ BEGIN " +
+        "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_owner') THEN " +
+        "RAISE EXCEPTION USING ERRCODE='55000',MESSAGE='Refusing REV869B retirement: nexa_erp_owner is missing.'; " +
+        "END IF; END $ownership_target$;" + Environment.NewLine +
+        string.Join(Environment.NewLine, TargetRoles.Select(role =>
+            $"REASSIGN OWNED BY {role} TO nexa_erp_owner;"));
 
     private const string RestorePreparation = """
         DROP TRIGGER IF EXISTS "TR_rev869b_command_outcomes_immutable" ON advance.rev869b_command_attempt_outcomes;

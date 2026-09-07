@@ -5,6 +5,7 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Inventory;
 using SESS.NexaERP.Application.Masters;
+using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -54,7 +55,7 @@ public static class InventoryEndpoints
         }).RequirePagePermission("masters.items", PagePermissionActions.Update);
 
         MapItemAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
-        MapItemAction(group, "approve", "Approve", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Approve);
+        MapItemApprove(group);
         MapItemAction(group, "reject", "Reject", MasterStatuses.Rejected, MasterApprovalStatuses.Rejected, PagePermissionActions.Reject);
         MapItemAction(group, "request-clarification", "RequestClarification", MasterStatuses.PendingApproval, MasterApprovalStatuses.ClarificationRequested, PagePermissionActions.RequestClarification);
         MapItemAction(group, "request-revision", "RequestRevision", MasterStatuses.Draft, MasterApprovalStatuses.RevisionRequested, PagePermissionActions.RequestRevision);
@@ -62,6 +63,10 @@ public static class InventoryEndpoints
         MapItemAction(group, "hold", "Hold", MasterStatuses.OnHold, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
         MapItemAction(group, "reactivate", "Reactivate", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Update);
         MapItemAction(group, "deactivate", "Deactivate", MasterStatuses.Inactive, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
+        group.MapPost("/items/{sourceItemId:guid}/merge", async (Guid sourceItemId, MergeItemRequest request, IEstimatedBomService service, CancellationToken ct) =>
+        {
+            await service.MergeItemAsync(sourceItemId, request, ct); return Results.NoContent();
+        }).RequirePagePermission("masters.items", PagePermissionActions.Approve);
         group.MapGet("/items/{code}/status-history", (string code, NexaErpDbContext db, CancellationToken ct) => MasterEndpointHelpers.GetStatusHistoryAsync(db, nameof(Item), MasterEndpointHelpers.NormalizeCode(code), ct)).RequirePagePermission("masters.items", PagePermissionActions.ViewAuditHistory);
         group.MapGet("/items/{code}/approval-history", (string code, NexaErpDbContext db, CancellationToken ct) => MasterEndpointHelpers.GetApprovalHistoryAsync(db, nameof(Item), MasterEndpointHelpers.NormalizeCode(code), ct)).RequirePagePermission("masters.items", PagePermissionActions.ViewAuditHistory);
         group.MapGet("/items/{code}/audit-history", async (string code, NexaErpDbContext db, CancellationToken ct) => { var id = await db.Items.AsNoTracking().Where(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code)).Select(x => x.Id.ToString()).SingleOrDefaultAsync(ct); return id is null ? Results.NotFound(new { message = "Item not found." }) : await MasterEndpointHelpers.GetAuditHistoryAsync(db, nameof(Item), id, ct); }).RequirePagePermission("masters.items", PagePermissionActions.ViewAuditHistory);
@@ -155,7 +160,40 @@ public static class InventoryEndpoints
     }
 
     private static void MapItemAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/items/{{code}}/{route}", async (string code, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
-    { var e = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Item not found." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Item), e.ItemCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsItemCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.items", permission);
+    { if(route=="approve")_ = user.RequireRole("approve","STORES_MANAGER","PURCHASE_MANAGER"); var e = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Item not found." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Item), e.ItemCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsItemCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.items", permission);
+
+    private static void MapItemApprove(RouteGroupBuilder g) => g.MapPost("/items/{code}/approve", async
+        (string code, MasterActionRequest r, HttpRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
+    {
+        var role = user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
+        var key = request.Headers["Idempotency-Key"].ToString().Trim();
+        if (key.Length == 0) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var item = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct);
+        if (item is null) return Results.NotFound(new { message = "Item not found." });
+        if (string.IsNullOrWhiteSpace(r.Remarks)) return Results.BadRequest(new { message = "Remarks/reason are required." });
+        if (item.Version != r.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
+        if (MasterEndpointHelpers.IsSelfApprovalAttempt(item, user)) return Results.Forbid();
+        var before = new { item.Status, item.ApprovalStatus, item.Version };
+        var correlation = "ITEM-APPROVE-" + key;
+        item.Status = MasterStatuses.Active; item.ApprovalStatus = MasterApprovalStatuses.Approved;
+        item.IsActive = true; item.IsItemCodeLocked = true; item.ApprovedBy = user.LoginId; item.ApprovedAt = DateTimeOffset.UtcNow;
+        item.UpdatedBy = user.LoginId; item.UpdatedAt = DateTimeOffset.UtcNow;
+        MasterEndpointHelpers.AddApprovalHistory(db, nameof(Item), item.Id, item.ItemCode, "Approve",
+            before.ApprovalStatus, item.ApprovalStatus, r.Remarks.Trim(), user, correlation);
+        db.MasterStatusHistories.Add(new MasterStatusHistory { MasterType = nameof(Item), MasterId = item.Id,
+            MasterCode = item.ItemCode, PreviousStatus = before.Status, NewStatus = item.Status, Reason = r.Remarks.Trim(),
+            SourceRevision = "PART1A", CorrelationId = correlation, CreatedBy = user.LoginId });
+        var company = user.OrganizationId!;
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(company, "Item.Approve", key, new { item.Id, r.Version, r.Remarks });
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, company, envelope, ct, role)
+            ?? throw new InvalidOperationException("Item approval produced no immutable operation slot.");
+        await audit.WriteAsync("Masters", "Approve", nameof(Item), item.Id.ToString(), before,
+            new { item.Status, item.ApprovalStatus, item.Version }, ct);
+        await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
+        await tx.CommitAsync(ct);
+        return Results.Ok(new { code = item.ItemCode, status = item.Status, approvalStatus = item.ApprovalStatus, item.Version });
+    }).RequirePagePermission("masters.items", PagePermissionActions.Approve);
 
     private static void MapWarehouseAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/warehouses/{{code}}/{route}", async (string code, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
     { var companyId=await SelectedCompanyId(db,user,ct);var e = await db.Warehouses.SingleOrDefaultAsync(x => x.CompanyId==companyId&&x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Warehouse not found." });if(route=="deactivate"){var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId&&x.WarehouseId==e.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Warehouse cannot be deactivated while its current stock balance is {balance}. Transfer or issue the stock first."});if(await db.RackBins.AnyAsync(x=>x.CompanyId==companyId&&x.WarehouseId==e.Id&&x.IsActive,ct))return Results.Conflict(new{message="Warehouse cannot be deactivated while it has active rack/bins. Deactivate its empty rack/bins first."});}return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Warehouse), e.WarehouseCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsWarehouseCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.warehouses", permission);

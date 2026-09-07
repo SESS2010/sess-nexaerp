@@ -8,7 +8,9 @@ using Npgsql;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Purchase;
+using SESS.NexaERP.Domain.Stores;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
@@ -170,7 +172,7 @@ public static class Rev869BCommandContextAuthorizer
             throw new UnauthorizedAccessException("An exact authenticated OIDC issuer/subject employee identity is required.");
     }
 
-    private static async Task<List<OperationSlot>> CollectSlotsAsync(NexaErpDbContext db, CancellationToken ct)
+    internal static async Task<List<OperationSlot>> CollectSlotsAsync(NexaErpDbContext db, CancellationToken ct)
     {
         var result = new List<OperationSlot>();
         foreach (var history in db.ChangeTracker.Entries<PurchaseTransactionStatusHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
@@ -220,6 +222,50 @@ public static class Rev869BCommandContextAuthorizer
             var to = history.Action switch { "Approve" => MasterApprovalStatuses.Approved, "Reject" => MasterApprovalStatuses.Rejected, _ => MasterApprovalStatuses.PendingApproval };
             result.Add(new("tax_history", history.Id, nameof(TaxGstSetting), history.EntityId, history.Action, parentVersion, from, to, history.CorrelationId, history.Remarks));
         }
+        foreach (var history in db.ChangeTracker.Entries<EstimatedBomHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<EstimatedBomRevision>(db, history.EstimatedBomRevisionId)
+                ?? await NextVersionAsync(db.EstimatedBomRevisions, history.EstimatedBomRevisionId, ct);
+            result.Add(new("estimated_bom_history", history.Id, nameof(EstimatedBom), history.EstimatedBomId,
+                history.Action, version, history.FromStatus, history.ToStatus, history.CorrelationId, history.Remarks));
+        }
+        foreach (var history in db.ChangeTracker.Entries<ProductionEngineeringHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            if (history.ProductionBomId.HasValue && history.ProductionBomRevisionId.HasValue)
+            {
+                var version = TrackedVersion<ProductionBomRevision>(db, history.ProductionBomRevisionId.Value)
+                    ?? await NextVersionAsync(db.ProductionBomRevisions, history.ProductionBomRevisionId.Value, ct);
+                result.Add(new("production_engineering_history", history.Id, nameof(ProductionBom),
+                    history.ProductionBomId.Value, history.Action, version, history.FromStatus, history.ToStatus,
+                    history.CorrelationId, history.Remarks));
+                continue;
+            }
+
+            if (history.EngineeringDocumentId.HasValue && history.EngineeringDocumentRevisionId.HasValue)
+            {
+                var version = TrackedVersion<EngineeringDocumentRevision>(db, history.EngineeringDocumentRevisionId.Value)
+                    ?? await NextVersionAsync(db.EngineeringDocumentRevisions, history.EngineeringDocumentRevisionId.Value, ct);
+                result.Add(new("production_engineering_history", history.Id, nameof(EngineeringDocument),
+                    history.EngineeringDocumentId.Value, history.Action, version, history.FromStatus, history.ToStatus,
+                    history.CorrelationId, history.Remarks));
+                continue;
+            }
+
+            throw new InvalidOperationException("Production engineering history must identify exactly one revision target.");
+        }
+        foreach (var alias in db.ChangeTracker.Entries<ItemMergeAlias>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<Item>(db, alias.SourceItemId) ?? await NextVersionAsync(db.Items, alias.SourceItemId, ct);
+            result.Add(new("item_merge_aliases", alias.Id, nameof(Item), alias.SourceItemId, "Merge", version,
+                "ACTIVE", "MERGED", alias.Id.ToString("N"), alias.Reason));
+        }
+        foreach (var history in db.ChangeTracker.Entries<MasterApprovalHistory>().Where(x => x.State == EntityState.Added &&
+                     x.Entity.MasterType == nameof(Item) && x.Entity.Action == "Approve").Select(x => x.Entity))
+        {
+            var version = TrackedVersion<Item>(db, history.MasterId) ?? await NextVersionAsync(db.Items, history.MasterId, ct);
+            result.Add(new("master_approval_history", history.Id, nameof(Item), history.MasterId, "Approve", version,
+                history.FromStatus, history.ToStatus, history.CorrelationId, history.Remarks));
+        }
         if (result.GroupBy(x => new { x.ClaimKind, x.EntityType, x.EntityId, x.Operation, x.ParentVersion, x.Correlation }).Any(x => x.Count() != 1))
             throw new InvalidOperationException("Duplicate semantic command slots are prohibited before registration.");
         return result;
@@ -232,6 +278,6 @@ public static class Rev869BCommandContextAuthorizer
     private static Task<long> NextVersionAsync<T>(IQueryable<T> query, Guid id, CancellationToken ct) where T : AuditableEntity =>
         query.Where(x => x.Id == id).Select(x => checked((long)x.Version + 1L)).SingleAsync(ct);
 
-    private sealed record OperationSlot(string ClaimKind, Guid HistoryId, string EntityType, Guid EntityId,
+    internal sealed record OperationSlot(string ClaimKind, Guid HistoryId, string EntityType, Guid EntityId,
         string Operation, long ParentVersion, string? FromStatus, string ToStatus, string Correlation, string Remarks);
 }

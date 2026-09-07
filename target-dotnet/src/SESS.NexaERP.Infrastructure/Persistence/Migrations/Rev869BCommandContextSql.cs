@@ -25,9 +25,9 @@ internal static class Rev869BCommandContextSql
     {
         get
         {
-            const string marker = "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_register_command_request(";
+            const string marker = "CREATE FUNCTION __advance_schema__.rev869b_deny_ledger_mutation()";
             var start = InstallTemplate.IndexOf(marker, StringComparison.Ordinal);
-            if (start < 0) throw new InvalidOperationException("REV869B command-function restore marker was not found.");
+            if (start < 0) throw new InvalidOperationException("REV869B retained-ledger guard restore marker was not found.");
             return AdvanceSchemaSql.Expand(InstallTemplate[start..]);
         }
     }

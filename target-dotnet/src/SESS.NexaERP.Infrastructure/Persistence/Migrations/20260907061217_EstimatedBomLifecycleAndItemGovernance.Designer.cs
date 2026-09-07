@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907061217_EstimatedBomLifecycleAndItemGovernance")]
+    partial class EstimatedBomLifecycleAndItemGovernance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -56729,198 +56732,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("delivery_challan_lines", "advance");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EngineeringDocument", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("CurrentRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DocumentNumber")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CompanyId", "CurrentRevisionId");
-
-                    b.HasIndex("CompanyId", "DocumentNumber")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "JobOrderId", "DocumentType");
-
-                    b.ToTable("engineering_documents", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EngineeringDocumentRevision", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ApprovedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CheckedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentFingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character(64)")
-                        .IsFixedLength();
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateOnly>("DocumentDate")
-                        .HasColumnType("date");
-
-                    b.Property<Guid>("DrawnByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("EngineeringDocumentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("RevisionCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<string>("RevisionNote")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<int>("RevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Sha256")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character(64)")
-                        .IsFixedLength();
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("StorageKey")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("SubmittedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("SupersedesRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApprovedByEmployeeId");
-
-                    b.HasIndex("CheckedByEmployeeId");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("DrawnByEmployeeId");
-
-                    b.HasIndex("CompanyId", "EngineeringDocumentId");
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "SupersedesRevisionId");
-
-                    b.HasIndex("EngineeringDocumentId", "RevisionNumber")
-                        .IsUnique();
-
-                    b.ToTable("engineering_document_revisions", "advance");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
                 {
                     b.Property<Guid>("Id")
@@ -60186,9 +59997,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<Guid?>("PinnedProductionBomRevisionId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateOnly?>("PlannedCompletionDate")
                         .HasColumnType("date");
 
@@ -60223,8 +60031,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "MachineSerial")
                         .IsUnique();
-
-                    b.HasIndex("CompanyId", "PinnedProductionBomRevisionId");
 
                     b.HasIndex("CompanyId", "Status", "JobOrderDate");
 
@@ -60665,302 +60471,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_notification_recipient_roles", "cardinality(\"ResolvedRoleCodes\") > 0");
                         });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBom", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("BomNumber")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("CurrentRevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CompanyId", "BomNumber")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "JobOrderId")
-                        .IsUnique();
-
-                    b.ToTable("production_boms", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBomLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("LineNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("ProductionBomRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Quantity")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("UomId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasAlternateKey("CompanyId", "Id");
-
-                    b.HasIndex("ItemId");
-
-                    b.HasIndex("UomId");
-
-                    b.HasIndex("CompanyId", "ProductionBomRevisionId");
-
-                    b.HasIndex("ProductionBomRevisionId", "LineNumber")
-                        .IsUnique();
-
-                    b.ToTable("production_bom_lines", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBomRevision", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ApprovalReason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ApprovedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentFingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character(64)")
-                        .IsFixedLength();
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("PreparedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ProductionBomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("RevisionNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("RevisionReason")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("SourceEstimatedBomRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("SubmittedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("SupersedesRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ApprovedByEmployeeId");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("PreparedByEmployeeId");
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "ProductionBomId");
-
-                    b.HasIndex("CompanyId", "SourceEstimatedBomRevisionId");
-
-                    b.HasIndex("CompanyId", "SupersedesRevisionId");
-
-                    b.HasIndex("ProductionBomId", "RevisionNumber")
-                        .IsUnique();
-
-                    b.ToTable("production_bom_revisions", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionEngineeringHistory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<Guid>("ActorEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("EngineeringDocumentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("EngineeringDocumentRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FromStatus")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ProductionBomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ProductionBomRevisionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Remarks")
-                        .IsRequired()
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ToStatus")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActorEmployeeId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "CorrelationId")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "EngineeringDocumentId");
-
-                    b.HasIndex("CompanyId", "EngineeringDocumentRevisionId")
-                        .HasDatabaseName("IX_production_engineering_history_CompanyId_EngineeringDocume~1");
-
-                    b.HasIndex("CompanyId", "OccurredAt");
-
-                    b.HasIndex("CompanyId", "ProductionBomId");
-
-                    b.HasIndex("CompanyId", "ProductionBomRevisionId");
-
-                    b.ToTable("production_engineering_history", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspection", b =>
@@ -64204,81 +63714,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("WeightUom");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EngineeringDocument", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EngineeringDocumentRevision", "CurrentRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "CurrentRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("CurrentRevision");
-
-                    b.Navigation("JobOrder");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EngineeringDocumentRevision", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ApprovedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ApprovedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "CheckedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("CheckedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "DrawnByEmployee")
-                        .WithMany()
-                        .HasForeignKey("DrawnByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EngineeringDocument", "EngineeringDocument")
-                        .WithMany("Revisions")
-                        .HasForeignKey("CompanyId", "EngineeringDocumentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EngineeringDocumentRevision", "SupersedesRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "SupersedesRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ApprovedByEmployee");
-
-                    b.Navigation("CheckedByEmployee");
-
-                    b.Navigation("DrawnByEmployee");
-
-                    b.Navigation("EngineeringDocument");
-
-                    b.Navigation("SupersedesRevision");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
@@ -65720,14 +65155,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBomRevision", "PinnedProductionBomRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "PinnedProductionBomRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("PinnedProductionBomRevision");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssueRequest", b =>
@@ -65859,153 +65286,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("ReadByEmployee");
 
                     b.Navigation("RecipientEmployee");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBom", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("JobOrder");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBomLine", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
-                        .WithMany()
-                        .HasForeignKey("UomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBomRevision", "ProductionBomRevision")
-                        .WithMany("Lines")
-                        .HasForeignKey("CompanyId", "ProductionBomRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Item");
-
-                    b.Navigation("ProductionBomRevision");
-
-                    b.Navigation("Uom");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBomRevision", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ApprovedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ApprovedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "PreparedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("PreparedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBom", "ProductionBom")
-                        .WithMany("Revisions")
-                        .HasForeignKey("CompanyId", "ProductionBomId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EstimatedBomRevision", "SourceEstimatedBomRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "SourceEstimatedBomRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBomRevision", "SupersedesRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "SupersedesRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ApprovedByEmployee");
-
-                    b.Navigation("PreparedByEmployee");
-
-                    b.Navigation("ProductionBom");
-
-                    b.Navigation("SourceEstimatedBomRevision");
-
-                    b.Navigation("SupersedesRevision");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionEngineeringHistory", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ActorEmployee")
-                        .WithMany()
-                        .HasForeignKey("ActorEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EngineeringDocument", "EngineeringDocument")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "EngineeringDocumentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.EngineeringDocumentRevision", "EngineeringDocumentRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "EngineeringDocumentRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBom", "ProductionBom")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ProductionBomId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBomRevision", "ProductionBomRevision")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ProductionBomRevisionId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ActorEmployee");
-
-                    b.Navigation("EngineeringDocument");
-
-                    b.Navigation("EngineeringDocumentRevision");
-
-                    b.Navigation("ProductionBom");
-
-                    b.Navigation("ProductionBomRevision");
-
-                    b.Navigation("ResolvedRoleAssignment");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.QcInspection", b =>
@@ -66602,11 +65882,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Lines");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EngineeringDocument", b =>
-                {
-                    b.Navigation("Revisions");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.EstimatedBom", b =>
                 {
                     b.Navigation("Revisions");
@@ -66679,16 +65954,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.NotificationRecipient", b =>
                 {
                     b.Navigation("DeliveryAttempts");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBom", b =>
-                {
-                    b.Navigation("Revisions");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ProductionBomRevision", b =>
-                {
-                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }

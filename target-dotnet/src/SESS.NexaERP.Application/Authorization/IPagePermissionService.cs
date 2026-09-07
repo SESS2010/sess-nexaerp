@@ -3,6 +3,7 @@
 public interface IPagePermissionService
 {
     Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken cancellationToken);
+    Task<bool> HasEmployeePermissionAsync(string organizationCode, Guid employeeId, string pageKey, string permission, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
 public static class PagePermissionActions

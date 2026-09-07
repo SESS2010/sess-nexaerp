@@ -25,6 +25,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<PageDefinition> PageDefinitions => Set<PageDefinition>();
     public DbSet<RolePagePermission> RolePagePermissions => Set<RolePagePermission>();
+    public DbSet<EmployeePagePermission> EmployeePagePermissions => Set<EmployeePagePermission>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Skill> Skills => Set<Skill>();
     public DbSet<Designation> Designations => Set<Designation>();
@@ -84,6 +85,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureStoresPart2(modelBuilder);
         ConfigureStoresPart3A(modelBuilder);
         ConfigureEstimatedBom(modelBuilder);
+        ConfigureProductionEngineering(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
         ConfigureInventoryOwnershipCustody(modelBuilder);
         ConfigureInventoryProvenanceGenealogy(modelBuilder);
@@ -840,6 +842,17 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.CanIssue).HasDefaultValue(false);
             entity.Property(x => x.Version).IsConcurrencyToken();
             entity.HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.PageDefinition).WithMany().HasForeignKey(x => x.PageDefinitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmployeePagePermission>(entity =>
+        {
+            entity.ToTable("employee_page_permissions");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.CompanyId, x.EmployeeId, x.PageDefinitionId }).IsUnique();
+            entity.Property(x => x.Version).IsConcurrencyToken();
+            entity.HasOne<SESS.NexaERP.Domain.Foundation.Company>().WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.Employee).WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.PageDefinition).WithMany().HasForeignKey(x => x.PageDefinitionId).OnDelete(DeleteBehavior.Cascade);
         });
     }

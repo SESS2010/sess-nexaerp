@@ -2,6 +2,8 @@ namespace SESS.NexaERP.Application.Common;
 
 public static class RoleAuthorityResolution
 {
+    public static IReadOnlyList<string> UniversalEmployeePermissions { get; } =
+        Array.AsReadOnly(new[] { "masters.items:view", "masters.items:create" });
     public static IReadOnlyList<string> SupportDeniedActions { get; } = Array.AsReadOnly(new[]
     {
         "approve", "reject", "cancel", "reverse", "deactivate",
@@ -42,6 +44,10 @@ public static class RoleAuthorityResolution
     public static bool CanAssignmentExercise(string assignmentType, string operation) =>
         !string.Equals(assignmentType.Trim(), "SUPPORT", StringComparison.OrdinalIgnoreCase) ||
         !IsSupportDenied(operation);
+
+    public static bool IsUniversalEmployeePermission(string pageKey, string permission) =>
+        UniversalEmployeePermissions.Contains(pageKey.Trim().ToLowerInvariant() + ":" + permission.Trim().ToLowerInvariant(),
+            StringComparer.Ordinal);
 
     private static int AssignmentRank(string type) => type.Trim().ToUpperInvariant() switch
     {

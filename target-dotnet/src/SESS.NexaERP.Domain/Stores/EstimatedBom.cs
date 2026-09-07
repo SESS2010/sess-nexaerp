@@ -12,8 +12,28 @@ public sealed class EstimatedBom : CompanyScopedAuditableEntity
     public JobOrder? JobOrder { get; set; }
     public int CurrentRevisionNumber { get; set; }
     public Guid? ApprovedRevisionId { get; set; }
+    public Guid? CommercialBaselineRevisionId { get; set; }
     public string Status { get; set; } = "DRAFT";
     public List<EstimatedBomRevision> Revisions { get; set; } = [];
+}
+
+public sealed class EstimatedBomHistory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid EstimatedBomId { get; set; }
+    public Guid EstimatedBomRevisionId { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? FromStatus { get; set; }
+    public string ToStatus { get; set; } = string.Empty;
+    public Guid ActorEmployeeId { get; set; }
+    public string ActorRoleCode { get; set; } = string.Empty;
+    public Guid ResolvedRoleAssignmentId { get; set; }
+    public string ResolvedRoleAssignmentType { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string Remarks { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
 }
 
 public sealed class EstimatedBomRevision : CompanyScopedAuditableEntity

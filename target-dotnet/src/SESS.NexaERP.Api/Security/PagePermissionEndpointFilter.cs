@@ -20,6 +20,8 @@ public static class PagePermissionEndpointFilter
                 return Results.Unauthorized();
             }
             var permissions = httpContext.RequestServices.GetRequiredService<IPagePermissionService>();
+            if (RoleAuthorityResolution.IsUniversalEmployeePermission(pageKey, permission))
+                return await next(context);
             var qualifyingRoles = new List<string>();
             foreach (var assignment in currentUser.EffectiveRoleAssignments)
             {
@@ -28,6 +30,10 @@ public static class PagePermissionEndpointFilter
                 if (await permissions.HasPermissionAsync([assignment.RoleCode], pageKey, permission, httpContext.RequestAborted))
                     qualifyingRoles.Add(assignment.RoleCode);
             }
+            var employeeGrant = !string.IsNullOrWhiteSpace(currentUser.OrganizationId) &&
+                await permissions.HasEmployeePermissionAsync(currentUser.OrganizationId!, currentUser.EmployeeId.Value,
+                    pageKey, permission, httpContext.RequestAborted);
+            if (employeeGrant) return await next(context);
             try
             {
                 currentUser.RequireRole($"{pageKey}:{permission}", qualifyingRoles.Distinct(StringComparer.Ordinal).ToArray());
