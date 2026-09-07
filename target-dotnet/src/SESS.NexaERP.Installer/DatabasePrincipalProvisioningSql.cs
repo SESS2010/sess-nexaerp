@@ -156,6 +156,10 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text) TO nexa_erp_runtime';
           END IF;
+          IF to_regprocedure('advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text) TO nexa_erp_runtime';
+          END IF;
         END $stores_acl$;
 
         DO $ordinary_command_acl$
@@ -309,6 +313,12 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_bootstrap','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')
                   OR has_function_privilege('nexa_erp_migration','advance.reverse_goods_receipt(uuid,uuid,bigint,text,text,text,text,text,uuid,text,text)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled GRN reversal function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text)') IS NOT NULL
+             AND (NOT has_function_privilege('nexa_erp_runtime','advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_migration','advance.post_material_issue_custody(uuid,uuid,text,text,text,uuid,text)','EXECUTE')) THEN
+            RAISE EXCEPTION 'Controlled Material Issue custody function ACL is invalid.';
           END IF;
           IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL THEN
             IF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NULL

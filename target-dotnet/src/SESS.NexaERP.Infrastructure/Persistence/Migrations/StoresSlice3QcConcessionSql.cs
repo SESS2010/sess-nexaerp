@@ -208,6 +208,12 @@ internal static class StoresSlice3QcConcessionSql
             concession + Q("\n          ELSIF NEW.~MaterialIssueRequestLineId~ IS NOT NULL THEN"));
     }
 
+    internal static string ActiveMovementGuard => BuildMovementGuard();
+
+    internal static string MaterialIssueAwareMovementGuard => ReplaceRequired(BuildMovementGuard(),
+        Q("          ELSIF NEW.~QcInspectionLotDispositionId~ IS NOT NULL THEN"),
+        Q("          ELSIF NEW.~QcInspectionLotDispositionId~ IS NOT NULL AND NEW.~MaterialIssueRequestLineId~ IS NULL THEN"));
+
     private static string BuildReconcileGuard()
     {
         var sql = SafeReconcileGuard(ExtractFunction("stores_p3b_reconcile_batch"));

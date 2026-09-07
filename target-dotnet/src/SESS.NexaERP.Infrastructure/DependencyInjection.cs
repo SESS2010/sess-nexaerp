@@ -67,6 +67,7 @@ public static class DependencyInjection
         services.AddScoped<IQcWorkflowService, EfQcWorkflowService>();
         services.AddScoped<IEstimatedBomService, EfEstimatedBomService>();
         services.AddScoped<IProductionEngineeringService, EfProductionEngineeringService>();
+        services.AddScoped<IMaterialIssueService, EfMaterialIssueService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

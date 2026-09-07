@@ -22,7 +22,7 @@ public static class CustomerPoEndpoints
         string? FiscalYear, int LineCount, string? PoFileName, int CurrentRevisionNumber, uint Version);
 
     public sealed record CustomerPoLineDto(
-        int SlNo, string Description, DateOnly? DueDate, decimal? Quantity, string? Uom,
+        int SlNo, Guid ItemId, Guid UomId, string Description, DateOnly? DueDate, decimal? Quantity, string? Uom,
         decimal? Rate, decimal? DiscountPercent, decimal? Amount);
 
     public sealed record CustomerPoRevisionDto(
@@ -282,7 +282,7 @@ public static class CustomerPoEndpoints
         po.DeliveryTerms, po.TaxableValue, po.CgstPercent, po.CgstAmount, po.SgstPercent, po.SgstAmount,
         po.IgstPercent, po.IgstAmount, po.RoundOff, po.AmountInWords, po.PoFileName, po.CurrentRevisionNumber,
         po.Lines.Where(line => line.RevisionNumber == po.CurrentRevisionNumber).OrderBy(line => line.SlNo)
-            .Select(line => new CustomerPoLineDto(line.SlNo, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount))
+            .Select(line => new CustomerPoLineDto(line.SlNo, line.ItemId, line.UomId, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount))
             .ToList(),
         po.Revisions.OrderBy(revision => revision.RevisionNumber)
             .Select(revision => new CustomerPoRevisionDto(revision.RevisionNumber, revision.ChangeReason, revision.CreatedBy, revision.CreatedAt))
@@ -333,6 +333,10 @@ public static class CustomerPoEndpoints
             {
                 if (string.IsNullOrWhiteSpace(line.Description))
                     return new ValidationResult($"Line {line.SlNo}: description is required.", null, null);
+                if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty ||
+                    !await db.Items.AsNoTracking().AnyAsync(x => x.Id == line.ItemId && x.IsActive, ct) ||
+                    !await db.Uoms.AsNoTracking().AnyAsync(x => x.Id == line.UomId && x.IsActive, ct))
+                    return new ValidationResult($"Line {line.SlNo}: an active ItemId and UomId are required.", null, null);
                 if (line.Quantity is < 0 || line.Rate is < 0 || line.DiscountPercent is < 0 or > 100)
                     return new ValidationResult($"Line {line.SlNo}: quantity/rate must be non-negative and discount within 0–100%.", null, null);
             }
@@ -376,6 +380,7 @@ public static class CustomerPoEndpoints
             entity.Lines.Add(new CustomerPurchaseOrderLine
             {
                 CustomerPurchaseOrderId = entity.Id, RevisionNumber = entity.CurrentRevisionNumber, SlNo = slNo,
+                ItemId = line.ItemId, UomId = line.UomId,
                 Description = line.Description.Trim(), DueDate = line.DueDate, Quantity = line.Quantity,
                 Uom = line.Uom?.Trim(), Rate = line.Rate, DiscountPercent = line.DiscountPercent,
                 Amount = amount, CreatedBy = loginId
@@ -411,6 +416,7 @@ public static class CustomerPoEndpoints
             entity.Lines.Add(new CustomerPurchaseOrderLine
             {
                 CustomerPurchaseOrderId = entity.Id, RevisionNumber = entity.CurrentRevisionNumber, SlNo = line.SlNo,
+                ItemId = line.ItemId, UomId = line.UomId,
                 Description = line.Description, DueDate = line.DueDate, Quantity = line.Quantity, Uom = line.Uom,
                 Rate = line.Rate, DiscountPercent = line.DiscountPercent, Amount = line.Amount, CreatedBy = loginId
             });
@@ -420,7 +426,7 @@ public static class CustomerPoEndpoints
     private static void AppendRevision(CustomerPurchaseOrder entity, string changeReason, string loginId)
     {
         var lines = entity.Lines.Where(line => line.RevisionNumber == entity.CurrentRevisionNumber).OrderBy(line => line.SlNo)
-            .Select(line => new { line.SlNo, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount })
+            .Select(line => new { line.SlNo, line.ItemId, line.UomId, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount })
             .ToList();
         var snapshot = JsonSerializer.Serialize(new
         {

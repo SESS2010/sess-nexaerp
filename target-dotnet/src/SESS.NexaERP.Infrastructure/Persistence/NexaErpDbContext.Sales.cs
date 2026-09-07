@@ -55,6 +55,8 @@ public sealed partial class NexaErpDbContext
         {
             entity.ToTable("customer_purchase_order_lines");
             entity.Property(x => x.Description).IsRequired();
+            entity.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.UomMaster).WithMany().HasForeignKey(x => x.UomId).OnDelete(DeleteBehavior.Restrict);
             entity.Property(x => x.Uom).HasMaxLength(20);
             entity.Property(x => x.Quantity).HasPrecision(18, 3);
             entity.Property(x => x.Rate).HasPrecision(18, 2);

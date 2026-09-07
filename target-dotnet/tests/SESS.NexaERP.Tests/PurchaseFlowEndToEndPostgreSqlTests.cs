@@ -27,6 +27,7 @@ using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
+using SESS.NexaERP.Domain.Sales;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -57,6 +58,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid purchaseId;
         Guid storesId;
         Guid qcId;
+        Guid productionId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -80,10 +82,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             purchaseId = await Employee(seed, "SESS-15");
             storesId = await Employee(seed, "SESS-35");
             qcId = await Employee(seed, "SESS-33");
+            productionId = await Employee(seed, "SESS-25");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
-                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"), (qcId, "SESS-33")
+                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"),
+                (qcId, "SESS-33"), (productionId, "SESS-25")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -196,6 +200,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
+            await RunMaterialIssueWitness(client, options, user, grns[0], verifierId,
+                purchaseId, productionId, storesId, tdId);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -234,7 +240,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.All(new[]{"CreateVendorQualification","VerifyVendorQualification","ApproveVendorQualification",
                 "CreateTaxGstSetting","ApproveTaxGstSetting","CreateRFQ","InviteVendor","SubmitQuotation",
                 "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
-                "CreatePO","SubmitPO","ApprovePO","IssuePO"},operation=>Assert.Contains(operation,operations));
+                "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit",
+                "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
+                "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
+                "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
+                operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
             Assert.NotEmpty(commandAudits);
             Assert.All(commandAudits,x=>
@@ -493,6 +503,182 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
     }
 
+    private static async Task RunMaterialIssueWitness(HttpClient client,
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn,
+        Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId)
+    {
+        var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
+        var itemId = grn.Lines.Single().ItemId;
+        var fixture = await Query(options, async db =>
+        {
+            var item = await db.Items.SingleAsync(x => x.Id == itemId);
+            var customer = new Customer
+            {
+                CustomerCode = "MIR-WITNESS-CUSTOMER", IsCustomerCodeLocked = true,
+                Name = "MIR Witness Customer", LegalCustomerName = "MIR Witness Customer Private Limited",
+                CustomerType = "BUSINESS", PortalOrganizationId = "MIR_WITNESS_CUSTOMER",
+                Status = MasterStatuses.Active, ApprovalStatus = MasterApprovalStatuses.Approved,
+                ApprovedBy = "MIR_WITNESS", ApprovedAt = DateTimeOffset.UtcNow,
+                IsActive = true, CreatedBy = "MIR_WITNESS"
+            };
+            var productionDepartmentId = await db.Departments.Where(x => x.Code == "PRODUCTION").Select(x => x.Id).SingleAsync();
+            var cpo = new CustomerPurchaseOrder
+            {
+                CompanyId = companyId, CustomerId = customer.Id, PoRecordNumber = "CPO-MIR-WITNESS-001",
+                CustomerPoNumber = "CUSTOMER-MIR-WITNESS-001", CustomerPoDate = new DateOnly(2026, 9, 7),
+                WorkStatus = CustomerPoWorkStatuses.Wip, CurrentRevisionNumber = 1,
+                CreatedBy = "MIR_WITNESS"
+            };
+            var revision = new CustomerPurchaseOrderRevision
+            {
+                CustomerPurchaseOrderId = cpo.Id, RevisionNumber = 1,
+                ChangeReason = "Material issue witness baseline", SnapshotJson = "{}", CreatedBy = "MIR_WITNESS"
+            };
+            var line = new CustomerPurchaseOrderLine
+            {
+                CustomerPurchaseOrderId = cpo.Id, RevisionNumber = 1, SlNo = 1,
+                ItemId = item.Id, UomId = item.BaseUomId, Description = item.Name,
+                Quantity = .90m, Uom = await db.Uoms.Where(x => x.Id == item.BaseUomId).Select(x => x.Code).SingleAsync(),
+                CreatedBy = "MIR_WITNESS"
+            };
+            revision.Lines.Add(line); cpo.Revisions.Add(revision);
+            var job = new JobOrder
+            {
+                CompanyId = companyId, JobOrderNumber = "JO-MIR-WITNESS-001",
+                MachineModel = "WITNESS-CHAMBER", MachineSerial = "WITNESS-MACHINE-001",
+                CustomerName = "Material issue witness customer", Status = "OPEN",
+                JobOrderDate = new DateOnly(2026, 9, 7), IdempotencyKey = "fixture-job-mir-witness",
+                RequestFingerprint = new string('0', 64), CreatedBy = "MIR_WITNESS"
+            };
+            db.Customers.Add(customer); db.CustomerPurchaseOrders.Add(cpo); db.JobOrders.Add(job);
+            await db.SaveChangesAsync();
+            return new { job.Id, JobVersion = job.Version, CpoLineId = line.Id,
+                UomId = item.BaseUomId, ItemCode = item.ItemCode, DepartmentId = productionDepartmentId };
+        });
+
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        var estimated = await Post<EstimatedBomView>(client, "/api/v1/design/estimated-boms",
+            new CreateEstimatedBomRequest(fixture.Id, "Witness commercial baseline",
+                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component")], "mir-est-create"));
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for TD approval", "mir-est-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Commercial baseline approved", "mir-est-approve"));
+
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        var production = await Post<ProductionBomView>(client, "/api/v1/production/boms",
+            new CreateProductionBomRequest(fixture.Id, "Witness production baseline", "mir-pbom-create"));
+        production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/submit",
+            new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline submitted", "mir-pbom-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/approve",
+            new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline approved", "mir-pbom-approve"));
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/pin",
+            new PinProductionBomRevisionRequest(production.CurrentRevision.Id, fixture.JobVersion,
+                "Pinned to the one-machine Job Order", "mir-pbom-pin"));
+        Assert.Equal(production.CurrentRevision.Id, production.PinnedRevisionId);
+
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
+            Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
+        var mir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
+            new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CHAMBER_MANUFACTURE", "JOB_ORDER",
+                fixture.Id, null, null, null, "Witness chamber", fixture.DepartmentId,
+                new DateOnly(2026, 9, 8),
+                [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, fixture.CpoLineId, null)],
+                "mir-customer-create"));
+        Assert.Equal(.05m, Assert.Single(mir.Lines).ExcessBaseQuantity);
+        mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
+            new MaterialIssueTransitionRequest(mir.Version, "Required for chamber assembly", "mir-customer-submit"));
+
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var issueCommand = new CreateMaterialIssue("mir-customer-issue", engineerId,
+            DateTimeOffset.UtcNow, [new MaterialIssueScan(mir.Lines.Single().Id, fixture.ItemCode, null, .95m)]);
+        await AssertPostStatus(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
+            issueCommand, HttpStatusCode.Conflict);
+
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
+            new MaterialIssueTransitionRequest(mir.Version, "Production approves requirement", "mir-customer-approve"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        await AssertPostStatus(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
+            issueCommand, HttpStatusCode.Conflict);
+
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        mir = await Post<MaterialIssueRequestView>(client,
+            $"/api/v1/stores/material-issue-excess/{mir.Lines.Single().Id}/decision",
+            new MaterialIssueExcessDecisionRequest("APPROVED", "Controlled 0.05 base-unit excess",
+                "mir-excess-approve"));
+        Assert.True(Assert.Single(mir.Lines).TdDecisionPresent);
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var issue = await Post<MaterialIssueView>(client,
+            $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
+        var replay = await Post<MaterialIssueView>(client,
+            $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
+        Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
+        Assert.Equal(fixture.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+
+        var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
+            fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
+        await using var evidence = new NexaErpDbContext(options);
+        var issueIds = new[] { issue.Id, consumable.Id };
+        var batches = await evidence.StockPostingBatches.Where(x => issueIds.Contains(x.MaterialIssueId!.Value)).ToListAsync();
+        Assert.Equal(2, batches.Count);
+        var movements = await evidence.StockMovements.Where(x => batches.Select(b => b.Id).Contains(x.StockPostingBatchId!.Value))
+            .Include(x => x.CustodyAssignment)!.ThenInclude(x => x!.CustodyAccount).ToListAsync();
+        Assert.DoesNotContain(movements, x => x.MovementType == "CONSUMPTION_OUT");
+        Assert.Equal(0m, movements.Sum(x => x.QuantityIn - x.QuantityOut));
+        Assert.All(movements.GroupBy(x => x.MaterialIssueLineId), pair =>
+        {
+            Assert.Equal(2, pair.Count()); Assert.Single(pair.Select(x => x.OwnershipAccountId).Distinct());
+            Assert.Single(pair.Select(x => x.InventoryProvenanceLayerId).Distinct());
+            Assert.Single(pair, x => x.QuantityOut > 0 && x.CustodyAssignment!.CustodyAccount!.CustodyType == "WAREHOUSE");
+            Assert.Single(pair, x => x.QuantityIn > 0 && x.CustodyAssignment!.CustodyAccount!.CustodyType == "EMPLOYEE");
+        });
+        Assert.Equal(2, await evidence.MaterialIssues.CountAsync());
+        Assert.Equal(2, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "MATERIAL_ISSUE"));
+        Assert.Equal(2, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialIssue.Issue"));
+        Assert.All(await evidence.AuditLogs.Where(x => x.Action == "MaterialIssue.Issue").ToListAsync(), x =>
+        {
+            Assert.NotNull(x.ResolvedRoleAssignmentId); Assert.Equal(Rev869ARoleCodes.StoresExecutive, x.ActorRoleCode);
+        });
+        var outstanding = await Get<OutstandingEngineerCustodyView[]>(client,
+            $"/api/v1/stores/material-issues/outstanding-custody?employeeId={engineerId}");
+        Assert.Equal(2, outstanding.Length); Assert.All(outstanding, x => Assert.Equal(engineerId, x.EmployeeId));
+    }
+
+    private static async Task<MaterialIssueView> CreateAndIssueConsumable(HttpClient client, TaxWorkflowUser user,
+        Guid itemId, Guid uomId, string itemCode, Guid departmentId, Guid engineerId,
+        Guid purchaseId, Guid productionId, Guid storesId)
+    {
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
+            Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
+        var mir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
+            new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CONSUMABLE_OFFICE", "DEPARTMENT",
+                null, null, null, departmentId, "Factory consumable custody", departmentId,
+                new DateOnly(2026, 9, 8), [new MaterialIssueRequestLineInput(itemId, uomId, .05m, null, null)],
+                "mir-consumable-create"));
+        mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
+            new MaterialIssueTransitionRequest(mir.Version, "Cutting wheel custody", "mir-consumable-submit"));
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
+            new MaterialIssueTransitionRequest(mir.Version, "Consumable custody approved", "mir-consumable-approve"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        return await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
+            new CreateMaterialIssue("mir-consumable-issue", engineerId, DateTimeOffset.UtcNow,
+                [new MaterialIssueScan(mir.Lines.Single().Id, itemCode, null, .05m)]));
+    }
+
+    private static async Task AssertPostStatus(HttpClient client, string path, object body, HttpStatusCode expected)
+    {
+        using var response = await client.PostAsJsonAsync(path, body);
+        var payload = await response.Content.ReadAsStringAsync();
+        Assert.True(response.StatusCode == expected,
+            $"{path} returned {(int)response.StatusCode} {response.StatusCode}, expected {(int)expected}: {payload}");
+    }
+
     private static async Task AssertPrEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction,
         int minimumHistory, int minimumAudits)
     {
@@ -652,6 +838,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapStoresGateEntryEndpoints();
             app.MapStoresGoodsReceiptEndpoints();
             app.MapQcEndpoints();
+            app.MapEstimatedBomEndpoints();
+            app.MapProductionEngineeringEndpoints();
+            app.MapMaterialIssueEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");

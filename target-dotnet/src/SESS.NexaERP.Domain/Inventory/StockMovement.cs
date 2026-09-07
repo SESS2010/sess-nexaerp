@@ -31,6 +31,8 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public QcInspectionRevision? QcInspectionRevision { get; set; }
     public Guid? MaterialIssueRequestLineId { get; set; }
     public MaterialIssueRequestLine? MaterialIssueRequestLine { get; set; }
+    public Guid? MaterialIssueLineId { get; set; }
+    public MaterialIssueLine? MaterialIssueLine { get; set; }
     public Guid? DeliveryChallanLineId { get; set; }
     public DeliveryChallanLine? DeliveryChallanLine { get; set; }
     public Guid? OriginGoodsReceiptLineId { get; set; }
