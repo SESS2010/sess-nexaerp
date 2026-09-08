@@ -278,6 +278,14 @@ public static class Rev869BCommandContextAuthorizer
 
             throw new InvalidOperationException("Production engineering history must identify exactly one revision target.");
         }
+        foreach (var history in db.ChangeTracker.Entries<JobOrderHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<JobOrder>(db, history.JobOrderId)
+                ?? await NextVersionAsync(db.JobOrders, history.JobOrderId, ct);
+            result.Add(new("job_order_history", history.Id, nameof(JobOrder), history.JobOrderId,
+                history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
+        }
         foreach (var history in db.ChangeTracker.Entries<MaterialIssueHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var entityId = history.MaterialIssueId ?? history.MaterialIssueRequestId

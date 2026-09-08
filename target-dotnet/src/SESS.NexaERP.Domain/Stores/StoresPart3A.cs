@@ -113,6 +113,45 @@ public sealed class JobOrder : CompanyScopedAuditableEntity
     public ProductionBomRevision? PinnedProductionBomRevision { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;
     public string RequestFingerprint { get; set; } = string.Empty;
+    public Guid? CustomerPurchaseOrderId { get; set; }
+    public CustomerPurchaseOrder? CustomerPurchaseOrder { get; set; }
+    public Guid? CustomerPurchaseOrderLineId { get; set; }
+    public CustomerPurchaseOrderLine? CustomerPurchaseOrderLine { get; set; }
+    public int? MachineOrdinal { get; set; }
+    public Guid? InitiatedByEmployeeId { get; set; }
+    public Employee? InitiatedByEmployee { get; set; }
+    public string? InitiatedActorRoleCode { get; set; }
+    public Guid? InitiatedRoleAssignmentId { get; set; }
+    public EmployeeRoleAssignment? InitiatedRoleAssignment { get; set; }
+    public string? InitiatedRoleAssignmentType { get; set; }
+    public DateTimeOffset? AccountsConfirmedAt { get; set; }
+    public Guid? AccountsConfirmedByEmployeeId { get; set; }
+    public Employee? AccountsConfirmedByEmployee { get; set; }
+    public string? AccountsConfirmationActorRoleCode { get; set; }
+    public Guid? AccountsConfirmationRoleAssignmentId { get; set; }
+    public EmployeeRoleAssignment? AccountsConfirmationRoleAssignment { get; set; }
+    public string? AccountsConfirmationRoleAssignmentType { get; set; }
+    public string? AccountsConfirmationReason { get; set; }
+    public string? ConfirmationIdempotencyKey { get; set; }
+    public string? ConfirmationRequestFingerprint { get; set; }
+}
+
+
+public sealed class JobOrderHistory : CompanyScopedAuditableEntity
+{
+    public Guid JobOrderId { get; set; }
+    public JobOrder? JobOrder { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string? FromStatus { get; set; }
+    public string ToStatus { get; set; } = string.Empty;
+    public Guid ActorEmployeeId { get; set; }
+    public Employee? ActorEmployee { get; set; }
+    public string ActorRoleCode { get; set; } = string.Empty;
+    public Guid ResolvedRoleAssignmentId { get; set; }
+    public EmployeeRoleAssignment? ResolvedRoleAssignment { get; set; }
+    public string ResolvedRoleAssignmentType { get; set; } = string.Empty;
+    public string CorrelationId { get; set; } = string.Empty;
+    public string Remarks { get; set; } = string.Empty;
 }
 
 public sealed class MaterialIssueRequest : CompanyScopedAuditableEntity

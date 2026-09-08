@@ -205,7 +205,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
             await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
             await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
-                purchaseId, productionId, storesId, tdId);
+                purchaseId, productionId, storesId, tdId, managerId);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
@@ -221,6 +221,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.GoodsReceiptLines.CountAsync());
             Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
             Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
+            Assert.Single(await verify.JobOrders.Where(x => x.CustomerPurchaseOrderId != null).ToListAsync());
+            Assert.Equal(2, await verify.JobOrderHistories.CountAsync());
             Assert.Equal(4, await verify.VendorBills.CountAsync());
             Assert.Equal(4, await verify.VendorBillLines.CountAsync());
             Assert.Equal(3, await verify.VendorBillCostAllocations.CountAsync());
@@ -266,6 +268,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
+                "JobOrder.Create","JobOrder.AccountsConfirm",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
                 operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
@@ -528,7 +531,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task RunMaterialIssueWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
-        Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId)
+        Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -564,25 +567,42 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Quantity = .90m, Uom = await db.Uoms.Where(x => x.Id == item.BaseUomId).Select(x => x.Code).SingleAsync(),
                 CreatedBy = "MIR_WITNESS"
             };
-            revision.Lines.Add(line); cpo.Revisions.Add(revision);
-            var job = new JobOrder
+            var machineLine = new CustomerPurchaseOrderLine
             {
-                CompanyId = companyId, JobOrderNumber = "JO-MIR-WITNESS-001",
-                MachineModel = "WITNESS-CHAMBER", MachineSerial = "WITNESS-MACHINE-001",
-                CustomerName = "Material issue witness customer", Status = "OPEN",
-                JobOrderDate = new DateOnly(2026, 9, 7), IdempotencyKey = "fixture-job-mir-witness",
-                RequestFingerprint = new string('0', 64), CreatedBy = "MIR_WITNESS"
+                CustomerPurchaseOrderId = cpo.Id, RevisionNumber = 1, SlNo = 2,
+                ItemId = item.Id, UomId = item.BaseUomId, Description = "Witness chamber machine",
+                Quantity = 1m, Uom = line.Uom, CreatedBy = "MIR_WITNESS"
             };
-            db.Customers.Add(customer); db.CustomerPurchaseOrders.Add(cpo); db.JobOrders.Add(job);
+            revision.Lines.Add(line); revision.Lines.Add(machineLine); cpo.Revisions.Add(revision);
+            db.Customers.Add(customer); db.CustomerPurchaseOrders.Add(cpo);
             await db.SaveChangesAsync();
-            return new { job.Id, JobVersion = job.Version, CpoLineId = line.Id,
+            return new { CpoLineId = line.Id, MachineLineId = machineLine.Id,
                 UomId = item.BaseUomId, ItemCode = item.ItemCode, DepartmentId = productionDepartmentId };
         });
+
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        var jobCommand = new CreateJobOrderRequest(fixture.MachineLineId, 1, "WITNESS-MACHINE-001",
+            new DateOnly(2026, 9, 7), new DateOnly(2026, 12, 1), "job-order-create");
+        var job = await Post<JobOrderView>(client, "/api/v1/production/job-orders", jobCommand);
+        var jobReplay = await Post<JobOrderView>(client, "/api/v1/production/job-orders", jobCommand);
+        Assert.Equal("PENDING_ACCOUNTS", job.Status); Assert.Equal(job.Id, jobReplay.Id);
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        await AssertPostStatus(client, "/api/v1/design/estimated-boms",
+            new CreateEstimatedBomRequest(job.Id, "Must wait for Accounts",
+                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component")], "mir-est-before-accounts"),
+            HttpStatusCode.Conflict);
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        var confirm = new ConfirmJobOrderRequest(job.Version, "Customer PO and one-machine scope verified", "job-order-accounts-confirm");
+        job = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/accounts-confirm", confirm);
+        var confirmReplay = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/accounts-confirm", confirm);
+        Assert.Equal("OPEN", job.Status); Assert.Equal(job.Id, confirmReplay.Id);
+        Assert.NotEqual(job.InitiatedByEmployeeId, job.AccountsConfirmedByEmployeeId);
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         var estimated = await Post<EstimatedBomView>(client, "/api/v1/design/estimated-boms",
-            new CreateEstimatedBomRequest(fixture.Id, "Witness commercial baseline",
+            new CreateEstimatedBomRequest(job.Id, "Witness commercial baseline",
                 [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component")], "mir-est-create"));
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for TD approval", "mir-est-submit"));
@@ -592,7 +612,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         var production = await Post<ProductionBomView>(client, "/api/v1/production/boms",
-            new CreateProductionBomRequest(fixture.Id, "Witness production baseline", "mir-pbom-create"));
+            new CreateProductionBomRequest(job.Id, "Witness production baseline", "mir-pbom-create"));
         production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/submit",
             new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline submitted", "mir-pbom-submit"));
         user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
@@ -600,7 +620,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline approved", "mir-pbom-approve"));
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/pin",
-            new PinProductionBomRevisionRequest(production.CurrentRevision.Id, fixture.JobVersion,
+            new PinProductionBomRevisionRequest(production.CurrentRevision.Id, job.Version,
                 "Pinned to the one-machine Job Order", "mir-pbom-pin"));
         Assert.Equal(production.CurrentRevision.Id, production.PinnedRevisionId);
 
@@ -608,7 +628,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
         var mir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
             new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CHAMBER_MANUFACTURE", "JOB_ORDER",
-                fixture.Id, null, null, null, "Witness chamber", fixture.DepartmentId,
+                job.Id, null, null, null, "Witness chamber", fixture.DepartmentId,
                 new DateOnly(2026, 9, 8),
                 [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, fixture.CpoLineId, null)],
                 "mir-customer-create"));
@@ -641,7 +661,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var replay = await Post<MaterialIssueView>(client,
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
         Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
-        Assert.Equal(fixture.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+        Assert.Equal(job.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
 
         var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
@@ -1110,6 +1130,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapQcEndpoints();
             app.MapEstimatedBomEndpoints();
             app.MapProductionEngineeringEndpoints();
+            app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
             app.MapVendorBillEndpoints();
             await app.StartAsync();

@@ -200,8 +200,8 @@ public sealed partial class EfMaterialIssueService
         var company = await CompanyAsync(ct);
         if (!await db.Departments.AnyAsync(x => x.Id == requestingDepartmentId && x.IsActive, ct))
             throw new StoresValidationException("RequestingDepartmentId is invalid.");
-        if (jobRequired && !await db.JobOrders.AnyAsync(x => x.CompanyId == company.Id && x.Id == jobOrderId, ct))
-            throw new StoresValidationException("JobOrderId does not belong to the selected company.");
+        if (jobRequired && !await db.JobOrders.AnyAsync(x => x.CompanyId == company.Id && x.Id == jobOrderId && x.Status == "OPEN", ct))
+            throw new StoresValidationException("JobOrderId is not an Accounts-confirmed Open Job Order in the selected company.");
         request.JobOrderId = jobOrderId; request.CustomerId = customerId; request.VendorId = vendorId;
         request.DestinationDepartmentId = destinationDepartmentId;
         request.DestinationNameSnapshot = Required(destinationName, "DestinationName");

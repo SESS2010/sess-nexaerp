@@ -26,6 +26,7 @@ public sealed partial class EfProductionEngineeringService
         var job = await db.JobOrders.SingleOrDefaultAsync(
             x => x.CompanyId == company.Id && x.Id == request.JobOrderId, ct)
             ?? throw new KeyNotFoundException("Job Order was not found in the selected company.");
+        if (job.Status != "OPEN") throw new StoresConflictException("Accounts must confirm the Job Order before a Production BOM is created.");
         if (await db.ProductionBoms.AnyAsync(x => x.CompanyId == company.Id && x.JobOrderId == job.Id, ct))
             throw new StoresConflictException("This Job Order already has a Production BOM.");
         var estimated = await db.EstimatedBoms.Include(x => x.Revisions).ThenInclude(x => x.Lines)
