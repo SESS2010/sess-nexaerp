@@ -101,4 +101,8 @@ export const PAGE_KEYS = {
   gateEntry: 'inventory.grn',
   grn: 'inventory.grn',
   qc: 'qc.inspection-policies',
+  materialIssueRequests: 'stores.material-issue-requests',
+  materialIssues: 'stores.material-issues',
+  materialIssueExcess: 'stores.material-issue-excess',
+  materialReturns: 'stores.material-returns',
 } as const

@@ -34,6 +34,8 @@ import { QcInspectPage } from './features/qc/QcInspectPage'
 import { QcInspectionPage } from './features/qc/QcInspectionPage'
 import { ConcessionPage } from './features/qc/ConcessionPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
+import { MaterialIssueRequestListPage } from './features/stores/MaterialIssueRequestListPage'
+import { MaterialIssueRequestDetailPage } from './features/stores/MaterialIssueRequestDetailPage'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/vendors', 'Vendor Master'],
@@ -48,6 +50,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/stock-check', 'Stock Check'],
   ['/stores/gate-entries', 'Gate Entry'],
   ['/stores/goods-receipts', 'GRN'],
+  ['/stores/material-issue-requests', 'Material Issue Request'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
@@ -113,7 +116,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.grn) && <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
-            <span className="nav-link disabled">MIR / Issue</span>
+            {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR / Issue</NavLink>}
           </NavSection>
         </nav>
       </aside>
@@ -166,6 +169,8 @@ export default function App() {
                 <Route path="/stores/gate-entries/:id" element={<GateEntryDetailPage />} />
                 <Route path="/stores/goods-receipts" element={<GoodsReceiptListPage />} />
                 <Route path="/stores/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
+                <Route path="/stores/material-issue-requests" element={<MaterialIssueRequestListPage />} />
+                <Route path="/stores/material-issue-requests/:id" element={<MaterialIssueRequestDetailPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
                 <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />

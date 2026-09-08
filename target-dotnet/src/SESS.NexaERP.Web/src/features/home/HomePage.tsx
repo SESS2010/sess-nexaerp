@@ -18,6 +18,7 @@ const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; 
   { to: '/stores/stock-check', label: 'Stock Check', hint: 'Confirm on-hand stock for approved PRs', page: PAGE_KEYS.stockCheck, action: 'verify' },
   { to: '/stores/gate-entries', label: 'Gate Entry', hint: 'Record material arriving at the gate', page: PAGE_KEYS.gateEntry },
   { to: '/stores/goods-receipts', label: 'GRN', hint: 'Receive against a PO', page: PAGE_KEYS.grn },
+  { to: '/stores/material-issue-requests', label: 'Material Issue Request', hint: 'Ask Stores for material; approve and issue', page: PAGE_KEYS.materialIssueRequests },
   { to: '/qc/inspections', label: 'QC / Inspection', hint: 'Inspect received material', page: PAGE_KEYS.qc },
   { to: '/qc/concessions', label: 'QC Concessions', hint: 'Accept rejected stock under concession', page: PAGE_KEYS.qc },
   { to: '/sales/customer-po', label: 'Customer PO', hint: 'Register customer orders', page: PAGE_KEYS.customerPo },

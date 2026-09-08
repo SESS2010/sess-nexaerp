@@ -23,6 +23,21 @@ const TONE_BY_VALUE: Record<string, string> = {
   FINALIZED: 'ok',
   Issued: 'ok',
   QC_HOLD: 'warn',
+  // Material issue request / issue / return states
+  SUBMITTED: 'info',
+  APPROVED: 'ok',
+  REJECTED: 'error',
+  CANCELLED: 'muted',
+  PARTIALLY_FULFILLED: 'info',
+  FULFILLED: 'ok',
+  ISSUED: 'ok',
+  PARTIALLY_RETURNED: 'info',
+  RETURNED: 'ok',
+  ACCEPTED: 'ok',
+  CUSTOMER_FACING: 'warn',
+  INTERNAL: 'info',
+  Pending: 'warn',
+  Decided: 'ok',
 }
 
 export function StatusBadge({ value }: { value: string }) {
