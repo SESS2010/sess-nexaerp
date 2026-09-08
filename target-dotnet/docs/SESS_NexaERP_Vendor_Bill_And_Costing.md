@@ -8,7 +8,7 @@ There is no price tolerance. A line is matched only when its unit rate and payab
 
 A FIFO layer is created atomically when a GRN is finalized. Its provisional unit cost is the issued PO payable value divided by ordered quantity. Because an accepted bill must match that PO exactly, the accepted value and provisional value are identical. The model therefore has no purchase-price-variance account and no configurable tolerance.
 
-Accepted Vendor Bill lines create immutable accepted-value allocations to their GRN cost layers. Those allocations are the source used by the generated Actual BOM once confirmed fitment exists.
+Accepted Vendor Bill lines create immutable accepted-value allocations to their GRN cost layers. Each allocation separates accepted material value from accepted allocated charges; a generated Actual BOM entry carries both and its total is their sum. Those allocations are the source used by the generated Actual BOM once confirmed fitment exists.
 
 ## Why FIFO issue cost and Actual BOM cost may differ
 

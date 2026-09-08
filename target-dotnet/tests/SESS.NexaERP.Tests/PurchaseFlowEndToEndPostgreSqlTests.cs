@@ -122,6 +122,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Pooling = false
         }.ConnectionString;
         await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
+        await AssertFitmentRuntimeTableDmlRefused(runtimeConnection);
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
         await using var runtimeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user);
         await using var approvalHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user, useRealPagePermissions: true);
@@ -223,10 +224,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
             Assert.Single(await verify.JobOrders.Where(x => x.CustomerPurchaseOrderId != null).ToListAsync());
             Assert.Equal(2, await verify.JobOrderHistories.CountAsync());
-            Assert.Equal(4, await verify.VendorBills.CountAsync());
-            Assert.Equal(4, await verify.VendorBillLines.CountAsync());
-            Assert.Equal(3, await verify.VendorBillCostAllocations.CountAsync());
-            Assert.Equal(9, await verify.VendorBillHistories.CountAsync());
+            Assert.Equal(5, await verify.VendorBills.CountAsync());
+            Assert.Equal(5, await verify.VendorBillLines.CountAsync());
+            Assert.Equal(4, await verify.VendorBillCostAllocations.CountAsync());
+            Assert.Equal(11, await verify.VendorBillHistories.CountAsync());
             var fifoLayers = await verify.FifoInventoryCostLayers.OrderBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToListAsync();
             Assert.Equal(grns.Select(x => x.Lines.Single().Id), fifoLayers.Select(x => x.GoodsReceiptLineId));
             var fifoUse = await verify.FifoCostConsumptions.GroupBy(x => x.FifoInventoryCostLayerId)
@@ -245,7 +246,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(1, await verify.InventorySerials.CountAsync());
             Assert.Equal(3, await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="GRN_CUSTODY"));
             Assert.Equal(0m, await verify.StockMovements.Where(x=>x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut));
-            Assert.Equal(2.95m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
+            Assert.Equal(2.60m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(.05m, await verify.StockMovements.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(3,await verify.QcInspections.CountAsync());Assert.Equal(3,await verify.QcInspectionRevisions.CountAsync());Assert.Equal(3,await verify.QcInspectionLotDispositions.CountAsync());Assert.Equal(3,await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="QC_DISPOSITION"));Assert.Single(await verify.StockPostingBatches.Where(x=>x.PostingKind=="CONCESSION_ACCEPTANCE").ToListAsync());Assert.Single(await verify.InventoryConcessions.Where(x=>x.Status=="APPROVED").ToListAsync());
             Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
@@ -268,7 +269,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
-                "JobOrder.Create","JobOrder.AccountsConfirm",
+                "JobOrder.Create","JobOrder.AccountsConfirm","ComponentFitment.Confirm","ComponentFitment.Reverse",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
                 operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
@@ -718,7 +719,56 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new AcceptMaterialReturn(consumableReturn.Version, DateTimeOffset.UtcNow,
                 "Consumable remainder accepted exactly like any other material", "material-return-consumable-accept"));
 
+        var acceptedAllocation = await Query(options, db => db.VendorBillCostAllocations
+            .Where(x => x.VendorBillLine!.GoodsReceiptLineId == grn.Lines.Single().Id &&
+                x.VendorBillLine.VendorBill!.Status == "ACCEPTED")
+            .Select(x => new { x.AcceptedValue, x.AllocatedChargeValue, x.AllocatedQuantity })
+            .SingleAsync());
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        var fitCommand = new ConfirmComponentFitmentRequest(job.Id, issue.Lines.Single().Id, .35m,
+            DateTimeOffset.UtcNow, "Operator-confirmed component fitment", null, "fitment-confirm");
+        var fitment = await Post<ComponentFitmentSummary>(client,
+            "/api/v1/production/component-fitments", fitCommand);
+        var fitReplay = await Post<ComponentFitmentSummary>(client,
+            "/api/v1/production/component-fitments", fitCommand);
+        Assert.False(fitment.Replayed); Assert.True(fitReplay.Replayed); Assert.Equal(fitment.Id, fitReplay.Id);
+        var actual = await Get<ActualBomView>(client,
+            $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        var expectedMaterial = decimal.Round(acceptedAllocation.AcceptedValue /
+            acceptedAllocation.AllocatedQuantity * .35m, 6);
+        var expectedCharges = decimal.Round(acceptedAllocation.AllocatedChargeValue /
+            acceptedAllocation.AllocatedQuantity * .35m, 6);
+        Assert.Equal(expectedMaterial, actual.TotalAcceptedMaterialValue);
+        Assert.Equal(expectedCharges, actual.TotalAllocatedChargeValue);
+        Assert.Equal(expectedMaterial + expectedCharges, actual.TotalAcceptedValue);
+        Assert.Single(actual.Entries);
+        var reverseCommand = new ReverseComponentFitmentRequest(
+            "Immediate correction of operator fitment mistake", "fitment-self-reverse");
+        var reversed = await Post<ComponentFitmentSummary>(client,
+            $"/api/v1/production/component-fitments/{fitment.Id}/reverse", reverseCommand);
+        var reversedReplay = await Post<ComponentFitmentSummary>(client,
+            $"/api/v1/production/component-fitments/{fitment.Id}/reverse", reverseCommand);
+        Assert.True(reversed.IsReversed); Assert.True(reversed.IsSelfReversal);
+        Assert.True(reversedReplay.Replayed);
+        var reverified = await Post<ComponentFitmentSummary>(client,
+            "/api/v1/production/component-fitments",
+            fitCommand with { ReverifiesFitmentId = fitment.Id, IdempotencyKey = "fitment-reverify" });
+        Assert.Equal(fitment.Id, reverified.ReverifiesFitmentId);
+        var finalActual = await Get<ActualBomView>(client,
+            $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        Assert.Equal(expectedMaterial, finalActual.TotalAcceptedMaterialValue);
+        Assert.Equal(expectedCharges, finalActual.TotalAllocatedChargeValue);
+        Assert.Equal(expectedMaterial + expectedCharges, finalActual.TotalAcceptedValue);
+        Assert.Equal(3, finalActual.Entries.Count);
         await using var evidence = new NexaErpDbContext(options);
+        Assert.Equal(2, await evidence.ComponentFitments.CountAsync());
+        Assert.Equal(1, await evidence.ComponentFitmentReversals.CountAsync());
+        Assert.Equal(1, await evidence.ComponentFitmentReversals.CountAsync(x => x.IsSelfReversal));
+        Assert.Equal(1, await evidence.ActualBoms.CountAsync());
+        Assert.Equal(3, await evidence.ActualBomEntries.CountAsync());
+        Assert.Equal(2, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "FITMENT_CONSUMPTION"));
+        Assert.Equal(1, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "REVERSAL" &&
+            x.ReversesPostingBatch != null && x.ReversesPostingBatch.PostingKind == "FITMENT_CONSUMPTION"));
         var issueIds = new[] { issue.Id, consumable.Id };
         var batches = await evidence.StockPostingBatches.Where(x => issueIds.Contains(x.MaterialIssueId!.Value)).ToListAsync();
         Assert.Equal(2, batches.Count);
@@ -757,9 +807,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(3, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialReturn.Accept"));
         var outstanding = await Get<OutstandingEngineerCustodyView[]>(client,
             $"/api/v1/stores/material-issues/outstanding-custody?employeeId={engineerId}");
-        Assert.Equal(2, outstanding.Length); Assert.All(outstanding, x => Assert.Equal(engineerId, x.EmployeeId));
-        Assert.Equal(.35m, outstanding.Single(x => x.MaterialIssueId == issue.Id).QuantityBase);
-        Assert.Equal(.02m, outstanding.Single(x => x.MaterialIssueId == consumable.Id).QuantityBase);
+        Assert.Single(outstanding); Assert.All(outstanding, x => Assert.Equal(engineerId, x.EmployeeId));
+                Assert.Equal(.02m, outstanding.Single(x => x.MaterialIssueId == consumable.Id).QuantityBase);
     }
 
     private static async Task CreateIssueAndReturnSerialized(HttpClient client,
@@ -857,6 +906,28 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
     }
 
+    private static async Task AssertFitmentRuntimeTableDmlRefused(string connectionString)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        foreach (var table in new[]
+        {
+            "component_fitments", "component_fitment_reversals", "actual_boms", "actual_bom_entries"
+        })
+        {
+            foreach (var sql in new[]
+            {
+                $"INSERT INTO advance.{table} DEFAULT VALUES",
+                $"UPDATE advance.{table} SET \"Id\" = \"Id\" WHERE false",
+                $"DELETE FROM advance.{table} WHERE false"
+            })
+            {
+                await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+                var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => command.ExecuteNonQueryAsync());
+                Assert.Equal(Npgsql.PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            }
+        }
+    }
     private static async Task RunVendorBillWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
         IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId)
@@ -903,6 +974,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/accounts/vendor-bills/{mismatched.Id}/reject",
             new VendorBillDecisionRequest(mismatched.Version, "Rejected: PO must be revised", "vendor-bill-reject"));
         Assert.Equal("REJECTED", rejected.Status);
+        var correctedFirst = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/from-grn/{grns[0].Id}",
+            new CreateVendorBillRequest(grns[0].VendorBillNumber, grns[0].VendorBillDate,
+                [new(grns[0].Lines.Single().Id, grns[0].Lines.Single().ReceivedQuantity,
+                    expected[0].UnitRate, expected[0].Payable)], "vendor-bill-corrected-0"));
+        correctedFirst = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/{correctedFirst.Id}/accept",
+            new VendorBillDecisionRequest(correctedFirst.Version,
+                "Correct bill accepted after mismatch rejection", "vendor-bill-corrected-accept-0"));
+        Assert.Equal("ACCEPTED", correctedFirst.Status);
 
         for (var index = 1; index < grns.Count; index++)
         {
@@ -946,10 +1027,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
 
         await using var evidence = new NexaErpDbContext(options);
-        Assert.Equal(4, await evidence.VendorBills.CountAsync());
-        Assert.Equal(2, await evidence.VendorBills.CountAsync(x => x.Status == "ACCEPTED"));
-        Assert.Equal(3, await evidence.VendorBillCostAllocations.CountAsync());
-        Assert.Equal(3, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
+        Assert.Equal(5, await evidence.VendorBills.CountAsync());
+        Assert.Equal(3, await evidence.VendorBills.CountAsync(x => x.Status == "ACCEPTED"));
+        Assert.Equal(4, await evidence.VendorBillCostAllocations.CountAsync());
+        Assert.Equal(4, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
         Assert.Single(await evidence.VendorBillHistories.Where(x => x.Action == "REVERSED").ToListAsync());
     }
 
@@ -1133,6 +1214,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
             app.MapVendorBillEndpoints();
+            app.MapFitmentActualBomEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");

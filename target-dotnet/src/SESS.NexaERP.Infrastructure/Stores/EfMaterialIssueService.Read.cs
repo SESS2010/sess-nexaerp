@@ -54,12 +54,21 @@ public sealed partial class EfMaterialIssueService
         if (employeeId.HasValue) query = query.Where(x => x.IssuedToEmployeeId == employeeId);
         if (notificationDue == true) query = query.Where(x => x.ReturnDueAt < now);
         if (notificationDue == false) query = query.Where(x => x.ReturnDueAt >= now);
-        return await query.OrderBy(x => x.ReturnDueAt).Select(x => new OutstandingEngineerCustodyView(
-            x.Id, x.IssueNumber, x.JobOrderId, x.IssuedToEmployeeId,
-            x.IssuedToEmployee!.EmployeeCode, x.IssuedAt, x.ReturnDueAt,
-            x.ReturnDueAt < now, x.Lines.Sum(l => l.QuantityBase) -
-                db.MaterialReturnLines.Where(l => l.MaterialReturn!.MaterialIssueId == x.Id &&
-                    l.MaterialReturn.Status == "ACCEPTED").Sum(l => (decimal?)l.ReturnedQuantityBase)!.Value)).ToListAsync(ct);
+        var balances = query.Select(x => new
+        {
+            Issue = x,
+            Remaining = x.Lines.Sum(l => l.QuantityBase)
+                - db.MaterialReturnLines.Where(l => l.MaterialReturn!.MaterialIssueId == x.Id &&
+                    l.MaterialReturn.Status == "ACCEPTED").Sum(l => (decimal?)l.ReturnedQuantityBase)!.Value
+                - db.ComponentFitments.Where(f => f.MaterialIssueLine!.MaterialIssueId == x.Id &&
+                    !db.ComponentFitmentReversals.Any(r => r.CompanyId == f.CompanyId &&
+                        r.ComponentFitmentId == f.Id)).Sum(f => (decimal?)f.QuantityBase)!.Value
+        });
+        return await balances.Where(x => x.Remaining > 0).OrderBy(x => x.Issue.ReturnDueAt)
+            .Select(x => new OutstandingEngineerCustodyView(x.Issue.Id, x.Issue.IssueNumber,
+                x.Issue.JobOrderId, x.Issue.IssuedToEmployeeId,
+                x.Issue.IssuedToEmployee!.EmployeeCode, x.Issue.IssuedAt, x.Issue.ReturnDueAt,
+                x.Issue.ReturnDueAt < now, x.Remaining)).ToListAsync(ct);
     }
 
     public async Task<MaterialReturnPage> ListReturnsAsync(Guid? materialIssueId, string? status,

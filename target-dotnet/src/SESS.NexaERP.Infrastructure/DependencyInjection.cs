@@ -70,6 +70,7 @@ public static class DependencyInjection
         services.AddScoped<IMaterialIssueService, EfMaterialIssueService>();
         services.AddScoped<IVendorBillService, EfVendorBillService>();
         services.AddScoped<IJobOrderService, EfJobOrderService>();
+        services.AddScoped<IFitmentActualBomService, EfFitmentActualBomService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

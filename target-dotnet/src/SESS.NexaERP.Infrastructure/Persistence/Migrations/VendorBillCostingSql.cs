@@ -22,7 +22,7 @@ internal static class VendorBillCostingSql
           END IF;
         END $preflight$;
         """;
-    internal const string Up = """
+    internal static string Up => """
         CREATE FUNCTION advance.create_fifo_layers_for_grn(p_company uuid,p_grn uuid,p_actor uuid,p_role text,p_assignment uuid,p_assignment_type text,p_login text)
         RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,advance AS $function$
         DECLARE affected integer;
@@ -81,7 +81,7 @@ internal static class VendorBillCostingSql
           END IF;
           PERFORM pg_advisory_xact_lock(hashtextextended('VENDOR_BILL:GRN:'||p_company||':'||p_grn,0));
           PERFORM pg_advisory_xact_lock(hashtextextended('VENDOR_BILL:NUMBER:'||p_company||':'||upper(btrim(p_number)),0));
-          IF EXISTS (SELECT 1 FROM advance.vendor_bills active_bill WHERE active_bill."CompanyId"=p_company AND active_bill."Status"<>'REVERSED'
+          IF EXISTS (SELECT 1 FROM advance.vendor_bills active_bill WHERE active_bill."CompanyId"=p_company AND active_bill."Status" NOT IN ('REVERSED','REJECTED')
              AND (active_bill."GoodsReceiptId"=p_grn OR active_bill."BillNumber"=btrim(p_number))) THEN
             RAISE EXCEPTION 'An active Vendor Bill already exists for this GRN or bill number.';
           END IF;          IF NOT advance.ordinary_command_context_valid((SELECT "Code" FROM advance.companies WHERE "Id"=p_company),p_actor,current_setting('advance.ordinary_identity_issuer',true),p_login,p_role)
@@ -231,6 +231,19 @@ internal static class VendorBillCostingSql
         END $roles$;
         """;
 
+    internal static string RejectedBillReentryCorrection
+    {
+        get
+        {
+            const string startToken = "CREATE FUNCTION advance.create_vendor_bill";
+            const string endToken = "CREATE FUNCTION advance.decide_vendor_bill";
+            var start = Up.IndexOf(startToken, StringComparison.Ordinal);
+            var end = Up.IndexOf(endToken, start, StringComparison.Ordinal);
+            if (start < 0 || end <= start) throw new InvalidOperationException("Vendor Bill creation SQL boundary changed.");
+            return Up[start..end].Replace(startToken,
+                "CREATE OR REPLACE FUNCTION advance.create_vendor_bill", StringComparison.Ordinal);
+        }
+    }
     internal const string Down = """
         DO $guard$ BEGIN IF EXISTS (SELECT 1 FROM advance.vendor_bills) OR EXISTS (SELECT 1 FROM advance.vendor_bill_history) OR EXISTS (SELECT 1 FROM advance.fifo_inventory_cost_layers) OR EXISTS (SELECT 1 FROM advance.fifo_cost_consumptions) THEN RAISE EXCEPTION 'Vendor Bill rollback refuses financial or costing evidence.'; END IF; END $guard$;
         DROP TRIGGER IF EXISTS trg_fifo_consumption_guard ON advance.fifo_cost_consumptions; DROP TRIGGER IF EXISTS trg_fifo_layer_guard ON advance.fifo_inventory_cost_layers; DROP TRIGGER IF EXISTS trg_vendor_bill_allocation_guard ON advance.vendor_bill_cost_allocations; DROP TRIGGER IF EXISTS trg_vendor_bill_history_guard ON advance.vendor_bill_history; DROP TRIGGER IF EXISTS trg_vendor_bill_line_guard ON advance.vendor_bill_lines; DROP TRIGGER IF EXISTS trg_vendor_bill_guard ON advance.vendor_bills; DROP FUNCTION IF EXISTS advance.guard_vendor_bill_financial_evidence();

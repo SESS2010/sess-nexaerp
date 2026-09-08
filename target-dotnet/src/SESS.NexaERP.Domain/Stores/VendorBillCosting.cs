@@ -116,6 +116,7 @@ public sealed class VendorBillCostAllocation
     public FifoInventoryCostLayer? FifoInventoryCostLayer { get; set; }
     public decimal AllocatedQuantity { get; set; }
     public decimal AcceptedValue { get; set; }
+    public decimal AllocatedChargeValue { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";
 }
