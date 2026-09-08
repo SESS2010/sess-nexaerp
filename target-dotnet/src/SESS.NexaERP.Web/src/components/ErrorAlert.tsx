@@ -32,7 +32,18 @@ interface Conflict {
 function classifyConflict(message: string): Conflict {
   const text = message.toLowerCase()
 
-  if (text.includes('stale') || text.includes('version')) {
+  if (text.includes('uom conversion')) {
+    return {
+      title: "The chosen UOM cannot be converted to the item's base UOM",
+      guidance:
+        'Request the item in its own UOM, or have an approved UOM conversion set up in the master first.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  // Word match: "conversion" also contains "version" and is a different conflict.
+  if (text.includes('stale') || /version/.test(text)) {
     return {
       title: 'Someone else changed this record',
       guidance:

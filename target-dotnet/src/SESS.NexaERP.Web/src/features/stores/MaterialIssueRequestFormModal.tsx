@@ -14,6 +14,8 @@ interface DraftLine {
   itemCode: string
   itemName: string
   uomId: string
+  /** The item master's UOM code; another UOM needs an approved conversion. */
+  itemUom: string
   quantity: string
   remarks: string
 }
@@ -32,7 +34,7 @@ function todayPlus(days: number): string {
 }
 
 function emptyLine(): DraftLine {
-  return { key: crypto.randomUUID(), itemId: '', itemCode: '', itemName: '', uomId: '', quantity: '', remarks: '' }
+  return { key: crypto.randomUUID(), itemId: '', itemCode: '', itemName: '', uomId: '', itemUom: '', quantity: '', remarks: '' }
 }
 
 /**
@@ -61,6 +63,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
           itemCode: line.ItemCode,
           itemName: line.ItemName,
           uomId: line.UomId,
+          itemUom: line.UomCode,
           quantity: String(line.RequestedQuantity),
           remarks: line.Remarks ?? '',
         }))
@@ -112,7 +115,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
 
   const pickItem = (key: string, item: ItemSummary) => {
     const uom = uomByCode.get((item.Uom ?? '').toUpperCase())
-    setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: uom?.Id ?? '' })
+    setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: uom?.Id ?? '', itemUom: item.Uom ?? '' })
   }
 
   const jobSituation = MIR_JOB_SITUATIONS.includes(situation as (typeof MIR_JOB_SITUATIONS)[number])
@@ -264,7 +267,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
                 <tr>
                   <th style={{ width: 40 }}>#</th>
                   <th>Item *</th>
-                  <th>UOM *</th>
+                  <th>UOM * <span className="field-hint" style={{ display: 'inline' }}>(item's own)</span></th>
                   <th className="text-right" style={{ width: 120 }}>Quantity *</th>
                   <th>Remarks</th>
                   <th style={{ width: 60 }} />
@@ -278,7 +281,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
                       {line.itemId ? (
                         <div>
                           <span className="mono">{line.itemCode}</span> — {line.itemName}
-                          <button type="button" className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => setLine(line.key, { itemId: '', itemCode: '', itemName: '', uomId: '' })}>change</button>
+                          <button type="button" className="btn btn-ghost" style={{ marginLeft: 8 }} onClick={() => setLine(line.key, { itemId: '', itemCode: '', itemName: '', uomId: '', itemUom: '' })}>change</button>
                         </div>
                       ) : (
                         <select
@@ -302,6 +305,12 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
                         <option value="">—</option>
                         {uoms.map((uom) => <option key={uom.Id} value={uom.Id}>{uom.Code}</option>)}
                       </select>
+                      {line.itemId && line.itemUom && uomByCode.get(line.itemUom.toUpperCase())?.Id !== line.uomId && (
+                        <span className="field-hint">Item UOM is {line.itemUom}. Another UOM needs an approved conversion or the save is refused.</span>
+                      )}
+                      {line.itemId && line.itemUom && !uomByCode.has(line.itemUom.toUpperCase()) && (
+                        <span className="field-hint">Item UOM “{line.itemUom}” is not an active UOM in the master.</span>
+                      )}
                     </td>
                     <td className="text-right">
                       <input
