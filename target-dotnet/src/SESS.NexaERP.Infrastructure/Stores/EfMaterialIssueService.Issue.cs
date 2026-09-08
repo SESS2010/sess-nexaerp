@@ -176,6 +176,7 @@ public sealed partial class EfMaterialIssueService
             ?? throw new InvalidOperationException("Material issue produced no immutable operation slot.");
         await db.SaveChangesAsync(ct);
         var posting = await PostIssueAsync(company.Id, issue.Id, key, hash, allocations, ct);
+        await ConsumeFifoAsync(company.Id, issue.Id, ct);
         issue.StockPostingBatchId = posting.BatchId;
         await audit.WriteAsync("Stores", "MaterialIssue.Issue", nameof(MaterialIssue),
             issue.Id.ToString(), null, new { issue.IssueNumber, posting.BatchId }, ct);
@@ -256,6 +257,21 @@ public sealed partial class EfMaterialIssueService
         return new(reader.GetGuid(0), reader.GetBoolean(1));
     }
 
+    private async Task ConsumeFifoAsync(Guid companyId, Guid issueId, CancellationToken ct)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = (NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = "SELECT advance.consume_fifo_for_issue(@company,@issue,@actor,@role,@assignment,@type,@login)";
+        command.Parameters.AddWithValue("company", companyId);
+        command.Parameters.AddWithValue("issue", issueId);
+        command.Parameters.AddWithValue("actor", Actor());
+        command.Parameters.AddWithValue("role", user.RoleCode);
+        command.Parameters.AddWithValue("assignment", user.ResolvedRoleAssignmentId!.Value);
+        command.Parameters.AddWithValue("type", user.ResolvedRoleAssignmentType!);
+        command.Parameters.AddWithValue("login", user.LoginId);
+        await command.ExecuteNonQueryAsync(ct);
+    }
     private static string NormalizeScan(string value) =>
         string.Concat(Required(value, "ScanCode").Where(char.IsLetterOrDigit)).ToUpperInvariant();
     private sealed record AvailableLayer(Guid WarehouseConditionLocationId, Guid OwnershipAccountId,

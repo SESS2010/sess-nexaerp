@@ -114,7 +114,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -163,6 +163,22 @@ internal static class DatabasePrincipalProvisioningSql
           IF to_regprocedure('advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)') IS NOT NULL THEN
             EXECUTE 'REVOKE ALL ON FUNCTION advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text) TO nexa_erp_runtime';
+          END IF;
+          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+            IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.get_vendor_bill(uuid,uuid)') IS NULL
+               OR to_regprocedure('advance.list_vendor_bills(uuid,text,text,uuid,integer,integer)') IS NULL THEN
+              RAISE EXCEPTION 'Vendor Bill/FIFO controlled functions are partially installed.';
+            END IF;
+            REVOKE ALL ON TABLE advance.vendor_bills,advance.vendor_bill_lines,advance.vendor_bill_history,advance.vendor_bill_cost_allocations,advance.fifo_inventory_cost_layers,advance.fifo_cost_consumptions FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) TO nexa_erp_runtime';
           END IF;
         END $stores_acl$;
 
@@ -261,6 +277,8 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
+              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions')
+                       AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND (NOT has_table_privilege('nexa_erp_runtime',c.oid,'SELECT')
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'INSERT')
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'UPDATE')
@@ -329,6 +347,31 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_bootstrap','advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)','EXECUTE')
                   OR has_function_privilege('nexa_erp_migration','advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled Material Return acceptance function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+            IF EXISTS (
+              SELECT 1 FROM (VALUES ('advance.vendor_bills'),('advance.vendor_bill_lines'),('advance.vendor_bill_history'),('advance.vendor_bill_cost_allocations'),('advance.fifo_inventory_cost_layers'),('advance.fifo_cost_consumptions')) evidence(name)
+              WHERE has_table_privilege('nexa_erp_runtime',evidence.name,'SELECT')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'INSERT')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'UPDATE')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'DELETE')) THEN
+              RAISE EXCEPTION 'Runtime must have no Vendor Bill/FIFO table privileges.';
+            END IF;
+            IF NOT has_function_privilege('nexa_erp_runtime','advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.get_vendor_bill(uuid,uuid)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.list_vendor_bills(uuid,text,text,uuid,integer,integer)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)','EXECUTE') THEN
+              RAISE EXCEPTION 'Vendor Bill/FIFO controlled function ACL is invalid.';
+            END IF;
+          ELSIF to_regprocedure('advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regclass('advance.vendor_bills') IS NOT NULL OR to_regclass('advance.fifo_inventory_cost_layers') IS NOT NULL THEN
+            RAISE EXCEPTION 'Vendor Bill/FIFO security boundary is partially installed.';
           END IF;
           IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL THEN
             IF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NULL

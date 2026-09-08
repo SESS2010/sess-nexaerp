@@ -87,6 +87,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureEstimatedBom(modelBuilder);
         ConfigureProductionEngineering(modelBuilder);
         ConfigureMaterialIssueExecution(modelBuilder);
+        ConfigureVendorBillCosting(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
         ConfigureInventoryOwnershipCustody(modelBuilder);
         ConfigureInventoryProvenanceGenealogy(modelBuilder);

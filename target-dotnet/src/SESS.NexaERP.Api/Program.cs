@@ -151,6 +151,7 @@ app.MapInventoryEndpoints();
 app.MapEstimatedBomEndpoints();
 app.MapProductionEngineeringEndpoints();
 app.MapMaterialIssueEndpoints();
+app.MapVendorBillEndpoints();
 app.MapItemVendorEndpoints();
 app.MapCustomerPoEndpoints();
 app.MapPurchaseRequisitionEndpoints();

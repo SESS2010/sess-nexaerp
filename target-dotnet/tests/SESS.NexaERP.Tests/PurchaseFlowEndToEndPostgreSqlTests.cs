@@ -59,6 +59,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid storesId;
         Guid qcId;
         Guid productionId;
+        Guid accountsSupportId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -83,11 +84,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             storesId = await Employee(seed, "SESS-35");
             qcId = await Employee(seed, "SESS-33");
             productionId = await Employee(seed, "SESS-25");
+            accountsSupportId = await Employee(seed, "SESS-41");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
                 (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"),
-                (qcId, "SESS-33"), (productionId, "SESS-25")
+                (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, "SESS-41")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -119,6 +121,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Password = runtimePassword,
             Pooling = false
         }.ConnectionString;
+        await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
         await using var runtimeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user);
         await using var approvalHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user, useRealPagePermissions: true);
@@ -200,6 +203,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
+            await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
             await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId);
 
@@ -216,6 +220,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.GoodsReceipts.CountAsync());
             Assert.Equal(3, await verify.GoodsReceiptLines.CountAsync());
             Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
+            Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
+            Assert.Equal(4, await verify.VendorBills.CountAsync());
+            Assert.Equal(4, await verify.VendorBillLines.CountAsync());
+            Assert.Equal(3, await verify.VendorBillCostAllocations.CountAsync());
+            Assert.Equal(9, await verify.VendorBillHistories.CountAsync());
+            var fifoLayers = await verify.FifoInventoryCostLayers.OrderBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToListAsync();
+            Assert.Equal(grns.Select(x => x.Lines.Single().Id), fifoLayers.Select(x => x.GoodsReceiptLineId));
+            var fifoUse = await verify.FifoCostConsumptions.GroupBy(x => x.FifoInventoryCostLayerId)
+                .Select(x => new { LayerId = x.Key, Quantity = x.Sum(y => y.Quantity) }).ToDictionaryAsync(x => x.LayerId, x => x.Quantity);
+            Assert.Equal(1m, fifoUse[fifoLayers[0].Id]);
+            Assert.Equal(1m, fifoUse[fifoLayers[1].Id]);
+            Assert.False(fifoUse.ContainsKey(fifoLayers[2].Id));
+            var serializedIssueLine = await verify.MaterialIssueLines.SingleAsync(x => x.InventorySerialId != null);
+            Assert.Equal(grns[2].Lines.Single().Id, serializedIssueLine.OriginGoodsReceiptLineId);
+            var serializedCostLayer = await verify.FifoCostConsumptions.Where(x => x.MaterialIssueLineId == serializedIssueLine.Id)
+                .Select(x => x.FifoInventoryCostLayer!.GoodsReceiptLineId).SingleAsync();
+            Assert.Equal(grns[1].Lines.Single().Id, serializedCostLayer);
+            Assert.NotEqual(serializedIssueLine.OriginGoodsReceiptLineId, serializedCostLayer);
             Assert.Equal(3, await verify.InventoryLots.CountAsync());
             Assert.Equal(1, await verify.GoodsReceiptLineSerials.CountAsync());
             Assert.Equal(1, await verify.InventorySerials.CountAsync());
@@ -243,7 +265,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit",
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
-                "MaterialReturn.Create","MaterialReturn.Accept",
+                "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
                 operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
@@ -448,7 +470,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(billDate.AddMonths(13),grn.Lines[0].WarrantyExpiryDate);Assert.Equal("9025",grn.Lines[0].HsnSacCode);
         Assert.Equal(band.QuoteRate>5000m?"REQUIRED":"OPTIONAL",grn.Lines[0].SerialCaptureMode);Assert.Empty(grn.Warnings);
         var draftVersion=grn.Version;
-        grn=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
+        grn=await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
         var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");
@@ -470,7 +492,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(0,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==grn.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(2,await evidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
         }
-        var replay=await Post<GoodsReceiptResult>(prClient,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
+        var replay=await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
         Assert.True(replay.Replayed);Assert.Equal(grn.StockPostingBatchId,replay.StockPostingBatchId);Assert.Equal(2,replay.History.Count);
         await using var replayEvidence=new NexaErpDbContext(options);Assert.Single(await replayEvidence.StockPostingBatches.Where(x=>x.GoodsReceiptId==grn.Id).ToListAsync());Assert.Equal(2,await replayEvidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
         return grn;
@@ -797,6 +819,128 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new MaterialIssueScan(mir.Lines.Single().Id, itemCode, null, .05m)]));
     }
 
+    private static async Task AssertVendorBillRuntimeTableDmlRefused(string connectionString)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        foreach (var sql in new[]
+        {
+            "SELECT count(*) FROM advance.vendor_bills",
+            "SELECT count(*) FROM advance.fifo_inventory_cost_layers",
+            "DELETE FROM advance.vendor_bills WHERE false",
+            "DELETE FROM advance.fifo_inventory_cost_layers WHERE false"
+        })
+        {
+            await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+            var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => command.ExecuteNonQueryAsync());
+            Assert.Equal(Npgsql.PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+        }
+    }
+
+    private static async Task RunVendorBillWitness(HttpClient client,
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
+        IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId)
+    {
+        var expected = new List<(decimal UnitRate, decimal Payable)>();
+        foreach (var grn in grns)
+            expected.Add(await Query(options, db => db.PurchaseOrderLines.Where(x =>
+                x.Id == grn.Lines.Single().PurchaseOrderLineId)
+                .Select(x => new ValueTuple<decimal, decimal>(x.UnitRate, x.TotalPayableValue)).SingleAsync()));
+
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        await AssertPostStatusContains(client,
+            $"/api/v1/accounts/vendor-bills/from-grn/{grns[1].Id}",
+            new CreateVendorBillRequest(grns[1].VendorBillNumber, grns[1].VendorBillDate,
+                [new(grns[1].Lines.Single().Id, 2m, expected[1].UnitRate, expected[1].Payable)],
+                "vendor-bill-quantity-mismatch"), HttpStatusCode.Conflict,
+            "GRN quantity", "bill quantity");
+
+        var mismatchRate = expected[0].UnitRate + 1m;
+        var mismatchValue = expected[0].Payable + 1m;
+        var mismatched = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/from-grn/{grns[0].Id}",
+            new CreateVendorBillRequest(grns[0].VendorBillNumber, grns[0].VendorBillDate,
+                [new(grns[0].Lines.Single().Id, 1m, mismatchRate, mismatchValue)],
+                "vendor-bill-price-mismatch"));
+        Assert.Equal("PRICE_MISMATCH", mismatched.MatchStatus);
+
+        user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT");
+        Assert.Equal("SUPPORT", Assert.Single(user.EffectiveRoleAssignments).AssignmentType);
+        await AssertPostStatus(client, $"/api/v1/accounts/vendor-bills/{mismatched.Id}/accept",
+            new VendorBillDecisionRequest(mismatched.Version, "Support cannot accept", "vendor-bill-support-accept"),
+            HttpStatusCode.Forbidden);
+        await AssertPostStatus(client, $"/api/v1/accounts/vendor-bills/{mismatched.Id}/reject",
+            new VendorBillDecisionRequest(mismatched.Version, "Support cannot reject", "vendor-bill-support-reject"),
+            HttpStatusCode.Forbidden);
+
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        await AssertPostStatusContains(client, $"/api/v1/accounts/vendor-bills/{mismatched.Id}/accept",
+            new VendorBillDecisionRequest(mismatched.Version, "Mismatch cannot be accepted", "vendor-bill-mismatch-accept"),
+            HttpStatusCode.Conflict, "PO unit rate", "bill unit rate",
+            expected[0].UnitRate.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            mismatchRate.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var rejected = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/{mismatched.Id}/reject",
+            new VendorBillDecisionRequest(mismatched.Version, "Rejected: PO must be revised", "vendor-bill-reject"));
+        Assert.Equal("REJECTED", rejected.Status);
+
+        for (var index = 1; index < grns.Count; index++)
+        {
+            var grn = grns[index];
+            var bill = await Post<VendorBillView>(client,
+                $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
+                new CreateVendorBillRequest(grn.VendorBillNumber, grn.VendorBillDate,
+                    [new(grn.Lines.Single().Id, grn.Lines.Single().ReceivedQuantity,
+                        expected[index].UnitRate, expected[index].Payable)], $"vendor-bill-create-{index}"));
+            Assert.Equal("MATCHED", bill.MatchStatus);
+            var decision = new VendorBillDecisionRequest(bill.Version,
+                "Three-way match accepted", $"vendor-bill-accept-{index}");
+            var accepted = await Post<VendorBillView>(client,
+                $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
+            Assert.Equal("ACCEPTED", accepted.Status);
+            var replay = await Post<VendorBillView>(client,
+                $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
+            Assert.True(replay.Replayed);            if (index == 1)
+            {
+                var reversalRequest = new VendorBillDecisionRequest(accepted.Version,
+                    "Accepted bill corrected by governed reversal", "vendor-bill-reverse-1");
+                var reversed = await Post<VendorBillView>(client,
+                    $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
+                Assert.Equal("REVERSED", reversed.Status);
+                Assert.NotNull(reversed.ReversedAt);
+                var reversalReplay = await Post<VendorBillView>(client,
+                    $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
+                Assert.True(reversalReplay.Replayed);
+
+                var replacement = await Post<VendorBillView>(client,
+                    $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
+                    new CreateVendorBillRequest(grn.VendorBillNumber, grn.VendorBillDate,
+                        [new(grn.Lines.Single().Id, grn.Lines.Single().ReceivedQuantity,
+                            expected[index].UnitRate, expected[index].Payable)], "vendor-bill-reentry-1"));
+                replacement = await Post<VendorBillView>(client,
+                    $"/api/v1/accounts/vendor-bills/{replacement.Id}/accept",
+                    new VendorBillDecisionRequest(replacement.Version,
+                        "Corrected bill re-entered after reversal", "vendor-bill-reentry-accept-1"));
+                Assert.Equal("ACCEPTED", replacement.Status);
+            }
+        }
+
+        await using var evidence = new NexaErpDbContext(options);
+        Assert.Equal(4, await evidence.VendorBills.CountAsync());
+        Assert.Equal(2, await evidence.VendorBills.CountAsync(x => x.Status == "ACCEPTED"));
+        Assert.Equal(3, await evidence.VendorBillCostAllocations.CountAsync());
+        Assert.Equal(3, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
+        Assert.Single(await evidence.VendorBillHistories.Where(x => x.Action == "REVERSED").ToListAsync());
+    }
+
+    private static async Task AssertPostStatusContains(HttpClient client, string path, object body,
+        HttpStatusCode expected, params string[] fragments)
+    {
+        using var response = await client.PostAsJsonAsync(path, body);
+        var payload = await response.Content.ReadAsStringAsync();
+        Assert.Equal(expected, response.StatusCode);
+        Assert.All(fragments, fragment => Assert.Contains(fragment, payload, StringComparison.OrdinalIgnoreCase));
+    }
     private static async Task AssertPostStatus(HttpClient client, string path, object body, HttpStatusCode expected)
     {
         using var response = await client.PostAsJsonAsync(path, body);
@@ -967,6 +1111,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapEstimatedBomEndpoints();
             app.MapProductionEngineeringEndpoints();
             app.MapMaterialIssueEndpoints();
+            app.MapVendorBillEndpoints();
             await app.StartAsync();
             var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
             client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");
