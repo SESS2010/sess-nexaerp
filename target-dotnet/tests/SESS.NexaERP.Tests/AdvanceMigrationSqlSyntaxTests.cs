@@ -664,9 +664,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
             THEN RAISE EXCEPTION 'Expected 2 external portal roles.'; END IF;
-          IF EXISTS (SELECT 1 FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
-            WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER'))
-            THEN RAISE EXCEPTION 'New catalogue roles must have no permissions.'; END IF;
+          IF EXISTS (
+            SELECT r."Id" FROM advance.roles r
+            LEFT JOIN advance.role_page_permissions p ON p."RoleId"=r."Id"
+            LEFT JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+            WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER')
+            GROUP BY r."Id"
+            HAVING count(p."Id")<>2
+              OR count(p."Id") FILTER (WHERE d."PageKey" IN ('stores.material-issue-requests','stores.material-returns'))<>2)
+            THEN RAISE EXCEPTION 'New catalogue roles must hold only MIR request and Material Return permissions.'; END IF;
           IF EXISTS (
             SELECT expected."RoleCode",expected."PageKey"
             FROM (VALUES

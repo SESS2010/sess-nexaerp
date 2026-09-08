@@ -2,6 +2,7 @@ using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Sales;
 
 namespace SESS.NexaERP.Domain.Stores;
 
@@ -118,6 +119,7 @@ public sealed class MaterialIssueRequest : CompanyScopedAuditableEntity
 {
     public string RequestNumber { get; set; } = string.Empty;
     public string Purpose { get; set; } = string.Empty;
+    public string Situation { get; set; } = string.Empty;
     public string DestinationType { get; set; } = string.Empty;
     public Guid? JobOrderId { get; set; }
     public JobOrder? JobOrder { get; set; }
@@ -152,10 +154,20 @@ public sealed class MaterialIssueRequestLine
     public int LineNumber { get; set; }
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }
+    public Guid UomId { get; set; }
+    public Uom? Uom { get; set; }
+    public Guid? CustomerPurchaseOrderLineId { get; set; }
+    public CustomerPurchaseOrderLine? CustomerPurchaseOrderLine { get; set; }
     public string ItemCodeSnapshot { get; set; } = string.Empty;
     public string ItemNameSnapshot { get; set; } = string.Empty;
     public string UomSnapshot { get; set; } = string.Empty;
     public decimal RequestedQuantity { get; set; }
+    public decimal RequestedBaseQuantity { get; set; }
+    public decimal EstimatedBomBaseQuantitySnapshot { get; set; }
+    public decimal ProductionBomBaseQuantitySnapshot { get; set; }
+    public decimal CustomerPoBaseQuantitySnapshot { get; set; }
+    public decimal ExcessBaseQuantitySnapshot { get; set; }
+    public string ExcessClassification { get; set; } = "NONE";
     public string? Remarks { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";

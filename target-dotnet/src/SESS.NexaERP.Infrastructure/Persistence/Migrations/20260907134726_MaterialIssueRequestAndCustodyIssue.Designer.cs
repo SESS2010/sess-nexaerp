@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907134726_MaterialIssueRequestAndCustodyIssue")]
+    partial class MaterialIssueRequestAndCustodyIssue
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50250,9 +50253,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("MaterialIssueRequestLineId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("MaterialReturnLineId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("MovementLeg")
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
@@ -50356,8 +50356,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("MaterialIssueRequestLineId");
 
-                    b.HasIndex("MaterialReturnLineId");
-
                     b.HasIndex("OriginGoodsReceiptLineId");
 
                     b.HasIndex("QcInspectionLotDispositionId");
@@ -50401,8 +50399,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "MaterialIssueLineId");
 
                     b.HasIndex("CompanyId", "MaterialIssueRequestLineId");
-
-                    b.HasIndex("CompanyId", "MaterialReturnLineId");
 
                     b.HasIndex("CompanyId", "OriginGoodsReceiptLineId");
 
@@ -60796,268 +60792,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("material_issue_request_lines", "advance");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturn", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AcceptanceIdempotencyKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("AcceptanceReason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("AcceptanceRequestFingerprint")
-                        .HasColumnType("character(64)");
-
-                    b.Property<string>("AcceptedActorRoleCode")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset?>("AcceptedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("AcceptedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("AcceptedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AcceptedRoleAssignmentType")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CreateIdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("CreateRequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("character(64)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("CreatedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("DeclaredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("MaterialIssueId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ReturnNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<Guid>("ReturnedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid?>("StockPostingBatchId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AcceptedByEmployeeId");
-
-                    b.HasIndex("AcceptedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CreatedByEmployeeId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("ReturnedByEmployeeId");
-
-                    b.HasIndex("StockPostingBatchId");
-
-                    b.HasIndex("CompanyId", "AcceptanceIdempotencyKey")
-                        .IsUnique()
-                        .HasFilter("\"AcceptanceIdempotencyKey\" IS NOT NULL");
-
-                    b.HasIndex("CompanyId", "CreateIdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "MaterialIssueId");
-
-                    b.HasIndex("CompanyId", "ReturnNumber")
-                        .IsUnique();
-
-                    b.ToTable("material_returns", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturnHistory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<Guid>("ActorEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("FromStatus")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<Guid>("MaterialReturnId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Remarks")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ToStatus")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CorrelationId")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "MaterialReturnId");
-
-                    b.ToTable("material_return_history", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturnLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("InventorySerialId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("LineNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("MaterialIssueLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MaterialReturnId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("ReportedConsumedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("ReportedStillHeldQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("ReturnedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("ScanCode")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ItemId");
-
-                    b.HasIndex("CompanyId", "InventorySerialId")
-                        .IsUnique()
-                        .HasFilter("\"InventorySerialId\" IS NOT NULL");
-
-                    b.HasIndex("CompanyId", "MaterialIssueLineId");
-
-                    b.HasIndex("CompanyId", "MaterialReturnId");
-
-                    b.HasIndex("MaterialReturnId", "LineNumber")
-                        .IsUnique();
-
-                    b.ToTable("material_return_lines", "advance");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.NotificationDeliveryAttempt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -62060,9 +61794,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("MaterialIssueRequestId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("MaterialReturnId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset>("PostedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -62130,8 +61861,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("MaterialIssueRequestId");
 
-                    b.HasIndex("MaterialReturnId");
-
                     b.HasIndex("PostedByEmployeeId");
 
                     b.HasIndex("QcInspectionRevisionId");
@@ -62158,8 +61887,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "MaterialIssueId");
 
                     b.HasIndex("CompanyId", "MaterialIssueRequestId");
-
-                    b.HasIndex("CompanyId", "MaterialReturnId");
 
                     b.HasIndex("CompanyId", "PostingDate");
 
@@ -63504,12 +63231,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialReturnLine", "MaterialReturnLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialReturnLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLine", "OriginGoodsReceiptLine")
                         .WithMany()
                         .HasForeignKey("CompanyId", "OriginGoodsReceiptLineId")
@@ -63584,8 +63305,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("MaterialIssueLine");
 
                     b.Navigation("MaterialIssueRequestLine");
-
-                    b.Navigation("MaterialReturnLine");
 
                     b.Navigation("OriginGoodsReceiptLine");
 
@@ -66653,114 +66372,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Uom");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturn", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "AcceptedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("AcceptedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "AcceptedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("AcceptedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "CreatedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("CreatedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ReturnedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ReturnedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.StockPostingBatch", "StockPostingBatch")
-                        .WithMany()
-                        .HasForeignKey("StockPostingBatchId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssue", "MaterialIssue")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("AcceptedByEmployee");
-
-                    b.Navigation("AcceptedRoleAssignment");
-
-                    b.Navigation("CreatedByEmployee");
-
-                    b.Navigation("MaterialIssue");
-
-                    b.Navigation("ResolvedRoleAssignment");
-
-                    b.Navigation("ReturnedByEmployee");
-
-                    b.Navigation("StockPostingBatch");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturnHistory", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialReturn", "MaterialReturn")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialReturnId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("MaterialReturn");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturnLine", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", null)
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "InventorySerialId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueLine", "MaterialIssueLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialReturn", "MaterialReturn")
-                        .WithMany("Lines")
-                        .HasForeignKey("CompanyId", "MaterialReturnId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("MaterialIssueLine");
-
-                    b.Navigation("MaterialReturn");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.NotificationDeliveryAttempt", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Stores.NotificationRecipient", "NotificationRecipient")
@@ -67212,12 +66823,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialReturn", "MaterialReturn")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialReturnId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Stores.QcInspectionRevision", "QcInspectionRevision")
                         .WithMany()
                         .HasForeignKey("CompanyId", "QcInspectionRevisionId")
@@ -67245,8 +66850,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("MaterialIssue");
 
                     b.Navigation("MaterialIssueRequest");
-
-                    b.Navigation("MaterialReturn");
 
                     b.Navigation("PostedByEmployee");
 
@@ -67638,11 +67241,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssueRequest", b =>
-                {
-                    b.Navigation("Lines");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialReturn", b =>
                 {
                     b.Navigation("Lines");
                 });

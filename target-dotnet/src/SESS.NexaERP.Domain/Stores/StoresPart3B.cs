@@ -12,6 +12,10 @@ public sealed class StockPostingBatch : CompanyScopedAuditableEntity
     public QcInspectionRevision? QcInspectionRevision { get; set; }
     public Guid? MaterialIssueRequestId { get; set; }
     public MaterialIssueRequest? MaterialIssueRequest { get; set; }
+    public Guid? MaterialIssueId { get; set; }
+    public MaterialIssue? MaterialIssue { get; set; }
+    public Guid? MaterialReturnId { get; set; }
+    public MaterialReturn? MaterialReturn { get; set; }
     public Guid? DeliveryChallanId { get; set; }
     public DeliveryChallan? DeliveryChallan { get; set; }
     public Guid? InventoryCustodyHandoffId { get; set; }

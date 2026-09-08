@@ -1,6 +1,7 @@
 using SESS.NexaERP.Domain.Common;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Inventory;
 
 namespace SESS.NexaERP.Domain.Sales;
 
@@ -109,6 +110,10 @@ public sealed class CustomerPurchaseOrderLine : AuditableEntity
     public int RevisionNumber { get; set; }
     public CustomerPurchaseOrderRevision? Revision { get; set; }
     public int SlNo { get; set; }
+    public Guid ItemId { get; set; }
+    public Item? Item { get; set; }
+    public Guid UomId { get; set; }
+    public Uom? UomMaster { get; set; }
     public string Description { get; set; } = string.Empty;
     public DateOnly? DueDate { get; set; }
     public decimal? Quantity { get; set; }

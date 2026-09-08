@@ -253,6 +253,26 @@ public static class Rev869BCommandContextAuthorizer
 
             throw new InvalidOperationException("Production engineering history must identify exactly one revision target.");
         }
+        foreach (var history in db.ChangeTracker.Entries<MaterialIssueHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var entityId = history.MaterialIssueId ?? history.MaterialIssueRequestId
+                ?? throw new InvalidOperationException("Material issue history requires a request or issue.");
+            var entityType = history.MaterialIssueId.HasValue ? nameof(MaterialIssue) : nameof(MaterialIssueRequest);
+            var version = history.MaterialIssueId.HasValue
+                ? TrackedVersion<MaterialIssue>(db, entityId) ?? await NextVersionAsync(db.MaterialIssues, entityId, ct)
+                : TrackedVersion<MaterialIssueRequest>(db, entityId) ?? await NextVersionAsync(db.MaterialIssueRequests, entityId, ct);
+            result.Add(new("material_issue_history", history.Id, entityType, entityId,
+                history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
+        }
+        foreach (var history in db.ChangeTracker.Entries<MaterialReturnHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<MaterialReturn>(db, history.MaterialReturnId)
+                ?? await NextVersionAsync(db.MaterialReturns, history.MaterialReturnId, ct);
+            result.Add(new("material_return_history", history.Id, nameof(MaterialReturn), history.MaterialReturnId,
+                history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
+        }
         foreach (var alias in db.ChangeTracker.Entries<ItemMergeAlias>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {
             var version = TrackedVersion<Item>(db, alias.SourceItemId) ?? await NextVersionAsync(db.Items, alias.SourceItemId, ct);
