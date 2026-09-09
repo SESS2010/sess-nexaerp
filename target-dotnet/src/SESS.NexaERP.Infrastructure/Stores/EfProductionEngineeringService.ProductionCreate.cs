@@ -60,12 +60,12 @@ public sealed partial class EfProductionEngineeringService
             RevisionReason = reason, PreparedByEmployeeId = Actor(), IdempotencyKey = key,
             ContentFingerprint = fingerprint, CreatedBy = user.LoginId };
         var line = 0;
-        foreach (var sourceLine in (prior?.Lines.Select(x => (x.ItemId, x.UomId, x.Quantity, x.Remarks))
-            ?? source.Lines.Select(x => (x.ItemId, x.UomId, x.Quantity, x.Remarks)))) {
+        foreach (var sourceLine in (prior?.Lines.Select(x => (x.ItemId, x.UomId, x.Quantity, x.Remarks, UnitValue: x.PlannedUnitValue))
+            ?? source.Lines.Select(x => (x.ItemId, x.UomId, x.Quantity, x.Remarks, UnitValue: x.EstimatedUnitValue)))) {
             revision.Lines.Add(new ProductionBomLine { CompanyId = bom.CompanyId,
                 ProductionBomRevisionId = revision.Id, LineNumber = ++line,
                 ItemId = sourceLine.ItemId, UomId = sourceLine.UomId,
-                Quantity = sourceLine.Quantity, Remarks = sourceLine.Remarks,
+                Quantity = sourceLine.Quantity, Remarks = sourceLine.Remarks, PlannedUnitValue = sourceLine.UnitValue,
                 CreatedBy = user.LoginId });
         }
         return revision;

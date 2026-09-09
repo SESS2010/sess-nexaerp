@@ -11,6 +11,32 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
+    public void Frozen_estimated_bom_value_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909114202_FrozenEstimatedBomUnitValue";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("frozen-estimated-value-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("frozen-estimated-value-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("frozen-estimated-value-assert.sql", """
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='advance' AND table_name='estimated_bom_lines' AND column_name='EstimatedUnitValue')
+                 OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='advance' AND table_name='production_bom_lines' AND column_name='PlannedUnitValue')
+                THEN RAISE EXCEPTION 'frozen BOM value columns missing'; END IF;
+            END $$;
+            """);
+        server.Execute("frozen-estimated-value-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("frozen-estimated-value-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+
+    [Fact]
     public void Controlled_estimated_bom_draft_replacement_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
         const string target = "20260909090000_ControlledEstimatedBomDraftReplacement";

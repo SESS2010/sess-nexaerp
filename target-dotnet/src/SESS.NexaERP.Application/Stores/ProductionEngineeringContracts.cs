@@ -8,7 +8,7 @@ public sealed record ProductionBomActionRequest(long ExpectedVersion, string Rem
 public sealed record NewProductionBomRevisionRequest(long ExpectedBomVersion, string RevisionReason, string IdempotencyKey);
 public sealed record PinProductionBomRevisionRequest(Guid RevisionId, long ExpectedJobOrderVersion, string Reason, string IdempotencyKey);
 public sealed record ProductionBomLineView(Guid Id, int LineNumber, Guid ItemId, string ItemCode,
-    Guid UomId, string UomCode, decimal Quantity, string? Remarks);
+    Guid UomId, string UomCode, decimal Quantity, string? Remarks, decimal? PlannedUnitValue, string CurrencyCode);
 public sealed record ProductionBomRevisionView(Guid Id, int RevisionNumber, Guid SourceEstimatedBomRevisionId,
     Guid? SupersedesRevisionId, string Status, string RevisionReason, Guid PreparedByEmployeeId,
     DateTimeOffset? SubmittedAt, DateTimeOffset? ApprovedAt, Guid? ApprovedByEmployeeId,

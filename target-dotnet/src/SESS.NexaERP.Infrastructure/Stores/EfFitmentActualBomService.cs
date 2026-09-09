@@ -173,7 +173,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             .SingleAsync(x => x.CompanyId == companyId && x.Id == revisionId && x.Status == "APPROVED", ct);
         return await VarianceAsync("OPERATIONAL_PRODUCTION_BOM", revision.Id, revision.RevisionNumber,
             revision.ApprovedAt ?? revision.CreatedAt,
-            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity)), actual, ct);
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.PlannedUnitValue)), actual, ct);
     }
 
     private async Task<ActualBomBaselineVarianceView> CommercialVarianceAsync(Guid companyId,
@@ -186,21 +186,24 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             .SingleAsync(x => x.CompanyId == companyId && x.Id == baselineId && x.Status == "APPROVED", ct);
         return await VarianceAsync("COMMERCIAL_ESTIMATED_BOM", revision.Id, revision.RevisionNumber,
             revision.ApprovedAt ?? revision.CreatedAt,
-            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity)), actual, ct);
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.EstimatedUnitValue)), actual, ct);
     }
 
     private async Task<ActualBomBaselineVarianceView> VarianceAsync(string type, Guid revisionId,
         int revisionNumber, DateTimeOffset effectiveAt, IEnumerable<VarianceBaselineLine> baselineLines,
         IReadOnlyList<ActualBomEntryView> actualLines, CancellationToken ct)
     {
-        var baseline = new Dictionary<Guid, decimal>();
+        var baseline = new Dictionary<Guid, (decimal Quantity, decimal Value, bool Available)>();
         foreach (var line in baselineLines)
         {
             var itemId = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == itemId, ct);
             var quantity = await ToBaseQuantityAsync(line.Quantity, line.UomId, item.BaseUomId,
                 DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
-            baseline[itemId] = baseline.GetValueOrDefault(itemId) + quantity;
+            var prior = baseline.GetValueOrDefault(itemId);
+            baseline[itemId] = (prior.Quantity + quantity,
+                prior.Value + (line.UnitValue.HasValue ? quantity * line.UnitValue.Value : 0),
+                (prior.Available || prior.Quantity == 0) && line.UnitValue.HasValue);
         }
         var actual = new Dictionary<Guid, (decimal Quantity, decimal Value)>();
         foreach (var line in actualLines)
@@ -218,15 +221,19 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         var lines = ids.Select(id =>
         {
             var item = items[id]; var actualValue = actual.GetValueOrDefault(id);
-            var baselineQuantity = baseline.GetValueOrDefault(id);
+            var baselineValue = baseline.GetValueOrDefault(id);
+            decimal? frozenValue = baselineValue.Available ? baselineValue.Value : null;
             return new ActualBomVarianceLineView(id, item.ItemCode, item.Name, item.BaseUomId,
-                uoms[item.BaseUomId], baselineQuantity, actualValue.Quantity,
-                actualValue.Quantity - baselineQuantity, actualValue.Value);
+                uoms[item.BaseUomId], baselineValue.Quantity, actualValue.Quantity,
+                actualValue.Quantity - baselineValue.Quantity, frozenValue, actualValue.Value,
+                frozenValue.HasValue ? actualValue.Value - frozenValue.Value : null);
         }).OrderBy(x => x.ItemCode).ToArray();
-        return new(type, revisionId, revisionNumber, false, null,
-            actualLines.Sum(x => x.TotalAcceptedValue), null, lines);
+        var available = baseline.Values.All(x => x.Available);
+        var totalBaseline = available ? baseline.Values.Sum(x => x.Value) : (decimal?)null;
+        var totalActual = actualLines.Sum(x => x.TotalAcceptedValue);
+        return new(type, revisionId, revisionNumber, available, totalBaseline,
+            totalActual, totalBaseline.HasValue ? totalActual - totalBaseline.Value : null, lines);
     }
-
     private async Task<Guid> TerminalItemIdAsync(Guid itemId, CancellationToken ct)
     {
         var seen = new HashSet<Guid>();
@@ -253,7 +260,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             ? quantity * conversion.ConversionFactor : quantity / conversion.ConversionFactor;
     }
 
-    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity);
+    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity, decimal? UnitValue);
     private IQueryable<ComponentFitment> Query() => db.ComponentFitments.AsNoTracking()
         .Include(x => x.JobOrder).Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.Item)
         .Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.MaterialIssue)

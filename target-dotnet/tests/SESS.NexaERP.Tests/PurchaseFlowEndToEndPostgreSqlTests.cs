@@ -592,7 +592,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         await AssertPostStatus(client, "/api/v1/design/estimated-boms",
             new CreateEstimatedBomRequest(job.Id, "Must wait for Accounts",
-                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component")], "mir-est-before-accounts"),
+                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component", 100m)], "mir-est-before-accounts"),
             HttpStatusCode.Conflict);
         user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         var confirm = new ConfirmJobOrderRequest(job.Version, "Customer PO and one-machine scope verified", "job-order-accounts-confirm");
@@ -605,13 +605,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         var estimated = await Post<EstimatedBomView>(client, "/api/v1/design/estimated-boms",
             new CreateEstimatedBomRequest(job.Id, "Witness commercial baseline",
-                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component")], "mir-est-create"));
+                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component", 100m)], "mir-est-create"));
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for TD approval", "mir-est-submit"));
         user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Commercial baseline approved", "mir-est-approve"));
 
+        Assert.Equal(100m, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
+        Assert.True(estimated.CurrentRevision.Lines.Single().EstimatedUnitValueOverridden);
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         var production = await Post<ProductionBomView>(client, "/api/v1/production/boms",
             new CreateProductionBomRequest(job.Id, "Witness production baseline", "mir-pbom-create"));
@@ -752,21 +754,31 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Single(actual.Entries);
         Assert.Equal("OPERATIONAL_PRODUCTION_BOM", actual.OperationalVariance.BaselineType);
         Assert.Equal(production.CurrentRevision.Id, actual.OperationalVariance.BaselineRevisionId);
-        Assert.False(actual.OperationalVariance.BaselineCostAvailable);
-        Assert.Null(actual.OperationalVariance.BaselineValue);
-        Assert.Null(actual.OperationalVariance.ValueVariance);
+        Assert.True(actual.OperationalVariance.BaselineCostAvailable);
+        Assert.Equal(90m, actual.OperationalVariance.BaselineValue);
+        Assert.Equal(expectedMaterial + expectedCharges - 90m, actual.OperationalVariance.ValueVariance);
         var operationalLine = Assert.Single(actual.OperationalVariance.Lines);
         Assert.Equal(.90m, operationalLine.BaselineQuantity);
         Assert.Equal(.30m, operationalLine.ActualQuantity);
         Assert.Equal(-.60m, operationalLine.QuantityVariance);
+        Assert.Equal(90m, operationalLine.BaselineValue);
         Assert.Equal(expectedMaterial + expectedCharges, operationalLine.ActualAcceptedValue);
+        Assert.Equal(expectedMaterial + expectedCharges - 90m, operationalLine.ValueVariance);
         Assert.Equal("COMMERCIAL_ESTIMATED_BOM", actual.CommercialVariance.BaselineType);
         Assert.Equal(estimated.CommercialBaselineRevisionId, actual.CommercialVariance.BaselineRevisionId);
+        Assert.True(actual.CommercialVariance.BaselineCostAvailable);
+        Assert.Equal(90m, actual.CommercialVariance.BaselineValue);
+        Assert.Equal(expectedMaterial + expectedCharges - 90m, actual.CommercialVariance.ValueVariance);
         var commercialLine = Assert.Single(actual.CommercialVariance.Lines);
         Assert.Equal(.90m, commercialLine.BaselineQuantity);
         Assert.Equal(.30m, commercialLine.ActualQuantity);
         Assert.Equal(-.60m, commercialLine.QuantityVariance);
+        Assert.Equal(90m, commercialLine.BaselineValue);
+        Assert.Equal(expectedMaterial + expectedCharges - 90m, commercialLine.ValueVariance);
 
+        await using (var priceDb = new NexaErpDbContext(options))
+            await priceDb.Items.Where(x => x.Id == itemId)
+                .ExecuteUpdateAsync(x => x.SetProperty(i => i.StandardEstimatedPrice, 120m));
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         estimated = await Post<EstimatedBomView>(client,
@@ -788,6 +800,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version,
                 "Approve without rewriting offer baseline", "fitment-est-revision-approve"));
+        Assert.Equal(120m, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
+        Assert.False(estimated.CurrentRevision.Lines.Single().EstimatedUnitValueOverridden);
         var afterEngineeringRevision = await Get<ActualBomView>(client,
             $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
         Assert.NotEqual(estimated.CurrentRevision.Id, afterEngineeringRevision.CommercialVariance.BaselineRevisionId);

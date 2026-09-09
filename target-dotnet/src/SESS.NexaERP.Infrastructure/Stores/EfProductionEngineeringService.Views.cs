@@ -15,7 +15,7 @@ public sealed partial class EfProductionEngineeringService
         var uoms = await db.Uoms.AsNoTracking().Where(x => uomIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, ct);
         var lines = revision.Lines.OrderBy(x => x.LineNumber).Select(x => new ProductionBomLineView(
             x.Id, x.LineNumber, x.ItemId, items[x.ItemId].ItemCode, x.UomId, uoms[x.UomId].Code,
-            x.Quantity, x.Remarks)).ToArray();
+            x.Quantity, x.Remarks, x.PlannedUnitValue, "INR")).ToArray();
         var view = new ProductionBomRevisionView(revision.Id, revision.RevisionNumber,
             revision.SourceEstimatedBomRevisionId, revision.SupersedesRevisionId, revision.Status,
             revision.RevisionReason, revision.PreparedByEmployeeId, revision.SubmittedAt,

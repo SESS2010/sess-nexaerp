@@ -60,7 +60,8 @@ public sealed partial class EfEstimatedBomService
             ?? throw new InvalidOperationException("Estimated BOM update produced no immutable operation slot.");
         var lineNumber = 0;
         var lineJson = JsonSerializer.Serialize(material.Select(x => new { lineNumber = ++lineNumber, itemId = x.ItemId,
-            uomId = x.UomId, quantity = x.Quantity, remarks = x.Remarks }));
+            uomId = x.UomId, quantity = x.Quantity, remarks = x.Remarks, estimatedUnitValue = x.EstimatedUnitValue,
+            estimatedUnitValueOverridden = x.EstimatedUnitValue.HasValue }));
         var replaced = await db.Database.SqlQuery<int>($"SELECT advance.replace_estimated_bom_draft_lines({company.Id},{company.Code},{revision.Id},{request.ExpectedVersion},{Actor()},{user.IdentityIssuer!},{user.IdentitySubject!},{user.RoleCode},{user.LoginId},{lineJson}::jsonb) AS \"Value\"").SingleAsync(ct);
         if (replaced != material.Count) throw new InvalidOperationException("Controlled Estimated BOM draft replacement returned an unexpected line count.");
         await audit.WriteAsync("Design", "EstimatedBom.Update", nameof(EstimatedBom), bom.Id.ToString(), null,
@@ -96,6 +97,7 @@ public sealed partial class EfEstimatedBomService
         if (revision.Version != request.ExpectedVersion) throw new DbUpdateConcurrencyException("Estimated BOM revision Version is stale.");
         if (approval && revision.PreparedByEmployeeId == Actor()) throw new StoresConflictException("Nobody may approve their own Estimated BOM revision.");
         await ValidateSubmissionAsync(revision, ct);
+        if (approval) await FreezeEstimatedValuesAsync(revision, ct);
         var from = revision.Status; revision.Status = next; bom.Status = next;
         revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         revision.UpdatedAt = bom.UpdatedAt = DateTimeOffset.UtcNow; revision.UpdatedBy = bom.UpdatedBy = user.LoginId;
@@ -127,7 +129,8 @@ public sealed partial class EfEstimatedBomService
         foreach (var line in source.Lines.OrderBy(x => x.LineNumber))
             revision.Lines.Add(new EstimatedBomLine { CompanyId = company.Id, EstimatedBomRevisionId = revision.Id,
                 LineNumber = line.LineNumber, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
-                Remarks = line.Remarks, CreatedBy = user.LoginId });
+                Remarks = line.Remarks, EstimatedUnitValue = null, EstimatedUnitValueOverridden = false,
+                CreatedBy = user.LoginId });
         bom.Revisions.Add(revision); db.EstimatedBomRevisions.Add(revision);
         bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT"; bom.Version = checked(bom.Version + 1);
         bom.UpdatedAt = DateTimeOffset.UtcNow; bom.UpdatedBy = user.LoginId;

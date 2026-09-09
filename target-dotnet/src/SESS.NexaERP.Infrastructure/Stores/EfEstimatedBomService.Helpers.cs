@@ -11,7 +11,7 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 
 public sealed partial class EfEstimatedBomService
 {
-    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks);
+    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue);
 
     private async Task<IReadOnlyList<MaterialLine>> MaterializeLinesAsync(Guid companyId, IReadOnlyList<EstimatedBomLineInput> lines, CancellationToken ct)
     {
@@ -19,7 +19,7 @@ public sealed partial class EfEstimatedBomService
         var result = new List<MaterialLine>(lines.Count);
         foreach (var line in lines)
         {
-            if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty || line.Quantity <= 0)
+            if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty || line.Quantity <= 0 || line.EstimatedUnitValue < 0)
                 throw new StoresValidationException("Every line requires ItemId, UomId and a positive Quantity.");
             var itemId = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleOrDefaultAsync(x => x.Id == itemId, ct)
@@ -39,7 +39,7 @@ public sealed partial class EfEstimatedBomService
                     ((x.FromUomId == uom.Id && x.ToUomId == baseUom.Id) || (x.FromUomId == baseUom.Id && x.ToUomId == uom.Id)), ct);
                 if (!conversion) throw new StoresValidationException($"No effective approved UOM conversion relates {uom.Code} and {baseUom.Code}.");
             }
-            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim()));
+            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim(), line.EstimatedUnitValue));
         }
         return result;
     }
@@ -62,7 +62,8 @@ public sealed partial class EfEstimatedBomService
         foreach (var line in material)
             revision.Lines.Add(new EstimatedBomLine { CompanyId = companyId, EstimatedBomRevisionId = revision.Id,
                 LineNumber = ++number, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
-                Remarks = line.Remarks, CreatedBy = user.LoginId });
+                Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue,
+                EstimatedUnitValueOverridden = line.EstimatedUnitValue.HasValue, CreatedBy = user.LoginId });
     }
 
     private static EstimatedBomRevision Current(EstimatedBom bom) =>
@@ -79,6 +80,17 @@ public sealed partial class EfEstimatedBomService
         }
     }
 
+    private async Task FreezeEstimatedValuesAsync(EstimatedBomRevision revision, CancellationToken ct)
+    {
+        foreach (var line in revision.Lines.Where(x => !x.EstimatedUnitValue.HasValue))
+        {
+            var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
+            var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+            line.EstimatedUnitValue = item.StandardEstimatedPrice
+                ?? throw new StoresConflictException($"Item {item.ItemCode} has no Standard Estimated Price; provide an EstimatedUnitValue override before approval.");
+            line.EstimatedUnitValueOverridden = false;
+        }
+    }
     private async Task RequirePreparerAsync(CancellationToken ct)
     {
         var code = await db.Employees.AsNoTracking().Where(x => x.Id == Actor()).Select(x => x.EmployeeCode).SingleAsync(ct);
@@ -143,7 +155,8 @@ public sealed partial class EfEstimatedBomService
             var original = items[line.ItemId]; var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
             var terminal = terminalId == original.Id ? original : await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
             lines.Add(new(line.Id, line.LineNumber, original.Id, original.ItemCode, terminal.Id, terminal.ItemCode,
-                terminal.IsActive, terminal.ApprovalStatus, line.UomId, uoms[line.UomId].Code, line.Quantity, line.Remarks));
+                terminal.IsActive, terminal.ApprovalStatus, line.UomId, uoms[line.UomId].Code, line.Quantity, line.Remarks,
+                line.EstimatedUnitValue, line.EstimatedUnitValueOverridden, "INR"));
         }
         var canonical = new List<EstimatedBomCanonicalLineView>();
         foreach (var group in lines.GroupBy(x => x.CanonicalItemId))

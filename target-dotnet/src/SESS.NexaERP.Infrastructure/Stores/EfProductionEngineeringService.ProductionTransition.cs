@@ -42,6 +42,7 @@ public sealed partial class EfProductionEngineeringService
             throw new StoresConflictException("Nobody may approve their own Production BOM revision.");
         await ValidateLinesAsync(revision.Lines.Select(x =>
             new ProductionBomLineInput(x.ItemId, x.UomId, x.Quantity, x.Remarks)).ToArray(), true, ct);
+        if (approve) await FreezeProductionValuesAsync(revision, ct);
         var from = revision.Status; revision.Status = approve ? "APPROVED" : "SUBMITTED";
         revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         bom.Status = revision.Status;
@@ -56,5 +57,22 @@ public sealed partial class EfProductionEngineeringService
         await CommitAsync(company.Code, "ProductionBom." + action, key, request,
             nameof(ProductionBom), bom.Id, new { bom.BomNumber, revision.RevisionNumber }, ct);
         await tx.CommitAsync(ct); return await BomViewAsync(bom, ct);
+    }
+    private async Task FreezeProductionValuesAsync(ProductionBomRevision revision, CancellationToken ct)
+    {
+        var sourceValues = await db.EstimatedBomLines.AsNoTracking()
+            .Where(x => x.EstimatedBomRevisionId == revision.SourceEstimatedBomRevisionId && x.EstimatedUnitValue != null)
+            .GroupBy(x => x.ItemId).Select(x => new { ItemId = x.Key, Value = x.First().EstimatedUnitValue!.Value })
+            .ToDictionaryAsync(x => x.ItemId, x => x.Value, ct);
+        foreach (var line in revision.Lines.Where(x => !x.PlannedUnitValue.HasValue))
+        {
+            if (sourceValues.TryGetValue(line.ItemId, out var value)) line.PlannedUnitValue = value;
+            else
+            {
+                var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == line.ItemId, ct);
+                line.PlannedUnitValue = item.StandardEstimatedPrice
+                    ?? throw new StoresConflictException($"Item {item.ItemCode} has no approved Estimated BOM value or Standard Estimated Price.");
+            }
+        }
     }
 }

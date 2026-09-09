@@ -23,12 +23,14 @@ public sealed partial class EfProductionEngineeringService
         if (revision.Version != request.ExpectedVersion)
             throw new DbUpdateConcurrencyException("Production BOM revision Version is stale.");
         var lines = await ValidateLinesAsync(request.Lines, false, ct);
+        var existingValues = revision.Lines.GroupBy(x => x.ItemId).ToDictionary(x => x.Key, x => x.First().PlannedUnitValue);
         db.ProductionBomLines.RemoveRange(revision.Lines); revision.Lines.Clear();
         var lineNumber = 0;
         foreach (var line in lines) revision.Lines.Add(new ProductionBomLine {
             CompanyId = company.Id, ProductionBomRevisionId = revision.Id,
             LineNumber = ++lineNumber, ItemId = line.ItemId, UomId = line.UomId,
-            Quantity = line.Quantity, Remarks = line.Remarks, CreatedBy = user.LoginId
+            Quantity = line.Quantity, Remarks = line.Remarks, PlannedUnitValue = existingValues.GetValueOrDefault(line.ItemId),
+            CreatedBy = user.LoginId
         });
         db.ProductionBomLines.AddRange(revision.Lines);
         revision.RevisionReason = Required(request.RevisionReason, "RevisionReason");

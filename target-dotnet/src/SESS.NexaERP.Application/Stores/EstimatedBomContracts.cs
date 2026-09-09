@@ -2,7 +2,7 @@ using SESS.NexaERP.Application.Common;
 
 namespace SESS.NexaERP.Application.Stores;
 
-public sealed record EstimatedBomLineInput(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks);
+public sealed record EstimatedBomLineInput(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue = null);
 public sealed record CreateEstimatedBomRequest(Guid JobOrderId, string RevisionReason, IReadOnlyList<EstimatedBomLineInput> Lines, string IdempotencyKey);
 public sealed record ReplaceEstimatedBomLinesRequest(uint ExpectedVersion, string RevisionReason, IReadOnlyList<EstimatedBomLineInput> Lines, string IdempotencyKey);
 public sealed record EstimatedBomActionRequest(uint ExpectedVersion, string Remarks, string IdempotencyKey);
@@ -11,7 +11,8 @@ public sealed record MergeItemRequest(Guid SurvivorItemId, string Reason, string
 
 public sealed record EstimatedBomLineView(Guid Id, int LineNumber, Guid OriginalItemId, string OriginalItemCode,
     Guid CanonicalItemId, string CanonicalItemCode, bool CanonicalItemActive, string CanonicalItemApprovalStatus,
-    Guid UomId, string UomCode, decimal Quantity, string? Remarks);
+    Guid UomId, string UomCode, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue,
+    bool EstimatedUnitValueOverridden, string CurrencyCode);
 public sealed record EstimatedBomCanonicalLineView(Guid CanonicalItemId, string CanonicalItemCode,
     bool CanonicalItemActive, string CanonicalItemApprovalStatus, Guid BaseUomId, string BaseUomCode,
     decimal BaseQuantity, IReadOnlyList<EstimatedBomLineView> SourceLines);
