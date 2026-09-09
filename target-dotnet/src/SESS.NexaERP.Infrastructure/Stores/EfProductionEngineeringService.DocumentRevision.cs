@@ -32,7 +32,8 @@ public sealed partial class EfProductionEngineeringService
             throw new StoresConflictException("A new drawing revision can only follow an Approved revision.");
         var revision = NewDocumentRevision(document, request.Revision, prior,
             prior.RevisionNumber + 1, key, Fingerprint(request));
-        document.Revisions.Add(revision); document.CurrentRevisionId = revision.Id;
+        document.Revisions.Add(revision); db.EngineeringDocumentRevisions.Add(revision);
+        document.CurrentRevisionId = revision.Id;
         document.Status = "DRAFT"; document.Version = checked(document.Version + 1);
         History(null, null, document, revision, "NewRevision", prior.Status, "DRAFT",
             revision.RevisionNote, key);

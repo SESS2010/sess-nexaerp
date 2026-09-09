@@ -30,6 +30,7 @@ public sealed partial class EfProductionEngineeringService
             LineNumber = ++lineNumber, ItemId = line.ItemId, UomId = line.UomId,
             Quantity = line.Quantity, Remarks = line.Remarks, CreatedBy = user.LoginId
         });
+        db.ProductionBomLines.AddRange(revision.Lines);
         revision.RevisionReason = Required(request.RevisionReason, "RevisionReason");
         revision.Version = checked(revision.Version + 1);
         revision.ContentFingerprint = Fingerprint(request);

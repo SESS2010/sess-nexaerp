@@ -23,11 +23,21 @@ public sealed record ActualBomEntryView(Guid Id, string EntryKind, Guid? Compone
     string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
     decimal TotalAcceptedValue, DateTimeOffset OccurredAt);
 
+public sealed record ActualBomVarianceLineView(Guid ItemId, string ItemCode, string ItemName,
+    Guid BaseUomId, string BaseUomCode, decimal BaselineQuantity, decimal ActualQuantity,
+    decimal QuantityVariance, decimal ActualAcceptedValue);
+
+public sealed record ActualBomBaselineVarianceView(string BaselineType, Guid BaselineRevisionId,
+    int BaselineRevisionNumber, bool BaselineCostAvailable, decimal? BaselineValue,
+    decimal ActualAcceptedValue, decimal? ValueVariance,
+    IReadOnlyList<ActualBomVarianceLineView> Lines);
+
 public sealed record ActualBomView(Guid Id, Guid JobOrderId, string JobOrderNumber,
     DateTimeOffset GeneratedAt, decimal TotalAcceptedMaterialValue,
     decimal TotalAllocatedChargeValue, decimal TotalAcceptedValue,
-    IReadOnlyList<ActualBomEntryView> Entries);
-
+    IReadOnlyList<ActualBomEntryView> Entries,
+    ActualBomBaselineVarianceView OperationalVariance,
+    ActualBomBaselineVarianceView CommercialVariance);
 public interface IFitmentActualBomService
 {
     Task<PagedResponse<ComponentFitmentSummary>> ListAsync(int? page, int? pageSize,

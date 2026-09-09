@@ -750,6 +750,51 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(expectedCharges, actual.TotalAllocatedChargeValue);
         Assert.Equal(expectedMaterial + expectedCharges, actual.TotalAcceptedValue);
         Assert.Single(actual.Entries);
+        Assert.Equal("OPERATIONAL_PRODUCTION_BOM", actual.OperationalVariance.BaselineType);
+        Assert.Equal(production.CurrentRevision.Id, actual.OperationalVariance.BaselineRevisionId);
+        Assert.False(actual.OperationalVariance.BaselineCostAvailable);
+        Assert.Null(actual.OperationalVariance.BaselineValue);
+        Assert.Null(actual.OperationalVariance.ValueVariance);
+        var operationalLine = Assert.Single(actual.OperationalVariance.Lines);
+        Assert.Equal(.90m, operationalLine.BaselineQuantity);
+        Assert.Equal(.30m, operationalLine.ActualQuantity);
+        Assert.Equal(-.60m, operationalLine.QuantityVariance);
+        Assert.Equal(expectedMaterial + expectedCharges, operationalLine.ActualAcceptedValue);
+        Assert.Equal("COMMERCIAL_ESTIMATED_BOM", actual.CommercialVariance.BaselineType);
+        Assert.Equal(estimated.CommercialBaselineRevisionId, actual.CommercialVariance.BaselineRevisionId);
+        var commercialLine = Assert.Single(actual.CommercialVariance.Lines);
+        Assert.Equal(.90m, commercialLine.BaselineQuantity);
+        Assert.Equal(.30m, commercialLine.ActualQuantity);
+        Assert.Equal(-.60m, commercialLine.QuantityVariance);
+
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        estimated = await Post<EstimatedBomView>(client,
+            $"/api/v1/design/estimated-boms/{estimated.BomNumber}/revisions",
+            new NewEstimatedBomRevisionRequest(estimated.Version,
+                "Approved engineering revision must not replace offer baseline", "fitment-est-revision"));
+        estimated = await Put<EstimatedBomView>(client,
+            $"/api/v1/design/estimated-boms/{estimated.BomNumber}",
+            new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version,
+                "Engineering now expects more material",
+                [new EstimatedBomLineInput(itemId, fixture.UomId, 1.20m, "Later engineering revision")],
+                "fitment-est-revision-lines"));
+        estimated = await Post<EstimatedBomView>(client,
+            $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version,
+                "Submit later engineering revision", "fitment-est-revision-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        estimated = await Post<EstimatedBomView>(client,
+            $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version,
+                "Approve without rewriting offer baseline", "fitment-est-revision-approve"));
+        var afterEngineeringRevision = await Get<ActualBomView>(client,
+            $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        Assert.NotEqual(estimated.CurrentRevision.Id, afterEngineeringRevision.CommercialVariance.BaselineRevisionId);
+        Assert.Equal(estimated.CommercialBaselineRevisionId,
+            afterEngineeringRevision.CommercialVariance.BaselineRevisionId);
+        Assert.Equal(.90m, Assert.Single(afterEngineeringRevision.CommercialVariance.Lines).BaselineQuantity);
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         var reverseCommand = new ReverseComponentFitmentRequest(
             "Immediate correction of operator fitment mistake", "fitment-self-reverse");
         var reversed = await Post<ComponentFitmentSummary>(client,

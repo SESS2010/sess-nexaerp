@@ -37,7 +37,8 @@ public sealed partial class EfProductionEngineeringService
             key, Fingerprint(request));
         foreach (var line in revision.Lines)
             line.ItemId = await CanonicalItemAsync(line.ItemId, ct);
-        bom.Revisions.Add(revision); bom.CurrentRevisionNumber = revision.RevisionNumber;
+        bom.Revisions.Add(revision); db.ProductionBomRevisions.Add(revision);
+        bom.CurrentRevisionNumber = revision.RevisionNumber;
         bom.Status = "DRAFT"; bom.Version = checked(bom.Version + 1);
         History(bom, revision, null, null, "NewRevision", prior.Status, "DRAFT",
             revision.RevisionReason, key);

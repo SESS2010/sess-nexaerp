@@ -11,6 +11,30 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
+    public void Controlled_estimated_bom_draft_replacement_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909090000_ControlledEstimatedBomDraftReplacement";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("estimated-bom-replace-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("estimated-bom-replace-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("estimated-bom-replace-assert.sql", """
+            DO $$ BEGIN
+              IF to_regprocedure('advance.replace_estimated_bom_draft_lines(uuid,text,uuid,bigint,uuid,text,text,text,text,jsonb)') IS NULL
+                THEN RAISE EXCEPTION 'controlled Estimated BOM replacement function missing'; END IF;
+            END $$;
+            """);
+        server.Execute("estimated-bom-replace-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("estimated-bom-replace-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+    [Fact]
     public void Estimated_bom_lifecycle_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
         const string target = "20260907061217_EstimatedBomLifecycleAndItemGovernance";

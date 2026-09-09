@@ -66,6 +66,7 @@ public sealed partial class EfMaterialIssueService
             command.JobOrderId, command.CustomerId, command.VendorId, command.DestinationDepartmentId,
             command.DestinationName, command.RequestingDepartmentId, command.RequiredDate,
             command.Lines, ct);
+        db.MaterialIssueRequestLines.AddRange(request.Lines);
         request.RequestFingerprint = Fingerprint(command);
         request.Version = checked(request.Version + 1);
         request.UpdatedAt = DateTimeOffset.UtcNow; request.UpdatedBy = user.LoginId;

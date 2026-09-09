@@ -142,8 +142,10 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         var bom = await db.ActualBoms.AsNoTracking().SingleOrDefaultAsync(x =>
             x.CompanyId == company.Id && x.JobOrderId == jobOrderId, ct);
         if (bom is null) return null;
-        var jobNumber = await db.JobOrders.Where(x => x.CompanyId == company.Id && x.Id == jobOrderId)
-            .Select(x => x.JobOrderNumber).SingleAsync(ct);
+        var job = await db.JobOrders.AsNoTracking().Where(x => x.CompanyId == company.Id && x.Id == jobOrderId)
+            .Select(x => new { x.JobOrderNumber, x.PinnedProductionBomRevisionId }).SingleAsync(ct);
+        if (!job.PinnedProductionBomRevisionId.HasValue)
+            throw new StoresConflictException("Actual BOM variance requires the Job Order's pinned Production BOM revision.");
         var entries = await db.ActualBomEntries.AsNoTracking()
             .Where(x => x.CompanyId == company.Id && x.ActualBomId == bom.Id)
             .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial)
@@ -156,11 +158,102 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             x.GrnNumberSnapshot, x.VendorBillLineId,
             x.VendorBillNumberSnapshot, x.AcceptedMaterialValue,
             x.AllocatedChargeValue, x.TotalAcceptedValue, x.OccurredAt)).ToArray();
-        return new(bom.Id, jobOrderId, jobNumber, bom.GeneratedAt,
+        var operational = await OperationalVarianceAsync(company.Id,
+            job.PinnedProductionBomRevisionId.Value, views, ct);
+        var commercial = await CommercialVarianceAsync(company.Id, jobOrderId, views, ct);
+        return new(bom.Id, jobOrderId, job.JobOrderNumber, bom.GeneratedAt,
             views.Sum(x => x.AcceptedMaterialValue), views.Sum(x => x.AllocatedChargeValue),
-            views.Sum(x => x.TotalAcceptedValue), views);
+            views.Sum(x => x.TotalAcceptedValue), views, operational, commercial);
     }
 
+    private async Task<ActualBomBaselineVarianceView> OperationalVarianceAsync(Guid companyId,
+        Guid revisionId, IReadOnlyList<ActualBomEntryView> actual, CancellationToken ct)
+    {
+        var revision = await db.ProductionBomRevisions.AsNoTracking().Include(x => x.Lines)
+            .SingleAsync(x => x.CompanyId == companyId && x.Id == revisionId && x.Status == "APPROVED", ct);
+        return await VarianceAsync("OPERATIONAL_PRODUCTION_BOM", revision.Id, revision.RevisionNumber,
+            revision.ApprovedAt ?? revision.CreatedAt,
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity)), actual, ct);
+    }
+
+    private async Task<ActualBomBaselineVarianceView> CommercialVarianceAsync(Guid companyId,
+        Guid jobOrderId, IReadOnlyList<ActualBomEntryView> actual, CancellationToken ct)
+    {
+        var baselineId = await db.EstimatedBoms.AsNoTracking().Where(x => x.CompanyId == companyId &&
+            x.JobOrderId == jobOrderId && x.CommercialBaselineRevisionId != null)
+            .Select(x => x.CommercialBaselineRevisionId!.Value).SingleAsync(ct);
+        var revision = await db.EstimatedBomRevisions.AsNoTracking().Include(x => x.Lines)
+            .SingleAsync(x => x.CompanyId == companyId && x.Id == baselineId && x.Status == "APPROVED", ct);
+        return await VarianceAsync("COMMERCIAL_ESTIMATED_BOM", revision.Id, revision.RevisionNumber,
+            revision.ApprovedAt ?? revision.CreatedAt,
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity)), actual, ct);
+    }
+
+    private async Task<ActualBomBaselineVarianceView> VarianceAsync(string type, Guid revisionId,
+        int revisionNumber, DateTimeOffset effectiveAt, IEnumerable<VarianceBaselineLine> baselineLines,
+        IReadOnlyList<ActualBomEntryView> actualLines, CancellationToken ct)
+    {
+        var baseline = new Dictionary<Guid, decimal>();
+        foreach (var line in baselineLines)
+        {
+            var itemId = await TerminalItemIdAsync(line.ItemId, ct);
+            var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == itemId, ct);
+            var quantity = await ToBaseQuantityAsync(line.Quantity, line.UomId, item.BaseUomId,
+                DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
+            baseline[itemId] = baseline.GetValueOrDefault(itemId) + quantity;
+        }
+        var actual = new Dictionary<Guid, (decimal Quantity, decimal Value)>();
+        foreach (var line in actualLines)
+        {
+            var itemId = await TerminalItemIdAsync(line.ItemId, ct);
+            var prior = actual.GetValueOrDefault(itemId);
+            actual[itemId] = (prior.Quantity + line.QuantityBase, prior.Value + line.TotalAcceptedValue);
+        }
+        var ids = baseline.Keys.Union(actual.Keys).ToArray();
+        var items = await db.Items.AsNoTracking().Where(x => ids.Contains(x.Id))
+            .Select(x => new { x.Id, x.ItemCode, x.Name, x.BaseUomId }).ToDictionaryAsync(x => x.Id, ct);
+        var uomIds = items.Values.Select(x => x.BaseUomId).Distinct().ToArray();
+        var uoms = await db.Uoms.AsNoTracking().Where(x => uomIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Code, ct);
+        var lines = ids.Select(id =>
+        {
+            var item = items[id]; var actualValue = actual.GetValueOrDefault(id);
+            var baselineQuantity = baseline.GetValueOrDefault(id);
+            return new ActualBomVarianceLineView(id, item.ItemCode, item.Name, item.BaseUomId,
+                uoms[item.BaseUomId], baselineQuantity, actualValue.Quantity,
+                actualValue.Quantity - baselineQuantity, actualValue.Value);
+        }).OrderBy(x => x.ItemCode).ToArray();
+        return new(type, revisionId, revisionNumber, false, null,
+            actualLines.Sum(x => x.TotalAcceptedValue), null, lines);
+    }
+
+    private async Task<Guid> TerminalItemIdAsync(Guid itemId, CancellationToken ct)
+    {
+        var seen = new HashSet<Guid>();
+        while (true)
+        {
+            if (!seen.Add(itemId)) throw new StoresConflictException("Item merge alias cycle detected.");
+            var next = await db.ItemMergeAliases.AsNoTracking().Where(x => x.SourceItemId == itemId)
+                .Select(x => (Guid?)x.SurvivorItemId).SingleOrDefaultAsync(ct);
+            if (!next.HasValue) return itemId;
+            itemId = next.Value;
+        }
+    }
+
+    private async Task<decimal> ToBaseQuantityAsync(decimal quantity, Guid fromUomId,
+        Guid baseUomId, DateOnly effectiveOn, CancellationToken ct)
+    {
+        if (fromUomId == baseUomId) return quantity;
+        var conversion = await db.UomConversions.AsNoTracking().SingleAsync(x => x.IsActive &&
+            x.ApprovalStatus == "APPROVED" && x.EffectiveFrom <= effectiveOn &&
+            (!x.EffectiveTo.HasValue || x.EffectiveTo >= effectiveOn) &&
+            ((x.FromUomId == fromUomId && x.ToUomId == baseUomId) ||
+             (x.FromUomId == baseUomId && x.ToUomId == fromUomId)), ct);
+        return conversion.FromUomId == fromUomId
+            ? quantity * conversion.ConversionFactor : quantity / conversion.ConversionFactor;
+    }
+
+    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity);
     private IQueryable<ComponentFitment> Query() => db.ComponentFitments.AsNoTracking()
         .Include(x => x.JobOrder).Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.Item)
         .Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.MaterialIssue)
