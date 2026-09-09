@@ -42,6 +42,26 @@ function classifyConflict(message: string): Conflict {
     }
   }
 
+  if (text.includes('insufficient available')) {
+    return {
+      title: 'Stores has no AVAILABLE stock of this item',
+      guidance:
+        'Only QC-accepted stock in Stores custody can be issued. Receive and clear the material through GRN and QC first, or issue a smaller quantity.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('only the named issue custodian') || text.includes('own material return') || text.includes('accept their own')) {
+    return {
+      title: 'Wrong person for this step',
+      guidance:
+        'The engineer who holds the material declares the return, and someone else in Stores accepts it. Ask the right person to take this step.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
   // Word match: "conversion" also contains "version" and is a different conflict.
   if (text.includes('stale') || /version/.test(text)) {
     return {

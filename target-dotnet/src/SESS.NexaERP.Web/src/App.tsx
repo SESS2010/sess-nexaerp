@@ -36,6 +36,9 @@ import { ConcessionPage } from './features/qc/ConcessionPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
 import { MaterialIssueRequestListPage } from './features/stores/MaterialIssueRequestListPage'
 import { MaterialIssueRequestDetailPage } from './features/stores/MaterialIssueRequestDetailPage'
+import { MaterialIssueListPage } from './features/stores/MaterialIssueListPage'
+import { MaterialIssueDetailPage } from './features/stores/MaterialIssueDetailPage'
+import { MaterialReturnListPage } from './features/stores/MaterialReturnListPage'
 import { JobOrderListPage } from './features/production/JobOrderListPage'
 import { JobOrderDetailPage } from './features/production/JobOrderDetailPage'
 import { ComponentFitmentListPage } from './features/production/ComponentFitmentListPage'
@@ -58,6 +61,8 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/gate-entries', 'Gate Entry'],
   ['/stores/goods-receipts', 'GRN'],
   ['/stores/material-issue-requests', 'Material Issue Request'],
+  ['/stores/material-issues', 'Material Issue'],
+  ['/stores/material-returns', 'Material Return'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
@@ -128,7 +133,9 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.grn) && <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
-            {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR / Issue</NavLink>}
+            {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR</NavLink>}
+            {can(PAGE_KEYS.materialIssues) && <NavLink to="/stores/material-issues" className={navLinkClass}>Material Issues</NavLink>}
+            {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
           </NavSection>
 
           <NavSection id="production" label="Production" defaultOpen={inProduction}>
@@ -191,6 +198,9 @@ export default function App() {
                 <Route path="/stores/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
                 <Route path="/stores/material-issue-requests" element={<MaterialIssueRequestListPage />} />
                 <Route path="/stores/material-issue-requests/:id" element={<MaterialIssueRequestDetailPage />} />
+                <Route path="/stores/material-issues" element={<MaterialIssueListPage />} />
+                <Route path="/stores/material-issues/:id" element={<MaterialIssueDetailPage />} />
+                <Route path="/stores/material-returns" element={<MaterialReturnListPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
                 <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />

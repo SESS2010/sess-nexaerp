@@ -55,6 +55,7 @@ const TONE_BY_VALUE: Record<string, string> = {
   SCRAPPED: 'warn',
   UNEXPLAINED: 'error',
   EXPLAINED: 'ok',
+  Overdue: 'error',
 }
 
 export function StatusBadge({ value }: { value: string }) {

@@ -12,6 +12,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { MaterialIssueRequestFormModal } from './MaterialIssueRequestFormModal'
+import { MaterialIssueFormModal } from './MaterialIssueFormModal'
 
 const TRANSITION_LABEL: Record<MaterialIssueRequestTransition, string> = {
   submit: 'Submit for approval',
@@ -31,6 +32,7 @@ export function MaterialIssueRequestDetailPage() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [issuing, setIssuing] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -124,6 +126,9 @@ export function MaterialIssueRequestDetailPage() {
   const canApprove = isSubmitted && can(page, 'approve') && !isMine
   const canReject = isSubmitted && can(page, 'reject') && !isMine
   const canCancel = (isDraft || isSubmitted) && can(page, 'cancel')
+  // Issue grants exist only for Stores roles; the service also refuses while a
+  // customer-facing excess line waits for the TD.
+  const canIssue = (mir.Status === 'APPROVED' || mir.Status === 'PARTIALLY_FULFILLED') && can(PAGE_KEYS.materialIssues, 'issue')
   const canDecideExcess = can(PAGE_KEYS.materialIssueExcess, 'approve') && !isMine
   const needsReason = canSubmit || canApprove || canReject || canCancel
   const customerFacingExcess = mir.Lines.filter((line) => line.ExcessBaseQuantity > 0 && line.ExcessClassification !== 'INTERNAL')
@@ -156,6 +161,9 @@ export function MaterialIssueRequestDetailPage() {
           )}
           {canCancel && (
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => run('cancel')}>{TRANSITION_LABEL.cancel}</button>
+          )}
+          {canIssue && (
+            <button type="button" className="btn btn-primary" disabled={busy || pendingDecision.length > 0} title={pendingDecision.length > 0 ? 'Customer-facing excess awaits the TD decision.' : undefined} onClick={() => setIssuing(true)}>Issue by scan</button>
           )}
         </div>
       </div>
@@ -243,6 +251,17 @@ export function MaterialIssueRequestDetailPage() {
           </tbody>
         </table>
       </div>
+
+      {issuing && (
+        <MaterialIssueFormModal
+          mir={mir}
+          onClose={() => setIssuing(false)}
+          onIssued={(result) => {
+            setIssuing(false)
+            navigate(`/stores/material-issues/${result.Id}`)
+          }}
+        />
+      )}
 
       {editing && (
         <MaterialIssueRequestFormModal

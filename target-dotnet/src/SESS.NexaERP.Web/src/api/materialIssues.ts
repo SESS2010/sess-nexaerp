@@ -81,6 +81,21 @@ export function issueMaterialFromRequest(requestId: string, body: CreateMaterial
   return api.post<MaterialIssueView>(`${ISSUES}/from-request/${encodeURIComponent(requestId)}`, body)
 }
 
+/** GET /material-issues/recipients (page action issue): Active employees holding an effective assignment in the company today. */
+export interface MaterialIssueRecipientLookup {
+  Id: string
+  EmployeeCode: string
+  EmployeeName: string
+  Department: string
+}
+
+export function lookupMaterialIssueRecipients(search?: string): Promise<MaterialIssueRecipientLookup[]> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  const suffix = params.toString()
+  return api.get<MaterialIssueRecipientLookup[]>(`${ISSUES}/recipients${suffix ? `?${suffix}` : ''}`)
+}
+
 export function listOutstandingCustody(employeeId?: string, notificationDue?: boolean): Promise<OutstandingEngineerCustodyView[]> {
   const params = new URLSearchParams()
   if (employeeId) params.set('employeeId', employeeId)

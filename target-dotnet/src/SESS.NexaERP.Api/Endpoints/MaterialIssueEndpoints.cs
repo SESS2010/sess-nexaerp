@@ -1,12 +1,21 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
+using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
 public static class MaterialIssueEndpoints
 {
+    /// <summary>
+    /// An employee who may take custody today: Active, with an effective role
+    /// assignment in the caller's company — exactly what IssueAsync validates.
+    /// Stores roles hold no employees.master grant, so the lookup lives here.
+    /// </summary>
+    public sealed record MaterialIssueRecipientLookup(Guid Id, string EmployeeCode, string EmployeeName, string Department);
+
     public static IEndpointRouteBuilder MapMaterialIssueEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var requests = endpoints.MapGroup("/api/v1/stores/material-issue-requests")
@@ -57,6 +66,25 @@ public static class MaterialIssueEndpoints
             IMaterialIssueService service, HttpContext h, CancellationToken ct) =>
             RunCreated(() => service.IssueAsync(requestId, request, ct), h))
             .RequirePagePermission("stores.material-issues", PagePermissionActions.Issue);
+        issues.MapGet("/recipients", async (string? search, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        {
+            var organizationId = user.OrganizationId?.Trim();
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var companyId = await db.Companies.AsNoTracking().Where(c => c.Code == organizationId).Select(c => c.Id).SingleOrDefaultAsync(ct);
+            var query = db.Employees.AsNoTracking().Where(e => e.Status == "Active" &&
+                db.EmployeeRoleAssignments.Any(a => a.EmployeeId == e.Id && a.CompanyId == companyId &&
+                    a.EffectiveFrom <= today && (!a.EffectiveTo.HasValue || a.EffectiveTo >= today)));
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim().ToUpperInvariant();
+                query = query.Where(e => e.EmployeeCode.ToUpper().Contains(term) || e.EmployeeName.ToUpper().Contains(term)
+                    || (e.Department != null && e.Department.Name.ToUpper().Contains(term)));
+            }
+            var rows = await query.OrderBy(e => e.EmployeeCode).Take(30)
+                .Select(e => new MaterialIssueRecipientLookup(e.Id, e.EmployeeCode, e.EmployeeName, e.Department != null ? e.Department.Name : string.Empty))
+                .ToListAsync(ct);
+            return Results.Ok(rows);
+        }).RequirePagePermission("stores.material-issues", PagePermissionActions.Issue);
         issues.MapGet("/outstanding-custody", (Guid? employeeId, bool? notificationDue,
             IMaterialIssueService service, CancellationToken ct) =>
             service.OutstandingCustodyAsync(employeeId, notificationDue, ct))
