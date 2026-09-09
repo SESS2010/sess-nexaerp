@@ -382,10 +382,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                         step="0.01"
                         required
                         className="input text-right mono"
-                        type="number"
                         inputMode="decimal"
-                        min="0"
-                        step="any"
                         aria-label={`Line ${index + 1} quantity`}
                         title="Quantity"
                         placeholder="Qty"
@@ -400,10 +397,7 @@ export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved 
                         step="0.01"
                         required
                         className="input text-right mono"
-                        type="number"
                         inputMode="decimal"
-                        min="0"
-                        step="any"
                         aria-label={`Line ${index + 1} estimated unit rate`}
                         title="Estimated unit rate decides the approval band, so it must be entered"
                         placeholder="Rate"
