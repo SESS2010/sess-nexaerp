@@ -138,3 +138,12 @@ public sealed class VendorBillHistory
     public string Remarks { get; set; } = string.Empty;
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
 }
+public sealed class ItemCompanyLastPurchase : CompanyScopedAuditableEntity
+{
+    public Guid ItemId { get; set; }
+    public Item? Item { get; set; }
+    public decimal? LastPurchaseRate { get; set; }
+    public DateOnly? LastPurchaseDate { get; set; }
+    public Guid? LastPurchaseBillId { get; set; }
+    public VendorBill? LastPurchaseBill { get; set; }
+}

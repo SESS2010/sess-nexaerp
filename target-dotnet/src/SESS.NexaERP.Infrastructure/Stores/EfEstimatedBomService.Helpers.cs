@@ -86,11 +86,31 @@ public sealed partial class EfEstimatedBomService
         {
             var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
-            line.EstimatedUnitValue = item.StandardEstimatedPrice
-                ?? throw new StoresConflictException($"Item {item.ItemCode} has no Standard Estimated Price; provide an EstimatedUnitValue override before approval.");
+            var purchase = await db.ItemCompanyLastPurchases.AsNoTracking()
+                .SingleOrDefaultAsync(x => x.CompanyId == revision.CompanyId && x.ItemId == terminalId, ct);
+            if (purchase?.LastPurchaseRate is null || purchase.LastPurchaseDate is null || purchase.LastPurchaseBillId is null)
+                throw new StoresConflictException($"Item {item.ItemCode} has never been purchased in this company; provide an EstimatedUnitValue override before approval.");
+            line.EstimatedUnitValue = await ConvertBaseUnitValueAsync(purchase.LastPurchaseRate.Value,
+                item.BaseUomId, line.UomId, purchase.LastPurchaseDate.Value, item.ItemCode, ct);
             line.EstimatedUnitValueOverridden = false;
         }
     }
+
+    private async Task<decimal> ConvertBaseUnitValueAsync(decimal baseUnitValue, Guid baseUomId,
+        Guid lineUomId, DateOnly effectiveOn, string itemCode, CancellationToken ct)
+    {
+        if (baseUomId == lineUomId) return decimal.Round(baseUnitValue, 6);
+        var conversion = await db.UomConversions.AsNoTracking().SingleOrDefaultAsync(x => x.IsActive &&
+            x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= effectiveOn &&
+            (!x.EffectiveTo.HasValue || x.EffectiveTo >= effectiveOn) &&
+            ((x.FromUomId == lineUomId && x.ToUomId == baseUomId) ||
+             (x.FromUomId == baseUomId && x.ToUomId == lineUomId)), ct)
+            ?? throw new StoresConflictException($"No approved UOM conversion can price item {itemCode} in the Estimated BOM line UOM.");
+        var baseQuantityPerLineUnit = conversion.FromUomId == lineUomId
+            ? conversion.ConversionFactor : 1m / conversion.ConversionFactor;
+        return decimal.Round(baseUnitValue * baseQuantityPerLineUnit, 6);
+    }
+
     private async Task RequirePreparerAsync(CancellationToken ct)
     {
         var code = await db.Employees.AsNoTracking().Where(x => x.Id == Actor()).Select(x => x.EmployeeCode).SingleAsync(ct);

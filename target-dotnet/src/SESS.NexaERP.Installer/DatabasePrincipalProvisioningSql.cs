@@ -114,7 +114,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -124,6 +124,12 @@ internal static class DatabasePrincipalProvisioningSql
           END LOOP;
         END $runtime_grants$;
         GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA advance TO nexa_erp_runtime;
+        DO $item_last_purchase_acl$ BEGIN
+          IF to_regclass('advance.item_company_last_purchases') IS NOT NULL THEN
+            REVOKE ALL ON TABLE advance.item_company_last_purchases FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT SELECT ON TABLE advance.item_company_last_purchases TO nexa_erp_runtime;
+          END IF;
+        END $item_last_purchase_acl$;
         REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
 
         DO $ceremony_acl$
@@ -318,7 +324,7 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
-              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions')
+              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','item_company_last_purchases')
                        AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
                        AND to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
@@ -453,6 +459,13 @@ internal static class DatabasePrincipalProvisioningSql
              OR to_regprocedure('advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regclass('advance.vendor_bills') IS NOT NULL OR to_regclass('advance.fifo_inventory_cost_layers') IS NOT NULL THEN
             RAISE EXCEPTION 'Vendor Bill/FIFO security boundary is partially installed.';
+          END IF;
+          IF to_regclass('advance.item_company_last_purchases') IS NOT NULL
+             AND (NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')
+                  OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','INSERT')
+                  OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','UPDATE')
+                  OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','DELETE')) THEN
+            RAISE EXCEPTION 'Runtime item last-purchase cache must be read-only.';
           END IF;
           IF to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL THEN
             IF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NULL

@@ -11,6 +11,7 @@ public sealed partial class NexaErpDbContext
     public DbSet<FifoInventoryCostLayer> FifoInventoryCostLayers => Set<FifoInventoryCostLayer>();
     public DbSet<FifoCostConsumption> FifoCostConsumptions => Set<FifoCostConsumption>();
     public DbSet<VendorBillCostAllocation> VendorBillCostAllocations => Set<VendorBillCostAllocation>();
+    public DbSet<ItemCompanyLastPurchase> ItemCompanyLastPurchases => Set<ItemCompanyLastPurchase>();
 
     private static void ConfigureVendorBillCosting(ModelBuilder m)
     {
@@ -34,7 +35,13 @@ public sealed partial class NexaErpDbContext
         m.Entity<VendorBillCostAllocation>(e => {
             e.ToTable("vendor_bill_cost_allocations", t => t.HasCheckConstraint("CK_vendor_bill_cost_allocation", "\"AllocatedQuantity\">0 AND \"AcceptedValue\">=0")); e.HasKey(x => x.Id); e.HasIndex(x => new { x.CompanyId, x.VendorBillLineId, x.FifoInventoryCostLayerId }).IsUnique(); e.Property(x => x.AllocatedQuantity).HasPrecision(24, 6); e.Property(x => x.AcceptedValue).HasPrecision(24, 6); e.HasOne(x => x.VendorBillLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.VendorBillLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict); e.HasOne(x => x.FifoInventoryCostLayer).WithMany().HasForeignKey(x => new { x.CompanyId, x.FifoInventoryCostLayerId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
-        m.Entity<VendorBillHistory>(e => {
+        m.Entity<ItemCompanyLastPurchase>(e => {
+            e.ToTable("item_company_last_purchases", t => t.HasCheckConstraint("CK_item_company_last_purchase_complete", "num_nonnulls(\"LastPurchaseRate\",\"LastPurchaseDate\",\"LastPurchaseBillId\") IN (0,3) AND (\"LastPurchaseRate\" IS NULL OR \"LastPurchaseRate\">=0)"));
+            e.HasKey(x => x.Id); e.HasIndex(x => new { x.CompanyId, x.ItemId }).IsUnique();
+            e.Property(x => x.LastPurchaseRate).HasPrecision(24, 6);
+            e.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.LastPurchaseBill).WithMany().HasForeignKey(x => new { x.CompanyId, x.LastPurchaseBillId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        });        m.Entity<VendorBillHistory>(e => {
             e.ToTable("vendor_bill_history"); e.HasKey(x => x.Id); e.HasIndex(x => x.CorrelationId).IsUnique(); e.Property(x => x.Action).HasMaxLength(30).IsRequired(); e.Property(x => x.FromStatus).HasMaxLength(30); e.Property(x => x.ToStatus).HasMaxLength(30).IsRequired(); e.Property(x => x.ActorRoleCode).HasMaxLength(100).IsRequired(); e.Property(x => x.ResolvedRoleAssignmentType).HasMaxLength(20).IsRequired(); e.Property(x => x.CorrelationId).HasMaxLength(100).IsRequired(); e.Property(x => x.Remarks).HasMaxLength(1000).IsRequired(); e.HasOne(x => x.VendorBill).WithMany().HasForeignKey(x => new { x.CompanyId, x.VendorBillId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
     }

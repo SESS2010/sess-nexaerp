@@ -11,6 +11,37 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
+    public void Item_company_last_purchase_pricing_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909131307_ItemCompanyLastPurchasePricing";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("last-purchase-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("last-purchase-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("last-purchase-assert.sql", """
+            DO $$ BEGIN
+              IF to_regclass('advance.item_company_last_purchases') IS NULL
+                 OR to_regprocedure('advance.refresh_item_company_last_purchase(uuid,uuid,text)') IS NULL
+                 OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vendor_bill_maintain_item_last_purchase')
+                 OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_runtime') AND
+                    (has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','INSERT')
+                     OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','UPDATE')
+                     OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','DELETE')
+                     OR NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')))
+                THEN RAISE EXCEPTION 'controlled item last-purchase cache is incomplete'; END IF;
+            END $$;
+            """);
+        server.Execute("last-purchase-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("last-purchase-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+    [Fact]
     public void Frozen_estimated_bom_value_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
         const string target = "20260909114202_FrozenEstimatedBomUnitValue";

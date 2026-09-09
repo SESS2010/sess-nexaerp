@@ -121,7 +121,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Password = runtimePassword,
             Pooling = false
         }.ConnectionString;
-        await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
+
         await AssertFitmentRuntimeTableDmlRefused(runtimeConnection);
         await AssertFatRuntimeTableDmlRefused(runtimeConnection);
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
@@ -206,6 +206,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
             await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
+            await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
             await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId, managerId, qcId);
 
@@ -775,10 +776,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(-.60m, commercialLine.QuantityVariance);
         Assert.Equal(90m, commercialLine.BaselineValue);
         Assert.Equal(expectedMaterial + expectedCharges - 90m, commercialLine.ValueVariance);
-
-        await using (var priceDb = new NexaErpDbContext(options))
-            await priceDb.Items.Where(x => x.Id == itemId)
-                .ExecuteUpdateAsync(x => x.SetProperty(i => i.StandardEstimatedPrice, 120m));
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         estimated = await Post<EstimatedBomView>(client,
@@ -800,7 +797,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version,
                 "Approve without rewriting offer baseline", "fitment-est-revision-approve"));
-        Assert.Equal(120m, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
+        var lastPurchase = await Query(options, db => db.ItemCompanyLastPurchases.AsNoTracking()
+            .SingleAsync(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == itemId));
+        Assert.NotNull(lastPurchase.LastPurchaseBillId);
+        Assert.Equal(lastPurchase.LastPurchaseRate, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
         Assert.False(estimated.CurrentRevision.Lines.Single().EstimatedUnitValueOverridden);
         var afterEngineeringRevision = await Get<ActualBomView>(client,
             $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
@@ -990,17 +990,25 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         await using var connection = new Npgsql.NpgsqlConnection(connectionString);
         await connection.OpenAsync();
+        await using (var readable = new Npgsql.NpgsqlCommand("SELECT count(*) FROM advance.item_company_last_purchases", connection))
+            _ = await readable.ExecuteScalarAsync();
         foreach (var sql in new[]
         {
             "SELECT count(*) FROM advance.vendor_bills",
             "SELECT count(*) FROM advance.fifo_inventory_cost_layers",
             "DELETE FROM advance.vendor_bills WHERE false",
-            "DELETE FROM advance.fifo_inventory_cost_layers WHERE false"
+            "DELETE FROM advance.fifo_inventory_cost_layers WHERE false",
+            "INSERT INTO advance.item_company_last_purchases DEFAULT VALUES",
+            "UPDATE advance.item_company_last_purchases SET \"Version\"=\"Version\"",
+            "DELETE FROM advance.item_company_last_purchases"
         })
         {
             await using var command = new Npgsql.NpgsqlCommand(sql, connection);
-            var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => command.ExecuteNonQueryAsync());
-            Assert.Equal(Npgsql.PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            var error = await Record.ExceptionAsync(() => command.ExecuteNonQueryAsync());
+            Assert.True(error is not null, $"Expected runtime DML refusal for: {sql}");
+            var postgres = Assert.IsType<Npgsql.PostgresException>(error);
+            Assert.True(postgres.SqlState == Npgsql.PostgresErrorCodes.InsufficientPrivilege,
+                $"Expected 42501 for {sql}, received {postgres.SqlState}: {postgres.MessageText}");
         }
     }
 
@@ -1120,6 +1128,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var accepted = await Post<VendorBillView>(client,
                 $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
             Assert.Equal("ACCEPTED", accepted.Status);
+            Assert.Equal(accepted.Id, await Query(options, db => db.ItemCompanyLastPurchases
+                .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
+                .Select(x => x.LastPurchaseBillId).SingleAsync()));
             var replay = await Post<VendorBillView>(client,
                 $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
             Assert.True(replay.Replayed);            if (index == 1)
@@ -1130,6 +1141,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
                 Assert.Equal("REVERSED", reversed.Status);
                 Assert.NotNull(reversed.ReversedAt);
+                Assert.Equal(correctedFirst.Id, await Query(options, db => db.ItemCompanyLastPurchases
+                    .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
+                    .Select(x => x.LastPurchaseBillId).SingleAsync()));
                 var reversalReplay = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
                 Assert.True(reversalReplay.Replayed);
@@ -1144,6 +1158,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     new VendorBillDecisionRequest(replacement.Version,
                         "Corrected bill re-entered after reversal", "vendor-bill-reentry-accept-1"));
                 Assert.Equal("ACCEPTED", replacement.Status);
+                Assert.Equal(replacement.Id, await Query(options, db => db.ItemCompanyLastPurchases
+                    .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
+                    .Select(x => x.LastPurchaseBillId).SingleAsync()));
             }
         }
 

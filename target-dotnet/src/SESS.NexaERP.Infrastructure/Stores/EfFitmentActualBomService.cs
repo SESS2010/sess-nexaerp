@@ -202,7 +202,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
                 DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
             var prior = baseline.GetValueOrDefault(itemId);
             baseline[itemId] = (prior.Quantity + quantity,
-                prior.Value + (line.UnitValue.HasValue ? quantity * line.UnitValue.Value : 0),
+                prior.Value + (line.UnitValue.HasValue ? line.Quantity * line.UnitValue.Value : 0),
                 (prior.Available || prior.Quantity == 0) && line.UnitValue.HasValue);
         }
         var actual = new Dictionary<Guid, (decimal Quantity, decimal Value)>();
