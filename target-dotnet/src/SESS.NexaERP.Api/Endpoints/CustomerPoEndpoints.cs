@@ -23,7 +23,10 @@ public static class CustomerPoEndpoints
 
     public sealed record CustomerPoLineDto(
         int SlNo, Guid ItemId, Guid UomId, string Description, DateOnly? DueDate, decimal? Quantity, string? Uom,
-        decimal? Rate, decimal? DiscountPercent, decimal? Amount);
+        decimal? Rate, decimal? DiscountPercent, decimal? Amount,
+        // Read-side only: the line's own id, which Job Order creation needs
+        // (CreateJobOrderRequest.CustomerPurchaseOrderLineId). Ignored on upsert.
+        Guid? Id = null);
 
     public sealed record CustomerPoRevisionDto(
         int RevisionNumber, string ChangeReason, string CreatedBy, DateTimeOffset CreatedAt);
@@ -282,7 +285,7 @@ public static class CustomerPoEndpoints
         po.DeliveryTerms, po.TaxableValue, po.CgstPercent, po.CgstAmount, po.SgstPercent, po.SgstAmount,
         po.IgstPercent, po.IgstAmount, po.RoundOff, po.AmountInWords, po.PoFileName, po.CurrentRevisionNumber,
         po.Lines.Where(line => line.RevisionNumber == po.CurrentRevisionNumber).OrderBy(line => line.SlNo)
-            .Select(line => new CustomerPoLineDto(line.SlNo, line.ItemId, line.UomId, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount))
+            .Select(line => new CustomerPoLineDto(line.SlNo, line.ItemId, line.UomId, line.Description, line.DueDate, line.Quantity, line.Uom, line.Rate, line.DiscountPercent, line.Amount, line.Id))
             .ToList(),
         po.Revisions.OrderBy(revision => revision.RevisionNumber)
             .Select(revision => new CustomerPoRevisionDto(revision.RevisionNumber, revision.ChangeReason, revision.CreatedBy, revision.CreatedAt))

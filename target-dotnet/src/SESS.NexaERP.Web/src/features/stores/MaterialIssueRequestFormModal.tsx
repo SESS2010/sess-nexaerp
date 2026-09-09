@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listItems, listUoms } from '../../api/items'
 import { createMaterialIssueRequest, updateMaterialIssueRequest } from '../../api/materialIssues'
+import { listJobOrders } from '../../api/production'
+import type { JobOrderSummary } from '../../types/production'
 import { newIdempotencyKey } from '../../api/stores'
 import type { ItemSummary, ReferenceLookup } from '../../types/item'
 import type { MaterialIssueRequestLineInput, MaterialIssueRequestView } from '../../types/materialIssue'
@@ -40,10 +42,10 @@ function emptyLine(): DraftLine {
 /**
  * Material Issue Request (MIR). POST/PUT /stores/material-issue-requests.
  *
- * Only CONSUMABLE_OFFICE can be raised from this screen today: the three
- * customer-facing situations need a JobOrderId, and the Job Order API is not on
- * main yet. They are listed but disabled so the vocabulary is visible, and the
- * picker will be enabled the moment that endpoint ships.
+ * The three customer-facing situations need a JobOrderId and DestinationType
+ * JOB_ORDER; only an OPEN (Accounts-confirmed) job is offered, because the
+ * service refuses a PENDING_ACCOUNTS one with a 409. CONSUMABLE_OFFICE must
+ * target a department or a named destination instead.
  *
  * The requesting department is the signed-in employee's own department (the
  * session carries its id); the API has no department-id lookup for MIR.
@@ -55,6 +57,8 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
   const [destinationType, setDestinationType] = useState(existing?.DestinationType ?? 'DEPARTMENT')
   const [destinationName, setDestinationName] = useState(existing?.DestinationName ?? '')
   const [requiredDate, setRequiredDate] = useState(existing?.RequiredDate ?? todayPlus(1))
+  const [jobOrderId, setJobOrderId] = useState(existing?.JobOrderId ?? '')
+  const [jobs, setJobs] = useState<JobOrderSummary[]>([])
   const [lines, setLines] = useState<DraftLine[]>(() =>
     existing
       ? existing.Lines.map((line) => ({
@@ -80,6 +84,20 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
   useEffect(() => {
     listUoms().then((page) => setUoms(page.Items ?? [])).catch(setLookupError)
   }, [])
+
+  const jobSituation = MIR_JOB_SITUATIONS.includes(situation as (typeof MIR_JOB_SITUATIONS)[number])
+
+  // Job orders are only needed for the customer-facing situations, and only
+  // OPEN ones are usable; the list is fetched the first time one is chosen.
+  useEffect(() => {
+    if (!jobSituation || jobs.length > 0) return
+    listJobOrders({ page: 1, pageSize: 100, status: 'OPEN' }).then((page) => setJobs(page.Items ?? [])).catch(setLookupError)
+  }, [jobSituation, jobs.length])
+
+  const job = jobs.find((candidate) => candidate.Id === jobOrderId)
+  useEffect(() => {
+    if (jobSituation && job) setDestinationName(`${job.JobOrderNumber} · ${job.MachineSerial}`)
+  }, [jobSituation, job])
 
   // Item master search, debounced. The list endpoint filters on code and name.
   useEffect(() => {
@@ -118,7 +136,6 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
     setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: uom?.Id ?? '', itemUom: item.Uom ?? '' })
   }
 
-  const jobSituation = MIR_JOB_SITUATIONS.includes(situation as (typeof MIR_JOB_SITUATIONS)[number])
   const canSave = can(PAGE_KEYS.materialIssueRequests, mode === 'create' ? 'create' : 'update')
 
   const submit = async (event: React.FormEvent) => {
@@ -128,8 +145,8 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
       setError('Your session has no department, so the requesting department cannot be set.')
       return
     }
-    if (jobSituation) {
-      setError('Customer-facing situations need a Job Order. The Job Order API is not available yet; raise a CONSUMABLE_OFFICE request or wait for that screen.')
+    if (jobSituation && !jobOrderId) {
+      setError('Customer-facing situations need a Job Order. Pick an OPEN job order, or raise a CONSUMABLE_OFFICE request instead.')
       return
     }
     const complete = lines.filter((line) => line.itemId || line.quantity)
@@ -155,7 +172,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
       Purpose: purpose,
       Situation: situation,
       DestinationType: destinationType,
-      JobOrderId: null,
+      JobOrderId: jobSituation ? jobOrderId : null,
       CustomerId: null,
       VendorId: null,
       DestinationDepartmentId: destinationType === 'DEPARTMENT' ? me.DepartmentId : null,
@@ -202,13 +219,27 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
               else if (destinationType === 'JOB_ORDER') setDestinationType('DEPARTMENT')
             }}>
               {MIR_SITUATIONS.map((option) => (
-                <option key={option} value={option} disabled={MIR_JOB_SITUATIONS.includes(option)}>
-                  {option.replaceAll('_', ' ')}{MIR_JOB_SITUATIONS.includes(option) ? ' (needs Job Order — not yet available)' : ''}
+                <option key={option} value={option}>
+                  {option.replaceAll('_', ' ')}{MIR_JOB_SITUATIONS.includes(option) ? ' (against a Job Order)' : ''}
                 </option>
               ))}
             </select>
             <span className="field-hint">Chamber, service-PO and site-project requests are tied to a Job Order; consumables and office material are not.</span>
           </label>
+
+          {jobSituation && (
+            <label className="field">
+              <span className="field-label">Job order *</span>
+              <select className="input" value={jobOrderId} onChange={(event) => setJobOrderId(event.target.value)}>
+                <option value="">Pick an OPEN job order…</option>
+                {jobs.map((candidate) => (
+                  <option key={candidate.Id} value={candidate.Id}>{candidate.JobOrderNumber} · {candidate.CustomerName} · {candidate.MachineModel} #{candidate.MachineOrdinal}</option>
+                ))}
+                {jobOrderId && !jobs.some((candidate) => candidate.Id === jobOrderId) && <option value={jobOrderId}>{jobOrderId}</option>}
+              </select>
+              <span className="field-hint">Only Accounts-confirmed jobs are listed. Lines are checked against its Estimated BOM, pinned Production BOM and customer PO; excess needs a TD decision.</span>
+            </label>
+          )}
 
           <label className="field">
             <span className="field-label">Purpose *</span>

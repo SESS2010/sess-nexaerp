@@ -105,4 +105,9 @@ export const PAGE_KEYS = {
   materialIssues: 'stores.material-issues',
   materialIssueExcess: 'stores.material-issue-excess',
   materialReturns: 'stores.material-returns',
+  jobOrders: 'production.job-orders',
+  componentFitments: 'production.component-fitments',
+  fatReadiness: 'production.fat-readiness',
+  productionBom: 'production.production-bom',
+  estimatedBom: 'design.estimated-bom',
 } as const

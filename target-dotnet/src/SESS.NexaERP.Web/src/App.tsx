@@ -36,6 +36,13 @@ import { ConcessionPage } from './features/qc/ConcessionPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
 import { MaterialIssueRequestListPage } from './features/stores/MaterialIssueRequestListPage'
 import { MaterialIssueRequestDetailPage } from './features/stores/MaterialIssueRequestDetailPage'
+import { JobOrderListPage } from './features/production/JobOrderListPage'
+import { JobOrderDetailPage } from './features/production/JobOrderDetailPage'
+import { ComponentFitmentListPage } from './features/production/ComponentFitmentListPage'
+import { ProductionBomListPage } from './features/production/ProductionBomListPage'
+import { ProductionBomDetailPage } from './features/production/ProductionBomDetailPage'
+import { EstimatedBomListPage } from './features/design/EstimatedBomListPage'
+import { EstimatedBomDetailPage } from './features/design/EstimatedBomDetailPage'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/vendors', 'Vendor Master'],
@@ -54,6 +61,10 @@ const TITLES: [prefix: string, title: string][] = [
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
+  ['/production/job-orders', 'Job Order'],
+  ['/production/component-fitments', 'Component Fitment'],
+  ['/production/boms', 'Production BOM'],
+  ['/design/estimated-boms', 'Estimated BOM'],
 ]
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
@@ -67,6 +78,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const inPurchase = location.pathname.startsWith('/purchase')
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')
+  const inProduction = location.pathname.startsWith('/production') || location.pathname.startsWith('/design')
   // Session permissions ("page:Action") hide screens the role cannot View.
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
@@ -84,7 +96,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
-          <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores}>
+          <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores && !inProduction}>
             {can(PAGE_KEYS.employees) && <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>}
             {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
             {can(PAGE_KEYS.customers) && <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>}
@@ -117,6 +129,14 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
             {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR / Issue</NavLink>}
+          </NavSection>
+
+          <NavSection id="production" label="Production" defaultOpen={inProduction}>
+            {can(PAGE_KEYS.jobOrders) && <NavLink to="/production/job-orders" className={navLinkClass}>Job Orders</NavLink>}
+            {can(PAGE_KEYS.estimatedBom) && <NavLink to="/design/estimated-boms" className={navLinkClass}>Estimated BOM</NavLink>}
+            {can(PAGE_KEYS.productionBom) && <NavLink to="/production/boms" className={navLinkClass}>Production BOM</NavLink>}
+            {can(PAGE_KEYS.componentFitments) && <NavLink to="/production/component-fitments" className={navLinkClass}>Fitments / Actual BOM</NavLink>}
+            <span className="nav-link disabled">Engineering Documents</span>
           </NavSection>
         </nav>
       </aside>
@@ -176,6 +196,13 @@ export default function App() {
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />
                 <Route path="/qc/concessions" element={<ConcessionPage />} />
                 <Route path="/qc/concessions/:number" element={<ConcessionPage />} />
+                <Route path="/production/job-orders" element={<JobOrderListPage />} />
+                <Route path="/production/job-orders/:id" element={<JobOrderDetailPage />} />
+                <Route path="/production/component-fitments" element={<ComponentFitmentListPage />} />
+                <Route path="/production/boms" element={<ProductionBomListPage />} />
+                <Route path="/production/boms/:bomNumber" element={<ProductionBomDetailPage />} />
+                <Route path="/design/estimated-boms" element={<EstimatedBomListPage />} />
+                <Route path="/design/estimated-boms/:bomNumber" element={<EstimatedBomDetailPage />} />
               </Routes>
             </Shell>
             </SessionProvider>

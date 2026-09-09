@@ -38,6 +38,23 @@ const TONE_BY_VALUE: Record<string, string> = {
   INTERNAL: 'info',
   Pending: 'warn',
   Decided: 'ok',
+  // Job Order, FAT readiness, fitment and BOM states
+  PENDING_ACCOUNTS: 'warn',
+  OPEN: 'ok',
+  NOT_RECONCILED: 'muted',
+  BLOCKED: 'error',
+  READY: 'ok',
+  CONFIRMED: 'ok',
+  REVERSED: 'error',
+  'Self-reversal': 'warn',
+  SUPERSEDED: 'muted',
+  Pinned: 'ok',
+  FITMENT: 'ok',
+  REVERSAL: 'error',
+  LOST: 'error',
+  SCRAPPED: 'warn',
+  UNEXPLAINED: 'error',
+  EXPLAINED: 'ok',
 }
 
 export function StatusBadge({ value }: { value: string }) {

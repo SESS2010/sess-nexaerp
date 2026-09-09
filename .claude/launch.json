@@ -4,22 +4,54 @@
     {
       "name": "nexaerp-api",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "target-dotnet/src/SESS.NexaERP.Api"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "target-dotnet/src/SESS.NexaERP.Api"
+      ],
       "port": 5000,
       "autoPort": false
     },
     {
       "name": "nexaerp-api-main",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "D:/New_ERP_Project-main-backend/target-dotnet/src/SESS.NexaERP.Api"],
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "D:/New_ERP_Project-main-backend/target-dotnet/src/SESS.NexaERP.Api"
+      ],
       "port": 5000,
       "autoPort": false
     },
     {
       "name": "nexaerp-frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "target-dotnet/src/SESS.NexaERP.Web", "--", "--port", "5174"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "target-dotnet/src/SESS.NexaERP.Web",
+        "--",
+        "--port",
+        "5174"
+      ],
       "port": 5174,
+      "autoPort": false
+    },
+    {
+      "name": "nexaerp-frontend-5175",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "target-dotnet/src/SESS.NexaERP.Web",
+        "--",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "port": 5175,
       "autoPort": false
     }
   ]
