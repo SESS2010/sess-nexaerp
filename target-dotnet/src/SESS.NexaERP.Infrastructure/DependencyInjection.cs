@@ -71,6 +71,7 @@ public static class DependencyInjection
         services.AddScoped<IVendorBillService, EfVendorBillService>();
         services.AddScoped<IJobOrderService, EfJobOrderService>();
         services.AddScoped<IFitmentActualBomService, EfFitmentActualBomService>();
+        services.AddScoped<IJobOrderFatReadinessService, EfJobOrderFatReadinessService>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 

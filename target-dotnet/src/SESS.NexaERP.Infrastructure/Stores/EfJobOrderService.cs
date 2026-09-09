@@ -132,7 +132,8 @@ public sealed class EfJobOrderService(NexaErpDbContext db, ICurrentUser user, IA
         x.Status, x.JobOrderDate, x.PlannedCompletionDate, x.InitiatedByEmployeeId!.Value, x.InitiatedActorRoleCode!,
         x.InitiatedRoleAssignmentId!.Value, x.InitiatedRoleAssignmentType!, x.AccountsConfirmedAt,
         x.AccountsConfirmedByEmployeeId, x.AccountsConfirmationActorRoleCode, x.AccountsConfirmationRoleAssignmentId,
-        x.AccountsConfirmationRoleAssignmentType, x.AccountsConfirmationReason, x.Version);
+        x.AccountsConfirmationRoleAssignmentType, x.AccountsConfirmationReason, x.FatReadinessStatus,
+        x.FatReconciledAt, x.FatReconciledByEmployeeId, x.LatestFatReconciliationId, x.Version);
     private void AddHistory(JobOrder row, string action, string? from, string to, string remarks, string correlation) => db.JobOrderHistories.Add(new()
     {
         CompanyId = row.CompanyId, JobOrderId = row.Id, Action = action, FromStatus = from, ToStatus = to,

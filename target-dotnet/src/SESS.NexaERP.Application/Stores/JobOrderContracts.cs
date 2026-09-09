@@ -17,7 +17,8 @@ public sealed record JobOrderView(Guid Id, string JobOrderNumber, Guid CustomerP
     string InitiatedActorRoleCode, Guid InitiatedRoleAssignmentId, string InitiatedRoleAssignmentType,
     DateTimeOffset? AccountsConfirmedAt, Guid? AccountsConfirmedByEmployeeId,
     string? AccountsConfirmationActorRoleCode, Guid? AccountsConfirmationRoleAssignmentId,
-    string? AccountsConfirmationRoleAssignmentType, string? AccountsConfirmationReason, uint Version);
+    string? AccountsConfirmationRoleAssignmentType, string? AccountsConfirmationReason, string FatReadinessStatus,
+    DateTimeOffset? FatReconciledAt, Guid? FatReconciledByEmployeeId, Guid? LatestFatReconciliationId, uint Version);
 public sealed record JobOrderHistoryView(Guid Id, string Action, string? FromStatus, string ToStatus,
     Guid ActorEmployeeId, string ActorRoleCode, Guid ResolvedRoleAssignmentId,
     string ResolvedRoleAssignmentType, string CorrelationId, string Remarks, DateTimeOffset CreatedAt);

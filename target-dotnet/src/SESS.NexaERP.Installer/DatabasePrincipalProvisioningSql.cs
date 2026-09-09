@@ -114,7 +114,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -180,7 +180,29 @@ internal static class DatabasePrincipalProvisioningSql
               advance.actual_boms,advance.actual_bom_entries TO nexa_erp_runtime;
             EXECUTE 'REVOKE ALL ON FUNCTION advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text),advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text),advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text) TO nexa_erp_runtime';
-          END IF;          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+          END IF;
+          IF to_regprocedure('advance.create_fat_custody_explanation(uuid,uuid,uuid,numeric,text,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regclass('advance.job_order_fat_reconciliations') IS NOT NULL THEN
+            IF to_regprocedure('advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.fat_authority_valid(uuid,uuid,text,uuid,text,text[])') IS NULL
+               OR to_regprocedure('advance.fat_live_balances(uuid,uuid)') IS NULL
+               OR to_regprocedure('advance.guard_fat_evidence()') IS NULL
+               OR to_regprocedure('advance.guard_job_order_fat_readiness()') IS NULL
+               OR to_regclass('advance.job_order_fat_custody_explanations') IS NULL
+               OR to_regclass('advance.job_order_fat_reconciliations') IS NULL
+               OR to_regclass('advance.job_order_fat_reconciliation_lines') IS NULL THEN
+              RAISE EXCEPTION 'FAT readiness authority is partially installed.';
+            END IF;
+            REVOKE ALL ON advance.job_order_fat_custody_explanations,
+              advance.job_order_fat_reconciliations,advance.job_order_fat_reconciliation_lines
+              FROM nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT SELECT ON advance.job_order_fat_custody_explanations,
+              advance.job_order_fat_reconciliations,advance.job_order_fat_reconciliation_lines TO nexa_erp_runtime;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.create_fat_custody_explanation(uuid,uuid,uuid,numeric,text,text,text,text,text,uuid,text,uuid,text,text),advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text),advance.fat_authority_valid(uuid,uuid,text,uuid,text,text[]),advance.fat_live_balances(uuid,uuid),advance.guard_fat_evidence(),advance.guard_job_order_fat_readiness() FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'REVOKE EXECUTE ON FUNCTION advance.fat_authority_valid(uuid,uuid,text,uuid,text,text[]),advance.fat_live_balances(uuid,uuid),advance.guard_fat_evidence(),advance.guard_job_order_fat_readiness() FROM nexa_erp_runtime';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.create_fat_custody_explanation(uuid,uuid,uuid,numeric,text,text,text,text,text,uuid,text,uuid,text,text),advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text) TO nexa_erp_runtime';
+          END IF;
+          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regprocedure('advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regprocedure('advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
             IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NULL
@@ -295,7 +317,7 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
               AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions')
                        AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
-              AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries')
+              AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
                        AND to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND (NOT has_table_privilege('nexa_erp_runtime',c.oid,'SELECT')
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'INSERT')
@@ -381,7 +403,25 @@ internal static class DatabasePrincipalProvisioningSql
           ELSIF to_regprocedure('advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regclass('advance.component_fitments') IS NOT NULL THEN
             RAISE EXCEPTION 'Fitment security boundary is partially installed.';
-          END IF;          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+          END IF;
+          IF to_regprocedure('advance.create_fat_custody_explanation(uuid,uuid,uuid,numeric,text,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+            IF to_regprocedure('advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR EXISTS (SELECT 1 FROM (VALUES ('advance.job_order_fat_custody_explanations'),
+                    ('advance.job_order_fat_reconciliations'),('advance.job_order_fat_reconciliation_lines')) evidence(name)
+                  WHERE has_table_privilege('nexa_erp_runtime',evidence.name,'INSERT')
+                     OR has_table_privilege('nexa_erp_runtime',evidence.name,'UPDATE')
+                     OR has_table_privilege('nexa_erp_runtime',evidence.name,'DELETE'))
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.create_fat_custody_explanation(uuid,uuid,uuid,numeric,text,text,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)','EXECUTE')
+               OR has_function_privilege('nexa_erp_runtime','advance.fat_authority_valid(uuid,uuid,text,uuid,text,text[])','EXECUTE')
+               OR has_function_privilege('nexa_erp_runtime','advance.fat_live_balances(uuid,uuid)','EXECUTE') THEN
+              RAISE EXCEPTION 'FAT readiness EXECUTE-only authority is invalid.';
+            END IF;
+          ELSIF to_regprocedure('advance.reconcile_job_order_fat(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regclass('advance.job_order_fat_reconciliations') IS NOT NULL THEN
+            RAISE EXCEPTION 'FAT readiness authority is partially installed.';
+          END IF;
+          IF to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
             IF EXISTS (
               SELECT 1 FROM (VALUES ('advance.vendor_bills'),('advance.vendor_bill_lines'),('advance.vendor_bill_history'),('advance.vendor_bill_cost_allocations'),('advance.fifo_inventory_cost_layers'),('advance.fifo_cost_consumptions')) evidence(name)
               WHERE has_table_privilege('nexa_erp_runtime',evidence.name,'SELECT')

@@ -109,6 +109,11 @@ public sealed class JobOrder : CompanyScopedAuditableEntity
     public DateOnly? PlannedCompletionDate { get; set; }
     public DateOnly? InstallationDate { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
+    public string FatReadinessStatus { get; set; } = "NOT_RECONCILED";
+    public DateTimeOffset? FatReconciledAt { get; set; }
+    public Guid? FatReconciledByEmployeeId { get; set; }
+    public Employee? FatReconciledByEmployee { get; set; }
+    public Guid? LatestFatReconciliationId { get; set; }
     public Guid? PinnedProductionBomRevisionId { get; set; }
     public ProductionBomRevision? PinnedProductionBomRevision { get; set; }
     public string IdempotencyKey { get; set; } = string.Empty;

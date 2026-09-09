@@ -154,6 +154,7 @@ app.MapMaterialIssueEndpoints();
 app.MapVendorBillEndpoints();
 app.MapJobOrderEndpoints();
 app.MapFitmentActualBomEndpoints();
+app.MapJobOrderFatReadinessEndpoints();
 app.MapItemVendorEndpoints();
 app.MapCustomerPoEndpoints();
 app.MapPurchaseRequisitionEndpoints();
