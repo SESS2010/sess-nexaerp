@@ -11,6 +11,9 @@ public static class JobOrderEndpoints
         var group = endpoints.MapGroup("/api/v1/production/job-orders").WithTags("Job Orders").RequireAuthorization();
         group.MapGet("/", (int? page, int? pageSize, string? search, string? status, IJobOrderService service, CancellationToken ct) =>
             service.ListAsync(page, pageSize, search, status, ct)).RequirePagePermission("production.job-orders", PagePermissionActions.View);
+        group.MapGet("/customer-po-lines", (IJobOrderService service, CancellationToken ct) =>
+            service.CustomerPoLinesAsync(ct))
+            .RequirePagePermission("production.job-orders", PagePermissionActions.View);
         group.MapGet("/{id:guid}", async (Guid id, IJobOrderService service, CancellationToken ct) =>
             await service.GetAsync(id, ct) is { } value ? Results.Ok(value) : Results.NotFound())
             .RequirePagePermission("production.job-orders", PagePermissionActions.View);

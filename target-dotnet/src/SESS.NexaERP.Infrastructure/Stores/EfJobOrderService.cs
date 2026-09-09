@@ -36,6 +36,40 @@ public sealed class EfJobOrderService(NexaErpDbContext db, ICurrentUser user, IA
         var row = await Query().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id && x.CustomerPurchaseOrderId != null, ct);
         return row is null ? null : View(row);
     }
+    public async Task<IReadOnlyList<JobOrderCustomerPoLineView>> CustomerPoLinesAsync(
+        CancellationToken ct)
+    {
+        var company = await CompanyAsync(ct);
+        var rows = await db.CustomerPurchaseOrderLines.AsNoTracking()
+            .Where(x => x.CustomerPurchaseOrder!.CompanyId == company.Id
+                && x.RevisionNumber == x.CustomerPurchaseOrder.CurrentRevisionNumber
+                && x.CustomerPurchaseOrder.WorkStatus != CustomerPoWorkStatuses.Completed
+                && x.Quantity.HasValue && x.Quantity > 0
+                && x.Quantity == decimal.Truncate(x.Quantity.Value))
+            .Select(x => new
+            {
+                x.Id,
+                x.CustomerPurchaseOrderId,
+                x.CustomerPurchaseOrder!.PoRecordNumber,
+                x.CustomerPurchaseOrder.CustomerPoNumber,
+                CustomerName = x.CustomerPurchaseOrder.Customer!.Name,
+                LineNumber = x.SlNo,
+                x.ItemId,
+                x.Item!.ItemCode,
+                ItemName = x.Item.Name,
+                Quantity = x.Quantity!.Value,
+                CreatedJobOrderCount = db.JobOrders.Count(j => j.CompanyId == company.Id
+                    && j.CustomerPurchaseOrderLineId == x.Id)
+            })
+            .Where(x => x.CreatedJobOrderCount < x.Quantity)
+            .OrderBy(x => x.PoRecordNumber).ThenBy(x => x.LineNumber)
+            .Select(x => new JobOrderCustomerPoLineView(x.Id, x.CustomerPurchaseOrderId,
+                x.PoRecordNumber, x.CustomerPoNumber, x.CustomerName, x.LineNumber,
+                x.ItemId, x.ItemCode, x.ItemName, x.Quantity, x.CreatedJobOrderCount))
+            .ToListAsync(ct);
+        return rows;
+    }
+
 
     public async Task<IReadOnlyList<JobOrderHistoryView>> HistoryAsync(Guid id, CancellationToken ct)
     {

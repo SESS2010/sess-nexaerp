@@ -43,6 +43,12 @@ public sealed record OutstandingEngineerCustodyView(Guid MaterialIssueId, string
     Guid? JobOrderId, Guid EmployeeId, string EmployeeCode, DateTimeOffset IssuedAt,
     DateTimeOffset ReturnDueAt, bool ReturnNotificationDue, decimal QuantityBase);
 
+public sealed record MaterialIssueRecipientView(Guid EmployeeId, string EmployeeCode,
+    string EmployeeName, string DepartmentCode);
+public sealed record AvailableMaterialIssueSerialView(Guid InventorySerialId,
+    string StoredSerialNumber, Guid ItemId, string ItemCode, Guid? InventoryLotId,
+    string? SupplierLotNumber, Guid WarehouseConditionLocationId, Guid WarehouseId,
+    string WarehouseCode, Guid RackBinId, string RackBinCode, decimal AvailableQuantity);
 public sealed record MaterialReturnLineInput(Guid MaterialIssueLineId, string ScanCode,
     decimal ReturnedQuantity, decimal ReportedConsumedQuantity, decimal ReportedStillHeldQuantity);
 public sealed record CreateMaterialReturn(DateTimeOffset DeclaredAt,
@@ -76,6 +82,9 @@ public interface IMaterialIssueService
     Task<MaterialIssueView> IssueAsync(Guid requestId, CreateMaterialIssue request, CancellationToken ct);
     Task<IReadOnlyList<OutstandingEngineerCustodyView>> OutstandingCustodyAsync(
         Guid? employeeId, bool? notificationDue, CancellationToken ct);
+    Task<IReadOnlyList<MaterialIssueRecipientView>> ListIssueRecipientsAsync(CancellationToken ct);
+    Task<IReadOnlyList<AvailableMaterialIssueSerialView>> AvailableSerialsAsync(
+        Guid materialIssueRequestLineId, CancellationToken ct);
     Task<MaterialReturnPage> ListReturnsAsync(Guid? materialIssueId, string? status,
         int page, int pageSize, CancellationToken ct);
     Task<MaterialReturnView?> GetReturnAsync(Guid id, CancellationToken ct);

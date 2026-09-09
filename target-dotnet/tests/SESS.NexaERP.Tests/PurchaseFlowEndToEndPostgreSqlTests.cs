@@ -590,6 +590,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
 
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        var customerPoLines = await Get<JobOrderCustomerPoLineView[]>(client,
+            "/api/v1/production/job-orders/customer-po-lines");
+        Assert.Contains(customerPoLines, x => x.Id == fixture.MachineLineId
+            && x.CustomerPurchaseOrderId != Guid.Empty && x.ItemId == itemId);
         var jobCommand = new CreateJobOrderRequest(fixture.MachineLineId, 1, "WITNESS-MACHINE-001",
             new DateOnly(2026, 9, 7), new DateOnly(2026, 12, 1), "job-order-create");
         var job = await Post<JobOrderView>(client, "/api/v1/production/job-orders", jobCommand);
@@ -655,6 +659,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             HttpStatusCode.Conflict);
 
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var recipients = await Get<MaterialIssueRecipientView[]>(client,
+            "/api/v1/stores/material-issues/recipients");
+        Assert.Contains(recipients, x => x.EmployeeId == engineerId && x.EmployeeCode == "SESS-05");
         var issueCommand = new CreateMaterialIssue("mir-customer-issue", engineerId,
             DateTimeOffset.UtcNow, [new MaterialIssueScan(mir.Lines.Single().Id, fixture.ItemCode, null, .95m)]);
         await AssertPostStatus(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
@@ -688,6 +695,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        var ownIssue = await Get<MaterialIssueView>(client,
+            $"/api/v1/stores/material-issues/{issue.Id}");
+        Assert.Equal(engineerId, ownIssue.IssuedToEmployeeId);
+        var ownCustody = await Get<OutstandingEngineerCustodyView[]>(client,
+            "/api/v1/stores/material-issues/outstanding-custody");
+        Assert.Contains(ownCustody, x => x.MaterialIssueId == issue.Id && x.EmployeeId == engineerId);
+        using var otherCustody = await client.GetAsync(
+            $"/api/v1/stores/material-issues/outstanding-custody?employeeId={Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Forbidden, otherCustody.StatusCode);
+
         await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
             new CreateMaterialReturn(DateTimeOffset.UtcNow,
                 [new MaterialReturnLineInput(issue.Lines.Single().Id, "NOT-THE-ISSUED-ITEM", .60m, 0, .35m)],
@@ -909,6 +926,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(3, await evidence.MaterialReturns.CountAsync());
         Assert.Equal(6, await evidence.MaterialReturnHistories.CountAsync());
         Assert.Equal(3, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialReturn.Accept"));
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var outstanding = await Get<OutstandingEngineerCustodyView[]>(client,
             $"/api/v1/stores/material-issues/outstanding-custody?employeeId={engineerId}");
         Assert.Equal(2, outstanding.Length); Assert.All(outstanding, x => Assert.Equal(engineerId, x.EmployeeId));
@@ -938,6 +956,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issue-requests/{request.Id}/approve",
             new MaterialIssueTransitionRequest(request.Version, "Serialized custody approved", "mir-serialized-approve"));
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var availableSerials = await Get<AvailableMaterialIssueSerialView[]>(client,
+            $"/api/v1/stores/material-issues/request-lines/{request.Lines.Single().Id}/available-serials");
+        var availableSerial = Assert.Single(availableSerials,
+            x => x.InventorySerialId == serial.InventorySerialId);
+        Assert.Equal(serial.StoredSerialNumber, availableSerial.StoredSerialNumber);
+        Assert.Equal(1m, availableSerial.AvailableQuantity);
         var issue = await Post<MaterialIssueView>(client,
             $"/api/v1/stores/material-issues/from-request/{request.Id}",
             new CreateMaterialIssue("mir-serialized-issue", engineerId, DateTimeOffset.UtcNow,
@@ -1387,8 +1411,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private sealed class PurchaseFlowAllowingPermissions : IPagePermissionService
     {
-        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission,
-            CancellationToken ct) => Task.FromResult(true);
+        public Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes,
+            string pageKey, string permission, CancellationToken ct)
+        {
+            if (pageKey == "stores.material-issues" && permission == PagePermissionActions.View)
+                return Task.FromResult(roleCodes.Any(role => role is "STORES_ASSISTANT"
+                    or "STORES_EXECUTIVE" or "STORES_MANAGER"));
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class PurchaseFlowAuthentication(

@@ -87,6 +87,8 @@ public sealed class CustomerPoIntakeRegisterCorrectionTests
         var endpoint = File.ReadAllText(Path.Combine(root, "src", "SESS.NexaERP.Api", "Endpoints", "CustomerPoEndpoints.cs"));
         Assert.Contains("AppendRevision(entity", endpoint);
         Assert.Contains("entity.CurrentRevisionNumber++", endpoint);
+        Assert.Contains("decimal? Amount, Guid? Id = null", endpoint);
+        Assert.Contains("line.Amount, line.Id", endpoint);
         Assert.Contains("po.Company.Code == user.OrganizationId", endpoint);
         Assert.DoesNotContain("RemoveRange", endpoint);
         Assert.DoesNotContain("/invoice", endpoint, StringComparison.OrdinalIgnoreCase);

@@ -22,6 +22,10 @@ public sealed record JobOrderView(Guid Id, string JobOrderNumber, Guid CustomerP
 public sealed record JobOrderHistoryView(Guid Id, string Action, string? FromStatus, string ToStatus,
     Guid ActorEmployeeId, string ActorRoleCode, Guid ResolvedRoleAssignmentId,
     string ResolvedRoleAssignmentType, string CorrelationId, string Remarks, DateTimeOffset CreatedAt);
+public sealed record JobOrderCustomerPoLineView(Guid Id, Guid CustomerPurchaseOrderId,
+    string CustomerPoRecordNumber, string CustomerPoNumber, string CustomerName,
+    int LineNumber, Guid ItemId, string ItemCode, string ItemName, decimal Quantity,
+    int CreatedJobOrderCount);
 
 public interface IJobOrderService
 {
@@ -30,4 +34,5 @@ public interface IJobOrderService
     Task<JobOrderView> CreateAsync(CreateJobOrderRequest request, CancellationToken ct);
     Task<JobOrderView> ConfirmAccountsAsync(Guid id, ConfirmJobOrderRequest request, CancellationToken ct);
     Task<IReadOnlyList<JobOrderHistoryView>> HistoryAsync(Guid id, CancellationToken ct);
+    Task<IReadOnlyList<JobOrderCustomerPoLineView>> CustomerPoLinesAsync(CancellationToken ct);
 }
