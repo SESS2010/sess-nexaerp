@@ -190,6 +190,7 @@ public static partial class MasterEndpointHelpers
         var correlationId = $"REV867_{masterType}_{action}_{Guid.NewGuid():N}";
         setStatus(entity, nextStatus, currentUser.LoginId);
         setApproval(entity, nextApprovalStatus);
+        entity.Version = checked(entity.Version + 1);
         entity.UpdatedAt = DateTimeOffset.UtcNow;
         entity.UpdatedBy = currentUser.LoginId;
         AddApprovalHistory(db, masterType, entity.Id, code, action, before.ApprovalStatus, nextApprovalStatus, remarks, currentUser, correlationId);

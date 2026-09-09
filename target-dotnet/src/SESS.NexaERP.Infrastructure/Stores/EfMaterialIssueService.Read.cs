@@ -103,13 +103,18 @@ public sealed partial class EfMaterialIssueService
             .ToDictionaryAsync(i => i.Id, i => new { i.ItemCode, i.Name }, ct);
         var uoms = await db.Uoms.AsNoTracking().Where(u => uomIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.Code, ct);
+        var requester = await db.Employees.AsNoTracking().Where(e => e.Id == x.RequestedByEmployeeId)
+            .Select(e => new { e.EmployeeCode, e.EmployeeName }).SingleAsync(ct);
+        var departmentCode = await db.Departments.AsNoTracking().Where(d => d.Id == x.RequestingDepartmentId)
+            .Select(d => d.Code).SingleAsync(ct);
         var decisionLines = await db.MaterialIssueExcessDecisions.AsNoTracking()
             .Where(d => d.CompanyId == x.CompanyId && x.Lines.Select(l => l.Id).Contains(d.MaterialIssueRequestLineId)
                 && d.Decision == "APPROVED")
             .Select(d => d.MaterialIssueRequestLineId).ToListAsync(ct);
         return new(x.Id, x.RequestNumber, x.Purpose, x.Situation, x.DestinationType,
             x.JobOrderId, x.CustomerId, x.VendorId, x.DestinationDepartmentId,
-            x.DestinationNameSnapshot, x.RequestingDepartmentId, x.RequestedByEmployeeId,
+            x.DestinationNameSnapshot, x.RequestingDepartmentId, departmentCode,
+            x.RequestedByEmployeeId, requester.EmployeeCode, requester.EmployeeName,
             x.RequiredDate, x.Status, x.Version, x.Lines.OrderBy(l => l.LineNumber).Select(l =>
                 new MaterialIssueRequestLineView(l.Id, l.LineNumber, l.ItemId, items[l.ItemId].ItemCode,
                     items[l.ItemId].Name, l.UomId, uoms[l.UomId], l.RequestedQuantity, l.RequestedBaseQuantity,

@@ -634,9 +634,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new DateOnly(2026, 9, 8),
                 [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, fixture.CpoLineId, null)],
                 "mir-customer-create"));
+        Assert.Equal("SESS-15", mir.EmployeeCode); Assert.False(string.IsNullOrWhiteSpace(mir.EmployeeName));
+        Assert.False(string.IsNullOrWhiteSpace(mir.DepartmentCode));
         Assert.Equal(.05m, Assert.Single(mir.Lines).ExcessBaseQuantity);
+        var draftMirVersion = mir.Version;
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
             new MaterialIssueTransitionRequest(mir.Version, "Required for chamber assembly", "mir-customer-submit"));
+        Assert.Equal(draftMirVersion + 1, mir.Version);
+        await AssertPostStatus(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
+            new MaterialIssueTransitionRequest(draftMirVersion, "Stale duplicate submit", "mir-customer-stale-submit"),
+            HttpStatusCode.Conflict);
 
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var issueCommand = new CreateMaterialIssue("mir-customer-issue", engineerId,

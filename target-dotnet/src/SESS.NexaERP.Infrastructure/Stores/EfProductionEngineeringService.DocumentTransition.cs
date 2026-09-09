@@ -41,12 +41,13 @@ public sealed partial class EfProductionEngineeringService
         var from = revision.Status;
         revision.Status = approve ? "APPROVED" : "SUBMITTED";
         document.Status = revision.Status;
+        revision.Version = checked(revision.Version + 1); document.Version = checked(document.Version + 1);
         if (approve) {
             revision.ApprovedAt = DateTimeOffset.UtcNow;
             revision.ApprovedByEmployeeId = Actor();
             if (revision.SupersedesRevisionId.HasValue) {
                 var prior = document.Revisions.Single(x => x.Id == revision.SupersedesRevisionId.Value);
-                prior.Status = "SUPERSEDED";
+                prior.Status = "SUPERSEDED"; prior.Version = checked(prior.Version + 1);
             }
         } else revision.SubmittedAt = DateTimeOffset.UtcNow;
         var action = approve ? "Approve" : "Submit";

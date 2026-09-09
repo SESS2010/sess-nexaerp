@@ -53,7 +53,7 @@ public sealed partial class EfEstimatedBomService
         var draftLines = await db.EstimatedBomLines.Where(x => x.ItemId == sourceItemId &&
             x.EstimatedBomRevision!.Status == "DRAFT").ToListAsync(ct);
         foreach (var line in draftLines) line.ItemId = survivor.Id;
-        source.IsActive = false; source.Status = "Merged"; source.UpdatedAt = DateTimeOffset.UtcNow; source.UpdatedBy = user.LoginId;
+        source.IsActive = false; source.Status = "Merged"; source.Version = checked(source.Version + 1); source.UpdatedAt = DateTimeOffset.UtcNow; source.UpdatedBy = user.LoginId;
         var alias = new ItemMergeAlias { CompanyId = company.Id, SourceItemId = source.Id, SurvivorItemId = survivor.Id, ActorEmployeeId = Actor(),
             ActorRoleCode = user.RoleCode, ResolvedRoleAssignmentId = user.ResolvedRoleAssignmentId!.Value,
             ResolvedRoleAssignmentType = user.ResolvedRoleAssignmentType!, Reason = reason, CreatedBy = user.LoginId };

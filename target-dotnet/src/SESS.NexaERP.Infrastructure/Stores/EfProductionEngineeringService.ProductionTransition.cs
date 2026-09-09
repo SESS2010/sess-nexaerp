@@ -43,6 +43,7 @@ public sealed partial class EfProductionEngineeringService
         await ValidateLinesAsync(revision.Lines.Select(x =>
             new ProductionBomLineInput(x.ItemId, x.UomId, x.Quantity, x.Remarks)).ToArray(), true, ct);
         var from = revision.Status; revision.Status = approve ? "APPROVED" : "SUBMITTED";
+        revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         bom.Status = revision.Status;
         if (approve) {
             revision.ApprovedAt = DateTimeOffset.UtcNow;

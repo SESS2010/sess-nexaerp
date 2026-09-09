@@ -31,6 +31,7 @@ public sealed partial class EfProductionEngineeringService
             Quantity = line.Quantity, Remarks = line.Remarks, CreatedBy = user.LoginId
         });
         revision.RevisionReason = Required(request.RevisionReason, "RevisionReason");
+        revision.Version = checked(revision.Version + 1);
         revision.ContentFingerprint = Fingerprint(request);
         History(bom, revision, null, null, "Update", "DRAFT", "DRAFT",
             revision.RevisionReason, key);

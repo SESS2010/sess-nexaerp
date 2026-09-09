@@ -20,7 +20,8 @@ public sealed record MaterialIssueRequestLineView(Guid Id, int LineNumber, Guid 
 public sealed record MaterialIssueRequestView(Guid Id, string RequestNumber, string Purpose,
     string Situation, string DestinationType, Guid? JobOrderId, Guid? CustomerId, Guid? VendorId,
     Guid? DestinationDepartmentId, string DestinationName, Guid RequestingDepartmentId,
-    Guid RequestedByEmployeeId, DateOnly RequiredDate, string Status, long Version,
+    string DepartmentCode, Guid RequestedByEmployeeId, string EmployeeCode, string EmployeeName,
+    DateOnly RequiredDate, string Status, long Version,
     IReadOnlyList<MaterialIssueRequestLineView> Lines);
 public sealed record MaterialIssueRequestPage(int Total, int Page, int PageSize,
     IReadOnlyList<MaterialIssueRequestView> Items);

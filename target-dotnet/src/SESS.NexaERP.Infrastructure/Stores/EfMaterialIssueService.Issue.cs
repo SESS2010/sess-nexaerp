@@ -166,6 +166,7 @@ public sealed partial class EfMaterialIssueService
         }
         var from = request.Status;
         request.Status = allIssued ? "FULFILLED" : "PARTIALLY_FULFILLED";
+        request.Version = checked(request.Version + 1);
         request.UpdatedAt = DateTimeOffset.UtcNow; request.UpdatedBy = user.LoginId;
         History(request, issue, "ISSUE", from, request.Status,
             "Custody transferred to engineer; no consumption recorded.", key);

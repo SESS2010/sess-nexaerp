@@ -67,6 +67,7 @@ public sealed partial class EfMaterialIssueService
             command.DestinationName, command.RequestingDepartmentId, command.RequiredDate,
             command.Lines, ct);
         request.RequestFingerprint = Fingerprint(command);
+        request.Version = checked(request.Version + 1);
         request.UpdatedAt = DateTimeOffset.UtcNow; request.UpdatedBy = user.LoginId;
         History(request, null, "UPDATE", "DRAFT", "DRAFT", "MIR Draft updated.", key);
         await CommitAsync("MaterialIssueRequest.Update", key, command,
@@ -164,6 +165,7 @@ public sealed partial class EfMaterialIssueService
         if (next == "SUBMITTED" && request.Lines.Count == 0)
             throw new StoresConflictException("An empty MIR cannot be submitted.");
         var from = request.Status; request.Status = next;
+        request.Version = checked(request.Version + 1);
         request.UpdatedAt = DateTimeOffset.UtcNow; request.UpdatedBy = user.LoginId;
         if (next == "APPROVED")
         {

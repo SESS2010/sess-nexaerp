@@ -52,6 +52,7 @@ public sealed partial class EfEstimatedBomService
         var material = await MaterializeLinesAsync(company.Id, request.Lines, ct);
         db.EstimatedBomLines.RemoveRange(revision.Lines); revision.Lines.Clear(); AddLines(revision, company.Id, material);
         revision.RevisionReason = Required(request.RevisionReason, "RevisionReason"); revision.ContentFingerprint = Fingerprint(request);
+        revision.Version = checked(revision.Version + 1);
         revision.UpdatedAt = DateTimeOffset.UtcNow; revision.UpdatedBy = user.LoginId;
         AddHistory(bom, revision, "Update", "DRAFT", "DRAFT", revision.RevisionReason, key);
         await CommitCommandAsync(company.Code, "EstimatedBom.Update", key, request, bom, revision, ct);
@@ -83,6 +84,7 @@ public sealed partial class EfEstimatedBomService
         if (approval && revision.PreparedByEmployeeId == Actor()) throw new StoresConflictException("Nobody may approve their own Estimated BOM revision.");
         await ValidateSubmissionAsync(revision, ct);
         var from = revision.Status; revision.Status = next; bom.Status = next;
+        revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         revision.UpdatedAt = bom.UpdatedAt = DateTimeOffset.UtcNow; revision.UpdatedBy = bom.UpdatedBy = user.LoginId;
         if (approval)
         {
@@ -113,7 +115,7 @@ public sealed partial class EfEstimatedBomService
             revision.Lines.Add(new EstimatedBomLine { CompanyId = company.Id, EstimatedBomRevisionId = revision.Id,
                 LineNumber = line.LineNumber, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
                 Remarks = line.Remarks, CreatedBy = user.LoginId });
-        bom.Revisions.Add(revision); bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT";
+        bom.Revisions.Add(revision); bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT"; bom.Version = checked(bom.Version + 1);
         bom.UpdatedAt = DateTimeOffset.UtcNow; bom.UpdatedBy = user.LoginId;
         AddHistory(bom, revision, "NewRevision", source.Status, "DRAFT", revision.RevisionReason, key);
         await CommitCommandAsync(company.Code, "EstimatedBom.NewRevision", key, new { bomNumber = bom.BomNumber, request }, bom, revision, ct);
