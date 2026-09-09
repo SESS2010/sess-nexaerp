@@ -211,6 +211,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 purchaseId, productionId, storesId, tdId, managerId, qcId);
 
             await using var verify = new NexaErpDbContext(options);
+            Assert.False(await verify.RolePagePermissions.AnyAsync(x => !x.CanView && !x.HasFullControl &&
+                (x.CanCreate || x.CanUpdate || x.CanSubmit || x.CanIssue || x.CanVerify || x.CanApprove ||
+                 x.CanReject || x.CanRequestClarification || x.CanRequestRevision || x.CanResubmit ||
+                 x.CanCancel || x.CanDeactivate)),
+                "A fully migrated role-page grant permits a document action without permitting that actor to read the document.");
+
             Assert.Equal(3, await verify.PurchaseRequisitions.CountAsync());
             Assert.Equal(3, await verify.RequestForQuotations.CountAsync());
             Assert.Equal(6, await verify.RfqVendorInvitations.CountAsync());
