@@ -24,6 +24,7 @@ public sealed partial class EfEstimatedBomService
         }
         var job = await db.JobOrders.SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == request.JobOrderId, ct)
             ?? throw new KeyNotFoundException("Job Order was not found in the selected company.");
+        if (job.Status != "OPEN") throw new StoresConflictException("Accounts must confirm the Job Order before an Estimated BOM is created.");
         if (await db.EstimatedBoms.AnyAsync(x => x.CompanyId == company.Id && x.JobOrderId == job.Id, ct))
             throw new StoresConflictException("This Job Order already has an Estimated BOM.");
         var material = await MaterializeLinesAsync(company.Id, request.Lines, ct);

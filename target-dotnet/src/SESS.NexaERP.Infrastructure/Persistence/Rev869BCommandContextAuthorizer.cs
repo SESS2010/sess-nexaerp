@@ -101,6 +101,31 @@ public static class Rev869BCommandContextAuthorizer
             : throw new InvalidOperationException("Ordinary command registration returned no identifier.");
     }
 
+    public static async Task<CommandAttemptHandle> OpenForDatabaseFunctionAsync(
+        NexaErpDbContext db, ICurrentUser user, string organization, CommandEnvelope envelope,
+        string claimKind, string entityType, Guid entityId, string action, long parentVersion,
+        string? fromStatus, string toStatus, string correlation, string remarks, CancellationToken ct)
+    {
+        RequirePrincipal(user, organization);
+        var actorRole = user.RoleCode;
+        var actorAssignmentId = user.ResolvedRoleAssignmentId ??
+            throw new UnauthorizedAccessException("A resolved effective role-assignment ID is required for a controlled command.");
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Controlled commands require an active service-owned business transaction.");
+        var historyId = new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{claimKind}|{entityType}|{entityId}|{action}|{correlation}"))[..16]);
+        var slot = new OperationSlot(claimKind, historyId, entityType, entityId, action,
+            parentVersion, fromStatus, toStatus, correlation, remarks);
+        var businessFingerprint = SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { slot }, JsonOptions)));
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open) throw new InvalidOperationException("Controlled-command runtime connection must be open.");
+        var transaction = (NpgsqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
+        if (!await OrdinaryLedgerAvailableAsync(connection, transaction, ct))
+            throw new InvalidOperationException("The ordinary command ledger is not installed for this deployment.");
+        var commandId = await RegisterOrdinaryCommandAsync(connection, transaction, user, organization, envelope,
+            SHA256.HashData(Encoding.UTF8.GetBytes(envelope.IdempotencyKey)),
+            Convert.FromHexString(envelope.RequestFingerprint), actorRole, actorAssignmentId, ct);
+        return new(commandId, commandId, businessFingerprint, Guid.Empty, [], [], true);
+    }
     public static async Task StageCommittedReceiptAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
     {
         if (db.Database.CurrentTransaction is null)
@@ -252,6 +277,14 @@ public static class Rev869BCommandContextAuthorizer
             }
 
             throw new InvalidOperationException("Production engineering history must identify exactly one revision target.");
+        }
+        foreach (var history in db.ChangeTracker.Entries<JobOrderHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
+        {
+            var version = TrackedVersion<JobOrder>(db, history.JobOrderId)
+                ?? await NextVersionAsync(db.JobOrders, history.JobOrderId, ct);
+            result.Add(new("job_order_history", history.Id, nameof(JobOrder), history.JobOrderId,
+                history.Action, version, history.FromStatus, history.ToStatus,
+                history.CorrelationId, history.Remarks));
         }
         foreach (var history in db.ChangeTracker.Entries<MaterialIssueHistory>().Where(x => x.State == EntityState.Added).Select(x => x.Entity))
         {

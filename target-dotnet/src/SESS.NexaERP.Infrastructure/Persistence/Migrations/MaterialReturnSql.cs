@@ -81,6 +81,10 @@ internal static class MaterialReturnSql
             AND ("MaterialReturnLineId" IS NULL OR "MaterialIssueLineId" IS NOT NULL));
         """;
 
+    internal static string ActiveBatchGuard => BatchGuard;
+    internal static string ActiveMovementGuard => MovementGuard;
+    internal static string ActiveReconcileGuard => ReconcileGuard;
+
     private static string BatchGuard => StoresSlice3QcConcessionSql.ActiveBatchGuard.Replace(
         "  ELSE\n    expected_type:='REVERSAL';",
         """

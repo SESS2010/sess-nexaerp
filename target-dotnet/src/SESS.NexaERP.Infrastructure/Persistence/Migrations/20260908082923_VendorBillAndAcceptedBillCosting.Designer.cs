@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using SESS.NexaERP.Infrastructure.Persistence;
 namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(NexaErpDbContext))]
-    partial class NexaErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908082923_VendorBillAndAcceptedBillCosting")]
+    partial class VendorBillAndAcceptedBillCosting
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -50186,9 +50189,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ComponentFitmentId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("ConditionCode")
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)");
@@ -50376,8 +50376,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("StockPostingBatchId");
 
                     b.HasIndex("WarehouseId");
-
-                    b.HasIndex("CompanyId", "ComponentFitmentId");
 
                     b.HasIndex("CompanyId", "CustodyAssignmentId");
 
@@ -56138,161 +56136,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         });
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ActualBom", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("GeneratedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CompanyId", "JobOrderId")
-                        .IsUnique();
-
-                    b.ToTable("actual_boms", "advance");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ActualBomEntry", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("AcceptedMaterialValue")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<Guid>("ActualBomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("AllocatedChargeValue")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ComponentFitmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("ComponentFitmentReversalId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("EntryKind")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid>("GoodsReceiptLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("GrnNumberSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<Guid?>("InventoryLotId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("InventoryProvenanceLayerId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("InventorySerialId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MaterialIssueLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("QuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("TotalAcceptedValue")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<Guid>("UomId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("VendorBillLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("VendorBillNumberSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ItemId");
-
-                    b.HasIndex("UomId");
-
-                    b.HasIndex("CompanyId", "ComponentFitmentId")
-                        .IsUnique()
-                        .HasFilter("\"ComponentFitmentId\" IS NOT NULL");
-
-                    b.HasIndex("CompanyId", "ComponentFitmentReversalId")
-                        .IsUnique()
-                        .HasFilter("\"ComponentFitmentReversalId\" IS NOT NULL");
-
-                    b.HasIndex("CompanyId", "GoodsReceiptLineId");
-
-                    b.HasIndex("CompanyId", "InventoryLotId");
-
-                    b.HasIndex("CompanyId", "InventoryProvenanceLayerId");
-
-                    b.HasIndex("CompanyId", "InventorySerialId");
-
-                    b.HasIndex("CompanyId", "MaterialIssueLineId");
-
-                    b.HasIndex("CompanyId", "VendorBillLineId");
-
-                    b.HasIndex("CompanyId", "ActualBomId", "OccurredAt");
-
-                    b.ToTable("actual_bom_entries", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_actual_bom_entry_source", "num_nonnulls(\"ComponentFitmentId\",\"ComponentFitmentReversalId\")=1 AND ((\"EntryKind\"='FITMENT' AND \"QuantityBase\">0 AND \"AcceptedMaterialValue\">=0 AND \"AllocatedChargeValue\">=0 AND \"TotalAcceptedValue\">=0) OR (\"EntryKind\"='REVERSAL' AND \"QuantityBase\"<0 AND \"AcceptedMaterialValue\"<=0 AND \"AllocatedChargeValue\"<=0 AND \"TotalAcceptedValue\"<=0))");
-                        });
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -56670,194 +56513,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             UnitCode = "KM",
                             ValueType = "DECIMAL",
                             VersionNumber = 1
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ComponentFitment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConfirmationNote")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("ConfirmedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FitmentNumber")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTimeOffset>("FittedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MaterialIssueLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("QuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("character(64)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid?>("ReverifiesFitmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("ConfirmedByEmployeeId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "FitmentNumber")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "MaterialIssueLineId");
-
-                    b.HasIndex("CompanyId", "ReverifiesFitmentId")
-                        .IsUnique()
-                        .HasFilter("\"ReverifiesFitmentId\" IS NOT NULL");
-
-                    b.HasIndex("CompanyId", "JobOrderId", "MaterialIssueLineId");
-
-                    b.ToTable("component_fitments", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_component_fitment_quantity", "\"QuantityBase\">0 AND \"ResolvedRoleAssignmentType\"='FULL' AND length(btrim(\"ConfirmationNote\"))>0");
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ComponentFitmentReversal", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ComponentFitmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<bool>("IsSelfReversal")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("character(64)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset>("ReversedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ReversedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("ReversedByEmployeeId");
-
-                    b.HasIndex("CompanyId", "ComponentFitmentId")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.ToTable("component_fitment_reversals", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_component_fitment_reversal", "\"ResolvedRoleAssignmentType\"='FULL' AND length(btrim(\"Reason\"))>0");
                         });
                 });
 
@@ -60618,39 +60273,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AccountsConfirmationActorRoleCode")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("AccountsConfirmationReason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid?>("AccountsConfirmationRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AccountsConfirmationRoleAssignmentType")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("AccountsConfirmedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("AccountsConfirmedByEmployeeId")
-                        .HasColumnType("uuid");
-
                     b.Property<DateTimeOffset?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("ConfirmationIdempotencyKey")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("ConfirmationRequestFingerprint")
-                        .HasColumnType("character(64)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -60664,43 +60291,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(240)
                         .HasColumnType("character varying(240)");
 
-                    b.Property<Guid?>("CustomerPurchaseOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("CustomerPurchaseOrderLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FatReadinessStatus")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasDefaultValue("NOT_RECONCILED");
-
-                    b.Property<DateTimeOffset?>("FatReconciledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("FatReconciledByEmployeeId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<string>("InitiatedActorRoleCode")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid?>("InitiatedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("InitiatedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("InitiatedRoleAssignmentType")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
 
                     b.Property<DateOnly?>("InstallationDate")
                         .HasColumnType("date");
@@ -60713,16 +60307,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<Guid?>("LatestFatReconciliationId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("MachineModel")
                         .IsRequired()
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
-
-                    b.Property<int?>("MachineOrdinal")
-                        .HasColumnType("integer");
 
                     b.Property<string>("MachineSerial")
                         .IsRequired()
@@ -60756,25 +60344,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AccountsConfirmationRoleAssignmentId");
-
-                    b.HasIndex("AccountsConfirmedByEmployeeId");
-
                     b.HasIndex("CompanyId");
-
-                    b.HasIndex("CustomerPurchaseOrderId");
-
-                    b.HasIndex("CustomerPurchaseOrderLineId");
-
-                    b.HasIndex("FatReconciledByEmployeeId");
-
-                    b.HasIndex("InitiatedByEmployeeId");
-
-                    b.HasIndex("InitiatedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "ConfirmationIdempotencyKey")
-                        .IsUnique()
-                        .HasFilter("\"ConfirmationIdempotencyKey\" IS NOT NULL");
 
                     b.HasIndex("CompanyId", "IdempotencyKey")
                         .IsUnique();
@@ -60787,392 +60357,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "PinnedProductionBomRevisionId");
 
-                    b.HasIndex("CompanyId", "CustomerPurchaseOrderLineId", "MachineOrdinal")
-                        .IsUnique()
-                        .HasFilter("\"CustomerPurchaseOrderLineId\" IS NOT NULL");
-
                     b.HasIndex("CompanyId", "Status", "JobOrderDate");
 
-                    b.ToTable("job_orders", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_job_order_fat_readiness", "\"FatReadinessStatus\" IN ('NOT_RECONCILED','BLOCKED','READY') AND ((\"FatReadinessStatus\"='NOT_RECONCILED' AND \"FatReconciledAt\" IS NULL AND \"FatReconciledByEmployeeId\" IS NULL AND \"LatestFatReconciliationId\" IS NULL) OR (\"FatReadinessStatus\"<>'NOT_RECONCILED' AND \"FatReconciledAt\" IS NOT NULL AND \"FatReconciledByEmployeeId\" IS NOT NULL AND \"LatestFatReconciliationId\" IS NOT NULL))");
-
-                            t.HasCheckConstraint("CK_job_order_joint_governance", "(\"CustomerPurchaseOrderId\" IS NULL AND \"CustomerPurchaseOrderLineId\" IS NULL AND \"MachineOrdinal\" IS NULL AND \"InitiatedByEmployeeId\" IS NULL AND \"InitiatedRoleAssignmentId\" IS NULL AND \"AccountsConfirmedByEmployeeId\" IS NULL) OR (\"CustomerPurchaseOrderId\" IS NOT NULL AND \"CustomerPurchaseOrderLineId\" IS NOT NULL AND \"MachineOrdinal\">0 AND \"InitiatedByEmployeeId\" IS NOT NULL AND \"InitiatedActorRoleCode\" IS NOT NULL AND \"InitiatedRoleAssignmentId\" IS NOT NULL AND \"InitiatedRoleAssignmentType\" IS NOT NULL AND ((\"Status\"='PENDING_ACCOUNTS' AND \"AccountsConfirmedAt\" IS NULL AND \"AccountsConfirmedByEmployeeId\" IS NULL AND \"AccountsConfirmationRoleAssignmentId\" IS NULL) OR (\"Status\"='OPEN' AND \"AccountsConfirmedAt\" IS NOT NULL AND \"AccountsConfirmedByEmployeeId\" IS NOT NULL AND \"AccountsConfirmationActorRoleCode\" IS NOT NULL AND \"AccountsConfirmationRoleAssignmentId\" IS NOT NULL AND \"AccountsConfirmationRoleAssignmentType\" IS NOT NULL AND NULLIF(btrim(\"AccountsConfirmationReason\"),'') IS NOT NULL)))");
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatCustodyExplanation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Disposition")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid>("ExplainedByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MaterialIssueLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("QuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("character(64)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasAlternateKey("CompanyId", "Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("ExplainedByEmployeeId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "MaterialIssueLineId");
-
-                    b.HasIndex("CompanyId", "JobOrderId", "MaterialIssueLineId");
-
-                    b.ToTable("job_order_fat_custody_explanations", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_fat_custody_explanation", "\"QuantityBase\">0 AND \"Disposition\" IN ('LOST','SCRAPPED') AND \"ResolvedRoleAssignmentType\"='FULL' AND length(btrim(\"Reason\"))>0");
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliation", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<int>("AttemptNumber")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<decimal>("ExplainedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("FittedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<decimal>("IssuedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset>("ReconciledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ReconciledByEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasColumnType("character(64)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Result")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<decimal>("ReturnedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("UnexplainedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("ReconciledByEmployeeId");
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("CompanyId", "JobOrderId", "AttemptNumber")
-                        .IsUnique();
-
-                    b.ToTable("job_order_fat_reconciliations", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_fat_reconciliation", "\"AttemptNumber\">0 AND \"Result\" IN ('BLOCKED','READY') AND \"IssuedQuantityBase\">=0 AND \"FittedQuantityBase\">=0 AND \"ReturnedQuantityBase\">=0 AND \"ExplainedQuantityBase\">=0 AND \"UnexplainedQuantityBase\">=0 AND ((\"Result\"='READY' AND \"UnexplainedQuantityBase\"=0) OR (\"Result\"='BLOCKED' AND \"UnexplainedQuantityBase\">0)) AND \"ResolvedRoleAssignmentType\"='FULL'");
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliationLine", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Classification")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("CustodianEmployeeCodeSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
-                    b.Property<Guid>("CustodianEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("ExplainedLostQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("ExplainedScrappedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("FittedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("IssuedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<string>("ItemCodeSnapshot")
-                        .IsRequired()
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)");
-
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("JobOrderFatReconciliationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MaterialIssueLineId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("ReturnedLateQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("ReturnedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("UnexplainedQuantityBase")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyId", "JobOrderFatReconciliationId");
-
-                    b.HasIndex("CompanyId", "MaterialIssueLineId");
-
-                    b.HasIndex("JobOrderFatReconciliationId", "MaterialIssueLineId")
-                        .IsUnique();
-
-                    b.ToTable("job_order_fat_reconciliation_lines", "advance", t =>
-                        {
-                            t.HasCheckConstraint("CK_fat_reconciliation_line", "\"IssuedQuantityBase\">0 AND \"FittedQuantityBase\">=0 AND \"ReturnedQuantityBase\">=0 AND \"ReturnedLateQuantityBase\">=0 AND \"ExplainedLostQuantityBase\">=0 AND \"ExplainedScrappedQuantityBase\">=0 AND \"UnexplainedQuantityBase\">=0 AND \"ReturnedLateQuantityBase\"<=\"ReturnedQuantityBase\" AND \"Classification\" IN ('FITTED','RETURNED','RETURNED_LATE','EXPLAINED','MIXED','UNEXPLAINED')");
-                        });
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderHistory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<Guid>("ActorEmployeeId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ActorRoleCode")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("CompanyId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FromStatus")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<Guid>("JobOrderId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Remarks")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("ResolvedRoleAssignmentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolvedRoleAssignmentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("ToStatus")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("bigint");
-
-                    b.HasKey("Id");
-
-                    b.HasAlternateKey("CompanyId", "Id");
-
-                    b.HasIndex("ActorEmployeeId");
-
-                    b.HasIndex("CompanyId");
-
-                    b.HasIndex("CorrelationId")
-                        .IsUnique();
-
-                    b.HasIndex("ResolvedRoleAssignmentId");
-
-                    b.HasIndex("CompanyId", "JobOrderId", "CreatedAt");
-
-                    b.ToTable("job_order_history", "advance");
+                    b.ToTable("job_orders", "advance");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssue", b =>
@@ -62939,9 +62126,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ComponentFitmentId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -63062,8 +62246,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("ReversesPostingBatchId")
                         .IsUnique()
                         .HasFilter("\"PostingKind\"='REVERSAL'");
-
-                    b.HasIndex("CompanyId", "ComponentFitmentId");
 
                     b.HasIndex("CompanyId", "DeliveryChallanId");
 
@@ -63496,7 +62678,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "BillNumber")
                         .IsUnique()
-                        .HasFilter("\"Status\" NOT IN ('REVERSED','REJECTED')");
+                        .HasFilter("\"Status\"<>'REVERSED'");
 
                     b.HasIndex("CompanyId", "CreateIdempotencyKey")
                         .IsUnique();
@@ -63507,7 +62689,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "GoodsReceiptId")
                         .IsUnique()
-                        .HasFilter("\"Status\" NOT IN ('REVERSED','REJECTED')");
+                        .HasFilter("\"Status\"<>'REVERSED'");
 
                     b.HasIndex("CompanyId", "ReversalIdempotencyKey")
                         .IsUnique()
@@ -63530,10 +62712,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("AcceptedValue")
-                        .HasPrecision(24, 6)
-                        .HasColumnType("numeric(24,6)");
-
-                    b.Property<decimal>("AllocatedChargeValue")
                         .HasPrecision(24, 6)
                         .HasColumnType("numeric(24,6)");
 
@@ -64711,12 +63889,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasForeignKey("WarehouseId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitment", "ComponentFitment")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ComponentFitmentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Stores.InventoryCustodyAssignment", "CustodyAssignment")
                         .WithMany()
                         .HasForeignKey("CompanyId", "CustodyAssignmentId")
@@ -64857,8 +64029,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CompanyId", "WarehouseConditionLocationId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ComponentFitment");
 
                     b.Navigation("CustodyAssignment");
 
@@ -66044,120 +65214,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("CustomerPurchaseOrder");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ActualBom", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("JobOrder");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ActualBomEntry", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Inventory.Item", "Item")
-                        .WithMany()
-                        .HasForeignKey("ItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Masters.Uom", "Uom")
-                        .WithMany()
-                        .HasForeignKey("UomId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ActualBom", "ActualBom")
-                        .WithMany("Entries")
-                        .HasForeignKey("CompanyId", "ActualBomId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitment", "ComponentFitment")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ComponentFitmentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitmentReversal", "ComponentFitmentReversal")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ComponentFitmentReversalId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.GoodsReceiptLine", "GoodsReceiptLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "GoodsReceiptLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "InventoryLotId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.InventoryProvenanceLayer", "InventoryProvenanceLayer")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "InventoryProvenanceLayerId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.InventorySerial", "InventorySerial")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "InventorySerialId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueLine", "MaterialIssueLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.VendorBillLine", "VendorBillLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "VendorBillLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ActualBom");
-
-                    b.Navigation("ComponentFitment");
-
-                    b.Navigation("ComponentFitmentReversal");
-
-                    b.Navigation("GoodsReceiptLine");
-
-                    b.Navigation("InventoryLot");
-
-                    b.Navigation("InventoryProvenanceLayer");
-
-                    b.Navigation("InventorySerial");
-
-                    b.Navigation("Item");
-
-                    b.Navigation("MaterialIssueLine");
-
-                    b.Navigation("Uom");
-
-                    b.Navigation("VendorBillLine");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.BusinessRuleConfigurationVersion", b =>
                 {
                     b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ChangedByEmployee")
@@ -66182,91 +65238,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Company");
 
                     b.Navigation("PreviousVersion");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ComponentFitment", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ConfirmedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ConfirmedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueLine", "MaterialIssueLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitment", "ReverifiesFitment")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ReverifiesFitmentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ConfirmedByEmployee");
-
-                    b.Navigation("JobOrder");
-
-                    b.Navigation("MaterialIssueLine");
-
-                    b.Navigation("ResolvedRoleAssignment");
-
-                    b.Navigation("ReverifiesFitment");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ComponentFitmentReversal", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ReversedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ReversedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitment", "ComponentFitment")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ComponentFitmentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ComponentFitment");
-
-                    b.Navigation("ResolvedRoleAssignment");
-
-                    b.Navigation("ReversedByEmployee");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.DeliveryChallan", b =>
@@ -67951,46 +66922,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrder", b =>
                 {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "AccountsConfirmationRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("AccountsConfirmationRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "AccountsConfirmedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("AccountsConfirmedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
                         .WithMany()
                         .HasForeignKey("CompanyId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrder", "CustomerPurchaseOrder")
-                        .WithMany()
-                        .HasForeignKey("CustomerPurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Sales.CustomerPurchaseOrderLine", "CustomerPurchaseOrderLine")
-                        .WithMany()
-                        .HasForeignKey("CustomerPurchaseOrderLineId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "FatReconciledByEmployee")
-                        .WithMany()
-                        .HasForeignKey("FatReconciledByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "InitiatedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("InitiatedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "InitiatedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("InitiatedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SESS.NexaERP.Domain.Stores.ProductionBomRevision", "PinnedProductionBomRevision")
                         .WithMany()
@@ -67998,153 +66934,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.Navigation("AccountsConfirmationRoleAssignment");
-
-                    b.Navigation("AccountsConfirmedByEmployee");
-
-                    b.Navigation("CustomerPurchaseOrder");
-
-                    b.Navigation("CustomerPurchaseOrderLine");
-
-                    b.Navigation("FatReconciledByEmployee");
-
-                    b.Navigation("InitiatedByEmployee");
-
-                    b.Navigation("InitiatedRoleAssignment");
-
                     b.Navigation("PinnedProductionBomRevision");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatCustodyExplanation", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ExplainedByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ExplainedByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueLine", "MaterialIssueLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ExplainedByEmployee");
-
-                    b.Navigation("JobOrder");
-
-                    b.Navigation("MaterialIssueLine");
-
-                    b.Navigation("ResolvedRoleAssignment");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliation", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ReconciledByEmployee")
-                        .WithMany()
-                        .HasForeignKey("ReconciledByEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("JobOrder");
-
-                    b.Navigation("ReconciledByEmployee");
-
-                    b.Navigation("ResolvedRoleAssignment");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliationLine", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliation", "JobOrderFatReconciliation")
-                        .WithMany("Lines")
-                        .HasForeignKey("CompanyId", "JobOrderFatReconciliationId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.MaterialIssueLine", "MaterialIssueLine")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "MaterialIssueLineId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("JobOrderFatReconciliation");
-
-                    b.Navigation("MaterialIssueLine");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderHistory", b =>
-                {
-                    b.HasOne("SESS.NexaERP.Domain.Employees.Employee", "ActorEmployee")
-                        .WithMany()
-                        .HasForeignKey("ActorEmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Foundation.Company", null)
-                        .WithMany()
-                        .HasForeignKey("CompanyId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment", "ResolvedRoleAssignment")
-                        .WithMany()
-                        .HasForeignKey("ResolvedRoleAssignmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SESS.NexaERP.Domain.Stores.JobOrder", "JobOrder")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "JobOrderId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ActorEmployee");
-
-                    b.Navigation("JobOrder");
-
-                    b.Navigation("ResolvedRoleAssignment");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssue", b =>
@@ -68892,12 +67682,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("SESS.NexaERP.Domain.Stores.ComponentFitment", "ComponentFitment")
-                        .WithMany()
-                        .HasForeignKey("CompanyId", "ComponentFitmentId")
-                        .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SESS.NexaERP.Domain.Stores.DeliveryChallan", "DeliveryChallan")
                         .WithMany()
                         .HasForeignKey("CompanyId", "DeliveryChallanId")
@@ -68963,8 +67747,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CompanyId", "ReversesPostingBatchId")
                         .HasPrincipalKey("CompanyId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ComponentFitment");
 
                     b.Navigation("DeliveryChallan");
 
@@ -69447,11 +68229,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Lines");
                 });
 
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.ActualBom", b =>
-                {
-                    b.Navigation("Entries");
-                });
-
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.DeliveryChallan", b =>
                 {
                     b.Navigation("Lines");
@@ -69519,11 +68296,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("Inputs");
 
                     b.Navigation("Outputs");
-                });
-
-            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.JobOrderFatReconciliation", b =>
-                {
-                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.MaterialIssue", b =>

@@ -26,6 +26,8 @@ public sealed class StockPostingBatch : CompanyScopedAuditableEntity
     public InventoryTransformation? InventoryTransformation { get; set; }
     public Guid? InventoryConcessionId { get; set; }
     public InventoryConcession? InventoryConcession { get; set; }
+    public Guid? ComponentFitmentId { get; set; }
+    public ComponentFitment? ComponentFitment { get; set; }
     public Guid? ReversesPostingBatchId { get; set; }
     public StockPostingBatch? ReversesPostingBatch { get; set; }
     public string ReferenceType { get; set; } = string.Empty;

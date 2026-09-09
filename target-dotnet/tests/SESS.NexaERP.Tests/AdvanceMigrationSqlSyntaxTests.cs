@@ -657,9 +657,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string Part2Assertions = """
         DO $assert$
         BEGIN
-          IF (SELECT count(*) FROM advance.roles)<>51 THEN RAISE EXCEPTION 'Expected 51 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations)<>102 THEN RAISE EXCEPTION 'Expected 102 company role activations.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>84 THEN RAISE EXCEPTION 'Expected 84 enabled company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles)<>52 THEN RAISE EXCEPTION 'Expected 52 roles.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations)<>104 THEN RAISE EXCEPTION 'Expected 104 company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>86 THEN RAISE EXCEPTION 'Expected 86 enabled company role activations.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='LEGACY_ALIAS' AND NOT "IsEmployeeAssignable" AND "ReplacementRoleId" IS NOT NULL)<>8
             THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
