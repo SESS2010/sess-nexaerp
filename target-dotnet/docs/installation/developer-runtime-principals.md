@@ -77,10 +77,26 @@ Migrations do not remain on `postgres` after provisioning. PostgreSQL owns a
 new table as the role executing `CREATE TABLE`; therefore a migration run as
 `postgres` creates drift even when every grant is otherwise correct.
 
-After an upgrade, run `database-principals status`. If an upgrade was
-accidentally run as `postgres`, stop the API and run `database-principals
-provision` once more as the installer administrator; its all-present replay
-reassigns every current `advance` object and reconciles ACLs.
+## Mandatory post-migration ownership and ACL reconciliation
+
+After **every** migration run, keep the API stopped and run both commands below
+through the PostgreSQL superuser installer connection. This is mandatory even
+when the migration authenticated as `nexa_erp_migration` and acted as
+`nexa_erp_owner`; `status` alone is not a substitute for reconciliation.
+
+```powershell
+$env:ConnectionStrings__NexaErpInstaller = 'Host=127.0.0.1;Port=5432;Database=sess_nexa_erp;Username=postgres;Password=<administrator-secret>'
+$env:NexaErp__ExpectedDatabase = 'sess_nexa_erp'
+dotnet run --project .\src\SESS.NexaERP.Installer\SESS.NexaERP.Installer.csproj -c Release -- database-principals provision
+dotnet run --project .\src\SESS.NexaERP.Installer\SESS.NexaERP.Installer.csproj -c Release -- database-principals status
+```
+
+For an all-present principal set, `provision` prints `RECONCILED`: it does not
+change credentials or business rows. In one transaction it reassigns every
+current `advance` schema object to `nexa_erp_owner`, rebuilds the controlled
+ACL contract, and verifies it. `status` must then print `VERIFIED`. If either
+command exits non-zero, do not start the API and do not continue the upgrade;
+investigate and rerun the complete reconciliation sequence after correction.
 
 ## 5. Run the API as runtime
 
@@ -96,7 +112,7 @@ superuser, an owner, or an owner-role member.
 
 ## Ownership drift found in the current chain
 
-The following post-principal migrations create 34 relations in total:
+The following post-principal migrations create 38 relations in total:
 
 | Migration area | New relations |
 | --- | ---: |
@@ -109,6 +125,7 @@ The following post-principal migrations create 34 relations in total:
 | Fitment and generated Actual BOM | 4 |
 | FAT readiness | 3 |
 | Item-company last-purchase cache | 1 |
+| Immutable landed-cost adjustment ledgers | 4 |
 
 Every one is correctly owned when the migration session acts as
 `nexa_erp_owner`; every one lands under `postgres` when the documented

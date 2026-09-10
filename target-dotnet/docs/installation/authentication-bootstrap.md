@@ -65,9 +65,10 @@ Complete and witness every item before a real customer deployment:
 5. Transfer database, `advance` schema, table, sequence, and function ownership from the provisioning administrator to `nexa_erp_owner`.
 6. Run Installer verification mode and witness the principal attributes, ownership, memberships, least-privilege grants, and ceremony-function ACL.
 7. Run every migration through `nexa_erp_migration` using the reviewed migration-owner path; do not migrate as `postgres`, the API runtime principal, or the bootstrap principal.
-8. Configure the API to connect exclusively as `nexa_erp_runtime` and verify that production startup rejects `postgres`, any superuser, and any database or schema owner.
-9. Configure and validate the standards-compliant production OIDC provider, exact issuer, audience, authorization-code client with PKCE, callbacks, and organization claim.
-10. Obtain the immutable production OIDC `sub` for SESS-12 and run the one-time ceremony while connected as `nexa_erp_bootstrap`.
-11. Verify SESS-12 identity mappings for both companies, IT_MANAGER assignments, operational scopes, bootstrap state, audit records, and `/api/v1/session/me`.
-12. Add SESS-01 and SESS-02 afterwards through the normal authenticated API; do not add them through bootstrap.
-13. **Never promote, restore, or clone a development database whose authentication ceremony has been consumed into any customer environment. Create and migrate the customer database through this production sequence.**
+8. After every migration, while the API remains stopped, run `database-principals provision` and then `database-principals status` through the superuser installer connection. Both must succeed before API startup.
+9. Configure the API to connect exclusively as `nexa_erp_runtime` and verify that production startup rejects `postgres`, any superuser, and any database or schema owner.
+10. Configure and validate the standards-compliant production OIDC provider, exact issuer, audience, authorization-code client with PKCE, callbacks, and organization claim.
+11. Obtain the immutable production OIDC `sub` for SESS-12 and run the one-time ceremony while connected as `nexa_erp_bootstrap`.
+12. Verify SESS-12 identity mappings for both companies, IT_MANAGER assignments, operational scopes, bootstrap state, audit records, and `/api/v1/session/me`.
+13. Add SESS-01 and SESS-02 afterwards through the normal authenticated API; do not add them through bootstrap.
+14. **Never promote, restore, or clone a development database whose authentication ceremony has been consumed into any customer environment. Create and migrate the customer database through this production sequence.**
