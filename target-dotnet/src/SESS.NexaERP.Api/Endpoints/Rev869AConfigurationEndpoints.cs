@@ -339,27 +339,43 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
 
         if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
+
+        // Scope denial evidence must be committed independently. Opening the business transaction
+        // before this check caused the Denied audit row to be rolled back when the endpoint returned.
+        var scopeCandidate = await db.VendorQualifications.AsNoTracking()
+            .Where(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId)
+            .Select(x => new { x.Id, x.CompanyId, x.OrganizationId, x.CreatedBy, x.Version })
+            .SingleOrDefaultAsync(ct);
+        if (scopeCandidate is null) return Results.NotFound();
+        if (scopeCandidate.Version != request.ExpectedVersion)
+            return Results.Conflict(new { message = "Vendor qualification version is stale." });
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var creatorEmployeeId = await db.EmployeeIdentityMappings.AsNoTracking()
+            .Where(x => x.CompanyId == scopeCandidate.CompanyId &&
+                        x.OrganizationId == scopeCandidate.OrganizationId &&
+                        x.Subject == scopeCandidate.CreatedBy && x.IsActive &&
+                        x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today))
+            .Select(x => (Guid?)x.EmployeeId)
+            .SingleOrDefaultAsync(ct);
+        if (!creatorEmployeeId.HasValue || creatorEmployeeId == user.EmployeeId)
+            return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
+
+        // Vendor qualification is organization-wide configuration: it has no truthful record
+        // department. Require a currently effective company scope without inventing one.
+        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode,
+            scopeCandidate.OrganizationId, today, ct);
+        if (!scope.Allowed)
+        {
+            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), scopeCandidate.Id.ToString(), null,
+                new { scope.Reason, user.RoleCode }, ct);
+            return Results.Forbid();
+        }
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
         if (qualification.Version != request.ExpectedVersion)
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
-
-        var creatorEmployeeId = await db.EmployeeIdentityMappings.AsNoTracking()
-            .Where(x => x.OrganizationId == qualification.OrganizationId && x.Subject == qualification.CreatedBy && x.IsActive)
-            .Select(x => (Guid?)x.EmployeeId).SingleOrDefaultAsync(ct);
-        if (!creatorEmployeeId.HasValue || creatorEmployeeId == user.EmployeeId)
-            return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
-        var scope = await scopes.AuthorizeAsync(user.EmployeeId.Value, user.RoleCode,
-            new RecordScopeTarget(qualification.OrganizationId, null, null, null, creatorEmployeeId),
-            DateOnly.FromDateTime(DateTime.UtcNow), ct);
-        if (!scope.Allowed)
-        {
-            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), qualification.Id.ToString(), null,
-                new { scope.Reason, user.RoleCode }, ct);
-            return Results.Forbid();
-        }
-
         var before = new
         {
             qualification.VerificationStatus,

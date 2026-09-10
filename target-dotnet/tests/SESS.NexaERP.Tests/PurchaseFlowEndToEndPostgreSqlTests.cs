@@ -128,9 +128,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var adminHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user);
         await using var runtimeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user);
         await using var approvalHost = await PurchaseFlowHost.StartAsync(server.ConnectionString, user, useRealPagePermissions: true);
+        await using var scopeHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user, useRealOperationalScopes: true);
+        await using var denialHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user, denyLifecycleScope: true);
         var adminClient = adminHost.Client;
         var client = runtimeHost.Client;
         var approvalClient = approvalHost.Client;
+        var scopeClient = scopeHost.Client;
+        var denialClient = denialHost.Client;
 
         try
         {
@@ -147,7 +151,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     .Where(x => x.Vendor!.VendorCode == vendorCode && x.QualificationCode == "TRIAL-PURCHASE-FLOW")
                     .Select(x => new { x.Id, x.Version }).SingleAsync());
                 user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
-                await PostNoResult(client, $"/api/v1/rev869a/configuration/vendor-qualifications/{qualification.Id}/verify",
+                if (vendorCode == "TRIAL-VEN-001")
+                {
+                    using var deniedRequest = new HttpRequestMessage(HttpMethod.Post,
+                        $"/api/v1/rev869a/configuration/vendor-qualifications/{qualification.Id}/verify")
+                    {
+                        Content = JsonContent.Create(new ChangeVendorQualificationLifecycleRequest(
+                            qualification.Version, "Lifecycle scope refusal must leave durable evidence"))
+                    };
+                    deniedRequest.Headers.Add("Idempotency-Key", "fixture-qualification-lifecycle-denial");
+                    using var deniedResponse = await denialClient.SendAsync(deniedRequest);
+                    Assert.Equal(HttpStatusCode.Forbidden, deniedResponse.StatusCode);
+                    var denialAudits = await Query(options, db => db.AuditLogs.AsNoTracking()
+                        .Where(x => x.EntityId == qualification.Id.ToString())
+                        .Select(x => new { x.Action, x.UserLoginId, x.Result })
+                        .ToListAsync());
+                    Assert.Contains(denialAudits, x => x.Action == "Denied" &&
+                        x.UserLoginId == "SESS-01" && x.Result == "Failure");
+                }
+
+                await PostNoResult(scopeClient, $"/api/v1/rev869a/configuration/vendor-qualifications/{qualification.Id}/verify",
                     new ChangeVendorQualificationLifecycleRequest(qualification.Version, "Technical qualification checked"),
                     $"fixture-qualification-verify-{vendorCode}");
                 var verifiedVersion = await Query(options, db => db.VendorQualifications.Where(x => x.Id == qualification.Id).Select(x => x.Version).SingleAsync());
@@ -1464,7 +1487,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public static async Task<PurchaseFlowHost> StartAsync(
             string connectionString,
             TaxWorkflowUser user,
-            bool useRealPagePermissions = false)
+            bool useRealPagePermissions = false,
+            bool useRealOperationalScopes = false,
+            bool denyLifecycleScope = false)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -1484,7 +1509,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.ConfigureHttpJsonOptions(x => ApiJsonContract.Configure(x.SerializerOptions));
             builder.Services.AddInfrastructure(builder.Configuration);
             builder.Services.AddSingleton<ICurrentUser>(user);
-            builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowAllowingScope>();
+            if (denyLifecycleScope)
+                builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowSecondScopeDenial>();
+            else if (!useRealOperationalScopes)
+                builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowAllowingScope>();
             if (!useRealPagePermissions)
                 builder.Services.AddSingleton<IPagePermissionService, PurchaseFlowAllowingPermissions>();
             var app = builder.Build();
@@ -1524,6 +1552,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record PurchaseFlowBand(string Code, decimal PrAmount, decimal QuoteRate, int RequiredSteps,
         Guid Level1EmployeeId, Guid? Level2EmployeeId);
 
+    private sealed class PurchaseFlowSecondScopeDenial : IRecordScopeAuthorizer
+    {
+        private int calls;
+        public Task<RecordScopeDecision> AuthorizeAnyAsync(Guid employeeId, string roleCode, string organizationId,
+            DateOnly onDate, CancellationToken ct) => Task.FromResult(Interlocked.Increment(ref calls) == 1
+                ? new RecordScopeDecision(true, "Endpoint scope admitted")
+                : new RecordScopeDecision(false, "Lifecycle scope deliberately refused"));
+        public Task<RecordScopeDecision> AuthorizeAsync(Guid employeeId, string roleCode, RecordScopeTarget target,
+            DateOnly onDate, CancellationToken ct) => Task.FromResult(new RecordScopeDecision(false,
+                "Lifecycle record scope deliberately refused"));
+    }
     private sealed class PurchaseFlowAllowingScope : IRecordScopeAuthorizer
     {
         public Task<RecordScopeDecision> AuthorizeAnyAsync(Guid employeeId, string roleCode, string organizationId,
