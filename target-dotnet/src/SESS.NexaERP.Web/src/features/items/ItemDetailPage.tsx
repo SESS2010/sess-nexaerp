@@ -128,6 +128,11 @@ export function ItemDetailPage() {
               <Field label="Min / Max stock" value={`${detail.MinimumStock} / ${detail.MaximumStock}`} mono />
               <Field label="Reorder level" value={String(detail.ReorderLevel)} mono />
               <Field label="Estimated price" value={detail.StandardEstimatedPrice != null ? String(detail.StandardEstimatedPrice) : '—'} mono />
+              <Field
+                label="Last accepted purchase price"
+                value={detail.LastPurchaseRate != null ? `${detail.LastPurchaseRate}${detail.LastPurchaseDate ? ` on ${detail.LastPurchaseDate}` : ''}` : 'No accepted purchase price'}
+                mono
+              />
               <Field label="Preferred vendor" value={detail.PreferredVendorCode ?? '—'} mono />
             </div>
 

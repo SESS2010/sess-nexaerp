@@ -171,10 +171,10 @@ export function EstimatedBomDetailPage() {
         <div className="table-wrap">
           <table className="table">
             <thead>
-              <tr><th>#</th><th>Item</th><th>Canonical item</th><th className="text-right">Quantity</th><th>Remarks</th></tr>
+              <tr><th>#</th><th>Item</th><th>Canonical item</th><th className="text-right">Quantity</th><th className="text-right">Est. unit value</th><th>Remarks</th></tr>
             </thead>
             <tbody>
-              {revision.Lines.length === 0 && <tr><td colSpan={5} className="table-empty">No lines. Edit the draft to add items.</td></tr>}
+              {revision.Lines.length === 0 && <tr><td colSpan={6} className="table-empty">No lines. Edit the draft to add items.</td></tr>}
               {revision.Lines.map((line) => (
                 <tr key={line.Id}>
                   <td className="mono">{line.LineNumber}</td>
@@ -184,6 +184,11 @@ export function EstimatedBomDetailPage() {
                     {!line.CanonicalItemActive && <> <StatusBadge value="Inactive" /></>}
                   </td>
                   <td className="text-right mono">{line.Quantity} {line.UomCode}</td>
+                  <td className="text-right">
+                    {line.EstimatedUnitValue === null || line.EstimatedUnitValue === undefined
+                      ? <span className="field-hint">No accepted purchase price</span>
+                      : <span className="mono">{line.CurrencyCode} {line.EstimatedUnitValue}{line.EstimatedUnitValueOverridden ? ' (override)' : ''}</span>}
+                  </td>
                   <td>{line.Remarks ?? '—'}</td>
                 </tr>
               ))}
@@ -239,6 +244,7 @@ export function EstimatedBomDetailPage() {
 
       {editing && (
         <BomLinesEditorModal
+          estimatedValues
           title={`Edit ${bom.BomNumber} revision ${revision.RevisionNumber}`}
           initialLines={revision.Lines.map((line) => editorLine({
             key: line.Id,
@@ -248,6 +254,7 @@ export function EstimatedBomDetailPage() {
             uomCode: line.UomCode,
             quantity: String(line.Quantity),
             remarks: line.Remarks ?? '',
+            unitValue: line.EstimatedUnitValueOverridden && line.EstimatedUnitValue !== null ? String(line.EstimatedUnitValue) : '',
           }))}
           reasonLabel="Revision reason"
           submitLabel="Save lines"

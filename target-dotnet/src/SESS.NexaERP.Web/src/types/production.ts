@@ -35,8 +35,12 @@ export interface JobOrderCustomerPoLineLookup {
   ItemCode: string
   Quantity: number | null
   Uom: string | null
-  /** MachineOrdinals that already have a Job Order on this line. */
+  /** MachineOrdinals that already have a Job Order on this line. The adopted
+   *  lookup (main 2268658, JobOrderCustomerPoLineView) reports only a count, so
+   *  this stays empty and the server refuses a duplicate ordinal. */
   TakenOrdinals: number[]
+  /** Job Orders already created on this line (JobOrderCustomerPoLineView.CreatedJobOrderCount). */
+  CreatedJobOrderCount: number
 }
 
 export interface CreateJobOrderRequest {

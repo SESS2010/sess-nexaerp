@@ -15,16 +15,24 @@ export interface EditorLine {
   uomCode: string
   quantity: string
   remarks: string
+  /** Explicit estimated unit value override (Estimated BOM only); '' = none. */
+  unitValue: string
+  /** Last accepted purchase rate of the picked item: number, null = none exists, undefined = not looked up (editing an existing line). */
+  lastPurchaseRate?: number | null
+  lastPurchaseDate?: string | null
 }
 
 export function editorLine(seed?: Partial<EditorLine>): EditorLine {
-  return { key: crypto.randomUUID(), itemId: '', itemCode: '', itemName: '', uomId: '', uomCode: '', quantity: '', remarks: '', ...seed }
+  return { key: crypto.randomUUID(), itemId: '', itemCode: '', itemName: '', uomId: '', uomCode: '', quantity: '', remarks: '', unitValue: '', ...seed }
 }
 
 interface Props {
   title: string
   /** Shown when the job order must be chosen (Estimated BOM create). */
   pickJobOrder?: boolean
+  /** Estimated BOM: show the last accepted purchase price per line and require an
+   *  explicit unit value when none exists (TD pricing decision; main 7b2fa99). */
+  estimatedValues?: boolean
   initialLines: EditorLine[]
   reasonLabel: string
   submitLabel: string
@@ -39,7 +47,7 @@ interface Props {
  * UomId, Quantity, Remarks), require every item to be active and the UOM to
  * be the item's base UOM or one with an approved conversion.
  */
-export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonLabel, submitLabel, canSave, onClose, onSave }: Props) {
+export function BomLinesEditorModal({ title, pickJobOrder, estimatedValues, initialLines, reasonLabel, submitLabel, canSave, onClose, onSave }: Props) {
   const [jobs, setJobs] = useState<JobOrderSummary[]>([])
   const [jobOrderId, setJobOrderId] = useState('')
   const [reason, setReason] = useState('')
@@ -53,7 +61,10 @@ export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonL
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    listUoms().then((page) => setUoms(page.Items ?? [])).catch(setLookupError)
+    // The UOM master is optional here: the picked item's BaseUomId sets the line
+    // UOM, so a role without masters.uoms:view (e.g. TECHNICAL_SUPPORT_MANAGER)
+    // must not see a permission alert for it.
+    listUoms().then((page) => setUoms(page.Items ?? [])).catch(() => setUoms([]))
     if (pickJobOrder) {
       listJobOrders({ page: 1, pageSize: 100, status: 'OPEN' }).then((page) => setJobs(page.Items ?? [])).catch(setLookupError)
     }
@@ -85,8 +96,14 @@ export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonL
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
 
   const pickItem = (key: string, item: ItemSummary) => {
+    // BaseUomId comes with the item summary, so the base UOM is set even when the
+    // caller has no masters.uoms:view (the UOM list is then empty).
     const uom = uomByCode.get((item.Uom ?? '').toUpperCase())
-    setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: uom?.Id ?? '', uomCode: item.Uom ?? '' })
+    setLine(key, {
+      itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name,
+      uomId: item.BaseUomId ?? uom?.Id ?? '', uomCode: item.Uom ?? '',
+      lastPurchaseRate: item.LastPurchaseRate ?? null, lastPurchaseDate: item.LastPurchaseDate ?? null, unitValue: '',
+    })
   }
 
   const submit = async (event: React.FormEvent) => {
@@ -102,7 +119,20 @@ export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonL
       if (!line.itemId) { setError('Every line needs an item picked from the item master.'); return }
       if (!line.uomId) { setError(`${line.itemCode}: pick a UOM.`); return }
       if (!(qty > 0)) { setError(`${line.itemCode}: quantity must be greater than zero.`); return }
-      payload.push({ ItemId: line.itemId, UomId: line.uomId, Quantity: qty, Remarks: line.remarks.trim() || null })
+      const entry: BomLineInput = { ItemId: line.itemId, UomId: line.uomId, Quantity: qty, Remarks: line.remarks.trim() || null }
+      if (estimatedValues) {
+        const raw = line.unitValue.trim()
+        if (raw) {
+          const value = Number(raw)
+          if (!(value > 0)) { setError(`${line.itemCode}: estimated unit value must be greater than zero — 0.00 is never accepted.`); return }
+          entry.EstimatedUnitValue = value
+        } else if (line.lastPurchaseRate === null) {
+          setError(`${line.itemCode}: no accepted purchase price exists — enter the estimated unit value.`); return
+        } else {
+          entry.EstimatedUnitValue = null
+        }
+      }
+      payload.push(entry)
     }
     setSaving(true)
     try {
@@ -161,6 +191,7 @@ export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonL
                   <th>Item *</th>
                   <th>UOM *</th>
                   <th className="text-right" style={{ width: 120 }}>Quantity *</th>
+                  {estimatedValues && <th className="text-right" style={{ width: 200 }}>Est. unit value (₹)</th>}
                   <th>Remarks</th>
                   <th style={{ width: 60 }} />
                 </tr>
@@ -193,17 +224,42 @@ export function BomLinesEditorModal({ title, pickJobOrder, initialLines, reasonL
                       )}
                     </td>
                     <td>
-                      <select className="input" value={line.uomId} onChange={(event) => setLine(line.key, { uomId: event.target.value })}>
-                        <option value="">—</option>
-                        {uoms.map((uom) => <option key={uom.Id} value={uom.Id}>{uom.Code}</option>)}
-                      </select>
-                      {line.itemId && line.uomCode && uomByCode.get(line.uomCode.toUpperCase())?.Id !== line.uomId && (
+                      {uoms.length === 0 && line.uomId ? (
+                        <span className="mono" title="Item base UOM (the UOM master is not readable by your role)">{line.uomCode || '—'}</span>
+                      ) : (
+                        <select className="input" value={line.uomId} onChange={(event) => setLine(line.key, { uomId: event.target.value })}>
+                          <option value="">—</option>
+                          {uoms.map((uom) => <option key={uom.Id} value={uom.Id}>{uom.Code}</option>)}
+                        </select>
+                      )}
+                      {uoms.length > 0 && line.itemId && line.uomCode && uomByCode.get(line.uomCode.toUpperCase())?.Id !== line.uomId && (
                         <span className="field-hint">Item UOM is {line.uomCode}. Another UOM needs an approved conversion or the save is refused.</span>
                       )}
                     </td>
                     <td className="text-right">
                       <input className="input text-right mono" inputMode="decimal" value={line.quantity} onChange={(event) => setLine(line.key, { quantity: event.target.value })} />
                     </td>
+                    {estimatedValues && (
+                      <td className="text-right">
+                        <input
+                          className="input text-right mono"
+                          inputMode="decimal"
+                          placeholder={line.lastPurchaseRate === null ? 'required' : 'optional override'}
+                          required={line.lastPurchaseRate === null}
+                          value={line.unitValue}
+                          onChange={(event) => setLine(line.key, { unitValue: event.target.value })}
+                        />
+                        {line.itemId && (
+                          <span className="field-hint">
+                            {line.lastPurchaseRate === null
+                              ? 'No accepted purchase price'
+                              : line.lastPurchaseRate === undefined
+                                ? 'Blank = last accepted purchase price at approval'
+                                : `Last accepted ₹${line.lastPurchaseRate}${line.lastPurchaseDate ? ` on ${line.lastPurchaseDate}` : ''}`}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td>
                       <input className="input" value={line.remarks} onChange={(event) => setLine(line.key, { remarks: event.target.value })} />
                     </td>

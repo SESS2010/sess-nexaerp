@@ -11,6 +11,12 @@ export interface ItemSummary {
   SubcategoryCode: string | null
   SubcategoryName: string | null
   Uom: string
+  /** Item base UOM id (ItemSummary.BaseUomId, main ff61bce) — lets a BOM line default its UOM without masters.uoms:view. */
+  BaseUomId?: string | null
+  /** Newest accepted company bill line (main 9b48856). Null until the first accepted vendor bill. */
+  LastPurchaseRate?: number | null
+  LastPurchaseDate?: string | null
+  LastPurchaseBillId?: string | null
   MaterialType: string
   ItemType: string
   IsReturnable: boolean

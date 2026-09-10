@@ -19,6 +19,10 @@ export interface BomLineInput {
   UomId: string
   Quantity: number
   Remarks: string | null
+  /** Estimated BOM only (EstimatedBomLineInput.EstimatedUnitValue, main 7b2fa99).
+   *  Null = use the item's last accepted purchase price at approval; the server
+   *  refuses approval when neither exists. Never send 0. */
+  EstimatedUnitValue?: number | null
 }
 
 // --- Estimated BOM (Design) ---
@@ -63,6 +67,10 @@ export interface EstimatedBomLineView {
   UomCode: string
   Quantity: number
   Remarks: string | null
+  /** Frozen at approval from the last accepted purchase price, or the explicit override. Null while no rate exists. */
+  EstimatedUnitValue: number | null
+  EstimatedUnitValueOverridden: boolean
+  CurrencyCode: string
 }
 
 export interface EstimatedBomCanonicalLineView {

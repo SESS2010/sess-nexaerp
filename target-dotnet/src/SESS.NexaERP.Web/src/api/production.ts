@@ -46,11 +46,46 @@ export function listJobOrders(query: JobOrderListQuery): Promise<PagedResponse<J
  * sales.customer-po grant, so the Job Order page carries its own lookup.
  * At most 50 rows, filtered on PO numbers, customer, description or item code.
  */
-export function lookupJobOrderCustomerPoLines(search?: string): Promise<JobOrderCustomerPoLineLookup[]> {
-  const params = new URLSearchParams()
-  if (search) params.set('search', search)
-  const suffix = params.toString()
-  return api.get<JobOrderCustomerPoLineLookup[]>(`${JOB_ORDERS}/customer-po-lines${suffix ? `?${suffix}` : ''}`)
+/** GET /production/job-orders/customer-po-lines as served by main 2268658
+ *  (JobOrderCustomerPoLineView in JobOrderContracts.cs). No search parameter;
+ *  filtering is client-side. */
+interface JobOrderCustomerPoLineView {
+  Id: string
+  CustomerPurchaseOrderId: string
+  CustomerPoRecordNumber: string
+  CustomerPoNumber: string
+  CustomerName: string
+  LineNumber: number
+  ItemId: string
+  ItemCode: string
+  ItemName: string
+  Quantity: number
+  CreatedJobOrderCount: number
+}
+
+export async function lookupJobOrderCustomerPoLines(search?: string): Promise<JobOrderCustomerPoLineLookup[]> {
+  const rows = await api.get<JobOrderCustomerPoLineView[]>(`${JOB_ORDERS}/customer-po-lines`)
+  const term = (search ?? '').trim().toLowerCase()
+  return rows
+    .filter((row) => !term || [row.CustomerPoRecordNumber, row.CustomerPoNumber, row.CustomerName, row.ItemName, row.ItemCode]
+      .some((value) => (value ?? '').toLowerCase().includes(term)))
+    .map((row) => ({
+      CustomerPurchaseOrderLineId: row.Id,
+      CustomerPurchaseOrderId: row.CustomerPurchaseOrderId,
+      PoRecordNumber: row.CustomerPoRecordNumber,
+      CustomerPoNumber: row.CustomerPoNumber,
+      CustomerName: row.CustomerName,
+      WorkStatus: '',
+      RevisionNumber: 0,
+      SlNo: row.LineNumber,
+      Description: row.ItemName,
+      ItemId: row.ItemId,
+      ItemCode: row.ItemCode,
+      Quantity: row.Quantity,
+      Uom: null,
+      TakenOrdinals: [],
+      CreatedJobOrderCount: row.CreatedJobOrderCount ?? 0,
+    }))
 }
 
 export function getJobOrder(id: string): Promise<JobOrderView> {

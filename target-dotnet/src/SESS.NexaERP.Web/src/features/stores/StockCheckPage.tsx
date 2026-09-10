@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   getPurchaseRequisition,
-  listPurchaseRequisitions,
   listRackBins,
+  listStockCheckRequisitions,
   newIdempotencyKey,
   stockCheckPurchaseRequisition,
 } from '../../api/purchase'
@@ -53,7 +53,9 @@ export function StockCheckPage() {
   const loadQueue = useCallback(async () => {
     setQueueError(null)
     try {
-      const page = await listPurchaseRequisitions({ page: 1, pageSize: 50, status: 'StockCheckPending', sortBy: 'prnumber', sortDirection: 'asc' })
+      // GET /stores/stock-check/requisitions → stores.stock-check:verify. Stores
+      // has no purchase.requisitions:view, so the Purchase list endpoint 403s.
+      const page = await listStockCheckRequisitions({ page: 1, pageSize: 50, status: 'StockCheckPending', sortBy: 'prnumber', sortDirection: 'asc' })
       setQueue(page.Items)
       setQueueTotal(page.TotalCount)
     } catch (err) {

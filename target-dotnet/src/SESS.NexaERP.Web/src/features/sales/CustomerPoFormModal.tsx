@@ -7,6 +7,8 @@ import {
 } from '../../api/customerPos'
 import type { CustomerPoOptionKind } from '../../api/customerPos'
 import { listCustomers } from '../../api/customers'
+import { listItems } from '../../api/items'
+import type { ItemSummary } from '../../types/item'
 import { AddableSelect } from '../../components/AddableSelect'
 import { CustomerSearchSelect } from '../../components/CustomerSearchSelect'
 import type { CustomerPoDetail, CustomerPoLookups, UpsertCustomerPoRequest } from '../../types/customerPo'
@@ -26,6 +28,11 @@ interface CustomerOption {
 }
 
 interface LineDraft {
+  /** Item master id behind the line. CustomerPoEndpoints.cs refuses a line
+   *  without an active ItemId + UomId (the machine item feeds Job Order creation). */
+  itemId: string
+  itemCode: string
+  uomId: string
   description: string
   dueDate: string
   quantity: string
@@ -34,7 +41,7 @@ interface LineDraft {
   discountPercent: string
 }
 
-const emptyLine = (): LineDraft => ({ description: '', dueDate: '', quantity: '', uom: '', rate: '', discountPercent: '' })
+const emptyLine = (): LineDraft => ({ itemId: '', itemCode: '', uomId: '', description: '', dueDate: '', quantity: '', uom: '', rate: '', discountPercent: '' })
 
 function lineAmount(line: LineDraft): number | null {
   const qty = parseFloat(line.quantity)
@@ -119,6 +126,9 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
   const [lines, setLines] = useState<LineDraft[]>(
     existing?.Lines?.length
       ? existing.Lines.map((line) => ({
+          itemId: line.ItemId ?? '',
+          itemCode: '',
+          uomId: line.UomId ?? '',
           description: line.Description,
           dueDate: line.DueDate ?? '',
           quantity: line.Quantity?.toString() ?? '',
@@ -131,6 +141,25 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
 
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }))
+
+  // Item master search shared by the line rows (GET /inventory/items, masters.items:view).
+  const [itemSearch, setItemSearch] = useState('')
+  const [itemOptions, setItemOptions] = useState<ItemSummary[]>([])
+  const [itemLookupError, setItemLookupError] = useState<unknown>(null)
+  useEffect(() => {
+    const term = itemSearch.trim()
+    if (term.length < 2) { setItemOptions([]); return }
+    const handle = window.setTimeout(() => {
+      listItems({ page: 1, pageSize: 15, search: term })
+        .then((page) => setItemOptions(page.Items ?? []))
+        .catch(setItemLookupError)
+    }, 250)
+    return () => window.clearTimeout(handle)
+  }, [itemSearch])
+  const pickItem = (index: number, item: ItemSummary) =>
+    setLines((prev) => prev.map((line, i) => (i === index
+      ? { ...line, itemId: item.Id, itemCode: item.ItemCode, uomId: item.BaseUomId ?? '', uom: item.Uom ?? line.uom, description: line.description || item.Name }
+      : line)))
 
   const setLine = (index: number, key: keyof LineDraft) => (event: { target: { value: string } }) =>
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, [key]: event.target.value } : line)))
@@ -202,6 +231,8 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
       IgstPercent: lines.length && form.igstPercent ? Number(form.igstPercent) : null,
       Lines: lines.map((line, index) => ({
         SlNo: index + 1,
+        ItemId: line.itemId || undefined,
+        UomId: line.uomId || undefined,
         Description: line.description.trim(),
         DueDate: line.dueDate || null,
         Quantity: line.quantity ? Number(line.quantity) : null,
@@ -336,12 +367,26 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
           </label>
 
           <div className="field-wide form-section-title">Goods / services lines ({lines.length})</div>
+          {canSave && (
+            <label className="field field-wide">
+              <span className="field-label">Find item</span>
+              <input
+                className="input search"
+                placeholder="Type at least 2 characters of the item code or name, then pick it on a line…"
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+              />
+              <span className="field-hint">Every line needs an Item Master item; a Machine line's item becomes the Job Order machine model.</span>
+            </label>
+          )}
+          <ErrorAlert error={itemLookupError} className="field-wide" fallback="Item lookup failed." />
           <div className="field-wide">
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
                     <th>#</th>
+                    <th style={{ minWidth: 180 }}>Item *</th>
                     <th style={{ minWidth: 220 }}>Description</th>
                     <th>Due on</th>
                     <th>Qty</th>
@@ -354,11 +399,36 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
                 </thead>
                 <tbody>
                   {lines.length === 0 && (
-                    <tr><td colSpan={9} className="table-empty">No lines — add rows, or use the total field below for a value-only entry.</td></tr>
+                    <tr><td colSpan={10} className="table-empty">No lines — add rows, or use the total field below for a value-only entry.</td></tr>
                   )}
                   {lines.map((line, index) => (
                     <tr key={index}>
                       <td className="mono">{index + 1}</td>
+                      <td>
+                        {line.itemId ? (
+                          <div>
+                            <span className="mono">{line.itemCode || line.itemId.slice(0, 8)}</span>
+                            {canSave && (
+                              <button type="button" className="btn btn-ghost" style={{ marginLeft: 6 }} onClick={() => setLines((prev) => prev.map((row, i) => (i === index ? { ...row, itemId: '', itemCode: '', uomId: '' } : row)))}>change</button>
+                            )}
+                          </div>
+                        ) : (
+                          <select
+                            className="input"
+                            value=""
+                            disabled={itemOptions.length === 0}
+                            onChange={(event) => {
+                              const item = itemOptions.find((option) => option.Id === event.target.value)
+                              if (item) pickItem(index, item)
+                            }}
+                          >
+                            <option value="">{itemOptions.length === 0 ? 'Search above, then pick…' : `Pick from ${itemOptions.length} matches…`}</option>
+                            {itemOptions.map((item) => (
+                              <option key={item.Id} value={item.Id}>{item.ItemCode} — {item.Name} ({item.Uom})</option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
                       <td><textarea className="input" rows={2} value={line.description} onChange={setLine(index, 'description')} /></td>
                       <td><input className="input" type="date" value={line.dueDate} onChange={setLine(index, 'dueDate')} /></td>
                       <td><input className="input" type="number" min="0" step="0.001" style={{ width: 90 }} value={line.quantity} onChange={setLine(index, 'quantity')} /></td>

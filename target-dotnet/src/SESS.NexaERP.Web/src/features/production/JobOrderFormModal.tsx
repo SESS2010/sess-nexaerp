@@ -119,11 +119,11 @@ export function JobOrderFormModal({ onClose, onSaved }: Props) {
               <option value="">{options.length === 0 ? (searching ? 'Loading…' : 'No open Customer PO lines match.') : `Pick from ${options.length} line(s)…`}</option>
               {options.map((item) => {
                 const whole = item.Quantity !== null && item.Quantity > 0 && Number.isInteger(item.Quantity)
-                const free = whole ? item.Quantity! - item.TakenOrdinals.length : 0
+                const free = whole ? item.Quantity! - Math.max(item.TakenOrdinals.length, item.CreatedJobOrderCount) : 0
                 return (
                   <option key={item.CustomerPurchaseOrderLineId} value={item.CustomerPurchaseOrderLineId} disabled={!whole || free === 0}>
                     {item.PoRecordNumber} · {item.CustomerPoNumber} · {item.CustomerName} — line {item.SlNo}: {item.Description} [{item.ItemCode}] qty {item.Quantity ?? '—'} {item.Uom ?? ''}
-                    {!whole ? ' (no whole quantity)' : free === 0 ? ' (all machines have job orders)' : item.TakenOrdinals.length > 0 ? ` (${free} of ${item.Quantity} free)` : ''}
+                    {!whole ? ' (no whole quantity)' : free === 0 ? ' (all machines have job orders)' : free < item.Quantity! ? ` (${free} of ${item.Quantity} free)` : ''}
                   </option>
                 )
               })}

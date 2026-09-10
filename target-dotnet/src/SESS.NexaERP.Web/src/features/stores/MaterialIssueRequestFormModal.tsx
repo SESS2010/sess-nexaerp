@@ -82,7 +82,9 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    listUoms().then((page) => setUoms(page.Items ?? [])).catch(setLookupError)
+    // Optional: the picked item's BaseUomId sets the line UOM, so a role without
+    // masters.uoms:view (Production, Stores executives) must not see an alert.
+    listUoms().then((page) => setUoms(page.Items ?? [])).catch(() => setUoms([]))
   }, [])
 
   const jobSituation = MIR_JOB_SITUATIONS.includes(situation as (typeof MIR_JOB_SITUATIONS)[number])
@@ -133,7 +135,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
 
   const pickItem = (key: string, item: ItemSummary) => {
     const uom = uomByCode.get((item.Uom ?? '').toUpperCase())
-    setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: uom?.Id ?? '', itemUom: item.Uom ?? '' })
+    setLine(key, { itemId: item.Id, itemCode: item.ItemCode, itemName: item.Name, uomId: item.BaseUomId ?? uom?.Id ?? '', itemUom: item.Uom ?? '' })
   }
 
   const canSave = can(PAGE_KEYS.materialIssueRequests, mode === 'create' ? 'create' : 'update')
@@ -154,6 +156,14 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
       setError('Add at least one line — pick an item from the search and enter a quantity.')
       return
     }
+    // A job-backed MIR is customer-facing: the server requires the Customer PO
+    // line behind the Job Order on every line (CustomerPurchaseOrderLineId).
+    // JobOrderSummary carries it, so it is taken from the picked job order.
+    const customerPoLineId = jobSituation ? (jobs.find((job) => job.Id === jobOrderId)?.CustomerPurchaseOrderLineId ?? null) : null
+    if (jobSituation && !customerPoLineId) {
+      setError('The picked Job Order does not expose its Customer PO line, which the server requires for a customer-facing request.')
+      return
+    }
     const payloadLines: MaterialIssueRequestLineInput[] = []
     for (const line of complete) {
       const quantity = Number(line.quantity)
@@ -164,7 +174,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
         ItemId: line.itemId,
         UomId: line.uomId,
         Quantity: quantity,
-        CustomerPurchaseOrderLineId: null,
+        CustomerPurchaseOrderLineId: customerPoLineId,
         Remarks: line.remarks.trim() || null,
       })
     }
@@ -332,14 +342,18 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
                       )}
                     </td>
                     <td>
-                      <select className="input" value={line.uomId} onChange={(event) => setLine(line.key, { uomId: event.target.value })}>
-                        <option value="">—</option>
-                        {uoms.map((uom) => <option key={uom.Id} value={uom.Id}>{uom.Code}</option>)}
-                      </select>
-                      {line.itemId && line.itemUom && uomByCode.get(line.itemUom.toUpperCase())?.Id !== line.uomId && (
+                      {uoms.length === 0 && line.uomId ? (
+                        <span className="mono" title="Item base UOM (the UOM master is not readable by your role)">{line.itemUom || '—'}</span>
+                      ) : (
+                        <select className="input" value={line.uomId} onChange={(event) => setLine(line.key, { uomId: event.target.value })}>
+                          <option value="">—</option>
+                          {uoms.map((uom) => <option key={uom.Id} value={uom.Id}>{uom.Code}</option>)}
+                        </select>
+                      )}
+                      {uoms.length > 0 && line.itemId && line.itemUom && uomByCode.get(line.itemUom.toUpperCase())?.Id !== line.uomId && (
                         <span className="field-hint">Item UOM is {line.itemUom}. Another UOM needs an approved conversion or the save is refused.</span>
                       )}
-                      {line.itemId && line.itemUom && !uomByCode.has(line.itemUom.toUpperCase()) && (
+                      {uoms.length > 0 && line.itemId && line.itemUom && !uomByCode.has(line.itemUom.toUpperCase()) && (
                         <span className="field-hint">Item UOM “{line.itemUom}” is not an active UOM in the master.</span>
                       )}
                     </td>

@@ -89,11 +89,19 @@ export interface MaterialIssueRecipientLookup {
   Department: string
 }
 
-export function lookupMaterialIssueRecipients(search?: string): Promise<MaterialIssueRecipientLookup[]> {
-  const params = new URLSearchParams()
-  if (search) params.set('search', search)
-  const suffix = params.toString()
-  return api.get<MaterialIssueRecipientLookup[]>(`${ISSUES}/recipients${suffix ? `?${suffix}` : ''}`)
+export async function lookupMaterialIssueRecipients(search?: string): Promise<MaterialIssueRecipientLookup[]> {
+  // Adopted on main 2268658: rows carry EmployeeId (not Id), EmployeeCode,
+  // EmployeeName and DepartmentCode; there is no search parameter.
+  const rows = await api.get<Array<{ EmployeeId?: string; Id?: string; EmployeeCode: string; EmployeeName?: string; Name?: string; DepartmentCode?: string | null }>>(`${ISSUES}/recipients`)
+  const term = (search ?? '').trim().toLowerCase()
+  return rows
+    .map((row) => ({
+      Id: row.EmployeeId ?? row.Id ?? '',
+      EmployeeCode: row.EmployeeCode,
+      EmployeeName: row.EmployeeName ?? row.Name ?? '',
+      Department: row.DepartmentCode ?? '',
+    }))
+    .filter((row) => row.Id && (!term || [row.EmployeeCode, row.EmployeeName, row.Department].some((v) => v.toLowerCase().includes(term))))
 }
 
 export function listOutstandingCustody(employeeId?: string, notificationDue?: boolean): Promise<OutstandingEngineerCustodyView[]> {

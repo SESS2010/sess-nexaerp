@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { confirmJobOrderAccounts, getJobOrder, getJobOrderHistory } from '../../api/production'
+import { confirmJobOrderAccounts, getFatReadiness, getJobOrder, getJobOrderHistory } from '../../api/production'
 import { newIdempotencyKey } from '../../api/stores'
 import type { JobOrderHistoryView, JobOrderView } from '../../types/production'
 import { StatusBadge } from '../employees/StatusBadge'
@@ -23,6 +23,8 @@ export function JobOrderDetailPage() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [pane, setPane] = useState<Pane>('fat')
+  /** True when only the FAT readiness projection could be read (see load). */
+  const [fatOnly, setFatOnly] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -32,6 +34,30 @@ export function JobOrderDetailPage() {
     } catch (err) {
       setJob(null)
       setError(err)
+      // QC_MANAGER (production.fat-readiness:verify) holds no
+      // production.job-orders:view, so GET /job-orders/{id} is 403 while
+      // GET /job-orders/{id}/fat-readiness/ is readable. Fall back to the FAT
+      // view so the reconciliation can still be run from this page.
+      // Not gated on can(): this callback is created before /session/me has
+      // answered, so the permission list may still be empty here. The server
+      // decides; a 403 on the FAT read keeps the original error.
+      {
+        try {
+          const fat = await getFatReadiness(id)
+          setJob({
+            Id: fat.JobOrderId,
+            JobOrderNumber: fat.JobOrderNumber,
+            FatReadinessStatus: fat.FatReadinessStatus,
+            FatReconciledAt: fat.FatReconciledAt,
+            FatReconciledByEmployeeId: fat.FatReconciledByEmployeeId,
+            LatestFatReconciliationId: fat.LatestFatReconciliationId,
+          } as unknown as JobOrderView)
+          setFatOnly(true)
+          setError(null)
+        } catch {
+          // keep the original error
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -81,6 +107,21 @@ export function JobOrderDetailPage() {
     return (
       <div className="page">
         <ErrorAlert error={error} onReload={() => void load()} fallback="Job order not found." />
+      </div>
+    )
+  }
+
+  if (fatOnly) {
+    return (
+      <div className="page">
+        <div className="page-header">
+          <div>
+            <h1 className="mono">{job.JobOrderNumber}</h1>
+            <p className="page-sub">FAT readiness only — your role cannot read the Job Order itself (production.job-orders:view).</p>
+          </div>
+          <button type="button" className="btn btn-ghost" onClick={() => navigate('/production/job-orders')}>← Back</button>
+        </div>
+        <FatReadinessPanel jobOrder={job} onChanged={() => void load()} />
       </div>
     )
   }

@@ -159,6 +159,7 @@ export function EstimatedBomListPage() {
 
       {showCreate && (
         <BomLinesEditorModal
+          estimatedValues
           title="New Estimated BOM"
           pickJobOrder
           initialLines={[]}
