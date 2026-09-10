@@ -313,7 +313,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.All(new[]{"CreateVendorQualification","VerifyVendorQualification","ApproveVendorQualification",
                 "CreateTaxGstSetting","ApproveTaxGstSetting","CreateRFQ","InviteVendor","SubmitQuotation",
                 "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
-                "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit",
+                "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit","EstimatedBom.ReturnToDraft",
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
@@ -675,15 +675,52 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
-        var estimated = await Post<EstimatedBomView>(client, "/api/v1/design/estimated-boms",
-            new CreateEstimatedBomRequest(job.Id, "Witness commercial baseline",
-                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component", 100m)], "mir-est-create"));
+        var unpriced = await Query(options, async db => await db.Items.AsNoTracking()
+            .Where(x => x.IsActive && x.Id != itemId && !db.ItemCompanyLastPurchases.Any(p =>
+                p.CompanyId == companyId && p.ItemId == x.Id && p.LastPurchaseRate != null))
+            .Select(x => new { x.ItemCode, UomCode = x.BaseUom!.Code })
+            .FirstAsync());
+        var workbookBytes = EstimatedBomWorkbook.CreateTemplate(DateTimeOffset.Parse("2026-09-08T00:00:00Z"));
+        using (var workbook = new ClosedXML.Excel.XLWorkbook(new MemoryStream(workbookBytes)))
+        {
+            var data = workbook.Worksheet("Data");
+            data.Cell(2, 1).Value = job.JobOrderNumber;
+            data.Cell(2, 2).Value = "Unpriced workbook submission witness";
+            data.Cell(2, 3).Value = 1;
+            data.Cell(2, 4).Value = unpriced.ItemCode;
+            data.Cell(2, 5).Value = unpriced.UomCode;
+            data.Cell(2, 6).Value = 1;
+            using var output = new MemoryStream(); workbook.SaveAs(output); workbookBytes = output.ToArray();
+        }
+        using var workbookRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/design/estimated-boms/workbook/import");
+        workbookRequest.Headers.Add("Idempotency-Key", "mir-est-workbook-import");
+        using var workbookForm = new MultipartFormDataContent();
+        workbookForm.Add(new ByteArrayContent(workbookBytes), "file", "unpriced-estimated-bom.xlsx");
+        workbookRequest.Content = workbookForm;
+        using var workbookResponse = await client.SendAsync(workbookRequest);
+        var workbookPayload = await workbookResponse.Content.ReadAsStringAsync();
+        Assert.True(workbookResponse.IsSuccessStatusCode, workbookPayload);
+        var estimated = JsonSerializer.Deserialize<EstimatedBomView>(workbookPayload, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Null(Assert.Single(estimated.CurrentRevision.Lines).EstimatedUnitValue);
+        await AssertPostStatusContains(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Must fail", "mir-est-unpriced-submit"),
+            HttpStatusCode.Conflict, unpriced.ItemCode, "EstimatedUnitValue", "before submission");
+        estimated = await Put<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}",
+            new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version, "Witness commercial baseline",
+                [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component", 100m)], "mir-est-price-draft"));
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
-            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for TD approval", "mir-est-submit"));
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for TD review", "mir-est-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/return-to-draft",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Price evidence needs preparer confirmation", "mir-est-return-draft"));
+        Assert.Equal("DRAFT", estimated.Status);
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
+            new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Price evidence confirmed", "mir-est-resubmit"));
         user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve",
             new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Commercial baseline approved", "mir-est-approve"));
-
         Assert.Equal(100m, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
         Assert.True(estimated.CurrentRevision.Lines.Single().EstimatedUnitValueOverridden);
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");

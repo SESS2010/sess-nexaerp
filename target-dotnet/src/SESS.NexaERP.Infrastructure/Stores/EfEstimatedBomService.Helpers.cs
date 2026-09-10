@@ -11,7 +11,8 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 
 public sealed partial class EfEstimatedBomService
 {
-    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue);
+    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks,
+        decimal? EstimatedUnitValue, bool EstimatedUnitValueOverridden);
 
     private async Task<IReadOnlyList<MaterialLine>> MaterializeLinesAsync(Guid companyId, IReadOnlyList<EstimatedBomLineInput> lines, CancellationToken ct)
     {
@@ -39,7 +40,9 @@ public sealed partial class EfEstimatedBomService
                     ((x.FromUomId == uom.Id && x.ToUomId == baseUom.Id) || (x.FromUomId == baseUom.Id && x.ToUomId == uom.Id)), ct);
                 if (!conversion) throw new StoresValidationException($"No effective approved UOM conversion relates {uom.Code} and {baseUom.Code}.");
             }
-            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim(), line.EstimatedUnitValue));
+            var value = line.EstimatedUnitValue ?? await ResolveDefaultEstimatedUnitValueAsync(companyId, item.Id, uom.Id, ct);
+            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim(),
+                value, line.EstimatedUnitValue.HasValue));
         }
         return result;
     }
@@ -63,7 +66,7 @@ public sealed partial class EfEstimatedBomService
             revision.Lines.Add(new EstimatedBomLine { CompanyId = companyId, EstimatedBomRevisionId = revision.Id,
                 LineNumber = ++number, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
                 Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue,
-                EstimatedUnitValueOverridden = line.EstimatedUnitValue.HasValue, CreatedBy = user.LoginId });
+                EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden, CreatedBy = user.LoginId });
     }
 
     private static EstimatedBomRevision Current(EstimatedBom bom) =>
@@ -77,23 +80,32 @@ public sealed partial class EfEstimatedBomService
             var terminal = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminal, ct);
             if (!item.IsActive) throw new StoresConflictException($"Canonical item {item.ItemCode} is inactive; submission is blocked.");
+            if (!line.EstimatedUnitValue.HasValue)
+                throw new StoresConflictException($"Item {item.ItemCode} has no accepted-bill purchase rate; provide an EstimatedUnitValue override before submission.");
         }
     }
 
     private async Task FreezeEstimatedValuesAsync(EstimatedBomRevision revision, CancellationToken ct)
     {
-        foreach (var line in revision.Lines.Where(x => !x.EstimatedUnitValue.HasValue))
+        foreach (var line in revision.Lines.Where(x => !x.EstimatedUnitValueOverridden))
         {
-            var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
-            var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
-            var purchase = await db.ItemCompanyLastPurchases.AsNoTracking()
-                .SingleOrDefaultAsync(x => x.CompanyId == revision.CompanyId && x.ItemId == terminalId, ct);
-            if (purchase?.LastPurchaseRate is null || purchase.LastPurchaseDate is null || purchase.LastPurchaseBillId is null)
-                throw new StoresConflictException($"Item {item.ItemCode} has never been purchased in this company; provide an EstimatedUnitValue override before approval.");
-            line.EstimatedUnitValue = await ConvertBaseUnitValueAsync(purchase.LastPurchaseRate.Value,
-                item.BaseUomId, line.UomId, purchase.LastPurchaseDate.Value, item.ItemCode, ct);
+            line.EstimatedUnitValue = await ResolveDefaultEstimatedUnitValueAsync(
+                revision.CompanyId, line.ItemId, line.UomId, ct)
+                ?? throw new StoresConflictException("An Estimated BOM line lost its accepted-bill purchase rate after submission; return it to Draft and provide an override.");
             line.EstimatedUnitValueOverridden = false;
         }
+    }
+
+    private async Task<decimal?> ResolveDefaultEstimatedUnitValueAsync(Guid companyId, Guid itemId, Guid lineUomId, CancellationToken ct)
+    {
+        var terminalId = await TerminalItemIdAsync(itemId, ct);
+        var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+        var purchase = await db.ItemCompanyLastPurchases.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.CompanyId == companyId && x.ItemId == terminalId, ct);
+        if (purchase?.LastPurchaseRate is null || purchase.LastPurchaseDate is null || purchase.LastPurchaseBillId is null)
+            return null;
+        return await ConvertBaseUnitValueAsync(purchase.LastPurchaseRate.Value,
+            item.BaseUomId, lineUomId, purchase.LastPurchaseDate.Value, item.ItemCode, ct);
     }
 
     private async Task<decimal> ConvertBaseUnitValueAsync(decimal baseUnitValue, Guid baseUomId,

@@ -38,6 +38,7 @@ public interface IEstimatedBomService
     Task<EstimatedBomView> ReplaceDraftAsync(string bomNumber, ReplaceEstimatedBomLinesRequest request, CancellationToken ct);
     Task<EstimatedBomView> SubmitAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
     Task<EstimatedBomView> ApproveAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
+    Task<EstimatedBomView> ReturnToDraftAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
     Task<EstimatedBomView> CreateRevisionAsync(string bomNumber, NewEstimatedBomRevisionRequest request, CancellationToken ct);
     Task<IReadOnlyList<EstimatedBomHistoryView>> HistoryAsync(string bomNumber, CancellationToken ct);
     Task<EstimatedBomWorkbookFile> TemplateAsync(CancellationToken ct);

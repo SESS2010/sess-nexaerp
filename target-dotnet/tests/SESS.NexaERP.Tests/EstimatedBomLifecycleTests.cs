@@ -126,7 +126,40 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-lifecycle-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("estimated-bom-lifecycle-reup.sql", migrator.GenerateScript(predecessor, target));
     }
-}
+    [Fact]
+    public void Estimated_bom_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260910131006_EstimatedBomReturnToDraftAuthority";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("estimated-bom-return-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("estimated-bom-return-up.sql", migrator.GenerateScript(predecessor, target) + AssertReturnAuthority(true));
+        server.Execute("estimated-bom-return-down.sql", migrator.GenerateScript(target, predecessor) + AssertReturnAuthority(false));
+        server.Execute("estimated-bom-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertReturnAuthority(true));
+    }
+
+    private static string AssertReturnAuthority(bool enabled) => $"""
+        DO $assert$
+        DECLARE grant_count integer; definition text;
+        BEGIN
+          SELECT count(*) INTO grant_count FROM advance.role_page_permissions p
+          JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+          JOIN advance.roles r ON r."Id"=p."RoleId"
+          WHERE d."PageKey"='design.estimated-bom' AND r."Code"='TECHNICAL_DIRECTOR'
+            AND p."CanReject" IS {enabled.ToString().ToUpperInvariant()};
+          SELECT pg_get_functiondef('advance.guard_estimated_bom_governance()'::regprocedure) INTO definition;
+          IF grant_count<>1 OR (position('ReturnToDraft' in definition)>0) IS DISTINCT FROM {enabled.ToString().ToLowerInvariant()} THEN
+            RAISE EXCEPTION 'Estimated BOM return-to-draft authority mismatch.';
+          END IF;
+        END $assert$;
+        """;}
 
 public sealed class EstimatedBomPolicyTests
 {

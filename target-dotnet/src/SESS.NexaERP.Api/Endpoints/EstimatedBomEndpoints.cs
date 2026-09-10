@@ -35,6 +35,8 @@ public static class EstimatedBomEndpoints
             service.SubmitAsync(bomNumber, request, ct)).RequirePagePermission(Page, PagePermissionActions.Submit);
         group.MapPost("/{bomNumber}/approve", (string bomNumber, EstimatedBomActionRequest request, IEstimatedBomService service, CancellationToken ct) =>
             service.ApproveAsync(bomNumber, request, ct)).RequirePagePermission(Page, PagePermissionActions.Approve);
+        group.MapPost("/{bomNumber}/return-to-draft", (string bomNumber, EstimatedBomActionRequest request, IEstimatedBomService service, CancellationToken ct) =>
+            service.ReturnToDraftAsync(bomNumber, request, ct)).RequirePagePermission(Page, PagePermissionActions.Reject);
         group.MapPost("/{bomNumber}/revisions", (string bomNumber, NewEstimatedBomRevisionRequest request, IEstimatedBomService service, CancellationToken ct) =>
             service.CreateRevisionAsync(bomNumber, request, ct)).RequirePagePermission(Page, PagePermissionActions.Create);
         group.MapPost("/workbook/import", async (HttpRequest request, IEstimatedBomService service, CancellationToken ct) =>
