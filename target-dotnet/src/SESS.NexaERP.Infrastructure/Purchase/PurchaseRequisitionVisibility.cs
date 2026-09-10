@@ -25,15 +25,13 @@ public static class PurchaseRequisitionVisibility
             return query;
 
         var employeeText = employeeId.ToString();
-        var step1 = $$"""{"steps":[{"stepNumber":1,"employeeId":"{{employeeText}}"}]}""";
-        var step2 = $$"""{"steps":[{"stepNumber":2,"employeeId":"{{employeeText}}"}]}""";
+        var assignedApprovalStep = $$"""{"steps":[{"employeeId":"{{employeeText}}"}]}""";
 
         return query.Where(pr =>
             pr.RequesterEmployeeId == employeeId ||
             pr.CreatorEmployeeId == employeeId ||
             pr.ApprovalCycle > 0 && pr.CompletedApprovalStepCount < pr.RequiredApprovalStepCount &&
-                (pr.CompletedApprovalStepCount == 0 && EF.Functions.JsonContains(pr.ApprovalWorkflowSnapshotJson, step1) ||
-                 pr.CompletedApprovalStepCount == 1 && EF.Functions.JsonContains(pr.ApprovalWorkflowSnapshotJson, step2)) ||
+                EF.Functions.JsonContains(pr.ApprovalWorkflowSnapshotJson, assignedApprovalStep) ||
             scopes.Any(scope =>
                 (!scope.DepartmentId.HasValue || scope.DepartmentId == pr.RequestingDepartmentId) &&
                 (!scope.WarehouseId.HasValue || scope.WarehouseId == pr.DeliveryWarehouseId) &&

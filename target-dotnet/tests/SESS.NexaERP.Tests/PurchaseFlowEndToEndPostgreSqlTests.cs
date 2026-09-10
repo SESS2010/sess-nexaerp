@@ -362,6 +362,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         await AssertPrEvidence(options, pr.Id, "DepartmentVerify", 3, 3);
 
+        if (band.Level2EmployeeId.HasValue)
+        {
+            var futureRole = band.Level2EmployeeId == tdId ? Rev869ARoleCodes.TechnicalDirector : Rev869ARoleCodes.ManagingDirector;
+            user.Set(band.Level2EmployeeId.Value,
+                futureRole == Rev869ARoleCodes.TechnicalDirector ? "SESS-01" : "SESS-02", futureRole);
+            var futureApproverQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
+                $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
+            Assert.Equal(pr.Id, Assert.Single(futureApproverQueue.Items).Id);
+            Assert.Equal(pr.Id, (await Get<PurchaseRequisitionDetail>(approvalClient,
+                $"/api/v1/purchase/requisitions/{pr.PrNumber}")).Id);
+            user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        }
+
         var managerQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
             $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
         Assert.Equal(pr.Id, Assert.Single(managerQueue.Items).Id);
