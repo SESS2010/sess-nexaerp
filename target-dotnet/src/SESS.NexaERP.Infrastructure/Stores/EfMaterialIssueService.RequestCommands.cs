@@ -187,12 +187,15 @@ public sealed partial class EfMaterialIssueService
         request.Purpose = Code(purpose, "Purpose");
         request.Situation = Code(situation, "Situation");
         request.DestinationType = Code(destinationType, "DestinationType");
-        if (!JobSituations.Contains(request.Situation) && request.Situation != "CONSUMABLE_OFFICE")
-            throw new StoresValidationException("Situation must be CHAMBER_MANUFACTURE, SERVICE_CUSTOMER_PO, SITE_PROJECT_PO or CONSUMABLE_OFFICE.");
         var jobRequired = JobSituations.Contains(request.Situation);
+        var spareSale = request.Situation == SpareSaleSituation;
+        if (!jobRequired && !spareSale && request.Situation != "CONSUMABLE_OFFICE")
+            throw new StoresValidationException("Situation must be CHAMBER_MANUFACTURE, SERVICE_CUSTOMER_PO, SITE_PROJECT_PO, SPARE_SALE or CONSUMABLE_OFFICE.");
         if (jobRequired && (jobOrderId is null || request.DestinationType != "JOB_ORDER"))
             throw new StoresValidationException("This MIR situation requires a JobOrderId and JOB_ORDER destination.");
-        if (!jobRequired && (jobOrderId is not null || request.DestinationType is not ("DEPARTMENT" or "OTHER")))
+        if (spareSale && (jobOrderId is not null || request.DestinationType != "CUSTOMER" || customerId is null))
+            throw new StoresValidationException("SPARE_SALE has no Job Order and requires a CUSTOMER destination and CustomerId.");
+        if (!jobRequired && !spareSale && (jobOrderId is not null || request.DestinationType is not ("DEPARTMENT" or "OTHER")))
             throw new StoresValidationException("CONSUMABLE_OFFICE has no Job Order and must target DEPARTMENT or OTHER.");
         if (requiredDate == default) throw new StoresValidationException("RequiredDate is required.");
         if (inputs is null || inputs.Count == 0) throw new StoresValidationException("At least one MIR line is required.");
@@ -203,8 +206,15 @@ public sealed partial class EfMaterialIssueService
         var company = await CompanyAsync(ct);
         if (!await db.Departments.AnyAsync(x => x.Id == requestingDepartmentId && x.IsActive, ct))
             throw new StoresValidationException("RequestingDepartmentId is invalid.");
-        if (jobRequired && !await db.JobOrders.AnyAsync(x => x.CompanyId == company.Id && x.Id == jobOrderId && x.Status == "OPEN", ct))
-            throw new StoresValidationException("JobOrderId is not an Accounts-confirmed Open Job Order in the selected company.");
+        Guid? jobCustomerPoLineId = null;
+        if (jobRequired)
+        {
+            jobCustomerPoLineId = await db.JobOrders.AsNoTracking()
+                .Where(x => x.CompanyId == company.Id && x.Id == jobOrderId && x.Status == "OPEN")
+                .Select(x => (Guid?)x.CustomerPurchaseOrderLineId).SingleOrDefaultAsync(ct);
+            if (!jobCustomerPoLineId.HasValue)
+                throw new StoresValidationException("JobOrderId is not an Accounts-confirmed Open Job Order in the selected company.");
+        }
         request.JobOrderId = jobOrderId; request.CustomerId = customerId; request.VendorId = vendorId;
         request.DestinationDepartmentId = destinationDepartmentId;
         request.DestinationNameSnapshot = Required(destinationName, "DestinationName");
@@ -217,21 +227,36 @@ public sealed partial class EfMaterialIssueService
             var uom = await db.Uoms.AsNoTracking().SingleOrDefaultAsync(x => x.Id == input.UomId && x.IsActive, ct)
                 ?? throw new StoresValidationException("MIR UOM is inactive or does not exist.");
             var baseQuantity = await ToBaseAsync(input.Quantity, input.UomId, item.BaseUomId, requiredDate, ct);
-            var estimated = jobOrderId.HasValue
-                ? await EstimatedQuantityAsync(company.Id, jobOrderId.Value, item.Id, requiredDate, ct) : 0m;
-            var production = jobOrderId.HasValue
-                ? await ProductionQuantityAsync(company.Id, jobOrderId.Value, item.Id, requiredDate, ct) : 0m;
-            var cpo = input.CustomerPurchaseOrderLineId.HasValue
-                ? await CustomerPoQuantityAsync(company.Id, input.CustomerPurchaseOrderLineId.Value,
-                    item.Id, item.BaseUomId, requiredDate, ct) : 0m;
-            if (jobRequired && input.CustomerPurchaseOrderLineId is null)
-                throw new StoresValidationException("CustomerPurchaseOrderLineId is required for customer-facing MIR lines.");
-            var limit = Math.Min(production, cpo);
-            var excess = jobRequired ? Math.Max(0, baseQuantity - limit) : 0m;
+            var estimated = jobRequired
+                ? await EstimatedQuantityAsync(company.Id, jobOrderId!.Value, item.Id, requiredDate, ct) : 0m;
+            var production = jobRequired
+                ? await ProductionQuantityAsync(company.Id, jobOrderId!.Value, item.Id, requiredDate, ct) : 0m;
+            Guid? customerPoLineId = input.CustomerPurchaseOrderLineId;
+            decimal cpo = 0m;
+            if (jobRequired)
+            {
+                if (customerPoLineId.HasValue && customerPoLineId != jobCustomerPoLineId)
+                    throw new StoresValidationException("A job-backed MIR line may only reference the Customer PO line pinned by its Job Order.");
+                customerPoLineId = jobCustomerPoLineId;
+            }
+            else if (spareSale)
+            {
+                if (!customerPoLineId.HasValue)
+                    throw new StoresValidationException("CustomerPurchaseOrderLineId is required for every SPARE_SALE line.");
+                cpo = await CustomerPoQuantityAsync(company.Id, customerPoLineId.Value,
+                    item.Id, item.BaseUomId, requiredDate, customerId!.Value, ct);
+            }
+            else if (customerPoLineId.HasValue)
+                throw new StoresValidationException("CONSUMABLE_OFFICE lines cannot reference a Customer PO line.");
+
+            // A machine, project or service CPO line identifies what was sold; its components
+            // are governed by the frozen Estimated BOM. Only a spare sale is component-to-component.
+            var limit = jobRequired ? estimated : spareSale ? cpo : 0m;
+            var excess = jobRequired || spareSale ? Math.Max(0, baseQuantity - limit) : 0m;
             request.Lines.Add(new MaterialIssueRequestLine
             {
                 CompanyId = company.Id, MaterialIssueRequestId = request.Id, LineNumber = ++lineNo,
-                ItemId = item.Id, UomId = uom.Id, CustomerPurchaseOrderLineId = input.CustomerPurchaseOrderLineId,
+                ItemId = item.Id, UomId = uom.Id, CustomerPurchaseOrderLineId = customerPoLineId,
                 ItemCodeSnapshot = item.ItemCode, ItemNameSnapshot = item.Name, UomSnapshot = uom.Code,
                 RequestedQuantity = input.Quantity, RequestedBaseQuantity = baseQuantity,
                 EstimatedBomBaseQuantitySnapshot = estimated,
@@ -280,12 +305,18 @@ public sealed partial class EfMaterialIssueService
     }
 
     private async Task<decimal> CustomerPoQuantityAsync(Guid companyId, Guid lineId, Guid itemId,
-        Guid baseUomId, DateOnly on, CancellationToken ct)
+        Guid baseUomId, DateOnly on, Guid customerId, CancellationToken ct)
     {
         var line = await db.CustomerPurchaseOrderLines.AsNoTracking().Include(x => x.CustomerPurchaseOrder)
             .SingleOrDefaultAsync(x => x.Id == lineId && x.ItemId == itemId &&
-                x.CustomerPurchaseOrder!.CompanyId == companyId, ct)
-            ?? throw new StoresValidationException("CustomerPurchaseOrderLineId does not match the company and item.");
-        return await ToBaseAsync(line.Quantity ?? 0, line.UomId, baseUomId, on, ct);
+                x.RevisionNumber == x.CustomerPurchaseOrder!.CurrentRevisionNumber &&
+                x.CustomerPurchaseOrder.CompanyId == companyId &&
+                x.CustomerPurchaseOrder.CustomerId == customerId &&
+                (x.CustomerPurchaseOrder.SalesType == "Spares" ||
+                 x.CustomerPurchaseOrder.SalesType == "Spares & Service"), ct)
+            ?? throw new StoresValidationException("CustomerPurchaseOrderLineId must be the current matching spare line for the selected company and customer.");
+        if (!line.Quantity.HasValue || line.Quantity.Value <= 0)
+            throw new StoresValidationException("The selected Customer PO spare line must have a positive quantity.");
+        return await ToBaseAsync(line.Quantity.Value, line.UomId, baseUomId, on, ct);
     }
 }

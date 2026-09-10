@@ -602,7 +602,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             {
                 CompanyId = companyId, CustomerId = customer.Id, PoRecordNumber = "CPO-MIR-WITNESS-001",
                 CustomerPoNumber = "CUSTOMER-MIR-WITNESS-001", CustomerPoDate = new DateOnly(2026, 9, 7),
-                WorkStatus = CustomerPoWorkStatuses.Wip, CurrentRevisionNumber = 1,
+                SalesType = CustomerPoSalesTypes.Machine, WorkStatus = CustomerPoWorkStatuses.Wip, CurrentRevisionNumber = 1,
                 CreatedBy = "MIR_WITNESS"
             };
             var revision = new CustomerPurchaseOrderRevision
@@ -624,10 +624,30 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Quantity = 1m, Uom = line.Uom, CreatedBy = "MIR_WITNESS"
             };
             revision.Lines.Add(line); revision.Lines.Add(machineLine); cpo.Revisions.Add(revision);
-            db.Customers.Add(customer); db.CustomerPurchaseOrders.Add(cpo);
+            var spareCpo = new CustomerPurchaseOrder
+            {
+                CompanyId = companyId, CustomerId = customer.Id, PoRecordNumber = "CPO-MIR-SPARE-001",
+                CustomerPoNumber = "CUSTOMER-MIR-SPARE-001", CustomerPoDate = new DateOnly(2026, 9, 7),
+                SalesType = CustomerPoSalesTypes.Spares, WorkStatus = CustomerPoWorkStatuses.Wip,
+                CurrentRevisionNumber = 1, CreatedBy = "MIR_WITNESS"
+            };
+            var spareRevision = new CustomerPurchaseOrderRevision
+            {
+                CustomerPurchaseOrderId = spareCpo.Id, RevisionNumber = 1,
+                ChangeReason = "Spare-sale MIR witness", SnapshotJson = "{}", CreatedBy = "MIR_WITNESS"
+            };
+            var spareLine = new CustomerPurchaseOrderLine
+            {
+                CustomerPurchaseOrderId = spareCpo.Id, RevisionNumber = 1, SlNo = 1,
+                ItemId = item.Id, UomId = item.BaseUomId, Description = item.Name,
+                Quantity = .90m, Uom = line.Uom, CreatedBy = "MIR_WITNESS"
+            };
+            spareRevision.Lines.Add(spareLine); spareCpo.Revisions.Add(spareRevision);
+            db.Customers.Add(customer); db.CustomerPurchaseOrders.AddRange(cpo, spareCpo);
             await db.SaveChangesAsync();
-            return new { CpoLineId = line.Id, MachineLineId = machineLine.Id,
-                UomId = item.BaseUomId, ItemCode = item.ItemCode, DepartmentId = productionDepartmentId };
+            return new { CpoLineId = line.Id, MachineLineId = machineLine.Id, SpareLineId = spareLine.Id,
+                CustomerId = customer.Id, UomId = item.BaseUomId, ItemCode = item.ItemCode,
+                DepartmentId = productionDepartmentId };
         });
 
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
@@ -686,11 +706,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CHAMBER_MANUFACTURE", "JOB_ORDER",
                 job.Id, null, null, null, "Witness chamber", fixture.DepartmentId,
                 new DateOnly(2026, 9, 8),
-                [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, fixture.CpoLineId, null)],
+                [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, null, null)],
                 "mir-customer-create"));
         Assert.Equal("SESS-15", mir.EmployeeCode); Assert.False(string.IsNullOrWhiteSpace(mir.EmployeeName));
         Assert.False(string.IsNullOrWhiteSpace(mir.DepartmentCode));
+        Assert.Equal(fixture.MachineLineId, Assert.Single(mir.Lines).CustomerPurchaseOrderLineId);
+        Assert.Equal(0m, Assert.Single(mir.Lines).CustomerPoBaseQuantity);
         Assert.Equal(.05m, Assert.Single(mir.Lines).ExcessBaseQuantity);
+        var spareMir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
+            new CreateMaterialIssueRequest("SALE", "SPARE_SALE", "CUSTOMER",
+                null, fixture.CustomerId, null, null, "Spare customer", fixture.DepartmentId,
+                new DateOnly(2026, 9, 8),
+                [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, fixture.SpareLineId, null)],
+                "mir-spare-create"));
+        Assert.Null(spareMir.JobOrderId);
+        Assert.Equal(.90m, Assert.Single(spareMir.Lines).CustomerPoBaseQuantity);
+        Assert.Equal(.05m, Assert.Single(spareMir.Lines).ExcessBaseQuantity);
         var draftMirVersion = mir.Version;
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
             new MaterialIssueTransitionRequest(mir.Version, "Required for chamber assembly", "mir-customer-submit"));
