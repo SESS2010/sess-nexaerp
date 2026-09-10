@@ -23,6 +23,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHostedService<SESS.NexaERP.Api.InAppNotificationWorker>();
 // Development-only authentication follows the same gate pattern as
 // DatabaseSecurity:AllowDevelopmentSuperuser: the setting must be absent in a
 // Release build, and it activates only in Debug + Development + explicit opt-in.
@@ -142,6 +143,7 @@ if (developmentAuthenticationEnabled)
 #endif
 
 app.MapSessionEndpoints();
+app.MapNotificationEndpoints();
 app.MapIdentityEndpoints();
 app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();

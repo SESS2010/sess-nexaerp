@@ -144,6 +144,10 @@ internal static class DatabasePrincipalProvisioningSql
 
         DO $stores_acl$
         BEGIN
+          IF to_regprocedure('advance.stores_p1_actor_has_role(uuid,uuid,text,date)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.stores_p1_actor_has_role(uuid,uuid,text,date) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.stores_p1_actor_has_role(uuid,uuid,text,date) TO nexa_erp_runtime';
+          END IF;
           IF to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL THEN
             REVOKE INSERT,UPDATE,DELETE ON advance.stock_posting_batches,advance.stock_movements FROM nexa_erp_runtime;
             GRANT SELECT ON advance.stock_posting_batches,advance.stock_movements TO nexa_erp_runtime;

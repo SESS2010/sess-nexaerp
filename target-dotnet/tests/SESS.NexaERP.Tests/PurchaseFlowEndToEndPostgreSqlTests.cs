@@ -31,6 +31,7 @@ using SESS.NexaERP.Domain.Sales;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Stores;
 
 namespace SESS.NexaERP.Tests;
 
@@ -204,10 +205,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             foreach (var band in bands)
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
+            var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
+            await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
+            {
+                var processor = new EfNotificationDueEventProcessor(notificationDb);
+                Assert.Equal(1, await processor.RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
+                Assert.Equal(0, await processor.RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
+            }
+            user.Set(qcId, "SESS-33", Rev869ARoleCodes.QcManager);
+            var qcNotifications = await Get<PagedResponse<InAppNotificationView>>(client,
+                "/api/v1/notifications?unreadOnly=true");
+            Assert.Equal("QC_AGEING_OVERDUE", Assert.Single(qcNotifications.Items).EventType);
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
+            await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
+                Assert.Equal(1, await new EfNotificationDueEventProcessor(notificationDb)
+                    .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
+            user.Set(qcId, "SESS-33", Rev869ARoleCodes.QcManager);
+            Assert.Equal(0, (await Get<JsonElement>(client, "/api/v1/notifications/unread-count")).GetProperty("Count").GetInt32());
             var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
             await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
-            await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
+            await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill);
 
             await using var verify = new NexaErpDbContext(options);
@@ -473,7 +490,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         IReadOnlyList<GoodsReceiptSerialRequest> serials=band.QuoteRate>5000m
             ? [new(1,1,$"TRIAL-SERIAL-{band.Code}",$"TRIAL-SERIAL-{band.Code}",false,null)] : [];
-        var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=DateTimeOffset.UtcNow;
+        var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=band.Code=="LOW"?DateTimeOffset.UtcNow.AddDays(-3):DateTimeOffset.UtcNow;
         var grn=await Post<GoodsReceiptResult>(prClient,"/api/v1/stores/goods-receipts/",
             new CreateGoodsReceiptRequest(gate.GateEntryNumber,$"TRIAL-BILL-{band.Code}",billDate,receivedAt,"{\"billChecked\":true}",
                 [new(gate.Lines.Single().Id,[new(1,1,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
@@ -522,7 +539,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.False(await Query(options,db=>db.QcInspections.AnyAsync(x=>x.GoodsReceiptLineLotAllocationId==lot.Id)));Assert.Equal(1m,await Query(options,db=>db.StockMovements.Where(x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut)));
             await Query(options,async db=>{var uom=await db.Uoms.OrderBy(x=>x.Code).Select(x=>x.Id).FirstAsync();var p=new QcInspectionPolicy{CompanyId=Guid.Parse("70000000-0000-0000-0000-000000000001"),OrganizationId="SESS_PVT_LTD",ItemId=grn.Lines.Single().ItemId,ParameterCode="DIMENSIONAL_LIMIT",MeasurementUomId=uom,LowerLimit=0,UpperLimit=10,InspectionMethod="Disposable calibrated measurement",SampleSize=1,EffectiveFrom=new DateOnly(2026,1,1),ApprovalStatus="APPROVED",IsActive=true,CreatedBy="PURCHASE_FLOW_TEST"};db.QcInspectionPolicies.Add(p);await db.SaveChangesAsync();return p.Id;});
         }
-        var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");var queueItem=Assert.Single(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.IsOverdue&&x.HasEffectivePolicy);if(serialId.HasValue)Assert.Equal(serialId.Value,Assert.Single(queueItem.InventorySerialIds));var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
+        var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");var queueItem=Assert.Single(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.IsOverdue==(band.Code=="LOW")&&x.HasEffectivePolicy);if(serialId.HasValue)Assert.Equal(serialId.Value,Assert.Single(queueItem.InventorySerialIds));var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
         var result=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.Equal(accepted,result.AcceptedQuantity);Assert.Equal(rejected,result.RejectedQuantity);Assert.NotNull(result.StockPostingBatchId);Assert.False(result.Replayed);
         var replay=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.True(replay.Replayed);Assert.Equal(result.RevisionId,replay.RevisionId);Assert.Equal(result.StockPostingBatchId,replay.StockPostingBatchId);
         await using(var evidence=new NexaErpDbContext(options))
@@ -539,7 +556,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     private static async Task RunMaterialIssueWitness(HttpClient client,
-        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
+        DbContextOptions<NexaErpDbContext> options, string runtimeConnection, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
         Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId,
         VendorBillView pendingLandedBill)
     {
@@ -664,7 +681,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "/api/v1/stores/material-issues/recipients");
         Assert.Contains(recipients, x => x.EmployeeId == engineerId && x.EmployeeCode == "SESS-05");
         var issueCommand = new CreateMaterialIssue("mir-customer-issue", engineerId,
-            DateTimeOffset.UtcNow, [new MaterialIssueScan(mir.Lines.Single().Id, fixture.ItemCode, null, .95m)]);
+            DateTimeOffset.UtcNow.AddDays(-2), [new MaterialIssueScan(mir.Lines.Single().Id, fixture.ItemCode, null, .95m)]);
         await AssertPostStatus(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
             issueCommand, HttpStatusCode.Conflict);
 
@@ -688,6 +705,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
         Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
         Assert.Equal(job.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+
+        var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
+        await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
+        {
+            var processor = new EfNotificationDueEventProcessor(notificationDb);
+            Assert.Equal(1, await processor.RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
+            Assert.Equal(0, await processor.RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
+        }
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        Assert.Equal(1, (await Get<JsonElement>(client, "/api/v1/notifications/unread-count")).GetProperty("Count").GetInt32());
+        var notificationPage = await Get<PagedResponse<InAppNotificationView>>(client,
+            "/api/v1/notifications?unreadOnly=true");
+        var overdueNotification = Assert.Single(notificationPage.Items);
+        Assert.Equal("UNUSED_MATERIAL_OVERDUE", overdueNotification.EventType);
+        Assert.Equal(issue.Id, overdueNotification.SourceEntityId);
+        using (var read = await client.PostAsync($"/api/v1/notifications/{overdueNotification.RecipientId}/read", null))
+            Assert.Equal(HttpStatusCode.NoContent, read.StatusCode);
+        Assert.Equal(0, (await Get<JsonElement>(client, "/api/v1/notifications/unread-count")).GetProperty("Count").GetInt32());
+        Assert.Equal(1, await Query(options, db => db.NotificationDeliveryAttempts.CountAsync(x =>
+            x.NotificationRecipientId == overdueNotification.RecipientId && x.Channel == "IN_APP" && x.Status == "SENT")));
 
         var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
@@ -1465,6 +1503,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapProductionEngineeringEndpoints();
             app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
+            app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapFitmentActualBomEndpoints();
             app.MapJobOrderFatReadinessEndpoints();

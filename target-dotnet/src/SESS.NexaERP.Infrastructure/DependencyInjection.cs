@@ -72,10 +72,11 @@ public static class DependencyInjection
         services.AddScoped<IJobOrderService, EfJobOrderService>();
         services.AddScoped<IFitmentActualBomService, EfFitmentActualBomService>();
         services.AddScoped<IJobOrderFatReadinessService, EfJobOrderFatReadinessService>();
+        services.AddScoped<IInAppNotificationService, EfInAppNotificationService>();
+        services.AddScoped<INotificationDueEventProcessor, EfNotificationDueEventProcessor>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 
         return services;
     }
 }
-
