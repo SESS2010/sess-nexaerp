@@ -54,7 +54,7 @@ public static partial class Rev869BPurchaseEndpoints
 
     private static async Task<IResult> GetRfq(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
     {
-        var row = await db.RequestForQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.RfqNumber == number.Trim().ToUpper(), ct); if (row is null) return await Missing(audit, "purchase.rfq", number, user, ct); if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Denied(audit, "purchase.rfq", number, user, ct); return Results.Ok(row);
+        var row = await db.RequestForQuotations.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.RfqNumber == number.Trim().ToUpper(), ct); if (row is null) return await Missing(audit, "purchase.rfq", number, user, ct); if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Denied(audit, "purchase.rfq", number, user, ct); return Results.Ok(ToDetail(row));
     }
     private static async Task<IResult> GetRfqVendorCandidates(string number, NexaErpDbContext db, ICurrentUser user,
         [Microsoft.AspNetCore.Mvc.FromServices] IVendorQualificationService qualifications, IAuditWriter audit, CancellationToken ct)
@@ -126,7 +126,7 @@ public static partial class Rev869BPurchaseEndpoints
     private static async Task<IResult> GetPo(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IPagePermissionService permissions, IAuditWriter audit, CancellationToken ct)
     {
         var row = await db.PurchaseOrders.AsNoTracking().Include(x => x.Lines).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.PoNumber == number.Trim().ToUpper() && x.IsCurrentVersion, ct); if (row is null) return await Missing(audit, "purchase.po", number, user, ct); if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Denied(audit, "purchase.po", number, user, ct);
-        if (await permissions.HasPermissionAsync(user.RoleCodes, "purchase.po", PagePermissionActions.ViewCommercialValues, ct)) return Results.Ok(row);
+        if (await permissions.HasPermissionAsync(user.RoleCodes, "purchase.po", PagePermissionActions.ViewCommercialValues, ct)) return Results.Ok(ToCommercialDetail(row));
         await audit.WriteAsync("Security", "Denied", "CommercialValues", row.Id.ToString(), null, new { reason = "Commercial values masked", user.RoleCode }, ct);
         return Results.Ok(new { row.Id, row.PoNumber, row.RevisionNumber, row.IsCurrentVersion, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, row.Status, row.CurrencyCode, row.IssuedAt, row.CancelledAt, row.CancellationReason, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.ItemId, x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity }) });
     }
@@ -158,6 +158,38 @@ public static partial class Rev869BPurchaseEndpoints
     }
     private static async Task<IResult> Denied(IAuditWriter audit, string page, string record, ICurrentUser user, CancellationToken ct) { await audit.WriteAsync("Security", "Denied", page, record, null, new { reason = "Record scope denied", user.RoleCode }, ct); return Results.Forbid(); }
     private static async Task<IResult> Missing(IAuditWriter audit, string page, string record, ICurrentUser user, CancellationToken ct) { await audit.WriteAsync("Security", "Denied", page, record, null, new { reason = "Scoped record missing or denied", user.RoleCode }, ct); return Results.NotFound(); }
+    private static RfqDetail ToDetail(RequestForQuotation row) => new(
+        row.Id, row.CompanyId, row.OrganizationId, row.RfqNumber, row.FinancialYear, row.SequenceNumber,
+        row.PurchaseRequisitionId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId,
+        row.QuoteDueAt, row.CurrencyCode, row.Status, row.IsSingleSource, row.SingleSourceJustification,
+        row.IdempotencyKey, row.TransitionCorrelationId, row.IssuedAt, row.IsActive, row.CreatedAt, row.CreatedBy,
+        row.UpdatedAt, row.UpdatedBy, row.Version, row.Lines.OrderBy(x => x.LineNumber).Select(x => new RfqLineDetail(
+            x.Id, x.CompanyId, x.RequestForQuotationId, x.PurchaseRequirementHandoffId,
+            x.PurchaseRequisitionLineId, x.ItemId, x.LineNumber, x.PrNumberSnapshot,
+            x.PrLineNumberSnapshot, x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot,
+            x.SpecificationSnapshot, x.ApprovedQuantitySnapshot, x.AlreadyOrderedQuantitySnapshot,
+            x.OutstandingQuantitySnapshot, x.RfqQuantity, x.RequiredDateSnapshot, x.CreatedAt, x.CreatedBy,
+            x.UpdatedAt, x.UpdatedBy, x.Version)).ToList());
+
+    private static PurchaseOrderCommercialDetail ToCommercialDetail(PurchaseOrder row) => new(
+        row.Id, row.CompanyId, row.OrganizationId, row.PoNumber, row.FinancialYear, row.SequenceNumber,
+        row.RootPurchaseOrderId, row.PreviousVersionId, row.RevisionNumber, row.IsCurrentVersion,
+        row.CommercialComparisonId, row.VendorId, row.RequestingDepartmentId, row.DeliveryWarehouseId,
+        row.OwnerEmployeeId, row.Status, row.CurrencyCode, row.ApprovalRoute, row.ApprovalCycle,
+        row.RequiredApprovalStepCount, row.CompletedApprovalStepCount, row.ApprovalWorkflowSnapshotJson,
+        row.CreatorEmployeeId, row.TaxableValue, row.DiscountValue, row.HeaderDiscountValue, row.TaxValue,
+        row.PackingForwarding, row.Freight, row.Insurance, row.OtherCharges, row.RoundOff,
+        row.TotalPayableValue, row.ApprovalPolicySnapshotJson, row.PaymentTermsSnapshot,
+        row.DeliveryTermsSnapshot, row.WarrantyTermsSnapshot, row.AmendmentReason, row.IssuedAt,
+        row.CancelledAt, row.CancellationReason, row.IdempotencyKey, row.TransitionCorrelationId,
+        row.CreatedAt, row.CreatedBy, row.UpdatedAt, row.UpdatedBy, row.Version,
+        row.Lines.OrderBy(x => x.LineNumber).Select(x => new PurchaseOrderLineCommercialDetail(
+            x.Id, x.CompanyId, x.PurchaseOrderId, x.CommercialComparisonLineId,
+            x.PurchaseRequisitionLineId, x.PurchaseRequirementHandoffId, x.ItemId, x.LineNumber,
+            x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity,
+            x.ApprovedOutstandingQuantitySnapshot, x.UnitRate, x.CommercialSnapshotJson,
+            x.TaxRuleSnapshotJson, x.TotalPayableValue, x.CreatedAt, x.CreatedBy, x.UpdatedAt,
+            x.UpdatedBy, x.Version)).ToList());
     private static async Task<bool> Allowed(ICurrentUser user, IRecordScopeAuthorizer scopes, string organization, Guid? department, Guid? warehouse, Guid? owner, CancellationToken ct) => user.EmployeeId.HasValue && (await scopes.AuthorizeAsync(user.EmployeeId.Value, user.RoleCode, new RecordScopeTarget(organization, department, warehouse, null, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct)).Allowed;
     public static async Task<IResult> Run(Func<Task<Rev869BDocumentResult>> action, HttpContext http, CancellationToken ct)
     {

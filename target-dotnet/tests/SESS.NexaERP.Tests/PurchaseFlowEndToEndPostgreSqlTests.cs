@@ -423,6 +423,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         var rfqList=await Get<PagedResponse<RfqListItem>>(client,$"/api/v1/purchase/rfqs?rfqNumber={rfq.Number}&vendorId={vendor1Id}&sortBy=date&sortDirection=desc");
         Assert.Equal(1,rfqList.TotalCount);Assert.Equal(rfq.Id,Assert.Single(rfqList.Items).Id);
+        var rfqDetail=await Get<RfqDetail>(client,$"/api/v1/purchase/rfqs/{rfq.Number}");
+        Assert.Equal(rfq.Id,rfqDetail.Id);Assert.Single(rfqDetail.Lines);
         var rfqLineId = await Query(options, db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
         var quotations = new List<Rev869BDocumentResult>();
         for (var index = 0; index < invitations.Count; index++)
@@ -479,6 +481,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
         var comparisonList=await Get<PagedResponse<ComparisonListItem>>(client,$"/api/v1/purchase/comparisons?comparisonNumber={comparison.Number}&vendorId={vendor1Id}");
         Assert.Equal(1,comparisonList.TotalCount);Assert.Equal(comparison.Id,Assert.Single(comparisonList.Items).Id);
+        var comparisonDetail=await Get<JsonElement>(client,$"/api/v1/purchase/comparisons/{comparison.Number}");
+        Assert.Equal(comparison.Id,comparisonDetail.GetProperty("Id").GetGuid());
+        Assert.Equal(2,comparisonDetail.GetProperty("Lines").GetArrayLength());
         await AssertApprovalActors(options, "CMP", comparison.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -509,6 +514,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await AssertPoEvidence(options, po.Id, "IssuePO");
         var poList=await Get<PagedResponse<PurchaseOrderListItem>>(client,$"/api/v1/purchase/purchase-orders?purchaseOrderNumber={po.Number}&vendorId={vendor1Id}");
         Assert.Equal(1,poList.TotalCount);Assert.Equal(po.Id,Assert.Single(poList.Items).Id);
+        var poDetail=await Get<PurchaseOrderCommercialDetail>(client,$"/api/v1/purchase/purchase-orders/{po.Number}");
+        Assert.Equal(po.Id,poDetail.Id);Assert.Single(poDetail.Lines);
         var followups=await Get<PagedResponse<MaterialFollowUpListItem>>(client,"/api/v1/purchase/material-followup?pageSize=100");
         Assert.Contains(followups.Items,x=>x.PurchaseOrderId==po.Id);
 
