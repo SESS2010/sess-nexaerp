@@ -19,9 +19,10 @@ public sealed record ActualBomEntryView(Guid Id, string EntryKind, Guid? Compone
     Guid? ComponentFitmentReversalId, Guid MaterialIssueLineId, Guid ItemId, string ItemCode,
     string ItemName, Guid UomId, string UomCode, decimal QuantityBase,
     Guid InventoryProvenanceLayerId, Guid? InventoryLotId, Guid? InventorySerialId,
-    string? SerialNumber, Guid GoodsReceiptLineId, string GrnNumber, Guid VendorBillLineId,
-    string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
-    decimal TotalAcceptedValue, DateTimeOffset OccurredAt);
+    string? SerialNumber, Guid GoodsReceiptLineId, string GrnNumber, Guid? VendorBillLineId,
+    string? BillNumber, string ValuationStatus, decimal AcceptedMaterialValue,
+    decimal AllocatedChargeValue, decimal TotalAcceptedValue,
+    DateTimeOffset? ValuedAt, DateTimeOffset OccurredAt);
 
 public sealed record ActualBomVarianceLineView(Guid ItemId, string ItemCode, string ItemName,
     Guid BaseUomId, string BaseUomCode, decimal BaselineQuantity, decimal ActualQuantity,

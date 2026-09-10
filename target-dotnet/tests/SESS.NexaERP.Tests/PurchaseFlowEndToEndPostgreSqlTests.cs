@@ -205,10 +205,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
                     verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId);
-            await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
+            var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
             await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
             await RunMaterialIssueWitness(client, options, user, grns[0], grns[2], verifierId,
-                purchaseId, productionId, storesId, tdId, managerId, qcId);
+                purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill);
 
             await using var verify = new NexaErpDbContext(options);
             Assert.False(await verify.RolePagePermissions.AnyAsync(x => !x.CanView && !x.HasFullControl &&
@@ -540,7 +540,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task RunMaterialIssueWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
-        Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId)
+        Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId,
+        VendorBillView pendingLandedBill)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -753,11 +754,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new AcceptMaterialReturn(consumableReturn.Version, DateTimeOffset.UtcNow,
                 "Consumable remainder accepted exactly like any other material", "material-return-consumable-accept"));
 
-        var acceptedAllocation = await Query(options, db => db.VendorBillCostAllocations
-            .Where(x => x.VendorBillLine!.GoodsReceiptLineId == grn.Lines.Single().Id &&
-                x.VendorBillLine.VendorBill!.Status == "ACCEPTED")
-            .Select(x => new { x.AcceptedValue, x.AllocatedChargeValue, x.AllocatedQuantity })
-            .SingleAsync());
+        var fifoBeforeAcceptance = await Query(options, db => db.FifoInventoryCostLayers
+            .Where(x => x.GoodsReceiptLineId == grn.Lines.Single().Id)
+            .Select(x => new { x.Id, x.UnitCost, x.LayerValue, x.QuantityReceived }).SingleAsync());
+        var consumptionsBeforeAcceptance = await Query(options, db => db.FifoCostConsumptions
+            .Where(x => x.FifoInventoryCostLayerId == fifoBeforeAcceptance.Id)
+            .OrderBy(x => x.Id).Select(x => new { x.Id, x.Quantity, x.UnitCost, x.ConsumedValue }).ToListAsync());
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         var fitCommand = new ConfirmComponentFitmentRequest(job.Id, issue.Lines.Single().Id, .30m,
             DateTimeOffset.UtcNow, "Operator-confirmed component fitment", null, "fitment-confirm");
@@ -766,11 +768,69 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var fitReplay = await Post<ComponentFitmentSummary>(client,
             "/api/v1/production/component-fitments", fitCommand);
         Assert.False(fitment.Replayed); Assert.True(fitReplay.Replayed); Assert.Equal(fitment.Id, fitReplay.Id);
+        var provisionalActual = await Get<ActualBomView>(client,
+            $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        var provisionalEntry = Assert.Single(provisionalActual.Entries);
+        Assert.Equal("PROVISIONAL_UNBILLED", provisionalEntry.ValuationStatus);
+        Assert.Null(provisionalEntry.VendorBillLineId);
+        Assert.Equal(0m, provisionalActual.TotalAcceptedValue);
+
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        var acceptLanded = new VendorBillDecisionRequest(pendingLandedBill.Version,
+            "Matched bill accepted after issue and fitment", "vendor-bill-corrected-accept-0");
+        var acceptedLandedBill = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/{pendingLandedBill.Id}/accept", acceptLanded);
+        Assert.Equal("ACCEPTED", acceptedLandedBill.Status);
+        Assert.Equal(12m, acceptedLandedBill.TotalChargeValue);
+        Assert.Equal(12m, Assert.Single(acceptedLandedBill.Lines).AllocatedChargeValue);
+        var evidenceAfterAcceptance = await Query(options, async db => new
+        {
+            Charges = await db.VendorBillChargeAllocations.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id),
+            FifoAdjustments = await db.FifoLandedCostAdjustments.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id),
+            ActualAdjustments = await db.ActualBomValuationAdjustments.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id)
+        });
+        var acceptedReplay = await Post<VendorBillView>(client,
+            $"/api/v1/accounts/vendor-bills/{pendingLandedBill.Id}/accept", acceptLanded);
+        Assert.True(acceptedReplay.Replayed);
+        var evidenceAfterReplay = await Query(options, async db => new
+        {
+            Charges = await db.VendorBillChargeAllocations.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id),
+            FifoAdjustments = await db.FifoLandedCostAdjustments.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id),
+            ActualAdjustments = await db.ActualBomValuationAdjustments.CountAsync(x => x.VendorBillLine!.VendorBillId == pendingLandedBill.Id)
+        });
+        Assert.Equal(evidenceAfterAcceptance, evidenceAfterReplay);
+
+        var acceptedAllocation = await Query(options, db => db.VendorBillCostAllocations
+            .Where(x => x.VendorBillLine!.GoodsReceiptLineId == grn.Lines.Single().Id &&
+                x.VendorBillLine.VendorBill!.Status == "ACCEPTED")
+            .Select(x => new { x.AcceptedValue, x.AllocatedQuantity, x.VendorBillLineId })
+            .SingleAsync());
+        var allocatedCharge = await Query(options, db => db.VendorBillChargeAllocations
+            .Where(x => x.VendorBillLineId == acceptedAllocation.VendorBillLineId)
+            .SumAsync(x => x.AllocatedChargeValue));
+        var landedAdjustment = await Query(options, db => db.FifoLandedCostAdjustments
+            .SingleAsync(x => x.VendorBillLineId == acceptedAllocation.VendorBillLineId));
+        Assert.Equal(12m, allocatedCharge);
+        Assert.Equal(landedAdjustment.AllocatedChargeValue,
+            landedAdjustment.ConsumedCostAdjustmentValue + landedAdjustment.RemainingStockAdjustmentValue);
+        Assert.Equal(landedAdjustment.ConsumedQuantityAtAcceptance + landedAdjustment.RemainingQuantityAtAcceptance,
+            fifoBeforeAcceptance.QuantityReceived);
+        var fifoAfterAcceptance = await Query(options, db => db.FifoInventoryCostLayers
+            .Where(x => x.Id == fifoBeforeAcceptance.Id)
+            .Select(x => new { x.Id, x.UnitCost, x.LayerValue, x.QuantityReceived }).SingleAsync());
+        var consumptionsAfterAcceptance = await Query(options, db => db.FifoCostConsumptions
+            .Where(x => x.FifoInventoryCostLayerId == fifoBeforeAcceptance.Id)
+            .OrderBy(x => x.Id).Select(x => new { x.Id, x.Quantity, x.UnitCost, x.ConsumedValue }).ToListAsync());
+        Assert.Equal(fifoBeforeAcceptance, fifoAfterAcceptance);
+        Assert.Equal(consumptionsBeforeAcceptance, consumptionsAfterAcceptance);
+
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         var actual = await Get<ActualBomView>(client,
             $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        Assert.Equal("LANDED_ACCEPTED", Assert.Single(actual.Entries).ValuationStatus);
         var expectedMaterial = decimal.Round(acceptedAllocation.AcceptedValue /
             acceptedAllocation.AllocatedQuantity * .30m, 6);
-        var expectedCharges = decimal.Round(acceptedAllocation.AllocatedChargeValue /
+        var expectedCharges = decimal.Round(allocatedCharge /
             acceptedAllocation.AllocatedQuantity * .30m, 6);
         Assert.Equal(expectedMaterial, actual.TotalAcceptedMaterialValue);
         Assert.Equal(expectedCharges, actual.TotalAllocatedChargeValue);
@@ -885,6 +945,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(2, await evidence.ComponentFitments.CountAsync());
         Assert.Equal(1, await evidence.ComponentFitmentReversals.CountAsync());
         Assert.Equal(1, await evidence.ComponentFitmentReversals.CountAsync(x => x.IsSelfReversal));
+        Assert.Single(await evidence.VendorBillCharges.ToListAsync());
+        Assert.Single(await evidence.VendorBillChargeAllocations.ToListAsync());
+        Assert.Equal(4, await evidence.FifoLandedCostAdjustments.CountAsync());
+        Assert.Single(await evidence.ActualBomValuationAdjustments.ToListAsync());
         Assert.Equal(1, await evidence.ActualBoms.CountAsync());
         Assert.Equal(3, await evidence.ActualBomEntries.CountAsync());
         Assert.Equal(2, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "FITMENT_CONSUMPTION"));
@@ -1040,6 +1104,25 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.True(postgres.SqlState == Npgsql.PostgresErrorCodes.InsufficientPrivilege,
                 $"Expected 42501 for {sql}, received {postgres.SqlState}: {postgres.MessageText}");
         }
+        foreach (var table in new[]
+        {
+            "vendor_bill_charges", "vendor_bill_charge_allocations",
+            "fifo_landed_cost_adjustments", "actual_bom_valuation_adjustments"
+        })
+        {
+            foreach (var sql in new[]
+            {
+                $"SELECT count(*) FROM advance.{table}",
+                $"INSERT INTO advance.{table} DEFAULT VALUES",
+                $"UPDATE advance.{table} SET \"Id\"=\"Id\" WHERE false",
+                $"DELETE FROM advance.{table} WHERE false"
+            })
+            {
+                await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+                var error = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => command.ExecuteNonQueryAsync());
+                Assert.Equal(Npgsql.PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
+            }
+        }
     }
 
     private static async Task AssertFitmentRuntimeTableDmlRefused(string connectionString)
@@ -1087,7 +1170,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             }
         }
     }
-    private static async Task RunVendorBillWitness(HttpClient client,
+    private static async Task<VendorBillView> RunVendorBillWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
         IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId)
     {
@@ -1137,12 +1220,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/accounts/vendor-bills/from-grn/{grns[0].Id}",
             new CreateVendorBillRequest(grns[0].VendorBillNumber, grns[0].VendorBillDate,
                 [new(grns[0].Lines.Single().Id, grns[0].Lines.Single().ReceivedQuantity,
-                    expected[0].UnitRate, expected[0].Payable)], "vendor-bill-corrected-0"));
-        correctedFirst = await Post<VendorBillView>(client,
-            $"/api/v1/accounts/vendor-bills/{correctedFirst.Id}/accept",
-            new VendorBillDecisionRequest(correctedFirst.Version,
-                "Correct bill accepted after mismatch rejection", "vendor-bill-corrected-accept-0"));
-        Assert.Equal("ACCEPTED", correctedFirst.Status);
+                    expected[0].UnitRate, expected[0].Payable, 2m)], "vendor-bill-corrected-0",
+                [new VendorBillChargeInput("FREIGHT", 12m)]));
+        Assert.Equal("DRAFT", correctedFirst.Status);
+        Assert.Equal(12m, correctedFirst.TotalChargeValue);
+        Assert.Equal(expected[0].Payable + 12m, correctedFirst.TotalLandedValue);
+        Assert.Equal("GROSS_WEIGHT", Assert.Single(correctedFirst.Charges).AllocationBasis);
 
         for (var index = 1; index < grns.Count; index++)
         {
@@ -1171,7 +1254,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
                 Assert.Equal("REVERSED", reversed.Status);
                 Assert.NotNull(reversed.ReversedAt);
-                Assert.Equal(correctedFirst.Id, await Query(options, db => db.ItemCompanyLastPurchases
+                Assert.Null(await Query(options, db => db.ItemCompanyLastPurchases
                     .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
                     .Select(x => x.LastPurchaseBillId).SingleAsync()));
                 var reversalReplay = await Post<VendorBillView>(client,
@@ -1196,10 +1279,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         await using var evidence = new NexaErpDbContext(options);
         Assert.Equal(5, await evidence.VendorBills.CountAsync());
-        Assert.Equal(3, await evidence.VendorBills.CountAsync(x => x.Status == "ACCEPTED"));
-        Assert.Equal(4, await evidence.VendorBillCostAllocations.CountAsync());
-        Assert.Equal(4, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
+        Assert.Equal(2, await evidence.VendorBills.CountAsync(x => x.Status == "ACCEPTED"));
+        Assert.Equal(3, await evidence.VendorBillCostAllocations.CountAsync());
+        Assert.Equal(3, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
         Assert.Single(await evidence.VendorBillHistories.Where(x => x.Action == "REVERSED").ToListAsync());
+        return correctedFirst;
     }
 
     private static async Task AssertPostStatusContains(HttpClient client, string path, object body,

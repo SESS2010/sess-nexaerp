@@ -54,12 +54,20 @@ public sealed class EfVendorBillService(NexaErpDbContext db, ICurrentUser user, 
         if (request.BillDate == default) throw new StoresValidationException("BillDate is required.");
         if (request.Lines is null || request.Lines.Count == 0 || request.Lines.Any(x => x.GoodsReceiptLineId == Guid.Empty || x.Quantity <= 0 || x.UnitRate < 0 || x.TotalPayableValue < 0)) throw new StoresValidationException("Every bill line requires a GRN line and non-negative monetary values with positive quantity.");
         if (request.Lines.Select(x => x.GoodsReceiptLineId).Distinct().Count() != request.Lines.Count) throw new StoresValidationException("A GRN line may appear only once.");
+        var charges = request.Charges ?? [];
+        var chargeTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "DUTY", "INSURANCE", "FREIGHT", "PACKING", "HANDLING", "CLEARING_AGENT", "MISC_INWARD", "NON_CREDITABLE_TAX", "RECOVERABLE_GST" };
+        if (charges.Any(x => !chargeTypes.Contains(x.ChargeType?.Trim() ?? "") || x.ChargeValue <= 0 || x.IsRecoverableTax != string.Equals(x.ChargeType?.Trim(), "RECOVERABLE_GST", StringComparison.OrdinalIgnoreCase))) throw new StoresValidationException("Every charge requires a supported type, a positive value, and recoverable-tax classification only for RECOVERABLE_GST.");
+        if (request.Lines.Any(x => x.VerifiedGrossWeightKg.HasValue && x.VerifiedGrossWeightKg <= 0)) throw new StoresValidationException("VerifiedGrossWeightKg must be positive when supplied.");
         var hash = Fingerprint(new { goodsReceiptId, billNumber, request.BillDate, request.Lines }); var correlation = Fingerprint("VendorBill.Create:" + key);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct); var company = await CompanyAsync(ct);
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(Organization(), "VendorBill.Create", key, new { goodsReceiptId, request });
         var attempt = await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(db, user, Organization(), envelope, "vendor_bill_history", nameof(VendorBill), goodsReceiptId, "CREATED", 0, null, "DRAFT", correlation, "Vendor Bill entered against finalized GRN.", ct);
         (Guid BillId, bool Replayed) result;
-        try { result = await ExecuteCreate(company.Id, goodsReceiptId, billNumber, request.BillDate, request.Lines, key, hash, correlation, ct); }
+        try
+        {
+            result = await ExecuteCreate(company.Id, goodsReceiptId, billNumber, request.BillDate, request.Lines, key, hash, correlation, ct);
+            if (!result.Replayed) await RecordCharges(company.Id, result.BillId, request.Lines, charges, ct);
+        }
         catch (PostgresException error) { throw Translate(error); }
         if (!result.Replayed) await audit.WriteAsync("Accounts", "VendorBill.Create", nameof(VendorBill), result.BillId.ToString(), null, new { BillNumber = billNumber }, ct);
         await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct); await tx.CommitAsync(ct); return await Load(result.BillId, result.Replayed, ct);
@@ -107,6 +115,21 @@ public sealed class EfVendorBillService(NexaErpDbContext db, ICurrentUser user, 
         var c = (NpgsqlConnection)db.Database.GetDbConnection(); await using var cmd = c.CreateCommand(); cmd.Transaction = (NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction(); cmd.CommandText = "SELECT \"VendorBillId\",\"Replayed\" FROM advance.create_vendor_bill(@company,@grn,@number,@date,CAST(@lines AS jsonb),@key,@hash,@correlation,@actor,@role,@assignment,@type,@login)";
         cmd.Parameters.AddWithValue("company", companyId); cmd.Parameters.AddWithValue("grn", grnId); cmd.Parameters.AddWithValue("number", billNumber); cmd.Parameters.AddWithValue("date", billDate); cmd.Parameters.AddWithValue("lines", NpgsqlDbType.Jsonb, JsonSerializer.Serialize(lines, JsonOptions)); cmd.Parameters.AddWithValue("key", key); cmd.Parameters.AddWithValue("hash", hash); cmd.Parameters.AddWithValue("correlation", correlation); AddActor(cmd);
         await using var reader = await cmd.ExecuteReaderAsync(ct); if (!await reader.ReadAsync(ct)) throw new StoresConflictException("Controlled Vendor Bill creation returned no result."); return (reader.GetGuid(0), reader.GetBoolean(1));
+    }
+    private async Task RecordCharges(Guid companyId, Guid billId,
+        IReadOnlyList<VendorBillLineInput> lines, IReadOnlyList<VendorBillChargeInput> charges,
+        CancellationToken ct)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        await using var command = connection.CreateCommand();
+        command.Transaction = (NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction();
+        command.CommandText = "SELECT advance.record_vendor_bill_charges(@company,@bill,CAST(@lines AS jsonb),CAST(@charges AS jsonb),@actor,@role,@assignment,@type,@login)";
+        command.Parameters.AddWithValue("company", companyId);
+        command.Parameters.AddWithValue("bill", billId);
+        command.Parameters.AddWithValue("lines", NpgsqlDbType.Jsonb, JsonSerializer.Serialize(lines, JsonOptions));
+        command.Parameters.AddWithValue("charges", NpgsqlDbType.Jsonb, JsonSerializer.Serialize(charges, JsonOptions));
+        AddActor(command);
+        _ = await command.ExecuteScalarAsync(ct);
     }
     private async Task<bool> ExecuteDecision(Guid companyId, Guid id, long version, bool accept, string reason, string key, string hash, string correlation, CancellationToken ct)
     {

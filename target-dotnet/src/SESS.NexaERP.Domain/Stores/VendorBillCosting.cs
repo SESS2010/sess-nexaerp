@@ -20,6 +20,8 @@ public sealed class VendorBill : CompanyScopedAuditableEntity
     public string Status { get; set; } = "DRAFT";
     public string MatchStatus { get; set; } = "MATCHED";
     public decimal TotalPayableValue { get; set; }
+    public decimal TotalChargeValue { get; set; }
+    public decimal TotalLandedValue { get; set; }
     public Guid CreatedByEmployeeId { get; set; }
     public Employee? CreatedByEmployee { get; set; }
     public string ActorRoleCode { get; set; } = string.Empty;
@@ -49,6 +51,56 @@ public sealed class VendorBill : CompanyScopedAuditableEntity
     public string? ReversalIdempotencyKey { get; set; }
     public string? ReversalRequestFingerprint { get; set; }
     public List<VendorBillLine> Lines { get; set; } = [];
+    public List<VendorBillCharge> Charges { get; set; } = [];
+}
+
+public sealed class VendorBillCharge
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid VendorBillId { get; set; }
+    public VendorBill? VendorBill { get; set; }
+    public int ChargeNumber { get; set; }
+    public string ChargeType { get; set; } = string.Empty;
+    public decimal ChargeValue { get; set; }
+    public bool IsRecoverableTax { get; set; }
+    public bool IncludedInInventoryCost { get; set; }
+    public string AllocationBasis { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
+}
+
+public sealed class VendorBillChargeAllocation
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid VendorBillChargeId { get; set; }
+    public VendorBillCharge? VendorBillCharge { get; set; }
+    public Guid VendorBillLineId { get; set; }
+    public VendorBillLine? VendorBillLine { get; set; }
+    public decimal BasisValue { get; set; }
+    public decimal AllocatedChargeValue { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
+}
+
+public sealed class FifoLandedCostAdjustment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid VendorBillLineId { get; set; }
+    public VendorBillLine? VendorBillLine { get; set; }
+    public Guid FifoInventoryCostLayerId { get; set; }
+    public FifoInventoryCostLayer? FifoInventoryCostLayer { get; set; }
+    public decimal ProvisionalUnitRate { get; set; }
+    public decimal LandedUnitRate { get; set; }
+    public decimal AllocatedChargeValue { get; set; }
+    public decimal ConsumedQuantityAtAcceptance { get; set; }
+    public decimal RemainingQuantityAtAcceptance { get; set; }
+    public decimal ConsumedCostAdjustmentValue { get; set; }
+    public decimal RemainingStockAdjustmentValue { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string CreatedBy { get; set; } = "system";
 }
 
 public sealed class VendorBillLine
@@ -69,6 +121,7 @@ public sealed class VendorBillLine
     public decimal BilledUnitRate { get; set; }
     public decimal ExpectedPayableValue { get; set; }
     public decimal BilledPayableValue { get; set; }
+    public decimal? VerifiedGrossWeightKg { get; set; }
     public string MatchStatus { get; set; } = "MATCHED";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";

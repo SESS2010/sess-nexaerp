@@ -114,7 +114,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -227,7 +227,28 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) TO nexa_erp_runtime';
           END IF;
-        END $stores_acl$;
+          IF to_regprocedure('advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.get_actual_bom_landed_valuations(uuid,uuid)') IS NOT NULL
+             OR to_regclass('advance.vendor_bill_charges') IS NOT NULL
+             OR to_regclass('advance.vendor_bill_charge_allocations') IS NOT NULL
+             OR to_regclass('advance.fifo_landed_cost_adjustments') IS NOT NULL
+             OR to_regclass('advance.actual_bom_valuation_adjustments') IS NOT NULL THEN
+            IF to_regprocedure('advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.get_actual_bom_landed_valuations(uuid,uuid)') IS NULL
+               OR to_regprocedure('advance.allocate_vendor_bill_landed_cost()') IS NULL
+               OR to_regclass('advance.vendor_bill_charges') IS NULL
+               OR to_regclass('advance.vendor_bill_charge_allocations') IS NULL
+               OR to_regclass('advance.fifo_landed_cost_adjustments') IS NULL
+               OR to_regclass('advance.actual_bom_valuation_adjustments') IS NULL THEN
+              RAISE EXCEPTION 'Immutable landed-cost authority is partially installed.';
+            END IF;
+            REVOKE ALL ON TABLE advance.vendor_bill_charges,
+              advance.vendor_bill_charge_allocations,advance.fifo_landed_cost_adjustments,
+              advance.actual_bom_valuation_adjustments
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text),advance.get_actual_bom_landed_valuations(uuid,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text),advance.get_actual_bom_landed_valuations(uuid,uuid) TO nexa_erp_runtime';
+          END IF;        END $stores_acl$;
 
         DO $ordinary_command_acl$
         BEGIN
@@ -324,7 +345,7 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
-              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','item_company_last_purchases')
+              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','item_company_last_purchases')
                        AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
                        AND to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
@@ -460,7 +481,39 @@ internal static class DatabasePrincipalProvisioningSql
              OR to_regclass('advance.vendor_bills') IS NOT NULL OR to_regclass('advance.fifo_inventory_cost_layers') IS NOT NULL THEN
             RAISE EXCEPTION 'Vendor Bill/FIFO security boundary is partially installed.';
           END IF;
-          IF to_regclass('advance.item_company_last_purchases') IS NOT NULL
+          IF to_regprocedure('advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)') IS NOT NULL
+             AND to_regprocedure('advance.get_actual_bom_landed_valuations(uuid,uuid)') IS NOT NULL THEN
+            IF EXISTS (
+              SELECT 1 FROM (VALUES ('advance.vendor_bill_charges'),
+                ('advance.vendor_bill_charge_allocations'),
+                ('advance.fifo_landed_cost_adjustments'),
+                ('advance.actual_bom_valuation_adjustments')) evidence(name)
+              WHERE has_table_privilege('nexa_erp_runtime',evidence.name,'SELECT')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'INSERT')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'UPDATE')
+                 OR has_table_privilege('nexa_erp_runtime',evidence.name,'DELETE'))
+               OR NOT has_function_privilege('nexa_erp_runtime',
+                 'advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)',
+                 'EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap',
+                 'advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)',
+                 'EXECUTE')
+               OR has_function_privilege('nexa_erp_migration',
+                 'advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)',
+                 'EXECUTE')
+               OR NOT has_function_privilege('nexa_erp_runtime','advance.get_actual_bom_landed_valuations(uuid,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_bootstrap','advance.get_actual_bom_landed_valuations(uuid,uuid)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.get_actual_bom_landed_valuations(uuid,uuid)','EXECUTE') THEN
+              RAISE EXCEPTION 'Immutable landed-cost EXECUTE-only authority is invalid.';
+            END IF;
+          ELSIF to_regprocedure('advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.get_actual_bom_landed_valuations(uuid,uuid)') IS NOT NULL
+             OR to_regclass('advance.vendor_bill_charges') IS NOT NULL
+             OR to_regclass('advance.vendor_bill_charge_allocations') IS NOT NULL
+             OR to_regclass('advance.fifo_landed_cost_adjustments') IS NOT NULL
+             OR to_regclass('advance.actual_bom_valuation_adjustments') IS NOT NULL THEN
+            RAISE EXCEPTION 'Immutable landed-cost authority is partially installed.';
+          END IF;          IF to_regclass('advance.item_company_last_purchases') IS NOT NULL
              AND (NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')
                   OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','INSERT')
                   OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','UPDATE')

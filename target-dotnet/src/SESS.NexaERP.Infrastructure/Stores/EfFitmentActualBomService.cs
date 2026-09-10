@@ -150,14 +150,50 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             .Where(x => x.CompanyId == company.Id && x.ActualBomId == bom.Id)
             .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial)
             .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(ct);
-        var views = entries.Select(x => new ActualBomEntryView(x.Id, x.EntryKind,
-            x.ComponentFitmentId, x.ComponentFitmentReversalId, x.MaterialIssueLineId,
-            x.ItemId, x.Item!.ItemCode, x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase,
-            x.InventoryProvenanceLayerId, x.InventoryLotId, x.InventorySerialId,
-            x.InventorySerial?.StoredSerialNumber, x.GoodsReceiptLineId,
-            x.GrnNumberSnapshot, x.VendorBillLineId,
-            x.VendorBillNumberSnapshot, x.AcceptedMaterialValue,
-            x.AllocatedChargeValue, x.TotalAcceptedValue, x.OccurredAt)).ToArray();
+        var valuationRows = await LandedValuationsAsync(company.Id, bom.Id, ct);
+        var valuations = valuationRows.GroupBy(x => x.ActualBomEntryId).ToDictionary(x => x.Key,
+            x => new { Material = x.Sum(v => v.AcceptedMaterialValue),
+                Charges = x.Sum(v => v.AllocatedChargeValue), Total = x.Sum(v => v.TotalAcceptedValue),
+                BillLineId = (Guid?)x.OrderByDescending(v => v.CreatedAt).First().VendorBillLineId,
+                BillNumber = x.OrderByDescending(v => v.CreatedAt).First().BillNumber,
+                ValuedAt = (DateTimeOffset?)x.Max(v => v.CreatedAt) });
+        var reversalIds = entries.Where(x => x.ComponentFitmentReversalId.HasValue)
+            .Select(x => x.ComponentFitmentReversalId!.Value).ToArray();
+        var reversalFitmentIds = await db.ComponentFitmentReversals.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && reversalIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.ComponentFitmentId, ct);
+        var fitmentEntries = entries.Where(x => x.ComponentFitmentId.HasValue)
+            .ToDictionary(x => x.ComponentFitmentId!.Value);
+        var views = entries.Select(x =>
+        {
+            var material = x.AcceptedMaterialValue; var charges = x.AllocatedChargeValue;
+            var total = x.TotalAcceptedValue; var billLineId = x.VendorBillLineId;
+            string? billNumber = string.IsNullOrWhiteSpace(x.VendorBillNumberSnapshot) ? null : x.VendorBillNumberSnapshot;
+            DateTimeOffset? valuedAt = billLineId.HasValue ? x.OccurredAt : null;
+            if (valuations.TryGetValue(x.Id, out var valuation))
+            {
+                material += valuation.Material; charges += valuation.Charges; total += valuation.Total;
+                billLineId ??= valuation.BillLineId; valuedAt = valuation.ValuedAt;
+                billNumber = valuation.BillNumber;
+            }
+            if (x.ComponentFitmentReversalId.HasValue &&
+                reversalFitmentIds.TryGetValue(x.ComponentFitmentReversalId.Value, out var reversedFitmentId) &&
+                fitmentEntries.TryGetValue(reversedFitmentId, out var original) &&
+                valuations.TryGetValue(original.Id, out var originalValuation))
+            {
+                material -= originalValuation.Material; charges -= originalValuation.Charges;
+                total -= originalValuation.Total; billLineId ??= originalValuation.BillLineId;
+                valuedAt = originalValuation.ValuedAt;
+                billNumber = originalValuation.BillNumber;
+            }
+            var status = billLineId.HasValue ? "LANDED_ACCEPTED" : "PROVISIONAL_UNBILLED";
+            return new ActualBomEntryView(x.Id, x.EntryKind, x.ComponentFitmentId,
+                x.ComponentFitmentReversalId, x.MaterialIssueLineId, x.ItemId, x.Item!.ItemCode,
+                x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase, x.InventoryProvenanceLayerId,
+                x.InventoryLotId, x.InventorySerialId, x.InventorySerial?.StoredSerialNumber,
+                x.GoodsReceiptLineId, x.GrnNumberSnapshot, billLineId, billNumber, status,
+                material, charges, total, valuedAt, x.OccurredAt);
+        }).ToArray();
         var operational = await OperationalVarianceAsync(company.Id,
             job.PinnedProductionBomRevisionId.Value, views, ct);
         var commercial = await CommercialVarianceAsync(company.Id, jobOrderId, views, ct);
@@ -166,6 +202,18 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             views.Sum(x => x.TotalAcceptedValue), views, operational, commercial);
     }
 
+    private async Task<IReadOnlyList<ActualBomValuationProjection>> LandedValuationsAsync(
+        Guid companyId, Guid actualBomId, CancellationToken ct)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open) await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT advance.get_actual_bom_landed_valuations(@company,@bom)::text";
+        command.Parameters.AddWithValue("company", companyId);
+        command.Parameters.AddWithValue("bom", actualBomId);
+        var json = await command.ExecuteScalarAsync(ct) as string ?? "[]";
+        return JsonSerializer.Deserialize<ActualBomValuationProjection[]>(json, JsonOptions) ?? [];
+    }
     private async Task<ActualBomBaselineVarianceView> OperationalVarianceAsync(Guid companyId,
         Guid revisionId, IReadOnlyList<ActualBomEntryView> actual, CancellationToken ct)
     {
@@ -260,6 +308,9 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             ? quantity * conversion.ConversionFactor : quantity / conversion.ConversionFactor;
     }
 
+    private sealed record ActualBomValuationProjection(Guid ActualBomEntryId, Guid VendorBillLineId,
+        string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
+        decimal TotalAcceptedValue, DateTimeOffset CreatedAt);
     private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity, decimal? UnitValue);
     private IQueryable<ComponentFitment> Query() => db.ComponentFitments.AsNoTracking()
         .Include(x => x.JobOrder).Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.Item)
