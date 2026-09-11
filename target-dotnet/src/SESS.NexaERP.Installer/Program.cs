@@ -5,6 +5,7 @@ return await InstallerCommand.RunAsync(args);
 internal static class InstallerCommand
 {
     internal const string DevelopmentBootstrapSetting = "NexaErp__AllowDevelopmentAuthenticationBootstrap";
+    internal const string DevelopmentWorkflowIdentitiesSetting = "NexaErp__AllowDevelopmentWorkflowIdentities";
 
     internal static Task<int> RunAsync(string[] args)
     {
@@ -12,6 +13,11 @@ internal static class InstallerCommand
         if (Environment.GetEnvironmentVariable(DevelopmentBootstrapSetting) is not null)
         {
             Console.Error.WriteLine($"REFUSED: {DevelopmentBootstrapSetting} must not be present in a Release build, even when set to false.");
+            return Task.FromResult(1);
+        }
+        if (Environment.GetEnvironmentVariable(DevelopmentWorkflowIdentitiesSetting) is not null)
+        {
+            Console.Error.WriteLine($"REFUSED: {DevelopmentWorkflowIdentitiesSetting} must not be present in a Release build, even when set to false.");
             return Task.FromResult(1);
         }
 #endif
@@ -22,6 +28,8 @@ internal static class InstallerCommand
 #if DEBUG
         if (args.Length > 0 && args[0] == "authentication-bootstrap-development")
             return DevelopmentAuthenticationBootstrapCommand.RunAsync(args[1..]);
+        if (args.Length > 0 && args[0] == "workflow-identities-development")
+            return DevelopmentWorkflowIdentitiesCommand.RunAsync(args[1..]);
 #endif
         return DatabasePrincipalCommand.RunAsync(args);
     }

@@ -480,6 +480,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var absent = RunDotnet(root, null, assembly, "authentication-bootstrap-development", "--issuer", "https://issuer.example.test", "--subject", "subject");
             Assert.Equal(2, absent.Code);
             Assert.DoesNotContain("authentication-bootstrap-development", absent.Output, StringComparison.Ordinal);
+            var workflowAbsent = RunDotnet(root, null, assembly, "workflow-identities-development", "provision");
+            Assert.Equal(2, workflowAbsent.Code);
+            Assert.DoesNotContain("workflow-identities-development", workflowAbsent.Output, StringComparison.Ordinal);
 
             var rejected = RunDotnet(root, "false", assembly, "database-principals", "plan");
             Assert.Equal(1, rejected.Code);
