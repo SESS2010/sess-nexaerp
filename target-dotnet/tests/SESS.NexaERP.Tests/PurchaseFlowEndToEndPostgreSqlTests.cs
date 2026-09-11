@@ -267,6 +267,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.MaterialFollowUpHandoffs.CountAsync());
             Assert.Equal(3, await verify.GateEntries.CountAsync());
             Assert.Equal(3, await verify.GoodsReceipts.CountAsync());
+            var qcDeadlineReceipts = await verify.GoodsReceipts
+                .Select(x => new { x.ReceivedAt, x.FinalizedAt, x.QcCompletionDaysSnapshot, x.QcDueAt })
+                .ToListAsync();
+            Assert.All(qcDeadlineReceipts, x =>
+                Assert.Equal(x.ReceivedAt.AddDays(x.QcCompletionDaysSnapshot), x.QcDueAt));
+            var deliberatelyDelayedReceipt = Assert.Single(qcDeadlineReceipts, x =>
+                x.FinalizedAt!.Value - x.ReceivedAt > TimeSpan.FromDays(2));
+            Assert.NotEqual(deliberatelyDelayedReceipt.FinalizedAt!.Value.AddDays(
+                deliberatelyDelayedReceipt.QcCompletionDaysSnapshot), deliberatelyDelayedReceipt.QcDueAt);
             Assert.Equal(3, await verify.GoodsReceiptLines.CountAsync());
             Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
             Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
