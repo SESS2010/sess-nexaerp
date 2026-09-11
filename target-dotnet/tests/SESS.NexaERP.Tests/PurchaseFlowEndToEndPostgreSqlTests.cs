@@ -1329,7 +1329,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         foreach (var table in new[]
         {
             "vendor_bill_charges", "vendor_bill_charge_allocations",
-            "fifo_landed_cost_adjustments", "actual_bom_valuation_adjustments"
+            "fifo_landed_cost_adjustments", "actual_bom_valuation_adjustments",
+            "vendor_advances", "vendor_advance_reversals",
+            "vendor_advance_adjustments", "vendor_advance_adjustment_restorations",
+            "vendor_payments", "vendor_payment_allocations"
         })
         {
             foreach (var sql in new[]
@@ -1402,7 +1405,54 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x.Id == grn.Lines.Single().PurchaseOrderLineId)
                 .Select(x => new ValueTuple<decimal, decimal>(x.UnitRate, x.TotalPayableValue)).SingleAsync()));
 
+        user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT");
+        await AssertPostStatus(client, "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+                100m, "INR", "SUPPORT-REFUSED", "evidence/support-refused", "advance-support-refused"),
+            HttpStatusCode.Forbidden);
+
         user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        var eligibleAdvanceOrders = await Get<VendorAdvancePurchaseOrderOption[]>(client,
+            "/api/v1/accounts/vendor-financial-evidence/advance-purchase-orders");
+        Assert.Contains(eligibleAdvanceOrders, x => x.PurchaseOrderId == grns[1].PurchaseOrderId
+            && x.VendorId == grns[1].VendorId && x.AvailableAdvanceAmount > 0);
+        var firstAdvance = await Post<VendorAdvanceView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2),
+                100m, "INR", "UTR-ADV-001", "evidence/advance-001", "advance-record-001"));
+        var secondAdvance = await Post<VendorAdvanceView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1),
+                150m, "INR", "UTR-ADV-002", "evidence/advance-002", "advance-record-002"));
+        Assert.Equal(100m, firstAdvance.OutstandingAmount);
+        Assert.Equal(150m, secondAdvance.OutstandingAmount);
+        var firstAdvanceReplay = await Post<VendorAdvanceView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2),
+                100m, "INR", "UTR-ADV-001", "evidence/advance-001", "advance-record-001"));
+        Assert.True(firstAdvanceReplay.Replayed);
+        await AssertPostStatusContains(client,
+            "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+                expected[1].Payable, "INR", "UTR-ADV-CAP", "evidence/advance-cap", "advance-cap-refused"),
+            HttpStatusCode.Conflict, "exceeds Purchase Order value");
+
+        var reversibleAdvance = await Post<VendorAdvanceView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/advances",
+            new RecordVendorAdvanceRequest(grns[0].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+                10m, "INR", "UTR-ADV-REV", "evidence/advance-reverse", "advance-reverse-record"));
+        var advanceReversal = new ReverseVendorAdvanceRequest(
+            "Payment returned by vendor", "advance-reverse-command");
+        var reversedAdvance = await Post<VendorAdvanceView>(client,
+            $"/api/v1/accounts/vendor-financial-evidence/advances/{reversibleAdvance.Id}/reverse",
+            advanceReversal);
+        Assert.True(reversedAdvance.IsReversed);
+        var reversedAdvanceReplay = await Post<VendorAdvanceView>(client,
+            $"/api/v1/accounts/vendor-financial-evidence/advances/{reversibleAdvance.Id}/reverse",
+            advanceReversal);
+        Assert.True(reversedAdvanceReplay.Replayed);
+
+        var acceptedBills = new List<VendorBillView>();
         await AssertPostStatusContains(client,
             $"/api/v1/accounts/vendor-bills/from-grn/{grns[1].Id}",
             new CreateVendorBillRequest(grns[1].VendorBillNumber, grns[1].VendorBillDate,
@@ -1418,6 +1468,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new(grns[0].Lines.Single().Id, 1m, mismatchRate, mismatchValue)],
                 "vendor-bill-price-mismatch"));
         Assert.Equal("PRICE_MISMATCH", mismatched.MatchStatus);
+        await AssertPostStatusContains(client,
+            "/api/v1/accounts/vendor-financial-evidence/payments",
+            new RecordVendorPaymentRequest(mismatched.VendorId, DateOnly.FromDateTime(DateTime.UtcNow),
+                1m, "INR", "UTR-DRAFT-REFUSED", "evidence/draft-refused",
+                [new VendorPaymentAllocationInput(mismatched.Id, 1m)], "payment-before-acceptance-refused"),
+            HttpStatusCode.Conflict, "cannot be paid before acceptance");
 
         user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT");
         Assert.Equal("SUPPORT", Assert.Single(user.EffectiveRoleAssignments).AssignmentType);
@@ -1429,6 +1485,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             HttpStatusCode.Forbidden);
 
         user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+
         await AssertPostStatusContains(client, $"/api/v1/accounts/vendor-bills/{mismatched.Id}/accept",
             new VendorBillDecisionRequest(mismatched.Version, "Mismatch cannot be accepted", "vendor-bill-mismatch-accept"),
             HttpStatusCode.Conflict, "PO unit rate", "bill unit rate",
@@ -1468,7 +1525,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .Select(x => x.LastPurchaseBillId).SingleAsync()));
             var replay = await Post<VendorBillView>(client,
                 $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
-            Assert.True(replay.Replayed);            if (index == 1)
+            Assert.True(replay.Replayed);
+            var finalAccepted = accepted;
+            if (index == 1)
             {
                 var reversalRequest = new VendorBillDecisionRequest(accepted.Version,
                     "Accepted bill corrected by governed reversal", "vendor-bill-reverse-1");
@@ -1482,6 +1541,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var reversalReplay = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/{accepted.Id}/reverse", reversalRequest);
                 Assert.True(reversalReplay.Replayed);
+                var restoredAdvances = await Get<VendorAdvancePage>(client,
+                    $"/api/v1/accounts/vendor-financial-evidence/advances?purchaseOrderId={grn.PurchaseOrderId}&outstandingOnly=false");
+                Assert.Equal(250m, restoredAdvances.Items.Sum(x => x.OutstandingAmount));
 
                 var replacement = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
@@ -1496,8 +1558,33 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.Equal(replacement.Id, await Query(options, db => db.ItemCompanyLastPurchases
                     .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
                     .Select(x => x.LastPurchaseBillId).SingleAsync()));
+                finalAccepted = replacement;
             }
+            acceptedBills.Add(finalAccepted);
         }
+
+        var advances = await Get<VendorAdvancePage>(client,
+            $"/api/v1/accounts/vendor-financial-evidence/advances?purchaseOrderId={grns[1].PurchaseOrderId}&outstandingOnly=false");
+        Assert.Equal(2, advances.Total);
+        Assert.All(advances.Items, x => Assert.Equal(0m, x.OutstandingAmount));
+        Assert.Equal(100m, advances.Items.Single(x => x.Id == firstAdvance.Id).AdjustedAmount);
+        Assert.Equal(150m, advances.Items.Single(x => x.Id == secondAdvance.Id).AdjustedAmount);
+
+        var payableBills = acceptedBills.Where(x => x.VendorId == acceptedBills[0].VendorId).Take(2).ToArray();
+        Assert.NotEmpty(payableBills);
+        var allocations = payableBills.Select(x => new VendorPaymentAllocationInput(x.Id, 1m)).ToArray();
+        var paymentRequest = new RecordVendorPaymentRequest(
+            payableBills[0].VendorId, DateOnly.FromDateTime(DateTime.UtcNow), allocations.Sum(x => x.Amount),
+            "INR", "UTR-PAY-001", "evidence/payment-001", allocations, "vendor-payment-record-001");
+        var payment = await Post<VendorPaymentView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/payments", paymentRequest);
+        Assert.Equal(allocations.Length, payment.Allocations.Count);
+        var paymentReplay = await Post<VendorPaymentView>(client,
+            "/api/v1/accounts/vendor-financial-evidence/payments", paymentRequest);
+        Assert.True(paymentReplay.Replayed);
+        var positions = await Get<VendorPositionView[]>(client,
+            "/api/v1/accounts/vendor-financial-evidence/vendor-positions");
+        Assert.Contains(positions, x => x.VendorId == payment.VendorId);
 
         await using var evidence = new NexaErpDbContext(options);
         Assert.Equal(5, await evidence.VendorBills.CountAsync());
@@ -1505,6 +1592,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(3, await evidence.VendorBillCostAllocations.CountAsync());
         Assert.Equal(3, await evidence.VendorBillHistories.CountAsync(x => x.Action == "ACCEPTED"));
         Assert.Single(await evidence.VendorBillHistories.Where(x => x.Action == "REVERSED").ToListAsync());
+        Assert.Equal(3, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_advances").SingleAsync());
+        Assert.Equal(1, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_advance_reversals").SingleAsync());
+        Assert.Equal(4, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_advance_adjustments").SingleAsync());
+        Assert.Equal(2, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_advance_adjustment_restorations").SingleAsync());
+        Assert.Equal(1, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_payments").SingleAsync());
+        Assert.Equal(allocations.Length, await evidence.Database.SqlQueryRaw<int>(
+            @"SELECT count(*)::integer AS ""Value"" FROM advance.vendor_payment_allocations").SingleAsync());
         return correctedFirst;
     }
 
@@ -1694,6 +1793,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapMaterialIssueEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
+            app.MapVendorFinancialEvidenceEndpoints();
             app.MapFitmentActualBomEndpoints();
             app.MapJobOrderFatReadinessEndpoints();
             await app.StartAsync();
