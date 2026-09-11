@@ -104,9 +104,15 @@ public sealed class EmployeeRoleGovernancePhase2Tests
         var resolver = File.ReadAllText(Source("src", "SESS.NexaERP.Application", "Common", "RoleAuthorityResolution.cs"));
         var session = File.ReadAllText(Source("src", "SESS.NexaERP.Infrastructure", "Identity", "EfSessionService.cs"));
         var contract = File.ReadAllText(Source("src", "SESS.NexaERP.Application", "Identity", "IdentityContracts.cs"));
+        var filter = File.ReadAllText(Source("src", "SESS.NexaERP.Api", "Security", "PagePermissionEndpointFilter.cs"));
+        var permissionService = File.ReadAllText(Source("src", "SESS.NexaERP.Infrastructure", "Authorization", "EfPagePermissionService.cs"));
         Assert.Contains("CanAssignmentExercise(x.AssignmentType, operation)", resolver, StringComparison.Ordinal);
-        Assert.Contains("RoleAuthorityResolution.CanAssignmentExercise(x, permission)", session, StringComparison.Ordinal);
+        Assert.Contains("pagePermissions.ResolveEffectivePermissionsAsync(", session, StringComparison.Ordinal);
         Assert.Contains("currentUser.EffectiveRoleAssignments", session, StringComparison.Ordinal);
+        Assert.DoesNotContain("db.RolePagePermissions", session, StringComparison.Ordinal);
+        Assert.Contains("permissions.HasPermissionAsync([assignment.RoleCode]", filter, StringComparison.Ordinal);
+        Assert.Contains("RoleAuthorityResolution.CanAssignmentExercise", permissionService, StringComparison.Ordinal);
+        Assert.Contains("RoleGrantAllows(", permissionService, StringComparison.Ordinal);
         Assert.DoesNotContain("currentUser.FullAuthorityRoleCodes, cancellationToken", session, StringComparison.Ordinal);
         Assert.DoesNotContain("SupportDeniedActions", contract, StringComparison.Ordinal);
         Assert.DoesNotContain("PagePermissionActions.FullControl", session, StringComparison.Ordinal);
