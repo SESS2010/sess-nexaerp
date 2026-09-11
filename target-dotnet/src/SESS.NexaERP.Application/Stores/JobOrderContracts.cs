@@ -5,6 +5,8 @@ namespace SESS.NexaERP.Application.Stores;
 public sealed record CreateJobOrderRequest(Guid CustomerPurchaseOrderLineId, int MachineOrdinal,
     string MachineSerial, DateOnly JobOrderDate, DateOnly? PlannedCompletionDate, string IdempotencyKey);
 public sealed record ConfirmJobOrderRequest(uint ExpectedVersion, string Reason, string IdempotencyKey);
+public sealed record ReviseDraftJobOrderRequest(uint ExpectedVersion, string MachineSerial, DateOnly JobOrderDate,
+    DateOnly? PlannedCompletionDate, string Reason, string IdempotencyKey);
 public sealed record JobOrderSummary(Guid Id, string JobOrderNumber, Guid CustomerPurchaseOrderId,
     Guid CustomerPurchaseOrderLineId, string CustomerPoNumber, int MachineOrdinal, string MachineModel,
     string MachineSerial, string CustomerName, string Status, DateOnly JobOrderDate,
@@ -33,6 +35,9 @@ public interface IJobOrderService
     Task<JobOrderView?> GetAsync(Guid id, CancellationToken ct);
     Task<JobOrderView> CreateAsync(CreateJobOrderRequest request, CancellationToken ct);
     Task<JobOrderView> ConfirmAccountsAsync(Guid id, ConfirmJobOrderRequest request, CancellationToken ct);
+    Task<JobOrderView> ReturnToDraftAsync(Guid id, ConfirmJobOrderRequest request, CancellationToken ct);
+    Task<JobOrderView> ReviseDraftAsync(Guid id, ReviseDraftJobOrderRequest request, CancellationToken ct);
+    Task<JobOrderView> ResubmitAsync(Guid id, ConfirmJobOrderRequest request, CancellationToken ct);
     Task<IReadOnlyList<JobOrderHistoryView>> HistoryAsync(Guid id, CancellationToken ct);
     Task<IReadOnlyList<JobOrderCustomerPoLineView>> CustomerPoLinesAsync(CancellationToken ct);
 }

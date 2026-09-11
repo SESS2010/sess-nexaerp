@@ -13,7 +13,7 @@ using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
 
-public sealed class EfJobOrderService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit) : IJobOrderService
+public sealed partial class EfJobOrderService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit) : IJobOrderService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 

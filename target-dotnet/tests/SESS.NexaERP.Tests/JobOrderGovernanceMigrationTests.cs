@@ -23,6 +23,47 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("job-order-reapply.sql", migrator.GenerateScript(predecessor, JobOrderGovernanceTarget) + JobOrderAssertions);
     }
 
+    [Fact]
+    public void Job_order_accounts_return_and_resubmission_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260911065425_JobOrderAccountsReturnAndResubmission";
+        using var model = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options);
+        var migrator = model.GetService<IMigrator>(); var migrations = model.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target); Assert.True(index > 0); var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("job-order-recovery-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("job-order-recovery-up.sql", migrator.GenerateScript(predecessor, target) + RecoveryAssertions(true));
+        server.Execute("job-order-recovery-down.sql", migrator.GenerateScript(target, predecessor) + RecoveryAssertions(false));
+        server.Execute("job-order-recovery-reup.sql", migrator.GenerateScript(predecessor, target) + RecoveryAssertions(true));
+    }
+
+    private static string RecoveryAssertions(bool enabled) => $"""
+        DO $assert$
+        DECLARE production_count integer; accounts_count integer; joint_definition text;
+        BEGIN
+          SELECT count(*) INTO production_count FROM advance.role_page_permissions p
+          JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+          JOIN advance.roles r ON r."Id"=p."RoleId"
+          WHERE d."PageKey"='production.job-orders'
+            AND r."Code" IN ('PRODUCTION_COORDINATOR','PRODUCTION_MANAGER')
+            AND p."CanUpdate" IS {enabled.ToString().ToUpperInvariant()}
+            AND p."CanSubmit" IS {enabled.ToString().ToUpperInvariant()};
+          SELECT count(*) INTO accounts_count FROM advance.role_page_permissions p
+          JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+          JOIN advance.roles r ON r."Id"=p."RoleId"
+          WHERE d."PageKey"='production.job-orders'
+            AND r."Code" IN ('ACCOUNTS_ASSISTANT','ACCOUNTS_MANAGER')
+            AND p."CanReject" IS {enabled.ToString().ToUpperInvariant()};
+          SELECT pg_get_constraintdef(oid) INTO joint_definition FROM pg_constraint
+          WHERE conrelid='advance.job_orders'::regclass AND conname='CK_job_order_joint_governance';
+          IF production_count<>2 OR accounts_count<>2
+             OR (position('''DRAFT''' in joint_definition)>0) IS DISTINCT FROM {enabled.ToString().ToLowerInvariant()} THEN
+            RAISE EXCEPTION 'Job Order recovery authority or lifecycle mismatch.';
+          END IF;
+        END $assert$;
+        """;
+
     private const string JobOrderAssertions = """
         DO $assert$ BEGIN
           IF to_regclass('advance.job_order_history') IS NULL

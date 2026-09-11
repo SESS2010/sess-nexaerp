@@ -174,6 +174,7 @@ internal static class RequestInputReachabilityManifest
         "SESS.NexaERP.Application.Stores.PinProductionBomRevisionRequest.RevisionId",
         "SESS.NexaERP.Application.Stores.ProductionBomActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.RejectInventoryConcessionRequest.Version",
+        "SESS.NexaERP.Application.Stores.ReviseDraftJobOrderRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.ReplaceEstimatedBomLinesRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.ReplaceProductionBomRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.ReverseGoodsReceiptRequest.Version",

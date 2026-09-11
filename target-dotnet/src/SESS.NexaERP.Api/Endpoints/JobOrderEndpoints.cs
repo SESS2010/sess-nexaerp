@@ -25,6 +25,15 @@ public static class JobOrderEndpoints
         group.MapPost("/{id:guid}/accounts-confirm", (Guid id, ConfirmJobOrderRequest request, IJobOrderService service, CancellationToken ct) =>
             service.ConfirmAccountsAsync(id, request, ct))
             .RequirePagePermission("production.job-orders", PagePermissionActions.Verify);
+        group.MapPost("/{id:guid}/return-to-draft", (Guid id, ConfirmJobOrderRequest request, IJobOrderService service, CancellationToken ct) =>
+            service.ReturnToDraftAsync(id, request, ct))
+            .RequirePagePermission("production.job-orders", PagePermissionActions.Reject);
+        group.MapPut("/{id:guid}/draft", (Guid id, ReviseDraftJobOrderRequest request, IJobOrderService service, CancellationToken ct) =>
+            service.ReviseDraftAsync(id, request, ct))
+            .RequirePagePermission("production.job-orders", PagePermissionActions.Update);
+        group.MapPost("/{id:guid}/resubmit", (Guid id, ConfirmJobOrderRequest request, IJobOrderService service, CancellationToken ct) =>
+            service.ResubmitAsync(id, request, ct))
+            .RequirePagePermission("production.job-orders", PagePermissionActions.Submit);
         return endpoints;
     }
 }

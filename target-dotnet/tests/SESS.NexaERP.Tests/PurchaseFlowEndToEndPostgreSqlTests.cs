@@ -271,7 +271,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
             Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
             Assert.Single(await verify.JobOrders.Where(x => x.CustomerPurchaseOrderId != null).ToListAsync());
-            Assert.Equal(5, await verify.JobOrderHistories.CountAsync());
+            Assert.Equal(8, await verify.JobOrderHistories.CountAsync());
             Assert.Equal(5, await verify.VendorBills.CountAsync());
             Assert.Equal(5, await verify.VendorBillLines.CountAsync());
             Assert.Equal(4, await verify.VendorBillCostAllocations.CountAsync());
@@ -317,7 +317,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.ReturnToDraft","ProductionBom.Approve",
                 "ProductionBom.Pin","EngineeringDocument.Create","EngineeringDocument.Submit","EngineeringDocument.ReturnToDraft","EngineeringDocument.Approve","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
-                "JobOrder.Create","JobOrder.AccountsConfirm","ComponentFitment.Confirm","ComponentFitment.Reverse",
+                "JobOrder.Create","JobOrder.ReturnToDraft","JobOrder.ReviseDraft","JobOrder.Resubmit","JobOrder.AccountsConfirm","ComponentFitment.Confirm","ComponentFitment.Reverse",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
                 operation=>Assert.Contains(operation,operations));
             var commandAudits=await verify.AuditLogs.Where(x=>x.Result=="Success"&&operations.Contains(x.Action)).ToListAsync();
@@ -686,6 +686,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new CreateEstimatedBomRequest(job.Id, "Must wait for Accounts",
                 [new EstimatedBomLineInput(itemId, fixture.UomId, .90m, "Witness component", 100m)], "mir-est-before-accounts"),
             HttpStatusCode.Conflict);
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        var returnRequest = new ConfirmJobOrderRequest(job.Version,
+            "Machine serial needs Production correction", "job-order-return-draft");
+        job = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/return-to-draft", returnRequest);
+        var jobReturnReplay = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/return-to-draft", returnRequest);
+        Assert.Equal("DRAFT", job.Status); Assert.Equal(job.Id, jobReturnReplay.Id);
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        var reviseRequest = new ReviseDraftJobOrderRequest(job.Version, "WITNESS-MACHINE-001-CORRECTED",
+            job.JobOrderDate, job.PlannedCompletionDate, "Corrected machine serial", "job-order-revise-draft");
+        job = await Put<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/draft", reviseRequest);
+        var reviseReplay = await Put<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/draft", reviseRequest);
+        Assert.Equal("WITNESS-MACHINE-001-CORRECTED", job.MachineSerial); Assert.Equal(job.Id, reviseReplay.Id);
+        var resubmit = new ConfirmJobOrderRequest(job.Version, "Corrected metadata ready for Accounts", "job-order-resubmit");
+        job = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/resubmit", resubmit);
+        var resubmitReplay = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/resubmit", resubmit);
+        Assert.Equal("PENDING_ACCOUNTS", job.Status); Assert.Equal(job.Id, resubmitReplay.Id);
         user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         var confirm = new ConfirmJobOrderRequest(job.Version, "Customer PO and one-machine scope verified", "job-order-accounts-confirm");
         job = await Post<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}/accounts-confirm", confirm);
