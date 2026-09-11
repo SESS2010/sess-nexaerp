@@ -22,6 +22,8 @@ public static class ProductionEngineeringEndpoints
             s.ReplaceProductionBomAsync(number, r, ct)).RequirePagePermission("production.production-bom", PagePermissionActions.Update);
         boms.MapPost("/{number}/submit", (string number, ProductionBomActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
             s.SubmitProductionBomAsync(number, r, ct)).RequirePagePermission("production.production-bom", PagePermissionActions.Submit);
+        boms.MapPost("/{number}/return-to-draft", (string number, ProductionBomActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
+            s.ReturnProductionBomToDraftAsync(number, r, ct)).RequirePagePermission("production.production-bom", PagePermissionActions.Reject);
         boms.MapPost("/{number}/approve", (string number, ProductionBomActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
             s.ApproveProductionBomAsync(number, r, ct)).RequirePagePermission("production.production-bom", PagePermissionActions.Approve);
         boms.MapPost("/{number}/revisions", (string number, NewProductionBomRevisionRequest r, IProductionEngineeringService s, CancellationToken ct) =>

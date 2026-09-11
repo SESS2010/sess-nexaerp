@@ -314,7 +314,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "CreateTaxGstSetting","ApproveTaxGstSetting","CreateRFQ","InviteVendor","SubmitQuotation",
                 "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
                 "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit","EstimatedBom.ReturnToDraft",
-                "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.Approve",
+                "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.ReturnToDraft","ProductionBom.Approve",
                 "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
                 "JobOrder.Create","JobOrder.AccountsConfirm","ComponentFitment.Confirm","ComponentFitment.Reverse",
@@ -748,6 +748,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new CreateProductionBomRequest(job.Id, "Witness production baseline", "mir-pbom-create"));
         production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/submit",
             new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline submitted", "mir-pbom-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/return-to-draft",
+            new ProductionBomActionRequest(production.CurrentRevision.Version, "Production quantities need preparer confirmation", "mir-pbom-return-draft"));
+        Assert.Equal("DRAFT", production.Status);
+        user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
+        production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/submit",
+            new ProductionBomActionRequest(production.CurrentRevision.Version, "Production quantities confirmed", "mir-pbom-resubmit"));
         user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
         production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/approve",
             new ProductionBomActionRequest(production.CurrentRevision.Version, "Production baseline approved", "mir-pbom-approve"));

@@ -13,19 +13,28 @@ public sealed partial class EfProductionEngineeringService
         string number, ProductionBomActionRequest request, CancellationToken ct)
     {
         _ = user.RequireRole("submit", "PRODUCTION_MANAGER", "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR");
-        return TransitionProductionBomAsync(number, request, false, ct);
+        return TransitionProductionBomAsync(number, request, "SUBMITTED", "Submit", "DRAFT", ct);
+    }
+
+    public Task<ProductionBomView> ReturnProductionBomToDraftAsync(
+        string number, ProductionBomActionRequest request, CancellationToken ct)
+    {
+        _ = user.RequireRole("reject", "TECHNICAL_DIRECTOR");
+        return TransitionProductionBomAsync(number, request, "DRAFT", "ReturnToDraft", "SUBMITTED", ct);
     }
 
     public Task<ProductionBomView> ApproveProductionBomAsync(
         string number, ProductionBomActionRequest request, CancellationToken ct)
     {
         _ = user.RequireRole("approve", "TECHNICAL_DIRECTOR");
-        return TransitionProductionBomAsync(number, request, true, ct);
+        return TransitionProductionBomAsync(number, request, "APPROVED", "Approve", "SUBMITTED", ct);
     }
 
     private async Task<ProductionBomView> TransitionProductionBomAsync(
-        string number, ProductionBomActionRequest request, bool approve, CancellationToken ct)
+        string number, ProductionBomActionRequest request, string next, string action,
+        string expected, CancellationToken ct)
     {
+        var approve = next == "APPROVED";
         var key = Required(request.IdempotencyKey, "IdempotencyKey");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var company = await CompanyAsync(ct);
@@ -33,9 +42,9 @@ public sealed partial class EfProductionEngineeringService
             x => x.CompanyId == company.Id && x.BomNumber == Code(number), ct)
             ?? throw new KeyNotFoundException("Production BOM was not found.");
         var revision = bom.Revisions.Single(x => x.RevisionNumber == bom.CurrentRevisionNumber);
-        var expected = approve ? "SUBMITTED" : "DRAFT";
+
         if (revision.Status != expected)
-            throw new StoresConflictException("Production BOM is not in the required state.");
+            throw new StoresConflictException($"Only a {expected} Production BOM revision can be {action.ToLowerInvariant()}ed.");
         if (revision.Version != request.ExpectedVersion)
             throw new DbUpdateConcurrencyException("Production BOM revision Version is stale.");
         if (approve && revision.PreparedByEmployeeId == Actor())
@@ -43,15 +52,14 @@ public sealed partial class EfProductionEngineeringService
         await ValidateLinesAsync(revision.Lines.Select(x =>
             new ProductionBomLineInput(x.ItemId, x.UomId, x.Quantity, x.Remarks)).ToArray(), true, ct);
         if (approve) await FreezeProductionValuesAsync(revision, ct);
-        var from = revision.Status; revision.Status = approve ? "APPROVED" : "SUBMITTED";
+        var from = revision.Status; revision.Status = next;
         revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         bom.Status = revision.Status;
         if (approve) {
             revision.ApprovedAt = DateTimeOffset.UtcNow;
             revision.ApprovedByEmployeeId = Actor();
             revision.ApprovalReason = Required(request.Remarks, "Remarks");
-        } else revision.SubmittedAt = DateTimeOffset.UtcNow;
-        var action = approve ? "Approve" : "Submit";
+        } else if (next == "SUBMITTED") revision.SubmittedAt = DateTimeOffset.UtcNow;
         History(bom, revision, null, null, action, from, revision.Status,
             Required(request.Remarks, "Remarks"), key);
         await CommitAsync(company.Code, "ProductionBom." + action, key, request,

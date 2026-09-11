@@ -40,6 +40,7 @@ public interface IProductionEngineeringService
     Task<ProductionBomView> CreateProductionBomAsync(CreateProductionBomRequest request, CancellationToken ct);
     Task<ProductionBomView> ReplaceProductionBomAsync(string number, ReplaceProductionBomRequest request, CancellationToken ct);
     Task<ProductionBomView> SubmitProductionBomAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
+    Task<ProductionBomView> ReturnProductionBomToDraftAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
     Task<ProductionBomView> ApproveProductionBomAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
     Task<ProductionBomView> CreateProductionBomRevisionAsync(string number, NewProductionBomRevisionRequest request, CancellationToken ct);
     Task<ProductionBomView> PinProductionBomRevisionAsync(string number, PinProductionBomRevisionRequest request, CancellationToken ct);
