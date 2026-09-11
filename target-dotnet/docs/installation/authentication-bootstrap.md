@@ -54,6 +54,36 @@ This command is compiled only in Debug. It is absent from Release binaries. A Re
 
 > **Never promote, restore, clone, or otherwise use a development database whose one-time authentication ceremony has been consumed as the basis of a customer database. Build the customer database through the production installation sequence below.**
 
+## Development workflow identity seed
+
+For an owner-operated Development database with no managed database principals,
+a Debug Installer can converge the eleven workflow walkthrough identities:
+
+    SESS.NexaERP.Installer workflow-identities-development provision
+
+Set DOTNET_ENVIRONMENT=Development,
+NexaErp__AllowDevelopmentWorkflowIdentities=true,
+ConnectionStrings__NexaErpDevelopmentBootstrap, and the exact
+NexaErp__ExpectedDatabase. The connection must be a PostgreSQL 17+ superuser
+that owns both the selected database and the advance schema. The command
+refuses maintenance databases, a database-name mismatch, an assumed role, any
+ordinary managed principal, any missing or inactive employee, a disabled
+workflow login, a missing company assignment, or an unrelated active HUMAN
+identity.
+
+The transaction converges exactly SESS-01, SESS-02, SESS-04, SESS-12, SESS-14,
+SESS-15, SESS-16, SESS-25, SESS-33, SESS-35, and SESS-41 in both companies.
+Issuer is urn:nexaerp:development; subject is the exact employee code. The
+known dev-sess-04 and dev-sess-12 rows are ended as dated immutable history,
+never rewritten or deleted. Correct rows are retained, missing rows are
+inserted, replay is idempotent, and every convergence or legacy closure writes
+an immutable audit row.
+
+This command creates no database role, changes no ACL, grants no permission,
+and changes no business transaction. It is compiled out of Release and must
+never be used for customer OIDC identities. There is deliberately no delete
+rollback: an unwanted development mapping is ended through the governed
+identity-administration API so its history remains complete.
 ## Mandatory customer deployment checklist
 
 Complete and witness every item before a real customer deployment:
