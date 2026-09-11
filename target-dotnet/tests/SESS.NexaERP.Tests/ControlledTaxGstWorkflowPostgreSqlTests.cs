@@ -165,12 +165,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => assignments;
         public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
         public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
-        public string? OrganizationId => "SESS_PVT_LTD";
+        public string? OrganizationId => CurrentOrganizationId;
+        public string CurrentOrganizationId { get; private set; } = "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
         public string? IdentityIssuer => "https://issuer.purchase-flow.test";
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
         public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
+        public void SetOrganization(string organizationId) => CurrentOrganizationId = organizationId;
         public void Set(Guid id, string subject, string roleCode, params string[] effectiveRoles)
         {
             CurrentEmployeeId = id;

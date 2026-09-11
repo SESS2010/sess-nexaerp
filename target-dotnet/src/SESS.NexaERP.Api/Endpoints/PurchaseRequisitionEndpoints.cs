@@ -35,6 +35,28 @@ public static partial class PurchaseRequisitionEndpoints
             ListRequisitions(db, user, page, pageSize, search, prNumber, status, sortBy, sortDirection, true, ct))
             .RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
 
+        stockCheckGroup.MapGet("/requisitions/{prNumber}", async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        {
+            var organizationId = user.OrganizationId;
+            if (string.IsNullOrWhiteSpace(organizationId)) return Results.NotFound(new { message = "Purchase requisition not found." });
+            var pr = await db.PurchaseRequisitions.AsNoTracking()
+                .Where(x => x.OrganizationId == organizationId &&
+                    x.Status == PurchaseRequisitionStatuses.StockCheckPending &&
+                    x.PrNumber == NormalizePr(prNumber))
+                .Select(x => new StockCheckPurchaseRequisitionDetail(
+                    x.PrNumber,
+                    x.Status,
+                    x.Version,
+                    x.Lines.OrderBy(line => line.LineNumber).Select(line => new StockCheckPurchaseRequisitionLine(
+                        line.LineNumber,
+                        line.ItemCodeSnapshot,
+                        line.ItemNameSnapshot,
+                        line.UomSnapshot,
+                        line.RequestedQuantity)).ToList()))
+                .SingleOrDefaultAsync(ct);
+            return pr is null ? Results.NotFound(new { message = "Purchase requisition not found." }) : Results.Ok(pr);
+        }).RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
+
         group.MapGet("/{prNumber}", async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
             var pr = await Scope(IncludeDetail(db.PurchaseRequisitions.AsNoTracking()), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);

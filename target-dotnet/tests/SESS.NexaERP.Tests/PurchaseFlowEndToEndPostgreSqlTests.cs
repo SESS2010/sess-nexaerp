@@ -349,6 +349,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new("TRIAL-ITEM-001", 1, band.PrAmount, required, "TRIAL-WH-C01", null, null, null)]));
         Assert.Equal(PurchaseRequisitionStatuses.Draft, pr.Status);
         await AssertPrEvidence(options, pr.Id, "CreateDraft", 1, 1);
+        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive);
+        using (var wrongState = await prClient.GetAsync($"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}"))
+            Assert.Equal(HttpStatusCode.NotFound, wrongState.StatusCode);
+        user.Set(creatorId, "SESS-12", "IT_MANAGER");
         pr = await Post<PurchaseRequisitionDetail>(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/submit",
             new PurchaseRequisitionActionRequest(null, pr.Version, $"{band.Code}-pr-submit"));
         Assert.Equal(PurchaseRequisitionStatuses.Submitted, pr.Status);
@@ -398,6 +402,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
+        var stockCheckDetail = await Get<StockCheckPurchaseRequisitionDetail>(prClient,
+            $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
+        Assert.Equal(pr.PrNumber, stockCheckDetail.PrNumber);
+        Assert.Equal(pr.Version, stockCheckDetail.Version);
+        Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, stockCheckDetail.Status);
+        Assert.Equal(1, Assert.Single(stockCheckDetail.Lines).LineNumber);
+        user.SetOrganization("SESS_PROPRIETORSHIP");
+        using (var wrongCompany = await prClient.GetAsync($"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}"))
+            Assert.Equal(HttpStatusCode.NotFound, wrongCompany.StatusCode);
+        user.SetOrganization("SESS_PVT_LTD");
         await PostNoResult(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/stock-check",
             new StockCheckRequest("No stock; purchase required", pr.Version, $"{band.Code}-stock",
                 [new(1, "TRIAL-WH-C01", "TRIAL-C01-GEN-01")]), $"{band.Code}-stock");

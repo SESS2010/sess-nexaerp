@@ -42,11 +42,26 @@ public sealed class MultiCompanyNumberAndStockCheckTests
     public void StoresStockCheckProjectionUsesVerifyPermissionAndPendingStatusOnly()
     {
         var source = Read("src", "SESS.NexaERP.Api", "Endpoints", "PurchaseRequisitionEndpoints.cs");
+        var contracts = Read("src", "SESS.NexaERP.Application", "Purchase", "PurchaseRequisitionContracts.cs");
         Assert.Contains("/api/v1/stores/stock-check", source);
         Assert.Contains("stockCheckGroup.MapGet", source);
         Assert.Contains("PageStockCheck, PagePermissionActions.Verify", source);
         Assert.Contains("x.Status == PurchaseRequisitionStatuses.StockCheckPending", source);
+        Assert.Contains("x.OrganizationId == organizationId", source);
+        Assert.Contains("/requisitions/{prNumber}", source);
+        Assert.Contains("new StockCheckPurchaseRequisitionDetail(", source);
         Assert.DoesNotContain("PageStockCheck, PagePermissionActions.View", source);
+
+        var detail = contracts[(contracts.IndexOf("public sealed record StockCheckPurchaseRequisitionDetail", StringComparison.Ordinal))..];
+        detail = detail[..detail.IndexOf(';')];
+        Assert.Contains("string PrNumber", detail);
+        Assert.Contains("string Status", detail);
+        Assert.Contains("uint Version", detail);
+        Assert.Contains("IReadOnlyList<StockCheckPurchaseRequisitionLine> Lines", detail);
+        Assert.DoesNotContain("Estimated", detail);
+        Assert.DoesNotContain("Purpose", detail);
+        Assert.DoesNotContain("Approval", detail);
+        Assert.DoesNotContain("Customer", detail);
     }
 
     [Fact]
