@@ -49,5 +49,6 @@ public interface IProductionEngineeringService
     Task<EngineeringDocumentView> CreateEngineeringDocumentAsync(CreateEngineeringDocumentRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> CreateEngineeringDocumentRevisionAsync(string number, NewEngineeringDocumentRevisionRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> SubmitEngineeringDocumentAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
+    Task<EngineeringDocumentView> ReturnEngineeringDocumentToDraftAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> ApproveEngineeringDocumentAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
 }

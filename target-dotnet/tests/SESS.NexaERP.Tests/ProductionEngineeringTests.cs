@@ -148,4 +148,38 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             RAISE EXCEPTION 'Production BOM return-to-draft authority mismatch.';
           END IF;
         END $assert$;
+        """;
+    [Fact]
+    public void Engineering_document_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260911054347_EngineeringDocumentReturnToDraftAuthority";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("engineering-document-return-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("engineering-document-return-up.sql", migrator.GenerateScript(predecessor, target) + AssertEngineeringDocumentReturnAuthority(true));
+        server.Execute("engineering-document-return-down.sql", migrator.GenerateScript(target, predecessor) + AssertEngineeringDocumentReturnAuthority(false));
+        server.Execute("engineering-document-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertEngineeringDocumentReturnAuthority(true));
+    }
+
+    private static string AssertEngineeringDocumentReturnAuthority(bool enabled) => $"""
+        DO $assert$
+        DECLARE grant_count integer; definition text;
+        BEGIN
+          SELECT count(*) INTO grant_count FROM advance.role_page_permissions p
+          JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+          JOIN advance.roles r ON r."Id"=p."RoleId"
+          WHERE d."PageKey"='design.engineering-documents' AND r."Code"='TECHNICAL_DIRECTOR'
+            AND p."CanReject" IS {enabled.ToString().ToUpperInvariant()};
+          SELECT pg_get_functiondef('advance.guard_engineering_document_revision()'::regprocedure) INTO definition;
+          IF grant_count<>1 OR (position('''DRAFT''' in definition)>0) IS DISTINCT FROM {enabled.ToString().ToLowerInvariant()} THEN
+            RAISE EXCEPTION 'Engineering Document return-to-draft authority mismatch.';
+          END IF;
+        END $assert$;
         """;}

@@ -45,6 +45,8 @@ public static class ProductionEngineeringEndpoints
             s.CreateEngineeringDocumentRevisionAsync(number, r, ct)).RequirePagePermission("design.engineering-documents", PagePermissionActions.Create);
         docs.MapPost("/{number}/submit", (string number, EngineeringDocumentActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
             s.SubmitEngineeringDocumentAsync(number, r, ct)).RequirePagePermission("design.engineering-documents", PagePermissionActions.Submit);
+        docs.MapPost("/{number}/return-to-draft", (string number, EngineeringDocumentActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
+            s.ReturnEngineeringDocumentToDraftAsync(number, r, ct)).RequirePagePermission("design.engineering-documents", PagePermissionActions.Reject);
         docs.MapPost("/{number}/approve", (string number, EngineeringDocumentActionRequest r, IProductionEngineeringService s, CancellationToken ct) =>
             s.ApproveEngineeringDocumentAsync(number, r, ct)).RequirePagePermission("design.engineering-documents", PagePermissionActions.Approve);
         return endpoints;

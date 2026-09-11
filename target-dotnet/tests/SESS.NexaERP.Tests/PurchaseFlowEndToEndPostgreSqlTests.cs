@@ -315,7 +315,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "TechnicalVerification","CreateComparison","RecommendComparison","ApproveComparison",
                 "CreatePO","SubmitPO","ApprovePO","IssuePO","EstimatedBom.Create","EstimatedBom.Submit","EstimatedBom.ReturnToDraft",
                 "EstimatedBom.Approve","ProductionBom.Create","ProductionBom.Submit","ProductionBom.ReturnToDraft","ProductionBom.Approve",
-                "ProductionBom.Pin","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
+                "ProductionBom.Pin","EngineeringDocument.Create","EngineeringDocument.Submit","EngineeringDocument.ReturnToDraft","EngineeringDocument.Approve","MaterialIssueRequest.Create","MaterialIssueRequest.Submit",
                 "MaterialReturn.Create","MaterialReturn.Accept","VendorBill.Create","VendorBill.Accept","VendorBill.Reject","VendorBill.Reverse",
                 "JobOrder.Create","JobOrder.AccountsConfirm","ComponentFitment.Confirm","ComponentFitment.Reverse",
                 "MaterialIssueRequest.Approve","MaterialIssueRequest.DecideExcess","MaterialIssue.Issue"},
@@ -763,6 +763,33 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new PinProductionBomRevisionRequest(production.CurrentRevision.Id, job.Version,
                 "Pinned to the one-machine Job Order", "mir-pbom-pin"));
         Assert.Equal(production.CurrentRevision.Id, production.PinnedRevisionId);
+
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        var drawing = await Post<EngineeringDocumentView>(client, "/api/v1/design/documents",
+            new CreateEngineeringDocumentRequest(job.Id, "GA", "Witness general arrangement",
+                new EngineeringDocumentRevisionInput("A", engineerId, productionId,
+                    "Initial witness drawing", new DateOnly(2026, 9, 8), "drawings/witness-ga-a.pdf",
+                    "witness-ga-a.pdf", "application/pdf", 128, new string('a', 64)),
+                "mir-drawing-create"));
+        var drawingRevision = drawing.Revisions.Single();
+        drawing = await Post<EngineeringDocumentView>(client, $"/api/v1/design/documents/{drawing.DocumentNumber}/submit",
+            new EngineeringDocumentActionRequest(drawingRevision.Version, "Ready for TD review", "mir-drawing-submit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        drawingRevision = drawing.Revisions.Single();
+        drawing = await Post<EngineeringDocumentView>(client, $"/api/v1/design/documents/{drawing.DocumentNumber}/return-to-draft",
+            new EngineeringDocumentActionRequest(drawingRevision.Version, "Checker evidence needs confirmation", "mir-drawing-return-draft"));
+        Assert.Equal("DRAFT", drawing.Status);
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
+            "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        drawingRevision = drawing.Revisions.Single();
+        drawing = await Post<EngineeringDocumentView>(client, $"/api/v1/design/documents/{drawing.DocumentNumber}/submit",
+            new EngineeringDocumentActionRequest(drawingRevision.Version, "Checker evidence confirmed", "mir-drawing-resubmit"));
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        drawingRevision = drawing.Revisions.Single();
+        drawing = await Post<EngineeringDocumentView>(client, $"/api/v1/design/documents/{drawing.DocumentNumber}/approve",
+            new EngineeringDocumentActionRequest(drawingRevision.Version, "Drawing approved", "mir-drawing-approve"));
+        Assert.Equal("APPROVED", drawing.Status);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);

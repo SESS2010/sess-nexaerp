@@ -34,13 +34,17 @@ public sealed partial class EfProductionEngineeringService
             DocumentType = type, JobOrderId = job.Id, Title = Required(request.Title, "Title"),
             CreatedBy = user.LoginId };
         var revision = NewDocumentRevision(document, request.Revision, null, 1, key, Fingerprint(request));
-        document.Revisions.Add(revision); document.CurrentRevisionId = revision.Id;
+        // Keep the initial insert graph acyclic. The current-revision pointer is
+        // assigned after the command evidence save, still inside this transaction.
+        document.Revisions.Add(revision);
         db.EngineeringDocuments.Add(document);
         History(null, null, document, revision, "Create", null, "DRAFT",
             revision.RevisionNote, key);
         await CommitAsync(company.Code, "EngineeringDocument.Create", key, request,
             nameof(EngineeringDocument), document.Id,
             new { document.DocumentNumber, revision.RevisionCode }, ct);
+        document.CurrentRevisionId = revision.Id;
+        await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct); return DocumentView(document);
     }
 
