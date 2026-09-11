@@ -35,6 +35,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var arguments = new[] { "workflow-identities-development", "provision" };
         Assert.Equal(0, await InstallerCommand.RunAsync(arguments));
         Assert.Equal(0, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-workflow-identities-partial-principal.sql",
+            "CREATE ROLE nexa_erp_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;");
+        Assert.Equal(1, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-workflow-identities-remove-partial-principal.sql", "DROP ROLE nexa_erp_owner;");
         server.Execute("development-workflow-identities-witness.sql", """
             DO $assert$
             DECLARE expected_codes constant text[] := ARRAY[
@@ -128,6 +132,38 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("development-workflow-identities-principals.sql",
             InstallerPasswordSettings + DatabasePrincipalProvisioningSql.Provision +
             DatabasePrincipalProvisioningSql.Verify);
+        Assert.Equal(0, await InstallerCommand.RunAsync(arguments));
+        server.Execute("development-workflow-identities-after-principals-witness.sql", """
+            DO $assert$
+            BEGIN
+              IF (SELECT count(*) FROM advance.employee_identity_mappings mapping
+                  JOIN advance.employees employee ON employee."Id"=mapping."EmployeeId"
+                  WHERE employee."EmployeeCode"=ANY(ARRAY[
+                    'SESS-01','SESS-02','SESS-04','SESS-12','SESS-14','SESS-15',
+                    'SESS-16','SESS-25','SESS-33','SESS-35','SESS-41'])
+                    AND mapping."Issuer"='urn:nexaerp:development'
+                    AND mapping."Subject"=employee."EmployeeCode"
+                    AND mapping."IdentityType"='HUMAN' AND mapping."IsActive")<>22 THEN
+                RAISE EXCEPTION 'After-principal convergence did not retain exactly 22 active mappings.';
+              END IF;
+              IF EXISTS (
+                SELECT mapping."CompanyId",mapping."Issuer",mapping."Subject",count(*)
+                FROM advance.employee_identity_mappings mapping
+                WHERE mapping."Issuer"='urn:nexaerp:development' AND mapping."IsActive"
+                GROUP BY mapping."CompanyId",mapping."Issuer",mapping."Subject"
+                HAVING count(*)<>1) THEN
+                RAISE EXCEPTION 'After-principal convergence created a duplicate active mapping.';
+              END IF;
+              IF EXISTS (
+                SELECT audit."EntityId",count(*)
+                FROM advance.audit_logs audit
+                WHERE audit."CreatedBy"='DEVELOPMENT_WORKFLOW_IDENTITIES'
+                  AND audit."Action"='DevelopmentIdentityConverged'
+                GROUP BY audit."EntityId" HAVING count(*)<>1) THEN
+                RAISE EXCEPTION 'After-principal convergence duplicated immutable audit evidence.';
+              END IF;
+            END $assert$;
+            """);
         server.Execute("development-workflow-identities-command-witness.sql", """
             CREATE TEMP TABLE identity_write_witness AS
             SELECT employee."Id",employee."EmployeeCode",resolved."AssignmentId",resolved."RoleCode"

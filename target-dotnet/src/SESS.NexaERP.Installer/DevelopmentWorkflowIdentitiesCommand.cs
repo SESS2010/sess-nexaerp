@@ -72,10 +72,15 @@ internal static class DevelopmentWorkflowIdentitiesCommand
         if (!reader.GetBoolean(2)) throw new InvalidOperationException("The advance schema and employee identity table must exist.");
         if (!string.Equals(reader.GetString(3), reader.GetString(4), StringComparison.Ordinal))
             throw new InvalidOperationException("Development workflow identities refuse an already-assumed database role.");
-        if (!reader.GetBoolean(5) || !reader.GetBoolean(6) || !reader.GetBoolean(7))
-            throw new InvalidOperationException("Development workflow identities require a superuser that owns the exact database and advance schema.");
-        if (reader.GetInt64(8) != 0)
-            throw new InvalidOperationException("Development workflow identities require all four managed database principals to be absent.");
+        if (!reader.GetBoolean(5))
+            throw new InvalidOperationException("Development workflow identities require an explicit PostgreSQL superuser installer session.");
+        var managedRoleCount = reader.GetInt64(8);
+        if (managedRoleCount is not (0 or 4))
+            throw new InvalidOperationException($"Development workflow identities refuse partial managed-principal state ({managedRoleCount}/4 roles).");
+        if (managedRoleCount == 0 && (!reader.GetBoolean(6) || !reader.GetBoolean(7)))
+            throw new InvalidOperationException("Before principal provisioning, the installer session must own the exact database and advance schema.");
+        if (managedRoleCount == 4 && (!reader.GetBoolean(9) || !reader.GetBoolean(10)))
+            throw new InvalidOperationException("After principal provisioning, nexa_erp_owner must own the exact database and advance schema.");
     }
 
     private static void WriteUsage() =>

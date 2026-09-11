@@ -12,7 +12,9 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
                pg_catalog.pg_get_userbyid(database.datdba)=session_user,
                pg_catalog.pg_get_userbyid(namespace.nspowner)=session_user,
                (SELECT count(*) FROM pg_catalog.pg_roles
-                 WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime'))
+                 WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime')),
+               pg_catalog.pg_get_userbyid(database.datdba)='nexa_erp_owner',
+               pg_catalog.pg_get_userbyid(namespace.nspowner)='nexa_erp_owner'
         FROM pg_catalog.pg_roles role
         JOIN pg_catalog.pg_database database ON database.datname=current_database()
         JOIN pg_catalog.pg_namespace namespace ON namespace.nspname='advance'
@@ -31,10 +33,21 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
           issuer constant text := 'urn:nexaerp:development';
           expected_employees integer;
           expected_assignments integer;
+          managed_count integer;
         BEGIN
-          IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles
-                     WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime')) THEN
-            RAISE EXCEPTION 'Development workflow identities require all four managed database principals to be absent.';
+          SELECT count(*) INTO managed_count FROM pg_catalog.pg_roles
+           WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime');
+          IF managed_count NOT IN (0,4) THEN
+            RAISE EXCEPTION 'Development workflow identities refuse partial managed-principal state (%/4 roles).',managed_count;
+          END IF;
+          IF managed_count=4 AND (
+               (SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='nexa_erp_owner')
+               OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                           WHERE rolname IN ('nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime') AND NOT rolcanlogin)
+               OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                           WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime')
+                             AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))) THEN
+            RAISE EXCEPTION 'Development workflow identities refuse a drifted managed-principal contract.';
           END IF;
 
           SELECT count(*) INTO expected_employees
