@@ -61,7 +61,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     [Fact]
-    public async Task CompletePurchaseFlowRunsAgainstDisposablePostgreSqlInAllThreeApprovalBands()
+    public Task CompletePurchaseFlowRunsAgainstDisposablePostgreSqlInAllThreeApprovalBands() =>
+        RunCompletePurchaseFlow();
+
+    private async Task RunCompletePurchaseFlow(
+        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -69,7 +73,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        if (returnRace is not null)
+            server.Execute("concurrency-log-settings.sql",
+                "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
+        if (returnRace is not null)
+        {
+            var migrations = model.Database.GetMigrations().ToArray();
+            var lockOrder = Array.IndexOf(migrations, "20260913020000_FitmentIssueHeaderLockOrder");
+            server.Execute("fitment-lock-order-down.sql",
+                migrator.GenerateScript(migrations[lockOrder], migrations[lockOrder - 1]));
+            server.Execute("fitment-lock-order-reapply.sql",
+                migrator.GenerateScript(migrations[lockOrder - 1], migrations[lockOrder]));
+        }
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
 
@@ -293,7 +309,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Single(partlyBilledFifo.Rows,row=>row.GetProperty("costBasis").GetString()=="PO_PROVISIONAL_IDENTICAL");
             await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
             await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
-                purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill);
+                purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill, returnRace, server.ReadDiagnosticLog, serializedRace);
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -387,7 +403,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -831,7 +847,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task RunMaterialIssueWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, string runtimeConnection, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
         Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId,
-        VendorBillView pendingLandedBill)
+        VendorBillView pendingLandedBill, Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null,
+        Func<string>? readPostgresLog = null, bool serializedRace = false)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1122,7 +1139,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
         await CreateIssueAndReturnSerialized(client, options, user, serializedGrn, fixture.UomId,
-            fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
+            fixture.DepartmentId, engineerId, purchaseId, productionId, storesId,
+            serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog);
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
@@ -1170,8 +1188,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("ROLE_POOL",queuedReturn.GetProperty("assignmentKind").GetString());
         var accept = new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
             "Scanner-confirmed return accepted into Stores", "material-return-accept");
-        materialReturn = await Post<MaterialReturnView>(client,
-            $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept);
+        materialReturn = returnRace is null || serializedRace
+            ? await Post<MaterialReturnView>(client,
+                $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept)
+            : await returnRace(new(options, runtimeConnection, companyId, job.Id, issue.Lines.Single().Id,
+                materialReturn.Id, accept, storesId, productionId, readPostgresLog!));
         var acceptReplay = await Post<MaterialReturnView>(client,
             $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept);
         Assert.Equal("ACCEPTED", materialReturn.Status); Assert.False(materialReturn.Replayed);
@@ -1375,7 +1396,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var evidence = new NexaErpDbContext(options);
         Assert.Equal(1, await evidence.JobOrderFatCustodyExplanations.CountAsync());
         Assert.Equal(2, await evidence.JobOrderFatReconciliations.CountAsync());
-        Assert.Equal(2, await evidence.JobOrderFatReconciliationLines.CountAsync());
+        Assert.Equal(serializedRace ? 4 : 2, await evidence.JobOrderFatReconciliationLines.CountAsync());
+        if (serializedRace)
+        {
+            var serialReconciliations = await evidence.JobOrderFatReconciliationLines
+                .Where(row => row.MaterialIssueLine!.InventorySerialId != null).ToArrayAsync();
+            Assert.Equal(2, serialReconciliations.Length);
+            Assert.All(serialReconciliations, row =>
+            {
+                Assert.Equal(1m, row.IssuedQuantityBase);
+                Assert.Equal(1m, row.ReturnedQuantityBase);
+                Assert.Equal(0m, row.FittedQuantityBase);
+                Assert.Equal(0m, row.UnexplainedQuantityBase);
+            });
+        }
         Assert.Equal(1, await evidence.JobOrderFatReconciliations.CountAsync(x => x.Result == "READY"));
         Assert.Equal(1, await evidence.JobOrderFatReconciliations.CountAsync(x => x.Result == "BLOCKED"));
         Assert.Equal(2, await evidence.ComponentFitments.CountAsync());
@@ -1435,7 +1469,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task CreateIssueAndReturnSerialized(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn,
-        Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId)
+        Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId,
+        Guid? jobOrderId = null, Guid? tdId = null, string? runtimeConnection = null,
+        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, Func<string>? readPostgresLog = null)
     {
         var receivedLine = grn.Lines.Single();
         var serial = Assert.Single(receivedLine.Serials);
@@ -1443,8 +1479,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
         var request = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
-            new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CONSUMABLE_OFFICE", "DEPARTMENT",
-                null, null, null, departmentId, "Serialized custody witness", departmentId,
+            new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", jobOrderId.HasValue ? "CHAMBER_MANUFACTURE" : "CONSUMABLE_OFFICE",
+                jobOrderId.HasValue ? "JOB_ORDER" : "DEPARTMENT",
+                jobOrderId, null, null, jobOrderId.HasValue ? null : departmentId, "Serialized custody witness", departmentId,
                 new DateOnly(2026, 9, 8),
                 [new MaterialIssueRequestLineInput(receivedLine.ItemId, uomId, 1m, null, null)],
                 "mir-serialized-create"));
@@ -1455,6 +1492,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         request = await Post<MaterialIssueRequestView>(client,
             $"/api/v1/stores/material-issue-requests/{request.Id}/approve",
             new MaterialIssueTransitionRequest(request.Version, "Serialized custody approved", "mir-serialized-approve"));
+        if (jobOrderId.HasValue)
+        {
+            Assert.Equal(.90m, request.Lines.Single().EstimatedBomBaseQuantity);
+            Assert.Equal(.10m, request.Lines.Single().ExcessBaseQuantity);
+            user.Set(tdId!.Value, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+            request = await Post<MaterialIssueRequestView>(client,
+                $"/api/v1/stores/material-issue-excess/{request.Lines.Single().Id}/decision",
+                new MaterialIssueExcessDecisionRequest("APPROVED",
+                    "One serialized component approved for the job-backed race witness", "mir-serialized-excess"));
+        }
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var availableSerials = await Get<AvailableMaterialIssueSerialView[]>(client,
             $"/api/v1/stores/material-issues/request-lines/{request.Lines.Single().Id}/available-serials");
@@ -1480,10 +1527,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new MaterialReturnLineInput(issue.Lines.Single().Id, serial.StoredSerialNumber, 1m, 0, 0)],
                 "material-return-serial-create"));
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
-        materialReturn = await Post<MaterialReturnView>(client,
-            $"/api/v1/stores/material-returns/{materialReturn.Id}/accept",
-            new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
-                "Exact issued serial returned to Stores", "material-return-serial-accept"));
+        var serialAccept = new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
+            "Exact issued serial returned to Stores", "material-return-serial-accept");
+        Assert.Equal(jobOrderId, issue.JobOrderId);
+        materialReturn = returnRace is null
+            ? await Post<MaterialReturnView>(client,
+                $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", serialAccept)
+            : await returnRace(new(options, runtimeConnection!, Guid.Parse("70000000-0000-0000-0000-000000000001"),
+                jobOrderId!.Value, issue.Lines.Single().Id, materialReturn.Id, serialAccept, storesId, productionId,
+                readPostgresLog!, 1m, "serial-return-fitment", serial.InventorySerialId));
 
         await using var evidence = new NexaErpDbContext(options);
         Assert.Equal("RETURNED", await evidence.MaterialIssues.Where(x => x.Id == issue.Id)

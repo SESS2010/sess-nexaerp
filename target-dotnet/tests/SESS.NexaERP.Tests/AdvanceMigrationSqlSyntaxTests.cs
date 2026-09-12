@@ -927,6 +927,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database=advance_parser;Username=postgres;Pooling=false";
 
+        public string ReadDiagnosticLog()
+        {
+            using var stream = new FileStream(Path.Combine(_root, "postgres.log"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+
         private Result Psql(string name, string sql)
         {
             var file = Path.Combine(_root, name);
