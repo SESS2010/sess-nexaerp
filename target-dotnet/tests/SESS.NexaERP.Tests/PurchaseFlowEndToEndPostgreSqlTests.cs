@@ -65,7 +65,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         RunCompletePurchaseFlow();
 
     private async Task RunCompletePurchaseFlow(
-        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false)
+        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false,
+        Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -73,7 +74,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null)
+        if (returnRace is not null || grnRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -100,6 +101,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid qcId;
         Guid productionId;
         Guid accountsSupportId;
+        Guid secondReceiptOperatorId;
         Guid departmentId;
         Guid warehouseId;
         Guid rackBinId;
@@ -126,11 +128,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             qcId = await Employee(seed, "SESS-33");
             productionId = await Employee(seed, "SESS-25");
             accountsSupportId = await Employee(seed, "SESS-41");
+            secondReceiptOperatorId = await Employee(seed, "SESS-16");
             var identities = new[]
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
                 (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"),
-                (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, "SESS-41")
+                (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, "SESS-41"),
+                (secondReceiptOperatorId, "SESS-16")
             };
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -269,7 +273,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var grns=new List<GoodsReceiptResult>();
             foreach (var band in bands)
                 grns.Add(await RunPurchaseBand(adminClient, approvalClient, client, options, user, band, creatorId, managerId, tdId, mdId,
-                    verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id));
+                    verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id,
+                    grnRace is not null && band.Code == "LOW"
+                        ? draft => grnRace(new(options, runtimeConnection, draft, storesId, secondReceiptOperatorId,
+                            "LOW-grn-finalize", server.ReadDiagnosticLog))
+                        : null));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -403,7 +411,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -555,7 +563,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
-        Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id)
+        Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id,
+        Func<GoodsReceiptResult, Task<GoodsReceiptResult>>? finalizeRace = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -788,7 +797,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(billDate.AddMonths(13),grn.Lines[0].WarrantyExpiryDate);Assert.Equal("9025",grn.Lines[0].HsnSacCode);
         Assert.Equal(band.QuoteRate>5000m?"REQUIRED":"OPTIONAL",grn.Lines[0].SerialCaptureMode);Assert.Empty(grn.Warnings);
         var draftVersion=grn.Version;
-        grn=await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
+        grn = finalizeRace is null
+            ? await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"))
+            : await finalizeRace(grn);
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
         var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");

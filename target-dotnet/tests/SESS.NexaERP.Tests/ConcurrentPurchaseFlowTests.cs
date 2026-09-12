@@ -144,7 +144,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             command.Parameters.AddWithValue("blocker", blocker);
             await using (var reader = await command.ExecuteReaderAsync())
             {
-                if (await reader.ReadAsync())
+                // Lock-manager and backend wait-event samples can briefly disagree.
+                // Require a complete lock sample before accepting the observation.
+                if (await reader.ReadAsync() && !reader.IsDBNull(2) && !reader.IsDBNull(3) &&
+                    reader.GetString(2) == "Lock")
                 {
                     var statement = reader.GetString(1);
                     Assert.Contains(expectedStatement, statement, StringComparison.Ordinal);

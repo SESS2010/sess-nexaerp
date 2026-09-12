@@ -55,6 +55,20 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
     }
     public async Task<GoodsReceiptResult> FinalizeAsync(Guid id,FinalizeGoodsReceiptRequest request,CancellationToken ct)
     {
+        try { return await FinalizeCoreAsync(id, request, ct); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            throw new DbUpdateConcurrencyException("GRN finalization conflicted with a concurrent change. Reload the receipt before retrying.", error);
+        }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException &&
+            error.MessageText is "A finalized GRN is immutable; correct it by reversal and a new document." or "GRN Version is stale.")
+        {
+            throw new StoresConflictException(error.MessageText);
+        }
+    }
+
+    private async Task<GoodsReceiptResult> FinalizeCoreAsync(Guid id,FinalizeGoodsReceiptRequest request,CancellationToken ct)
+    {
         var actor=Actor();await RequireReceiptOperatorAsync(ct);var role=ActorRole();var key=Required(request.IdempotencyKey,"IdempotencyKey");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);
         var receipt=await ReceiptQuery().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct)??throw new KeyNotFoundException("GRN was not found.");await RequireScope(receipt.PurchaseOrder!,ct);
         var fingerprint=Hash(new{receipt.Id,request.Version,receipt.RequestFingerprint,command="FINALIZE_GRN"});var correlation=Hash($"GRN:FINALIZE:{receipt.Id}:{key}");var envelope=Rev869BCommandContextAuthorizer.CommandEnvelope.Create(Organization(),"GoodsReceipt.Finalize",key,new{id,request});var attempt=await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(db,user,Organization(),envelope,"stores_document_status_history",nameof(GoodsReceipt),receipt.Id,"FINALIZED",request.Version,"DRAFT","FINALIZED",correlation,"GRN finalized and FIFO cost layers created.",ct);var result=await ExecuteFinalize(company.Id,receipt.Id,request.Version,key,fingerprint,correlation,actor,role,ct);if(!result.Replayed)await ExecuteFifoLayers(company.Id,receipt.Id,actor,role,ct);
