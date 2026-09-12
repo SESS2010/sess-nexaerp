@@ -39,6 +39,25 @@ export function getStoredIdentity(): { employeeCode: string; organizationId: str
   }
 }
 
+const COMPANY_STORAGE_KEY = 'nexaerp.dev.lastCompany'
+
+/** Company chosen at the last sign-in; survives sign-out so the next sign-in lands in the same company. */
+export function getLastCompany(): string {
+  try {
+    return localStorage.getItem(COMPANY_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setLastCompany(organizationId: string): void {
+  try {
+    localStorage.setItem(COMPANY_STORAGE_KEY, organizationId)
+  } catch {
+    // storage unavailable; the user picks again next time
+  }
+}
+
 export function setStoredIdentity(identity: { employeeCode: string; organizationId: string } | null): void {
   try {
     if (identity) {
@@ -134,8 +153,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/**
+ * Normalise a list response to the paged envelope regardless of what the server
+ * actually sent. A list page must never call .map on a value straight off the
+ * wire: a bare array, a missing Items, or a renamed field all return 200 and
+ * would otherwise white-screen the render (EmployeeListPage, 12 Sep). Here the
+ * wrong shape degrades to an empty page instead.
+ */
+export function toPagedResponse<T>(data: unknown): PagedResponse<T> {
+  if (Array.isArray(data)) {
+    return { TotalCount: data.length, PageNumber: 1, PageSize: data.length, Items: data as T[] }
+  }
+  if (data && typeof data === 'object') {
+    const envelope = data as Partial<PagedResponse<T>>
+    const items = Array.isArray(envelope.Items) ? envelope.Items : []
+    return {
+      TotalCount: typeof envelope.TotalCount === 'number' ? envelope.TotalCount : items.length,
+      PageNumber: typeof envelope.PageNumber === 'number' ? envelope.PageNumber : 1,
+      PageSize: typeof envelope.PageSize === 'number' ? envelope.PageSize : items.length,
+      Items: items,
+    }
+  }
+  return { TotalCount: 0, PageNumber: 1, PageSize: 0, Items: [] }
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  /** GET a list endpoint; the result is always a well-formed PagedResponse. */
+  getPaged: async <T>(path: string): Promise<PagedResponse<T>> => toPagedResponse<T>(await request<unknown>(path)),
   // `headers` carries per-call requirements such as the Stores Idempotency-Key.
   post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body), headers }),

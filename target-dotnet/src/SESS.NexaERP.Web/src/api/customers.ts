@@ -32,7 +32,7 @@ export function listCustomers(query: CustomerListQuery): Promise<PagedResponse<C
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
-  return api.get<PagedResponse<CustomerSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<CustomerSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getCustomer(customerCode: string): Promise<CustomerDetail> {

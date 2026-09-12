@@ -9,7 +9,9 @@ import { SortableHeader } from '../../components/SortableHeader'
 import { useSort } from '../../hooks/useSort'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
-const STATUS_OPTIONS = ['', 'Active', 'Inactive']
+// Defaults to Active: the nine leavers (three-digit codes, status LEFT) were
+// listing beside working staff when the filter started at "all".
+const STATUS_OPTIONS = ['Active', 'Inactive', 'LEFT', '']
 const PAGE_SIZE = 20
 
 export function EmployeeListPage() {
@@ -20,7 +22,7 @@ export function EmployeeListPage() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState('Active')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)

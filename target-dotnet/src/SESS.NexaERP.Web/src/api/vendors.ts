@@ -35,7 +35,7 @@ export function listVendors(query: VendorListQuery): Promise<PagedResponse<Vendo
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.type) params.set('type', query.type)
-  return api.get<PagedResponse<VendorSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<VendorSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getVendor(vendorCode: string): Promise<VendorDetail> {

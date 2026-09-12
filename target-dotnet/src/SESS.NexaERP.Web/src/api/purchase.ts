@@ -62,7 +62,7 @@ export function listPurchaseRequisitions(
   if (query.status) params.set('status', query.status)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
-  return api.get<PagedResponse<PurchaseRequisitionSummary>>(`${PR_BASE}?${params.toString()}`)
+  return api.getPaged<PurchaseRequisitionSummary>(`${PR_BASE}?${params.toString()}`)
 }
 
 export function getPurchaseRequisition(prNumber: string): Promise<PurchaseRequisitionDetail> {
@@ -126,7 +126,7 @@ export function listStockReservations(
   page = 1,
   pageSize = 100,
 ): Promise<PagedResponse<StockReservationSummary>> {
-  return api.get<PagedResponse<StockReservationSummary>>(
+  return api.getPaged<StockReservationSummary>(
     `${PR_BASE}/reservations?page=${page}&pageSize=${pageSize}`,
   )
 }
@@ -135,7 +135,7 @@ export function listPurchaseHandoffs(
   page = 1,
   pageSize = 100,
 ): Promise<PagedResponse<PurchaseRequirementHandoffSummary>> {
-  return api.get<PagedResponse<PurchaseRequirementHandoffSummary>>(
+  return api.getPaged<PurchaseRequirementHandoffSummary>(
     `${PR_BASE}/handoffs?page=${page}&pageSize=${pageSize}`,
   )
 }
@@ -163,7 +163,7 @@ export function listStockCheckRequisitions(
   if (query.status) params.set('status', query.status)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
-  return api.get<PagedResponse<PurchaseRequisitionSummary>>(
+  return api.getPaged<PurchaseRequisitionSummary>(
     `/api/v1/stores/stock-check/requisitions?${params.toString()}`,
   )
 }
@@ -219,7 +219,7 @@ export interface VendorOption {
 export async function listVendorOptions(search: string): Promise<VendorOption[]> {
   const params = new URLSearchParams({ page: '1', pageSize: '50' })
   if (search) params.set('search', search)
-  const page = await api.get<PagedResponse<VendorRow>>(`/api/v1/masters/vendors?${params.toString()}`)
+  const page = await api.getPaged<VendorRow>(`/api/v1/masters/vendors?${params.toString()}`)
   return page.Items.filter((vendor) => vendor.IsActive).map((vendor) => ({
     Id: vendor.Id,
     VendorCode: vendor.VendorCode,
@@ -417,19 +417,19 @@ function documentListParams(query: PurchaseDocumentListQuery, numberKey: string)
 }
 
 export function listRfqs(query: PurchaseDocumentListQuery): Promise<PagedResponse<RfqListItem>> {
-  return api.get<PagedResponse<RfqListItem>>(`/api/v1/purchase/rfqs?${documentListParams(query, 'rfqNumber')}`)
+  return api.getPaged<RfqListItem>(`/api/v1/purchase/rfqs?${documentListParams(query, 'rfqNumber')}`)
 }
 
 export function listQuotations(query: PurchaseDocumentListQuery): Promise<PagedResponse<QuotationListItem>> {
-  return api.get<PagedResponse<QuotationListItem>>(`/api/v1/purchase/quotations?${documentListParams(query, 'quotationNumber')}`)
+  return api.getPaged<QuotationListItem>(`/api/v1/purchase/quotations?${documentListParams(query, 'quotationNumber')}`)
 }
 
 export function listComparisons(query: PurchaseDocumentListQuery): Promise<PagedResponse<ComparisonListItem>> {
-  return api.get<PagedResponse<ComparisonListItem>>(`/api/v1/purchase/comparisons?${documentListParams(query, 'comparisonNumber')}`)
+  return api.getPaged<ComparisonListItem>(`/api/v1/purchase/comparisons?${documentListParams(query, 'comparisonNumber')}`)
 }
 
 export function listPurchaseOrders(query: PurchaseDocumentListQuery): Promise<PagedResponse<PurchaseOrderListItem>> {
-  return api.get<PagedResponse<PurchaseOrderListItem>>(`/api/v1/purchase/purchase-orders?${documentListParams(query, 'purchaseOrderNumber')}`)
+  return api.getPaged<PurchaseOrderListItem>(`/api/v1/purchase/purchase-orders?${documentListParams(query, 'purchaseOrderNumber')}`)
 }
 
 export function listMaterialFollowUp(page: number, pageSize: number, handoffNumber?: string): Promise<PagedResponse<MaterialFollowUpListItem>> {
@@ -437,7 +437,7 @@ export function listMaterialFollowUp(page: number, pageSize: number, handoffNumb
   params.set('page', String(page))
   params.set('pageSize', String(pageSize))
   if (handoffNumber) params.set('handoffNumber', handoffNumber)
-  return api.get<PagedResponse<MaterialFollowUpListItem>>(`/api/v1/purchase/material-followup?${params.toString()}`)
+  return api.getPaged<MaterialFollowUpListItem>(`/api/v1/purchase/material-followup?${params.toString()}`)
 }
 
 // --- Stores stock check (page stores.stock-check, action verify) ------------
@@ -452,5 +452,5 @@ export function stockCheckPurchaseRequisition(
 /** Rack/bins of one warehouse for the stock-check location pick (masters.rack-bins:view). */
 export function listRackBins(warehouseCode: string): Promise<PagedResponse<RackBinSummary>> {
   const params = new URLSearchParams({ page: '1', pageSize: '200', warehouseCode })
-  return api.get<PagedResponse<RackBinSummary>>(`/api/v1/inventory/rack-bins?${params.toString()}`)
+  return api.getPaged<RackBinSummary>(`/api/v1/inventory/rack-bins?${params.toString()}`)
 }

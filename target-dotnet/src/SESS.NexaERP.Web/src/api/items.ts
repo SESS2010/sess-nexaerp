@@ -31,7 +31,7 @@ export function listItems(query: ItemListQuery): Promise<PagedResponse<ItemSumma
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.category) params.set('category', query.category)
-  return api.get<PagedResponse<ItemSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<ItemSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getItem(itemCode: string): Promise<ItemDetail> {
@@ -93,15 +93,15 @@ export async function fetchItemImageUrl(itemCode: string): Promise<string | null
 const lookupParams = 'page=1&pageSize=200&isActive=true'
 
 export function listItemCategories(): Promise<PagedResponse<ReferenceLookup>> {
-  return api.get<PagedResponse<ReferenceLookup>>(`${MASTERS}/item-categories?${lookupParams}`)
+  return api.getPaged<ReferenceLookup>(`${MASTERS}/item-categories?${lookupParams}`)
 }
 
 export function listItemSubcategories(categoryId: string): Promise<PagedResponse<SubcategoryLookup>> {
-  return api.get<PagedResponse<SubcategoryLookup>>(`${MASTERS}/item-subcategories?${lookupParams}&categoryId=${categoryId}`)
+  return api.getPaged<SubcategoryLookup>(`${MASTERS}/item-subcategories?${lookupParams}&categoryId=${categoryId}`)
 }
 
 export function listUoms(): Promise<PagedResponse<ReferenceLookup>> {
-  return api.get<PagedResponse<ReferenceLookup>>(`${MASTERS}/uoms?${lookupParams}`)
+  return api.getPaged<ReferenceLookup>(`${MASTERS}/uoms?${lookupParams}`)
 }
 
 // Inline quick-adds for the master-backed dropdowns.

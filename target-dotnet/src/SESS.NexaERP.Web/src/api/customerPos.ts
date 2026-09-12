@@ -33,7 +33,7 @@ export function listCustomerPos(query: CustomerPoListQuery): Promise<PagedRespon
   if (query.fiscalYear) params.set('fiscalYear', query.fiscalYear)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
-  return api.get<PagedResponse<CustomerPoSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<CustomerPoSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getCustomerPo(poRecordNumber: string): Promise<CustomerPoDetail> {

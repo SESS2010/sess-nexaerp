@@ -31,7 +31,7 @@ export function listEmployees(query: EmployeeListQuery): Promise<PagedResponse<E
   if (query.status) params.set('status', query.status)
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
-  return api.get<PagedResponse<EmployeeSummary>>(`${BASE}/?${params.toString()}`)
+  return api.getPaged<EmployeeSummary>(`${BASE}/?${params.toString()}`)
 }
 
 export function getEmployeeLookups(): Promise<EmployeeMasterLookups> {

@@ -28,7 +28,7 @@ export function listQcQueue(query: QcQueueQuery): Promise<PagedResponse<QcQueueI
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
-  return api.get<PagedResponse<QcQueueItem>>(`${BASE}/queue?${params.toString()}`)
+  return api.getPaged<QcQueueItem>(`${BASE}/queue?${params.toString()}`)
 }
 
 /**

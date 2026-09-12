@@ -35,7 +35,7 @@ export function listEstimatedBoms(query: EstimatedBomListQuery): Promise<PagedRe
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
-  return api.get<PagedResponse<EstimatedBomSummary>>(`${ESTIMATED}/?${params.toString()}`)
+  return api.getPaged<EstimatedBomSummary>(`${ESTIMATED}/?${params.toString()}`)
 }
 
 export function getEstimatedBom(bomNumber: string): Promise<EstimatedBomView> {

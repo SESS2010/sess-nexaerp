@@ -38,7 +38,7 @@ export function listJobOrders(query: JobOrderListQuery): Promise<PagedResponse<J
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
-  return api.get<PagedResponse<JobOrderSummary>>(`${JOB_ORDERS}/?${params.toString()}`)
+  return api.getPaged<JobOrderSummary>(`${JOB_ORDERS}/?${params.toString()}`)
 }
 
 /**
@@ -138,7 +138,7 @@ export function listComponentFitments(query: ComponentFitmentListQuery): Promise
   params.set('pageSize', String(query.pageSize))
   if (query.jobOrderId) params.set('jobOrderId', query.jobOrderId)
   if (query.activeOnly !== undefined) params.set('activeOnly', String(query.activeOnly))
-  return api.get<PagedResponse<ComponentFitmentSummary>>(`${FITMENTS}/?${params.toString()}`)
+  return api.getPaged<ComponentFitmentSummary>(`${FITMENTS}/?${params.toString()}`)
 }
 
 export function getComponentFitment(id: string): Promise<ComponentFitmentSummary> {

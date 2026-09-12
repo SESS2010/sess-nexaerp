@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setStoredIdentity, setStoredToken } from '../../api/client'
+import { api, getLastCompany, setLastCompany, setStoredIdentity, setStoredToken } from '../../api/client'
 import { SessLogo } from '../../components/SessLogo'
 
 interface DevIdentity {
@@ -45,10 +45,17 @@ export function LoginPage() {
     [identities],
   )
 
+  // Every SESS employee holds assignments in both companies, so the company is
+  // a real choice, not a dev convenience. Never default to whichever company
+  // the identities endpoint happens to list first (that was SESS_PROPRIETORSHIP,
+  // which has no items, vendors or stock): reuse the last sign-in's company,
+  // take the only company when there is one, otherwise make the user pick.
   useEffect(() => {
-    if (companies.length > 0 && !companies.includes(organizationId)) {
-      setOrganizationId(companies[0])
-    }
+    if (companies.length === 0 || companies.includes(organizationId)) return
+    const remembered = getLastCompany()
+    if (companies.includes(remembered)) setOrganizationId(remembered)
+    else if (companies.length === 1) setOrganizationId(companies[0])
+    else setOrganizationId('')
   }, [companies, organizationId])
 
   const submit = async (event: FormEvent) => {
@@ -62,6 +69,7 @@ export function LoginPage() {
       })
       setStoredToken(result.Token)
       setStoredIdentity({ employeeCode: result.EmployeeCode, organizationId: result.OrganizationId })
+      setLastCompany(result.OrganizationId)
       // Land on the home page, which every role can see; Employee Master is
       // permission-gated and blanked the first screen for most users.
       navigate('/', { replace: true })
@@ -113,7 +121,7 @@ export function LoginPage() {
             value={organizationId}
             onChange={(event) => setOrganizationId(event.target.value)}
           >
-            {companies.length === 0 && <option value="">Select company…</option>}
+            {!organizationId && <option value="">Select company…</option>}
             {companies.map((company) => (
               <option key={company} value={company}>
                 {company.replaceAll('_', ' ')}
@@ -124,7 +132,7 @@ export function LoginPage() {
 
         {error && <div className="alert alert-error">{error}</div>}
 
-        <button type="submit" className="btn btn-primary login-submit" disabled={busy}>
+        <button type="submit" className="btn btn-primary login-submit" disabled={busy || !organizationId}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
 
