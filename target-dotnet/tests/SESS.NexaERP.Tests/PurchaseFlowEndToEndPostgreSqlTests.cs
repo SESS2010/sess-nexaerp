@@ -286,7 +286,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(4, await verify.VendorBillCostAllocations.CountAsync());
             Assert.Equal(11, await verify.VendorBillHistories.CountAsync());
             var fifoLayers = await verify.FifoInventoryCostLayers.OrderBy(x => x.ReceivedAt).ThenBy(x => x.Id).ToListAsync();
-            Assert.Equal(grns.Select(x => x.Lines.Single().Id), fifoLayers.Select(x => x.GoodsReceiptLineId));
+            Assert.Equal(grns.Select(x => x.Lines.Single().Id),
+                fifoLayers.Select(x => x.GoodsReceiptLineId!.Value));
             var fifoUse = await verify.FifoCostConsumptions.GroupBy(x => x.FifoInventoryCostLayerId)
                 .Select(x => new { LayerId = x.Key, Quantity = x.Sum(y => y.Quantity) }).ToDictionaryAsync(x => x.LayerId, x => x.Quantity);
             Assert.Equal(1m, fifoUse[fifoLayers[0].Id]);

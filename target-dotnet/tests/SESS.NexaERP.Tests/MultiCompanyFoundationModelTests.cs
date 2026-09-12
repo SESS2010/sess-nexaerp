@@ -45,8 +45,8 @@ public sealed class MultiCompanyFoundationModelTests
             x.ClrType == typeof(InventoryConcession));
         Assert.Equal(19, foundation2Scoped);
         Assert.Equal(2, foundation3Scoped);
-        Assert.Equal(72, existingScoped - foundation2Scoped - foundation3Scoped);
-        Assert.Equal(28, 100 - (existingScoped - foundation2Scoped - foundation3Scoped));
+        Assert.Equal(74, existingScoped - foundation2Scoped - foundation3Scoped);
+        Assert.Equal(26, 100 - (existingScoped - foundation2Scoped - foundation3Scoped));
         Assert.Equal(39, MultiCompanyFoundationSeedData.EmployeeCompanyAssignments.Length);
         Assert.All(MultiCompanyFoundationSeedData.EmployeeCompanyAssignments,
             row => Assert.Equal("PAYROLL", row.AssignmentType));

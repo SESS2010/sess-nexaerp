@@ -1,11 +1,14 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using Npgsql;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Domain.Employees;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Inventory;
 using SESS.NexaERP.Domain.Masters;
+using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.MasterData;
@@ -122,5 +125,35 @@ public sealed class OpeningStockMasterDataAdapter(NexaErpDbContext db,ICurrentUs
     public IMasterDataDefinition Definition{get;}=new OpeningStockImportDefinition();public string NormalizeBusinessCode(string v)=>ImportFields.Code(v);public Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery q,CancellationToken ct)=>Task.FromResult<IReadOnlyList<MasterDataExportRow>>([]);public Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> c,IReadOnlyCollection<Guid> i,CancellationToken ct)=>Task.FromResult(new MasterDataExistingSet(new Dictionary<string,MasterDataExistingRecord>(),new Dictionary<Guid,MasterDataExistingRecord>()));
     public async Task<object?> LoadLookupContextAsync(IReadOnlyList<MasterDataRawRow> r,CancellationToken ct){var company=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive).Select(x=>x.Id).SingleAsync(ct);return new OpeningStockLookup(await db.Items.Where(x=>x.IsActive&&x.ApprovalStatus==MasterApprovalStatuses.Approved).ToDictionaryAsync(x=>x.ItemCode,x=>new ValueTuple<bool,bool>(x.SerialNumberTracking,x.BatchTracking),ct),await db.Warehouses.Where(x=>x.CompanyId==company&&x.IsActive).ToDictionaryAsync(x=>x.WarehouseCode,x=>x.Id,ct),await db.RackBins.Where(x=>x.CompanyId==company).ToDictionaryAsync(x=>x.BinCode,x=>new ValueTuple<Guid,bool>(x.WarehouseId,x.IsActive),ct));}
     public IReadOnlyList<MasterDataRowError> Validate(MasterDataRawRow r,MasterDataExistingRecord? x,object? context){var e=new List<MasterDataRowError>();foreach(var f in new[]{("LineReference","Line Reference"),("ItemCode","Item Code"),("WarehouseCode","Warehouse Code"),("RackBinCode","Rack Bin Code"),("Quantity","Quantity"),("Rate","Rate")})ImportFields.Required(r,f.Item1,f.Item2,e);var qty=ImportFields.Decimal(r,"Quantity",e);ImportFields.Decimal(r,"Rate",e);if(qty==0)e.Add(ImportFields.Error("Quantity","Quantity","INVALID_VALUE","Opening quantity must be greater than zero.",ImportFields.V(r,"Quantity")));if(context is OpeningStockLookup l){var item=ImportFields.Code(ImportFields.V(r,"ItemCode"));var wh=ImportFields.Code(ImportFields.V(r,"WarehouseCode"));var bin=ImportFields.Code(ImportFields.V(r,"RackBinCode"));if(!l.Items.TryGetValue(item,out var tracking))e.Add(ImportFields.Error("ItemCode","Item Code","LOOKUP_NOT_FOUND","Approved active item was not found.",item));if(!l.Warehouses.TryGetValue(wh,out var warehouseId))e.Add(ImportFields.Error("WarehouseCode","Warehouse Code","LOOKUP_NOT_FOUND","Active warehouse was not found in this company.",wh));if(!l.Bins.TryGetValue(bin,out var location)||!location.Active||location.WarehouseId!=warehouseId)e.Add(ImportFields.Error("RackBinCode","Rack Bin Code","LOOKUP_NOT_FOUND","Active rack/bin was not found in the selected warehouse and company.",bin));if(tracking.Serial&&string.IsNullOrWhiteSpace(ImportFields.V(r,"SerialNumber")))e.Add(ImportFields.Error("SerialNumber","Serial Number","REQUIRED","Serial Number is required for this item.",null));if(tracking.Batch&&string.IsNullOrWhiteSpace(ImportFields.V(r,"LotNumber")))e.Add(ImportFields.Error("LotNumber","Lot Number","REQUIRED","Lot Number is required for this item.",null));if(tracking.Serial&&qty!=1)e.Add(ImportFields.Error("Quantity","Quantity","SERIAL_QUANTITY","Each serial row must have quantity 1.",ImportFields.V(r,"Quantity")));}return e;}public bool IsMateriallyEqual(MasterDataRawRow r,MasterDataExistingRecord x)=>false;
-    public Task<MasterDataApplyResult> CreateAsync(MasterDataRawRow r,CancellationToken ct)=>Task.FromResult(new MasterDataApplyResult(Guid.NewGuid(),0));public Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord x,MasterDataRawRow r,uint v,CancellationToken ct)=>throw new MasterDataValidationException("Opening-stock staging rows are immutable; upload a corrected workbook before authorization.");
+    public async Task<MasterDataApplyResult> CreateAsync(MasterDataRawRow r,CancellationToken ct)
+    {
+        var company=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive).Select(x=>x.Id).SingleAsync(ct);
+        var itemCode=ImportFields.Code(ImportFields.V(r,"ItemCode"));var warehouseCode=ImportFields.Code(ImportFields.V(r,"WarehouseCode"));var binCode=ImportFields.Code(ImportFields.V(r,"RackBinCode"));
+        var item=await db.Items.Where(x=>x.ItemCode==itemCode&&x.IsActive&&x.ApprovalStatus==MasterApprovalStatuses.Approved).Select(x=>x.Id).SingleAsync(ct);
+        var warehouse=await db.Warehouses.Where(x=>x.CompanyId==company&&x.WarehouseCode==warehouseCode&&x.IsActive).Select(x=>x.Id).SingleAsync(ct);
+        var bin=await db.RackBins.Where(x=>x.CompanyId==company&&x.WarehouseId==warehouse&&x.BinCode==binCode&&x.IsActive).Select(x=>x.Id).SingleAsync(ct);
+          var connection=(NpgsqlConnection)db.Database.GetDbConnection();
+          await using var command=new NpgsqlCommand(
+              @"SELECT advance.stage_opening_stock_import_line(@company,@reference,@item,@warehouse,@bin,@lot,@serial,@quantity,@rate,@actor,@role,@assignment,@type,@login)",
+              connection,(NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction());
+          command.Parameters.AddWithValue("company",company);
+          command.Parameters.AddWithValue("reference",ImportFields.V(r,"LineReference")!);
+          command.Parameters.AddWithValue("item",item);
+          command.Parameters.AddWithValue("warehouse",warehouse);
+          command.Parameters.AddWithValue("bin",bin);
+          command.Parameters.AddWithValue("lot",(object?)Null(ImportFields.V(r,"LotNumber"))??DBNull.Value);
+          command.Parameters.AddWithValue("serial",(object?)Null(ImportFields.V(r,"SerialNumber"))??DBNull.Value);
+          command.Parameters.AddWithValue("quantity",decimal.Parse(ImportFields.V(r,"Quantity")!,CultureInfo.InvariantCulture));
+          command.Parameters.AddWithValue("rate",decimal.Parse(ImportFields.V(r,"Rate")!,CultureInfo.InvariantCulture));
+          command.Parameters.AddWithValue("actor",user.EmployeeId!.Value);
+          command.Parameters.AddWithValue("role",user.RoleCode);
+          command.Parameters.AddWithValue("assignment",user.ResolvedRoleAssignmentId!.Value);
+          command.Parameters.AddWithValue("type",user.ResolvedRoleAssignmentType!);
+          command.Parameters.AddWithValue("login",user.LoginId);
+          var id=(Guid)(await command.ExecuteScalarAsync(ct)
+              ?? throw new MasterDataConflictException("Opening Stock staging returned no durable row."));
+          return new(id,0);
+    }
+    public Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord x,MasterDataRawRow r,uint v,CancellationToken ct)=>throw new MasterDataValidationException("Opening-stock staging rows are immutable; upload a corrected workbook before authorization.");
+    private static string? Null(string? value)=>string.IsNullOrWhiteSpace(value)?null:value.Trim();
 }

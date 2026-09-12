@@ -102,7 +102,7 @@ public sealed class InventoryLot
     public Company? Company { get; set; }
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }
-    public Guid VendorId { get; set; }
+    public Guid? VendorId { get; set; }
     public Vendor? Vendor { get; set; }
     public string? SupplierLotNumber { get; set; }
     public string? NormalizedSupplierLotNumber { get; set; }

@@ -113,6 +113,10 @@ internal static partial class ComponentFitmentActualBomSql
         "  ELSIF b.\"PostingKind\"='MATERIAL_RETURN' THEN\n    NULL;",
         "  ELSIF b.\"PostingKind\" IN ('MATERIAL_RETURN','FITMENT_CONSUMPTION') THEN\n    NULL;");
 
+    internal static string ActiveBatchGuard => ExtendedBatchGuard;
+    internal static string ActiveMovementGuard => ExtendedMovementGuard;
+    internal static string ActiveReconcileGuard => ExtendedReconcileGuard;
+
     private static string ReplaceRequired(string source, string oldValue, string newValue)
     {
         var first = source.IndexOf(oldValue, StringComparison.Ordinal);

@@ -180,6 +180,20 @@ public sealed class EfMasterDataTransferService(
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        Rev869BCommandContextAuthorizer.CommandAttemptHandle? openingStockAttempt = null;
+        if (adapter.Definition.MasterKey == "opening-stock")
+        {
+            var importBatch = await db.MasterImportBatches.AsNoTracking()
+                .SingleAsync(x => x.Id == batchId, cancellationToken);
+            var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
+                user.OrganizationId!, "OpeningStock.Import", importBatch.IdempotencyKey,
+                new { importBatch.Id, importBatch.RequestFingerprint });
+            openingStockAttempt = await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(
+                db, user, user.OrganizationId!, envelope, "master_import_row_results",
+                nameof(MasterImportBatch), batchId, "STAGE", 0, null, "COMPLETED",
+                importBatch.CorrelationId.ToString(), "Opening Stock workbook staged for three-actor authorization.",
+                cancellationToken);
+        }
         var outcomes = new List<RowOutcome>(prepared.Length);
         foreach (var item in prepared)
         {
@@ -230,6 +244,9 @@ public sealed class EfMasterDataTransferService(
                     ? MasterDataImportStatuses.CompletedWithErrors
                     : MasterDataImportStatuses.Completed,
                 cancellationToken);
+            if (openingStockAttempt.HasValue)
+                await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(
+                    db, openingStockAttempt.Value, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         return await MapBatchAsync(batchId, includeRows: true, authorizeHistoricalRead: false, cancellationToken)

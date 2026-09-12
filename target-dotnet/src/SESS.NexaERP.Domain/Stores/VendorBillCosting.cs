@@ -131,8 +131,10 @@ public sealed class FifoInventoryCostLayer
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid CompanyId { get; set; }
-    public Guid GoodsReceiptLineId { get; set; }
+    public Guid? GoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+    public Guid? OpeningStockLineId { get; set; }
+    public OpeningStockLine? OpeningStockLine { get; set; }
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }
     public decimal QuantityReceived { get; set; }
