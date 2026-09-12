@@ -1,0 +1,40 @@
+{
+  "Authentication": {
+    "Providers": {
+      "staff": {
+        "Authority": "https://identity.customer.example/realms/staff",
+        "MetadataAddress": "https://identity.customer.example/realms/staff/.well-known/openid-configuration",
+        "AudienceMode": "Audience",
+        "Audience": "nexaerp",
+        "ClientId": "nexaerp-staff",
+        "ClientIdClaim": "azp",
+        "TokenUseClaim": "typ",
+        "AccessTokenUseValue": "Bearer",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": false,
+        "JwksAddress": "https://identity.customer.example/realms/staff/protocol/openid-connect/certs",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      },
+      "approvers": {
+        "Authority": "https://identity.customer.example/realms/approvers",
+        "MetadataAddress": "https://identity.customer.example/realms/approvers/.well-known/openid-configuration",
+        "AudienceMode": "Audience",
+        "Audience": "nexaerp",
+        "ClientId": "nexaerp-approvers",
+        "ClientIdClaim": "azp",
+        "TokenUseClaim": "typ",
+        "AccessTokenUseValue": "Bearer",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": true,
+        "JwksAddress": "https://identity.customer.example/realms/approvers/protocol/openid-connect/certs",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      }
+    }
+  }
+}

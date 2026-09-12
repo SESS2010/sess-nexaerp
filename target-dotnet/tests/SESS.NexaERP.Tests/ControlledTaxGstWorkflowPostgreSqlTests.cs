@@ -150,6 +150,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private IReadOnlyList<EffectiveRoleAssignment> assignments = [];
         private ResolvedRoleAuthority? authority;
         private string selectedRole = "none";
+        private readonly Dictionary<Guid, string> rotatedSubjects = [];
+        public void RotateSubject(Guid employeeId, string subject)
+        {
+            rotatedSubjects[employeeId] = subject;
+            if (CurrentEmployeeId == employeeId) LoginId = subject;
+        }
         public TaxWorkflowUser(Guid employeeId, string login, string role,
             IReadOnlyDictionary<string, EffectiveRoleAssignment>? assignmentsByEmployeeAndRole = null)
         {
@@ -176,7 +182,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public void Set(Guid id, string subject, string roleCode, params string[] effectiveRoles)
         {
             CurrentEmployeeId = id;
-            LoginId = subject;
+            LoginId = rotatedSubjects.GetValueOrDefault(id, subject);
             selectedRole = roleCode;
             authority = null;
             var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;

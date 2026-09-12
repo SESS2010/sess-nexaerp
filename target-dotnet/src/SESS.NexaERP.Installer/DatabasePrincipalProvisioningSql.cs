@@ -140,6 +140,11 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.complete_authentication_bootstrap(text,text) TO nexa_erp_bootstrap';
           END IF;
+          IF to_regprocedure('advance.govern_authentication_bootstrap(text,text,boolean,boolean)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.govern_authentication_bootstrap(text,text,boolean,boolean)
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.govern_authentication_bootstrap(text,text,boolean,boolean) TO nexa_erp_bootstrap;
+          END IF;
         END $ceremony_acl$;
 
         DO $stores_acl$
@@ -387,6 +392,13 @@ internal static class DatabasePrincipalProvisioningSql
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'UPDATE')
                    OR has_table_privilege('nexa_erp_runtime',c.oid,'DELETE'))
           ) THEN RAISE EXCEPTION 'Runtime table privileges differ from SELECT/INSERT/UPDATE without DELETE.'; END IF;
+          IF to_regprocedure('advance.govern_authentication_bootstrap(text,text,boolean,boolean)') IS NOT NULL THEN
+            IF NOT has_function_privilege('nexa_erp_bootstrap','advance.govern_authentication_bootstrap(text,text,boolean,boolean)','EXECUTE')
+               OR has_function_privilege('nexa_erp_runtime','advance.govern_authentication_bootstrap(text,text,boolean,boolean)','EXECUTE')
+               OR has_function_privilege('nexa_erp_migration','advance.govern_authentication_bootstrap(text,text,boolean,boolean)','EXECUTE') THEN
+              RAISE EXCEPTION 'Governed authentication ceremony ACL is invalid.';
+            END IF;
+          END IF;
           IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN
             IF (
               SELECT count(*)

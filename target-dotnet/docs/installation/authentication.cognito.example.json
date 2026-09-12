@@ -1,0 +1,40 @@
+{
+  "Authentication": {
+    "Providers": {
+      "staff": {
+        "Authority": "https://REPLACE-STAFF-ISSUER.invalid",
+        "MetadataAddress": "https://REPLACE-STAFF-ISSUER.invalid/.well-known/openid-configuration",
+        "AudienceMode": "ClientClaim",
+        "Audience": null,
+        "ClientId": "REPLACE-STAFF-CLIENT",
+        "ClientIdClaim": "client_id",
+        "TokenUseClaim": "token_use",
+        "AccessTokenUseValue": "access",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": false,
+        "JwksAddress": "https://REPLACE-STAFF-ISSUER.invalid/.well-known/jwks.json",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      },
+      "approvers": {
+        "Authority": "https://REPLACE-APPROVER-ISSUER.invalid",
+        "MetadataAddress": "https://REPLACE-APPROVER-ISSUER.invalid/.well-known/openid-configuration",
+        "AudienceMode": "ClientClaim",
+        "Audience": null,
+        "ClientId": "REPLACE-APPROVER-CLIENT",
+        "ClientIdClaim": "client_id",
+        "TokenUseClaim": "token_use",
+        "AccessTokenUseValue": "access",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": true,
+        "JwksAddress": "https://REPLACE-APPROVER-ISSUER.invalid/.well-known/jwks.json",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      }
+    }
+  }
+}

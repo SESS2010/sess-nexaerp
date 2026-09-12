@@ -7,7 +7,16 @@ internal static class AuthenticationBootstrapCommand
 
     internal static async Task<int> RunAsync(string[] args)
     {
-        if (!TryParse(args, out var issuer, out var subject, out var error))
+        var rerun = args.Contains("--rerun", StringComparer.Ordinal);
+        var retireDevelopment = args.Contains("--retire-development", StringComparer.Ordinal);
+        if (args.Count(arg => arg == "--rerun") > 1 || args.Count(arg => arg == "--retire-development") > 1 ||
+            (rerun && retireDevelopment))
+        {
+            Console.Error.WriteLine("REFUSED: Flags cannot be repeated or combine --rerun with --retire-development.");
+            return 2;
+        }
+        var identityArgs = args.Where(arg => arg is not ("--rerun" or "--retire-development")).ToArray();
+        if (!TryParse(identityArgs, out var issuer, out var subject, out var error))
         {
             Console.Error.WriteLine(error);
             WriteUsage();
@@ -36,12 +45,14 @@ internal static class AuthenticationBootstrapCommand
             await connection.OpenAsync();
             await RequireSafeClusterAsync(connection, expectedDatabase.Trim());
             await using var transaction = await connection.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
-            await using var command = new NpgsqlCommand(AuthenticationBootstrapCommandSql.Complete, connection, transaction);
+            await using var command = new NpgsqlCommand(AuthenticationBootstrapCommandSql.GovernedComplete, connection, transaction);
             command.Parameters.AddWithValue("issuer", issuer!);
             command.Parameters.AddWithValue("subject", subject!);
+            command.Parameters.AddWithValue("rerun", rerun);
+            command.Parameters.AddWithValue("retire_development", retireDevelopment);
             var result = (string?)await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("Bootstrap function returned no completion witness.");
             await transaction.CommitAsync();
-            Console.WriteLine($"COMPLETED: {result}");
+            Console.WriteLine($"{(rerun ? "VERIFIED" : "COMPLETED")}: {result}");
             return 0;
         }
         catch (Exception exception) when (exception is NpgsqlException or InvalidOperationException)
@@ -93,5 +104,5 @@ internal static class AuthenticationBootstrapCommand
     }
 
     private static void WriteUsage() =>
-        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>");
+        Console.Error.WriteLine("Usage: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject> [--rerun | --retire-development]");
 }

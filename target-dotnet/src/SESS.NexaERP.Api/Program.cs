@@ -61,14 +61,7 @@ if (developmentAuthenticationEnabled)
 #endif
 if (!developmentAuthenticationEnabled)
 {
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
-        {
-            options.Authority = builder.Configuration["Authentication:Authority"];
-            options.Audience = builder.Configuration["Authentication:Audience"];
-            options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-            options.MapInboundClaims = false;
-        });
+    OidcAccessTokenConfiguration.Register(builder.Services, builder.Configuration);
 }
 builder.Services.AddAuthorization();
 

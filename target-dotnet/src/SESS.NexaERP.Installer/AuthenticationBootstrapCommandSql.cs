@@ -8,6 +8,7 @@ internal static class AuthenticationBootstrapCommandSql
                to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL;
         """;
 
+    internal const string GovernedComplete = "SELECT advance.govern_authentication_bootstrap(@issuer,@subject,@rerun,@retire_development)::text;";
     internal const string Complete =
         "SELECT advance.complete_authentication_bootstrap(@issuer,@subject)::text;";
 }

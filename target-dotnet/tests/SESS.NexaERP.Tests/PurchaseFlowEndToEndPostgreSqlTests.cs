@@ -37,6 +37,29 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+    private static async Task RotatePurchaseWitnessSubject(
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid employeeId, string suffix)
+    {
+        // Simulate an identity-provider handover in this isolated fixture. The governed
+        // runtime create/revoke operations have their own transaction/audit witness.
+        await using var db = new NexaErpDbContext(options);
+        var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
+        var previous = await db.EmployeeIdentityMappings.SingleAsync(row =>
+            row.CompanyId == companyId && row.EmployeeId == employeeId && row.IsActive);
+        previous.IsActive = false;
+        previous.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow);
+        previous.Version++;
+        previous.UpdatedAt = DateTimeOffset.UtcNow;
+        previous.UpdatedBy = "IDENTITY_HANDOVER_WITNESS";
+        await db.SaveChangesAsync();
+        var subject = "purchase-" + suffix;
+        db.EmployeeIdentityMappings.Add(Mapping(companyId, employeeId, subject));
+        await db.SaveChangesAsync();
+        user.RotateSubject(employeeId, subject);
+        Assert.Equal(1, await db.EmployeeIdentityMappings.CountAsync(row =>
+            row.CompanyId == companyId && row.EmployeeId == employeeId && row.IsActive));
+    }
+
     [Fact]
     public async Task CompletePurchaseFlowRunsAgainstDisposablePostgreSqlInAllThreeApprovalBands()
     {
@@ -150,6 +173,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var qualification = await Query(options, db => db.VendorQualifications
                     .Where(x => x.Vendor!.VendorCode == vendorCode && x.QualificationCode == "TRIAL-PURCHASE-FLOW")
                     .Select(x => new { x.Id, x.Version }).SingleAsync());
+                if (vendorCode == "TRIAL-VEN-001")
+                    await RotatePurchaseWitnessSubject(options, user, purchaseId, "after-qualification");
                 user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
                 if (vendorCode == "TRIAL-VEN-001")
                 {
@@ -435,6 +460,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", false, null,
                 $"{band.Code}-rfq-create", [new(handoff.Id, handoff.HandoffQuantity)]));
         await AssertTransactionEvidence(options, "RFQ", rfq.Id, "CreateRFQ");
+        if (band.Code == "LOW") await RotatePurchaseWitnessSubject(options, user, purchaseId, "after-rfq");
         var invitations = new List<Guid>();
         foreach (var vendorId in new[] { vendor1Id, vendor2Id })
         {
@@ -515,6 +541,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var po = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/purchase-orders",
             new Rev869BCreatePurchaseOrderRequest(comparison.Number, comparison.Version, $"{band.Code}-po-create"));
         await AssertPoEvidence(options, po.Id, "CreatePO");
+        if (band.Code == "LOW") await RotatePurchaseWitnessSubject(options, user, purchaseId, "after-po");
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/submit",
             new Rev869BSubmitPurchaseOrderRequest("PO submitted", po.Version, $"{band.Code}-po-submit"));
         await AssertPoEvidence(options, po.Id, "SubmitPO");

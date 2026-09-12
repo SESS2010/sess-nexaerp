@@ -18,6 +18,7 @@ public sealed class StandardErrorEnvelopeMiddleware(
     RequestDelegate next,
     IOptions<JsonOptions> jsonOptions)
 {
+    public const string AuthenticationFailureKey = "SESS.Authentication.AdministratorActionRequired";
     private static readonly IReadOnlyDictionary<string, string[]> NoErrors =
         new Dictionary<string, string[]>(StringComparer.Ordinal);
 
@@ -42,6 +43,17 @@ public sealed class StandardErrorEnvelopeMiddleware(
                 legacy.Detail,
                 legacy.Errors,
                 Activity.Current?.Id ?? context.TraceIdentifier);
+
+            if (context.Response.StatusCode == StatusCodes.Status403Forbidden &&
+                context.Items.ContainsKey(AuthenticationFailureKey))
+                envelope = envelope with
+                {
+                    Type = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED"
+                        ? "https://api.sess.example/problems/mfa-required"
+                        : "https://api.sess.example/problems/employee-access-not-configured",
+                    Title = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED" ? "MFA required" : "Administrator action required",
+                    Code = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED" ? "MFA_REQUIRED" : "EMPLOYEE_ACCESS_NOT_CONFIGURED"
+                };
 
             context.Response.Body = originalBody;
             context.Response.ContentLength = null;

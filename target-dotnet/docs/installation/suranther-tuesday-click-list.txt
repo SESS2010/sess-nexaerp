@@ -1,0 +1,27 @@
+SURANTHER - TUESDAY COGNITO SETUP
+
+1. Open AWS Console, select the agreed Region, search for Cognito, then open User pools. Create SESS-NexaERP-Staff and SESS-NexaERP-Approvers. Keep test and production separate.
+
+2. Choose a single-page application. Select Username as the sign-in option; enter each employee code as that person's username. Turn off self-service sign-up. Use a public app client without a client secret. Accounts are created by an administrator.
+
+3. Open each pool's password settings. Set minimum length 14, require uppercase, lowercase, a number and a symbol, and temporary password expiry one day. Require a password change on first sign-in. Under Sign-in > User account recovery > Edit, clear Enable self-service account recovery and save; password recovery goes through the administrator.
+
+4. Open Sign-in, find Multi-factor authentication, and click Edit. Staff: OPTIONAL MFA. Approvers: REQUIRED MFA. Select Authenticator apps (TOTP), then Save changes. Turn off remembered-device MFA bypass. Do not add external identity providers to Approvers.
+
+5. Use the current active ERP employee list. Create users holding TECHNICAL_DIRECTOR, MANAGING_DIRECTOR or ACCOUNTS_MANAGER in Approvers. Create the other active employees in Staff. ERP role assignments remain separate.
+
+6. Open App clients and select the ERP client. Set access and ID tokens to 15 minutes and refresh tokens to 8 hours. Choose authorization-code grant. Turn off implicit grant. The frontend uses PKCE.
+
+7. Under resource servers, add identifier nexaerp and scope access. Allow nexaerp/access and openid for the ERP app clients.
+
+8. In each pool, open Branding > Domain > Actions > Create Cognito domain. Choose an available prefix, select Managed login, then Create. Open App clients, select the ERP client, and open Login pages. Paste the exact callback and sign-out URLs supplied for the deployed ERP frontend. Do not guess addresses or use wildcards or example URLs. Save.
+
+9. Open Users, then Create user. Enter employee code and verified work email. Each employee changes their own temporary password. Each approver enrolls their OWN authenticator app. No shared phones or OTP secrets. End/revoke the enrollment sessions, wait 16 minutes, then verify a fresh sign-in asks for an authenticator code BEFORE mapping ERP access. Keep ERP access unmapped during this wait.
+
+10. Start with SESS-12, SURANTHER P. Copy each User pool ID from its overview, each Client ID from App clients > ERP client, and each domain from Branding > Domain. Send these with the selected AWS Region and saved callback/sign-out URLs to the setup engineer, who prepares and verifies the exact issuer/discovery/JWKS settings. Open Users, select each created employee, and copy the sub attribute into a list beside employee code and pool name. Do not send passwords, OTP secrets, AWS secret keys or tokens.
+
+11. The setup engineer runs the ERP Installer bootstrap with your verified issuer and sub. After that, use ERP identity administration to create mappings for each authorized company membership. No direct database edits.
+
+12. For promotion into an approver role: create the Approvers account and complete personal TOTP enrollment first. Coordinate the ERP role change. The ERP identity administrator revokes old Staff mappings and creates new Approvers mappings for every authorized company. Verify new access works and old access is refused, then disable the old Cognito user and end its sessions. Keep old ERP mappings as history. An AWS administrator alone cannot change ERP roles or mappings.
+
+Eight-hour refresh does NOT mean eight-hour offline access. Refresh requires the identity provider. During an outage, an existing sign-in has only its remaining access-token lifetime, provided the API has usable signing keys cached.

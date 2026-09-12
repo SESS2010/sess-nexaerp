@@ -32,4 +32,7 @@
     <ProjectReference Include="..\..\src\SESS.NexaERP.Installer\SESS.NexaERP.Installer.csproj" />
   </ItemGroup>
 
+  <PropertyGroup Condition="'$(KeycloakWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);KEYCLOAK_WITNESS</DefineConstants>
+  </PropertyGroup>
 </Project>
