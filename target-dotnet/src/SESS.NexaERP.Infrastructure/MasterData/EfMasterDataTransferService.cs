@@ -28,7 +28,7 @@ public sealed class EfMasterDataTransferService(
     public Task<MasterDataFileResult> CreateTemplateAsync(string masterKey, CancellationToken cancellationToken)
     {
         var definition = registry.GetRequired(masterKey).Definition;
-        var content = workbooks.Create(definition, [], clock.UtcNow);
+        var content = workbooks.Create(definition, definition.TemplateExampleRows, clock.UtcNow);
         return Task.FromResult(new MasterDataFileResult($"{definition.MasterKey}-template.xlsx", MasterDataWorkbookService.ContentType, content));
     }
 
@@ -513,7 +513,7 @@ public sealed class EfMasterDataTransferService(
         or DbUpdateException or DbUpdateConcurrencyException;
     private static MasterDataTransferOptions ValidateOptions(MasterDataTransferOptions value)
     {
-        if (value.MaxRows is < 1 or > 1000) throw new InvalidOperationException("MasterDataTransfer:MaxRows must be from 1 through the synchronous ceiling of 1000.");
+        if (value.MaxRows is < 1 or > 10000) throw new InvalidOperationException("MasterDataTransfer:MaxRows must be from 1 through the synchronous ceiling of 10000.");
         if (value.MaxFileBytes is < 1 or > 50 * 1024 * 1024) throw new InvalidOperationException("MasterDataTransfer:MaxFileBytes must be from 1 byte through 50 MiB.");
         if (value.MaxExpandedBytes < value.MaxFileBytes || value.MaxExpandedBytes > 250 * 1024 * 1024) throw new InvalidOperationException("MasterDataTransfer:MaxExpandedBytes must be at least MaxFileBytes and at most 250 MiB.");
         if (value.SensitiveRowRetentionDays != 90) throw new InvalidOperationException("MasterDataTransfer:SensitiveRowRetentionDays is fixed at the approved 90 days.");

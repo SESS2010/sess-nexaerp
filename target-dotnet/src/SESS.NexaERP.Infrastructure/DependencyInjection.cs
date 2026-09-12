@@ -46,7 +46,7 @@ public static class DependencyInjection
         services.AddScoped<IRackBinMasterDataService, EfRackBinMasterDataService>();
         services.AddOptions<MasterDataTransferOptions>()
             .Bind(configuration.GetSection(MasterDataTransferOptions.SectionName))
-            .Validate(x => x.MaxRows is >= 1 and <= 1000, "MaxRows must be from 1 through 1000.")
+            .Validate(x => x.MaxRows is >= 1 and <= 10000, "MaxRows must be from 1 through 10000.")
             .Validate(x => x.SensitiveRowRetentionDays == 90, "Sensitive row retention is fixed at 90 days.")
             .ValidateOnStart();
         services.AddScoped<IMasterDataAdapter, UomMasterDataAdapter>();
@@ -54,6 +54,10 @@ public static class DependencyInjection
         services.AddScoped<IMasterDataAdapter, VendorMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, WarehouseMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, RackBinMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, ItemMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, EmployeeMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, ItemVendorMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, OpeningStockMasterDataAdapter>();
         services.AddScoped<IMasterDataRegistry, MasterDataRegistry>();
         services.AddScoped<IMasterDataTransferService, EfMasterDataTransferService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
