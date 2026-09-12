@@ -132,6 +132,18 @@ internal static class DatabasePrincipalProvisioningSql
         END $item_last_purchase_acl$;
         REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
 
+        DO $company_report_acl$
+        BEGIN
+          IF to_regprocedure('advance.company_report_grni(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text)') IS NOT NULL THEN
+            GRANT EXECUTE ON FUNCTION advance.company_report_grni(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text),
+              advance.company_report_vendor_purchases(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text),
+              advance.company_report_fifo_valuation(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text),
+              advance.company_report_pending_approvals(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text),
+              advance.company_report_purchase_register(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text)
+              TO nexa_erp_runtime;
+          END IF;
+        END $company_report_acl$;
+
         DO $ceremony_acl$
         BEGIN
           IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN

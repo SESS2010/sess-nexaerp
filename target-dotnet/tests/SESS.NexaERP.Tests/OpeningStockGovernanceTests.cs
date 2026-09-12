@@ -58,6 +58,65 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-stock-witness-up.sql", migrator.GenerateScript(predecessor, target));
         server.Execute("opening-stock-witness.sql", WitnessSql);
+        server.Execute("opening-stock-report-schema.sql",migrator.GenerateScript(target,migrations[^1]));
+        server.Execute("opening-stock-report-login.sql","""UPDATE advance.employees SET "LoginEnabled"=true WHERE "EmployeeCode" IN ('SESS-01','SESS-14');""");
+        await using var ownerDb = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options);
+        var director = await ownerDb.Employees.SingleAsync(row => row.EmployeeCode == "SESS-01");
+        var company = await ownerDb.Companies.SingleAsync(row => row.Code == "SESS_PVT_LTD");
+        var assignments = await ownerDb.EmployeeRoleAssignments.Include(row => row.Role)
+            .Where(row => row.EmployeeId == director.Id && row.CompanyId == company.Id && row.EffectiveTo == null).ToListAsync();
+        var actor = new ReportWitnessUser(director.Id,assignments.Select(row =>
+            new SESS.NexaERP.Application.Common.EffectiveRoleAssignment(row.Id,row.Role!.Code,row.AssignmentType)).ToArray());
+        var runtimeConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString) { Username = "nexa_erp_runtime" }.ConnectionString;
+        await using var reportDb = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options);
+        var reports = new SESS.NexaERP.Infrastructure.Reporting.EfCompanyReportService(reportDb,actor);
+        var postingDate = new DateOnly(2027,3,31); // The existing ceremony's fiscal-period end is its ledger date.
+        var beforeOpening = await reports.GetAsync("stock-balance",new(ToDate:postingDate.AddDays(-1)),default);
+        Assert.Empty(beforeOpening.Rows);
+        var balance = await reports.GetAsync("stock-balance",new(ToDate:postingDate),default);
+        Assert.Equal(10m,Assert.Single(balance.Totals).GetProperty("quantity").GetDecimal());
+        var detail = await reports.GetAsync("stock-balance",new(ToDate:postingDate,Mode:"details"),default);
+        Assert.NotEqual(System.Text.Json.JsonValueKind.Null,Assert.Single(detail.Rows).GetProperty("openingStockLineId").ValueKind);
+        var roll = await reports.GetAsync("movement-roll-forward",new(new DateOnly(2026,4,1),postingDate),default);
+        var total = Assert.Single(roll.Totals);
+        Assert.Equal(10m,total.GetProperty("openingIntroduced").GetDecimal());
+        Assert.Equal(0m,total.GetProperty("receipts").GetDecimal());
+        Assert.Equal(10m,total.GetProperty("adjustments").GetDecimal());
+        Assert.Equal(10m,total.GetProperty("closing").GetDecimal());
+        var accounts = await ownerDb.Employees.SingleAsync(row=>row.EmployeeCode=="SESS-14");
+        var accountsAssignments = await ownerDb.EmployeeRoleAssignments.Include(row=>row.Role)
+            .Where(row=>row.EmployeeId==accounts.Id&&row.CompanyId==company.Id&&row.EffectiveTo==null).ToListAsync();
+        var accountsActor = new ReportWitnessUser(accounts.Id,accountsAssignments.Select(row=>
+            new SESS.NexaERP.Application.Common.EffectiveRoleAssignment(row.Id,row.Role!.Code,row.AssignmentType)).ToArray());
+        var valuation = new SESS.NexaERP.Infrastructure.Reporting.EfCompanyReportService(reportDb,accountsActor);
+        Assert.Empty((await ObserveSingleReportCommand(()=>valuation.GetAsync("fifo-valuation",new(ToDate:postingDate.AddDays(-1)),default))).Rows);
+        var fifo=await ObserveSingleReportCommand(()=>valuation.GetAsync("fifo-valuation",new(ToDate:postingDate),default));
+        var fifoTotal=Assert.Single(fifo.Totals);
+        Assert.Equal(10m,fifoTotal.GetProperty("quantity").GetDecimal());
+        Assert.Equal(250m,fifoTotal.GetProperty("value").GetDecimal());
+        Assert.Equal("INR",fifoTotal.GetProperty("currency").GetString());
+        Assert.Equal("OPENING_LANDED",Assert.Single(fifo.Rows).GetProperty("costBasis").GetString());
+        var fifoDetail=await valuation.GetAsync("fifo-valuation",new(ToDate:postingDate,Mode:"details",
+            Group:fifoTotal.GetProperty("group").GetRawText(),Metric:"value"),default);
+        var layer=Assert.Single(fifoDetail.Rows);
+        Assert.Equal(25m,layer.GetProperty("unitCost").GetDecimal());
+        Assert.Equal(250m,layer.GetProperty("value").GetDecimal());
+        Assert.Equal(0,layer.GetProperty("ageDays").GetInt32());
+        Assert.NotEqual(System.Text.Json.JsonValueKind.Null,layer.GetProperty("openingStockLineId").ValueKind);
+        foreach(var (days,bucket) in new[]{(30,"0–30 days"),(31,"31–90 days"),(90,"31–90 days"),(91,"91–180 days"),
+            (180,"91–180 days"),(181,"181–365 days"),(365,"181–365 days"),(366,"Over 365 days")})
+        {
+            var aged=await valuation.GetAsync("fifo-valuation",new(ToDate:postingDate.AddDays(days)),default);
+            Assert.Equal(bucket,Assert.Single(aged.Rows).GetProperty("ageBucket").GetString());
+            Assert.Equal(250m,Assert.Single(aged.Totals).GetProperty("value").GetDecimal());
+        }
+        var download=await ObserveSingleReportCommand(()=>valuation.ExportAsync("fifo-valuation",new(ToDate:postingDate),default));
+        using var fifoStream=new MemoryStream(download.Content);
+        using var fifoWorkbook=new ClosedXML.Excel.XLWorkbook(fifoStream);
+        Assert.Equal(250m,fifoWorkbook.Worksheet("Totals").Cell(2,5).GetValue<decimal>());
+        Assert.True(fifoWorkbook.Worksheet("Totals").Cell(2,5).HasHyperlink);
+
+
     }
 
     [Fact]

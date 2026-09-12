@@ -1,4 +1,8 @@
 {
+  "Reporting": {
+    "DefaultTimeZone": "Asia/Kolkata",
+    "CompanyTimeZones": {}
+  },
   "Authentication": {
     "Providers": {
       "staff": {

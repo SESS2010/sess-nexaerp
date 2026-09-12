@@ -136,6 +136,7 @@ if (developmentAuthenticationEnabled)
 }
 #endif
 
+app.MapCompanyReportEndpoints();
 app.MapSessionEndpoints();
 app.MapNotificationEndpoints();
 app.MapIdentityEndpoints();

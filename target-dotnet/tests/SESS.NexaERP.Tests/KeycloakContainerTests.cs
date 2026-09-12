@@ -115,7 +115,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         using (var response = await Me(staff.AccessToken))
         {
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.StatusCode==HttpStatusCode.OK,await response.Content.ReadAsStringAsync());
             var session = await response.Content.ReadFromJsonAsync<SessionMe>();
             Assert.Equal("SESS-04", session!.EmployeeCode);
             Assert.Equal(origin + "/realms/sess-staff", session.IdentityIssuer);
@@ -139,7 +139,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await KeycloakMapEmployee(server.ConnectionString, "SESS-01", origin + "/realms/sess-approvers", approver.Subject);
         using (var response = await Me(approver.AccessToken))
         {
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(response.StatusCode==HttpStatusCode.OK,await response.Content.ReadAsStringAsync());
             var session = await response.Content.ReadFromJsonAsync<SessionMe>();
             Assert.Equal("SESS-01", session!.EmployeeCode);
             Assert.Contains(session.RoleCodes, role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR");
@@ -244,7 +244,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
               ("Id","CompanyId","OrganizationId","Issuer","Subject","EmployeeId","IdentityType",
                "EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version")
             SELECT gen_random_uuid(),c."Id",c."Code",@issuer,@subject,e."Id",'HUMAN',
-              current_date,true,clock_timestamp(),'KEYCLOAK_ISOLATED_FIXTURE',0
+              (current_timestamp AT TIME ZONE 'UTC')::date,true,clock_timestamp(),'KEYCLOAK_ISOLATED_FIXTURE',0
             FROM advance.companies c CROSS JOIN advance.employees e
             WHERE c."Code"='SESS_PVT_LTD' AND e."EmployeeCode"=@employee;
             """, connection);
@@ -260,7 +260,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand("""
-            UPDATE advance.employee_identity_mappings SET "IsActive"=false,"EffectiveTo"=current_date,
+            UPDATE advance.employee_identity_mappings SET "IsActive"=false,"EffectiveTo"=(current_timestamp AT TIME ZONE 'UTC')::date,
               "Version"="Version"+1,"UpdatedAt"=clock_timestamp(),"UpdatedBy"='KEYCLOAK_ISOLATED_FIXTURE'
             WHERE "Issuer"=@issuer AND "Subject"=@subject AND "IsActive";
             """, connection);

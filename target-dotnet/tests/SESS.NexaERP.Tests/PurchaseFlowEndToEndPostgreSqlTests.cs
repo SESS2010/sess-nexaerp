@@ -84,6 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid qcId;
         Guid productionId;
         Guid accountsSupportId;
+        Guid departmentId;
         Guid warehouseId;
         Guid rackBinId;
         Guid categoryId;
@@ -92,7 +93,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using (var seed = new NexaErpDbContext(options))
         {
             var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
-            var departmentId = await seed.Departments.Where(x => x.Code == "IT").Select(x => x.Id).SingleAsync();
+            departmentId = await seed.Departments.Where(x => x.Code == "IT").Select(x => x.Id).SingleAsync();
             warehouseId = await seed.Warehouses.Where(x => x.WarehouseCode == "TRIAL-WH-C01").Select(x => x.Id).SingleAsync();
             rackBinId = await seed.RackBins.Where(x => x.BinCode == "TRIAL-C01-GEN-01").Select(x => x.Id).SingleAsync();
             var item = await seed.Items.SingleAsync(x => x.ItemCode == "TRIAL-ITEM-001");
@@ -270,11 +271,32 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
             user.Set(qcId, "SESS-33", Rev869ARoleCodes.QcManager);
             Assert.Equal(0, (await Get<JsonElement>(client, "/api/v1/notifications/unread-count")).GetProperty("Count").GetInt32());
+            user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+            var initialGrni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,"/api/v1/reports/grni");
+            Assert.Equal(3m,initialGrni.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
+            Assert.Contains(initialGrni.TimeZone,new[]{"Asia/Kolkata","Asia/Calcutta"});
+            Assert.Equal(DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTimeOffset.UtcNow,"Asia/Kolkata").DateTime),initialGrni.ToDate);
+
+            var initialFifo=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,"/api/v1/reports/fifo-valuation");
+            Assert.Equal(3m,initialFifo.Totals.Sum(row=>row.GetProperty("quantity").GetDecimal()));
+            // The committed GRN costing path posts the PO total payable per unit,
+            // including its tax allocation; bare GRN UnitRate is not the layer value.
+            Assert.Equal(128620.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
             var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
+            user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+            var pendingGrni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
+            Assert.Equal(1m,pendingGrni.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
+            var partlyBilledFifo=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+                WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details"));
+            Assert.Equal(3,partlyBilledFifo.Rows.Count);
+            Assert.Equal(2,partlyBilledFifo.Rows.Count(row=>row.GetProperty("costBasis").GetString()=="BILL_LANDED"));
+            Assert.Single(partlyBilledFifo.Rows,row=>row.GetProperty("costBasis").GetString()=="PO_PROVISIONAL_IDENTICAL");
             await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
             await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill);
 
+            user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+            await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
             await using var verify = new NexaErpDbContext(options);
             Assert.False(await verify.RolePagePermissions.AnyAsync(x => !x.CanView && !x.HasFullControl &&
                 (x.CanCreate || x.CanUpdate || x.CanSubmit || x.CanIssue || x.CanVerify || x.CanApprove ||
@@ -362,9 +384,157 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.False(string.IsNullOrWhiteSpace(x.ActorRoleCode));
                 Assert.NotNull(x.ResolvedRoleAssignmentId);
             });
+            await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
+            await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
+#if REPORT_VOLUME_WITNESS
+            await RunReportVolumeWitness(options,runtimeConnection);
+#endif
 
         }
         finally { }
+    }
+
+
+    private static async Task AssertTwoEngineerReport(HttpClient client, DbContextOptions<NexaErpDbContext> options,
+        TaxWorkflowUser user, Guid departmentId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId)
+    {
+        user.Set(storesId,"SESS-35",Rev869ARoleCodes.StoresExecutive);
+        var before=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/engineer-custody"));
+        var firstTotal=Assert.Single(before.Totals);
+        await using var db=new NexaErpDbContext(options);
+        var second=await db.Employees.SingleAsync(row=>row.EmployeeCode=="SESS-06");
+        var item=await db.Items.SingleAsync(row=>row.ItemCode=="TRIAL-ITEM-001");
+        await CreateAndIssueConsumable(client,user,item.Id,item.BaseUomId,item.ItemCode,departmentId,
+            second.Id,purchaseId,productionId,storesId,"mir-second-engineer");
+        var report=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/engineer-custody"));
+        Assert.Equal(2,report.Totals.Count);
+        Assert.Equal(firstTotal.GetProperty("quantity").GetDecimal(),
+            Assert.Single(report.Totals,row=>row.GetProperty("engineerCode").GetString()=="SESS-05").GetProperty("quantity").GetDecimal());
+        Assert.Equal(.05m,Assert.Single(report.Totals,row=>row.GetProperty("engineerCode").GetString()=="SESS-06").GetProperty("quantity").GetDecimal());
+        foreach(var total in report.Totals)
+        {
+            var selection=Uri.EscapeDataString(total.GetProperty("group").GetRawText());
+            var detail=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+                WitnessReportPath($"/api/v1/reports/engineer-custody?mode=details&selection={selection}&pageSize=1000"));
+            Assert.All(detail.Rows,row=>Assert.Equal(total.GetProperty("engineerCode").GetString(),row.GetProperty("engineerCode").GetString()));
+            Assert.Equal(total.GetProperty("quantity").GetDecimal(),detail.Rows.Sum(row=>row.GetProperty("quantity").GetDecimal()));
+        }
+        using var response=await client.GetAsync(WitnessReportPath("/api/v1/reports/engineer-custody/excel"));
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode); // Stores view does not imply export.
+        var denied=(await response.Content.ReadFromJsonAsync<StandardErrorEnvelope>())!;
+        Assert.Equal("REPORT_ACCESS_DENIED",denied.Code);
+        Assert.Null(denied.AdministratorActionRequired);
+        using(var invalid=await client.GetAsync(WitnessReportPath("/api/v1/reports/engineer-custody?pageSize=0")))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest,invalid.StatusCode);
+            var error=(await invalid.Content.ReadFromJsonAsync<StandardErrorEnvelope>())!;
+            Assert.Equal("REPORT_REQUEST_INVALID",error.Code);
+            Assert.Null(error.AdministratorActionRequired);
+        }
+        user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);
+        using var authorizedExport=await client.GetAsync(WitnessReportPath("/api/v1/reports/engineer-custody/excel"));
+        authorizedExport.EnsureSuccessStatusCode();
+        using var stream=new MemoryStream(await authorizedExport.Content.ReadAsByteArrayAsync());
+        using var workbook=new ClosedXML.Excel.XLWorkbook(stream);
+        var totals=workbook.Worksheet("Totals");
+        Assert.Equal(3,totals.LastRowUsed()!.RowNumber());
+        Assert.Equal(new[]{"SESS-05","SESS-06"},new[]{totals.Cell(2,1).GetString(),totals.Cell(3,1).GetString()}.Order().ToArray());
+    }
+
+    private static async Task AssertEngineerCustodyReport(HttpClient client, decimal expected)
+    {
+        var report = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/engineer-custody"));
+        var total = Assert.Single(report.Totals);
+        Assert.Equal("SESS-05",total.GetProperty("engineerCode").GetString());
+        Assert.Equal(expected,total.GetProperty("quantity").GetDecimal());
+        Assert.All(report.Rows,row => Assert.Equal("SESS-05",row.GetProperty("engineerCode").GetString()));
+        var selection = Uri.EscapeDataString(total.GetProperty("group").GetRawText());
+        var detail = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath($"/api/v1/reports/engineer-custody?mode=details&selection={selection}&metric=quantity&pageSize=1000"));
+        Assert.Equal(expected,detail.Rows.Sum(row => row.GetProperty("quantity").GetDecimal()));
+    }
+
+    private static async Task AssertStockReportsFromPurchaseWitness(HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid accountsId, Guid tdId)
+    {
+        user.Set(accountsId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+
+        using(var blocked=await client.GetAsync(WitnessReportPath("/api/v1/reports/fifo-valuation")))
+        {
+            Assert.Equal(HttpStatusCode.Conflict,blocked.StatusCode);
+            var failure=(await blocked.Content.ReadFromJsonAsync<StandardErrorEnvelope>())!;
+            Assert.Equal("FIFO_RETURN_CREDITS_REQUIRED",failure.Code);
+            Assert.True(failure.AdministratorActionRequired is true);
+        }
+        using(var blockedExport=await client.GetAsync(WitnessReportPath("/api/v1/reports/fifo-valuation/excel")))
+            Assert.Equal(HttpStatusCode.Conflict,blockedExport.StatusCode);
+        Assert.Equal(2,await Query(options,db=>db.AuditLogs.CountAsync(row=>
+            row.Module=="Reports"&&row.EntityId=="reports.fifo-valuation"&&row.Action=="Unavailable"&&row.Result=="Failure")));
+        var grni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
+        Assert.Empty(grni.Rows);
+        var decisionInstants=await Query(options,db=>db.VendorBills.Where(b=>b.DecidedAt!=null)
+            .Select(b=>b.DecidedAt!.Value).ToArrayAsync());
+        var reportZone=TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+        var beforeFirstDecision=decisionInstants
+            .Select(instant=>SESS.NexaERP.Infrastructure.Reporting.ReportCalendarOptions.DateInZone(instant,reportZone))
+            .Min().AddDays(-1);
+        var beforeBilling=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            $"/api/v1/reports/vendor-purchases?fromDate={beforeFirstDecision.AddDays(-30):yyyy-MM-dd}&toDate={beforeFirstDecision:yyyy-MM-dd}");
+        Assert.Empty(beforeBilling.Rows);
+
+        var purchases = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath("/api/v1/reports/vendor-purchases?fromDate=2026-01-01&pageSize=1000"));
+        Assert.Equal(3m,purchases.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
+        Assert.Equal(12m,purchases.Totals.Sum(row => row.GetProperty("allocatedCharges").GetDecimal()));
+        var events = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath("/api/v1/reports/vendor-purchases?fromDate=2026-01-01&mode=details&pageSize=1000"));
+        Assert.Equal(5,events.TotalSourceRows);
+        Assert.Single(events.Rows,row => row.GetProperty("event").GetString() == "REVERSED");
+        Assert.Equal(purchases.Totals.Sum(row => row.GetProperty("landedValue").GetDecimal()),
+            events.Rows.Sum(row => row.GetProperty("landedValue").GetDecimal()));
+        using (var exportResponse = await client.GetAsync(WitnessReportPath("/api/v1/reports/vendor-purchases/excel?fromDate=2026-01-01")))
+        {
+            Assert.True(exportResponse.IsSuccessStatusCode,await exportResponse.Content.ReadAsStringAsync());
+            using var exportStream = new MemoryStream(await exportResponse.Content.ReadAsByteArrayAsync());
+            using var exportBook = new ClosedXML.Excel.XLWorkbook(exportStream);
+            Assert.Equal(6,exportBook.Worksheet("Details").LastRowUsed()!.RowNumber());
+            Assert.Equal(3m,exportBook.Worksheet("Totals").Cell(2,3).GetValue<decimal>());
+            Assert.Equal(12m,exportBook.Worksheet("Totals").Cell(2,5).GetValue<decimal>());
+        }
+        user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+        var register = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/purchase-register"));
+        Assert.Equal(3,register.TotalRows);
+        Assert.Equal(19,register.TotalSourceRows);
+        foreach (var measure in new[] { "requested","ordered","received","billed" })
+            Assert.Equal(3m,register.Totals.Sum(row => row.GetProperty(measure).GetDecimal()));
+        foreach (var row in register.Rows)
+            foreach (var measure in new[] { "requested","ordered","received","billed" })
+                Assert.Equal(1m,row.GetProperty(measure).GetDecimal());
+        var balance = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,"/api/v1/reports/stock-balance?pageSize=1000");
+        Assert.Equal(2.7m,balance.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
+        Assert.NotEmpty(balance.Rows);
+        foreach (var row in balance.Rows)
+        {
+            var selection = Uri.EscapeDataString(row.GetProperty("group").GetRawText());
+            var detail = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+                WitnessReportPath($"/api/v1/reports/stock-balance?mode=details&metric=closing&selection={selection}&pageSize=1000"));
+            Assert.Equal(row.GetProperty("quantity").GetDecimal(),detail.Rows.Sum(movement => movement.GetProperty("netQuantity").GetDecimal()));
+            Assert.Equal(detail.TotalSourceRows,detail.Rows.Count);
+        }
+        var roll = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath("/api/v1/reports/movement-roll-forward?fromDate=2026-01-01&pageSize=1000"));
+        Assert.Equal(2.7m,roll.Totals.Sum(row => row.GetProperty("closing").GetDecimal()));
+        foreach (var row in roll.Rows)
+            Assert.Equal(row.GetProperty("closing").GetDecimal(),
+                row.GetProperty("opening").GetDecimal()+row.GetProperty("receipts").GetDecimal()
+                -row.GetProperty("issues").GetDecimal()+row.GetProperty("adjustments").GetDecimal());
+        using var response = await client.GetAsync(WitnessReportPath("/api/v1/reports/movement-roll-forward/excel?fromDate=2026-01-01"));
+        Assert.True(response.IsSuccessStatusCode,await response.Content.ReadAsStringAsync());
+        using var stream = new MemoryStream(await response.Content.ReadAsByteArrayAsync());
+        using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
+        Assert.Equal(roll.TotalSourceRows + 1,workbook.Worksheet("Details").LastRowUsed()!.RowNumber());
+        Assert.Equal(roll.TotalRows + 1,workbook.Worksheet("Summary").LastRowUsed()!.RowNumber());
+        await using var db = new NexaErpDbContext(options);
+        Assert.Equal(2,await db.AuditLogs.CountAsync(row => row.Module == "Reports" && row.Action == "Export"));
     }
 
     private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
@@ -413,6 +583,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 $"/api/v1/purchase/requisitions/{pr.PrNumber}")).Id);
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         }
+
+        var pendingReport = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            "/api/v1/reports/pending-approvals?mode=details");
+        var pendingPr = Assert.Single(pendingReport.Rows,row => row.GetProperty("documentId").GetGuid()==pr.Id);
+        Assert.Equal("SESS-14",pendingPr.GetProperty("approverCode").GetString());
+        Assert.Equal("NAMED_EMPLOYEE",pendingPr.GetProperty("assignmentKind").GetString());
+        Assert.Equal(1,pendingPr.GetProperty("pendingActions").GetInt32());
+        Assert.Equal(0,pendingPr.GetProperty("ageDays").GetInt32());
+        Assert.NotNull(pendingReport.Coverage);
 
         var managerQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(approvalClient,
             $"/api/v1/purchase/requisitions?prNumber={pr.PrNumber}");
@@ -917,6 +1096,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
         Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
         Assert.Equal(job.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+        await AssertEngineerCustodyReport(client,.95m);
 
         var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
         await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
@@ -983,6 +1163,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             HttpStatusCode.Forbidden);
 
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        var returnQueue=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            "/api/v1/reports/pending-approvals?mode=details&pageSize=1000");
+        var queuedReturn=Assert.Single(returnQueue.Rows,row=>row.GetProperty("documentId").GetGuid()==materialReturn.Id);
+        Assert.Equal("MATERIAL_RETURN",queuedReturn.GetProperty("documentType").GetString());
+        Assert.Equal("ROLE_POOL",queuedReturn.GetProperty("assignmentKind").GetString());
         var accept = new AcceptMaterialReturn(materialReturn.Version, DateTimeOffset.UtcNow,
             "Scanner-confirmed return accepted into Stores", "material-return-accept");
         materialReturn = await Post<MaterialReturnView>(client,
@@ -990,6 +1175,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var acceptReplay = await Post<MaterialReturnView>(client,
             $"/api/v1/stores/material-returns/{materialReturn.Id}/accept", accept);
         Assert.Equal("ACCEPTED", materialReturn.Status); Assert.False(materialReturn.Replayed);
+        await AssertEngineerCustodyReport(client,.40m);
         Assert.True(acceptReplay.Replayed); Assert.Equal(materialReturn.StockPostingBatchId, acceptReplay.StockPostingBatchId);
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
@@ -1310,7 +1496,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
     private static async Task<MaterialIssueView> CreateAndIssueConsumable(HttpClient client, TaxWorkflowUser user,
         Guid itemId, Guid uomId, string itemCode, Guid departmentId, Guid engineerId,
-        Guid purchaseId, Guid productionId, Guid storesId)
+        Guid purchaseId, Guid productionId, Guid storesId, string prefix = "mir-consumable")
     {
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
@@ -1318,15 +1504,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CONSUMABLE_OFFICE", "DEPARTMENT",
                 null, null, null, departmentId, "Factory consumable custody", departmentId,
                 new DateOnly(2026, 9, 8), [new MaterialIssueRequestLineInput(itemId, uomId, .05m, null, null)],
-                "mir-consumable-create"));
+                $"{prefix}-create"));
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
-            new MaterialIssueTransitionRequest(mir.Version, "Cutting wheel custody", "mir-consumable-submit"));
+            new MaterialIssueTransitionRequest(mir.Version, "Cutting wheel custody", $"{prefix}-submit"));
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
-            new MaterialIssueTransitionRequest(mir.Version, "Consumable custody approved", "mir-consumable-approve"));
+            new MaterialIssueTransitionRequest(mir.Version, "Consumable custody approved", $"{prefix}-approve"));
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         return await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
-            new CreateMaterialIssue("mir-consumable-issue", engineerId, DateTimeOffset.UtcNow,
+            new CreateMaterialIssue($"{prefix}-issue", engineerId, DateTimeOffset.UtcNow,
                 [new MaterialIssueScan(mir.Lines.Single().Id, itemCode, null, .05m)]));
     }
 
@@ -1731,6 +1917,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task<T> Put<T>(HttpClient client,string path,object body)
     { using var response=await client.PutAsJsonAsync(path,body);var payload=await response.Content.ReadAsStringAsync();Assert.True(response.IsSuccessStatusCode,$"{path} returned {(int)response.StatusCode}: {payload}");return JsonSerializer.Deserialize<T>(payload,new JsonSerializerOptions(JsonSerializerDefaults.Web))!; }
+    private static string WitnessReportPath(string path)
+    {
+        // The test ledger uses the local PostgreSQL business date; bill timestamps
+        // use UTC. Select an explicit cutoff containing both, rather than testing
+        // a UTC default across a local-midnight boundary.
+        var local=DateOnly.FromDateTime(DateTime.Today);
+        var utc=DateOnly.FromDateTime(DateTime.UtcNow);
+        var cutoff=local>utc?local:utc;
+        return path+(path.Contains('?')?"&":"?")+"toDate="+cutoff.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private static async Task<T> Get<T>(HttpClient client,string path)
     { using var response=await client.GetAsync(path);var payload=await response.Content.ReadAsStringAsync();Assert.True(response.IsSuccessStatusCode,$"{path} returned {(int)response.StatusCode}: {payload}");return JsonSerializer.Deserialize<T>(payload,new JsonSerializerOptions(JsonSerializerDefaults.Web))!; }
 
@@ -1786,6 +1983,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:NexaErp"] = connectionString,
+                ["Reporting:DefaultTimeZone"] = "Asia/Kolkata",
                 ["MasterDataTransfer:MaxRows"] = "1000",
                 ["MasterDataTransfer:SensitiveRowRetentionDays"] = "90"
             });
@@ -1819,6 +2017,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapProductionEngineeringEndpoints();
             app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
+            app.MapCompanyReportEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();

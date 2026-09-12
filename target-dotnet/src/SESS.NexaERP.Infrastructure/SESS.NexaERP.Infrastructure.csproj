@@ -24,4 +24,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+<ItemGroup>
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260913010000_CompanyReports.sql" LogicalName="CompanyReports.20260913010000.sql" />
+  </ItemGroup>
+
 </Project>

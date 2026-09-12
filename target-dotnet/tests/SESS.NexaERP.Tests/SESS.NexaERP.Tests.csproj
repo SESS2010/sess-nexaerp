@@ -35,4 +35,7 @@
   <PropertyGroup Condition="'$(KeycloakWitness)' == 'true'">
     <DefineConstants>$(DefineConstants);KEYCLOAK_WITNESS</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(ReportVolumeWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);REPORT_VOLUME_WITNESS</DefineConstants>
+  </PropertyGroup>
 </Project>

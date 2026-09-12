@@ -26,8 +26,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("identity-schema.sql", migrator.GenerateScript("0", scriptDb.Database.GetMigrations().Last()));
         var migrationNames = scriptDb.Database.GetMigrations().ToArray();
-        server.Execute("identity-down.sql", migrator.GenerateScript(migrationNames[^1], migrationNames[^2]));
-        server.Execute("identity-reapply.sql", migrator.GenerateScript(migrationNames[^2], migrationNames[^1]));
+        var identityMigrationIndex = Array.IndexOf(migrationNames, "20260912130000_GovernedAuthenticationRuntime");
+        server.Execute("identity-down.sql", migrator.GenerateScript(migrationNames[identityMigrationIndex], migrationNames[identityMigrationIndex - 1]));
+        server.Execute("identity-reapply.sql", migrator.GenerateScript(migrationNames[identityMigrationIndex - 1], migrationNames[identityMigrationIndex]));
         using (var environment = new EnvironmentVariables(
             ("ConnectionStrings__NexaErpInstaller", server.ConnectionString),
             ("NexaErp__ExpectedDatabase", "advance_parser"),
