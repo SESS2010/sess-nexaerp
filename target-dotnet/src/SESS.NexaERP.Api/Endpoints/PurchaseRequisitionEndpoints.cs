@@ -47,6 +47,7 @@ public static partial class PurchaseRequisitionEndpoints
                     x.PrNumber,
                     x.Status,
                     x.Version,
+                    x.DeliveryWarehouse != null ? x.DeliveryWarehouse.WarehouseCode : string.Empty,
                     x.Lines.OrderBy(line => line.LineNumber).Select(line => new StockCheckPurchaseRequisitionLine(
                         line.LineNumber,
                         line.ItemCodeSnapshot,

@@ -20,7 +20,7 @@ SURANTHER - TUESDAY COGNITO SETUP
 
 10. Start with SESS-12, SURANTHER P. Copy each User pool ID from its overview, each Client ID from App clients > ERP client, and each domain from Branding > Domain. Send these with the selected AWS Region and saved callback/sign-out URLs to the setup engineer, who prepares and verifies the exact issuer/discovery/JWKS settings. Open Users, select each created employee, and copy the sub attribute into a list beside employee code and pool name. Do not send passwords, OTP secrets, AWS secret keys or tokens.
 
-11. The setup engineer runs the ERP Installer bootstrap with your verified issuer and sub. After that, use ERP identity administration to create mappings for each authorized company membership. No direct database edits.
+11. Give the verified list from step 10 to the setup engineer. Ask the engineer to run the ERP Installer bootstrap for your account, then help you create the approved company mappings through the governed ERP administrator operations. The identity-administration screen is not implemented yet; there is no mapping screen to click today. You authorize these mappings as the ERP identity administrator. No direct database edits.
 
 12. For promotion into an approver role: create the Approvers account and complete personal TOTP enrollment first. Coordinate the ERP role change. The ERP identity administrator revokes old Staff mappings and creates new Approvers mappings for every authorized company. Verify new access works and old access is refused, then disable the old Cognito user and end its sessions. Keep old ERP mappings as history. An AWS administrator alone cannot change ERP roles or mappings.
 

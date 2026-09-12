@@ -645,6 +645,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
         Assert.Equal(pr.PrNumber, stockCheckDetail.PrNumber);
         Assert.Equal(pr.Version, stockCheckDetail.Version);
+        Assert.Equal("TRIAL-WH-C01", stockCheckDetail.DeliveryWarehouseCode);
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, stockCheckDetail.Status);
         Assert.Equal(1, Assert.Single(stockCheckDetail.Lines).LineNumber);
         user.SetOrganization("SESS_PROPRIETORSHIP");

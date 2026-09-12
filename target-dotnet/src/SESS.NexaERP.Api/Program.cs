@@ -15,6 +15,10 @@ using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+}
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
