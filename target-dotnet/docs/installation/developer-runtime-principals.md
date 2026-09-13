@@ -98,6 +98,22 @@ ACL contract, and verifies it. `status` must then print `VERIFIED`. If either
 command exits non-zero, do not start the API and do not continue the upgrade;
 investigate and rerun the complete reconciliation sequence after correction.
 
+Opening-stock reconciliation retains runtime execution of the staging, count,
+value-confirmation and authorization functions. The four opening-stock evidence
+tables remain read-only for runtime; direct writes and execution of the private
+validation/trigger helpers are refused. An incomplete opening-stock package or
+a mismatched permission boundary makes provisioning/status fail. Reconciliation
+must run after the opening-stock migration as well as after later migrations.
+Item 25 regression: provisioning after the migration previously revoked opening
+command execution (42501) and restored direct INSERT/UPDATE on its evidence
+tables. The regression provisions twice, checks command owners, fixed search
+paths and privileges after each call, then verifies one three-actor posting,
+one landed FIFO layer, quantity 10 and the opening reports. Targeted results:
+Release 1 passed, 0 failed (1m14.376s); Debug 1 passed, 0 failed (1m15.714s).
+These ran within the two-test Item 25 batches, not new full-suite runs. Builds
+passed with zero warnings/errors (Release 27.84s; Debug 4m24.24s). No schema,
+migration body, API contract or owner database was changed.
+
 ## 5. Run the API as runtime
 
 ```powershell

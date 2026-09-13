@@ -57,6 +57,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, password);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-stock-witness-up.sql", migrator.GenerateScript(predecessor, target));
+        // Provisioning after the migration, including a rerun, must preserve its
+        // four public command entry points and read-only runtime table access.
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        server.Execute("opening-stock-principal-acl.sql", OpeningStockPrincipalAssertions);
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        server.Execute("opening-stock-principal-rerun-acl.sql", OpeningStockPrincipalAssertions);
         server.Execute("opening-stock-witness.sql", WitnessSql);
         server.Execute("opening-stock-report-schema.sql",migrator.GenerateScript(target,migrations[^1]));
         server.Execute("opening-stock-report-login.sql","""UPDATE advance.employees SET "LoginEnabled"=true WHERE "EmployeeCode" IN ('SESS-01','SESS-14');""");
@@ -169,6 +175,41 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         END $assert$;
         """;
 
+    private const string OpeningStockPrincipalAssertions = """
+        DO $acl$
+        DECLARE signature text; relation text; privilege text; function_oid oid;
+        BEGIN
+          FOREACH signature IN ARRAY ARRAY['advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text)','advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text)','advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)','advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)'] LOOP
+            function_oid := to_regprocedure(signature);
+            IF function_oid IS NULL OR NOT has_function_privilege('nexa_erp_runtime',function_oid,'EXECUTE') THEN
+              RAISE EXCEPTION 'Opening command not executable by runtime: %',signature;
+            END IF;
+            IF NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner
+                WHERE p.oid=function_oid AND p.prosecdef AND r.rolname='nexa_erp_owner'
+                  AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']) THEN
+              RAISE EXCEPTION 'Opening command security metadata drift: %',signature;
+            END IF;
+            IF EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                WHERE p.oid=function_oid AND a.grantee=0 AND a.privilege_type='EXECUTE') THEN
+              RAISE EXCEPTION 'Opening command is public: %',signature;
+            END IF;
+          END LOOP;
+          FOREACH relation IN ARRAY ARRAY['advance.opening_stock_import_staging_lines','advance.opening_stocks','advance.opening_stock_lines','advance.opening_stock_events'] LOOP
+            IF NOT has_table_privilege('nexa_erp_runtime',relation,'SELECT') THEN
+              RAISE EXCEPTION 'Opening runtime read missing: %',relation;
+            END IF;
+            FOREACH privilege IN ARRAY ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+              IF has_table_privilege('nexa_erp_runtime',relation,privilege) THEN
+                RAISE EXCEPTION 'Opening runtime direct mutation exposed: % %',relation,privilege;
+              END IF;
+            END LOOP;
+          END LOOP;
+          IF has_function_privilege('nexa_erp_runtime','advance.guard_opening_stock_evidence()','EXECUTE')
+             OR has_function_privilege('nexa_erp_runtime','advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text)','EXECUTE') THEN
+            RAISE EXCEPTION 'Private opening helper exposed to runtime';
+          END IF;
+        END $acl$;
+        """;
     private const string WitnessSql = """
         SET SESSION AUTHORIZATION nexa_erp_runtime;
         DO $witness$

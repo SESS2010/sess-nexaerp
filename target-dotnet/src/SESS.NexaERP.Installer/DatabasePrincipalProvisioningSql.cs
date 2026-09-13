@@ -132,6 +132,35 @@ internal static class DatabasePrincipalProvisioningSql
         END $item_last_purchase_acl$;
         REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
 
+        DO $opening_stock_acl$
+        BEGIN
+          IF to_regclass('advance.opening_stock_import_staging_lines') IS NOT NULL
+             OR to_regclass('advance.opening_stocks') IS NOT NULL
+             OR to_regclass('advance.opening_stock_lines') IS NOT NULL
+             OR to_regclass('advance.opening_stock_events') IS NOT NULL
+             OR to_regprocedure('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
+             OR to_regprocedure('advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+            IF to_regclass('advance.opening_stock_import_staging_lines') IS NULL
+               OR to_regclass('advance.opening_stocks') IS NULL
+               OR to_regclass('advance.opening_stock_lines') IS NULL
+               OR to_regclass('advance.opening_stock_events') IS NULL
+               OR to_regprocedure('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)') IS NULL
+               OR to_regprocedure('advance.guard_opening_stock_evidence()') IS NULL
+               OR to_regprocedure('advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text)') IS NULL THEN
+              RAISE EXCEPTION 'Opening Stock security package is incomplete; principal provisioning refused.';
+            END IF;
+            REVOKE ALL ON advance.opening_stock_import_staging_lines,advance.opening_stocks,advance.opening_stock_lines,advance.opening_stock_events FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap;
+            GRANT SELECT ON advance.opening_stock_import_staging_lines,advance.opening_stocks,advance.opening_stock_lines,advance.opening_stock_events TO nexa_erp_runtime;
+            REVOKE EXECUTE ON FUNCTION advance.guard_opening_stock_evidence(),advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text) FROM nexa_erp_runtime;
+            GRANT EXECUTE ON FUNCTION advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text),advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text),advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text),advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text) TO nexa_erp_runtime;
+          END IF;
+        END $opening_stock_acl$;
+
         DO $company_report_acl$
         BEGIN
           IF to_regprocedure('advance.company_report_grni(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text)') IS NOT NULL THEN
@@ -391,6 +420,7 @@ internal static class DatabasePrincipalProvisioningSql
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
+              AND c.relname NOT IN ('opening_stock_import_staging_lines','opening_stocks','opening_stock_lines','opening_stock_events')
               AND NOT (c.relname IN ('command_requests','command_receipts')
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
@@ -624,6 +654,27 @@ internal static class DatabasePrincipalProvisioningSql
              OR to_regclass('advance.vendor_advances') IS NOT NULL
              OR to_regclass('advance.vendor_payments') IS NOT NULL THEN
             RAISE EXCEPTION 'Vendor advance/payment security boundary is partially installed.';
+          END IF;
+          IF EXISTS(SELECT 1 FROM (VALUES ('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text)'),('advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text)'),('advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)'),('advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)')) f(name) WHERE to_regprocedure(f.name) IS NOT NULL)
+             OR EXISTS(SELECT 1 FROM (VALUES ('advance.opening_stock_import_staging_lines'),('advance.opening_stocks'),('advance.opening_stock_lines'),('advance.opening_stock_events')) e(name) WHERE to_regclass(e.name) IS NOT NULL) THEN
+            IF EXISTS(SELECT 1 FROM (VALUES ('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text)'),('advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text)'),('advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)'),('advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)')) f(name)
+                LEFT JOIN pg_proc p ON p.oid=to_regprocedure(f.name)
+                LEFT JOIN pg_roles owner_role ON owner_role.oid=p.proowner
+                WHERE p.oid IS NULL OR NOT p.prosecdef OR owner_role.rolname<>'nexa_erp_owner'
+                   OR NOT coalesce(p.proconfig @> ARRAY['search_path=pg_catalog, advance'],false)
+                   OR NOT has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                   OR has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+                   OR has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE'))
+               OR EXISTS(SELECT 1 FROM (VALUES ('advance.opening_stock_import_staging_lines'),('advance.opening_stocks'),('advance.opening_stock_lines'),('advance.opening_stock_events')) e(name)
+                WHERE to_regclass(e.name) IS NULL
+                   OR NOT has_table_privilege('nexa_erp_runtime',to_regclass(e.name),'SELECT')
+                   OR has_table_privilege('nexa_erp_runtime',to_regclass(e.name),'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+               OR to_regprocedure('advance.guard_opening_stock_evidence()') IS NULL
+               OR to_regprocedure('advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text)') IS NULL
+               OR has_function_privilege('nexa_erp_runtime',to_regprocedure('advance.guard_opening_stock_evidence()'),'EXECUTE')
+               OR has_function_privilege('nexa_erp_runtime',to_regprocedure('advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text)'),'EXECUTE') THEN
+              RAISE EXCEPTION 'Opening Stock controlled commands or read-only evidence ACL is invalid.';
+            END IF;
           END IF;
           IF to_regclass('advance.item_company_last_purchases') IS NOT NULL
              AND (NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')
