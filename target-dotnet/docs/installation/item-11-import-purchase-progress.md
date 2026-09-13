@@ -135,3 +135,105 @@ The same two currency positions and actual domestic INR responses are verified;
 both posting cases finish the full three-band flow. Matching currency-*Debug
 artifacts and item11-currency-verified-debug.trx are retained. These are targeted
 counts, not a new full-suite result. No owner database was used.
+
+
+## Retained bank-advice files (verified)
+
+The new runtime upload stores immutable PDF, JPEG or PNG bytes in PostgreSQL,
+scoped to company and vendor, with a 5 MiB limit. PostgreSQL derives the byte
+count and SHA-256 digest from the stored content. Download checks the digest.
+This proves retained-byte integrity, not that a bank issued the document;
+Accounts must review the advice.
+
+Only current FULL or TEMPORARY ACCOUNTS_MANAGER authority can upload. Upload,
+audit and command receipt share one serializable transaction. Identical
+idempotent retries return the existing document; changed content under the
+same key is refused. There is no edit/delete endpoint. Migration rollback
+refuses to discard retained documents.
+
+Frontend contract: under /api/v1/accounts/vendor-financial-evidence,
+POST /bank-advices takes multipart vendorId and one file, plus a required
+Idempotency-Key header (1–100 characters). The 201 metadata contains Id,
+CompanyId, VendorId, vendor names, FileName, ContentType, SizeBytes,
+ContentSha256, EvidenceObjectKey, CreatedAt and Replayed. Use the returned
+EvidenceObjectKey for an advance/payment. GET /bank-advices/{id} returns
+metadata; GET /bank-advices/by-key?evidenceObjectKey=... resolves a stored
+reference; GET /bank-advices/{id}/content downloads the file. Existing
+company/employee and page permissions apply. No frontend screen is included.
+
+Foreign advances/payments now require a retained advice belonging to the same
+company and vendor. Domestic references remain supported; a domestic reference
+using the bank-advice: prefix must also resolve to a matching retained file.
+Historical payments are not rewritten. This does not yet record actual banker
+INR, fees, or complete the foreign PO cash cap and costing work.
+
+Implementation follows c43f90d. Verification history and final passing results
+are recorded below.
+
+
+Storage test baseline: the first Release batch had 0 passed, 4 failed in
+2m52s, all at installer provisioning. The advice table had not been excluded
+from the generic direct-table privilege assertion. Correcting both ordinary
+table lists preserved the separate EXECUTE-only checks. Rebuild passed with
+zero warnings/errors in 35.88s.
+
+The next batch reached upload: the first upload succeeded, but identical
+replay returned 403 because the new function requires active command context
+and the retry's command was already committed. The fix uses the existing
+actor/identity/assignment-checked receipt reader and records the document ID
+in the original committed receipt. The batch finished 3 passed, 1 failed,
+0 skipped in 12m08s. After applying the replay fix, Release rebuilt with zero
+warnings/errors in 4m21.68s. The subsequent four-test batch verified 201 replay, atomic rollback on injected audit failure,
+matching download bytes, company/vendor linkage refusals, and refusal to
+roll back populated advice storage.
+
+
+Final Release verification: **4 passed, 0 failed, 0 skipped, 13m10s**.
+Migration checks took 1m18.9109s; upload/payment/full-flow took 3m47.7226s;
+backup/recovery/full-flow took 5m00.4958s; existing foreign advice refusal/
+full-flow took 3m03.0377s. These are targeted checks, not a new full-suite count.
+
+The upload test retained exactly three documents, three upload audits, three
+requests and three receipts. Injected audit failure returned 500 and left
+all four counts at one; retry succeeded. Identical concurrent uploads returned
+201/201, with only one document for that key; no serialization-refusal branch
+is claimed for that pair. The linked payment race returned 201/409, retry 409,
+replay 201: one payment of 123650.01, two allocations, no remaining payable
+for those bills and no deadlock. Missing retained reference returned 409.
+Company/vendor mismatch was refused, downloaded bytes matched, and populated
+rollback was refused.
+
+Release backup evidence is under local-evidence/item26/
+automated-backup-a6221aed59d74dcdbb3c06b846186bdf. Its 223 tables contain one
+430-byte advice file, 129 matching requests/receipts, three POs, 28 movements
+and three FIFO consumptions. Exact restored bytes and SHA-256 were verified
+through the restricted runtime reader. Direct backup took 36.2018s; recovery
+28.7170s. The scheduled backup completed and its temporary task was removed.
+This remains an owned disposable database and one-shot scheduler witness,
+not a permanent customer backup deployment.
+
+Release artifacts under local-evidence/item11:
+bank-advice-storage-verified-release.json, storage-advice-regression-release.json,
+storage-payment-settlement-release.json, storage-payment-permissions-release.json
+and item11-storage-final-release.trx. Earlier failed baselines remain separate.
+Debug verification follows.
+
+
+Final Debug verification: build zero warnings/errors in 4m43.42s;
+**4 passed, 0 failed, 0 skipped, 13m08s**. Migration checks took 1m21.3047s,
+upload/payment/full-flow 3m51.8778s, backup/recovery/full-flow 4m56.1601s,
+and foreign advice refusal/full-flow 2m58.8299s. The same row counts, 201/201
+upload replay pair, atomic failure rollback, linked payment 201/409/retry409/
+replay201, company/vendor checks and retained-document rollback refusal passed.
+
+Debug backup evidence is under local-evidence/item26/
+automated-backup-7613c73c0ab941f6a557c357e9c9312b: 223 tables and the same
+430-byte PDF restored exactly, direct backup 34.6128s, recovery 26.7480s.
+The scheduled backup completed and the temporary task was removed.
+Matching storage-*Debug and bank-advice-storage-verified-debug.json artifacts
+and item11-storage-final-debug.trx are retained beside Release.
+
+The retained-advice component is verified. Item 11 remains partial: actual
+banker-INR/fee capture, total-cash limits across PO revisions, provisional INR
+approval/cost basis and landed-cost allocation are not completed by this change.
+No owner database was used, and no permanent customer schedule was installed.

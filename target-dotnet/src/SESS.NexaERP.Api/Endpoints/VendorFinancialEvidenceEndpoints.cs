@@ -5,7 +5,7 @@ using SESS.NexaERP.Application.Stores;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
-public static class VendorFinancialEvidenceEndpoints
+public static partial class VendorFinancialEvidenceEndpoints
 {
     public static IEndpointRouteBuilder MapVendorFinancialEvidenceEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -72,6 +72,7 @@ public static class VendorFinancialEvidenceEndpoints
             .RequirePagePermission("accounts.vendor-financial-evidence",
                 PagePermissionActions.View);
 
+        MapBankAdviceEndpoints(group);
         return endpoints;
     }
 

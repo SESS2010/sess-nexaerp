@@ -13,6 +13,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await RunCompletePurchaseFlow(mixedRun:async context=>
         {
             observed=true;
+            var bankAdvice=await UploadBankAdviceForBackup(context.Options,context.RuntimeConnection);
             await using var db=new SESS.NexaERP.Infrastructure.Persistence.NexaErpDbContext(context.Options);
             var source=new NpgsqlConnectionStringBuilder(db.Database.GetConnectionString());
             Assert.Equal("127.0.0.1",source.Host);
@@ -38,6 +39,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var rootId=BackupFiles.OpenRoot(config.BackupRoot);
                 var manifest=VerifiedBackupEngine.ReadManifest(config.BackupRoot,rootId,bundle);
                 Assert.Equal("VERIFIED",manifest.State);
+                Assert.Equal(1,manifest.DatabaseEvidence.TableCounts["\"advance\".\"vendor_bank_advices\""]);
                 Assert.Equal(3,manifest.DatabaseEvidence.TableCounts["\"advance\".\"purchase_orders\""]);
                 Assert.True(manifest.DatabaseEvidence.TableCounts["\"advance\".\"stock_movements\""]>0);
                 Assert.True(manifest.DatabaseEvidence.TableCounts["\"advance\".\"fifo_cost_consumptions\""]>0);
@@ -86,6 +88,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     await restricted.OpenAsync();
                     var count=long.Parse(await BackupDatabaseSnapshot.Scalar(restricted,null,"SELECT count(*)::text FROM advance.employees"));
                     Assert.Equal(manifest.DatabaseEvidence.TableCounts["\"advance\".\"employees\""],count);
+                    await using (var adviceCommand = new NpgsqlCommand(
+                        "SELECT \"Content\",\"ContentSha256\" FROM advance.vendor_bank_advice_content(@company,@id)", restricted))
+                    {
+                        adviceCommand.Parameters.AddWithValue("company", bankAdvice.CompanyId);
+                        adviceCommand.Parameters.AddWithValue("id", bankAdvice.Id);
+                        await using var adviceReader = await adviceCommand.ExecuteReaderAsync();
+                        Assert.True(await adviceReader.ReadAsync());
+                        Assert.Equal(BankAdvicePdfFixture(), adviceReader.GetFieldValue<byte[]>(0));
+                        Assert.Equal(bankAdvice.ContentSha256, adviceReader.GetString(1));
+                    }
                     var denied=await Assert.ThrowsAsync<PostgresException>(()=>BackupDatabaseSnapshot.Scalar(restricted,null,"SELECT count(*)::text FROM advance.command_receipts"));
                     Assert.Equal("42501",denied.SqlState);
                 }
@@ -124,7 +136,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.True(File.Exists(Path.Combine(evidence,"scheduled-cleanup.json")));
                 await File.WriteAllTextAsync(Path.Combine(evidence,"result.json"),JsonSerializer.Serialize(new {
                     BackupSeconds=backupSeconds,RecoverySeconds=recoverySeconds,
-                    TableCounts=manifest.DatabaseEvidence.TableCounts,CorruptedBundleRefused=true,
+                    BankAdvice=bankAdvice,BankAdviceBytesRestored=true,TableCounts=manifest.DatabaseEvidence.TableCounts,CorruptedBundleRefused=true,
                     RecoveryStopped=true,RuntimeLoginAfterCredentialReset=true,DirectLedgerRead="42501"
                 },BackupFiles.Json));
             }
