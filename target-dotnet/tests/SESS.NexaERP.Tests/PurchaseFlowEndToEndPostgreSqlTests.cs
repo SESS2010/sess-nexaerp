@@ -67,7 +67,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private async Task RunCompletePurchaseFlow(
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false,
         Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null,
-        Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null)
+        Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null,
+        Func<PrApprovalRaceContext, Task<PurchaseRequisitionDetail>>? prRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -75,7 +76,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -278,6 +279,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     grnRace is not null && band.Code == "LOW"
                         ? draft => grnRace(new(options, runtimeConnection, draft, storesId, secondReceiptOperatorId,
                             "LOW-grn-finalize", server.ReadDiagnosticLog))
+                        : null,
+                    prRace is not null && band.Code == "TD"
+                        ? draft => prRace(new(options, runtimeConnection, draft, managerId, tdId,
+                            "TD-pr-approve-1", server.ReadDiagnosticLog))
                         : null));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
@@ -414,7 +419,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -567,7 +572,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
         Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id,
-        Func<GoodsReceiptResult, Task<GoodsReceiptResult>>? finalizeRace = null)
+        Func<GoodsReceiptResult, Task<GoodsReceiptResult>>? finalizeRace = null,
+        Func<PurchaseRequisitionDetail, Task<PurchaseRequisitionDetail>>? approveRace = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -626,8 +632,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(pr.Id, Assert.Single(managerQueue.Items).Id);
         Assert.Equal(pr.Id, (await Get<PurchaseRequisitionDetail>(approvalClient,
             $"/api/v1/purchase/requisitions/{pr.PrNumber}")).Id);
-        pr = await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
-            new PurchaseRequisitionActionRequest("Level 1 approved", pr.Version, $"{band.Code}-pr-approve-1"));
+        pr = approveRace is not null ? await approveRace(pr)
+            : await Post<PurchaseRequisitionDetail>(approvalClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/approve",
+                new PurchaseRequisitionActionRequest("Level 1 approved", pr.Version, $"{band.Code}-pr-approve-1"));
         Assert.Equal(band.RequiredSteps == 1 ? PurchaseRequisitionStatuses.StockCheckPending : PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         if (band.Level2EmployeeId.HasValue)
         {

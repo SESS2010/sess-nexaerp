@@ -4,6 +4,7 @@ using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Stores;
+using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
 
@@ -151,22 +152,10 @@ public sealed partial class EfMaterialIssueService
         string action, string operation, bool independent, CancellationToken ct)
     {
         try { return await TransitionCoreAsync(id, command, expected, next, action, operation, independent, ct); }
-        catch (Exception error) when (IsMirSerializationFailure(error))
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
         {
             throw new DbUpdateConcurrencyException("MIR changed concurrently. Reload the request before retrying.", error);
         }
-    }
-
-    private static bool IsMirSerializationFailure(Exception error)
-    {
-        // Npgsql's EF execution strategy wraps a save failure in these two types.
-        // Inspect the SQLSTATE, not the general transient-failure label.
-        while (error is DbUpdateException or InvalidOperationException)
-        {
-            if (error.InnerException is null) return false;
-            error = error.InnerException;
-        }
-        return error is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.SerializationFailure };
     }
 
     private async Task<MaterialIssueRequestView> TransitionCoreAsync(Guid id,
