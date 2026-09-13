@@ -59,7 +59,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         await db.SaveChangesAsync(ct);var legs=await BuildQcLegs(disposition,revision,allocation,line,hold,available,pending,serialInput,ct);if(legs.Count>0)await Post(company.Id,"QC_DISPOSITION",revision.Id,key,fingerprint,Hash($"QC:{revision.Id}:{key}"),actor,legs,ct);await tx.CommitAsync(ct);return await LoadInspection(inspection.Id,company.Id,false,ct);
     }
 
-    public async Task<InventoryConcessionResult> CreateConcessionAsync(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+    public Task<InventoryConcessionResult> CreateConcessionAsync(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => CreateConcessionTransaction(request,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> CreateConcessionTransaction(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();var key=Required(idempotencyKey,"Idempotency-Key");var fingerprint=Hash(new{request.QcInspectionLotDispositionId,request.FailedParameterResultId,request.Quantity,request.FailedParameter,request.MeasuredValue,request.TechnicalJustification,request.IntendedUse,Serials=request.InventorySerialIds.Order()});if(request.Quantity<=0)throw new StoresValidationException("Concession quantity must be positive.");
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);await Advisory($"CONCESSION:{company.Id}:{key}",ct);var replay=await db.InventoryConcessions.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.IdempotencyKey==key,ct);if(replay is not null){if(replay.RequestFingerprint!=fingerprint)throw new StoresConflictException("Idempotency key was reused with different concession data.");await tx.CommitAsync(ct);return await LoadConcession(replay.Id,company.Id,true,ct);}
@@ -144,6 +147,19 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         {
             throw new StoresConflictException("The source stock is no longer available for this posting. Refresh the document and review its subsequent movements.");
         }
+        catch (Exception error) when (IsActiveSerialConflict(error))
+        {
+            throw new StoresConflictException("The serial already belongs to an active concession for this receipt allocation.");
+        }
+    }
+
+    private static bool IsActiveSerialConflict(Exception error)
+    {
+        while (error is DbUpdateException or InvalidOperationException && error.InnerException is not null)
+            error = error.InnerException;
+        return error is PostgresException postgres
+            && postgres.SqlState == PostgresErrorCodes.UniqueViolation
+            && postgres.ConstraintName == "UX_concession_active_serial_allocation";
     }
 
     private async Task ReverseBatch(Guid sourceId,string key,string fingerprint,Guid actor,CancellationToken ct)

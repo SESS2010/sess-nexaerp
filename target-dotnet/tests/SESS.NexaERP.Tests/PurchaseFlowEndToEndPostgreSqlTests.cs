@@ -73,11 +73,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<SerialIssueRaceContext, Task<MaterialIssueView>>? issueRace = null,
         Func<PaymentRaceContext, Task<PaymentRaceResult>>? paymentRace = null,
         Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null,
-        Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null)
+        Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null,
+        bool concessionHistoryWitness = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
         using var model = new NexaErpDbContext(bootstrapOptions);
+        if (concessionHistoryWitness) Assert.False(model.Database.HasPendingModelChanges());
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
@@ -162,6 +164,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         const string runtimePassword = "ordinary-purchase-runtime-123456789";
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        if (concessionHistoryWitness)
+            await AssertConcessionHistoryMigration(options, migrator, (name, sql) => server.Execute(name, sql));
         if (paymentRace is not null)
         {
             var migrations = model.Database.GetMigrations().ToArray();
@@ -467,6 +471,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.False(string.IsNullOrWhiteSpace(x.ActorRoleCode));
                 Assert.NotNull(x.ResolvedRoleAssignmentId);
             });
+            if (concessionHistoryWitness) await AssertConcessionHistoryRollbackRefused(options, migrator);
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS

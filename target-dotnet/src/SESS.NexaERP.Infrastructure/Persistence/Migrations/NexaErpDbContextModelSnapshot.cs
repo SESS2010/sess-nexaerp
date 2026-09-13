@@ -58845,8 +58845,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "AcceptedProvenanceLayerId");
 
-                    b.HasIndex("CompanyId", "InventorySerialId")
-                        .IsUnique();
+                    b.HasIndex("CompanyId", "InventorySerialId");
 
                     b.HasIndex("CompanyId", "RejectedProvenanceLayerId");
 
