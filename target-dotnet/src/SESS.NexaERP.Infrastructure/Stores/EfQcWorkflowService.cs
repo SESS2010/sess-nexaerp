@@ -117,7 +117,7 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 
     private static Dictionary<string,object?> Leg(int ordinal,StockMovement source,Guid locationId,Guid provenanceId,decimal quantityOut,decimal quantityIn,string movementLeg,Guid? custodyOverride,Guid? concessionAllocationId=null,Guid? qcDispositionId=null)=>new()
     {
-        ["batchLineOrdinal"]=ordinal,["itemId"]=source.ItemId,["warehouseConditionLocationId"]=locationId,["movementLeg"]=movementLeg,["quantityIn"]=quantityIn,["quantityOut"]=quantityOut,["goodsReceiptLineId"]=null,["qcInspectionRevisionId"]=null,["originGoodsReceiptLineId"]=source.OriginGoodsReceiptLineId,["ownershipAccountId"]=source.OwnershipAccountId,["custodyAssignmentId"]=custodyOverride??source.CustodyAssignmentId,["inventoryProvenanceLayerId"]=provenanceId,["custodyCaseLineId"]=source.CustodyCaseLineId,["inventoryLotId"]=source.InventoryLotId,["inventorySerialId"]=source.InventorySerialId,["goodsReceiptLineLotAllocationId"]=source.GoodsReceiptLineLotAllocationId,["qcInspectionLotDispositionId"]=qcDispositionId,["inventoryConcessionAllocationId"]=concessionAllocationId,["postingIdentity"]=$"{movementLeg}:{ordinal}:{provenanceId:N}"};
+        ["batchLineOrdinal"]=ordinal,["itemId"]=source.ItemId,["warehouseConditionLocationId"]=locationId,["movementLeg"]=movementLeg,["quantityIn"]=quantityIn,["quantityOut"]=quantityOut,["goodsReceiptLineId"]=null,["qcInspectionRevisionId"]=null,["originGoodsReceiptLineId"]=source.OriginGoodsReceiptLineId,["ownershipAccountId"]=source.OwnershipAccountId,["custodyAssignmentId"]=custodyOverride??source.CustodyAssignmentId,["inventoryProvenanceLayerId"]=provenanceId,["custodyCaseLineId"]=source.CustodyCaseLineId,["inventoryLotId"]=source.InventoryLotId,["inventorySerialId"]=source.InventorySerialId,["goodsReceiptLineLotAllocationId"]=source.GoodsReceiptLineLotAllocationId,["qcInspectionLotDispositionId"]=qcDispositionId,["inventoryConcessionAllocationId"]=concessionAllocationId,["postingIdentity"]=$"{qcDispositionId ?? concessionAllocationId ?? throw new InvalidOperationException("A QC or concession posting source is required."):N}:{movementLeg}:{ordinal}:{provenanceId:N}"};
     private async Task<(Guid BatchId,bool Replayed)> Post(Guid companyId,string kind,Guid sourceId,string key,string fingerprint,string correlation,Guid actor,List<Dictionary<string,object?>> legs,CancellationToken ct)
     {
         var connection=(NpgsqlConnection)db.Database.GetDbConnection();await using var command=connection.CreateCommand();command.Transaction=(NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction();command.CommandText="""SELECT "StockPostingBatchId","Replayed" FROM advance.post_stores_stock_batch(@company,@kind,@source,@key,@fingerprint,@correlation,@date,@actor,@login,@legs)""";command.Parameters.AddWithValue("company",companyId);command.Parameters.AddWithValue("kind",kind);command.Parameters.AddWithValue("source",sourceId);command.Parameters.AddWithValue("key",key);command.Parameters.AddWithValue("fingerprint",fingerprint);command.Parameters.AddWithValue("correlation",correlation);command.Parameters.AddWithValue("date",DateOnly.FromDateTime(DateTime.UtcNow));command.Parameters.AddWithValue("actor",actor);command.Parameters.AddWithValue("login",user.LoginId);command.Parameters.AddWithValue("legs",NpgsqlTypes.NpgsqlDbType.Jsonb,JsonSerializer.Serialize(legs,JsonOptions));await using var reader=await command.ExecuteReaderAsync(ct);if(!await reader.ReadAsync(ct))throw new StoresConflictException("Controlled Stores posting returned no result.");return(reader.GetGuid(0),reader.GetBoolean(1));
@@ -125,7 +125,29 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 
     private async Task ReverseBatch(Guid sourceId,string key,string fingerprint,Guid actor,CancellationToken ct)
     {
-        var company=await Company(ct);var batch=await db.StockPostingBatches.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&(x.QcInspectionRevisionId==sourceId||x.InventoryConcessionId==sourceId)&&!db.StockPostingBatches.Any(r=>r.ReversesPostingBatchId==x.Id),ct)??throw new StoresConflictException("The source posting batch is missing or already reversed.");var movements=await db.StockMovements.AsNoTracking().Where(x=>x.StockPostingBatchId==batch.Id).OrderBy(x=>x.BatchLineOrdinal).ToListAsync(ct);var ordinal=0;var legs=movements.Select(x=>new Dictionary<string,object?>{{"batchLineOrdinal",++ordinal},{"reversesStockMovementId",x.Id},{"movementLeg","REVERSAL"},{"quantityIn",x.QuantityOut},{"quantityOut",x.QuantityIn},{"postingIdentity",$"REVERSAL:{x.Id:N}"}}).ToList();await Post(company.Id,"REVERSAL",batch.Id,key,fingerprint,Hash($"REVERSAL:{batch.Id}:{key}"),actor,legs,ct);
+        var company = await Company(ct);
+        var batch = await db.StockPostingBatches.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.CompanyId == company.Id && (x.QcInspectionRevisionId == sourceId || x.InventoryConcessionId == sourceId)
+            && !db.StockPostingBatches.Any(r => r.ReversesPostingBatchId == x.Id), ct)
+            ?? throw new StoresConflictException("The source posting batch is missing or already reversed.");
+        var movements = await db.StockMovements.AsNoTracking().Where(x => x.StockPostingBatchId == batch.Id)
+            .OrderBy(x => x.BatchLineOrdinal).ToListAsync(ct);
+        var ordinal = 0;
+        // The posting function restores ownership/provenance fields from the linked
+        // original. It also requires these item, location and source references.
+        var legs = movements.Select(x => new Dictionary<string, object?>
+        {
+            ["batchLineOrdinal"] = ++ordinal, ["reversesStockMovementId"] = x.Id,
+            ["itemId"] = x.ItemId, ["warehouseConditionLocationId"] = x.WarehouseConditionLocationId,
+            ["goodsReceiptLineId"] = x.GoodsReceiptLineId, ["qcInspectionRevisionId"] = x.QcInspectionRevisionId,
+            ["materialIssueRequestLineId"] = x.MaterialIssueRequestLineId,
+            ["deliveryChallanLineId"] = x.DeliveryChallanLineId,
+            ["originGoodsReceiptLineId"] = x.OriginGoodsReceiptLineId,
+            ["movementLeg"] = "REVERSAL", ["quantityIn"] = x.QuantityOut, ["quantityOut"] = x.QuantityIn,
+            ["postingIdentity"] = $"REVERSAL:{x.Id:N}"
+        }).ToList();
+        await Post(company.Id, "REVERSAL", batch.Id, key, fingerprint,
+            Hash($"REVERSAL:{batch.Id}:{key}"), actor, legs, ct);
     }
 
     public async Task<QcInspectionResult?> GetAsync(string inspectionNumber,CancellationToken ct){var company=await Company(ct);var x=await db.QcInspections.AsNoTracking().SingleOrDefaultAsync(i=>i.CompanyId==company.Id&&i.InspectionNumber==inspectionNumber.Trim().ToUpperInvariant(),ct);return x is null?null:await LoadInspection(x.Id,company.Id,false,ct);}
