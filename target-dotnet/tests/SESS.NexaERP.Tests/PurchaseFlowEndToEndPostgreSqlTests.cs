@@ -1530,9 +1530,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(3, await evidence.MaterialIssues.CountAsync());
         Assert.Equal(3, await evidence.StockPostingBatches.CountAsync(x => x.PostingKind == "MATERIAL_ISSUE"));
         Assert.Equal(3, await evidence.AuditLogs.CountAsync(x => x.Action == "MaterialIssue.Issue"));
+        var recordedIssues = await evidence.MaterialIssues.AsNoTracking()
+            .Include(x => x.ResolvedRoleAssignment)!.ThenInclude(x => x!.Role)
+            .ToDictionaryAsync(x => x.Id);
         Assert.All(await evidence.AuditLogs.Where(x => x.Action == "MaterialIssue.Issue").ToListAsync(), x =>
         {
-            Assert.NotNull(x.ResolvedRoleAssignmentId); Assert.Equal(Rev869ARoleCodes.StoresExecutive, x.ActorRoleCode);
+            var recorded = recordedIssues[Guid.Parse(x.EntityId)];
+            Assert.Equal(recorded.CreatedBy, x.UserLoginId);
+            Assert.Equal(recorded.ActorRoleCode, x.ActorRoleCode);
+            Assert.Equal(recorded.ResolvedRoleAssignmentId, x.ResolvedRoleAssignmentId);
+            Assert.Equal(recorded.ResolvedRoleAssignmentType, x.ResolvedRoleAssignmentType);
+            Assert.NotNull(recorded.ResolvedRoleAssignment);
+            Assert.Equal(recorded.IssuedByEmployeeId, recorded.ResolvedRoleAssignment.EmployeeId);
+            Assert.Equal(recorded.ActorRoleCode, recorded.ResolvedRoleAssignment.Role!.Code);
+            Assert.Equal(recorded.ResolvedRoleAssignmentType, recorded.ResolvedRoleAssignment.AssignmentType);
         });
         var returnBatch = await evidence.StockPostingBatches.SingleAsync(x => x.MaterialReturnId == materialReturn.Id);
         var returnMovements = await evidence.StockMovements.Where(x => x.StockPostingBatchId == returnBatch.Id)
