@@ -69,7 +69,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null,
         Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null,
         Func<PrApprovalRaceContext, Task<PurchaseRequisitionDetail>>? prRace = null,
-        Func<VendorBillRaceContext, Task<VendorBillView>>? billRace = null)
+        Func<VendorBillRaceContext, Task<VendorBillView>>? billRace = null,
+        Func<SerialIssueRaceContext, Task<MaterialIssueView>>? issueRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -77,7 +78,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -328,7 +329,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill, returnRace, server.ReadDiagnosticLog, serializedRace,
                 mirRace is null ? null : draft => mirRace(new(options, runtimeConnection, draft,
-                    productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)));
+                    productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)),
+                issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
+                    draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog)));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -422,7 +425,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -874,7 +877,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId,
         VendorBillView pendingLandedBill, Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null,
         Func<string>? readPostgresLog = null, bool serializedRace = false,
-        Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null)
+        Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null,
+        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1166,7 +1170,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId, approveRace: approveRace);
         await CreateIssueAndReturnSerialized(client, options, user, serializedGrn, fixture.UomId,
             fixture.DepartmentId, engineerId, purchaseId, productionId, storesId,
-            serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog);
+            serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog, issueRace);
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
@@ -1497,7 +1501,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, GoodsReceiptResult grn,
         Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId,
         Guid? jobOrderId = null, Guid? tdId = null, string? runtimeConnection = null,
-        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, Func<string>? readPostgresLog = null)
+        Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, Func<string>? readPostgresLog = null,
+        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null)
     {
         var receivedLine = grn.Lines.Single();
         var serial = Assert.Single(receivedLine.Serials);
@@ -1535,11 +1540,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             x => x.InventorySerialId == serial.InventorySerialId);
         Assert.Equal(serial.StoredSerialNumber, availableSerial.StoredSerialNumber);
         Assert.Equal(1m, availableSerial.AvailableQuantity);
-        var issue = await Post<MaterialIssueView>(client,
-            $"/api/v1/stores/material-issues/from-request/{request.Id}",
-            new CreateMaterialIssue("mir-serialized-issue", engineerId, DateTimeOffset.UtcNow,
-                [new MaterialIssueScan(request.Lines.Single().Id, serial.StoredSerialNumber,
-                    serial.InventorySerialId, 1m)]));
+        var command = new CreateMaterialIssue("mir-serialized-issue", engineerId, DateTimeOffset.UtcNow,
+            [new MaterialIssueScan(request.Lines.Single().Id, serial.StoredSerialNumber,
+                serial.InventorySerialId, 1m)]);
+        var issue = issueRace is null
+            ? await Post<MaterialIssueView>(client,
+                $"/api/v1/stores/material-issues/from-request/{request.Id}", command)
+            : await issueRace(request, command);
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");

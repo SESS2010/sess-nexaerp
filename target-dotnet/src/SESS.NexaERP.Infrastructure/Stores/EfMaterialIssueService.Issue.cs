@@ -15,6 +15,16 @@ public sealed partial class EfMaterialIssueService
     public async Task<MaterialIssueView> IssueAsync(
         Guid requestId, CreateMaterialIssue command, CancellationToken ct)
     {
+        try { return await IssueCoreAsync(requestId, command, ct); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("Material issue changed concurrently. Reload the request before retrying.", error);
+        }
+    }
+
+    private async Task<MaterialIssueView> IssueCoreAsync(
+        Guid requestId, CreateMaterialIssue command, CancellationToken ct)
+    {
         _ = user.RequireRole("issue", "STORES_ASSISTANT", "STORES_EXECUTIVE", "STORES_MANAGER");
         var key = Required(command.IdempotencyKey, "IdempotencyKey");
         var hash = Fingerprint(new { requestId, command });

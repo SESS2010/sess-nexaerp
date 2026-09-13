@@ -1,6 +1,24 @@
 # Item 25 concurrency — partial checkpoint
 
-Parent: 8214992 (partial Item 15). No owner database was accessed. This work fixes and verifies return/fitment lock ordering; it does not complete Item 25's race matrix.
+## Current status
+
+Item 25 remains partial. All rows below have targeted Release and Debug evidence; these are not a new full-suite total. No owner database was accessed.
+
+| Case | Verified result | Change |
+| --- | --- | --- |
+| Return versus fitment, nonserialized and serialized | One return; competing fitment refused; no deadlock | 083fefd |
+| Duplicate GRN finalization | One finalization/stock posting/FIFO layer; loser and retry409 | 03400f7 |
+| Two opening ceremonies for one company | One posted ceremony; second refused; one opening stock/value | 00e8c35 |
+| MIR approval by Production and Stores managers | One approval/version increment; loser409 | 52e4aa4 |
+| Two sessions of the named PR approver, plus early TD attempt | One step1 approval; duplicate409; early TD403; later proper step2 succeeds | b6ac9c1 |
+| Two Accounts Manager sessions accepting one bill | One acceptance/cost allocation; loser/retry409; winner replays | d5086c1 |
+| Two stores operators issuing the same serial against one MIR | One issue, one unit consumed from oldest FIFO remainder, no negative canonical balances; loser409 | This change |
+
+Remaining: QC correction versus concession; issue versus governed adjustment (no adjustment API/service found yet); role change mid-command; direct FIFO-function contention; concurrent full bill settlements; eleven-user mixed run. The same-serial issue case does not claim every nonserialized/distinct-MIR interleaving. Pending Item15 ownership-pool and return-credit decisions remain unchanged.
+
+## Historical checkpoints
+
+History starts from 8214992 (partial Item15). The following sections retain baseline failures, fixes, exact targeted counts and limitations.
 
 ## Reproduced failure and correction
 
@@ -114,3 +132,14 @@ The new witness uses two independent sessions of current FULL AccountsManager/SE
 Expected: one200, loser409CONCURRENCY_CONFLICT, retry409BUSINESS_RULE_CONFLICT, winning-key replay200/Replayedtrue; one ACCEPTED history, one version increment, one cost allocation with the original bill quantity/value, first decision key retained, and no40P01. The same test then completes the original flow and also exercises the PR/MIR races. The bill callback must execute. No vendor-bill production code has changed. Build and baseline execution are pending.
 Release verification passed: **1 test, 0 failures/skips, 4m27s**, including bill/PR/MIR races and the complete three-band purchase/custody/costing/report flow. Build passed0warnings/errors4m02.24s. Existing vendor-bill code already returned200/409/409 and replay200/Replayedtrue. Final billACCEPTED/version1 (draft0), one ACCEPTED history, one cost allocation quantity1/value118000.01, original decision key retained, no40P01. Separate bill-batch Release JSON/log files preserve all three races. No vendor-bill production change is needed for this witnessed interleaving. Debug verification is next.
 Final Debug verification passed: **1 test, 0 failures/skips, 4m23s**; build0warnings/errors3m59.24s. Bill/PR/MIR races and the complete three-band flow pass in both configurations. Separate bill-batch Debug evidence preserves all three races. This test-only addition has1 targeted Release pass and1 targeted Debug pass; no new full-suite count. No production code, SQL migration, authority or owner database change. Next: concurrent issue of the same serialized stock; the broader Item25 matrix and eleven-user run remain incomplete.
+
+## Concurrent issue of the same serial (work after d5086c1)
+
+The new witness replaces only the existing serialized issue command. SUDALAI/SESS-35 STORES_EXECUTIVE and KAMALI/SESS-16 STORES_ASSISTANT use separate hosts, actual FULL assignments, normal runtime credentials and real page/scope checks. Both scan the same third-receipt serial against the same approved MIR, with different command keys. Both current roles already have issue authority.
+
+The gate holds the existing NUMBER:company:year:MI advisory lock. Both API transactions must be observed blocked there; stock selection occurs after this production lock. This is concurrent API execution serialized at numbering, not a claim of simultaneous FIFO-row writes. Expected: one issue and ISSUE history, MIR FULFILLED/version+1, one posting batch/two serial-preserving movement legs of1, warehouse serial balance0, no negative dimensional stock bucket or FIFO remainder, total FIFO consumption1, loser/retry409, and winning replaytrue. The oldest available FIFO remainder is captured before/after; the fixture may already have consumed part of that layer, so this does not claim an exact untouched one-unit FIFO layer. The original return/full-flow assertions follow. No issue-service production change has been made; build and baseline are pending.
+Serial baseline build passed0warnings/errors4m07.90s; execution0pass/1fail3m40s. Both requests were observed waiting on the existing numbering advisory lock. Actual responses were201(3.1685s),500(1.8383s),retry409(0.4123s),replay201(0.5054s). The test initially expected200 for creation/replay; those expectations are corrected to the existing201 contract. Independently, recorded responses and PostgreSQL logs prove the loser500 caused by raw40001 read/write dependency failure in register_command_request. No40P01. Final rows retained one issue/history/version increment and one FIFO consumption of1 from the oldest remaining layer, which actually held exactly1 before the race and0 afterward. Baseline JSON/logs are preserved separately.
+The first diagnostic grouping split QC source references into separate buckets, producing offsetting+1/-1 groups for QC source events. Foundation3InventoryProvenanceGenealogySql defines stock balance by company/item/location/ownership/custody/provenance/lot/serial, excluding QC/source-reference IDs. The test now asserts those actual dimensions and retains the reference grouping as diagnostic evidence. The frozen schema requires nonnegative AVAILABLE and0-or1 serialized balances; no stock SQL is changed to accommodate this test. The issue transaction boundary now translates only40001 with the shared narrow filter into409CONCURRENCY_CONFLICT; no automatic retry or authority change. Fixed verification is pending.
+Fixed Release verification passed: **1 test, 0 failures/skips, 4m10s**, including the same-serial race and complete three-band purchase/custody/costing/report flow. Build passed0warnings/errors3m44.76s. Responses201/409CONCURRENCY_CONFLICT/retry409BUSINESS_RULE_CONFLICT/replay201true; one issue/history/version increment, one batch/two legs, warehouse serial quantity0, four canonical balance groups minimum0, and one FIFO consumption quantity1/value5900. The oldest remaining layer held exactly1 before and0 after. Separate fixed Release JSON/PG logs are preserved. Both API attempts overlapped at numbering; the loser failed at command registration, so this does not claim two simultaneously executing FIFO functions. Debug verification is pending.
+
+Final serial Debug verification passed: **1 test, 0 failures/skips, 4m10s**; build0warnings/errors4m05.67s. The same serial race and complete three-band flow pass in Release and Debug. Separate fixed Debug JSON/log evidence is preserved. This correction has1 targeted Release pass and1 targeted Debug pass. Frontend gets409CONCURRENCY_CONFLICT instead of500 for the observed issue serialization failure; successful creation/replay remain201. No SQL migration, authority change or owner database access. Next: concurrent full bill settlement and payment lock ordering.
