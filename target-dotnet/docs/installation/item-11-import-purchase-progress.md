@@ -84,9 +84,54 @@ revisions; complete advice attachment linkage. Dependent work: provisional
 approval/cost basis and immutable landed-cost adjustments, including consumed
 stock and actual job cost, followed by the complete three-band witness.
 
-Further code inspection: list_vendor_positions currently sums outstanding amounts
-across all currencies for a vendor, and list_vendor_payables omits CurrencyCode.
-Import support must return separate currency positions and identify payable
-currency; adding actual-INR evidence alone would leave misleading balances.
-That response change must be documented for the frontend and verified before
-calling Item 11 complete.
+Earlier code inspection found that vendor positions combined currencies and
+payable rows omitted CurrencyCode. The correction, frontend contract and
+verification are recorded below; actual-INR payment evidence and costing
+remain separate unfinished parts of Item 11.
+
+## Currency-aware payable and vendor-position reads
+
+Implemented after bank-advice commit 4c5325e. The response now includes
+required CurrencyCode on VendorPayableView and VendorPositionView; missing
+currency is not defaulted to INR. Vendor positions are grouped by vendor and
+currency. The frontend must use (VendorId, CurrencyCode) as the position row
+identity, display the currency beside its amounts, and avoid summing unlike
+currencies. Routes and array envelopes are unchanged. The existing INR values remain unchanged in the domestic witness.
+
+The new function-only migration checks the provider, PostgreSQL version,
+protected database names, exact function bodies, owners, fixed search path,
+SECURITY DEFINER state and allowed function grants on both Up and Down.
+There is no currency conversion or rate lookup.
+
+Baseline Release build: zero warnings/errors, 4m25.42s. Baseline test:
+0 passed, 1 failed, 0 skipped, 3m16s. The actual domestic API's two payable
+rows omitted CurrencyCode. Separately, copied read tables and the deployed
+function bodies in an isolated, rolled-back schema combined USD and INR into
+one position: advances 18, bills 123650.01, net 123632.01. That combined net has
+no meaningful single currency.
+
+The isolated read fixture expects two positions: USD advances 7, bills 5650,
+net 5643; INR advances 11, bills 118000.01, net 117989.01. Its copied tables do
+not carry the source's transaction guards or constraints. It tests read-side
+currency separation, not governed foreign procurement, foreign FIFO costing
+or dashboard proof. The actual source financial records are only read during
+the fixture; successful verification must then finish their real domestic
+settlement and the full three-band flow through the restricted runtime API.
+Baseline evidence: local-evidence/item11/currency-read-baseline-release.json
+and item11-currency-baseline-release.trx. Post-change Release build passed with zero warnings/errors in 3m59.61s.
+The targeted batch passed **3 tests, 0 failed, 0 skipped, 7m47s**:
+currency read/full-flow 4m18.6266s, advice regression/full-flow 2m59.9241s,
+and migration authority/rollback/reprovision 28.8869s. Actual domestic API
+rows identify INR. The isolated mixed-currency read returns exactly the two
+positions specified above. Both posting cases complete the full three-band
+flow; the currency case also verifies concurrent settlement through the real
+restricted runtime. Evidence is currency-read-verified-release.json,
+currency-advice-regression-release.json, currency-payment-settlement-release.json,
+currency-payment-permissions-release.json and item11-currency-verified-release.trx
+under local-evidence/item11. Debug build passed with zero warnings/errors in 4m27.24s. The same targeted
+batch passed **3 tests, 0 failed, 0 skipped, 7m56s**: currency read/full-flow
+4m23.7653s, advice regression/full-flow 3m03.1247s, migration checks 29.6719s.
+The same two currency positions and actual domestic INR responses are verified;
+both posting cases finish the full three-band flow. Matching currency-*Debug
+artifacts and item11-currency-verified-debug.trx are retained. These are targeted
+counts, not a new full-suite result. No owner database was used.

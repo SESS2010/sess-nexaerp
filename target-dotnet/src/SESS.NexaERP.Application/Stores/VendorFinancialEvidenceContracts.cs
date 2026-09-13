@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SESS.NexaERP.Application.Stores;
 
 public sealed record RecordVendorAdvanceRequest(
@@ -46,12 +48,14 @@ public sealed record VendorPayableView(
     Guid VendorId, string VendorCode, string VendorName, DateOnly BillDate,
     DateTimeOffset AcceptedAt, string PaymentTerms, DateOnly? DueDate,
     decimal AcceptedValue, decimal AdvanceAdjustedValue, decimal PaidValue,
-    decimal OutstandingValue, bool IsOverdue);
+    decimal OutstandingValue, bool IsOverdue,
+    [property: JsonRequired] string CurrencyCode);
 
 public sealed record VendorPositionView(
     Guid VendorId, string VendorCode, string VendorName,
     decimal OutstandingAdvance, decimal OutstandingBills, decimal NetPayable,
-    int CancelledPurchaseOrdersWithOutstandingAdvance);
+    int CancelledPurchaseOrdersWithOutstandingAdvance,
+    [property: JsonRequired] string CurrencyCode);
 
 public interface IVendorFinancialEvidenceService
 {
