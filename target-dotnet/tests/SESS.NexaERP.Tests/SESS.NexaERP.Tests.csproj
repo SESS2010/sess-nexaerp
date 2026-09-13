@@ -38,4 +38,7 @@
   <PropertyGroup Condition="'$(ReportVolumeWitness)' == 'true'">
     <DefineConstants>$(DefineConstants);REPORT_VOLUME_WITNESS</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(DiskFullWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);DISK_FULL_WITNESS</DefineConstants>
+  </PropertyGroup>
 </Project>

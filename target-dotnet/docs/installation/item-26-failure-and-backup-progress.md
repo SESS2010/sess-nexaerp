@@ -209,3 +209,53 @@ Verification JSON/logs are stored under local-evidence/item26 with
 Next: actual disk-full behavior on the bounded VM filesystem, then scheduled
 backup, retention, automatic restore verification and the customer recovery
 procedure. Item 26 remains partial.
+
+## Actual bounded disk exhaustion
+
+Release now passes an actual ENOSPC witness, with no production changes.
+Build: zero warnings/errors, 29.05s. Targeted test and its full three-band parent:
+**1 passed, 0 failed, 0 skipped, 6m48s**. Debug results are recorded below.
+
+The test verifies the separate native PostgreSQL cluster identity and a marked
+32 MiB loop filesystem before writing a uniquely named filler. fsync and
+synchronous_commit remain on. A restored purchase-flow database retains role
+attributes and recorded membership grantors. A temporary receipt trigger writes
+an 8 MiB probe after real material-issue, FIFO, stock and audit work. PostgreSQL
+fails that write with **53100, No space left on device**.
+
+Before and after the failed request are identical: issues/lines/FIFO 2/2/2,
+issue history 13, batches 9, movements 17, audit 147, command requests/receipts
+110/110; MIR APPROVED, Version 2. The failed HTTP request returns 500 in
+7.8747 seconds. Removing the filler and retrying returns 201 in 6.8318 seconds;
+replay returns 201 in 1.4915 seconds with the same issue ID and Replayed=true.
+Counts increase once: one issue, line, history, batch, FIFO consumption, audit,
+command and receipt; two stock movements. MIR becomes FULFILLED, Version 3.
+The captured PostgreSQL log contains no 40P01. These emulated-VM timings are
+not production performance measurements.
+
+The native VM exercises the prepared prefix and issue/retry. The original
+Windows fixture separately completes the full three-band parent flow. The
+bounded probe models relation/tablespace exhaustion during receipt creation;
+it is not WAL-volume exhaustion, whole-server disk exhaustion or physical
+disk-loss proof. Only the unique filler and restored disposable database/
+tablespace are removed; the retained VM disk is not formatted.
+
+Two earlier fixture failures are retained: pg_dumpall role restoration failed
+when the target OID-10 bootstrap role had a different name; after preserving
+the original bootstrap identity, a missing probe-table owner privilege caused
+42501 before disk exhaustion. Neither failure is counted as an ENOSPC pass.
+The corrected setup retains all ALTER ROLE and GRANT statements, omitting only
+the existing bootstrap role's CREATE ROLE. PostgreSQL documents this grantor
+limitation in its [project discussion](https://www.postgresql.org/message-id/671134.1778008247%40sss.pgh.pa.us).
+
+No API route, field or response envelope changed in this test-only increment.
+Automated backup, scheduling and recovery implementation remain in progress.
+
+Debug verification passed: build zero warnings/errors in 4m25.44s; targeted
+test and full parent **1 passed, 0 failed, 0 skipped, 6m58s**. The same 53100,
+rollback and exactly-once retry assertions pass. Failure: 500 in 7.1295s;
+retry: 201 in 6.6600s; replay: 201 in 1.8499s. Final counts match Release.
+Verified JSON and PostgreSQL logs have -verified-release/-verified-debug
+suffixes under local-evidence/item26. These are targeted counts, not new full
+suite totals. The opt-in build property is DiskFullWitness=true; the test
+requires the explicit owned VM endpoint and system identifier.
