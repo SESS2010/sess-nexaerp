@@ -85,6 +85,7 @@ public static class DependencyInjection
         services.AddOptions<SESS.NexaERP.Infrastructure.Reporting.ReportCalendarOptions>().Bind(configuration.GetSection("Reporting"))
             .Validate(options => options.IsValid(),"Reporting timezones must be valid configured timezone identifiers.").ValidateOnStart();
         services.AddScoped<SESS.NexaERP.Application.Reporting.ICompanyReportService, SESS.NexaERP.Infrastructure.Reporting.EfCompanyReportService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseWorkloadService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseWorkloadService>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 
         return services;

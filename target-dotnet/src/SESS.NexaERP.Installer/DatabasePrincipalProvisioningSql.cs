@@ -173,6 +173,16 @@ internal static class DatabasePrincipalProvisioningSql
           END IF;
         END $company_report_acl$;
 
+        DO $purchase_workload_acl$
+        BEGIN
+          IF to_regprocedure('advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer) TO nexa_erp_runtime;
+          END IF;
+        END $purchase_workload_acl$;
+
+
         DO $ceremony_acl$
         BEGIN
           IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN
@@ -530,6 +540,21 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_migration','advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled Material Return acceptance function ACL is invalid.';
           END IF;
+
+          IF EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase')
+             OR to_regprocedure('advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)') IS NOT NULL THEN
+            IF NOT EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase')
+              OR NOT EXISTS(SELECT 1 FROM pg_proc p
+                WHERE p.oid=to_regprocedure('advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)')
+                  AND p.prosecdef AND p.provolatile='s' AND p.proowner='nexa_erp_owner'::regrole
+                  AND p.proconfig=ARRAY['search_path=pg_catalog, advance']
+                  AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                  AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                    WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
+              RAISE EXCEPTION 'Purchase workload authority is incomplete or invalid.';
+            END IF;
+          END IF;
+
           IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
             IF to_regprocedure('advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NULL
                OR NOT has_function_privilege('nexa_erp_runtime','advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)','EXECUTE')

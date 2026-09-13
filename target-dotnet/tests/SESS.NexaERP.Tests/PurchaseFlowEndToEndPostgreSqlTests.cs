@@ -76,7 +76,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null,
         bool concessionHistoryWitness = false,
         Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null,
-        bool durableDatabase = false)
+        bool durableDatabase = false,
+        Func<PurchaseWorkloadWitnessContext, Task>? workload = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -330,7 +331,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     prRace is not null && band.Code == "TD"
                         ? draft => prRace(new(options, runtimeConnection, draft, managerId, tdId,
                             "TD-pr-approve-1", server.ReadDiagnosticLog))
-                        : null));
+                        : null,
+                    workload is null ? null : (stage, id) => workload(new(options, runtimeConnection, stage, id, band.Code))));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -634,7 +636,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         TaxWorkflowUser user, PurchaseFlowBand band, Guid creatorId, Guid managerId, Guid tdId, Guid mdId,
         Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id,
         Func<GoodsReceiptResult, Task<GoodsReceiptResult>>? finalizeRace = null,
-        Func<PurchaseRequisitionDetail, Task<PurchaseRequisitionDetail>>? approveRace = null)
+        Func<PurchaseRequisitionDetail, Task<PurchaseRequisitionDetail>>? approveRace = null,
+        Func<string, Guid, Task>? workload = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -657,6 +660,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new PurchaseRequisitionActionRequest(null, pr.Version, $"{band.Code}-pr-submit"));
         Assert.Equal(PurchaseRequisitionStatuses.Submitted, pr.Status);
         await AssertPrEvidence(options, pr.Id, "Submit", 2, 2);
+        if (workload is not null) await workload("PR_SUBMITTED", pr.Id);
         using(var refused=await prClient.PostAsJsonAsync($"/api/v1/purchase/requisitions/{pr.PrNumber}/verify",
             new PurchaseRequisitionActionRequest("Requester must not verify",pr.Version,$"{band.Code}-pr-self-verify")))
             Assert.Equal(HttpStatusCode.Forbidden,refused.StatusCode);
@@ -665,6 +669,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new PurchaseRequisitionActionRequest("Department verified", pr.Version, $"{band.Code}-pr-verify"));
         Assert.Equal(PurchaseRequisitionStatuses.PendingApproval, pr.Status);
         await AssertPrEvidence(options, pr.Id, "DepartmentVerify", 3, 3);
+        if (workload is not null) await workload("PR_APPROVAL", pr.Id);
 
         if (band.Level2EmployeeId.HasValue)
         {
@@ -709,6 +714,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, pr.Status);
         await AssertApprovalActors(options, "PR", pr.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
+        if (workload is not null) await workload("PR_STOCK_CHECK", pr.Id);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
@@ -748,6 +754,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTransactionEvidence(options, "RFQInvitation", invitation.Id, "InviteVendor");
         }
         var rfqList=await Get<PagedResponse<RfqListItem>>(client,$"/api/v1/purchase/rfqs?rfqNumber={rfq.Number}&vendorId={vendor1Id}&sortBy=date&sortDirection=desc");
+        if (workload is not null) await workload("RFQ_NO_QUOTATION", rfq.Id);
         Assert.Equal(1,rfqList.TotalCount);Assert.Equal(rfq.Id,Assert.Single(rfqList.Items).Id);
         var rfqDetail=await Get<RfqDetail>(client,$"/api/v1/purchase/rfqs/{rfq.Number}");
         Assert.Equal(rfq.Id,rfqDetail.Id);Assert.Single(rfqDetail.Lines);
@@ -768,6 +775,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTransactionEvidence(options, "VendorQuotation", quote.Id, "SubmitQuotation");
         }
         var quotationList=await Get<PagedResponse<QuotationListItem>>(client,$"/api/v1/purchase/quotations?quotationNumber={quotations[0].Number}&vendorId={vendor1Id}");
+        if (workload is not null) await workload("QUOTATION_VERIFY", quotations[0].Id);
         Assert.Equal(1,quotationList.TotalCount);Assert.Equal(quotations[0].Id,Assert.Single(quotationList.Items).Id);
         var quotationDetail=await Get<JsonElement>(client,$"/api/v1/purchase/quotations/{quotations[0].Number}");
         Assert.Equal(quotations[0].Number,quotationDetail.GetProperty("QuotationNumber").GetString());
@@ -787,10 +795,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var comparison = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/comparisons",
             new Rev869BCreateComparisonRequest(rfq.Number, rfqCurrentVersion, $"{band.Code}-comparison-create"));
         await AssertTransactionEvidence(options, "CommercialComparison", comparison.Id, "CreateComparison");
+        if (workload is not null) await workload("COMPARISON_DRAFT", comparison.Id);
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/recommend",
             new Rev869BRecommendComparisonRequest(quotations[0].Id, "Lowest compliant offer", null,
                 comparison.Version, $"{band.Code}-comparison-recommend"));
         await AssertTransactionEvidence(options, "CommercialComparison", comparison.Id, "RecommendVendor");
+        if (workload is not null) await workload("COMPARISON_APPROVAL", comparison.Id);
 
         user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/approve",
@@ -833,6 +843,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         Assert.Equal(Rev869BStatuses.Approved, po.Status);
         await AssertApprovalActors(options, "PO", po.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
+        if (workload is not null) await workload("PO_APPROVED", po.Id);
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/issue",
@@ -2210,6 +2221,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
             app.MapCompanyReportEndpoints();
+            app.MapPurchaseWorkloadEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();

@@ -141,6 +141,7 @@ if (developmentAuthenticationEnabled)
 #endif
 
 app.MapCompanyReportEndpoints();
+app.MapPurchaseWorkloadEndpoints();
 app.MapSessionEndpoints();
 app.MapNotificationEndpoints();
 app.MapIdentityEndpoints();
