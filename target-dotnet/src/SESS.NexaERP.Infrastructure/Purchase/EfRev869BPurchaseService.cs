@@ -53,7 +53,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             currentActorRoleCode = user.RequireRole(operation, requiredRole);
         }
         var scope = new Rev869BTransactionScope(this,
-            await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct));
+            await db.Database.BeginTransactionAsync(
+                operation == "IssuePO" ? IsolationLevel.Serializable : IsolationLevel.ReadCommitted, ct));
         currentCompanyId = await db.Companies.AsNoTracking()
             .Where(x => x.Code == RequireOrganization() && x.IsActive)
             .Select(x => x.Id).SingleAsync(ct);
@@ -83,6 +84,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         public async Task RollbackAsync(CancellationToken ct)
         {
             await owned.RollbackAsync(ct);
+            service.db.ChangeTracker.Clear();
             await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
             service.currentCommandEnvelope = null;
             service.currentActorRoleCode = null;
@@ -95,7 +97,12 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             if (!finalized)
             {
                 try { await owned.RollbackAsync(); }
-                finally { await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None); }
+                finally
+                {
+                    // A later denial audit must not save changes from the rolled-back command.
+                    service.db.ChangeTracker.Clear();
+                    await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None);
+                }
                 service.currentCommandEnvelope = null;
                 service.currentActorRoleCode = null;
                 service.currentCompanyId = Guid.Empty;

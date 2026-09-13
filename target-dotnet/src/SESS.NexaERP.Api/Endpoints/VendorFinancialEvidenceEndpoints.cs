@@ -16,8 +16,8 @@ public static partial class VendorFinancialEvidenceEndpoints
             .AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope);
 
         group.MapGet("/advance-purchase-orders", (
-            Guid? vendorId, IVendorFinancialEvidenceService service, CancellationToken ct) =>
-            service.ListAdvancePurchaseOrdersAsync(vendorId, ct))
+            Guid? vendorId, IVendorFinancialEvidenceService service, HttpContext context, CancellationToken ct) =>
+            Run(() => service.ListAdvancePurchaseOrdersAsync(vendorId, ct), context, false))
             .RequirePagePermission("accounts.vendor-financial-evidence",
                 PagePermissionActions.View);
 

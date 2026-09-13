@@ -237,3 +237,129 @@ The retained-advice component is verified. Item 11 remains partial: actual
 banker-INR/fee capture, total-cash limits across PO revisions, provisional INR
 approval/cost basis and landed-cost allocation are not completed by this change.
 No owner database was used, and no permanent customer schedule was installed.
+
+
+## Combined PO cash cap (verified component)
+
+The cash cap sums active advances and bill-payment allocations across the PO
+root's revisions. It excludes reversed advances and does not count advance
+adjustments a second time. New cash uses the latest actually issued version's
+value; a draft or approved-but-unissued revision cannot raise the limit.
+Currency or vendor drift is refused. No currency conversion is performed.
+
+Frontend contract: the existing advance-PO options add required
+`BillPaymentAmount`. `AvailableAdvanceAmount` becomes PO value minus active
+advances minus bill payments across revisions. Fully paid POs disappear from
+the eligible list. The route and array envelope are unchanged.
+
+Advance and payment writers take one company cash lock before business-row
+locks; bill locks remain sorted. The advance's former PO `FOR UPDATE` is
+removed to avoid reversing the cash/PO lock order. PO issuance also checks
+paid cash. Cash writes and issuance require Serializable transactions, and
+IssuePO now uses that isolation. An unchanged-value reservation of an already
+issued PO remains possible so an old overpayment can be reconciled. The lock
+does not refresh a transaction snapshot; see the
+[PostgreSQL consistency guidance](https://www.postgresql.org/docs/17/applevel-consistency.html).
+
+Migration 20260913100000 adds private totals/limit functions, an advance lookup
+index and an issuance trigger. Runtime cannot execute the private helpers or
+read the financial tables directly. Provisioning and migration checks cover
+owner, fixed search path, function bodies, grants, index and trigger definition.
+A disabled trigger or a trigger altered with `WHEN(false)` is refused. Down
+restores the previous public functions and removes only the new helpers,
+index and trigger; it does not delete financial history.
+
+### Baseline and actual cash evidence
+
+The real domestic baseline paid a 5900 INR PO in full: active advances 250 plus
+bill payments 5650. The old eligible-advance list nevertheless offered another
+5650, and a new 1 INR advance returned 201. Cash rose to 5901; advances 3 to 4,
+audits 112 to 113, requests/receipts 75 to 76. Baseline Release build was clean
+in 4m31.85s; the expected-refusal test failed in 3m25s. The separate baseline
+JSON and TRX remain under `local-evidence/item11`.
+
+The corrected refusal returned 409 with cash 5900, three advances, 112 audits,
+and 75 requests/receipts unchanged. The real advance/payment race produced one
+201 advance and one 409 serialization failure. Retrying the payment was refused
+because 6000 exceeds 5900. After a recorded advance reversal, settlement and
+replay succeeded with cash exactly 5900 and no deadlock. These passed again in the
+final Release regression batch after the remaining changes below.
+
+### Amendment prerequisites found by the witness
+
+A terms-only amendment exposed an existing history-authority mismatch: the
+final approver supersedes the prior PO, but its history guard treated
+`Supersede` as a Purchase Manager action. Accounts approval returned 200; the
+Technical Director's final approval failed with SQL 42501,
+`rev869b_history_action_role`. The HTTP responses and database error log are
+retained separately as the history baseline.
+
+Migration 20260913095000 permits that history only when the replacement is an
+approved current child of the predecessor, both transitions occurred in the
+same transaction, their command correlations match, and the actor is the
+replacement workflow's final approver. Existing creator separation, actor,
+identity and command-context checks remain. Its guarded Up/Down reconstructs
+and checks the full earlier function body while retaining item 16's creator
+identity history. It preserves the function's authority and existing rows.
+
+After that fix, both approval steps passed. The first issuance refusal then
+exposed a second defect: endpoint denial auditing saved pending handoffs still
+tracked after the business transaction had rolled back. The handoff guard
+refused that insert and changed the intended 409 into a 500. The Purchase
+transaction scope now clears rolled-back tracked changes before later auditing.
+A refusal retains its denial audit without saving abandoned business changes.
+
+The trial lacks the required IT/warehouse scopes for SESS-14 and SESS-01.
+The test checks the actual immutable workflow, records explicit secondary
+IT department reference assignments, and uses SESS-12's real runtime endpoint
+for each narrow operational-scope grant. This is disposable test setup, not
+site authorization. Real permission/scope checks stay enabled, and financial
+records are created through runtime commands rather than direct table writes.
+
+### Latest complete revision result
+
+Release built cleanly in 3m42.18s. The revision test passed, 1 passed, 0 failed,
+0 skipped, 4m39s. With value 5900 and cash 5901, issuance returned 409. Status
+Approved, version 3, four history rows, zero handoffs, 134 requests/receipts and
+170 successful business audits remained unchanged. Total audits rose 177 to
+178 and denial audits 5 to 6: exactly one legitimate denial audit.
+
+After the recorded 1 INR reversal, cash was 5900. Retrying issuance produced
+Issued version 4, five history rows, one handoff, 136 requests/receipts and
+172 successful business audits. Total audits were 180; denial audits stayed
+six. Replay returned the same revision and changed no counts. Another 1 INR
+advance against the new revision returned 409 and changed no counts. The full
+three-band parent flow completed. Retained files include
+`po-cash-revision-verified-release.json`, its refusal/scopes companions and
+`item11-cash-cap-revision-rollback-release.trx`.
+
+The combined migration test passed separately in Release, 1 passed, 0 failed,
+0 skipped, 1m19s, including apply, two reprovisions, rollback/reapply, private
+helper denial, weaker-isolation refusal and altered-trigger refusal. A further
+check deliberately changes the new history predicate and requires drift
+refusal; it passed in the final regression batch. The test-only
+rebuild for that addition passed with zero warnings/errors in 34.11s.
+
+Earlier failed batches are retained: first 1 passed/4 failed in 10m37s (SQL
+alias collision and old rollback-test chain); second 5 passed/1 failed in
+17m52s (approval scope); focused 1 passed/1 failed in 4m44s (remaining scope);
+then the history-authority failure in 4m14s and denial-audit failure in 4m17s.
+The final remaining Release batch passed: 5 passed, 0 failed, 0 skipped,
+14m34s. Together with the separate revision result, all six selected Release
+checks passed. These are targeted results, not full-suite counts.
+Debug built with zero warnings/errors in 4m52.25s. Its final run passed all
+six selected tests: 6 passed, 0 failed, 0 skipped, 18m06s. The Debug revision
+returned the same exact before/refusal/issued counts shown above; the race
+again produced advance 201, payment 409, refusal on retry, recorded reversal,
+settlement at 5900 and unchanged replay counts. Retained advice again showed
+three documents, audits and receipts with matching download bytes and refused
+populated rollback. The missing-advice and currency refusals left 111 audits,
+74 requests/receipts, zero payments and zero allocations unchanged.
+
+Final evidence is retained under `local-evidence/item11`: the two final
+Release TRXs, `item11-cash-cap-final-debug.trx`, `po-cash-cap-verified-*`,
+`po-cash-concurrency-verified-*` with PostgreSQL logs,
+`po-cash-revision-verified-*` and refusal/scopes companions, and
+`bank-advice-storage-cash-verified-*` / `bank-advice-refusal-cash-verified-*`.
+The cash-cap component is verified. Import approval/FIFO INR policy and banker
+INR/fee capture remain unfinished, so Item 11 as a whole remains partial.

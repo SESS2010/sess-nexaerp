@@ -31,6 +31,14 @@ public sealed class EfVendorFinancialEvidenceService(
     public async Task<IReadOnlyList<VendorAdvancePurchaseOrderOption>> ListAdvancePurchaseOrdersAsync(
         Guid? vendorId, CancellationToken ct)
     {
+        try { return await ReadAdvancePurchaseOrdersAsync(vendorId, ct); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException)
+        { throw new StoresConflictException(error.MessageText); }
+    }
+
+    private async Task<IReadOnlyList<VendorAdvancePurchaseOrderOption>> ReadAdvancePurchaseOrdersAsync(
+        Guid? vendorId, CancellationToken ct)
+    {
         var company = await CompanyAsync(ct);
         return await JsonScalar<List<VendorAdvancePurchaseOrderOption>>(
             "SELECT advance.list_vendor_advance_purchase_orders(@company,@vendor)::text",
@@ -98,6 +106,16 @@ public sealed class EfVendorFinancialEvidenceService(
     }
 
     public async Task<VendorAdvanceView> RecordAdvanceAsync(
+        RecordVendorAdvanceRequest request, CancellationToken ct)
+    {
+        try { return await RecordAdvanceCoreAsync(request, ct); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("Vendor cash changed concurrently. Refresh and retry.", error);
+        }
+    }
+
+    private async Task<VendorAdvanceView> RecordAdvanceCoreAsync(
         RecordVendorAdvanceRequest request, CancellationToken ct)
     {
         _ = user.RequireRole("approve", "ACCOUNTS_MANAGER");

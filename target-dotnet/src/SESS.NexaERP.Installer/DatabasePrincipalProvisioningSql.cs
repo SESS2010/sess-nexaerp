@@ -335,6 +335,14 @@ internal static class DatabasePrincipalProvisioningSql
             REVOKE ALL ON FUNCTION advance.record_vendor_bank_advice(uuid,uuid,text,text,bytea,text,text,text,uuid,text,uuid,text,text),advance.vendor_bank_advice_json(uuid,uuid,boolean),advance.vendor_bank_advice_content(uuid,uuid),advance.require_vendor_bank_advice(uuid,uuid,text) FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
             GRANT EXECUTE ON FUNCTION advance.record_vendor_bank_advice(uuid,uuid,text,text,bytea,text,text,text,uuid,text,uuid,text,text),advance.vendor_bank_advice_json(uuid,uuid,boolean),advance.vendor_bank_advice_content(uuid,uuid) TO nexa_erp_runtime;
           END IF;
+          IF EXISTS(SELECT 1 FROM (VALUES ('advance.vendor_po_cash_totals(uuid,uuid,text,uuid)'),('advance.require_vendor_po_cash_limit(uuid,uuid,numeric,text)'),('advance.guard_purchase_order_vendor_cash()')) f(name) WHERE to_regprocedure(f.name) IS NOT NULL)
+             OR to_regclass('advance."IX_vendor_advances_company_po"') IS NOT NULL THEN
+            IF EXISTS(SELECT 1 FROM (VALUES ('advance.vendor_po_cash_totals(uuid,uuid,text,uuid)'),('advance.require_vendor_po_cash_limit(uuid,uuid,numeric,text)'),('advance.guard_purchase_order_vendor_cash()')) f(name) WHERE to_regprocedure(f.name) IS NULL) THEN
+              RAISE EXCEPTION 'Vendor cash authority is partially installed.';
+            END IF;
+            REVOKE ALL ON FUNCTION advance.vendor_po_cash_totals(uuid,uuid,text,uuid),advance.require_vendor_po_cash_limit(uuid,uuid,numeric,text),advance.guard_purchase_order_vendor_cash() FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+          END IF;
+
         END $stores_acl$;
 
         DO $ordinary_command_acl$
@@ -683,6 +691,26 @@ internal static class DatabasePrincipalProvisioningSql
                OR EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
                  WHERE p.oid IN(SELECT to_regprocedure(f.name) FROM (VALUES ('advance.record_vendor_bank_advice(uuid,uuid,text,text,bytea,text,text,text,uuid,text,uuid,text,text)'),('advance.vendor_bank_advice_json(uuid,uuid,boolean)'),('advance.vendor_bank_advice_content(uuid,uuid)'),('advance.require_vendor_bank_advice(uuid,uuid,text)')) f(name)) AND a.grantee=0) THEN
               RAISE EXCEPTION 'Bank advice EXECUTE-only authority is invalid.';
+            END IF;
+          END IF;
+
+          IF EXISTS(SELECT 1 FROM (VALUES ('advance.vendor_po_cash_totals(uuid,uuid,text,uuid)'),('advance.require_vendor_po_cash_limit(uuid,uuid,numeric,text)'),('advance.guard_purchase_order_vendor_cash()')) f(name) WHERE to_regprocedure(f.name) IS NOT NULL)
+             OR to_regclass('advance."IX_vendor_advances_company_po"') IS NOT NULL THEN
+            IF EXISTS(SELECT 1 FROM (VALUES ('advance.vendor_po_cash_totals(uuid,uuid,text,uuid)'),('advance.require_vendor_po_cash_limit(uuid,uuid,numeric,text)'),('advance.guard_purchase_order_vendor_cash()')) f(name)
+              LEFT JOIN pg_proc p ON p.oid=to_regprocedure(f.name)
+              WHERE p.oid IS NULL OR NOT p.prosecdef OR p.proowner<>'nexa_erp_owner'::regrole
+                OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, advance']
+                OR has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                OR has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+                OR has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+                OR EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                  WHERE a.grantee<>p.proowner))
+              OR to_regclass('advance."IX_vendor_advances_company_po"') IS NULL
+              OR NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='advance.purchase_orders'::regclass
+                AND tgname='trg_purchase_order_vendor_cash' AND tgenabled='O' AND tgtype=23
+                    AND tgqual IS NULL AND tgnargs=0 AND tgattr=''::int2vector AND tgconstraint=0
+                AND tgfoid=to_regprocedure('advance.guard_purchase_order_vendor_cash()')) THEN
+              RAISE EXCEPTION 'Private vendor cash authority or issuance protection is invalid.';
             END IF;
           END IF;
 

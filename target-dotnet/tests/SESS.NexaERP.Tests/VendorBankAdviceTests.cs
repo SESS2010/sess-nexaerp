@@ -134,13 +134,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options))
             {
                 var down = model.GetService<IMigrator>().GenerateScript(
-                    "20260913090000_GovernedVendorBankAdvice", "20260913080000_ForeignCurrencyFinancialReadModels");
+                    model.Database.GetMigrations().Last(), "20260913080000_ForeignCurrencyFinancialReadModels", MigrationsSqlGenerationOptions.NoTransactions);
                 await using var guardConnection = new NpgsqlConnection(owner.ConnectionString);
                 await guardConnection.OpenAsync();
-                await using var guard = new NpgsqlCommand(down, guardConnection);
+                await using var rollback = await guardConnection.BeginTransactionAsync();
+                await using var guard = new NpgsqlCommand(down, guardConnection, rollback);
                 var error = await Assert.ThrowsAsync<PostgresException>(() => guard.ExecuteNonQueryAsync());
                 Assert.Equal("P0001", error.SqlState);
                 Assert.Contains("refuses retained financial documents", error.MessageText, StringComparison.OrdinalIgnoreCase);
+                await rollback.RollbackAsync();
             }
             Assert.Equal(finalCounts, await BankAdviceCounts(context.Options));
             Assert.DoesNotContain("40P01", context.ReadPostgresLog(), StringComparison.OrdinalIgnoreCase);

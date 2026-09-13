@@ -11,7 +11,8 @@ public sealed record ReverseVendorAdvanceRequest(string Reason, string Idempoten
 public sealed record VendorAdvancePurchaseOrderOption(
     Guid PurchaseOrderId, string PurchaseOrderNumber, Guid VendorId,
     string VendorCode, string VendorName, string CurrencyCode, decimal PurchaseOrderValue,
-    decimal ActiveAdvanceAmount, decimal AvailableAdvanceAmount);
+    decimal ActiveAdvanceAmount, decimal AvailableAdvanceAmount,
+    [property: JsonRequired] decimal BillPaymentAmount);
 
 public sealed record VendorAdvanceView(
     Guid Id, string AdvanceNumber, Guid PurchaseOrderId, string PurchaseOrderNumber,
