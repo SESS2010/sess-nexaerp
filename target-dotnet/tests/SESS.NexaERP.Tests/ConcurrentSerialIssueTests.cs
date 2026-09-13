@@ -13,7 +13,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record SerialIssueRaceContext(
         DbContextOptions<NexaErpDbContext> Options, string RuntimeConnection,
         MaterialIssueRequestView Draft, CreateMaterialIssue Command,
-        Guid FirstOperatorId, Guid SecondOperatorId, Func<string> ReadPostgresLog);
+        Guid FirstOperatorId, Guid SecondOperatorId, Func<string> ReadPostgresLog, Action? RestartDatabase = null);
 
     [Fact]
     public async Task TwoStoresOperatorsCannotIssueTheSameSerialTwice()

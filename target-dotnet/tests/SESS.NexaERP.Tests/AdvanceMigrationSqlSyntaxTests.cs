@@ -881,25 +881,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private readonly string _data;
         private readonly int _port;
         private bool _started;
+        private readonly bool _durable;
 
-        private DisposablePostgreSql(string bin)
+        private DisposablePostgreSql(string bin, bool durable)
         {
             _bin = bin;
+            _durable = durable;
             _root = Path.Combine(Path.GetTempPath(), $"advance-postgresql-parser-{Guid.NewGuid():N}");
             _data = Path.Combine(_root, "data");
             _port = ReservePort();
             Directory.CreateDirectory(_root);
         }
 
-        public static DisposablePostgreSql Start(string bin)
+        public static DisposablePostgreSql Start(string bin, bool durable = false)
         {
-            var server = new DisposablePostgreSql(bin);
+            var server = new DisposablePostgreSql(bin, durable);
             try
             {
                 server.Require(server.Run("initdb", "-D", server._data, "--username=postgres", "--auth=trust",
                     "--encoding=UTF8", "--no-locale"), "initdb");
                 server.Require(server.Run("pg_ctl", "-D", server._data, "-l", Path.Combine(server._root, "postgres.log"),
-                    "-o", $"-h 127.0.0.1 -p {server._port} -c fsync=off -c synchronous_commit=off",
+                    "-o", server.StartOptions,
                     "-w", "start"), "pg_ctl start");
                 server._started = true;
                 server.Require(server.Run("createdb", "--host", "127.0.0.1", "--port",
@@ -912,6 +914,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 server.Dispose();
                 throw;
             }
+        }
+
+
+        private string StartOptions =>
+            $"-h 127.0.0.1 -p {_port} -c fsync={(_durable ? "on" : "off")} -c synchronous_commit={(_durable ? "on" : "off")}";
+
+        public void Restart()
+        {
+            var root = Path.GetFullPath(_root);
+            var temp = Path.GetFullPath(Path.GetTempPath());
+            if (!_durable || !_started || _port == 5432 ||
+                !root.StartsWith(temp,StringComparison.OrdinalIgnoreCase) ||
+                !Path.GetFileName(root).StartsWith("advance-postgresql-parser-",StringComparison.Ordinal) ||
+                !string.Equals(Path.GetFullPath(_data),Path.Combine(root,"data"),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Restart is restricted to this owned, durable disposable PostgreSQL cluster.");
+            Require(Run("pg_ctl","-D",_data,"-m","immediate","-w","stop"),"durable test stop");
+            _started = false;
+            Require(Run("pg_ctl","-D",_data,"-l",Path.Combine(_root,"postgres.log"),
+                "-o",StartOptions,"-w","start"),"durable test restart");
+            _started = true;
         }
 
         public void AssertRejected(string name, string sql, string? expectedMessage = null)

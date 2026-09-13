@@ -75,7 +75,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null,
         Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null,
         bool concessionHistoryWitness = false,
-        Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null)
+        Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null,
+        bool durableDatabase = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -83,7 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (concessionHistoryWitness) Assert.False(model.Database.HasPendingModelChanges());
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
-        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin(), durableDatabase);
         if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
@@ -381,7 +382,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 mirRace is null ? null : draft => mirRace(new(options, runtimeConnection, draft,
                     productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)),
                 issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
-                    draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog)));
+                    draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
