@@ -70,7 +70,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null,
         Func<PrApprovalRaceContext, Task<PurchaseRequisitionDetail>>? prRace = null,
         Func<VendorBillRaceContext, Task<VendorBillView>>? billRace = null,
-        Func<SerialIssueRaceContext, Task<MaterialIssueView>>? issueRace = null)
+        Func<SerialIssueRaceContext, Task<MaterialIssueView>>? issueRace = null,
+        Func<PaymentRaceContext, Task<PaymentRaceResult>>? paymentRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -78,7 +79,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -159,6 +160,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         const string runtimePassword = "ordinary-purchase-runtime-123456789";
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        if (paymentRace is not null)
+        {
+            var migrations = model.Database.GetMigrations().ToArray();
+            const string paymentLockOrder = "20260913030000_VendorPaymentBillLockOrder";
+            var index = Array.IndexOf(migrations, paymentLockOrder);
+            Assert.True(index > 0);
+            var beforePermissions = await PaymentFunctionMetadata(options);
+            server.Execute("payment-lock-order-down.sql", migrator.GenerateScript(paymentLockOrder, migrations[index - 1]));
+            var downPermissions = await PaymentFunctionMetadata(options);
+            server.Execute("payment-lock-order-reapply.sql", migrator.GenerateScript(migrations[index - 1], paymentLockOrder));
+            var afterPermissions = await PaymentFunctionMetadata(options);
+            Assert.Equal(beforePermissions, downPermissions);
+            Assert.Equal(beforePermissions, afterPermissions);
+            var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item25");
+            Directory.CreateDirectory(evidence);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "payment-function-permissions.json"),
+                JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
+        }
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
             .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
             .ToListAsync()).ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
@@ -316,7 +335,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(128620.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
             var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId,
                 billRace is null ? null : draft => billRace(new(options, runtimeConnection, draft,
-                    managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)));
+                    managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)),
+                paymentRace is null ? null : command => paymentRace(new(options, runtimeConnection,
+                    command, managerId, server.ReadDiagnosticLog)));
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
             var pendingGrni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
             Assert.Equal(1m,pendingGrni.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
@@ -425,7 +446,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -1700,7 +1721,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task<VendorBillView> RunVendorBillWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
         IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId,
-        Func<VendorBillView, Task<VendorBillView>>? acceptRace = null)
+        Func<VendorBillView, Task<VendorBillView>>? acceptRace = null,
+        Func<RecordVendorPaymentRequest, Task<PaymentRaceResult>>? paymentRace = null)
     {
         var expected = new List<(decimal UnitRate, decimal Payable)>();
         foreach (var grn in grns)
@@ -1880,15 +1902,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var paymentRequest = new RecordVendorPaymentRequest(
             payableBills[0].VendorId, DateOnly.FromDateTime(DateTime.UtcNow), allocations.Sum(x => x.Amount),
             "INR", "UTR-PAY-001", "evidence/payment-001", allocations, "vendor-payment-record-001");
-        var payment = await Post<VendorPaymentView>(client,
-            "/api/v1/accounts/vendor-financial-evidence/payments", paymentRequest);
+        VendorPaymentView payment;
+        if (paymentRace is null)
+            payment = await Post<VendorPaymentView>(client,
+                "/api/v1/accounts/vendor-financial-evidence/payments", paymentRequest);
+        else
+        {
+            var outcome = await paymentRace(paymentRequest);
+            payment = outcome.Payment;
+            paymentRequest = outcome.Command;
+        }
         Assert.Equal(allocations.Length, payment.Allocations.Count);
         var paymentReplay = await Post<VendorPaymentView>(client,
             "/api/v1/accounts/vendor-financial-evidence/payments", paymentRequest);
         Assert.True(paymentReplay.Replayed);
         var positions = await Get<VendorPositionView[]>(client,
             "/api/v1/accounts/vendor-financial-evidence/vendor-positions");
-        Assert.Contains(positions, x => x.VendorId == payment.VendorId);
+        if (paymentRace is null) Assert.Contains(positions, x => x.VendorId == payment.VendorId);
+        else Assert.DoesNotContain(positions, x => x.VendorId == payment.VendorId); // Full settlement leaves no open position.
 
         await using var evidence = new NexaErpDbContext(options);
         Assert.Equal(5, await evidence.VendorBills.CountAsync());
