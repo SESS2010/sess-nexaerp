@@ -175,9 +175,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var index = Array.IndexOf(migrations, paymentLockOrder);
             Assert.True(index > 0);
             var beforePermissions = await PaymentFunctionMetadata(options);
-            server.Execute("payment-lock-order-down.sql", migrator.GenerateScript(paymentLockOrder, migrations[index - 1]));
+            server.Execute("payment-lock-order-down.sql", migrator.GenerateScript(latest, migrations[index - 1]));
             var downPermissions = await PaymentFunctionMetadata(options);
-            server.Execute("payment-lock-order-reapply.sql", migrator.GenerateScript(migrations[index - 1], paymentLockOrder));
+            server.Execute("payment-lock-order-reapply.sql", migrator.GenerateScript(migrations[index - 1], latest));
             var afterPermissions = await PaymentFunctionMetadata(options);
             Assert.Equal(beforePermissions, downPermissions);
             Assert.Equal(beforePermissions, afterPermissions);

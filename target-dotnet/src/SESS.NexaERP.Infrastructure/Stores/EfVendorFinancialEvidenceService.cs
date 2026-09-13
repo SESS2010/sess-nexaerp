@@ -237,6 +237,9 @@ public sealed class EfVendorFinancialEvidenceService(
             request.Allocations.Count)
             throw new StoresValidationException("A bill may be allocated only once per payment.");
         _ = Required(request.PaymentReference, "PaymentReference");
+        if (!string.Equals(request.CurrencyCode.Trim(), "INR", StringComparison.OrdinalIgnoreCase) &&
+            string.IsNullOrWhiteSpace(request.EvidenceObjectKey))
+            throw new StoresValidationException("Bank advice evidence reference is required for a foreign payment.");
     }
 
     private void AddActor(NpgsqlParameterCollection p)
