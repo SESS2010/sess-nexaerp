@@ -1,6 +1,6 @@
 # Item 26: failure behavior and automated backup
 
-Status: partial. Posting interruption, host lifecycle, and PR creation retry/audit-failure tests have passed in Release and Debug; remaining failure and backup cases are pending. No owner
+Status: partial. Posting interruption, host lifecycle, PR creation retry/audit-failure, migration rollback and client reconnect tests have passed in Release and Debug; remaining failure and backup cases are pending. No owner
 database has been accessed. Tests must use owned disposable PostgreSQL clusters;
 crash-recovery claims require fsync and synchronous_commit enabled.
 
@@ -28,11 +28,11 @@ crash-recovery claims require fsync and synchronous_commit enabled.
 | --- | --- |
 | Database connection lost during posting | Release/Debug: HTTP 500, full rollback, retry/replay succeed once |
 | PostgreSQL restarted during posting, durability enabled | Release/Debug: HTTP 500, recovery rolls back, retry/replay succeed once |
-| Browser closes between submission and approval | Pending |
+| Browser closes between submission and approval | Release/Debug: HTTP client closure preserves pending work; browser UI not exercised |
 | Duplicate network request | Payment covered by Item 25; PR sequential/concurrent retry verified in Release/Debug |
 | Disk full on a bounded disposable filesystem | Pending |
-| Interrupted migration | Pending |
-| Two API instances using one database | Earlier concurrent tests use separate hosts; explicit lifecycle/bind checks pending |
+| Interrupted migration | Release/Debug: DDL/history roll back; retry applies once; rerun is unchanged |
+| Two API instances using one database | Release/Debug: shared pending/approved state and duplicate refusal; same-port bind failure separately verified |
 | Notification refresh failure and recovery | Release/Debug: first refresh fails, real one-minute retry succeeds, host stays alive |
 | Scheduled daily backup and weekly globals | Not implemented |
 | Retention and verified restore | Not implemented |
@@ -162,3 +162,50 @@ Verified artifacts use -verified-release and -verified-debug suffixes.
 Next: interrupted migration, client closure between completed submission and
 approval, bounded disk-full behavior, and automated verified backup/retention
 with a tested customer restore procedure. Item 26 remains partial.
+
+## Interrupted migration and client closure
+
+Release and Debug now verify both cases without further production changes.
+Release build: zero warnings/errors, 4m40.71s; final test-only rebuild 30.99s.
+Release batch: **2 passed, 0 failed, 0 skipped, 4m56s** (migration 1m16.544s,
+client/full-three-band flow 3m40.223s). Debug build: zero warnings/errors,
+4m27.39s; batch: **2 passed, 0 failed, 0 skipped, 5m07s** (migration 1m18.376s,
+client/full-three-band flow 3m49.201s). These are targeted counts.
+
+The migration test uses the production advance.__EFMigrationsHistory location
+in a new owned cluster and asserts fsync=on and synchronous_commit=on. A
+temporary trigger blocks the target migration's history INSERT after its DDL
+has executed. The test observes that exact named backend at the advisory wait
+and terminates it. Before and after interruption match: 84 history entries,
+no receipt-reader function, zero command requests and receipts. PostgreSQL
+reports termination by administrator command. Retrying through EF migrator
+creates the function with the expected owner/search path/ACLs and exactly the
+85th history entry. Another migrator run changes nothing. This proves the
+transaction boundary for this migration; it is not a claim about arbitrary
+nontransactional migrations. The deliberate wait is not normal migration
+latency.
+
+The client test starts after committed submission and department verification.
+An HTTP client reads a PENDING_APPROVAL PR at Version 2, then is disposed before
+any approval request. Status-history/approval-history/audit counts remain
+3/0/3. A second running Kestrel instance against the same database reads the
+same PR and Version 2. Approval advances it to Version 3 with counts 4/1/4.
+A fresh client against the first instance sees that same committed state.
+
+Submitting the original approval again returns **409 CONCURRENCY_CONFLICT,
+stale record version**, leaving all counts unchanged. Refresh sees Version 3.
+That refusal took 0.2735s in Release and 0.3256s in Debug. The initial test
+incorrectly expected a 200 replay; its result is retained separately, and the
+corrected test asserts the existing clean refusal. The successful first
+approval survives the client closure; there is no extra approval or orphan.
+
+This is an HTTP-client lifecycle test with real persisted role assignments,
+page permissions and operational scopes, plus two running API instances.
+It does not exercise browser UI or an in-flight uncommitted submission.
+The parent completes the full three-band purchase/custody/report flow.
+Verification JSON/logs are stored under local-evidence/item26 with
+-verified-release and -verified-debug suffixes.
+
+Next: actual disk-full behavior on the bounded VM filesystem, then scheduled
+backup, retention, automatic restore verification and the customer recovery
+procedure. Item 26 remains partial.
