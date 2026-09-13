@@ -75,7 +75,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null,
         Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null,
         bool concessionHistoryWitness = false,
-        Func<DirectFifoRaceContext, Task>? fifoRace = null)
+        Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -84,7 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -475,10 +475,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if (concessionHistoryWitness) await AssertConcessionHistoryRollbackRefused(options, migrator);
             if (fifoRace is not null)
                 await fifoRace(new(options, runtimeConnection, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog));
+            if (mixedRun is not null) await mixedRun(new(options, runtimeConnection, server.ReadDiagnosticLog));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -2147,7 +2148,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             TaxWorkflowUser user,
             bool useRealPagePermissions = false,
             bool useRealOperationalScopes = false,
-            bool denyLifecycleScope = false)
+            bool denyLifecycleScope = false, Func<Microsoft.AspNetCore.Http.HttpContext, TaxWorkflowUser>? requestUser = null,
+            Action<ICurrentUser, bool>? observeRequest = null)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -2167,7 +2169,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.AddAuthorization();
             builder.Services.ConfigureHttpJsonOptions(x => ApiJsonContract.Configure(x.SerializerOptions));
             builder.Services.AddInfrastructure(builder.Configuration);
-            builder.Services.AddSingleton<ICurrentUser>(user);
+            if (requestUser is null) builder.Services.AddSingleton<ICurrentUser>(user);
+            else
+            {
+                builder.Services.AddHttpContextAccessor();
+                builder.Services.AddScoped<ICurrentUser>(services => requestUser(services.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>().HttpContext!));
+            }
             if (denyLifecycleScope)
                 builder.Services.AddSingleton<IRecordScopeAuthorizer, PurchaseFlowSecondScopeDenial>();
             else if (!useRealOperationalScopes)
@@ -2179,6 +2186,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.UseMiddleware<ExceptionHandlingMiddleware>();
             app.UseAuthentication();
             app.UseAuthorization();
+            if (observeRequest is not null)
+                app.Use(async (context, next) =>
+                {
+                    var current = context.RequestServices.GetRequiredService<ICurrentUser>();
+                    observeRequest(current, true);
+                    try { await next(context); }
+                    finally { observeRequest(current, false); }
+                });
             app.MapRev869AConfigurationEndpoints();
             app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();

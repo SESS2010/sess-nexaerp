@@ -19,11 +19,11 @@ Controlled race timings include deliberately imposed lock waits. They are not no
 | TD concession versus QC correction, TD first | Approval only; correction/retry409; AVAILABLE1/PENDING0; migration permissions retained | 45755cb |
 | QC correction versus superseded concession, QC first | Correction only; old approval/retry409; rejected history retained beside the fresh approved decision; guarded migration/reversal path | 45249ed |
 | Assignment transfer while an issue is in flight | Transfer commits during the wait; existing issue retains original FULL authority; fresh new-role request403; one unit/cost/history | 9c5f56d |
-| Two direct FIFO calls for the last remaining unit | One consumption/request/receipt; competitor40001, retry insufficient, no negative remainder or orphan; isolated clone | This commit |
+| Two direct FIFO calls for the last remaining unit | One consumption/request/receipt; competitor40001, retry insufficient, no negative remainder or orphan; isolated clone | 01f8426 |
 
 Prerequisite also verified in both configurations: QC correction with linked reversal, immutable history and corrected concession provenance (54d5bdc). This is not itself a concurrency witness.
 
-Remaining: issue versus governed adjustment (no adjustment API/service found yet); eleven-user mixed run. The same-serial issue case does not claim every nonserialized/distinct-MIR interleaving. Pending Item15 ownership-pool and return-credit decisions remain unchanged.
+Remaining: issue versus governed adjustment (no adjustment API/service found yet); DC participation (no DC API/service found). The eleven-user supported-command workload is verified below. The same-serial issue case does not claim every nonserialized/distinct-MIR interleaving. Pending Item15 ownership-pool and return-credit decisions remain unchanged.
 
 ## Historical checkpoints
 
@@ -228,3 +228,106 @@ Two actual FULL Stores operators register assignment-bound commands and call con
 Direct FIFO Release verification passed: build0warnings/errors4m36.63s; **1passed/0failed/0skipped4m20s** including the unchanged parent three-band flow. Both direct function calls were observed waiting on the FIFO lock. Winner committed1 consumption in.2822206s; loser rolled back40001 in.1463559s; fresh loser retry refusedP0001 insufficient quantity in.1343643s; old committed-command reentry refused42501 in.090508s. Exactlyone unit was consumed from the original oldest remaining layer; all remainders nonnegative and total0. Exactlyone registered request/receipt, zero orphan requests; cloned physical movements unchanged and parentremaining1. Runtime financial SELECT remains denied. Clone/fixture scope and controlled gate are explicit in evidence. No production defect or fix was found for this interleaving. Separate Release JSON/PG log preserved. Debug build passed0warnings/errors4m17.72s; execution running.
 
 Final direct FIFO Debug verification passed: **1passed/0failed/0skipped4m14s** after build0warnings/errors4m17.72s. Winner1 committed in.315058s; competitor40001/.1709509s; fresh retryP0001/.2436064s; committed-command reentry42501/.0881856s. One unit at118000.010000 was consumed, exactlyone request/receipt and no orphan, zero/nonnegative remaining cost quantities, no40P01, physical ledger unchanged and original database stillremaining1. Both configurations complete the parent full three-band flow after the isolated clone witness. Separate Debug evidence retained. **1 targeted Release pass and1 targeted Debug pass**, not a new full-suite count. Test-only change; no production function, permissions or frontend contract changed. This proves capacity/rollback at the direct FIFO boundary on the ordinary witness data, not resolution of the separately pending ownership-pool or return-credit valuation gaps. Next: eleven-user supported mixed operations; missing DC/adjustment prerequisites remain explicitly recorded.
+
+## Eleven users on one API host
+
+**Verified in Release and Debug.** The opening-stock prerequisite is committed
+separately as **46d8be4**. This workload and its employee/payment corrections
+follow that commit. Item 25 remains partial because adjustment and DC APIs are
+absent; this does not claim those commands or every distinct-MIR interleaving.
+
+The test starts eleven requests together against one API host. Each request has
+its own test-authenticated actor and service scope, with actual stored role
+assignments and the normal page, company, operational-scope and command checks.
+Peak server overlap was **11** in both configurations. Real OIDC is the separate
+Item 16 witness. There are no SQL gates in this initial workload.
+
+The disposable fixture explicitly adds an Accounts Manager secondary IT
+department assignment and creates its narrow operational scope through the
+governed API to support the seeded IT approval route. This is test configuration,
+not a claim about SESS's deployed assignments. Pending purchasing documents are
+created through APIs. Opening begins with completed import staging fixtures,
+not an Excel-upload witness. The guarded clone comes only from the owned,
+random-port disposable PostgreSQL fixture. No owner database was accessed.
+
+### Timings and retry behavior
+
+The table gives each initial HTTP status and elapsed seconds. Fresh retries run
+after the whole batch, using the original payload and key. Only typed
+CONCURRENCY_CONFLICT responses qualify. Before retry, the test requires zero
+failed command registrations and unchanged business state. All final requests
+succeed; no automatic production retry or weaker isolation was introduced.
+
+| Employee / command | Release initial | Debug initial |
+| --- | ---: | ---: |
+| SESS-16 / Issue | 409, 2.0994571s | 409, 2.486179s |
+| SESS-25 / MIR approve | 200, 2.1231474s | 409, 2.1062861s |
+| SESS-41 / MIR approve | 409, 1.81086s | 200, 2.0082457s |
+| SESS-14 / Payment | 409, 1.8899837s | 201, 2.1031543s |
+| SESS-35 / GRN finalize | 409, 2.529063s | 409, 2.4869463s |
+| SESS-33 / QC finalize | 200, 2.9730518s | 200, 3.0860702s |
+| SESS-15 / PO issue | 200, 2.213043s | 200, 2.6442455s |
+| SESS-05 / Technical verify | 200, 2.3939525s | 200, 2.2485307s |
+| SESS-02 / PR final approve | 200, 2.2546207s | 200, 2.0928277s |
+| SESS-12 / Employee contact update | 200, 2.5849865s | 200, 2.7593523s |
+| SESS-01 / Opening authorize | 409, 2.5391308s | 409, 2.3978585s |
+Release: six initial successes, five refusals. Retry seconds: Issue 0.9438193,
+MIR (SESS-41) 0.7327699, payment 0.9111390, GRN 1.0555143, opening 1.0832000.
+Debug: seven initial successes, four refusals. Retry seconds: Issue 0.7219146,
+MIR (SESS-25) 0.8574302, GRN 1.9502045, opening 1.3642790.
+PostgreSQL logs contain no 40P01 or deadlock diagnostic in either run.
+
+### Expected rows and reproduced defects
+
+Both runs verify one issue, one FIFO consumption of 1 at 4720, two physical
+movement legs, the actual issue/approval actors and assignments, one finalization
+per prepared GRN, one QC revision, and one opening at Version 2 with three events
+and quantity 10. Every canonical stock balance and FIFO remainder is nonnegative.
+The initial payment has one INR allocation of 1. The parent completes the full
+three-band purchase, custody, costing and report flow after the clone checks.
+
+The first mixed fixture exposed an Installer defect: reprovisioning revoked the
+four opening commands and restored direct writes on opening evidence tables.
+46d8be4 restores the controlled boundary and verifies two consecutive reruns.
+
+An earlier eleven-user run returned payment 500 from PostgreSQL 40001 during
+command-receipt staging, outside the inner financial-function error conversion
+(0 passed, 1 failed, 5m38s). The payment transaction boundary now converts this
+specific serialization error to the existing concurrency 409. In addition to
+actual concurrent refusals, a disposable-only receipt trigger reproduces that
+failure after payment and audit writes. Both configurations verify no new
+payment, allocation, registration or audit survives; retry and exact replay
+create only one additional payment/allocation/audit and return the same payment
+ID. Total paid remains 1 after failure, then 2 after retry and replay. This
+injected check is separate from the eleven-user timings; no trigger is shipped.
+
+The employee baseline accepted both edits with Version 2, kept Version 2 and
+added two Update history rows. Its initial lock observer reused a statistics
+snapshot and failed to observe both waiters (0 passed, 1 failed, 6m13s). The
+corrected observer clears that snapshot on every poll and requires both blocked
+writers. The employee update, approval-status and login-status API writers now
+advance the existing concurrency token. Release and Debug each permit one edit
+and refuse one with 409: Version 3 becomes 4 and only one history row is added.
+The winners differ between configurations. Controlled edit times include lock
+waits: Release 1.0789963/0.7675364s; Debug 0.7407469/0.9323225s.
+
+Fresh approval, disabling login and re-enabling login advance Version to 5, 6
+and 7. Stale approval and login requests return 409 without changing state or
+adding history. Routes and DTOs are unchanged; clients must use the newly
+returned Version for their next change. The employee import adapter is a
+separate identified writer awaiting its focused regression; these API checks
+do not claim that all employee writers are covered.
+
+### Verification
+
+Final builds passed with zero warnings/errors: Release 27.84s (after the
+employee API rebuild, 45.69s); Debug 4m24.24s. Each combined batch passed **2 tests,
+0 failures, 0 skips**: Release 6m28s; Debug 6m29s. The eleven-user/full-three-band
+test took 5m13.620s Release and 5m13.984s Debug. The opening principal/ceremony/report
+test took 1m14.376s Release and 1m15.714s Debug. These are targeted counts, not a
+new full-suite total.
+
+Baseline and verified JSON, PostgreSQL logs and TRX files are retained under
+local-evidence/item25. Verified artifacts use -verified-release and
+-verified-debug suffixes; employee contact, status and payment receipt failure
+results are separate from the initial workload measurements.

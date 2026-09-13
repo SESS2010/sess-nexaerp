@@ -169,6 +169,16 @@ public sealed class EfVendorFinancialEvidenceService(
     public async Task<VendorPaymentView> RecordPaymentAsync(
         RecordVendorPaymentRequest request, CancellationToken ct)
     {
+        try { return await RecordPaymentCoreAsync(request, ct); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("Vendor payment changed concurrently. Refresh and retry.", error);
+        }
+    }
+
+    private async Task<VendorPaymentView> RecordPaymentCoreAsync(
+        RecordVendorPaymentRequest request, CancellationToken ct)
+    {
         _ = user.RequireRole("approve", "ACCOUNTS_MANAGER");
         ValidatePayment(request);
         var company = await CompanyAsync(ct);
