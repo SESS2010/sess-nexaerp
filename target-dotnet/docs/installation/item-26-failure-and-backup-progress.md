@@ -259,3 +259,88 @@ Verified JSON and PostgreSQL logs have -verified-release/-verified-debug
 suffixes under local-evidence/item26. These are targeted counts, not new full
 suite totals. The opt-in build property is DiskFullWitness=true; the test
 requires the explicit owned VM endpoint and system identifier.
+
+## Automated backup and recovery: Release witness
+
+The Installer now has backup run, verify and recover commands, plus Windows
+daily scheduling scripts. No owner database was accessed. The source is the
+completed three-band disposable witness, with matching global role definitions
+saved on every run. Customer schedule activation remains separate: a durable
+installation, independent destination and scheduled account must be configured.
+
+Release build: zero warnings/errors, 4m27.74s initially; final revised build
+31.14s. Final targeted batch: **8 passed, 0 failed, 0 skipped, 6m14s**.
+It includes the full three-band backup/recovery case, two retention cases and
+five SQL-normalization cases. Debug results are recorded below.
+
+All 222 table counts match after restore, including 3 purchase orders,
+28 stock movements, 3 FIFO consumptions and 128 command/receipt pairs.
+Source and restored role attributes/membership grantors, object ownership,
+effective ACLs, function bodies/search paths/security-definer flags, extension
+versions, constraints, indexes and other selected catalog metadata match.
+The archive is 2,497,672 bytes for this small witness database.
+
+Direct backup plus automatic restore verification: 36.0196s. Recovery to a
+retained, stopped new cluster: 29.0323s. The test restarts that recovered cluster,
+validates ERP principal grants, resets the runtime credential, connects as
+runtime and reads the expected employee count. Direct command-ledger SELECT
+still fails with 42501. A deliberately changed globals file is refused by hash/
+size validation before starting another restore; its original bytes are then
+restored in this disposable test bundle.
+
+A real Windows daily task was registered under a unique witness name,
+explicitly triggered once, and removed before source disposal. It produced a
+second VERIFIED bundle. Scheduled verification took 38.9967s from manifest
+start to verified publication; task startup is outside that measurement.
+LastTaskResult=0 and the wrapper ExitCode=0. Exported task XML, result, cleanup
+confirmation and both manifests are retained. No witness task remains.
+
+This tests the current-user interactive task mode. The production registration
+path accepts the Windows account credential for operation while signed out;
+that customer's account, network storage access and signed-out execution have
+not been deployed or witnessed. Database secrets are supplied through a DPAPI
+SecureString file for the scheduled account, not task arguments.
+
+The first integration attempt restored successfully but refused raw catalog
+differences: dropped-column physical numbering, explicit owner ACLs versus
+default ACLs, and PostgreSQL's alternate equivalent expression formatting.
+Its evidence remains unverified. Comparison now uses logical active-column
+positions and effective default ACLs, with narrow quote-aware normalization
+for literal unbounded varchar-to-text array casts. Tests keep bounded casts,
+quoted identifiers, quoted content and changed values distinguishable.
+Definition checks were retained.
+
+Retention keeps daily bundles 30 days, Sunday-UTC weekly bundles 84 days and
+at least the newest two verified bundles. Policy tests show expired recognized
+bundles removed while newest, weekly-window and unfinished bundles remain;
+unexpected files cause refusal without their deletion. These retention-only
+fixtures are not additional database-restore witnesses.
+
+Release evidence:
+local-evidence/item26/automated-backup-d76e10608fb140b9ac012d08624833f2
+and item26-backup-scheduled-release.trx. Earlier metadata-comparison failures
+and the intermediate passing run remain separately recorded.
+
+There is no API route, frontend field or envelope change. New commands are
+Installer/operator interfaces. See automated-backup-and-recovery.md and
+backup.example.json for deployment and tested recovery steps. Same-disk test
+artifacts do not prove protection against physical laptop disk loss, and this
+is not WAL archiving or point-in-time recovery.
+
+Debug build passed with zero warnings/errors in 4m22.75s. The same final
+targeted batch passed **8 tests, 0 failed, 0 skipped, 6m09s**. Direct backup and
+verification: 34.3673s; recovery: 28.2938s; scheduled verification: 40.0881s.
+All 222 table counts and catalog/permission checks match. The archive is
+2,497,711 bytes in this run. LastTaskResult=0, wrapper ExitCode=0, two verified
+bundles, and task removal is confirmed. Debug evidence is
+local-evidence/item26/automated-backup-d8ef9af0d088468990004d3a35708746
+with item26-backup-scheduled-debug.trx.
+
+Item 26's implemented failure cases and automated database backup/recovery
+capability are now witnessed in both builds. Customer installation/scheduling
+remains pending; no owner database or customer schedule was touched.
+Complete site recovery also requires separately retained application
+configuration, external attachment/object storage and any local identity
+provider data. The ERP database archive does not contain those external stores.
+The actual disk-full witness remains bounded relation/tablespace exhaustion,
+not WAL-volume or whole-server exhaustion.

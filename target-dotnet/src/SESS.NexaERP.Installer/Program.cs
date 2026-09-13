@@ -21,6 +21,8 @@ internal static class InstallerCommand
             return Task.FromResult(1);
         }
 #endif
+        if (args.Length > 0 && args[0] == "backup")
+            return VerifiedBackupCommand.RunAsync(args[1..]);
         if (args.Length > 0 && args[0] == "authentication-bootstrap")
             return AuthenticationBootstrapCommand.RunAsync(args[1..]);
         if (args.Length > 0 && args[0] == "master-import-retention")

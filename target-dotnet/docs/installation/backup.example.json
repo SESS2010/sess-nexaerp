@@ -1,0 +1,10 @@
+{
+  "ConnectionEnvironment": "NexaErp__BackupConnection",
+  "ExpectedHost": "127.0.0.1",
+  "ExpectedPort": 5432,
+  "ExpectedDatabase": "YOUR_APPROVED_DATABASE",
+  "ExpectedSystemIdentifier": "REPLACE_WITH_VERIFIED_CLUSTER_ID",
+  "PostgreSqlBin": "C:\\Program Files\\PostgreSQL\\17\\bin",
+  "BackupRoot": "E:\\SESS-Backups",
+  "WorkingRoot": "C:\\SESS-Backup-Verification"
+}
