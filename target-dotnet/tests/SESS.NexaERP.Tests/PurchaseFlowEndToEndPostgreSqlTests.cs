@@ -66,7 +66,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private async Task RunCompletePurchaseFlow(
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false,
-        Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null)
+        Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null,
+        Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -74,7 +75,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -317,7 +318,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Single(partlyBilledFifo.Rows,row=>row.GetProperty("costBasis").GetString()=="PO_PROVISIONAL_IDENTICAL");
             await AssertVendorBillRuntimeTableDmlRefused(runtimeConnection);
             await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
-                purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill, returnRace, server.ReadDiagnosticLog, serializedRace);
+                purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill, returnRace, server.ReadDiagnosticLog, serializedRace,
+                mirRace is null ? null : draft => mirRace(new(options, runtimeConnection, draft,
+                    productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -411,7 +414,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -860,7 +863,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DbContextOptions<NexaErpDbContext> options, string runtimeConnection, TaxWorkflowUser user, GoodsReceiptResult grn, GoodsReceiptResult serializedGrn,
         Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId, Guid tdId, Guid accountsManagerId, Guid qcId,
         VendorBillView pendingLandedBill, Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null,
-        Func<string>? readPostgresLog = null, bool serializedRace = false)
+        Func<string>? readPostgresLog = null, bool serializedRace = false,
+        Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1149,7 +1153,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             x.NotificationRecipientId == overdueNotification.RecipientId && x.Channel == "IN_APP" && x.Status == "SENT")));
 
         var consumable = await CreateAndIssueConsumable(client, user, itemId, fixture.UomId,
-            fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId);
+            fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId, approveRace: approveRace);
         await CreateIssueAndReturnSerialized(client, options, user, serializedGrn, fixture.UomId,
             fixture.DepartmentId, engineerId, purchaseId, productionId, storesId,
             serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog);
@@ -1560,7 +1564,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
     private static async Task<MaterialIssueView> CreateAndIssueConsumable(HttpClient client, TaxWorkflowUser user,
         Guid itemId, Guid uomId, string itemCode, Guid departmentId, Guid engineerId,
-        Guid purchaseId, Guid productionId, Guid storesId, string prefix = "mir-consumable")
+        Guid purchaseId, Guid productionId, Guid storesId, string prefix = "mir-consumable",
+        Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null)
     {
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.StoresExecutive);
@@ -1572,8 +1577,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
             new MaterialIssueTransitionRequest(mir.Version, "Cutting wheel custody", $"{prefix}-submit"));
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
-        mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
-            new MaterialIssueTransitionRequest(mir.Version, "Consumable custody approved", $"{prefix}-approve"));
+        mir = approveRace is null
+            ? await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
+                new MaterialIssueTransitionRequest(mir.Version, "Consumable custody approved", $"{prefix}-approve"))
+            : await approveRace(mir);
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         return await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
             new CreateMaterialIssue($"{prefix}-issue", engineerId, DateTimeOffset.UtcNow,

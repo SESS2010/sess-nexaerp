@@ -150,6 +150,29 @@ public sealed partial class EfMaterialIssueService
         MaterialIssueTransitionRequest command, string? expected, string next,
         string action, string operation, bool independent, CancellationToken ct)
     {
+        try { return await TransitionCoreAsync(id, command, expected, next, action, operation, independent, ct); }
+        catch (Exception error) when (IsMirSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("MIR changed concurrently. Reload the request before retrying.", error);
+        }
+    }
+
+    private static bool IsMirSerializationFailure(Exception error)
+    {
+        // Npgsql's EF execution strategy wraps a save failure in these two types.
+        // Inspect the SQLSTATE, not the general transient-failure label.
+        while (error is DbUpdateException or InvalidOperationException)
+        {
+            if (error.InnerException is null) return false;
+            error = error.InnerException;
+        }
+        return error is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.SerializationFailure };
+    }
+
+    private async Task<MaterialIssueRequestView> TransitionCoreAsync(Guid id,
+        MaterialIssueTransitionRequest command, string? expected, string next,
+        string action, string operation, bool independent, CancellationToken ct)
+    {
         var key = Required(command.IdempotencyKey, "IdempotencyKey");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var company = await CompanyAsync(ct);
