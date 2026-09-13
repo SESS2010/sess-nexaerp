@@ -643,7 +643,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using(var stale=await prClient.PutAsJsonAsync($"/api/v1/employees/{employee.EmployeeCode}",new SESS.NexaERP.Application.Employees.UpdateEmployeeRequest(
             employee.EmployeeName,employee.EmployeeType,employee.Grade,"NOT_USED","NOT_USED","NOT_USED",null,null,null,"Concurrency witness",employee.Version+1)))
             Assert.Equal(HttpStatusCode.Conflict,stale.StatusCode);
-        var pr = await Post<PurchaseRequisitionDetail>(prClient, "/api/v1/purchase/requisitions",
+        var pr = await Post<PurchaseRequisitionDetail>(client, "/api/v1/purchase/requisitions",
             new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "IT", "SESS-12", required, "NORMAL",
                 $"TRIAL {band.Code} full Purchase flow", "TRIAL-WH-C01", null, null, null, null, null,
                 [new("TRIAL-ITEM-001", 1, band.PrAmount, required, "TRIAL-WH-C01", null, null, null)]));
@@ -2079,6 +2079,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task<T> Post<T>(HttpClient client, string path, object body, string? key = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+        if (body is CreatePurchaseRequisitionRequest && string.IsNullOrWhiteSpace(key) && !client.DefaultRequestHeaders.Contains("Idempotency-Key"))
+            key = "test-pr-create-" + Guid.NewGuid().ToString("N");
         if (!string.IsNullOrWhiteSpace(key)) request.Headers.Add("Idempotency-Key", key);
         using var response = await client.SendAsync(request);
         var payload = await response.Content.ReadAsStringAsync();

@@ -1,6 +1,6 @@
 # Item 26: failure behavior and automated backup
 
-Status: partial. The first three targeted tests passed in Release and Debug; remaining failure and backup cases are pending. No owner
+Status: partial. Posting interruption, host lifecycle, and PR creation retry/audit-failure tests have passed in Release and Debug; remaining failure and backup cases are pending. No owner
 database has been accessed. Tests must use owned disposable PostgreSQL clusters;
 crash-recovery claims require fsync and synchronous_commit enabled.
 
@@ -20,9 +20,7 @@ crash-recovery claims require fsync and synchronous_commit enabled.
 - The existing backup helper is manual and tied to the owner database. It will
   not be executed in this session. The existing restore helper only writes a
   plan; it is not evidence of a successful restore.
-- PR creation appears to commit before writing its audit. Its request has no
-  idempotency key field. These are source findings awaiting actual failure and
-  duplicate-request tests, not yet witnessed corruption or orphan claims.
+- PR creation baseline reproduced duplicate drafts and a draft surviving audit failure. The correction and Release/Debug evidence are recorded below.
 
 ## Verification still required
 
@@ -31,7 +29,7 @@ crash-recovery claims require fsync and synchronous_commit enabled.
 | Database connection lost during posting | Release/Debug: HTTP 500, full rollback, retry/replay succeed once |
 | PostgreSQL restarted during posting, durability enabled | Release/Debug: HTTP 500, recovery rolls back, retry/replay succeed once |
 | Browser closes between submission and approval | Pending |
-| Duplicate network request | Payment covered by Item 25; broader command verification pending |
+| Duplicate network request | Payment covered by Item 25; PR sequential/concurrent retry verified in Release/Debug |
 | Disk full on a bounded disposable filesystem | Pending |
 | Interrupted migration | Pending |
 | Two API instances using one database | Earlier concurrent tests use separate hosts; explicit lifecycle/bind checks pending |
@@ -51,7 +49,7 @@ The Release build passed with zero warnings/errors in 4m27.91s. The initial
 batch passed **3 tests, 0 failures, 0 skips, 7m25s**. Connection-loss/full-flow
 case: 4m11.714s; restart/full-flow case: 3m13.534s; host lifecycle case: 1m00.327s.
 The host test is in a separate test class and can overlap the database tests;
-these durations therefore do not sum to the batch wall time. Debug is pending.
+these durations therefore do not sum to the batch wall time. Debug results follow below.
 
 Both posting cases assert fsync=on and synchronous_commit=on. A temporary
 receipt trigger blocks after the actual issue, FIFO, stock and audit writes.
@@ -101,6 +99,66 @@ Debug connection loss: HTTP 500 in 2.0662438s, retry 201 in 0.5474471s, replay
 replay 201 in 0.6068739s. Stored pre-command and post-failure state match exactly.
 No production code or frontend contract changed in this checkpoint.
 
-Next: PR creation duplicate-request and audit-failure baseline, interrupted
-migration, the browser-between-steps case, bounded disk-full behavior, and the
-automated backup/retention/tested restore path. Item 26 remains partial.
+The PR creation investigation and correction follow below. Item 26 remains partial.
+## PR creation retry and audit failure
+
+Baseline Release execution reproduced two defects: two identical POST requests
+with the same Idempotency-Key returned 201 with different PR IDs and left two
+drafts. A forced CreateDraft audit insertion failure returned 500 after the PR
+had already committed; one draft survived without its creation audit. Retrying
+then left two drafts with only one creation audit. Baseline JSON and PostgreSQL
+log are preserved as pr-create-failures-baseline-release files.
+
+The correction puts PR creation, status history, creation audit and command
+receipt in one transaction. The existing immutable command ledger binds the
+caller key to the request content, company, employee, verified issuer/subject,
+role and effective assignment. Its database-generated command ID becomes the
+new PR ID. A restricted SECURITY DEFINER reader returns only the stored receipt
+for the registered actor context; runtime still cannot SELECT ledger tables.
+Receipt replay retrieves the same accessible PR, with its current details.
+
+**Frontend contract change:** POST /api/v1/purchase/requisitions now requires one
+caller-supplied Idempotency-Key header, trimmed length 1–200. Preserve that key
+and the original body when retrying an uncertain result; use a new key for a
+new intentional PR. Missing keys return 400 after existing request/scope
+validation. Reuse with changed body or actor authority returns 409. Replays
+return 201 with the same PR ID; details can reflect its subsequent workflow
+state. A concurrent registration conflict asks the client to retry the original
+request. Production does not generate a substitute key.
+
+The guarded migration 20260913060000_CommandReceiptReplay adds the reader and
+has PostgreSQL/provider, protected-database, existing-function and exact
+rollback-body checks. Installer provisioning restores its explicit runtime
+EXECUTE grant and verifies ownership, SECURITY DEFINER, fixed search path and
+ACLs. A real PostgreSQL test verifies Up, Down, reapply, provisioning twice,
+42501 for a receipt read without registered context and 42501 for direct ledger
+table reads. No business table shape changed and no pending model change exists.
+
+Release build: zero warnings/errors, 4m19s for production changes; final fixture
+build 24.36s. Final targeted batch: **2 passed, 0 failed, 0 skipped, 4m54s**.
+PR/full-three-band case: 4m25.876s; migration/ACL case: 29.059s. This is not a
+new full-suite total. Earlier runs exposed a validation-order regression and a
+legacy fixture using its disposable administrator connection for PR creation;
+the scope-first response was restored and fixture creation now uses restricted
+runtime. Those failures are preserved separately.
+
+Release observed sequential retry: 201/201, same ID, one draft (0.9043s/1.1052s).
+Concurrently dispatched same-key requests: 201/201, one ID/draft/audit
+(0.7950s/0.9287s); replay 201 in 1.0409s. This run did not take the concurrent
+registration 409 branch. Missing-key and changed-body checks pass without
+creating drafts. Forced audit failure: 500 in 0.8266s, zero draft and zero
+command registration; retry: 201 in 1.0507s, one draft and one creation audit.
+The retained failure-phase PostgreSQL log records the injected P0001. These
+are local witness timings, not production latency measurements.
+
+Debug verification passed: build zero warnings/errors in 4m15.99s; **2 passed,
+0 failed, 0 skipped, 4m50s**. PR/full-flow case: 4m22.148s; migration/ACL:
+28.237s. Sequential retry: 201/201 (1.1485s/0.8371s), concurrent dispatch:
+201/201 (0.7745s/0.8154s), replay 201 (0.9768s). Audit failure: 500 (0.8374s),
+zero surviving draft/registration; retry 201 (1.1097s), one draft and one
+creation audit. The same ID/count assertions pass in both configurations.
+Verified artifacts use -verified-release and -verified-debug suffixes.
+
+Next: interrupted migration, client closure between completed submission and
+approval, bounded disk-full behavior, and automated verified backup/retention
+with a tested customer restore procedure. Item 26 remains partial.

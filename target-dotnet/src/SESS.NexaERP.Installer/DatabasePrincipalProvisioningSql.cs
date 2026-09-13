@@ -345,6 +345,10 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.commit_command_receipt(uuid,bytea,jsonb,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid) TO nexa_erp_runtime';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.commit_command_receipt(uuid,bytea,jsonb,uuid) TO nexa_erp_runtime';
+            IF to_regprocedure('advance.read_command_receipt(uuid)') IS NOT NULL THEN
+              EXECUTE 'REVOKE ALL ON FUNCTION advance.read_command_receipt(uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+              EXECUTE 'GRANT EXECUTE ON FUNCTION advance.read_command_receipt(uuid) TO nexa_erp_runtime';
+            END IF;
             IF to_regprocedure('advance.ordinary_command_context_valid(text,uuid,text,text,text)') IS NULL
                OR to_regprocedure('advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)') IS NULL THEN
               RAISE EXCEPTION 'Ordinary command ledger internal authority functions are partially installed.';
@@ -712,6 +716,20 @@ internal static class DatabasePrincipalProvisioningSql
                OR has_function_privilege('nexa_erp_migration','advance.ordinary_command_context_valid(text,uuid,text,text,text)','EXECUTE')
                OR has_function_privilege('nexa_erp_migration','advance.ordinary_claim_command_context(text,uuid,text,uuid,text,bigint,text,text,text,text)','EXECUTE') THEN
               RAISE EXCEPTION 'Ordinary command-ledger function ACL is invalid.';
+            END IF;
+            IF to_regprocedure('advance.read_command_receipt(uuid)') IS NOT NULL AND (
+              NOT has_function_privilege('nexa_erp_runtime','advance.read_command_receipt(uuid)','EXECUTE')
+              OR has_function_privilege('nexa_erp_bootstrap','advance.read_command_receipt(uuid)','EXECUTE')
+              OR has_function_privilege('nexa_erp_migration','advance.read_command_receipt(uuid)','EXECUTE')
+              OR NOT EXISTS(SELECT 1 FROM pg_proc p
+                WHERE p.oid=to_regprocedure('advance.read_command_receipt(uuid)')
+                  AND p.prosecdef AND p.proowner='nexa_erp_owner'::regrole
+                  AND p.prorettype='jsonb'::regtype AND array_length(p.proconfig,1)=1
+                  AND EXISTS(SELECT 1 FROM unnest(p.proconfig) setting
+                    WHERE regexp_replace(setting,'[[:space:]]','','g')='search_path=pg_catalog,advance')
+                  AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                    WHERE a.grantee NOT IN (p.proowner,'nexa_erp_runtime'::regrole) AND a.privilege_type='EXECUTE'))) THEN
+              RAISE EXCEPTION 'Ordinary receipt replay function owner, search path or ACL is invalid.';
             END IF;
           ELSIF to_regprocedure('advance.commit_command_receipt(uuid,bytea,jsonb,uuid)') IS NOT NULL
              OR to_regclass('advance.command_requests') IS NOT NULL
