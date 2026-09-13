@@ -13,7 +13,10 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     [Fact]
-    public async Task PurchaseOrderRevisionCannotResetCashOrIssueBelowLegacyPayments()
+    public async Task PurchaseOrderRevisionCannotResetCashOrIssueBelowLegacyPayments() =>
+        await RunPurchaseOrderRevisionCashWitness();
+
+    private async Task RunPurchaseOrderRevisionCashWitness(Func<RevisionReceiptWitnessContext, Task>? afterIssued = null)
     {
         var observed = false;
         await RunCompletePurchaseFlow(mixedRun: async context =>
@@ -223,6 +226,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     Before = before, Refused = refused, AfterRefusal = afterRefusal, BeforeRetry = beforeRetry,
                     Issued = issued, AfterIssue = afterIssue, Replay = replay, AnotherAdvance = anotherAdvance,
                     HistoryPreserved = true, ApprovalScopeSetups = approvalScopeSetups, ApprovalSteps = approvalSteps }, new JsonSerializerOptions { WriteIndented = true }));
+            if (afterIssued is not null) await afterIssued(new(context.Options, context.RuntimeConnection, prior.Id, issued.Id));
         });
         Assert.True(observed);
     }

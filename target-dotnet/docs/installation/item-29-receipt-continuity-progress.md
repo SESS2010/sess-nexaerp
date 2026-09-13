@@ -1,0 +1,25 @@
+# Item 29 prerequisite — receipt quantity across PO revisions
+
+Status: the reproduced over-receipt defect is fixed and all four targeted Release facts pass. Matching Debug verification also passes. This is not a full-suite completion claim.
+
+An issued PO for quantity 1 had already received quantity 1. A terms-only amendment created a new PO line ID while retaining the same root PO, comparison line, requisition line, requirement handoff, item and UOM. SESS-35, using the actual STORES_EXECUTIVE assignment and real operational scope checks, created and finalized another receipt of quantity 1 against the amended line. Both requests returned 200.
+
+The finalized baseline moved root received quantity from 1 to 2. GRN headers, lines, lots and FIFO layers each rose from 3 to 4; posting batches from 16 to 17; stock movements from 28 to 29; audits from 182 to 184; successful business audits from 174 to 176; and command requests/receipts from 136 to 137. No financial row was manufactured directly. The existing full purchase and actual amendment approval/cash sequence produced the data.
+
+Evidence: local-evidence/item29/receipt-revision-finalized-baseline-release.json and item29-receipt-revision-finalize-baseline-release.trx. That baseline test failed its required-409 assertion (0 passed, 1 failed, 4m43s). The earlier draft-only run is separately retained as receipt-revision-baseline-release.json: creation returned 200, but the first test version followed only 201 through finalization. It proved an extra draft, not a stock posting. The corrected witness follows both successful statuses.
+
+The implementation changes prior receipt lookup to company + root PO + comparison-line identity. The existing unique (PurchaseOrderId, CommercialComparisonLineId) index establishes one such line per revision; the amendment retains that identity. Requisition, handoff, item and UOM provenance must also remain consistent. Unrelated same-item lines are not combined. Finalized normal receipts count unless a finalized reversal exists.
+
+Migration 20260914030000 updates the line guard and rechecks fresh received quantity in the normal-receipt finalization guard, including all lines of the receipt being finalized. A stored draft snapshot is not treated as a fresh quantity limit. Named quantity/provenance violations map to 409. Handled creation/update conflicts clear tracked changes after transaction rollback so later work cannot persist abandoned changes.
+
+The migration checks complete predecessor/new function bodies, security mode, language, volatility, search path, ownership, ACL and enabled row-trigger definitions. It retains the existing receipt-based QC deadline and built-in hash check. Up and Down do not rewrite receipt, stock or financial history.
+
+The first fixed run passed migration protection but failed ordinary receipt finalization with SQLSTATE 42702: a new SQL alias target collided with the predecessor PL/pgSQL row variable. The alias was changed to ordered_line before the final Release build.
+
+Release build: 0 warnings/errors, 4m20.68s. Targeted run item29-receipt-quantity-release.trx: 4 passed, 0 failed, 0 skipped, 12m08s. The issued-amendment test now receives 409 at creation: root quantity remains 1; GRNs/lines/lots/FIFO layers remain 3; postings 16; movements 28; audits 182; successful business audits 174; requests/receipts 136. All recorded before/after counts are identical.
+
+The second-draft test creates two drafts before either finalizes. First finalization adds exactly one finalized receipt, posting, movement, FIFO layer, successful audit and command request/receipt. Second finalization and retry return 409; the second draft remains DRAFT version 0 and every recorded counter stays unchanged. Replaying the first returns the same receipt and posting. The existing two-operator same-GRN test observes both requests blocked in PostgreSQL, one 200 and one 409, a 409 retry, and exactly one posting/movement/FIFO layer/finalization.
+
+The migration fact passes complete-body/security/ACL/trigger tamper refusals, repeated principal provisioning, Down and reapplication. All three workflow facts run the full actual three-band purchase chain. The test harness retains its established business-page/scope fixtures; the new receipt attempts use real page/scope checks and restricted runtime connections.
+
+Preserved Release artifacts: receipt-revision-verified-release.json, stale-receipt-draft-verified-release.json, duplicate-grn-verified-release.json, under local-evidence/item29. Debug build: 0 warnings/errors, 4m54.40s. Targeted item29-receipt-quantity-debug.trx: 4 passed, 0 failed, 0 skipped, 11m38s. The amendment refusal has the same unchanged counts as Release; stale draft refusal/retry and the same-GRN race also pass. Matching artifacts are retained with -verified-debug suffix. This does not prove a simultaneous two-distinct-draft race, every reversal scenario, or production-scale receipt performance. Open-PO/overdue projections remain subsequent work.

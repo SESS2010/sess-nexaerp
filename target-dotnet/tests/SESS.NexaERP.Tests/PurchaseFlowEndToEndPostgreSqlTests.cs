@@ -77,7 +77,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         bool concessionHistoryWitness = false,
         Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null,
         bool durableDatabase = false,
-        Func<PurchaseWorkloadWitnessContext, Task>? workload = null)
+        Func<PurchaseWorkloadWitnessContext, Task>? workload = null, int additionalDraftReceipts = 0)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -403,19 +403,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3, await verify.CommercialComparisons.CountAsync());
             Assert.Equal(3, await verify.PurchaseOrders.CountAsync());
             Assert.Equal(3, await verify.MaterialFollowUpHandoffs.CountAsync());
-            Assert.Equal(3, await verify.GateEntries.CountAsync());
-            Assert.Equal(3, await verify.GoodsReceipts.CountAsync());
+            Assert.Equal(3 + additionalDraftReceipts, await verify.GateEntries.CountAsync());
+            Assert.Equal(3 + additionalDraftReceipts, await verify.GoodsReceipts.CountAsync());
+            Assert.Equal(3, await verify.GoodsReceipts.CountAsync(x => x.Status == "FINALIZED"));
+            Assert.Equal(additionalDraftReceipts, await verify.GoodsReceipts.CountAsync(x => x.Status == "DRAFT"));
             var qcDeadlineReceipts = await verify.GoodsReceipts
                 .Select(x => new { x.ReceivedAt, x.FinalizedAt, x.QcCompletionDaysSnapshot, x.QcDueAt })
                 .ToListAsync();
             Assert.All(qcDeadlineReceipts, x =>
                 Assert.Equal(x.ReceivedAt.AddDays(x.QcCompletionDaysSnapshot), x.QcDueAt));
             var deliberatelyDelayedReceipt = Assert.Single(qcDeadlineReceipts, x =>
-                x.FinalizedAt!.Value - x.ReceivedAt > TimeSpan.FromDays(2));
+                x.FinalizedAt.HasValue && x.FinalizedAt.Value - x.ReceivedAt > TimeSpan.FromDays(2));
             Assert.NotEqual(deliberatelyDelayedReceipt.FinalizedAt!.Value.AddDays(
                 deliberatelyDelayedReceipt.QcCompletionDaysSnapshot), deliberatelyDelayedReceipt.QcDueAt);
-            Assert.Equal(3, await verify.GoodsReceiptLines.CountAsync());
-            Assert.Equal(3, await verify.GoodsReceiptLineLotAllocations.CountAsync());
+            Assert.Equal(3 + additionalDraftReceipts, await verify.GoodsReceiptLines.CountAsync());
+            Assert.Equal(3 + additionalDraftReceipts, await verify.GoodsReceiptLineLotAllocations.CountAsync());
             Assert.Equal(3, await verify.FifoInventoryCostLayers.CountAsync());
             Assert.Single(await verify.JobOrders.Where(x => x.CustomerPurchaseOrderId != null).ToListAsync());
             Assert.Equal(8, await verify.JobOrderHistories.CountAsync());
@@ -437,7 +439,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .Select(x => x.FifoInventoryCostLayer!.GoodsReceiptLineId).SingleAsync();
             Assert.Equal(grns[1].Lines.Single().Id, serializedCostLayer);
             Assert.NotEqual(serializedIssueLine.OriginGoodsReceiptLineId, serializedCostLayer);
-            Assert.Equal(3, await verify.InventoryLots.CountAsync());
+            Assert.Equal(3 + additionalDraftReceipts, await verify.InventoryLots.CountAsync());
             Assert.Equal(1, await verify.GoodsReceiptLineSerials.CountAsync());
             Assert.Equal(1, await verify.InventorySerials.CountAsync());
             Assert.Equal(3, await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="GRN_CUSTODY"));
@@ -445,8 +447,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(2.65m, await verify.StockMovements.Where(x=>x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(.05m, await verify.StockMovements.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             Assert.Equal(3,await verify.QcInspections.CountAsync());var qcRevisionCount=qcCorrection is null?3:4;Assert.Equal(qcRevisionCount,await verify.QcInspectionRevisions.CountAsync());Assert.Equal(qcRevisionCount,await verify.QcInspectionLotDispositions.CountAsync());Assert.Equal(qcRevisionCount,await verify.StockPostingBatches.CountAsync(x=>x.PostingKind=="QC_DISPOSITION"));Assert.Single(await verify.StockPostingBatches.Where(x=>x.PostingKind=="CONCESSION_ACCEPTANCE").ToListAsync());Assert.Single(await verify.InventoryConcessions.Where(x=>x.Status=="APPROVED").ToListAsync());
-            Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
-            Assert.Equal(6, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GoodsReceiptId!=null));
+            Assert.Equal(6 + 2 * additionalDraftReceipts, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GateEntryId!=null));
+            Assert.Equal(6 + additionalDraftReceipts, await verify.StoresDocumentStatusHistories.CountAsync(x=>x.GoodsReceiptId!=null));
             Assert.Equal(new[]{"ELE","FAB","FAS","MEC","PLC","REF"},await verify.ItemCategories.Where(x=>x.CreatedBy=="TRIAL_DATA").OrderBy(x=>x.Code).Select(x=>x.Code).ToArrayAsync());
             var qcLocations=await verify.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="QC_HOLD"&&x.CreatedBy=="TRIAL_DATA").ToListAsync();
             Assert.Equal(6,qcLocations.Count);
