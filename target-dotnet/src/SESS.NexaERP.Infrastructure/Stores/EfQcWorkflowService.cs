@@ -40,7 +40,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         return await FinalizeCore(inspection.GoodsReceiptLineLotAllocationId!.Value,inspection.Id,(request.RevisesRevisionId,Required(request.CorrectionReason,"CorrectionReason")),request.InspectionStartedAt,request.AcceptedQuantity,request.RejectedQuantity,request.DiscrepancyPendingQuantity,request.AcceptedConditionLocationId,request.ParameterResults,request.SerialDispositions,idempotencyKey,ct);
     }
 
-    private async Task<QcInspectionResult> FinalizeCore(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
+    private Task<QcInspectionResult> FinalizeCore(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => FinalizeTransaction(allocationId,inspectionId,correction,started,accepted,rejected,discrepancy,acceptedLocationId,parameterInput,serialInput,idempotencyKey,ct));
+
+    private async Task<QcInspectionResult> FinalizeTransaction(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireQcManager();var key=Required(idempotencyKey,"Idempotency-Key");if(started==default)throw new StoresValidationException("InspectionStartedAt is required.");if(accepted<0||rejected<0||discrepancy<0||accepted+rejected+discrepancy<=0)throw new StoresValidationException("QC quantities must be non-negative and total more than zero.");
         var fingerprint=Hash(new{allocationId,inspectionId,correction,started,accepted,rejected,discrepancy,acceptedLocationId,parameterInput,serialInput});
@@ -71,7 +74,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
     public Task<InventoryConcessionResult> RejectConcessionAsync(string number,RejectInventoryConcessionRequest request,CancellationToken ct)
         => DecideConcession(number,request.Version,"REJECTED",request.DecisionReason,null,$"REJECT:{number}:{request.Version}",ct);
 
-    private async Task<InventoryConcessionResult> DecideConcession(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
+    private Task<InventoryConcessionResult> DecideConcession(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => DecideConcessionTransaction(number,version,status,reason,availableId,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> DecideConcessionTransaction(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireTechnicalDirector();var key=Required(idempotencyKey,"Idempotency-Key");var rationale=Required(reason,"DecisionReason");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);await Advisory($"CONCESSION:DECIDE:{company.Id}:{number}",ct);var concession=await ConcessionQuery(true).SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.ConcessionNumber==number.Trim().ToUpperInvariant(),ct)??throw new KeyNotFoundException("Inventory concession was not found.");if(concession.Status==status){await tx.CommitAsync(ct);return await LoadConcession(concession.Id,company.Id,true,ct);}if(concession.Status!="DRAFT")throw new StoresConflictException("Only a DRAFT concession can be decided.");if(concession.Version!=version)throw new DbUpdateConcurrencyException("Concession Version is stale.");if(concession.CreatedByEmployeeId==actor)throw new UnauthorizedAccessException("The concession creator cannot decide the same concession.");
         List<Dictionary<string,object?>> legs=[];if(status=="APPROVED"){if(!availableId.HasValue)throw new StoresValidationException("AvailableConditionLocationId is required.");var on=DateOnly.FromDateTime(DateTime.UtcNow);var available=await EffectiveLocation(company.Id,availableId.Value,InventoryConditionCodes.Available,on,ct);var allocation=concession.Allocations.Single();var source=await db.StockMovements.AsNoTracking().Include(m=>m.InventoryProvenanceLayer).Where(m=>m.CompanyId==company.Id&&m.InventoryProvenanceLayerId==allocation.RejectedProvenanceLayerId&&m.ConditionCode==InventoryConditionCodes.PendingReturnableDc&&m.QuantityIn>0).OrderByDescending(m=>m.CreatedAt).FirstAsync(ct);var serials=allocation.Serials.OrderBy(x=>x.InventorySerialId).ToList();var pieces=serials.Count==0?new[]{(Serial:(Guid?)null,Layer:allocation.RejectedProvenanceLayerId,Quantity:allocation.Quantity)}:serials.Select(x=>(Serial:(Guid?)x.InventorySerialId,Layer:x.RejectedProvenanceLayerId,Quantity:1m)).ToArray();var ordinal=0;
@@ -80,7 +86,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         }else{concession.Status="REJECTED";concession.DecidedByEmployeeId=actor;concession.DecidedRoleCode="TECHNICAL_DIRECTOR";concession.DecidedAt=DateTimeOffset.UtcNow;concession.DecisionReason=rationale;concession.Version++;concession.UpdatedAt=DateTimeOffset.UtcNow;concession.UpdatedBy=user.LoginId;await db.SaveChangesAsync(ct);}await tx.CommitAsync(ct);return await LoadConcession(concession.Id,company.Id,false,ct);
     }
 
-    public async Task<InventoryConcessionResult> ReverseConcessionAsync(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+    public Task<InventoryConcessionResult> ReverseConcessionAsync(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => ReverseConcessionTransaction(number,request,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> ReverseConcessionTransaction(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireTechnicalDirector();var key=Required(idempotencyKey,"Idempotency-Key");var reason=Required(request.Reason,"Reason");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);var original=await ConcessionQuery(true).SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.ConcessionNumber==number.Trim().ToUpperInvariant(),ct)??throw new KeyNotFoundException("Inventory concession was not found.");if(original.Status!="APPROVED")throw new StoresConflictException("Only an APPROVED concession can be reversed.");if(original.Version!=request.Version)throw new DbUpdateConcurrencyException("Concession Version is stale.");await ReverseBatch(original.Id,key,Hash(new{original.Id,request.Version,reason}),actor,ct);var reversal=new InventoryConcession{CompanyId=company.Id,ConcessionNumber=await NextNumber("CONR",company.Id,ct),QcInspectionRevisionId=original.QcInspectionRevisionId,QcInspectionLotDispositionId=original.QcInspectionLotDispositionId,QcInspectionParameterResultId=original.QcInspectionParameterResultId,RequestedQuantity=original.RequestedQuantity,FailedParameterSnapshot=original.FailedParameterSnapshot,MeasuredValueSnapshot=original.MeasuredValueSnapshot,TechnicalAcceptanceReason=original.TechnicalAcceptanceReason,IntendedUse=original.IntendedUse,Status="REVERSED",CreatedByEmployeeId=original.CreatedByEmployeeId,DecidedByEmployeeId=actor,DecidedRoleCode="TECHNICAL_DIRECTOR",DecidedAt=DateTimeOffset.UtcNow,DecisionReason=reason,ReversesConcessionId=original.Id,IdempotencyKey=key,RequestFingerprint=Hash(new{original.Id,reason}),CreatedBy=user.LoginId};db.InventoryConcessions.Add(reversal);await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);return await LoadConcession(reversal.Id,company.Id,false,ct);
     }
@@ -121,6 +130,20 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
     private async Task<(Guid BatchId,bool Replayed)> Post(Guid companyId,string kind,Guid sourceId,string key,string fingerprint,string correlation,Guid actor,List<Dictionary<string,object?>> legs,CancellationToken ct)
     {
         var connection=(NpgsqlConnection)db.Database.GetDbConnection();await using var command=connection.CreateCommand();command.Transaction=(NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction();command.CommandText="""SELECT "StockPostingBatchId","Replayed" FROM advance.post_stores_stock_batch(@company,@kind,@source,@key,@fingerprint,@correlation,@date,@actor,@login,@legs)""";command.Parameters.AddWithValue("company",companyId);command.Parameters.AddWithValue("kind",kind);command.Parameters.AddWithValue("source",sourceId);command.Parameters.AddWithValue("key",key);command.Parameters.AddWithValue("fingerprint",fingerprint);command.Parameters.AddWithValue("correlation",correlation);command.Parameters.AddWithValue("date",DateOnly.FromDateTime(DateTime.UtcNow));command.Parameters.AddWithValue("actor",actor);command.Parameters.AddWithValue("login",user.LoginId);command.Parameters.AddWithValue("legs",NpgsqlTypes.NpgsqlDbType.Jsonb,JsonSerializer.Serialize(legs,JsonOptions));await using var reader=await command.ExecuteReaderAsync(ct);if(!await reader.ReadAsync(ct))throw new StoresConflictException("Controlled Stores posting returned no result.");return(reader.GetGuid(0),reader.GetBoolean(1));
+    }
+
+    private static async Task<T> ExecuteQcCommand<T>(Func<Task<T>> action)
+    {
+        try { return await action(); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("QC stock or its decision changed; refresh and retry.", error);
+        }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException
+            && error.MessageText == "Posting would drive an ownership/custody/provenance stock balance below zero.")
+        {
+            throw new StoresConflictException("The source stock is no longer available for this posting. Refresh the document and review its subsequent movements.");
+        }
     }
 
     private async Task ReverseBatch(Guid sourceId,string key,string fingerprint,Guid actor,CancellationToken ct)

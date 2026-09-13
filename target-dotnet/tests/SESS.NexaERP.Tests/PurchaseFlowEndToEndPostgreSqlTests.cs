@@ -72,7 +72,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<VendorBillRaceContext, Task<VendorBillView>>? billRace = null,
         Func<SerialIssueRaceContext, Task<MaterialIssueView>>? issueRace = null,
         Func<PaymentRaceContext, Task<PaymentRaceResult>>? paymentRace = null,
-        Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null)
+        Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null,
+        Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -80,7 +81,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -177,6 +178,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item25");
             Directory.CreateDirectory(evidence);
             await File.WriteAllTextAsync(Path.Combine(evidence, "payment-function-permissions.json"),
+                JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
+        }
+        if (qcRace is not null)
+        {
+            var migrations = model.Database.GetMigrations().ToArray();
+            const string stockBalanceGuard = "20260913040000_StockConditionBalanceGuard";
+            var index = Array.IndexOf(migrations, stockBalanceGuard);
+            Assert.True(index > 0);
+            var beforePermissions = await QcPostingFunctionMetadata(options);
+            server.Execute("stock-balance-down.sql", migrator.GenerateScript(stockBalanceGuard, migrations[index - 1]));
+            var downPermissions = await QcPostingFunctionMetadata(options);
+            server.Execute("stock-balance-reapply.sql", migrator.GenerateScript(migrations[index - 1], stockBalanceGuard));
+            var afterPermissions = await QcPostingFunctionMetadata(options);
+            Assert.Equal(beforePermissions, downPermissions);
+            Assert.Equal(beforePermissions, afterPermissions);
+            var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item25");
+            Directory.CreateDirectory(evidence);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "qc-posting-function-permissions.json"),
                 JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
         }
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
@@ -319,7 +338,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal("QC_AGEING_OVERDUE", Assert.Single(qcNotifications.Items).EventType);
             for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId,
                 qcCorrection is null ? null : (original, command) => qcCorrection(new(options, runtimeConnection,
-                    original, command, qcId, server.ReadDiagnosticLog)));
+                    original, command, qcId, server.ReadDiagnosticLog)),
+                qcRace is null ? null : (original, command, draft, available) => qcRace(new(options, runtimeConnection,
+                    original, command, draft, available, qcId, tdId, server.ReadDiagnosticLog)));
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
                 Assert.Equal(1, await new EfNotificationDueEventProcessor(notificationDb)
                     .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
@@ -449,7 +470,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -869,7 +890,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId,
-        Func<QcInspectionResult, FinalizeQcInspectionRequest, Task<QcInspectionResult>>? correctionWitness = null)
+        Func<QcInspectionResult, FinalizeQcInspectionRequest, Task<QcInspectionResult>>? correctionWitness = null,
+        Func<QcInspectionResult, FinalizeQcInspectionRequest, InventoryConcessionResult, Guid, Task<InventoryConcessionResult>>? concessionWitness = null)
     {
         var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
         user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
@@ -893,7 +915,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             if(correctionWitness is not null) result=await correctionWitness(result,request);
             var failed=Assert.Single(result.ParameterResults);var concessionSerialId=Assert.Single(result.SerialDispositions).InventorySerialId;var draft=await Post<InventoryConcessionResult>(client,"/api/v1/qc/concessions",new CreateInventoryConcessionRequest(result.QcInspectionLotDispositionId,failed.Id,1,"DIMENSIONAL_LIMIT",failed.MeasuredValue,"Technical Director accepts measured deviation for controlled non-critical use","Controlled internal test fixture",[concessionSerialId]),"MD-concession-create");Assert.Equal("DRAFT",draft.Status);Assert.Equal(concessionSerialId,Assert.Single(draft.InventorySerialIds));
-            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve");Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
+            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=concessionWitness is null
+                ? await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve")
+                : await concessionWitness(result,request,draft,available);Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
             Assert.Equal(result.RevisionId,approved.QcInspectionRevisionId);
             Assert.Equal(failed.MeasuredValue,approved.MeasuredValue);
             using(var annotation=JsonDocument.Parse(approved.ProvenanceAnnotationJson!))
