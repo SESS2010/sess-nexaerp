@@ -2222,6 +2222,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapMaterialIssueEndpoints();
             app.MapCompanyReportEndpoints();
             app.MapPurchaseWorkloadEndpoints();
+            app.MapPurchaseSpendingEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();

@@ -104,7 +104,7 @@ change site permissions. HTTP checks exercise the registered endpoint.
 
 Release and Debug verification passed. No production dataset, frontend tile, spending projection,
 vendor rating or foreign procurement valuation is claimed by this component.
-Debt and spending sections remain subsequent work. Billed-before-received and
+Debt sections remain subsequent work. The separate spending component and its verification are recorded in [purchase spending progress](item-29-purchase-spending-progress.md). Billed-before-received and
 vendor quality need their already-recorded workflow prerequisites.
 
 ## Runtime verification notes

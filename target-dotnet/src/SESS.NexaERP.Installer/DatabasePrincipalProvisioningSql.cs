@@ -183,6 +183,16 @@ internal static class DatabasePrincipalProvisioningSql
         END $purchase_workload_acl$;
 
 
+        DO $purchase_spending_acl$
+        BEGIN
+          IF to_regprocedure('advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer)
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer) TO nexa_erp_runtime;
+          END IF;
+        END $purchase_spending_acl$;
+
+
         DO $ceremony_acl$
         BEGIN
           IF to_regprocedure('advance.complete_authentication_bootstrap(text,text)') IS NOT NULL THEN
@@ -552,6 +562,20 @@ internal static class DatabasePrincipalProvisioningSql
                   AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
                     WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
               RAISE EXCEPTION 'Purchase workload authority is incomplete or invalid.';
+            END IF;
+          END IF;
+
+          IF EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase-spending')
+             OR to_regprocedure('advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer)') IS NOT NULL THEN
+            IF NOT EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase-spending')
+              OR NOT EXISTS(SELECT 1 FROM pg_proc p
+                WHERE p.oid=to_regprocedure('advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer)')
+                  AND p.prosecdef AND p.provolatile='s' AND p.proowner='nexa_erp_owner'::regrole
+                  AND p.proconfig=ARRAY['search_path=pg_catalog, advance']
+                  AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                  AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                    WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
+              RAISE EXCEPTION 'Purchase spending authority is incomplete or invalid.';
             END IF;
           END IF;
 
