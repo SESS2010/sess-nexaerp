@@ -315,7 +315,7 @@ Fresh approval, disabling login and re-enabling login advance Version to 5, 6
 and 7. Stale approval and login requests return 409 without changing state or
 adding history. Routes and DTOs are unchanged; clients must use the newly
 returned Version for their next change. The employee import adapter is a
-separate identified writer awaiting its focused regression; these API checks
+separate writer covered by the follow-up below; these API checks
 do not claim that all employee writers are covered.
 
 ### Verification
@@ -331,3 +331,23 @@ Baseline and verified JSON, PostgreSQL logs and TRX files are retained under
 local-evidence/item25. Verified artifacts use -verified-release and
 -verified-debug suffixes; employee contact, status and payment receipt failure
 results are separate from the initial workload measurements.
+## Employee import version follow-up
+
+A focused real-PostgreSQL regression now covers the employee import adapter
+using the restricted runtime role. It simulates an import row prepared before
+another import commits; it is not an HTTP workbook-upload witness.
+
+Baseline: the first update returned Version 2, and a stale prepared row with
+Version 2 overwrote the name without an exception. The stored version stayed 2.
+The baseline failed 1 test in 1m12s after a successful build (zero warnings/errors,
+4m19.80s). Its JSON and TRX remain separately retained.
+
+The adapter now advances Version and explicitly raises the import framework's
+handled MasterDataConflictException for a stale prepared row. Missing employees
+raise its handled not-found exception. It preserves login and existing company
+assignment behavior. The Release regression passes: Version 2 becomes 3, the
+stale row is refused, the first name remains and login is unchanged. One targeted
+Release test passed with zero failures in 1m12.729s; build passed with zero
+warnings/errors in 3m53.64s. Debug also passed one targeted test with zero failures/skips in 1m11s; its build passed with zero warnings/errors in 4m28.38s. No schema or migration changed.
+
+Debug exact test duration: 00:01:11.3998780. Both configurations preserve the first import's name, return Version 3 and refuse the stale prepared row with MasterDataConflictException. The workbook contract is unchanged; successful import results now carry the advanced version. These are targeted adapter tests, not a new full-suite count.

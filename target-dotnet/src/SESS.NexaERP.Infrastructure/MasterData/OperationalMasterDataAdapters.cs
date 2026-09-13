@@ -93,7 +93,38 @@ public sealed class EmployeeMasterDataAdapter(NexaErpDbContext db,ICurrentUser u
     public IReadOnlyList<MasterDataRowError> Validate(MasterDataRawRow r,MasterDataExistingRecord? x,object? context){var e=new List<MasterDataRowError>();foreach(var f in new[]{("EmployeeCode","Employee Code"),("EmployeeName","Employee Name"),("DepartmentCode","Department Code"),("DesignationCode","Designation Code"),("JoiningDate","Joining Date"),("CompanyAssignments","Company Assignments")})ImportFields.Required(r,f.Item1,f.Item2,e);ImportFields.Date(r,"JoiningDate",e);if(context is EmployeeLookup l){Check(l.Departments,"DepartmentCode","Department");Check(l.Designations,"DesignationCode","Designation");var companies=ImportFields.Codes(ImportFields.V(r,"CompanyAssignments"));foreach(var c in companies)if(!l.Companies.ContainsKey(c))e.Add(ImportFields.Error("CompanyAssignments","Company Assignments","LOOKUP_NOT_FOUND",$"Unknown company '{c}'.",c));void Check(Dictionary<string,Guid>d,string k,string h){var v=ImportFields.Code(ImportFields.V(r,k));if(v.Length>0&&!d.ContainsKey(v))e.Add(ImportFields.Error(k,h+" Code","LOOKUP_NOT_FOUND",$"Unknown {h.ToLowerInvariant()} '{v}'.",v));}}if(!string.IsNullOrWhiteSpace(ImportFields.V(r,"LoginEnabled"))&&ImportFields.V(r,"LoginEnabled")!.ToUpperInvariant()!="FALSE")e.Add(ImportFields.Error("LoginEnabled","Login Enabled","GOVERNED_FIELD","Employee import cannot create identities or enable login.",ImportFields.V(r,"LoginEnabled")));return e;}
     public bool IsMateriallyEqual(MasterDataRawRow r,MasterDataExistingRecord x)=>false;
     public async Task<MasterDataApplyResult> CreateAsync(MasterDataRawRow r,CancellationToken ct){var l=(EmployeeLookup)(await LoadLookupContextAsync([r],ct))!;var code=ImportFields.Code(ImportFields.V(r,"EmployeeCode"));var employee=new Employee{EmployeeCode=code,EmployeeName=ImportFields.V(r,"EmployeeName")!,OriginalImportedName=ImportFields.V(r,"EmployeeName")!,EmployeeType="PERMANENT",Grade="STAFF",DepartmentId=l.Departments[ImportFields.Code(ImportFields.V(r,"DepartmentCode"))],DesignationId=l.Designations[ImportFields.Code(ImportFields.V(r,"DesignationCode"))],DateOfJoining=DateOnly.ParseExact(ImportFields.V(r,"JoiningDate")!,"yyyy-MM-dd",CultureInfo.InvariantCulture),Status="Active",ApprovalStatus="Draft",LoginEnabled=false,IsEmployeeCodeLocked=true,CreatedBy=user.LoginId};db.Employees.Add(employee);foreach(var c in ImportFields.Codes(ImportFields.V(r,"CompanyAssignments")))db.EmployeeCompanyAssignments.Add(new EmployeeCompanyAssignment{EmployeeId=employee.Id,CompanyId=l.Companies[c],EmployeeCode=code,AssignmentType="PAYROLL",EmploymentType="PERMANENT",EffectiveFrom=employee.DateOfJoining!.Value,Status="ACTIVE",IsActive=true,CreatedBy=user.LoginId});await db.SaveChangesAsync(ct);return new(employee.Id,employee.Version);}
-    public async Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord x,MasterDataRawRow r,uint v,CancellationToken ct){var l=(EmployeeLookup)(await LoadLookupContextAsync([r],ct))!;var employee=await db.Employees.SingleAsync(y=>y.Id==x.Id&&y.Version==v,ct);employee.EmployeeName=ImportFields.V(r,"EmployeeName")!;employee.DepartmentId=l.Departments[ImportFields.Code(ImportFields.V(r,"DepartmentCode"))];employee.DesignationId=l.Designations[ImportFields.Code(ImportFields.V(r,"DesignationCode"))];employee.DateOfJoining=DateOnly.ParseExact(ImportFields.V(r,"JoiningDate")!,"yyyy-MM-dd",CultureInfo.InvariantCulture);employee.UpdatedAt=DateTimeOffset.UtcNow;employee.UpdatedBy=user.LoginId;var existing=await db.EmployeeCompanyAssignments.Where(a=>a.EmployeeId==employee.Id&&a.IsActive).Select(a=>a.CompanyId).ToListAsync(ct);foreach(var c in ImportFields.Codes(ImportFields.V(r,"CompanyAssignments"))){var id=l.Companies[c];if(!existing.Contains(id))db.EmployeeCompanyAssignments.Add(new EmployeeCompanyAssignment{EmployeeId=employee.Id,CompanyId=id,EmployeeCode=employee.EmployeeCode,AssignmentType="PAYROLL",EmploymentType="PERMANENT",EffectiveFrom=employee.DateOfJoining.Value,Status="ACTIVE",IsActive=true,CreatedBy=user.LoginId});}await db.SaveChangesAsync(ct);return new(employee.Id,employee.Version);}
+    public async Task<MasterDataApplyResult> UpdateAsync(
+        MasterDataExistingRecord existingRecord, MasterDataRawRow row, uint version, CancellationToken ct)
+    {
+        var lookup = (EmployeeLookup)(await LoadLookupContextAsync([row], ct))!;
+        var employee = await db.Employees.SingleOrDefaultAsync(x => x.Id == existingRecord.Id, ct)
+            ?? throw new MasterDataNotFoundException("Employee no longer exists.");
+        if (employee.Version != version || existingRecord.Version != version)
+            throw new MasterDataConflictException("Stale employee version. Export current data and retry.");
+
+        employee.EmployeeName = ImportFields.V(row, "EmployeeName")!;
+        employee.DepartmentId = lookup.Departments[ImportFields.Code(ImportFields.V(row, "DepartmentCode"))];
+        employee.DesignationId = lookup.Designations[ImportFields.Code(ImportFields.V(row, "DesignationCode"))];
+        employee.DateOfJoining = DateOnly.ParseExact(ImportFields.V(row, "JoiningDate")!, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        employee.UpdatedAt = DateTimeOffset.UtcNow;
+        employee.UpdatedBy = user.LoginId;
+        employee.Version = checked(employee.Version + 1);
+        var assignedCompanies = await db.EmployeeCompanyAssignments
+            .Where(x => x.EmployeeId == employee.Id && x.IsActive).Select(x => x.CompanyId).ToListAsync(ct);
+        foreach (var companyCode in ImportFields.Codes(ImportFields.V(row, "CompanyAssignments")))
+        {
+            var companyId = lookup.Companies[companyCode];
+            if (!assignedCompanies.Contains(companyId))
+                db.EmployeeCompanyAssignments.Add(new EmployeeCompanyAssignment {
+                    EmployeeId = employee.Id, CompanyId = companyId, EmployeeCode = employee.EmployeeCode,
+                    AssignmentType = "PAYROLL", EmploymentType = "PERMANENT",
+                    EffectiveFrom = employee.DateOfJoining.Value, Status = "ACTIVE", IsActive = true,
+                    CreatedBy = user.LoginId
+                });
+        }
+        await db.SaveChangesAsync(ct);
+        return new(employee.Id, employee.Version);
+    }
 }
 
 public sealed class ItemVendorImportDefinition:IMasterDataDefinition
