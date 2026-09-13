@@ -48,7 +48,11 @@ public sealed class EfOpeningStockService(
         return await LoadAsync(id, false, ct);
     }
 
-    public async Task<OpeningStockView> RecordCountAsync(
+    public Task<OpeningStockView> RecordCountAsync(
+        CreateOpeningStockFromImportRequest request, CancellationToken ct) =>
+        WithConcurrencyHandlingAsync(() => RecordCountCoreAsync(request, ct));
+
+    private async Task<OpeningStockView> RecordCountCoreAsync(
         CreateOpeningStockFromImportRequest request, CancellationToken ct)
     {
         var role = user.RequireRole("create", "STORES_MANAGER");
@@ -75,13 +79,23 @@ public sealed class EfOpeningStockService(
 
     public Task<OpeningStockView> ConfirmValueAsync(
         Guid id, OpeningStockTransitionRequest request, CancellationToken ct) =>
-        TransitionAsync(id, request, "OpeningStock.ConfirmValue", "VALUE",
-            OpeningStockStatuses.Counted, OpeningStockStatuses.Valued, "ACCOUNTS_MANAGER", ct);
+        WithConcurrencyHandlingAsync(() => TransitionAsync(id, request, "OpeningStock.ConfirmValue", "VALUE",
+            OpeningStockStatuses.Counted, OpeningStockStatuses.Valued, "ACCOUNTS_MANAGER", ct));
 
     public Task<OpeningStockView> AuthorizeAsync(
         Guid id, OpeningStockTransitionRequest request, CancellationToken ct) =>
-        TransitionAsync(id, request, "OpeningStock.Authorize", "AUTHORIZE",
-            OpeningStockStatuses.Valued, OpeningStockStatuses.Posted, "TECHNICAL_DIRECTOR", ct);
+        WithConcurrencyHandlingAsync(() => TransitionAsync(id, request, "OpeningStock.Authorize", "AUTHORIZE",
+            OpeningStockStatuses.Valued, OpeningStockStatuses.Posted, "TECHNICAL_DIRECTOR", ct));
+
+    private static async Task<OpeningStockView> WithConcurrencyHandlingAsync(Func<Task<OpeningStockView>> command)
+    {
+        try { return await command(); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            throw new DbUpdateConcurrencyException(
+                "Opening Stock changed concurrently. Reload the ceremony before retrying.", error);
+        }
+    }
 
     private async Task<OpeningStockView> TransitionAsync(
         Guid id, OpeningStockTransitionRequest request, string operation, string action,
