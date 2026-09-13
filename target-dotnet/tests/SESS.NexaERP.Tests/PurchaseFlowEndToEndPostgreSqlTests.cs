@@ -68,7 +68,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false,
         Func<GrnFinalizeRaceContext, Task<GoodsReceiptResult>>? grnRace = null,
         Func<MirApprovalRaceContext, Task<MaterialIssueRequestView>>? mirRace = null,
-        Func<PrApprovalRaceContext, Task<PurchaseRequisitionDetail>>? prRace = null)
+        Func<PrApprovalRaceContext, Task<PurchaseRequisitionDetail>>? prRace = null,
+        Func<VendorBillRaceContext, Task<VendorBillView>>? billRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -76,7 +77,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -312,7 +313,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             // The committed GRN costing path posts the PO total payable per unit,
             // including its tax allocation; bare GRN UnitRate is not the layer value.
             Assert.Equal(128620.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
-            var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId);
+            var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId,
+                billRace is null ? null : draft => billRace(new(options, runtimeConnection, draft,
+                    managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)));
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
             var pendingGrni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
             Assert.Equal(1m,pendingGrni.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
@@ -419,7 +422,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -1689,7 +1692,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
     private static async Task<VendorBillView> RunVendorBillWitness(HttpClient client,
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
-        IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId)
+        IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId,
+        Func<VendorBillView, Task<VendorBillView>>? acceptRace = null)
     {
         var expected = new List<(decimal UnitRate, decimal Payable)>();
         foreach (var grn in grns)
@@ -1809,8 +1813,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal("MATCHED", bill.MatchStatus);
             var decision = new VendorBillDecisionRequest(bill.Version,
                 "Three-way match accepted", $"vendor-bill-accept-{index}");
-            var accepted = await Post<VendorBillView>(client,
-                $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
+            var accepted = acceptRace is not null && index == 2 ? await acceptRace(bill)
+                : await Post<VendorBillView>(client,
+                    $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
             Assert.Equal("ACCEPTED", accepted.Status);
             Assert.Equal(accepted.Id, await Query(options, db => db.ItemCompanyLastPurchases
                 .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
