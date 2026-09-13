@@ -74,7 +74,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<PaymentRaceContext, Task<PaymentRaceResult>>? paymentRace = null,
         Func<QcCorrectionContext, Task<QcInspectionResult>>? qcCorrection = null,
         Func<QcConcessionRaceContext, Task<InventoryConcessionResult>>? qcRace = null,
-        bool concessionHistoryWitness = false)
+        bool concessionHistoryWitness = false,
+        Func<DirectFifoRaceContext, Task>? fifoRace = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -83,7 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -472,10 +473,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.NotNull(x.ResolvedRoleAssignmentId);
             });
             if (concessionHistoryWitness) await AssertConcessionHistoryRollbackRefused(options, migrator);
+            if (fifoRace is not null)
+                await fifoRace(new(options, runtimeConnection, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
