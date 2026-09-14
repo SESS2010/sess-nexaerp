@@ -77,7 +77,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         bool concessionHistoryWitness = false,
         Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null,
         bool durableDatabase = false,
-        Func<PurchaseWorkloadWitnessContext, Task>? workload = null, int additionalDraftReceipts = 0)
+        Func<PurchaseWorkloadWitnessContext, Task>? workload = null, int additionalDraftReceipts = 0,
+        Func<PurchaseObligationWitnessContext, Task>? obligations = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -86,7 +87,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator = model.GetService<IMigrator>();
         var latest = model.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin(), durableDatabase);
-        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null)
+        if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null || obligations is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
@@ -369,7 +370,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 billRace is null ? null : draft => billRace(new(options, runtimeConnection, draft,
                     managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)),
                 paymentRace is null ? null : command => paymentRace(new(options, runtimeConnection,
-                    command, managerId, server.ReadDiagnosticLog)));
+                    command, managerId, server.ReadDiagnosticLog)),
+                obligations is null ? null : stage => obligations(new(options,runtimeConnection,stage)));
             user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
             var pendingGrni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
             Assert.Equal(1m,pendingGrni.Totals.Sum(row => row.GetProperty("quantity").GetDecimal()));
@@ -481,10 +483,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if (fifoRace is not null)
                 await fifoRace(new(options, runtimeConnection, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog));
             if (mixedRun is not null) await mixedRun(new(options, runtimeConnection, server.ReadDiagnosticLog));
+            if (obligations is not null) await obligations(new(options,runtimeConnection,"FINAL"));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -1789,13 +1792,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
         IReadOnlyList<GoodsReceiptResult> grns, Guid accountsManagerId, Guid accountsSupportId,
         Func<VendorBillView, Task<VendorBillView>>? acceptRace = null,
-        Func<RecordVendorPaymentRequest, Task<PaymentRaceResult>>? paymentRace = null)
+        Func<RecordVendorPaymentRequest, Task<PaymentRaceResult>>? paymentRace = null,
+        Func<string, Task>? obligations = null)
     {
         var expected = new List<(decimal UnitRate, decimal Payable)>();
         foreach (var grn in grns)
             expected.Add(await Query(options, db => db.PurchaseOrderLines.Where(x =>
                 x.Id == grn.Lines.Single().PurchaseOrderLineId)
                 .Select(x => new ValueTuple<decimal, decimal>(x.UnitRate, x.TotalPayableValue)).SingleAsync()));
+        if(obligations is not null) await obligations("RECEIVED");
 
         user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT");
         await AssertPostStatus(client, "/api/v1/accounts/vendor-financial-evidence/advances",
@@ -1818,6 +1823,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 150m, "INR", "UTR-ADV-002", "evidence/advance-002", "advance-record-002"));
         Assert.Equal(100m, firstAdvance.OutstandingAmount);
         Assert.Equal(150m, secondAdvance.OutstandingAmount);
+        if(obligations is not null) await obligations("ADVANCES");
         var firstAdvanceReplay = await Post<VendorAdvanceView>(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
             new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2),
@@ -1833,6 +1839,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "/api/v1/accounts/vendor-financial-evidence/advances",
             new RecordVendorAdvanceRequest(grns[0].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
                 10m, "INR", "UTR-ADV-REV", "evidence/advance-reverse", "advance-reverse-record"));
+        if(obligations is not null) await obligations("REVERSIBLE_ADVANCE");
         var advanceReversal = new ReverseVendorAdvanceRequest(
             "Payment returned by vendor", "advance-reverse-command");
         var reversedAdvance = await Post<VendorAdvanceView>(client,
@@ -1843,6 +1850,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/accounts/vendor-financial-evidence/advances/{reversibleAdvance.Id}/reverse",
             advanceReversal);
         Assert.True(reversedAdvanceReplay.Replayed);
+        if(obligations is not null) await obligations("ADVANCE_REVERSED");
 
         var acceptedBills = new List<VendorBillView>();
         await AssertPostStatusContains(client,
@@ -1913,6 +1921,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 : await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", decision);
             Assert.Equal("ACCEPTED", accepted.Status);
+            if(obligations is not null) await obligations($"BILL_ACCEPTED_{index}");
             Assert.Equal(accepted.Id, await Query(options, db => db.ItemCompanyLastPurchases
                 .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
                 .Select(x => x.LastPurchaseBillId).SingleAsync()));
@@ -1937,6 +1946,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var restoredAdvances = await Get<VendorAdvancePage>(client,
                     $"/api/v1/accounts/vendor-financial-evidence/advances?purchaseOrderId={grn.PurchaseOrderId}&outstandingOnly=false");
                 Assert.Equal(250m, restoredAdvances.Items.Sum(x => x.OutstandingAmount));
+                if(obligations is not null) await obligations("BILL_REVERSED_1");
 
                 var replacement = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
@@ -1947,6 +1957,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     $"/api/v1/accounts/vendor-bills/{replacement.Id}/accept",
                     new VendorBillDecisionRequest(replacement.Version,
                         "Corrected bill re-entered after reversal", "vendor-bill-reentry-accept-1"));
+                if(obligations is not null) await obligations("BILL_REENTERED_1");
                 Assert.Equal("ACCEPTED", replacement.Status);
                 Assert.Equal(replacement.Id, await Query(options, db => db.ItemCompanyLastPurchases
                     .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.ItemId == grn.Lines.Single().ItemId)
@@ -2225,6 +2236,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapCompanyReportEndpoints();
             app.MapPurchaseWorkloadEndpoints();
             app.MapPurchaseSpendingEndpoints();
+            app.MapPurchaseObligationsEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
