@@ -1,6 +1,6 @@
 # Item 16: authentication report before implementation
 
-Prepared against HEAD 2f0a007, 12 September 2026. Design report, not acceptance evidence. No owner database changes.
+Prepared against HEAD 2f0a007, 12 September 2026. This is the original design report. Implementation and the latest passing Release/Debug Keycloak reruns are recorded in item-16-verification.md (15 September). No owner database changes. The protected-name migration blocker must be resolved before Tuesday deployment; the verification document records that boundary.
 
 ## On-premises alternative
 

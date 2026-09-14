@@ -2,7 +2,21 @@
 
 Parent commit: 2f0a007 (the existing three-day plan commit after 255af75). Backend implementation and local provider verification completed on 12 September 2026. Owner database unchanged. Production Cognito onboarding remains for Tuesday.
 
-## Observed results
+## Latest rerun - 15 September 2026
+
+The real retained Keycloak container passed again against the current backend code: Release 1/1, zero failed/skipped, 130.532 seconds process wall time; Debug 1/1, zero failed/skipped, 95.017 seconds. Preceding complete project builds passed with zero warnings/errors (Release 34.06 seconds, Debug 124.42 seconds). TRX: local-evidence/overnight-20260914/keycloak-final-release.trx and keycloak-final-debug.trx.
+
+The witness verifies browser authorization-code/S256 PKCE login, actual password-plus-TOTP challenge for Approvers, configured OIDC issuer/JWKS/client/claim bindings, restricted runtime database access, Staff and Approver employee mappings, wrong-pool MFA_REQUIRED, unmapped/revoked identity refusal, company selection, and rejection of ID tokens and tampered signatures. Application authentication code is unchanged by this rerun. The generic validator works with the local provider; real Cognito onboarding is still separate.
+
+Current routine regression for the same application changes: Release 836/836, zero failed/skipped, 23m42s, report5-routine-release.trx. Earlier focused bootstrap/migration corrections passed 15/15 in each configuration. A new full Debug suite is not claimed. After the provider witnesses, both default test binaries were rebuilt without dependencies (Release 10.78 seconds, Debug 9.35 seconds, zero warnings/errors); all eight witness gates are off, discovery excludes the Keycloak test and retains the canonical purchase flow. The already-verified application assemblies were unchanged.
+
+The expired disposable certificate was renewed and independently verified with its explicit CA and IP identity: TLS1.3, verification OK. Validity: 14 September 19:03:24 UTC through 21 September 19:03:24 UTC. SHA-256: C72513E288C2850120A1D420E0E94E5B7DD385933BDCA04DDA14FFE9A00D2578. Current retained container: d93baee93c6ef0e23cb9f089f07270027d811d303c41aa88e168f0851711b7ad, using the same fixture image listed below. Old test TLS material was archived; the active key is mode0600 for the container's UID1000. No production trust setting, provider policy, VM disk or native PostgreSQL data was replaced.
+
+This is backend provider verification, not go-live approval. The live-name migration chain remains blocked at CommandReceiptReplay after the supplied 78-state history; see tuesday-migration-chain-witness-2026-09-14.md. Report10 still needs its delivered-machine prerequisite. Production frontend PKCE and identity-administration screens remain integration work, and Cognito needs the real pool/client/domain/subject configuration and onboarding witness. An eight-hour refresh token does not provide eight hours offline.
+
+Expected production business-row changes from this verification commit: zero. No new frontend route, field or envelope changes. Existing frontend requirements and the single forwardable Suranther block remain in item-16-frontend-contract.md and suranther-tuesday-click-list.txt. Governing records reread: item-16-authentication-plan, authentication-bootstrap, mandatory-mfa-role-promotion, frontend contract and the final overnight instruction, with the frozen schema and Answers_To_Open_Questions taking precedence.
+
+## Earlier observed results
 
 - Release and Debug builds with the real-container witness enabled: zero warnings and errors.
 - Full Release regression: 824 passed, 0 failed, 0 skipped, 30m11s. Includes the real container witness, retained creator-history amendment and complete purchase workflow.
