@@ -146,6 +146,7 @@ app.MapPurchaseSpendingEndpoints();
 app.MapPurchaseObligationsEndpoints();
 app.MapPurchaseOpenOrdersEndpoints();
 app.MapStoresWorkloadEndpoints();
+app.MapStoresQcStockEndpoints();
 app.MapSessionEndpoints();
 app.MapNotificationEndpoints();
 app.MapIdentityEndpoints();

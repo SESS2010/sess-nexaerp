@@ -90,6 +90,7 @@ public static class DependencyInjection
         services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseObligationsService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseObligationsService>();
         services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseOpenOrdersService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseOpenOrdersService>();
         services.AddScoped<SESS.NexaERP.Application.Reporting.IStoresWorkloadService, SESS.NexaERP.Infrastructure.Reporting.EfStoresWorkloadService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IStoresQcStockService, SESS.NexaERP.Infrastructure.Reporting.EfStoresQcStockService>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 
         return services;

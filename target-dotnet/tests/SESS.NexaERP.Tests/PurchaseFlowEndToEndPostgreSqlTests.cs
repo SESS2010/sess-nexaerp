@@ -82,7 +82,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<PurchaseOpenOrderWitnessContext, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<OpenOrderAmendmentWitnessContext, Task<Rev869BDocumentResult>>? openOrderAmendment = null,
         int additionalIssuedPoVersions = 0,
-        Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null)
+        Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
+        Func<StoresQcStockWitnessContext,Task>? qcStock = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -166,6 +167,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 AllowsPrivilegedCrossScope = false, EffectiveFrom = new DateOnly(2026, 1, 1),
                 IsActive = true, Remarks = "Disposable full Purchase flow", CreatedBy = "PURCHASE_FLOW_TEST"
             }));
+            // Explicit disposable TD reporting scope for the QC stock witness.
+            if(qcStock is not null)seed.EmployeeOperationalScopes.Add(new EmployeeOperationalScope
+            {
+                CompanyId=companyId,OrganizationId="SESS_PVT_LTD",EmployeeId=tdId,
+                DepartmentId=departmentId,WarehouseId=null,OwnRecordsOnly=false,
+                AllowsPrivilegedCrossScope=false,EffectiveFrom=new DateOnly(2026,1,1),IsActive=true,
+                Remarks="Disposable QC stock reporting scope",CreatedBy="QC_STOCK_FIXTURE"
+            });
             // Explicit disposable department reporting grant: MIRs have no source warehouse yet.
             // This does not change the production scope rule or the ordinary workflow fixture.
             if(storesWorkload is not null)foreach(var reportingDepartment in await seed.Departments
@@ -353,7 +362,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     overdueQuoteDates,
                     openOrderAmendment is not null && band.Code=="LOW"
                         ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null,
-                    storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,band.Code))));
+                    storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,band.Code)),
+                    qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,band.Code))));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -369,7 +379,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 qcCorrection is null ? null : (original, command) => qcCorrection(new(options, runtimeConnection,
                     original, command, qcId, server.ReadDiagnosticLog)),
                 qcRace is null ? null : (original, command, draft, available) => qcRace(new(options, runtimeConnection,
-                    original, command, draft, available, qcId, tdId, server.ReadDiagnosticLog)));
+                    original, command, draft, available, qcId, tdId, server.ReadDiagnosticLog)),
+                qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,bands[i].Code)));
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
                 Assert.Equal(1, await new EfNotificationDueEventProcessor(notificationDb)
                     .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
@@ -512,7 +523,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -670,7 +681,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? workload = null,
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
-        Func<string,Guid,Task>? storesWorkload = null)
+        Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -946,12 +957,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var replay=await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"));
         Assert.True(replay.Replayed);Assert.Equal(grn.StockPostingBatchId,replay.StockPostingBatchId);Assert.Equal(2,replay.History.Count);
         await using var replayEvidence=new NexaErpDbContext(options);Assert.Single(await replayEvidence.StockPostingBatches.Where(x=>x.GoodsReceiptId==grn.Id).ToListAsync());Assert.Equal(2,await replayEvidence.AuditLogs.CountAsync(x=>x.EntityId==grn.Id.ToString()&&x.Module=="Stores"));
+        if(qcStock is not null) await qcStock("GRN_FINALIZED",grn.Id);
         return grn;
     }
 
     private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId,
         Func<QcInspectionResult, FinalizeQcInspectionRequest, Task<QcInspectionResult>>? correctionWitness = null,
-        Func<QcInspectionResult, FinalizeQcInspectionRequest, InventoryConcessionResult, Guid, Task<InventoryConcessionResult>>? concessionWitness = null)
+        Func<QcInspectionResult, FinalizeQcInspectionRequest, InventoryConcessionResult, Guid, Task<InventoryConcessionResult>>? concessionWitness = null,
+        Func<string,Guid,Task>? qcStock = null)
     {
         var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
         user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
@@ -971,6 +984,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Single(await evidence.StockPostingBatches.Where(x=>x.QcInspectionRevisionId==result.RevisionId&&x.PostingKind=="QC_DISPOSITION").ToListAsync());var movements=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId).ToListAsync();Assert.All(movements,x=>{Assert.NotNull(x.QcInspectionLotDispositionId);Assert.Null(x.QcInspectionRevisionId);});Assert.Equal(accepted,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="AVAILABLE").SumAsync(x=>x.QuantityIn-x.QuantityOut));Assert.Equal(rejected,await evidence.StockMovements.Where(x=>x.StockPostingBatchId==result.StockPostingBatchId&&x.ConditionCode=="PENDING_RETURNABLE_DC").SumAsync(x=>x.QuantityIn-x.QuantityOut));
             if(band.Code=="LOW"){var childTypes=await evidence.InventoryProvenanceEdges.Where(x=>movements.Select(m=>m.InventoryProvenanceLayerId).Contains(x.ToProvenanceLayerId)).Join(evidence.InventoryProvenanceLayers,e=>e.ToProvenanceLayerId,l=>l.Id,(e,l)=>l.LayerType).Distinct().ToListAsync();Assert.Contains(InventoryProvenanceLayerTypes.QcAccepted,childTypes);Assert.Contains(InventoryProvenanceLayerTypes.QcRejected,childTypes);}
         }
+        if(qcStock is not null) await qcStock("QC_DISPOSITION",grn.Id);
         if(band.Code=="MD")
         {
             if(correctionWitness is not null) result=await correctionWitness(result,request);
@@ -983,6 +997,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             using(var annotation=JsonDocument.Parse(approved.ProvenanceAnnotationJson!))
                 Assert.Equal(failed.MeasuredValue,annotation.RootElement.GetProperty("measuredValue").GetString());
             await using var evidence=new NexaErpDbContext(options);var moves=await evidence.StockMovements.Where(x=>x.StockPostingBatchId==approved.StockPostingBatchId).ToListAsync();Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="PENDING_RETURNABLE_DC").Sum(x=>x.QuantityOut));Assert.Equal(1m,moves.Where(x=>x.ConditionCode=="AVAILABLE").Sum(x=>x.QuantityIn));Assert.All(moves,x=>Assert.Equal(serialId,x.InventorySerialId));Assert.True(await evidence.InventoryProvenanceAnnotations.AnyAsync(x=>x.InventoryConcessionId==approved.Id&&x.InventoryProvenanceLayerId==approved.AvailableProvenanceLayerId));
+            if(qcStock is not null) await qcStock("CONCESSION_APPROVED",grn.Id);
         }
     }
 
@@ -2277,6 +2292,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapPurchaseObligationsEndpoints();
             app.MapPurchaseOpenOrdersEndpoints();
             app.MapStoresWorkloadEndpoints();
+            app.MapStoresQcStockEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
