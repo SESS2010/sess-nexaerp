@@ -65,6 +65,13 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','S','f')
+              -- Table ownership also transfers its serial/identity sequences.
+              -- PostgreSQL refuses a separate owner change on an identity sequence.
+              AND (c.relkind<>'S' OR NOT EXISTS(
+                SELECT 1 FROM pg_catalog.pg_depend d
+                WHERE d.classid='pg_catalog.pg_class'::regclass AND d.objid=c.oid
+                  AND d.refclassid='pg_catalog.pg_class'::regclass AND d.refobjsubid>0
+                  AND d.deptype IN ('a','i')))
           LOOP
             EXECUTE format(
               CASE item.relkind
@@ -114,7 +121,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -332,6 +339,21 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text),advance.decide_vendor_bill(uuid,uuid,bigint,boolean,text,text,text,text,uuid,text,uuid,text,text),advance.reverse_vendor_bill(uuid,uuid,bigint,text,text,text,text,uuid,text,uuid,text,text),advance.create_fifo_layers_for_grn(uuid,uuid,uuid,text,uuid,text,text),advance.consume_fifo_for_issue(uuid,uuid,uuid,text,uuid,text,text),advance.get_vendor_bill(uuid,uuid),advance.list_vendor_bills(uuid,text,text,uuid,integer,integer) TO nexa_erp_runtime';
           END IF;
+          IF to_regclass('advance.fifo_cost_restorations') IS NOT NULL THEN
+            IF to_regclass('advance.fifo_consumption_creation_order') IS NULL
+              OR to_regprocedure('advance.restore_fifo_for_material_return(uuid,uuid,boolean)') IS NULL
+              OR to_regprocedure('advance.record_fifo_consumption_creation_order()') IS NULL
+              OR to_regprocedure('advance.guard_fifo_restoration_evidence()') IS NULL THEN
+              RAISE EXCEPTION 'FIFO restoration authority is partially installed.';
+            END IF;
+            REVOKE ALL ON advance.fifo_cost_restorations,advance.fifo_consumption_creation_order
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            REVOKE ALL ON FUNCTION advance.restore_fifo_for_material_return(uuid,uuid,boolean),
+              advance.record_fifo_consumption_creation_order(),advance.guard_fifo_restoration_evidence(),advance.guard_material_return_fifo_restoration()
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration',
+              pg_get_serial_sequence('advance.fifo_consumption_creation_order','CreationOrdinal'));
+          END IF;
           IF to_regprocedure('advance.record_vendor_bill_charges(uuid,uuid,jsonb,jsonb,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regprocedure('advance.get_actual_bom_landed_valuations(uuid,uuid)') IS NOT NULL
              OR to_regclass('advance.vendor_bill_charges') IS NOT NULL
@@ -500,7 +522,7 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
-              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
+              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
                        AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
                        AND to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)

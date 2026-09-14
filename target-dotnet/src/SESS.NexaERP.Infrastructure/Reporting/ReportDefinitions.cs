@@ -76,7 +76,7 @@ internal static class ReportDefinitions
             [new("layerId","FIFO layer ID"),new("itemCode","Item code"),new("itemName","Item"),new("ownership","Ownership"),
              new("uom","Unit"),new("currency","Currency"),new("receivedAt","Layer received"),new("ageDays","Age in days","number"),
              new("ageBucket","Age"),new("costBasis","Cost basis"),new("receivedQuantity","Original quantity","number"),
-             new("consumedQuantity","Consumed quantity","number"),new("quantity","Remaining accounting quantity","number"),
+             new("consumedQuantity","Net consumed quantity","number"),new("quantity","Remaining accounting quantity","number"),
              new("unitCost","Effective unit cost","number"),new("value","FIFO value","number"),
              new("grnNumber","GRN"),new("grnLineId","GRN line ID"),new("openingLine","Opening line"),
              new("openingStockLineId","Opening-stock line ID"),new("acceptedBillLineId","Accepted bill line ID")],

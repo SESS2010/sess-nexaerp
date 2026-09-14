@@ -34,4 +34,5 @@
     <EmbeddedResource Include="Persistence\Migrations\Sql\20260914070000_StoresQcStock.sql" LogicalName="StoresQcStock.20260914070000.sql" />
   </ItemGroup>
 
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260914080000_FifoReturnRestorations.sql" LogicalName="FifoReturnRestorations.20260914080000.sql" /></ItemGroup>
 </Project>

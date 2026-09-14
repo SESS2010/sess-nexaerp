@@ -16,6 +16,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         string RuntimeConnection, Guid FirstOperatorId, Guid SecondOperatorId, Func<string> ReadPostgresLog);
     private sealed record FifoInput(Guid IssueId, Guid LineId, Guid ActorId, string Subject,
         string Role, Guid AssignmentId, string Key, byte[] RequestHash);
+    private sealed class FifoRemainingWitnessRow
+    {
+        public Guid Id { get; set; }
+        public Guid ItemId { get; set; }
+        public decimal UnitCost { get; set; }
+        public DateTimeOffset ReceivedAt { get; set; }
+        public decimal Remaining { get; set; }
+    }
+
     private sealed record FifoCallResult(int? Affected, bool Committed, string? SqlState,
         string? Message, double Seconds);
 
@@ -66,12 +75,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var cloneAdmin = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = cloneName }.ConnectionString;
         var runtime = new NpgsqlConnectionStringBuilder(context.RuntimeConnection) { Database = cloneName, Pooling = false }.ConnectionString;
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(cloneAdmin).Options;
-        var remaining = await Query(options, db => db.FifoInventoryCostLayers.Where(row => row.CompanyId == companyId)
-            .Select(row => new { row.Id,row.ItemId,row.UnitCost,row.ReceivedAt,
-                Remaining = row.QuantityReceived - (db.FifoCostConsumptions
-                    .Where(use => use.FifoInventoryCostLayerId == row.Id).Sum(use => (decimal?)use.Quantity) ?? 0m) })
-            .Where(row => row.Remaining > 0).OrderBy(row => row.ReceivedAt).ThenBy(row => row.Id).ToListAsync());
-        var oldest = Assert.Single(remaining);
+        async Task<List<FifoRemainingWitnessRow>> ReadRemaining(DbContextOptions<NexaErpDbContext> sourceOptions)
+            => await Query(sourceOptions, db => db.Database.SqlQueryRaw<FifoRemainingWitnessRow>("""
+                SELECT f."Id",f."ItemId",f."UnitCost",f."ReceivedAt",
+                  f."QuantityReceived"-coalesce((SELECT sum(c."Quantity"-coalesce((
+                    SELECT sum(r."Quantity") FROM advance.fifo_cost_restorations r
+                    WHERE r."CompanyId"=c."CompanyId" AND r."FifoCostConsumptionId"=c."Id"),0))
+                    FROM advance.fifo_cost_consumptions c
+                    WHERE c."CompanyId"=f."CompanyId" AND c."FifoInventoryCostLayerId"=f."Id"),0) AS "Remaining"
+                FROM advance.fifo_inventory_cost_layers f WHERE f."CompanyId"=@company
+                ORDER BY f."ReceivedAt",f."Id"
+                """,new NpgsqlParameter("company",companyId)).ToListAsync());
+        var remaining=(await ReadRemaining(options)).Where(x=>x.Remaining>0).ToList();
+        Assert.Equal(2.63m,remaining.Sum(x=>x.Remaining));
+        var oldest=remaining.Last();
         Assert.Equal(1m,oldest.Remaining);
         var sourceLine = await Query(options, db => db.MaterialIssueLines
             .Where(row => row.CompanyId == companyId && row.ItemId == oldest.ItemId
@@ -79,7 +96,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             .Select(row => new { row.Id,row.MaterialIssueId }).SingleAsync());
         var physicalMovementsBefore = await Query(options,db => db.StockMovements.CountAsync());
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        async Task<FifoInput> Prepare(Guid employeeId, string role, string suffix)
+        async Task<FifoInput> Prepare(Guid employeeId, string role, string suffix, decimal? quantity=null, Guid? ownership=null)
         {
             var subject = await Query(options, db => db.EmployeeIdentityMappings
                 .Where(row => row.CompanyId == companyId && row.EmployeeId == employeeId && row.IsActive)
@@ -93,9 +110,38 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var key = "direct-fifo-" + suffix + "-" + issueId.ToString("N");
             var input = new FifoInput(issueId,Guid.NewGuid(),employeeId,subject,role,assignment.Id,key,
                 SHA256.HashData(Encoding.UTF8.GetBytes(key)));
-            await CreateDirectFifoInput(runtime,input,sourceLine.MaterialIssueId,sourceLine.Id);
+            await CreateDirectFifoInput(runtime,input,sourceLine.MaterialIssueId,sourceLine.Id,quantity,ownership);
             return input;
         }
+        // A second valid ownership account has no receipt-backed cost layers.
+        // The function must not borrow the first account's available layers.
+        var otherOwnership=Guid.NewGuid();
+        await using(var fixture=new NexaErpDbContext(options))
+            await fixture.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO advance.inventory_ownership_accounts
+                SELECT (jsonb_populate_record(NULL::advance.inventory_ownership_accounts,
+                  to_jsonb(o)||jsonb_build_object('Id',{otherOwnership},
+                    'AccountCode',{'F'.ToString()+otherOwnership.ToString("N")}))).*
+                FROM advance.inventory_ownership_accounts o
+                JOIN advance.material_issue_lines il ON il."OwnershipAccountId"=o."Id" AND il."CompanyId"=o."CompanyId"
+                WHERE il."Id"={sourceLine.Id}
+                """);
+        var wrongPool=await Prepare(context.FirstOperatorId,"STORES_EXECUTIVE","other-ownership",.10m,otherOwnership);
+        var wrongPoolResult=await CallDirectFifo(runtime,companyId,wrongPool);
+        Assert.False(wrongPoolResult.Committed);
+        Assert.Equal(PostgresErrorCodes.RaiseException,wrongPoolResult.SqlState);
+        Assert.Equal("Insufficient FIFO cost-layer quantity in this ownership and currency pool.",wrongPoolResult.Message);
+        Assert.Equal(2.63m,(await ReadRemaining(options)).Sum(x=>x.Remaining));
+        Assert.Equal(0,await Query(options,db=>db.FifoCostConsumptions.CountAsync(x=>x.MaterialIssueLineId==wrongPool.LineId)));
+        // Consume restored availability through the same restricted costing boundary.
+        // This clone has no physical posting claim; retain exactly the last unit for the race.
+        foreach(var row in remaining.SkipLast(1))
+        {
+            var drain=await Prepare(context.FirstOperatorId,"STORES_EXECUTIVE","drain-"+row.Id,row.Remaining);
+            var result=await CallDirectFifo(runtime,companyId,drain);
+            Assert.True(result.Committed,result.Message);
+        }
+        Assert.Equal(1m,(await ReadRemaining(options)).Sum(x=>x.Remaining));
         var firstInput = await Prepare(context.FirstOperatorId,"STORES_EXECUTIVE","first");
         var secondInput = await Prepare(context.SecondOperatorId,"STORES_ASSISTANT","second");
         await using (var restricted = new NpgsqlConnection(runtime))
@@ -148,9 +194,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             Consumptions = await db.FifoCostConsumptions.Where(row => lineIds.Contains(row.MaterialIssueLineId))
                 .Select(row => new { row.MaterialIssueLineId,row.FifoInventoryCostLayerId,row.Quantity,row.UnitCost,row.ConsumedValue }).ToListAsync(),
-            Remainders = await db.FifoInventoryCostLayers.Where(row => row.CompanyId == companyId)
-                .Select(row => row.QuantityReceived - (db.FifoCostConsumptions
-                    .Where(use => use.FifoInventoryCostLayerId == row.Id).Sum(use => (decimal?)use.Quantity) ?? 0m)).ToListAsync()
+            Remainders = (await ReadRemaining(options)).Select(x=>x.Remaining).ToList()
         });
         var ledger = await Query(options,db => db.Database.SqlQueryRaw<string>("""
             SELECT jsonb_build_object('requests',count(DISTINCT q."CommandId"),
@@ -167,7 +211,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await File.WriteAllTextAsync(Path.Combine(evidence,"direct-fifo.json"),
             JsonSerializer.Serialize(new { Database = cloneName,
                 Fixture = "Two unposted costing input headers/lines in a clone; not two completed API issues.",
-                Oldest = oldest, FirstInput = firstInput, SecondInput = secondInput,
+                Oldest = oldest, FirstInput = firstInput, SecondInput = secondInput, WrongOwnershipPool = wrongPoolResult,
                 Observations = observations, ObservationError = observationError,
                 First = first, Second = second, Retry = retry, Reentry = reentry, State = state, Ledger = ledger },
                 new JsonSerializerOptions { WriteIndented = true }));
@@ -182,7 +226,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(PostgresErrorCodes.SerializationFailure,second.SqlState);
         Assert.False(retry.Committed);
         Assert.Equal(PostgresErrorCodes.RaiseException,retry.SqlState);
-        Assert.Equal("Insufficient FIFO cost-layer quantity for material issue.",retry.Message);
+        Assert.Equal("Insufficient FIFO cost-layer quantity in this ownership and currency pool.",retry.Message);
         Assert.False(reentry.Committed);
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege,reentry.SqlState);
         var consumption = Assert.Single(state.Consumptions);
@@ -201,12 +245,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         Assert.Equal(physicalMovementsBefore,await Query(options,db => db.StockMovements.CountAsync()));
         // The source remains untouched; its subsequent report helper can issue .05.
-        Assert.Equal(1m,await Query(context.Options, db => db.FifoInventoryCostLayers.Where(row => row.Id == oldest.Id)
-            .Select(row => row.QuantityReceived - (db.FifoCostConsumptions
-                .Where(use => use.FifoInventoryCostLayerId == row.Id).Sum(use => (decimal?)use.Quantity) ?? 0m)).SingleAsync()));
+        Assert.Equal(2.63m,(await ReadRemaining(context.Options)).Sum(x=>x.Remaining));
     }
 
-    private static async Task CreateDirectFifoInput(string runtime, FifoInput input, Guid sourceIssue, Guid sourceLine)
+    private static async Task CreateDirectFifoInput(string runtime, FifoInput input, Guid sourceIssue, Guid sourceLine, decimal? quantity=null, Guid? ownership=null)
     {
         await using var connection = new NpgsqlConnection(runtime);
         await connection.OpenAsync();
@@ -224,7 +266,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
               FROM advance.material_issues i WHERE i."Id"=@source_issue;
             INSERT INTO advance.material_issue_lines
               SELECT (jsonb_populate_record(NULL::advance.material_issue_lines,
-                to_jsonb(l)||jsonb_build_object('Id',@line,'MaterialIssueId',@issue,
+                to_jsonb(l)||jsonb_build_object('Id',@line,'MaterialIssueId',@issue,'QuantityBase',coalesce(@quantity,l."QuantityBase"),'OwnershipAccountId',coalesce(@ownership,l."OwnershipAccountId"),
                   'CreatedAt',clock_timestamp(),'CreatedBy',@subject))).*
               FROM advance.material_issue_lines l WHERE l."Id"=@source_line;
             """,connection,transaction);
@@ -237,6 +279,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         insert.Parameters.AddWithValue("assignment",input.AssignmentId);
         insert.Parameters.AddWithValue("subject",input.Subject);
         insert.Parameters.AddWithValue("source_issue",sourceIssue);
+        insert.Parameters.AddWithValue("ownership",NpgsqlDbType.Uuid,(object?)ownership??DBNull.Value);
+        insert.Parameters.AddWithValue("quantity",NpgsqlDbType.Numeric,(object?)quantity??DBNull.Value);
         insert.Parameters.AddWithValue("line",input.LineId);
         insert.Parameters.AddWithValue("source_line",sourceLine);
         Assert.Equal(2,await insert.ExecuteNonQueryAsync());

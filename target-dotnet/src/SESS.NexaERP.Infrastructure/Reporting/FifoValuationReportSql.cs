@@ -31,7 +31,9 @@ internal static class FifoValuationReportSql
           LEFT JOIN advance.inventory_ownership_accounts ownership ON ownership."Id"=owners.owner_id AND ownership."CompanyId"=a.company_id
           LEFT JOIN advance.inventory_account_holders holder ON holder."Id"=ownership."AccountHolderId" AND holder."CompanyId"=a.company_id
           LEFT JOIN LATERAL (
-            SELECT sum(c."Quantity") AS quantity FROM advance.fifo_cost_consumptions c
+            SELECT sum(c."Quantity"-coalesce((SELECT sum(r."Quantity") FROM advance.fifo_cost_restorations r
+              WHERE r."CompanyId"=a.company_id AND r."FifoCostConsumptionId"=c."Id"
+                AND (r."EffectiveAt" AT TIME ZONE @report_timezone)::date<=@to_date),0)) AS quantity FROM advance.fifo_cost_consumptions c
             WHERE c."CompanyId"=a.company_id AND c."FifoInventoryCostLayerId"=f."Id"
               AND (c."ConsumedAt" AT TIME ZONE @report_timezone)::date<=@to_date
           ) used ON true
@@ -59,7 +61,10 @@ internal static class FifoValuationReportSql
             SELECT 1 FROM advance.material_returns r JOIN access a ON a.allowed AND r."CompanyId"=a.company_id
             JOIN advance.material_return_lines rl ON rl."MaterialReturnId"=r."Id" AND rl."CompanyId"=a.company_id
             WHERE r."Status"='ACCEPTED' AND (r."AcceptedAt" AT TIME ZONE @report_timezone)::date<=@to_date
-              AND rl."ReturnedQuantityBase">0
+              AND rl."ReturnedQuantityBase"<>coalesce((SELECT sum(restored."Quantity")
+                FROM advance.fifo_cost_restorations restored WHERE restored."CompanyId"=a.company_id
+                  AND restored."MaterialReturnLineId"=rl."Id"
+                  AND (restored."EffectiveAt" AT TIME ZONE @report_timezone)::date<=@to_date),0)
               AND EXISTS(SELECT 1 FROM advance.fifo_cost_consumptions consumed
                 WHERE consumed."CompanyId"=a.company_id AND consumed."MaterialIssueLineId"=rl."MaterialIssueLineId")
           ) AS return_gap,

@@ -4,9 +4,9 @@ Updated 14 September: the user requires all ten reports before further dashboard
 
 ## FIFO return attribution
 
-Observed: accepted material returns append physical movements, but no FIFO cost-credit record. The existing purchase witness restores 1.00 serialized unit plus 0.60 and 0.03 non-serialized units physically: 1.63 in total. Its accounting FIFO consumes two complete layers; the serialized physical source and accounting cost layer are deliberately different. A closing FIFO valuation cannot silently treat those units as absent.
+Historical finding before migration 20260914080000: accepted material returns append physical movements, but no FIFO cost-credit record. The existing purchase witness restores 1.00 serialized unit plus 0.60 and 0.03 non-serialized units physically: 1.63 in total. Its accounting FIFO consumes two complete layers; the serialized physical source and accounting cost layer are deliberately different. A closing FIFO valuation cannot silently treat those units as absent.
 
-The proposed correction is append-only credits linked to the accepted return line and the original issue's FIFO consumption rows. It must retain original consumption history, keep company/item/ownership boundaries, lock the same cost pool as consumption, refuse credits exceeding the original net consumed quantity, and replay idempotently with the return.
+The implemented correction is append-only credits linked to the accepted return line and the original issue's FIFO consumption rows. It must retain original consumption history, keep company/item/ownership boundaries, lock the same cost pool as consumption, refuse credits exceeding the original net consumed quantity, and replay idempotently with the return.
 
 The user has settled the mechanism: unwind the original issue consumption rows in reverse creation order. There is no configurable attribution policy. Issue 1 at 100 and 1 at 200, then return 0.5: append a restoration of 0.5 against the 200 consumption, restoring value 100 and leaving net issue cost 200.
 
@@ -28,10 +28,10 @@ The existing DC specification requires a customer signature for machine delivery
 
 The minimum proof must retain the applicable DC/job/machine/customer identities, a governed delivery event and signed evidence, then traverse actual component fitments to their GRN, vendor, accepted bill/allocated charges, QC and applicable approvals. FAT readiness is not delivery, and foundation rows alone are not authoritative delivery evidence.
 
-Scheduling is settled: complete these prerequisites within Item 15 and build the delivered-machine dossier last. No source prerequisite is claimed complete.
+Scheduling is settled: complete these prerequisites within Item 15 and build the delivered-machine dossier last. FIFO restoration has passing targeted Release witnesses; Debug verification passed: item15-fifo-complete-debug.trx, six tests, zero failed/skipped, 11m52s. Invoice-before-receipt and signed delivery remain unimplemented.
 
 ## Additional frozen-policy conflict: ownership scope
 
-The frozen Stores Full Schema Guideline, paragraphs 116 and 325, requires strict FIFO within company, item and ownership/value pool, with no retrospective recalculation. The only installed consume_fifo_for_issue definition (VendorBillCostingSql.cs) takes its advisory lock by company/item and selects layers by company/item, without an ownership predicate. No later replacement was found.
+The frozen Stores Full Schema Guideline, §2.1 ruling 2 and §6/V1, requires strict FIFO within company, item and ownership/value pool, with no retrospective recalculation. The pre-correction consume_fifo_for_issue definition (VendorBillCostingSql.cs) takes its advisory lock by company/item and selects layers by company/item, without an ownership predicate. Migration 20260914080000 now replaces it with ownership and currency eligibility.
 
-This is a source-level conflict with frozen policy, not a witnessed cross-ownership transaction failure yet. The new report groups existing layers by receipt ownership; that does not prove consumption stayed within the required pool. The ownership correction and actual cross-ownership refusal witness belong to the current Item 15 work. No historical postings have been rewritten.
+The restricted Release witness now proves wrong-ownership refusal while stock remains available in the original pool; no consumption is appended. Historical upgrade refuses ownership mismatches instead of rewriting them. See item-15-fifo-restoration.md for mechanism, upgrade, concurrency and partial-fitment evidence. No historical postings have been rewritten.

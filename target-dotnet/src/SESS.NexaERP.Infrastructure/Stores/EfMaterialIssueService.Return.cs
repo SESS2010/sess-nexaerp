@@ -156,7 +156,7 @@ public sealed partial class EfMaterialIssueService
         issue.Status = acceptedBefore + acceptedNow == issued ? "RETURNED" : "PARTIALLY_RETURNED";
         issue.Version++; issue.UpdatedAt = DateTimeOffset.UtcNow; issue.UpdatedBy = user.LoginId;
         History(null, issue, "RETURN_ACCEPT", fromIssueStatus, issue.Status,
-            $"Accepted return {row.ReturnNumber}; no consumption recorded.", key + ":ISSUE");
+            $"Accepted return {row.ReturnNumber}; original FIFO consumption restored by linked immutable entries.", key + ":ISSUE");
 
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
             Organization(), "MaterialReturn.Accept", key, new { id, command });

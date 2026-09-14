@@ -2,7 +2,11 @@
 
 Parent commit: 7eb9a67 (Item 16). This commit is a partial Item 15 checkpoint; the ten-report requirement is not complete. No changes have been applied to the owner database.
 
-## Scope and unresolved prerequisites
+## Current correction checkpoint — 14 September
+
+Migration 20260914080000 now supplies immutable reverse-creation-order FIFO restorations and ownership/currency eligibility. Targeted Release restoration, partial-fitment, historical-upgrade and concurrency witnesses pass; Debug passed six affected witnesses, zero failed/skipped, in 11m52s (item15-fifo-complete-debug.trx). See item-15-fifo-restoration.md. Earlier return-gap and ownership findings below describe the pre-correction checkpoint, not the new behavior. Reports 5 and 10 remain outstanding. Previous full-suite and scale numbers do not certify the new migration.
+
+## Earlier scope and unresolved prerequisites
 
 Seven report paths have passing business checks: stock balance, movement roll-forward, GRNI, vendor purchases, purchase register, pending approvals and custody by engineer. FIFO valuation is an eighth, restricted prototype: initial layers, bill adjustments, opening valuation and age boundaries pass, but accepted physical returns without cost credits cause 409 FIFO_RETURN_CREDITS_REQUIRED. This refusal is not a completed return-cost policy. Billed-not-received and delivered-machine ancestry are not implemented.
 
@@ -103,4 +107,4 @@ Additional cleanup removed only redundant session-created qemu.exe installer and
 
 The mixed application-UTC/database-session-date authority boundary is recorded for Item 25's role-change review. No authorization bypass is claimed. Permission-seed review confirmed that Up refuses installation unless all three required baseline pages are active.
 
-Resume: continue independent Item 25 concurrency work while the three policy/source decisions remain pending. Item 15 remains partial; its incomplete reports are not silently accepted as complete.
+Current work order supersedes the earlier resume note: complete Item 15, including its authorized source prerequisites; delivered-machine ancestry last, then real Keycloak verification. No further dashboard work.

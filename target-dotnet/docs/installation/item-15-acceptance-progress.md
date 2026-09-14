@@ -15,6 +15,8 @@ FIFO restoration instruction is settled: mechanically unwind original consumptio
 
 Fitment reversal is a distinct deliberate operation: it negates machine cost and restores engineer custody while the issue remains outstanding. Do not restore issue FIFO merely because fitment was reversed. Actual return to Stores is the restoration boundary. The isolated zero-cost proof now passes before re-fit, including both operational and commercial comparisons; original baseline identities and values stay unchanged.
 
+FIFO implementation checkpoint: migration 20260914080000 and targeted Release witnesses now cover immutable reverse-order restoration, actual partial-fitment return, historical accepted-return reconciliation without rewrites, and ownership/concurrency refusal. Debug verification passed: item15-fifo-complete-debug.trx, six tests, zero failed/skipped, 11m52s. See item-15-fifo-restoration.md; this is not a new full-suite pass.
+
 Remaining implementation/proof:
 1. Finalize reports 1-9 against actual source movements and decisions, including the mechanical cost-restoration and ownership-pool correction.
 2. Add a governed invoice-before-receipt source and billed-not-received report; never label an empty result proof of a workflow that cannot record invoices.

@@ -83,7 +83,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<OpenOrderAmendmentWitnessContext, Task<Rev869BDocumentResult>>? openOrderAmendment = null,
         int additionalIssuedPoVersions = 0,
         Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
-        Func<StoresQcStockWitnessContext,Task>? qcStock = null)
+        Func<StoresQcStockWitnessContext,Task>? qcStock = null,
+        Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -95,7 +96,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null || obligations is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
-        server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
+        var initialMigration=historicalFifoUpgrade?model.Database.GetMigrations()
+            .TakeWhile(x=>x!="20260914080000_FifoReturnRestorations").Last():latest;
+        server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", initialMigration));
         if (returnRace is not null)
         {
             var migrations = model.Database.GetMigrations().ToArray();
@@ -421,6 +424,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
+            if(historicalFifoUpgrade)
+            {
+                var originalHistory=await ReadOriginalFifoHistory(options);
+                server.Execute("fifo-historical-return-upgrade.sql",migrator.GenerateScript(initialMigration,latest));
+                Assert.Equal(0,await DatabasePrincipalCommand.RunAsync(["database-principals","provision"]));
+                await VerifyHistoricalFifoRestoration(options,originalHistory);
+            }
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
             await using var verify = new NexaErpDbContext(options);
             Assert.False(await verify.RolePagePermissions.AnyAsync(x => !x.CanView && !x.HasFullControl &&
@@ -522,8 +532,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if (obligations is not null) await obligations(new(options,runtimeConnection,"FINAL"));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
+            if(fifoPartialReturn is not null)await fifoPartialReturn(new(client,options,user,productionId,storesId,managerId));
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null && fifoPartialReturn is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -594,16 +605,33 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         user.Set(accountsId, "SESS-14", Rev869ARoleCodes.AccountsManager);
 
-        using(var blocked=await client.GetAsync(WitnessReportPath("/api/v1/reports/fifo-valuation")))
+        var restoredFifo=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath("/api/v1/reports/fifo-valuation"));
+        var restoredTotal=Assert.Single(restoredFifo.Totals);
+        Assert.Equal(2.63m,restoredTotal.GetProperty("quantity").GetDecimal());
+        Assert.Equal(.63m*(4720m+12m)+5900m+118000.01m,restoredTotal.GetProperty("value").GetDecimal());
+        var restoredSelection=Uri.EscapeDataString(restoredTotal.GetProperty("group").GetRawText());
+        var restoredDetails=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
+            WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details&metric=value&selection="+restoredSelection));
+        Assert.Equal(3,restoredDetails.Rows.Count);
+        Assert.Equal(2.63m,restoredDetails.Rows.Sum(row=>row.GetProperty("quantity").GetDecimal()));
+        Assert.Equal(restoredTotal.GetProperty("value").GetDecimal(),
+            restoredDetails.Rows.Sum(row=>row.GetProperty("value").GetDecimal()));
+        using(var export=await client.GetAsync(WitnessReportPath("/api/v1/reports/fifo-valuation/excel")))
         {
-            Assert.Equal(HttpStatusCode.Conflict,blocked.StatusCode);
-            var failure=(await blocked.Content.ReadFromJsonAsync<StandardErrorEnvelope>())!;
-            Assert.Equal("FIFO_RETURN_CREDITS_REQUIRED",failure.Code);
-            Assert.True(failure.AdministratorActionRequired is true);
+            Assert.Equal(HttpStatusCode.OK,export.StatusCode);
+            var bytes=await export.Content.ReadAsByteArrayAsync();
+            using var book=new ClosedXML.Excel.XLWorkbook(new MemoryStream(bytes));
+            Assert.Equal(2.63m,book.Worksheet("Totals").Cell(2,4).GetValue<decimal>());
+            Assert.Equal(restoredTotal.GetProperty("value").GetDecimal(),book.Worksheet("Totals").Cell(2,5).GetValue<decimal>());
+            Assert.True(book.Worksheet("Totals").Cell(2,5).HasHyperlink);
+            var evidence=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");
+            Directory.CreateDirectory(evidence);
+            await File.WriteAllBytesAsync(Path.Combine(evidence,"fifo-after-accepted-returns.xlsx"),bytes);
+            await File.WriteAllTextAsync(Path.Combine(evidence,"fifo-after-accepted-returns.json"),
+                JsonSerializer.Serialize(new{Summary=restoredFifo,Details=restoredDetails},new JsonSerializerOptions{WriteIndented=true}));
         }
-        using(var blockedExport=await client.GetAsync(WitnessReportPath("/api/v1/reports/fifo-valuation/excel")))
-            Assert.Equal(HttpStatusCode.Conflict,blockedExport.StatusCode);
-        Assert.Equal(2,await Query(options,db=>db.AuditLogs.CountAsync(row=>
+        Assert.Equal(0,await Query(options,db=>db.AuditLogs.CountAsync(row=>
             row.Module=="Reports"&&row.EntityId=="reports.fifo-valuation"&&row.Action=="Unavailable"&&row.Result=="Failure")));
         var grni = await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/grni"));
         Assert.Empty(grni.Rows);
@@ -670,7 +698,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(roll.TotalSourceRows + 1,workbook.Worksheet("Details").LastRowUsed()!.RowNumber());
         Assert.Equal(roll.TotalRows + 1,workbook.Worksheet("Summary").LastRowUsed()!.RowNumber());
         await using var db = new NexaErpDbContext(options);
-        Assert.Equal(2,await db.AuditLogs.CountAsync(row => row.Module == "Reports" && row.Action == "Export"));
+        Assert.Equal(3,await db.AuditLogs.CountAsync(row => row.Module == "Reports" && row.Action == "Export"));
     }
 
     private static async Task<GoodsReceiptResult> RunPurchaseBand(HttpClient prClient, HttpClient approvalClient, HttpClient client, DbContextOptions<NexaErpDbContext> options,
