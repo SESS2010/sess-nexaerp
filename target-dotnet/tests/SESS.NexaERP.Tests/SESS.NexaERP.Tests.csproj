@@ -41,4 +41,19 @@
   <PropertyGroup Condition="'$(DiskFullWitness)' == 'true'">
     <DefineConstants>$(DefineConstants);DISK_FULL_WITNESS</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(MigrationInterruptWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);MIGRATION_INTERRUPT_WITNESS</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ConcurrencyWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);CONCURRENCY_WITNESS</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(HostFailureWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);HOST_FAILURE_WITNESS</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(WorkflowWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);WORKFLOW_WITNESS</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MigrationLifecycleWitness)' == 'true'">
+    <DefineConstants>$(DefineConstants);MIGRATION_LIFECYCLE_WITNESS</DefineConstants>
+  </PropertyGroup>
 </Project>

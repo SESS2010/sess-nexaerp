@@ -5,10 +5,12 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public Task HistoricalAcceptedReturnsGainRestorationsWithoutRewritingHistory() =>
         RunCompletePurchaseFlow(historicalFifoUpgrade:true,mixedRun:_=>Task.CompletedTask);
 
+#endif
     private static async Task<string> ReadOriginalFifoHistory(DbContextOptions<NexaErpDbContext> options)
     {
         await using var db=new NexaErpDbContext(options);

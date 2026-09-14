@@ -58,6 +58,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record PurchaseOpenOrderWitnessContext(DbContextOptions<NexaErpDbContext> Options,
         string RuntimeConnection,string Stage,Guid PurchaseOrderId,string Band);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOpenOrdersReconcileIssueReceiptAndOverdueAcrossApprovalBands()
     {
@@ -165,6 +166,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(6,stages.Count);
     }
 
+#endif
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOpenOrdersKeepFullyReceivedIssuedAmendmentClosed()
     {
@@ -192,6 +195,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     new JsonSerializerOptions{WriteIndented=true}));
         });
     }
+#endif
     private static async Task AssertOpenOrdersLiveAccess(NexaErpDbContext source, WorkloadWitnessUser user,
         EfPurchaseOpenOrdersService service, Guid company, Guid employee, Guid[] roles)
     {

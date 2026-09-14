@@ -66,6 +66,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.All(slots, slot => Assert.Equal("production_engineering_history", slot.ClaimKind));
     }
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Production_engineering_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -111,7 +112,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("production-engineering-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("production-engineering-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Production_bom_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -130,6 +133,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("production-bom-return-down.sql", migrator.GenerateScript(target, predecessor) + AssertProductionBomReturnAuthority(false));
         server.Execute("production-bom-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertProductionBomReturnAuthority(true));
     }
+#endif
 
     private static string AssertProductionBomReturnAuthority(bool enabled) => $"""
         DO $assert$
@@ -149,6 +153,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           END IF;
         END $assert$;
         """;
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Engineering_document_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -167,6 +172,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("engineering-document-return-down.sql", migrator.GenerateScript(target, predecessor) + AssertEngineeringDocumentReturnAuthority(false));
         server.Execute("engineering-document-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertEngineeringDocumentReturnAuthority(true));
     }
+#endif
 
     private static string AssertEngineeringDocumentReturnAuthority(bool enabled) => $"""
         DO $assert$

@@ -25,6 +25,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record MixedPrefix(Guid ItemId, string ItemCode, Rev869BDocumentResult? Quote,
         Rev869BDocumentResult? Po, GoodsReceiptResult? Grn);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public Task ElevenUsersRunSupportedCommandsOnOneApiHost() =>
         RunCompletePurchaseFlow(mixedRun: async context =>
@@ -39,6 +40,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             }
         });
 
+#endif
     private static async Task RunElevenUserCommands(MixedRunContext context)
     {
         // Copy only the disposable random-port fixture. Its completed three-band

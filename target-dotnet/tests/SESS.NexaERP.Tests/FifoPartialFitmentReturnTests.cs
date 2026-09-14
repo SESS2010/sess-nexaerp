@@ -14,10 +14,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DbContextOptions<NexaErpDbContext> Options,TaxWorkflowUser User,
         Guid ProductionId,Guid StoresId,Guid AccountsId);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public Task PartialComponentReturnPreservesRetainedMachineCostAndRestoresIssueCost() =>
         RunCompletePurchaseFlow(fifoPartialReturn:RunPartialFitmentReturn);
 
+#endif
     private static async Task RunPartialFitmentReturn(FifoPartialFitmentReturnContext context)
     {
         var client=context.Client; var user=context.User;

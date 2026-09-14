@@ -16,6 +16,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         PurchaseRequisitionDetail Draft, Guid FirstApproverId, Guid SecondApproverId,
         string FirstKey, Func<string> ReadPostgresLog);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task PrApprovalSessionsCannotDuplicateOrSkipTheNamedStep()
     {
@@ -28,6 +29,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The PR race callback must execute in the TD approval band.");
     }
 
+#endif
     private static async Task<PurchaseRequisitionDetail> RunPrApprovalRace(PrApprovalRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

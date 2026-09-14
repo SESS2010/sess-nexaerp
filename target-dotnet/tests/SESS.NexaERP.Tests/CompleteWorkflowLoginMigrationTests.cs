@@ -10,6 +10,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string CompleteWorkflowLoginTarget =
         "20260907220500_CompleteSeededWorkflowDevelopmentLogins";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Workflow_login_completion_round_trips_only_rows_changed_by_this_migration()
     {
@@ -35,6 +36,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("complete-workflow-logins-reapply.sql",
             migrator.GenerateScript(predecessor, CompleteWorkflowLoginTarget) + CompleteEnabledAssertion);
     }
+#endif
 
     [Fact]
     public void Workflow_login_completion_does_not_name_non_seeded_sess_101()

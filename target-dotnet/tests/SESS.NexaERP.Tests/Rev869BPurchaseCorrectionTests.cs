@@ -123,6 +123,7 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.Empty(differ.GetDifferences(initializedSnapshot.GetRelationalModel(), current.GetRelationalModel()));
     }
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void OrdinaryLedgerAndRetirementGenerateOfflineWithExpectedObjectContracts()
     {
@@ -145,6 +146,7 @@ public sealed class Rev869BPurchaseCorrectionTests
         Assert.DoesNotContain("DROP EXTENSION", down, StringComparison.OrdinalIgnoreCase);
     }
 
+#endif
     private static void AssertMatrix(IReadOnlySet<string> statuses, Action<string, string> require, params (string From, string To)[] allowed)
     {
         var edges = allowed.ToHashSet();

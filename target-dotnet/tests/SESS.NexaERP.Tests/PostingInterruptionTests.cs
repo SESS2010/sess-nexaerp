@@ -10,6 +10,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if HOST_FAILURE_WITNESS
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -23,6 +24,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed);
     }
 
+#endif
     private static async Task<MaterialIssueView> RunInterruptedIssue(SerialIssueRaceContext context,bool restartDatabase)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

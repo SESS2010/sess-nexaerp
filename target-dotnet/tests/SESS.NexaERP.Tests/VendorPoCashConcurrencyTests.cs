@@ -9,6 +9,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task ConcurrentAdvanceAndBillPaymentCannotExceedPurchaseOrderCash()
     {
@@ -144,4 +145,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Assert.True(observed);
     }
+#endif
 }

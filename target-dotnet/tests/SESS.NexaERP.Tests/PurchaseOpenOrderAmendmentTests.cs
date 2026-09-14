@@ -52,6 +52,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         return page;
     }
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOpenOrdersRetainNonemptyCommitmentUntilAmendmentIssueAndFlagChangedDelivery()
     {
@@ -131,6 +132,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(5,observations.Count);
     }
 
+#endif
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOpenOrdersKeepReceivedHistoryClosedWhenUnissuedAmendmentCancelled()
     {
@@ -189,8 +192,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
 
+#endif
     private sealed class OpenOrderCancellationScenarioComplete : Exception { }
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOpenOrdersFlagCancelledUnissuedAmendmentWithOutstandingQuantity()
     {
@@ -260,4 +265,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }));
         Assert.True(completed); Assert.Equal(3,observations.Count);
     }
+#endif
 }

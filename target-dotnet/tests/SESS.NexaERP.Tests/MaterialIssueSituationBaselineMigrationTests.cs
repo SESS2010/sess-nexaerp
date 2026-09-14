@@ -7,6 +7,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void CorrectMaterialIssueSituationBaselinesRunsUpDownAndReapplyOnDisposablePostgreSql()
     {
@@ -24,6 +25,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("mir-situation-reapply.sql", migrator.GenerateScript(predecessor, target) + AssertConstraint(true));
     }
 
+#endif
     private static string AssertConstraint(bool includesSpare) => $"""
         DO $assert$
         DECLARE definition text; table_count integer;

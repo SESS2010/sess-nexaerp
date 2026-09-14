@@ -9,6 +9,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task ASecondReceiptDraftCannotFinalizeAfterThePoQuantityIsReceived()
     {
@@ -93,4 +94,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         },additionalDraftReceipts:1);
         Assert.True(observed);
     }
+#endif
 }

@@ -114,6 +114,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("trial-managed-role-drop.sql", "DROP ROLE nexa_erp_runtime;");
     }
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void CompanyRelationshipExternalCodesApplyAndRevertOnDisposablePostgreSql()
     {
@@ -132,6 +133,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("relationship-codes-up.sql", migrator.GenerateScript(predecessor, target) + RelationshipCodesUpAssertions);
         server.Execute("relationship-codes-down.sql", migrator.GenerateScript(target, predecessor) + RelationshipCodesDownAssertions);
     }
+#endif
 
     [Fact]
     public void MasterDataImportMigrationGuardsUpAndDownAndPurgesOnlyExpiredSensitiveValues()
@@ -898,8 +900,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var server = new DisposablePostgreSql(bin, durable);
             try
             {
-                server.Require(server.Run("initdb", "-D", server._data, "--username=postgres", "--auth=trust",
-                    "--encoding=UTF8", "--no-locale"), "initdb");
+                var initialization = new List<string> { "-D", server._data, "--username=postgres", "--auth=trust",
+                    "--encoding=UTF8", "--no-locale" };
+                // Ordinary disposable tests do not witness crash durability. Fault/recovery
+                // witnesses retain synced initialization as well as durable server settings.
+                if (!durable) initialization.Add("--no-sync");
+                server.Require(server.Run("initdb", initialization.ToArray()), "initdb");
                 server.Require(server.Run("pg_ctl", "-D", server._data, "-l", Path.Combine(server._root, "postgres.log"),
                     "-o", server.StartOptions,
                     "-w", "start"), "pg_ctl start");

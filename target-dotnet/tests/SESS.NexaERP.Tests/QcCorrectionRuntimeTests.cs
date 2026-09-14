@@ -14,6 +14,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         string RuntimeConnection, QcInspectionResult Original, FinalizeQcInspectionRequest OriginalCommand,
         Guid InspectorId, Func<string> ReadPostgresLog);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task QcCorrectionReversesOriginalPostingAndRetainsInspectionHistory()
     {
@@ -26,6 +27,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The serialized QC correction callback must execute.");
     }
 
+#endif
     private static async Task<QcInspectionResult> RunQcCorrection(QcCorrectionContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

@@ -12,10 +12,12 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOrderRevisionCannotResetCashOrIssueBelowLegacyPayments() =>
         await RunPurchaseOrderRevisionCashWitness();
 
+#endif
     private async Task RunPurchaseOrderRevisionCashWitness(Func<RevisionReceiptWitnessContext, Task>? afterIssued = null)
     {
         var observed = false;

@@ -15,6 +15,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task BankAdviceUploadIsImmutableScopedReplayableAndAtomicWithPaymentLink()
     {
@@ -165,6 +166,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed);
     }
 
+#endif
     private static async Task<TaxWorkflowUser> BankAdviceActor(DbContextOptions<NexaErpDbContext> options)
     {
         var company = Guid.Parse("70000000-0000-0000-0000-000000000001");

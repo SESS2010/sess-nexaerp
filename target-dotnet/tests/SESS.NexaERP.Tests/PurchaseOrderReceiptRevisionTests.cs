@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record RevisionReceiptWitnessContext(DbContextOptions<NexaErpDbContext> Options,
         string RuntimeConnection, Guid PriorId, Guid RevisionId);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task IssuedPurchaseOrderAmendmentMustRetainPreviouslyReceivedQuantity()
     {
@@ -113,4 +114,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.Equal(property.Value.GetRawText(), after.GetProperty(property.Name).GetRawText());
         });
     }
+#endif
 }

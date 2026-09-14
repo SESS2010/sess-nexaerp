@@ -10,6 +10,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string MaterialIssueTarget = "20260907134726_MaterialIssueRequestAndCustodyIssue";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Material_issue_custody_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("material-issue-down.sql", migrator.GenerateScript(MaterialIssueTarget, predecessor));
         server.Execute("material-issue-reapply.sql", migrator.GenerateScript(predecessor, MaterialIssueTarget) + Assertions);
     }
+#endif
 
     [Fact]
     public async Task Material_issue_changes_are_collected_as_ordinary_command_slots()

@@ -11,6 +11,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task StoresWorkloadKeepsPartiallyIssuedMirUntilRemainingQuantityIsIssued()
     {
@@ -102,4 +103,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Assert.Equal(3,observations.Count);
     }
+#endif
 }

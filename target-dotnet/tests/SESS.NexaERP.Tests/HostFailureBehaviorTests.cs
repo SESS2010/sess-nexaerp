@@ -13,6 +13,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed class HostFailureBehaviorTests
 {
+#if HOST_FAILURE_WITNESS
     [Fact]
     public async Task NotificationFailureRetriesAndPortCollisionDoesNotStopExistingHost()
     {
@@ -52,6 +53,7 @@ public sealed class HostFailureBehaviorTests
         await first.StopAsync();
     }
 
+#endif
     private sealed class FailingOnceProcessor : INotificationDueEventProcessor
     {
         public TaskCompletionSource FirstAttempt { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

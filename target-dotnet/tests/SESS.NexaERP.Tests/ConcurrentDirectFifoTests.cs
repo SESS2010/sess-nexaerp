@@ -28,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record FifoCallResult(int? Affected, bool Committed, string? SqlState,
         string? Message, double Seconds);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task DirectFifoCallsCannotConsumeTheLastRemainingUnitTwice()
     {
@@ -40,6 +41,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The direct FIFO callback must execute.");
     }
 
+#endif
     private static async Task RunDirectFifoRace(DirectFifoRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

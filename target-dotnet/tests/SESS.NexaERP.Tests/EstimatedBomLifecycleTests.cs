@@ -10,6 +10,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Item_company_last_purchase_pricing_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -41,6 +42,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("last-purchase-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("last-purchase-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Frozen_estimated_bom_value_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -66,7 +69,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("frozen-estimated-value-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("frozen-estimated-value-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Controlled_estimated_bom_draft_replacement_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -91,6 +96,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-replace-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("estimated-bom-replace-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Estimated_bom_lifecycle_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -126,6 +133,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-lifecycle-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("estimated-bom-lifecycle-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Estimated_bom_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -145,6 +154,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertReturnAuthority(true));
     }
 
+#endif
     private static string AssertReturnAuthority(bool enabled) => $"""
         DO $assert$
         DECLARE grant_count integer; definition text;

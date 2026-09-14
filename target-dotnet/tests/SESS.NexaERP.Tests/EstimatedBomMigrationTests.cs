@@ -7,6 +7,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Estimated_bom_foundation_applies_and_reverts_on_disposable_postgresql()
     {
@@ -24,4 +25,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("estimated-bom-reup.sql", migrator.GenerateScript(predecessor, target));
     }
+#endif
 }

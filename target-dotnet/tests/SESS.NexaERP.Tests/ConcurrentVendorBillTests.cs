@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         VendorBillView Draft, Guid ApproverId,
         string FirstKey, Func<string> ReadPostgresLog);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task TwoAccountsManagerSessionsCannotAcceptSameVendorBillTwice()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The bill race callback must execute for the third receipt.");
     }
 
+#endif
     private static async Task<VendorBillView> RunVendorBillRace(VendorBillRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

@@ -57,6 +57,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record PurchaseObligationWitnessContext(DbContextOptions<NexaErpDbContext> Options,
         string RuntimeConnection, string Stage);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseObligationsReconcileReceiptsAdvancesAcceptanceAndReversal()
     {
@@ -174,6 +175,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Assert.Equal(9,stages.Count);
     }
+#endif
     private static async Task AssertObligationsLiveAccess(NexaErpDbContext source, WorkloadWitnessUser user,
         EfPurchaseObligationsService service, Guid company, Guid employee, Guid[] roles)
     {

@@ -16,10 +16,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         MaterialIssueRequestView Draft, Guid FirstApproverId, Guid SecondApproverId,
         string FirstKey, Func<string> ReadPostgresLog);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public Task ProductionAndStoresManagersCannotOverwriteTheSameMirApproval() =>
         RunCompletePurchaseFlow(mirRace: RunMirApprovalRace);
 
+#endif
     private static async Task<MaterialIssueRequestView> RunMirApprovalRace(MirApprovalRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

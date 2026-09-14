@@ -9,6 +9,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string JobOrderGovernanceTarget = "20260908095057_GovernedJobOrderCreationWorkflow";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Governed_job_order_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -22,6 +23,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("job-order-down.sql", migrator.GenerateScript(JobOrderGovernanceTarget, predecessor));
         server.Execute("job-order-reapply.sql", migrator.GenerateScript(predecessor, JobOrderGovernanceTarget) + JobOrderAssertions);
     }
+#endif
 
     [Fact]
     public void Job_order_accounts_return_and_resubmission_applies_reverts_and_reapplies_on_disposable_postgresql()

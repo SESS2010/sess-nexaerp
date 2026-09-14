@@ -9,6 +9,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if MIGRATION_INTERRUPT_WITNESS
     [Fact]
     public async Task InterruptedMigrationRollsBackDdlAndHistoryBeforeRetry()
     {
@@ -107,4 +108,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await File.WriteAllTextAsync(Path.Combine(directory,"migration-interruption-postgresql.log"),
             server.ReadDiagnosticLog()[logStart..]);
     }
+#endif
 }

@@ -14,10 +14,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         DbContextOptions<NexaErpDbContext> Options, string RuntimeConnection, GoodsReceiptResult Draft,
         Guid FirstOperatorId, Guid SecondOperatorId, string FirstKey, Func<string> ReadPostgresLog);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public Task TwoReceiptOperatorsFinalizeOneGrnWithoutDuplicateStockOrFifo() =>
         RunCompletePurchaseFlow(grnRace: RunGrnFinalizeRace);
 
+#endif
     private static async Task<GoodsReceiptResult> RunGrnFinalizeRace(GrnFinalizeRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

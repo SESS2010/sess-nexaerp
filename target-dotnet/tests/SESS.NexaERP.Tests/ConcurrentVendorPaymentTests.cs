@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid ApproverId, Func<string> ReadPostgresLog);
     private sealed record PaymentRaceResult(VendorPaymentView Payment, RecordVendorPaymentRequest Command);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task ReversedBillOrderCannotDeadlockOrOverpayConcurrentSettlements()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The full-settlement payment callback must execute.");
     }
 
+#endif
     private static async Task<PaymentRaceResult> RunPaymentRace(PaymentRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

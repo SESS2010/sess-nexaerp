@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         InventoryConcessionResult Draft, Guid AvailableLocationId, Guid InspectorId, Guid DirectorId,
         Func<string> ReadPostgresLog);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task QcCorrectionAndConcessionCannotReleaseSameRejectedSerialTwice()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The serialized QC/concession race callback must execute.");
     }
 
+#endif
     private static async Task<InventoryConcessionResult> RunQcConcessionRace(QcConcessionRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

@@ -18,14 +18,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid StoresId, Guid ProductionId, Func<string> ReadPostgresLog,
         decimal FitQuantity = .95m, string EvidenceName = "return-fitment", Guid? SerialId = null);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public Task ReturnAcceptanceAndFitmentOverlapWithoutDeadlockOrLostCustody() =>
         RunCompletePurchaseFlow(RunReturnFitmentRace);
 
+#endif
+#if CONCURRENCY_WITNESS
     [Fact]
     public Task SameSerialReturnAndJobFitmentOverlapWithoutDeadlockOrDoubleConsumption() =>
         RunCompletePurchaseFlow(RunReturnFitmentRace, serializedRace: true);
 
+#endif
     private static async Task<MaterialReturnView> RunReturnFitmentRace(ReturnFitmentRaceContext context)
     {
         var assignments = await Query(context.Options, async db =>

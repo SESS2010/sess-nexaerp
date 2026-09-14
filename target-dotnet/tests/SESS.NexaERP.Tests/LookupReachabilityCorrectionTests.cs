@@ -9,6 +9,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string LookupReachabilityTarget = "20260910164750_LookupReachabilityCorrections";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Lookup_reachability_grants_apply_revert_and_reapply_on_disposable_postgresql()
     {
@@ -25,6 +26,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("lookup-reachability-down.sql", migrator.GenerateScript(LookupReachabilityTarget, predecessor));
         server.Execute("lookup-reachability-reapply.sql", migrator.GenerateScript(predecessor, LookupReachabilityTarget) + LookupReachabilityAssertions);
     }
+#endif
 
     [Fact]
     public void Gate_entry_uses_its_own_scoped_purchase_order_lookup()

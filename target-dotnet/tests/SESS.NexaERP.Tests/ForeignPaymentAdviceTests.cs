@@ -12,6 +12,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task ForeignPaymentWithoutBankAdviceIsRefusedBeforePosting()
     {
@@ -112,6 +113,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed);
     }
 
+#endif
     private static Task<string> ImportAdviceLedgerCounts(DbContextOptions<NexaErpDbContext> options) =>
         Query(options, db => db.Database.SqlQueryRaw<string>("""
             SELECT jsonb_build_object(

@@ -72,6 +72,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("workload-final-guard.sql", PurchaseWorkloadMigrationSql.Guard(true));
     }
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseWorkloadReconcilesEightRuntimeStatesAcrossAllApprovalBands()
     {
@@ -225,6 +226,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(24, seen.Count);
     }
 
+#endif
     private static async Task AssertWorkloadScopeAndPermissionChanges(NexaErpDbContext source,
         EfPurchaseWorkloadService service, ICurrentUser user, Guid company, Guid employee, Guid[] roles, Guid document)
     {

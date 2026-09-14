@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed record StoresQcStockWitnessContext(DbContextOptions<NexaErpDbContext> Options,
         string RuntimeConnection,string Stage,Guid DocumentId,string Band);
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task StoresQcStockReconcilesReceiptsDispositionAndConcession()
     {
@@ -109,6 +110,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(7,stages.Count);
     }
 
+#endif
     private static async Task<StoresWorkloadUser> QcStockReader(NexaErpDbContext db,string code)
     {
         var employee=await db.Employees.SingleAsync(x=>x.EmployeeCode==code);

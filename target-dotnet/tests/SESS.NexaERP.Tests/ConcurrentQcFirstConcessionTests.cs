@@ -10,6 +10,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task QcCorrectionFirstPreventsApprovalOfTheSupersededConcession()
     {
@@ -22,6 +23,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The QC-first race callback must execute.");
     }
 
+#endif
     private static async Task<QcInspectionResult> RunQcFirstConcessionRace(QcCorrectionContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

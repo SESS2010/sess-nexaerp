@@ -12,6 +12,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task TwoOpeningCeremoniesForOneCompanyCannotBothIntroduceStock()
     {
@@ -196,4 +197,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(replay.Replayed);
         Assert.Equal(posted.Id, replay.Id);
     }
+#endif
 }

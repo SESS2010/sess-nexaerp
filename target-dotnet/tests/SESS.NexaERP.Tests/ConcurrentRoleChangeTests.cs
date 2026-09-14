@@ -11,6 +11,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task AssignmentChangeDuringIssuePreservesAuditAndRefusesFormerRoleIssue()
     {
@@ -23,6 +24,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The mid-command assignment-change callback must execute.");
     }
 
+#endif
     private static async Task<MaterialIssueView> RunRoleChangeDuringIssue(SerialIssueRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

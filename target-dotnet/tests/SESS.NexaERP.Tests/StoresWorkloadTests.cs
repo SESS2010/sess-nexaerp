@@ -26,6 +26,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments=>assignments;
     }
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task StoresWorkloadReconcilesGateConversionAndMirApprovalIssue()
     {
@@ -149,6 +150,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(9,seen.Count);
     }
 
+#endif
     private static async Task AssertStoresWorkloadScopeChanges(NexaErpDbContext source,
         EfStoresWorkloadService service,ICurrentUser user,Guid company,Guid employee,Guid[] roles,Guid document)
     {

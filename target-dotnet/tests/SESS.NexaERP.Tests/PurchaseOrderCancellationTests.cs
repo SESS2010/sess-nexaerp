@@ -9,6 +9,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseOrderCancellationRequiresDirectorAndCommitsOnce()
     {
@@ -101,4 +102,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
 
+#endif
 }

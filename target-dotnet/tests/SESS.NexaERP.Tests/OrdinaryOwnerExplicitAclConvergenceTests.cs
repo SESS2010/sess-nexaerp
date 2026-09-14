@@ -9,6 +9,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string OrdinaryOwnerAclTarget = "20260911125548_ConvergeOrdinaryOwnerExplicitAcl";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Ordinary_owner_acl_convergence_handles_absent_complete_and_partial_retirement_states()
     {
@@ -55,6 +56,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         complete.Execute("ordinary-owner-acl-complete-reapply.sql", up + BasicExplicitAclAssertions + CompleteObjectAclAssertions + OwnerAccessAndForeignKeyWitness);
     }
 
+#endif
     private const string CompleteRetiredDefectState = """
         CREATE ROLE nexa_erp_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_rev869b_security_owner NOLOGIN;

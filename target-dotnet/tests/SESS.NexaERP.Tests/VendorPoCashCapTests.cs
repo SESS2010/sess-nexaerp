@@ -9,6 +9,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task FullyPaidPurchaseOrderRefusesAnotherAdvanceWithoutLeavingEvidence()
     {
@@ -76,4 +77,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Assert.True(observed);
     }
+#endif
 }

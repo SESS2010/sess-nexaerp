@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private sealed class QcDiscrepancyWitnessComplete:Exception {}
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task StoresQcStockRetainsInspectedDiscrepancyWithoutStockDisposition()
     {
@@ -107,4 +108,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             throw new QcDiscrepancyWitnessComplete();
         }));
     }
+#endif
 }

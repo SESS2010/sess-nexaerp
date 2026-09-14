@@ -6,6 +6,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if HOST_FAILURE_WITNESS
     [Fact]
     public async Task AutomatedBackupRestoresThreeBandDataAndRefusesCorruptedBundle()
     {
@@ -148,4 +149,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         },durableDatabase:true);
         Assert.True(observed);
     }
+#endif
 }

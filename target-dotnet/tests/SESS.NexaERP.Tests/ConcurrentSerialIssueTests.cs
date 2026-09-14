@@ -15,6 +15,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         MaterialIssueRequestView Draft, CreateMaterialIssue Command,
         Guid FirstOperatorId, Guid SecondOperatorId, Func<string> ReadPostgresLog, Action? RestartDatabase = null);
 
+#if CONCURRENCY_WITNESS
     [Fact]
     public async Task TwoStoresOperatorsCannotIssueTheSameSerialTwice()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.True(observed, "The existing serialized issue must execute the race callback.");
     }
 
+#endif
     private static async Task<MaterialIssueView> RunSerialIssueRace(SerialIssueRaceContext context)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");

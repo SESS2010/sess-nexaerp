@@ -53,6 +53,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
 
+#if WORKFLOW_WITNESS
     [Fact]
     public async Task PurchaseSpendingReconcilesAcceptedAndReversedBillsFromRuntimeFlow()
     {
@@ -178,6 +179,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
     }
 
+#endif
     private static async Task AssertSpendingLiveAccess(NexaErpDbContext source, WorkloadWitnessUser user,
         EfPurchaseSpendingService service, Guid company, Guid employee, Guid[] roles)
     {

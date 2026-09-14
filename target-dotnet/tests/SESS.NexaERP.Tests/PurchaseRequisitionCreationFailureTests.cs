@@ -10,10 +10,12 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if HOST_FAILURE_WITNESS
     [Fact]
     public Task PurchaseRequisitionCreationRetryAndAuditFailureAreAtomic() =>
         RunCompletePurchaseFlow(mixedRun: RunPrCreationFailureWitness);
 
+#endif
     private static async Task RunPrCreationFailureWitness(MixedRunContext context)
     {
         await using var sourceDb = new NexaErpDbContext(context.Options);
