@@ -46,6 +46,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
             // Exercise a real upgrade from the witnessed predecessor defect.
             // No financial row is inserted, updated or deleted directly by this test.
+            // Remove and restore the later dependent cancellation patch around this historical downgrade.
             await using var evidenceDb = new NexaErpDbContext(context.Options);
             await using var source = new NpgsqlConnection(evidenceDb.Database.GetConnectionString());
             await source.OpenAsync();
@@ -54,12 +55,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var migrator = model.GetService<IMigrator>();
             const string previous = "20260913090000_GovernedVendorBankAdvice";
             const string current = "20260913100000_VendorPoCashCap";
-            await using (var down = new NpgsqlCommand(migrator.GenerateScript(current, previous), source))
+            await using (var down = new NpgsqlCommand(SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(false) + migrator.GenerateScript(current, previous), source))
                 await down.ExecuteNonQueryAsync();
             var legacy = await Post<VendorAdvanceView>(host.Client, financial + "advances",
                 new RecordVendorAdvanceRequest(prior.Id, DateOnly.FromDateTime(DateTime.UtcNow), 1m, "INR",
                     "LEGACY-OVER-CASH", "evidence/legacy-over-cash", "cash-revision-legacy"));
-            await using (var up = new NpgsqlCommand(migrator.GenerateScript(previous, current), source))
+            await using (var up = new NpgsqlCommand(migrator.GenerateScript(previous, current) + SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(true), source))
                 await up.ExecuteNonQueryAsync();
 
             var approvalScopeSetups = new List<object>();
