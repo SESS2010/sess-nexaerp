@@ -78,7 +78,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<DirectFifoRaceContext, Task>? fifoRace = null, Func<MixedRunContext, Task>? mixedRun = null,
         bool durableDatabase = false,
         Func<PurchaseWorkloadWitnessContext, Task>? workload = null, int additionalDraftReceipts = 0,
-        Func<PurchaseObligationWitnessContext, Task>? obligations = null)
+        Func<PurchaseObligationWitnessContext, Task>? obligations = null,
+        Func<PurchaseOpenOrderWitnessContext, Task>? openOrders = null, bool overdueQuoteDates = false,
+        Func<OpenOrderAmendmentWitnessContext, Task<Rev869BDocumentResult>>? openOrderAmendment = null,
+        int additionalIssuedPoVersions = 0)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -333,7 +336,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         ? draft => prRace(new(options, runtimeConnection, draft, managerId, tdId,
                             "TD-pr-approve-1", server.ReadDiagnosticLog))
                         : null,
-                    workload is null ? null : (stage, id) => workload(new(options, runtimeConnection, stage, id, band.Code))));
+                    workload is null ? null : (stage, id) => workload(new(options, runtimeConnection, stage, id, band.Code)),
+                    openOrders is null ? null : (stage,id) => openOrders(new(options,runtimeConnection,stage,id,band.Code)),
+                    overdueQuoteDates,
+                    openOrderAmendment is not null && band.Code=="LOW"
+                        ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -403,8 +410,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(6, await verify.VendorQuotations.CountAsync());
             Assert.Equal(6, await verify.QuotationTechnicalVerifications.CountAsync());
             Assert.Equal(3, await verify.CommercialComparisons.CountAsync());
-            Assert.Equal(3, await verify.PurchaseOrders.CountAsync());
-            Assert.Equal(3, await verify.MaterialFollowUpHandoffs.CountAsync());
+            Assert.Equal(3 + additionalIssuedPoVersions, await verify.PurchaseOrders.CountAsync());
+            Assert.Equal(3 + additionalIssuedPoVersions, await verify.MaterialFollowUpHandoffs.CountAsync());
             Assert.Equal(3 + additionalDraftReceipts, await verify.GateEntries.CountAsync());
             Assert.Equal(3 + additionalDraftReceipts, await verify.GoodsReceipts.CountAsync());
             Assert.Equal(3, await verify.GoodsReceipts.CountAsync(x => x.Status == "FINALIZED"));
@@ -457,7 +464,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(6,qcLocations.Select(x=>x.RackBinId).Distinct().Count());
             var qcRackNames=await verify.RackBins.Where(x=>qcLocations.Select(location=>location.RackBinId).Contains(x.Id)).Select(x=>x.RackName).Distinct().ToListAsync();
             Assert.Equal("TRIAL QC Category Rack",Assert.Single(qcRackNames));
-            Assert.All(await verify.PurchaseOrders.AsNoTracking().ToListAsync(), x => Assert.Equal(Rev869BStatuses.Issued, x.Status));
+            var verifiedPoVersions=await verify.PurchaseOrders.AsNoTracking().ToListAsync();
+            Assert.Equal(3,verifiedPoVersions.Count(x=>x.IsCurrentVersion));
+            Assert.Equal(additionalIssuedPoVersions,verifiedPoVersions.Count(x=>!x.IsCurrentVersion));
+            Assert.All(verifiedPoVersions.Where(x=>x.IsCurrentVersion),x=>Assert.Equal(Rev869BStatuses.Issued,x.Status));
+            Assert.All(verifiedPoVersions.Where(x=>!x.IsCurrentVersion),x=>Assert.Equal(Rev869BStatuses.Superseded,x.Status));
             var commandCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_requests").SingleAsync();
             var receiptCount=await verify.Database.SqlQueryRaw<int>(@"SELECT count(*)::integer AS ""Value"" FROM advance.command_receipts").SingleAsync();
             Assert.True(commandCount>0);Assert.Equal(commandCount,receiptCount);
@@ -487,7 +498,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -642,7 +653,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid verifierId, Guid purchaseId, Guid storesId, Guid qcId, Guid vendor1Id, Guid vendor2Id,
         Func<GoodsReceiptResult, Task<GoodsReceiptResult>>? finalizeRace = null,
         Func<PurchaseRequisitionDetail, Task<PurchaseRequisitionDetail>>? approveRace = null,
-        Func<string, Guid, Task>? workload = null)
+        Func<string, Guid, Task>? workload = null,
+        Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
+        Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -774,7 +787,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     DateTimeOffset.UtcNow.AddMinutes(-1), $"trial/{band.Code}/vendor-{index + 1}.pdf",
                     new string((char)('A' + index), 64), "Entered from synthetic vendor quotation", 0, null,
                     $"{band.Code}-quote-{index + 1}",
-                    [new(rfqLineId, handoff.HandoffQuantity, rate, 0, 0, 0, 0, 0, required,
+                    [new(rfqLineId, handoff.HandoffQuantity, rate, 0, 0, 0, 0, 0,
+                        overdueQuoteDates && band.Code=="LOW" ? DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2) : required,
                         "9025", "33", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)]));
             quotations.Add(quote);
             await AssertTransactionEvidence(options, "VendorQuotation", quote.Id, "SubmitQuotation");
@@ -855,6 +869,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, $"{band.Code}-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
+        if(openOrders is not null) await openOrders("ISSUED",po.Id);
+        if(amendIssued is not null) po=await amendIssued(po);
         var poList=await Get<PagedResponse<PurchaseOrderListItem>>(client,$"/api/v1/purchase/purchase-orders?purchaseOrderNumber={po.Number}&vendorId={vendor1Id}");
         Assert.Equal(1,poList.TotalCount);Assert.Equal(po.Id,Assert.Single(poList.Items).Id);
         var poDetail=await Get<PurchaseOrderCommercialDetail>(client,$"/api/v1/purchase/purchase-orders/{po.Number}");
@@ -889,6 +905,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             ? await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",new FinalizeGoodsReceiptRequest(draftVersion,$"{band.Code}-grn-finalize"))
             : await finalizeRace(grn);
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
+        if(openOrders is not null) await openOrders("RECEIVED",po.Id);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
         var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");
         Assert.Equal(1,grnList.TotalCount);Assert.Equal(grn.Id,Assert.Single(grnList.Items).Id);
@@ -2237,6 +2254,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapPurchaseWorkloadEndpoints();
             app.MapPurchaseSpendingEndpoints();
             app.MapPurchaseObligationsEndpoints();
+            app.MapPurchaseOpenOrdersEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
