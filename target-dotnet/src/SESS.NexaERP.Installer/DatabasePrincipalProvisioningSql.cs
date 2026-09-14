@@ -121,7 +121,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
+              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','supplier_invoices','supplier_invoice_lines','supplier_invoice_cancellations','supplier_invoice_receipt_matches','supplier_invoice_bill_links','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -464,6 +464,36 @@ internal static class DatabasePrincipalProvisioningSql
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON SEQUENCES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+                DO $supplier_acl$
+        DECLARE relation text; signature text; principal text;
+        BEGIN
+         IF to_regclass('advance.supplier_invoices') IS NOT NULL THEN
+          FOREACH relation IN ARRAY ARRAY['supplier_invoices','supplier_invoice_lines','supplier_invoice_cancellations','supplier_invoice_receipt_matches','supplier_invoice_bill_links']
+          LOOP
+           IF to_regclass('advance.'||relation) IS NULL THEN RAISE EXCEPTION 'Supplier invoice package is partially installed.'; END IF;
+           EXECUTE format('REVOKE ALL ON TABLE advance.%I FROM PUBLIC',relation);
+           IF to_regrole('nexa_erp_owner') IS NOT NULL THEN EXECUTE format('ALTER TABLE advance.%I OWNER TO nexa_erp_owner',relation); END IF;
+           FOREACH principal IN ARRAY ARRAY['nexa_erp_runtime','nexa_erp_bootstrap','nexa_erp_migration']
+           LOOP
+            IF to_regrole(principal) IS NOT NULL THEN EXECUTE format('REVOKE ALL ON TABLE advance.%I FROM %I',relation,principal); END IF;
+           END LOOP;
+          END LOOP;
+          FOREACH signature IN ARRAY ARRAY['advance.guard_supplier_invoice_evidence()','advance.supplier_invoice_command_valid(uuid,uuid,text,uuid,text,text,text)','advance.supplier_invoice_version(uuid,uuid)','advance.reconcile_supplier_invoice_receipts(uuid,uuid,uuid)','advance.match_supplier_invoices_on_receipt()','advance.record_supplier_invoice(uuid,uuid,uuid,text,date,text,jsonb,text,text,bytea,uuid,text,uuid,text,text)','advance.cancel_supplier_invoice(uuid,uuid,bigint,text,uuid,text,uuid,text)','advance.link_supplier_invoice_bill(uuid,uuid,bigint,uuid,uuid,text,uuid,text)','advance.get_supplier_invoice(uuid,uuid)','advance.supplier_invoice_content(uuid,uuid)','advance.company_report_billed_not_received(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text)']
+          LOOP
+           IF to_regprocedure(signature) IS NULL THEN RAISE EXCEPTION 'Supplier invoice function is missing: %',signature; END IF;
+           EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',signature);
+           IF to_regrole('nexa_erp_owner') IS NOT NULL THEN EXECUTE format('ALTER FUNCTION %s OWNER TO nexa_erp_owner',signature); END IF;
+           FOREACH principal IN ARRAY ARRAY['nexa_erp_runtime','nexa_erp_bootstrap','nexa_erp_migration']
+           LOOP
+            IF to_regrole(principal) IS NOT NULL THEN EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',signature,principal); END IF;
+           END LOOP;
+          END LOOP;
+          IF to_regrole('nexa_erp_runtime') IS NOT NULL THEN
+           GRANT EXECUTE ON FUNCTION advance.record_supplier_invoice(uuid,uuid,uuid,text,date,text,jsonb,text,text,bytea,uuid,text,uuid,text,text),advance.cancel_supplier_invoice(uuid,uuid,bigint,text,uuid,text,uuid,text),advance.link_supplier_invoice_bill(uuid,uuid,bigint,uuid,uuid,text,uuid,text),advance.get_supplier_invoice(uuid,uuid),advance.supplier_invoice_content(uuid,uuid),advance.company_report_billed_not_received(text,uuid,uuid[],boolean,text,text,date,date,text,text,jsonb,bigint,integer,text)
+            TO nexa_erp_runtime;
+          END IF;
+         END IF;
+        END $supplier_acl$;
         """;
 
     internal const string Verify = """
@@ -522,7 +552,7 @@ internal static class DatabasePrincipalProvisioningSql
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
                        AND to_regprocedure('advance.post_stores_stock_batch(uuid,text,uuid,text,text,text,date,uuid,text,jsonb)') IS NOT NULL)
-              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
+              AND NOT (c.relname IN ('vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','supplier_invoices','supplier_invoice_lines','supplier_invoice_cancellations','supplier_invoice_receipt_matches','supplier_invoice_bill_links','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
                        AND to_regprocedure('advance.create_vendor_bill(uuid,uuid,text,date,jsonb,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines')
                        AND to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL)

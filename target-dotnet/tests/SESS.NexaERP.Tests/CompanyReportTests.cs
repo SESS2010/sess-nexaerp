@@ -49,9 +49,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("42501",directRead.SqlState);
         var catalogue = await service.ListAsync(default);
         Assert.Contains(catalogue,row => row.Key == "stock-balance");
-        foreach (var key in new[] { "stock-balance", "movement-roll-forward", "grni", "vendor-purchases", "engineer-custody", "purchase-register", "pending-approvals", "fifo-valuation" })
+        foreach (var key in new[] { "stock-balance", "movement-roll-forward", "grni", "vendor-purchases", "engineer-custody", "purchase-register", "pending-approvals", "fifo-valuation", "billed-not-received" })
         {
-            var selectedService = key is "grni" or "vendor-purchases" or "fifo-valuation" ? accountsService : service;
+            var selectedService = key is "grni" or "vendor-purchases" or "fifo-valuation" or "billed-not-received" ? accountsService : service;
             var page = await ObserveSingleReportCommand(() => selectedService.GetAsync(key,new(),default));
             Assert.Equal("SESS_PVT_LTD",page.CompanyCode);
             Assert.Equal(0,page.TotalRows);
@@ -62,7 +62,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(4,workbook.Worksheets.Count);
             Assert.False(string.IsNullOrEmpty(workbook.Worksheet("Details").Cell(1,1).GetString()));
         }
-        Assert.Equal(8,await db.AuditLogs.CountAsync(row => row.Module == "Reports" && row.Action == "Export"));
+        Assert.Equal(9,await db.AuditLogs.CountAsync(row => row.Module == "Reports" && row.Action == "Export"));
         // A previously resolved role assignment is insufficient after its company activation is revoked.
         await db.CompanyRoleActivations.Where(row => row.CompanyId == company.Id)
             .ExecuteUpdateAsync(set => set.SetProperty(row => row.IsEnabled,false));

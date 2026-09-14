@@ -28,7 +28,7 @@ The existing DC specification requires a customer signature for machine delivery
 
 The minimum proof must retain the applicable DC/job/machine/customer identities, a governed delivery event and signed evidence, then traverse actual component fitments to their GRN, vendor, accepted bill/allocated charges, QC and applicable approvals. FAT readiness is not delivery, and foundation rows alone are not authoritative delivery evidence.
 
-Scheduling is settled: complete these prerequisites within Item 15 and build the delivered-machine dossier last. FIFO restoration has passing targeted Release witnesses; Debug verification passed: item15-fifo-complete-debug.trx, six tests, zero failed/skipped, 11m52s. Invoice-before-receipt and signed delivery remain unimplemented.
+Scheduling is settled: complete these prerequisites within Item 15 and build the delivered-machine dossier last. FIFO restoration has passing targeted Release witnesses; Debug verification passed: item15-fifo-complete-debug.trx, six tests, zero failed/skipped, 11m52s. Invoice-before-receipt is now implemented with passing Release/Debug workflow, permissions, report and Excel checks; see item-15-billed-not-received.md. Signed delivery remains unimplemented and is the next report-10 prerequisite.
 
 ## Additional frozen-policy conflict: ownership scope
 

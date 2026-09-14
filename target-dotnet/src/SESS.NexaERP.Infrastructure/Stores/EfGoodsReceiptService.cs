@@ -69,7 +69,8 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
         catch (PostgresException error) when (IsReceiptQuantityViolation(error))
         { db.ChangeTracker.Clear(); throw new StoresConflictException(error.MessageText); }
         catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException &&
-            error.MessageText is "A finalized GRN is immutable; correct it by reversal and a new document." or "GRN Version is stale.")
+            error.MessageText is "A finalized GRN is immutable; correct it by reversal and a new document." or "GRN Version is stale."
+                or "Only one effective finalised GRN is permitted per Gate Entry and company vendor bill.")
         {
             throw new StoresConflictException(error.MessageText);
         }

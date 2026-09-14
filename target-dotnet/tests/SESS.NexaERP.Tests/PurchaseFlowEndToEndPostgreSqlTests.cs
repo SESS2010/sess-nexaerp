@@ -84,7 +84,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         int additionalIssuedPoVersions = 0,
         Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
         Func<StoresQcStockWitnessContext,Task>? qcStock = null,
-        Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false)
+        Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false,
+        Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -366,7 +367,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     openOrderAmendment is not null && band.Code=="LOW"
                         ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null,
                     storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,band.Code)),
-                    qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,band.Code))));
+                    qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,band.Code)),
+                    supplierInvoices is null ? null : (stage,id)=>supplierInvoices(new(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection))));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -533,8 +535,32 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
             if(fifoPartialReturn is not null)await fifoPartialReturn(new(client,options,user,productionId,storesId,managerId));
+            if(supplierInvoices is not null)
+            {
+                // Earlier governed receipts leave stock. Demand must exceed the
+                // remaining unreserved quantity to produce a real purchase handoff.
+                var invoiceRequestedQuantity = await Query(options, async db =>
+                {
+                    var company = await db.Companies.Where(x => x.Code == "SESS_PVT_LTD").Select(x => x.Id).SingleAsync();
+                    var item = await db.Items.Where(x => x.ItemCode == "TRIAL-ITEM-001").Select(x => x.Id).SingleAsync();
+                    var warehouse = await db.Warehouses.Where(x => x.CompanyId == company && x.WarehouseCode == "TRIAL-WH-C01").Select(x => x.Id).SingleAsync();
+                    var rack = await db.RackBins.Where(x => x.CompanyId == company && x.WarehouseId == warehouse && x.BinCode == "TRIAL-C01-GEN-01").Select(x => x.Id).SingleAsync();
+                    var onHand = await db.StockMovements.Where(x => x.CompanyId == company && x.ItemId == item && x.WarehouseId == warehouse && x.RackBinId == rack)
+                        .SumAsync(x => x.QuantityIn - x.QuantityOut);
+                    var reserved = await db.StockReservations.Where(x => x.CompanyId == company && x.ItemId == item && x.WarehouseId == warehouse && x.RackBinId == rack && x.Status == "Active")
+                        .SumAsync(x => x.ReservedQuantity);
+                    return Math.Max(onHand - reserved, 0m) + 1m;
+                });
+                var extraBand=bands[1] with { Code="INVOICE" };
+                Assert.InRange(invoiceRequestedQuantity * extraBand.PrAmount, 5000m, 100000m);
+                var partialGrn=await RunPurchaseBand(adminClient,approvalClient,client,options,user,extraBand,
+                    creatorId,managerId,tdId,mdId,verifierId,purchaseId,storesId,qcId,vendor1Id,vendor2Id,
+                    supplierInvoices:(stage,id)=>supplierInvoices(new(client,options,user,stage,id,"INVOICE",managerId,purchaseId,storesId,runtimeConnection)),
+                    receiptQuantity:.4m, requestedQuantity:invoiceRequestedQuantity);
+                await supplierInvoices(new(client,options,user,"FINAL",partialGrn.PurchaseOrderId,"INVOICE",managerId,purchaseId,storesId,runtimeConnection));
+            }
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null && fifoPartialReturn is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null && fifoPartialReturn is null && supplierInvoices is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -709,7 +735,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? workload = null,
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
-        Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null)
+        Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
+        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -721,7 +748,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var pr = await Post<PurchaseRequisitionDetail>(client, "/api/v1/purchase/requisitions",
             new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "IT", "SESS-12", required, "NORMAL",
                 $"TRIAL {band.Code} full Purchase flow", "TRIAL-WH-C01", null, null, null, null, null,
-                [new("TRIAL-ITEM-001", 1, band.PrAmount, required, "TRIAL-WH-C01", null, null, null)]));
+                [new("TRIAL-ITEM-001", requestedQuantity, band.PrAmount, required, "TRIAL-WH-C01", null, null, null)]));
         Assert.Equal(PurchaseRequisitionStatuses.Draft, pr.Status);
         await AssertPrEvidence(options, pr.Id, "CreateDraft", 1, 1);
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive);
@@ -806,6 +833,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new(1, "TRIAL-WH-C01", "TRIAL-C01-GEN-01")]), $"{band.Code}-stock");
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs
             .Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
+        Assert.Equal(1m, handoff.HandoffQuantity);
         await AssertPrEvidence(options, pr.Id, "StockCheck", 4 + band.RequiredSteps, 4 + band.RequiredSteps);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseExecutive,
@@ -924,6 +952,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         await AssertPoEvidence(options, po.Id, "IssuePO");
         if(openOrders is not null) await openOrders("ISSUED",po.Id);
+        if(supplierInvoices is not null) await supplierInvoices("ISSUED",po.Id);
         if(amendIssued is not null) po=await amendIssued(po);
         var poList=await Get<PagedResponse<PurchaseOrderListItem>>(client,$"/api/v1/purchase/purchase-orders?purchaseOrderNumber={po.Number}&vendorId={vendor1Id}");
         Assert.Equal(1,poList.TotalCount);Assert.Equal(po.Id,Assert.Single(poList.Items).Id);
@@ -935,9 +964,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(storesId,"SESS-35",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
         var poLineId=await Query(options,db=>db.PurchaseOrderLines.Where(x=>x.PurchaseOrderId==po.Id).Select(x=>x.Id).SingleAsync());
         var gate=await Post<GateEntryResult>(prClient,"/api/v1/stores/gate-entries/",
-            new CreateGateEntryRequest(po.Number,$"TRIAL-DC-{band.Code}","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,"{\"packagesChecked\":true}",[new(poLineId,1)]),$"{band.Code}-gate-create");
+            new CreateGateEntryRequest(po.Number,$"TRIAL-DC-{band.Code}","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,"{\"packagesChecked\":true}",[new(poLineId,receiptQuantity)]),$"{band.Code}-gate-create");
         Assert.Equal("DRAFT",gate.Status); Assert.Single(gate.History);
-        gate=await Put<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}",new UpdateGateEntryRequest(gate.VendorDcNumber,"TRIAL-VEHICLE-EDITED","ROAD",gate.ArrivedAt,"{\"packagesChecked\":true,\"edited\":true}",[new(poLineId,1)],gate.Version));
+        gate=await Put<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}",new UpdateGateEntryRequest(gate.VendorDcNumber,"TRIAL-VEHICLE-EDITED","ROAD",gate.ArrivedAt,"{\"packagesChecked\":true,\"edited\":true}",[new(poLineId,receiptQuantity)],gate.Version));
         var detail=await Get<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}"); Assert.Equal("TRIAL-VEHICLE-EDITED",detail.VehicleNumber);
         var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?gateEntryNumber={gate.GateEntryNumber}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);Assert.Equal(1,list.TotalCount);
         gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
@@ -950,7 +979,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=band.Code=="LOW"?DateTimeOffset.UtcNow.AddDays(-3):DateTimeOffset.UtcNow;
         var grn=await Post<GoodsReceiptResult>(prClient,"/api/v1/stores/goods-receipts/",
             new CreateGoodsReceiptRequest(gate.GateEntryNumber,$"TRIAL-BILL-{band.Code}",billDate,receivedAt,"{\"billChecked\":true}",
-                [new(gate.Lines.Single().Id,[new(1,1,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
+                [new(gate.Lines.Single().Id,[new(1,receiptQuantity,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
             $"{band.Code}-grn-create");
         Assert.Equal("DRAFT",grn.Status);Assert.Single(grn.History);Assert.Single(grn.Lines);Assert.Single(grn.Lines[0].Lots);
         if(storesWorkload is not null)await storesWorkload("GRN_DRAFT",gate.Id);
@@ -962,6 +991,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             : await finalizeRace(grn);
         Assert.Equal("FINALIZED",grn.Status);Assert.Equal(2,grn.History.Count);Assert.NotNull(grn.StockPostingBatchId);Assert.False(grn.Replayed);Assert.Empty(grn.Warnings);
         if(openOrders is not null) await openOrders("RECEIVED",po.Id);
+        if(supplierInvoices is not null) await supplierInvoices("RECEIVED",po.Id);
         if(serials.Count==1)Assert.NotNull(grn.Lines[0].Serials.Single().InventorySerialId);
         var grnList=await Get<GoodsReceiptListResult>(prClient,$"/api/v1/stores/goods-receipts/?goodsReceiptNumber={grn.GrnNumber}");
         Assert.Equal(1,grnList.TotalCount);Assert.Equal(grn.Id,Assert.Single(grnList.Items).Id);
@@ -2367,6 +2397,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapStoresQcStockEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
+            app.MapSupplierInvoiceEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
             app.MapFitmentActualBomEndpoints();
             app.MapJobOrderFatReadinessEndpoints();

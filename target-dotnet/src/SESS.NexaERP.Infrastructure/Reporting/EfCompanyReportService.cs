@@ -81,6 +81,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
             "fifo-valuation" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("fifo-valuation"),
             "pending-approvals" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("pending-approvals"),
             "purchase-register" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("purchase-register"),
+            "billed-not-received" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("billed-not-received"),
             "grni" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("grni"),
             "vendor-purchases" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("vendor-purchases"),
             _ => throw new KeyNotFoundException("Report was not found.")

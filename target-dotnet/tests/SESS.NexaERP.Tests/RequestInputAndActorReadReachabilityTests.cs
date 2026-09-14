@@ -191,6 +191,14 @@ internal static class RequestInputReachabilityManifest
         "SESS.NexaERP.Application.Stores.UpdateMaterialIssueRequest.Version",
         "SESS.NexaERP.Application.Stores.RecordVendorAdvanceRequest.PurchaseOrderId",
         "SESS.NexaERP.Application.Stores.RecordVendorPaymentRequest.VendorId",
+        // Supplier invoice PO/line IDs: Accounts GET /supplier-invoices/purchase-order-options.
+        // Version: Accounts GET /supplier-invoices/{id}; accepted bill ID: Accounts GET /vendor-bills.
+        // The governed SupplierInvoiceWitness consumes these actual GET responses for both Accounts roles.
+        "SESS.NexaERP.Application.Stores.CancelSupplierInvoiceRequest.Version",
+        "SESS.NexaERP.Application.Stores.LinkSupplierInvoiceAcceptedBillRequest.VendorBillId",
+        "SESS.NexaERP.Application.Stores.LinkSupplierInvoiceAcceptedBillRequest.Version",
+        "SESS.NexaERP.Application.Stores.RecordSupplierInvoiceRequest.PurchaseOrderId",
+        "SESS.NexaERP.Application.Stores.SupplierInvoiceLineInput.PurchaseOrderLineId",
         "SESS.NexaERP.Application.Stores.VendorPaymentAllocationInput.VendorBillId",
         "SESS.NexaERP.Application.Stores.VendorBillDecisionRequest.Version",
         "SESS.NexaERP.Application.Purchase.Rev869BQuotationLineRequest.RequestForQuotationLineId",

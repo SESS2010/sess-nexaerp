@@ -32,3 +32,11 @@ A historical-data test exposed deferred trigger events blocking ALTER TABLE OWNE
 - The earlier governed opening witness proves OPENING_BALANCE and OPENING_LANDED in reports using 10 units at INR 25, value INR 250, with one SQL statement and Excel/drill-through checks.
 
 Debug verification passed: item15-fifo-complete-debug.trx, six tests, zero failed/skipped, 11m52s. This document is not a full-suite pass or completion of Item 15. Reports 5 and 10, final scale measurement and subsequent Keycloak verification remain.
+
+## Exact reversal followed by Stores return, without re-fit
+
+The requested additional sequence now passes in both Release and Debug. A fitted 0.30 component carries 1,416 material plus 3.60 charges, total 1,419.60. Reversal reduces machine quantity, material, charges and commercial actual to zero. Accepting a 0.30 Stores return leaves all those machine values at zero and appends restoration of 1,416 base FIFO cost; the FIFO valuation rises by 1,419.60 including charges. The remaining 0.05 stays accountable with the engineer.
+
+The witness compares all original consumption/layer rows, the reversal's BOM entry IDs and frozen offer baseline before/after the physical return. Replay adds no movements, restorations, return history or command records. The return creates no second negative BOM entry.
+
+Evidence: local-evidence/item15/fifo-reversed-component-return.json; Release report5-repaired-release.trx (this test passed; that run also contains an unrelated invoice-workflow failure); Debug report5-supporting-debug.trx (five supporting tests passed, including this one). This is targeted verification, not a full-suite certification. No production behavior or frontend contract changes were needed for this specific sequence.

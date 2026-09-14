@@ -19,7 +19,7 @@ FIFO implementation checkpoint: migration 20260914080000 and targeted Release wi
 
 Remaining implementation/proof:
 1. Finalize reports 1-9 against actual source movements and decisions, including the mechanical cost-restoration and ownership-pool correction.
-2. Add a governed invoice-before-receipt source and billed-not-received report; never label an empty result proof of a workflow that cannot record invoices.
+2. Completed: governed invoice-before-receipt and report 5, targeted Release 3/3 and Debug 3/3 with actual receipt/reversal/permissions/Excel evidence. The existing one-effective-GRN-per-invoice limitation remains explicit. Full routine Release now passes 836/836, zero failed/skipped, 23m42s. See item-15-billed-not-received.md.
 3. Build report 10's delivered-machine audit dossier last, including actual signed delivery evidence, components, GRNs, vendors, accepted bills/charges, QC and deviations.
 4. Re-measure final heaviest report at 300,000 items/2,000,000 movements; explain materialized-view invalidation if one is introduced.
 5. Re-authenticate the provider-configured code against the real Keycloak witness. No Cognito details are expected until Tuesday.

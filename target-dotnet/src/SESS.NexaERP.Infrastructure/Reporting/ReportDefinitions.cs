@@ -52,7 +52,7 @@ internal static class ReportDefinitions
         new("allocatedCharges","Net allocated charges","number","allocatedCharges"),
         new("landedValue","Net accepted landed value","number","landedValue")
     ];
-    internal static IReadOnlySet<string> FilterKeys(ReportDefinition definition) => definition.Key is "grni" or "vendor-purchases"
+    internal static IReadOnlySet<string> FilterKeys(ReportDefinition definition) => definition.Key is "grni" or "vendor-purchases" or "billed-not-received"
         ? new HashSet<string>(["vendorId","itemId","uom","currency"],StringComparer.Ordinal) : definition.Key == "purchase-register" ? new HashSet<string>(["prLineId","itemId","uom"],StringComparer.Ordinal)
         : definition.Key == "fifo-valuation" ? new HashSet<string>(["itemId","ownershipAccountId","ownership","uom","currency","ageBucket","costBasis"],StringComparer.Ordinal)
         : definition.Key == "pending-approvals" ? new HashSet<string>(["approverKey","uom"],StringComparer.Ordinal)
@@ -69,6 +69,19 @@ internal static class ReportDefinitions
 
     internal static readonly IReadOnlyList<ReportDefinition> All =
     [
+        new("billed-not-received","Billed, not received",false,true,
+            [..FinancialDimensions,new("quantity","Invoiced quantity not received","number","quantity"),
+             new("invoiceValue","Outstanding supplier-invoice value","number","invoiceValue")],
+            [new("invoiceId","Supplier invoice ID"),new("invoiceLineId","Invoice line ID"),
+             new("invoiceNumber","Supplier invoice"),new("invoiceDate","Invoice date","date"),new("recordedAt","Recorded at"),
+             new("poNumber","PO"),new("purchaseOrderLineId","PO line ID"),..FinancialDimensions,
+             new("invoiceQuantity","Invoice quantity","number"),new("receivedQuantity","Received quantity","number"),
+             new("invoiceUnitRate","Invoice unit rate","number"),new("invoicePayableValue","Invoice line payable","number"),
+             new("daysOutstanding","Age in days","number"),new("quantity","Invoiced quantity not received","number"),
+             new("invoiceValue","Outstanding supplier-invoice value","number"),new("receiptHistory","Receipt matching history"),
+             new("acceptedBillLinks","Accepted-bill linkage history"),new("evidenceFileName","Invoice evidence"),
+             new("evidenceSha256","Invoice evidence SHA-256")],FinancialTotals,
+            Coverage:"Recorded supplier invoices less finalized matched receipts and their reversals, as of the report date. Documentary invoice values are not accepted payables. Native currency and recorded unit; no currency conversion. Receipt matching follows invoice identity and PO lineage."),
         new("fifo-valuation","FIFO valuation and ageing",false,true,
             [new("itemCode","Item code"),new("itemName","Item"),new("ownership","Ownership"),new("uom","Unit"),
              new("currency","Currency"),new("ageBucket","Age"),new("costBasis","Cost basis"),

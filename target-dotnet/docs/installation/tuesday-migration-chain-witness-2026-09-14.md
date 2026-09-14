@@ -17,7 +17,7 @@ Evidence: local-evidence/overnight-20260914/exact-name-refusal-witness.txt, exac
 
 The supplied backup restored into a new isolated PostgreSQL cluster as advance_parser, on 127.0.0.1:56949. Its actual 78-row starting history upgraded through 22 pending migrations to 100, ending at 20260914080000_FifoReturnRestorations. Installer provision returned RECONCILED and status VERIFIED, both exit 0, with existing credentials unchanged. SQL execution took 0.8056528 seconds, excluding restore, generation, provisioning and status.
 
-This proves compatibility with that data and ownership state under the disposable database name. It DOES NOT prove the sess_nexa_erp command, because the protected-name predicate differs. The earlier affirmative conclusion was overstated and has been withdrawn. Report-5 migrations remain stashed and are excluded.
+This proves compatibility with that data and ownership state under the disposable database name. It DOES NOT prove the sess_nexa_erp command, because the protected-name predicate differs. The earlier affirmative conclusion was overstated and has been withdrawn. That original 78-to-100 check excluded report 5. After restoring and verifying report 5, its two new migrations applied to this renamed copy from 100 to 102; all five new invoice tables remained empty and both pages existed. Installer provision/status returned RECONCILED/VERIFIED with unchanged credentials. The exact-name copy remains at 84; it was not advanced or bypassed.
 
 ## Source and isolation
 
@@ -40,3 +40,6 @@ The next guard exposed a second fixture omission: newly created functions retain
 local-evidence/overnight-20260914/owner-backup-witness-state.json identifies the owned cluster. Its root retains starting-state.txt, pending-from-78.sql, pending-apply.log, pending-apply-result.json, principals-provision.log and principals-status.log. The private globals copy contains credential hashes and must not be committed or included in a public handoff.
 
 After approval and implementation, repeat the isolated 78-state witness with the actual target-name predicate exercised, then provision/status. Report the final committed revision, count and tested operator command before morning handoff.
+
+
+Migration counts: the generated 433f968 chain had 100 actual migrations, hence 22 pending from the supplied history of 78. The report-5 candidate has 102 actual migration classes, hence 24 pending from 78. Source-file counts (including designer/support files) are not migration-history counts. The successful renamed-copy checks do not authorize the current protected-name deployment.
