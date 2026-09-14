@@ -93,6 +93,39 @@ These commands cover the ERP PostgreSQL database and global roles. Retain
 application configuration, external attachment/object-storage data and any
 local identity provider's data through their own backup procedures. Restore
 those dependencies before enabling users after a complete site loss.
+
+## Restore prerequisite: preserve the original administrator identity
+
+For the SESS backup restored on 14 September 2026, the original PostgreSQL
+bootstrap administrator is `postgres`. Initialize a fresh recovery cluster
+with that same name (`initdb --username=postgres`), before restoring globals.
+This is the original bootstrap role (OID 10), not merely any superuser named
+`postgres` created later. PostgreSQL preserves role-grant attribution: our
+restore into a cluster initialized under a different administrator name
+refused membership grants recorded as `GRANTED BY postgres`.
+
+The Installer's `backup recover` already reads the source bootstrap name from
+its backup evidence and passes it to `initdb`. The IT team must preserve this
+rule when preparing a fresh server or carrying out a separately reviewed
+manual restore. Do not initialize or reinitialize an existing server as part
+of these instructions; use the new, absent recovery destination below.
+
+When restoring globals, omit only the one `CREATE ROLE` statement for that
+already initialized bootstrap role from a private working copy. Retain its
+`ALTER ROLE` and every `GRANT`, including grantor attribution. The Installer
+requires exactly one matching creation statement and refuses an unexpected
+file shape. Do not blanket-remove grants or replace administrator names.
+Keep the original globals file unchanged and private; externally supplied
+files may contain password hashes even though Installer bundles omit them.
+
+Verify restored role attributes, memberships and grantors as well as object
+ownership before enabling the ERP. A successful database archive restore
+alone does not establish that the globals restored correctly. This lesson
+was reproduced during the Item 26 witness and the Tuesday backup restore;
+see [Tuesday migration-chain evidence](tuesday-migration-chain-witness-2026-09-14.md).
+Successful restore is separate from successful upgrade: that exact-name
+78-applied copy subsequently stopped at `20260913060000_CommandReceiptReplay`.
+
 ## If the laptop disk fails
 
 1. Keep the external/network backup safe. Select the newest VERIFIED bundle;
