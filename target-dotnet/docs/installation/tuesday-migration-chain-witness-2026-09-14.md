@@ -6,6 +6,13 @@ The chain has a database-name blocker. At revision 433f968 (unchanged by gate co
 
 A proposal for explicitly authorizing the named target while preserving managed-role and function-authority checks is in outputs/proposed-reviewed-migration-target.md. Automatic approval review rejected applying that cross-cutting authorization change without explicit user approval. It remains a proposal; none of the 13 production guards has been changed. There is no verified replacement morning command yet.
 
+## Exact-name refusal reproduced
+
+A second copy of the same backup was restored into a freshly created sess_nexa_erp database inside the isolated server on port 56949. The owned data directory and absence of that database were checked before creation. Its starting history was exactly 78.
+
+The unchanged script, authenticated as nexa_erp_migration acting as nexa_erp_owner, committed six migrations and then raised: `Receipt replay migration refuses this cluster or protected database.` History after failure was exactly 84, ending at 20260913050000_ConcessionSerialDecisionHistory; CommandReceiptReplay was not applied. This confirms the deployment-name blocker by execution, not just source inspection. The user's live database remains untouched.
+
+Evidence: local-evidence/overnight-20260914/exact-name-refusal-witness.txt, exact-name-copy-restore.log and exact-name-unchanged-chain.log. The earlier advance_parser result below remains useful only as a separate data-state compatibility check.
 ## What the backup witness does prove
 
 The supplied backup restored into a new isolated PostgreSQL cluster as advance_parser, on 127.0.0.1:56949. Its actual 78-row starting history upgraded through 22 pending migrations to 100, ending at 20260914080000_FifoReturnRestorations. Installer provision returned RECONCILED and status VERIFIED, both exit 0, with existing credentials unchanged. SQL execution took 0.8056528 seconds, excluding restore, generation, provisioning and status.
