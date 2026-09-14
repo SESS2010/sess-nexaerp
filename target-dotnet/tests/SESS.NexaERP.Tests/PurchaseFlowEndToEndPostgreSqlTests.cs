@@ -81,7 +81,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<PurchaseObligationWitnessContext, Task>? obligations = null,
         Func<PurchaseOpenOrderWitnessContext, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<OpenOrderAmendmentWitnessContext, Task<Rev869BDocumentResult>>? openOrderAmendment = null,
-        int additionalIssuedPoVersions = 0)
+        int additionalIssuedPoVersions = 0,
+        Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -165,6 +166,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 AllowsPrivilegedCrossScope = false, EffectiveFrom = new DateOnly(2026, 1, 1),
                 IsActive = true, Remarks = "Disposable full Purchase flow", CreatedBy = "PURCHASE_FLOW_TEST"
             }));
+            // Explicit disposable department reporting grant: MIRs have no source warehouse yet.
+            // This does not change the production scope rule or the ordinary workflow fixture.
+            if(storesWorkload is not null)foreach(var reportingDepartment in await seed.Departments
+                .Where(x=>x.Code=="IT"||x.Code=="PRODUCTION").Select(x=>x.Id).ToListAsync())
+                seed.EmployeeOperationalScopes.Add(new EmployeeOperationalScope
+            {
+                CompanyId=companyId,OrganizationId="SESS_PVT_LTD",EmployeeId=accountsSupportId,
+                DepartmentId=reportingDepartment,WarehouseId=null,OwnRecordsOnly=false,
+                AllowsPrivilegedCrossScope=false,EffectiveFrom=new DateOnly(2026,1,1),IsActive=true,
+                Remarks="Disposable Stores Manager department reporting scope",CreatedBy="STORES_WORKLOAD_FIXTURE"
+            });
             await seed.SaveChangesAsync();
         }
 
@@ -340,7 +352,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     openOrders is null ? null : (stage,id) => openOrders(new(options,runtimeConnection,stage,id,band.Code)),
                     overdueQuoteDates,
                     openOrderAmendment is not null && band.Code=="LOW"
-                        ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null));
+                        ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null,
+                    storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,band.Code))));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -393,7 +406,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 mirRace is null ? null : draft => mirRace(new(options, runtimeConnection, draft,
                     productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)),
                 issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
-                    draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)));
+                    draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)),
+                storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -498,7 +512,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
 #if REPORT_VOLUME_WITNESS
-            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null) await RunReportVolumeWitness(options,runtimeConnection);
+            if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
 
         }
@@ -655,7 +669,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<PurchaseRequisitionDetail, Task<PurchaseRequisitionDetail>>? approveRace = null,
         Func<string, Guid, Task>? workload = null,
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
-        Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null)
+        Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
+        Func<string,Guid,Task>? storesWorkload = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -888,6 +903,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var list=await Get<GateEntryListResult>(prClient,$"/api/v1/stores/gate-entries/?gateEntryNumber={gate.GateEntryNumber}"); Assert.Contains(list.Items,x=>x.Id==gate.Id);Assert.Equal(1,list.TotalCount);
         gate=await Post<GateEntryResult>(prClient,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",new FinalizeGateEntryRequest(gate.Version,$"{band.Code}-gate-finalize"));
         Assert.Equal("FINALIZED",gate.Status); Assert.Equal(2,gate.History.Count);
+        if(storesWorkload is not null)await storesWorkload("GATE_FINALIZED",gate.Id);
         await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
 
         IReadOnlyList<GoodsReceiptSerialRequest> serials=band.QuoteRate>5000m
@@ -898,6 +914,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new(gate.Lines.Single().Id,[new(1,1,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
             $"{band.Code}-grn-create");
         Assert.Equal("DRAFT",grn.Status);Assert.Single(grn.History);Assert.Single(grn.Lines);Assert.Single(grn.Lines[0].Lots);
+        if(storesWorkload is not null)await storesWorkload("GRN_DRAFT",gate.Id);
         Assert.Equal(billDate.AddMonths(13),grn.Lines[0].WarrantyExpiryDate);Assert.Equal("9025",grn.Lines[0].HsnSacCode);
         Assert.Equal(band.QuoteRate>5000m?"REQUIRED":"OPTIONAL",grn.Lines[0].SerialCaptureMode);Assert.Empty(grn.Warnings);
         var draftVersion=grn.Version;
@@ -975,7 +992,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         VendorBillView pendingLandedBill, Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null,
         Func<string>? readPostgresLog = null, bool serializedRace = false,
         Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null,
-        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null)
+        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null,
+        Func<string,Guid,Task>? storesWorkload = null)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1207,6 +1225,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
             new MaterialIssueTransitionRequest(mir.Version, "Required for chamber assembly", "mir-customer-submit"));
         Assert.Equal(draftMirVersion + 1, mir.Version);
+        if(storesWorkload is not null)await storesWorkload("MIR_SUBMITTED",mir.Id);
         await AssertPostStatus(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/submit",
             new MaterialIssueTransitionRequest(draftMirVersion, "Stale duplicate submit", "mir-customer-stale-submit"),
             HttpStatusCode.Conflict);
@@ -1223,6 +1242,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(productionId, "SESS-25", "PRODUCTION_MANAGER");
         mir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
             new MaterialIssueTransitionRequest(mir.Version, "Production approves requirement", "mir-customer-approve"));
+        if(storesWorkload is not null)await storesWorkload("MIR_APPROVED",mir.Id);
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         await AssertPostStatus(client, $"/api/v1/stores/material-issues/from-request/{mir.Id}",
             issueCommand, HttpStatusCode.Conflict);
@@ -1240,6 +1260,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
         Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
         Assert.Equal(job.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+        if(storesWorkload is not null)await storesWorkload("MIR_ISSUED",mir.Id);
         await AssertEngineerCustodyReport(client,.95m);
 
         var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
@@ -2255,6 +2276,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapPurchaseSpendingEndpoints();
             app.MapPurchaseObligationsEndpoints();
             app.MapPurchaseOpenOrdersEndpoints();
+            app.MapStoresWorkloadEndpoints();
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();

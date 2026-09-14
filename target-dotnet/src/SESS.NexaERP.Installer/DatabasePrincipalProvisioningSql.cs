@@ -210,6 +210,15 @@ internal static class DatabasePrincipalProvisioningSql
           END IF;
         END $purchase_open_orders_acl$;
 
+        DO $stores_workload_acl$
+        BEGIN
+          IF to_regprocedure('advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer)
+              FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer) TO nexa_erp_runtime;
+          END IF;
+        END $stores_workload_acl$;
+
 
         DO $ceremony_acl$
         BEGIN
@@ -622,6 +631,20 @@ internal static class DatabasePrincipalProvisioningSql
                   AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
                     WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
               RAISE EXCEPTION 'Open purchase orders authority is incomplete or invalid.';
+            END IF;
+          END IF;
+
+          IF EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.stores-workload')
+             OR to_regprocedure('advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer)') IS NOT NULL THEN
+            IF NOT EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.stores-workload')
+              OR NOT EXISTS(SELECT 1 FROM pg_proc p
+                WHERE p.oid=to_regprocedure('advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer)')
+                  AND p.prosecdef AND p.provolatile='s' AND p.proowner='nexa_erp_owner'::regrole
+                  AND p.proconfig=ARRAY['search_path=pg_catalog, advance']
+                  AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                  AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                    WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
+              RAISE EXCEPTION 'Stores document workload authority is incomplete or invalid.';
             END IF;
           END IF;
 

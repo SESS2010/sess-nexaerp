@@ -30,6 +30,7 @@
     <EmbeddedResource Include="Persistence\Migrations\Sql\20260914020000_PurchaseSpending.sql" LogicalName="PurchaseSpending.20260914020000.sql" />
     <EmbeddedResource Include="Persistence\Migrations\Sql\20260914040000_PurchaseObligations.sql" LogicalName="PurchaseObligations.20260914040000.sql" />
     <EmbeddedResource Include="Persistence\Migrations\Sql\20260914050000_PurchaseOpenOrders.sql" LogicalName="PurchaseOpenOrders.20260914050000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914060000_StoresWorkload.sql" LogicalName="StoresWorkload.20260914060000.sql" />
   </ItemGroup>
 
 </Project>
