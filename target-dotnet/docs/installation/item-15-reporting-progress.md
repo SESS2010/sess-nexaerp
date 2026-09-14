@@ -2,6 +2,10 @@
 
 Parent commit: 7eb9a67 (Item 16). This commit is a partial Item 15 checkpoint; the ten-report requirement is not complete. No changes have been applied to the owner database.
 
+## Latest checkpoint - 15 September
+
+Report 5 is committed at 9d2c0d4 with passing Release/Debug business checks and full routine Release 836/836, zero failed/skipped, 23m42s. Report 10 remains outstanding. Latest stock/roll-forward scale timings are 18.936/17.164 seconds; full SQL/Excel 215.382 seconds, with sheet/link verification. See item-15-scale-witness-2026-09-15.md and item-15-delivered-machine-source-findings.md. The older results below are historical checkpoints.
+
 ## Current correction checkpoint — 14 September
 
 Migration 20260914080000 now supplies immutable reverse-creation-order FIFO restorations and ownership/currency eligibility. Targeted Release restoration, partial-fitment, historical-upgrade and concurrency witnesses pass; Debug passed six affected witnesses, zero failed/skipped, in 11m52s (item15-fifo-complete-debug.trx). See item-15-fifo-restoration.md. Earlier return-gap and ownership findings below describe the pre-correction checkpoint, not the new behavior. Reports 5 and 10 remain outstanding. Previous full-suite and scale numbers do not certify the new migration.
