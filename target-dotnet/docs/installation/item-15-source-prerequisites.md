@@ -1,6 +1,6 @@
-# Item 15 — source prerequisites awaiting a decision
+# Item 15 — source prerequisites and approved decisions
 
-This is a proposal, not an implemented accounting or delivery policy. Item 15's seven unaffected reports continue independently.
+Updated 14 September: the user requires all ten reports before further dashboard work, with delivered-machine ancestry last. These prerequisites are now in Item 15's authorized scope. Implementation and witnesses remain outstanding where stated below.
 
 ## FIFO return attribution
 
@@ -8,9 +8,9 @@ Observed: accepted material returns append physical movements, but no FIFO cost-
 
 The proposed correction is append-only credits linked to the accepted return line and the original issue's FIFO consumption rows. It must retain original consumption history, keep company/item/ownership boundaries, lock the same cost pool as consumption, refuse credits exceeding the original net consumed quantity, and replay idempotently with the return.
 
-The open policy choice is which original layers a partial return restores. Example: an issue consumed one unit at 100 and one at 200. Returning half a unit restores value 100 if the latest consumed layer is unwound first, or 50 if the oldest is restored first. A weighted average would hide this decision and is prohibited.
+The user has settled the mechanism: unwind the original issue consumption rows in reverse creation order. There is no configurable attribution policy. Issue 1 at 100 and 1 at 200, then return 0.5: append a restoration of 0.5 against the 200 consumption, restoring value 100 and leaving net issue cost 200.
 
-The proposed default is latest consumed layers first, preserving the remaining original issue's FIFO prefix. It is awaiting the Technical Director's decision. Accepted-bill cost adjustments and reversals must remain traceable without rewriting historical consumption.
+Keep layers and original consumptions immutable. Refuse returns above the issue's remaining unreturned quantity and restorations against fully restored consumption. Accepted-bill adjustments remain traceable. Fitment reversal is separate: it negates machine Actual BOM cost and restores engineer custody while issue consumption remains. See item-15-fitment-reversal-cost.md.
 
 ## Invoice received before goods
 
@@ -18,20 +18,20 @@ Observed: the current vendor-bill creation path requires a finalized GRN and its
 
 A minimal prerequisite would record a supplier invoice against an issued PO before receipt, with company/vendor, invoice number/date, PO line, quantity/unit, currency and source evidence. Recording the supplier document must not pretend that three-way matching or payment approval has already happened. Receipt matching and accepted-bill linkage would be governed, auditable operations with duplicate, cross-company/vendor/currency, excess-quantity and replay refusals.
 
-The precise matching and correction lifecycle needs to be agreed before making this a financial source. No draft or quotation will be relabelled an accepted bill.
+Implement the governed matching and correction lifecycle as the report's prerequisite. A recorded supplier invoice is not an accepted three-way-matched bill.
 
 ## Delivered machine
 
 Observed: the governed machine witness reaches FAT readiness; it does not record delivery. An ancestry dossier must identify the actual job/machine and link delivery evidence before calling it delivered.
 
-The existing DC specification requires a customer signature for machine delivery. Its custody and commercial rules cannot be bypassed by adding a bare Delivered flag. Bringing the necessary delivery behavior forward would change the requested schedule, which places Item 17 later and excludes Items 35–50. The later Stores Completion document adds DC commercial axes under Item 40, so that later scope must not be silently introduced either.
+The existing DC specification requires a customer signature for machine delivery. The user's latest priority brings the necessary governed delivery proof into Item 15. Implement the report prerequisite without expanding into unrelated later Stores workflows.
 
 The minimum proof must retain the applicable DC/job/machine/customer identities, a governed delivery event and signed evidence, then traverse actual component fitments to their GRN, vendor, accepted bill/allocated charges, QC and applicable approvals. FAT readiness is not delivery, and foundation rows alone are not authoritative delivery evidence.
 
-The pending scheduling question is whether to bring these report prerequisites into Item 15 or preserve the original order and leave their proofs explicitly pending. No source prerequisite is claimed complete.
+Scheduling is settled: complete these prerequisites within Item 15 and build the delivered-machine dossier last. No source prerequisite is claimed complete.
 
 ## Additional frozen-policy conflict: ownership scope
 
 The frozen Stores Full Schema Guideline, paragraphs 116 and 325, requires strict FIFO within company, item and ownership/value pool, with no retrospective recalculation. The only installed consume_fifo_for_issue definition (VendorBillCostingSql.cs) takes its advisory lock by company/item and selects layers by company/item, without an ownership predicate. No later replacement was found.
 
-This is a source-level conflict with frozen policy, not a witnessed cross-ownership transaction failure yet. The new report groups existing layers by receipt ownership; that does not prove consumption stayed within the required pool. FIFO completion is paused. A scheduling decision has been requested: bring the ownership correction and an actual cross-ownership refusal test into Item 15, or perform it in Item 25 and keep FIFO verification pending. No historical postings were changed.
+This is a source-level conflict with frozen policy, not a witnessed cross-ownership transaction failure yet. The new report groups existing layers by receipt ownership; that does not prove consumption stayed within the required pool. The ownership correction and actual cross-ownership refusal witness belong to the current Item 15 work. No historical postings have been rewritten.

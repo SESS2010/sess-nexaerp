@@ -6,12 +6,9 @@ Parent commit: 7eb9a67 (Item 16). This commit is a partial Item 15 checkpoint; t
 
 Seven report paths have passing business checks: stock balance, movement roll-forward, GRNI, vendor purchases, purchase register, pending approvals and custody by engineer. FIFO valuation is an eighth, restricted prototype: initial layers, bill adjustments, opening valuation and age boundaries pass, but accepted physical returns without cost credits cause 409 FIFO_RETURN_CREDITS_REQUIRED. This refusal is not a completed return-cost policy. Billed-not-received and delivered-machine ancestry are not implemented.
 
-Three decisions remain pending, documented in item-15-source-prerequisites.md:
-- attribution of a partial return across its original issue's consumed FIFO layers;
-- whether invoice-before-receipt and actual machine-delivery recording should be brought forward;
-- scheduling the confirmed ownership-pool source correction and its real transaction refusal witness.
+Updated 14 September: the user settled reverse-creation-order restoration of original consumption rows, with immutable linked restoration entries. Invoice-before-receipt, actual delivery proof and the ownership-pool correction are now current Item 15 prerequisites. See item-15-source-prerequisites.md and item-15-acceptance-progress.md. The ten reports take priority over further dashboards; ancestry is last, followed by Keycloak verification.
 
-Frozen Stores Full Schema Guideline paragraphs 116 and 325 require FIFO within company, item and ownership/value pool. The installed consume_fifo_for_issue selects layers by company/item without an ownership predicate. This is a confirmed source conflict, not yet a witnessed cross-ownership transaction failure. Grouping report layers by ownership does not resolve it. FIFO completion is paused; no historical postings have been rewritten.
+Frozen Stores Full Schema Guideline paragraphs 116 and 325 require FIFO within company, item and ownership/value pool. The installed consume_fifo_for_issue selects layers by company/item without an ownership predicate. This is a confirmed source conflict, not yet a witnessed cross-ownership transaction failure. Grouping report layers by ownership does not resolve it. This correction is current Item 15 work; no historical postings have been rewritten.
 
 ## Report and frontend contract
 

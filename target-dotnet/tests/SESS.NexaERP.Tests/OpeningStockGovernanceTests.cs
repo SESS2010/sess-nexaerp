@@ -77,13 +77,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var reportDb = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options);
         var reports = new SESS.NexaERP.Infrastructure.Reporting.EfCompanyReportService(reportDb,actor);
         var postingDate = new DateOnly(2027,3,31); // The existing ceremony's fiscal-period end is its ledger date.
-        var beforeOpening = await reports.GetAsync("stock-balance",new(ToDate:postingDate.AddDays(-1)),default);
+        Assert.Equal("OPENING_BALANCE",(await ownerDb.StockMovements.SingleAsync(x=>x.CompanyId==company.Id)).MovementType);
+        var businessBefore=new
+        {
+            Movements=await ownerDb.StockMovements.CountAsync(),Layers=await ownerDb.FifoInventoryCostLayers.CountAsync(),
+            Consumptions=await ownerDb.FifoCostConsumptions.CountAsync(),Events=await ownerDb.OpeningStockEvents.CountAsync(),
+            Requests=await ownerDb.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_requests").SingleAsync(),Receipts=await ownerDb.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_receipts").SingleAsync()
+        };
+        var beforeOpening = await ObserveSingleReportCommand(()=>reports.GetAsync("stock-balance",new(ToDate:postingDate.AddDays(-1)),default));
         Assert.Empty(beforeOpening.Rows);
-        var balance = await reports.GetAsync("stock-balance",new(ToDate:postingDate),default);
+        var balance = await ObserveSingleReportCommand(()=>reports.GetAsync("stock-balance",new(ToDate:postingDate),default));
         Assert.Equal(10m,Assert.Single(balance.Totals).GetProperty("quantity").GetDecimal());
-        var detail = await reports.GetAsync("stock-balance",new(ToDate:postingDate,Mode:"details"),default);
+        var detail = await ObserveSingleReportCommand(()=>reports.GetAsync("stock-balance",new(ToDate:postingDate,Mode:"details"),default));
         Assert.NotEqual(System.Text.Json.JsonValueKind.Null,Assert.Single(detail.Rows).GetProperty("openingStockLineId").ValueKind);
-        var roll = await reports.GetAsync("movement-roll-forward",new(new DateOnly(2026,4,1),postingDate),default);
+        var roll = await ObserveSingleReportCommand(()=>reports.GetAsync("movement-roll-forward",new(new DateOnly(2026,4,1),postingDate),default));
         var total = Assert.Single(roll.Totals);
         Assert.Equal(10m,total.GetProperty("openingIntroduced").GetDecimal());
         Assert.Equal(0m,total.GetProperty("receipts").GetDecimal());
@@ -121,6 +128,44 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var fifoWorkbook=new ClosedXML.Excel.XLWorkbook(fifoStream);
         Assert.Equal(250m,fifoWorkbook.Worksheet("Totals").Cell(2,5).GetValue<decimal>());
         Assert.True(fifoWorkbook.Worksheet("Totals").Cell(2,5).HasHyperlink);
+        foreach(var (key,metric,page) in new[]{
+            ("stock-balance","closing",balance),("movement-roll-forward","opening-stock",roll)})
+        {
+            var request=new SESS.NexaERP.Application.Reporting.CompanyReportRequest(
+                FromDate:key=="movement-roll-forward"?new DateOnly(2026,4,1):null,ToDate:postingDate);
+            foreach(var reportTotal in page.Totals)
+            {
+                var drill=await ObserveSingleReportCommand(()=>reports.GetAsync(key,request with
+                {Mode="details",Group=reportTotal.GetProperty("group").GetRawText(),Metric=metric},default));
+                Assert.Equal(10m,Assert.Single(drill.Rows).GetProperty(
+                    key=="stock-balance"?"netQuantity":"openingStockContribution").GetDecimal());
+            }
+            var file=await ObserveSingleReportCommand(()=>reports.ExportAsync(key,request,default));
+            using var stream=new MemoryStream(file.Content);
+            using var book=new ClosedXML.Excel.XLWorkbook(stream);
+            var header=key=="stock-balance"?"Balance":"Closing";
+            var column=book.Worksheet("Totals").Row(1).CellsUsed().Single(x=>x.GetString()==header).Address.ColumnNumber;
+            Assert.Equal(10m,book.Worksheet("Totals").Cell(2,column).GetValue<decimal>());
+            Assert.True(book.Worksheet("Totals").Cell(2,column).HasHyperlink);
+            var output=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");
+            Directory.CreateDirectory(output);
+            await File.WriteAllBytesAsync(Path.Combine(output,"opening-"+key+".xlsx"),file.Content);
+        }
+        var businessAfter=new
+        {
+            Movements=await ownerDb.StockMovements.CountAsync(),Layers=await ownerDb.FifoInventoryCostLayers.CountAsync(),
+            Consumptions=await ownerDb.FifoCostConsumptions.CountAsync(),Events=await ownerDb.OpeningStockEvents.CountAsync(),
+            Requests=await ownerDb.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_requests").SingleAsync(),Receipts=await ownerDb.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_receipts").SingleAsync()
+        };
+        Assert.Equal(businessBefore,businessAfter);
+        var evidence=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");
+        Directory.CreateDirectory(evidence);
+        await File.WriteAllBytesAsync(Path.Combine(evidence,"opening-fifo-valuation.xlsx"),download.Content);
+        await File.WriteAllTextAsync(Path.Combine(evidence,"opening-reports-command-witness.json"),
+            System.Text.Json.JsonSerializer.Serialize(new{postingDate,businessBefore,businessAfter,
+                Balance=balance,MovementDetail=detail,RollForward=roll,Fifo=fifo,FifoDetail=fifoDetail},
+                new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));
+
 
 
     }

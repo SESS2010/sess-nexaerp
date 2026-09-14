@@ -1520,6 +1520,50 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/production/component-fitments/{fitment.Id}/reverse", reverseCommand);
         Assert.True(reversed.IsReversed); Assert.True(reversed.IsSelfReversal);
         Assert.True(reversedReplay.Replayed);
+        var reversedActual = await Get<ActualBomView>(client,
+            $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
+        Assert.Equal(0m,reversedActual.TotalAcceptedMaterialValue);
+        Assert.Equal(0m,reversedActual.TotalAllocatedChargeValue);
+        Assert.Equal(0m,reversedActual.TotalAcceptedValue);
+        Assert.Equal(2,reversedActual.Entries.Count);
+        Assert.Equal(0m,reversedActual.Entries.Sum(x=>x.QuantityBase));
+        Assert.Equal(afterEngineeringRevision.Entries.Single().Id,
+            reversedActual.Entries.Single(x=>x.EntryKind=="FITMENT").Id);
+        foreach(var comparison in new[]
+        {
+            (Before:afterEngineeringRevision.OperationalVariance,After:reversedActual.OperationalVariance),
+            (Before:afterEngineeringRevision.CommercialVariance,After:reversedActual.CommercialVariance)
+        })
+        {
+            Assert.Equal(comparison.Before.BaselineRevisionId,comparison.After.BaselineRevisionId);
+            Assert.Equal(comparison.Before.BaselineValue,comparison.After.BaselineValue);
+            Assert.Equal(0m,comparison.After.ActualAcceptedValue);
+            Assert.Equal(-comparison.After.BaselineValue,comparison.After.ValueVariance);
+            Assert.All(comparison.After.Lines,line=>
+            {
+                Assert.Equal(0m,line.ActualQuantity);
+                Assert.Equal(0m,line.ActualAcceptedValue);
+            });
+        }
+        var reversalConsumptions = await Query(options, db => db.FifoCostConsumptions
+            .Where(x=>x.FifoInventoryCostLayerId==fifoBeforeAcceptance.Id).OrderBy(x=>x.Id)
+            .Select(x=>new{x.Id,x.Quantity,x.UnitCost,x.ConsumedValue}).ToListAsync());
+        Assert.Equal(consumptionsAfterAcceptance,reversalConsumptions);
+        var custodyAfterReversal=await Query(options,async db=>
+        {
+            var assignment=await db.MaterialIssueLines.Where(x=>x.Id==issue.Lines.Single().Id)
+                .Select(x=>x.ToCustodyAssignmentId).SingleAsync();
+            return await db.StockMovements.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")
+                &&x.CustodyAssignmentId==assignment).SumAsync(x=>x.QuantityIn-x.QuantityOut);
+        });
+        Assert.Equal(.35m,custodyAfterReversal);
+        var reportEvidence=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");
+        Directory.CreateDirectory(reportEvidence);
+        await File.WriteAllTextAsync(Path.Combine(reportEvidence,"fitment-reversal-machine-cost.json"),
+            JsonSerializer.Serialize(new{Before=afterEngineeringRevision,After=reversedActual,custodyAfterReversal,
+                GrossConsumptionsBefore=consumptionsAfterAcceptance,GrossConsumptionsAfter=reversalConsumptions,
+                Meaning="Fitment reversal negates machine cost and restores engineer custody; original issue consumption history remains."},
+                new JsonSerializerOptions{WriteIndented=true}));
         var reverified = await Post<ComponentFitmentSummary>(client,
             "/api/v1/production/component-fitments",
             fitCommand with { ReverifiesFitmentId = fitment.Id, IdempotencyKey = "fitment-reverify" });
