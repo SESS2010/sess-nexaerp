@@ -307,10 +307,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
-        server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
-        server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
+        server.Execute("business-down.sql", MigrationOwnerSession + migrator.GenerateScript(migration, "0"));
     }
 
     [Fact]
@@ -369,7 +369,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migration = db.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
-        server.Execute("bootstrap-business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("bootstrap-business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("bootstrap-ceremony.sql", BootstrapCeremony);
         server.AssertRejected("bootstrap-replay.sql", "SET SESSION AUTHORIZATION nexa_erp_bootstrap; SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');");
     }
@@ -576,7 +576,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        GRANT nexa_erp_owner TO nexa_erp_migration WITH INHERIT FALSE, SET TRUE;
+        ALTER DATABASE advance_parser OWNER TO nexa_erp_owner;
+        ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
         """;
+
+    // After provisioning, migrations must execute as the owner through the
+    // migration login. Administrator execution would create mixed ownership.
+    private const string MigrationOwnerSession = """
+        SET SESSION AUTHORIZATION nexa_erp_migration;
+        SET ROLE nexa_erp_owner;
+        """ + "\n";
 
     private const string MultiCompanyPrNumberAssertions = """
         INSERT INTO advance.purchase_requisitions

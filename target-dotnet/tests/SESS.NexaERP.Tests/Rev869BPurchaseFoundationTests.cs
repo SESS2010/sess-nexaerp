@@ -52,7 +52,10 @@ public sealed class Rev869BPurchaseFoundationTests
     public void ServiceReusesPendingRfqAndPreventsDuplicateAndOverOrder()
     {
         Assert.Contains("PurchaseRequirementHandoffs", ServiceSource); Assert.Contains("PendingRFQ", ServiceSource);
-        Assert.Contains("IsolationLevel.ReadCommitted", ServiceSource); Assert.DoesNotContain("IsolationLevel.Serializable", ServiceSource); Assert.Contains("IdempotencyKey", ServiceSource); Assert.Contains("OrderedQuantityAsync", ServiceSource);
+        Assert.Contains("operation == \"IssuePO\" ? IsolationLevel.Serializable : IsolationLevel.ReadCommitted", ServiceSource);
+        Assert.Equal(1, Count(ServiceSource, "IsolationLevel.Serializable"));
+        Assert.Contains("PostgreSqlConcurrency.IsSerializationFailure(error)", ServiceSource);
+        Assert.Contains("Vendor cash changed concurrently. Refresh and retry PO issuance.", ServiceSource); Assert.Contains("IdempotencyKey", ServiceSource); Assert.Contains("OrderedQuantityAsync", ServiceSource);
         Assert.Contains("Cumulative PO quantity exceeds approved outstanding quantity", ServiceSource); Assert.Contains("Duplicate PendingRFQ handoff", ServiceSource);
     }
 
