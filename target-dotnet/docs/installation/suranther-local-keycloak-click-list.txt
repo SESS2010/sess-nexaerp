@@ -1,0 +1,119 @@
+SURANTHER — LOCAL KEYCLOAK SETUP AND DAILY CHECKS
+15 September 2026. Cognito is no longer required for SESS.
+
+BEFORE YOU START
+Ask the IT maintainer for: the identity Admin Console link, your named
+administrator account, the final Staff and Approvers JSON files with the real
+ERP address, the ERP sign-in link, and the identity-status.html shortcut.
+Do not use the files under tests/Fixtures: those contain public test passwords.
+The files ending .template.json still need IT to replace the address placeholders.
+
+This repository does not contain a ready-to-import production VM or a setup
+wizard. IT must first prepare the Linux Keycloak VM, a SEPARATE Windows
+PostgreSQL instance for identity, the trusted certificate, LAN name, backup
+tasks and monitor. Do not change the live ERP
+database to install Keycloak.
+
+IF IT ASKS YOU TO ENABLE HYPER-V ON THE LAPTOP
+1. Save work and agree the restart time with IT.
+2. Open Start, type "Turn Windows features on or off", and open it.
+3. Tick Hyper-V, including its management tools and platform.
+4. Click OK; restart only at the agreed time.
+5. Open Hyper-V Manager. IT must supply and validate the production VM before
+   you use Action > Import Virtual Machine. The current Codex test VM is not it.
+
+CREATE THE TWO REALMS
+1. Open the Admin Console link supplied by IT and sign in.
+2. Open the realm selector at the upper left. Choose Create realm.
+3. At Resource file, click Browse and select IT's reviewed Staff realm JSON.
+4. Check Realm name says staff. Click Create.
+5. Repeat for approvers using the Approvers JSON. Do not import over an
+   existing realm; ask IT to review an existing installation.
+6. For each realm, open Realm settings > Login. Check User registration and
+   Remember me are Off.
+7. Open Authentication > Policies > Password policy. Check Minimum Length is 14.
+8. Open Realm settings > Tokens. Check Access Token Lifespan is 15 minutes.
+9. Open Realm settings > Sessions. Check SSO Session Idle and Max are both
+   8 hours. IT must also verify the client session limits are 8 hours.
+
+CHECK THE CLIENTS
+1. Select staff. Open Clients > nexaerp-staff > Settings.
+2. Check Client authentication is Off and Standard flow is On.
+3. Check Direct access grants, Implicit flow and Service accounts are Off.
+4. Check Valid redirect URIs and Web origins exactly match the addresses IT
+   supplied. Do not enter a star (*) or invent a callback address.
+5. Open Advanced and check Proof Key for Code Exchange Code Challenge Method
+   is S256. Save if IT asked you to change it.
+6. Repeat in approvers for nexaerp-approvers.
+7. IT must verify there is no client Browser Flow override bypassing the
+   realm's configured flow.
+
+CHECK APPROVER MFA
+1. Select approvers. Open Authentication > Flows.
+2. Open nexaerp-approver-browser. Username Password Form and OTP Form must
+   both say Required.
+3. Open the flow's Action menu > Bind flow. Bind it as the Browser flow; save.
+4. Open Authentication > Required actions. Configure OTP must be Enabled and
+   Default action must be On.
+5. Select staff. Do not apply the Approvers browser flow there. Staff OTP
+   enrollment stays optional.
+6. Ask IT to witness one fresh Approvers login requiring password AND the
+   authenticator code. "OTP policy exists" alone is not enough.
+
+CREATE ACCOUNTS
+1. Select approvers ONLY for TECHNICAL_DIRECTOR, MANAGING_DIRECTOR and
+   ACCOUNTS_MANAGER. Select staff for everyone else.
+2. Open Users > Add user.
+3. Enter the employee's agreed login name, first name and last name. Enter
+   email only if IT has supplied the actual address. Click Create.
+4. Open Credentials > Set password. Set a private temporary password of at
+   least 14 characters. Keep Temporary On. Save and confirm.
+5. In the user's details, confirm the first-login Update Password action.
+   For Approvers, also confirm Configure OTP is required.
+6. Have the employee sign in personally, change the temporary password and,
+   for Approvers, register THEIR authenticator. Never use a shared phone.
+7. Copy the full address of that user's Admin Console page to the ERP identity
+   administrator. They must verify the provider subject from a signed login
+   and create the employee/company mapping through the governed ERP operation.
+   Creating a Keycloak account alone does not grant ERP access.
+8. Test the employee's ERP sign-in in the correct company.
+9. If the ERP says EMPLOYEE_ACCESS_NOT_CONFIGURED, contact the ERP identity
+   administrator. If it says MFA_REQUIRED, check the user is in Approvers
+   and the ERP mapping points there. Do not turn MFA off.
+
+WHEN SOMEONE IS PROMOTED INTO AN APPROVER ROLE
+1. Create their Approvers account and complete personal OTP enrollment.
+2. Ask the ERP identity administrator to list every company the employee uses,
+   revoke each old Staff mapping and create each replacement using the verified
+   Approvers subject. Keep the same employee and authorized company memberships.
+3. Coordinate the ERP role approval with that administrator.
+4. Test a fresh Approvers login and correct access in every authorized company.
+5. After every company handover passes, disable the Staff account and end its
+   provider sessions. Keep the historical ERP mappings; do not delete or
+   rewrite them.
+6. During an incomplete handover, ERP access through Staff is refused.
+
+DAILY
+1. Open the identity-status.html shortcut on the operational display and leave
+   it open during working hours.
+2. Check the overall result is HEALTHY and the checked time is current.
+3. Both Staff and Approvers, identity server/database, ERP backup and identity
+   backup must say OK.
+4. ACTION_REQUIRED or MONITOR STALE: contact the named IT maintainer.
+5. Open Task Scheduler > Task Scheduler Library. Check both
+   SESS-NexaERP-VerifiedBackup and SESS-NexaERP-Identity-VerifiedBackup.
+   Each should have a recent Last Run Time and successful Last Run Result.
+6. Do not delete backup files manually. A dump file existing is not proof
+   that its restore was verified.
+
+IF THE LAPTOP OR KEYCLOAK FAILS
+Call the designated IT maintainer. Do not create replacement realms, reset
+everyone's password or restore over sess_nexa_erp. IT must recover the identity
+database and its protected configuration, then witness password/TOTP sign-in
+and the unchanged ERP mappings.
+
+UPGRADES
+Do not click through an untested upgrade. The IT maintainer needs a verified
+backup, a successful staging upgrade and login test, and an agreed maintenance
+window. A rollback needs the previous Keycloak version and its matching
+pre-upgrade database.

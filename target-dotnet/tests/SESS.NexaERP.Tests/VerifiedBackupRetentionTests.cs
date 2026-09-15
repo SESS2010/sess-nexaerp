@@ -12,7 +12,7 @@ public sealed class VerifiedBackupRetentionTests
         var now=DateTimeOffset.UtcNow;
         var newest=await Bundle(root,rootId,now.AddDays(-1),false);
         var second=await Bundle(root,rootId,now.AddDays(-2),false);
-        var expiredDaily=await Bundle(root,rootId,now.AddDays(-31),false);
+        var expiredDaily=await Bundle(root,rootId,now.AddDays(-31),false,configuration:true);
         var weekly=await Bundle(root,rootId,now.AddDays(-83),true);
         var expiredWeekly=await Bundle(root,rootId,now.AddDays(-85),true);
         var incomplete=Path.Combine(root,"run-"+Guid.NewGuid().ToString("N"));
@@ -51,7 +51,7 @@ public sealed class VerifiedBackupRetentionTests
         BackupFiles.DeleteTree(Path.GetTempPath(),root,BackupFiles.Marker,marker);
     }
 
-    private static async Task<string> Bundle(string root,Guid rootId,DateTimeOffset date,bool weekly)
+    private static async Task<string> Bundle(string root,Guid rootId,DateTimeOffset date,bool weekly,bool configuration=false)
     {
         // Policy-only fixtures: these are not database-restorability witnesses.
         var id=Guid.NewGuid();
@@ -60,8 +60,10 @@ public sealed class VerifiedBackupRetentionTests
         await File.WriteAllTextAsync(Path.Combine(bundle,"database.dump"),"retention fixture");
         await File.WriteAllTextAsync(Path.Combine(bundle,"globals.sql"),"retention fixture");
         var evidence=new BackupDatabaseEvidence("postgres",170000,"{}","{}",new(StringComparer.Ordinal));
-        var manifest=new VerifiedBackupManifest(1,"VERIFIED",rootId,id,date,date,weekly,"advance_parser","123",evidence,
-            [await BackupFiles.Evidence(bundle,"database.dump"),await BackupFiles.Evidence(bundle,"globals.sql")]);
+        BackupFileEvidence[] files=[await BackupFiles.Evidence(bundle,"database.dump"),await BackupFiles.Evidence(bundle,"globals.sql")];
+        if(configuration) { await File.WriteAllTextAsync(Path.Combine(bundle,"configuration-keycloak.conf"),"fixture"); files=[..files,await BackupFiles.Evidence(bundle,"configuration-keycloak.conf")]; }
+        var manifest=new VerifiedBackupManifest(configuration ? 2 : 1,"VERIFIED",rootId,id,date,date,weekly,"advance_parser","123",evidence,
+            files);
         await File.WriteAllTextAsync(Path.Combine(bundle,"manifest.json"),JsonSerializer.Serialize(manifest,BackupFiles.Json));
         return bundle;
     }

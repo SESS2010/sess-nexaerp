@@ -1,0 +1,113 @@
+{
+    "realm":  "approvers",
+    "enabled":  true,
+    "sslRequired":  "all",
+    "registrationAllowed":  false,
+    "resetPasswordAllowed":  false,
+    "rememberMe":  false,
+    "accessTokenLifespan":  900,
+    "ssoSessionIdleTimeout":  28800,
+    "ssoSessionMaxLifespan":  28800,
+    "browserFlow":  "nexaerp-approver-browser",
+    "authenticationFlows":  [
+                                {
+                                    "alias":  "nexaerp-approver-browser",
+                                    "description":  "Mandatory password and OTP for all Approvers browser logins",
+                                    "providerId":  "basic-flow",
+                                    "topLevel":  true,
+                                    "builtIn":  false,
+                                    "authenticationExecutions":  [
+                                                                     {
+                                                                         "authenticator":  "auth-username-password-form",
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  10,
+                                                                         "authenticatorFlow":  false,
+                                                                         "userSetupAllowed":  false
+                                                                     },
+                                                                     {
+                                                                         "authenticator":  "auth-otp-form",
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  20,
+                                                                         "authenticatorFlow":  false,
+                                                                         "userSetupAllowed":  true
+                                                                     }
+                                                                 ]
+                                }
+                            ],
+    "clients":  [
+                    {
+                        "clientId":  "nexaerp-approvers",
+                        "enabled":  true,
+                        "protocol":  "openid-connect",
+                        "publicClient":  true,
+                        "standardFlowEnabled":  true,
+                        "directAccessGrantsEnabled":  false,
+                        "redirectUris":  [
+                                             "https://REPLACE-ERP-HOST/oidc/callback"
+                                         ],
+                        "webOrigins":  [
+                                           "https://REPLACE-ERP-HOST"
+                                       ],
+                        "attributes":  {
+                                           "pkce.code.challenge.method":  "S256"
+                                       },
+                        "defaultClientScopes":  [
+                                                    "nexaerp/access"
+                                                ],
+                        "optionalClientScopes":  [
+
+                                                 ],
+                        "protocolMappers":  [
+                                                {
+                                                    "name":  "erp-audience",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-audience-mapper",
+                                                    "config":  {
+                                                                   "included.custom.audience":  "nexaerp",
+                                                                   "id.token.claim":  "false",
+                                                                   "access.token.claim":  "true"
+                                                               }
+                                                },
+                                                {
+                                                    "name":  "stable-subject",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-sub-mapper",
+                                                    "consentRequired":  false,
+                                                    "config":  {
+                                                                   "introspection.token.claim":  "true",
+                                                                   "access.token.claim":  "true"
+                                                               }
+                                                }
+                                            ],
+                        "implicitFlowEnabled":  false,
+                        "serviceAccountsEnabled":  false
+                    }
+                ],
+    "clientScopes":  [
+                         {
+                             "name":  "nexaerp/access",
+                             "protocol":  "openid-connect",
+                             "attributes":  {
+                                                "include.in.token.scope":  "true",
+                                                "display.on.consent.screen":  "false"
+                                            }
+                         }
+                     ],
+    "passwordPolicy":  "length(14)",
+    "bruteForceProtected":  true,
+    "clientSessionMaxLifespan":  28800,
+    "clientSessionIdleTimeout":  28800,
+    "requiredActions":  [
+                            {
+                                "name":  "Configure OTP",
+                                "config":  {
+
+                                           },
+                                "alias":  "CONFIGURE_TOTP",
+                                "providerId":  "CONFIGURE_TOTP",
+                                "defaultAction":  true,
+                                "priority":  10,
+                                "enabled":  true
+                            }
+                        ]
+}

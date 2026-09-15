@@ -1,8 +1,18 @@
 # Item 16 verification
 
+> 15 September owner update: Item 15 is witnessed complete and ERP migrations 78 to 103 are applied, RECONCILED and VERIFIED. SESS now selects local Keycloak; retain Cognito for other customers. Earlier Cognito-waiting and migration-blocked statements below are historical. Current deployment, backup and recovery work is tracked in [local Keycloak operations](item-16-local-keycloak-operations.md). Pool promotion instructions apply equivalently to Staff/Approvers realms, preserving revoke/create mapping history.
+
 Parent commit: 2f0a007 (the existing three-day plan commit after 255af75). Backend implementation and local provider verification completed on 12 September 2026. Owner database unchanged. Production Cognito onboarding remains for Tuesday.
 
-## Latest rerun - 15 September 2026
+## Local production recovery and full acceptance - 15 September 2026
+
+The local PostgreSQL-backed Keycloak recovery passed in both Debug and Release: actual scheduled backup, restore into a fresh cluster, original identity database shut down, and Staff password / Approver password-plus-TOTP authentication with unchanged subjects and signing keys. Expected and restored identity counts were 3 realms, 4 users and 5 credential rows. The owner accepted this recovery proof.
+
+The full routine Debug suite passed 844/844, zero failed/skipped, in 24.606 measured process minutes. The complete routine Release rerun passed 841/841, zero failed/skipped, in 26.730 measured process minutes. Both full runs are under 30 minutes. Backend acceptance for this package is complete. See [recovery findings and evidence](item-16-identity-recovery-findings.md) for diagnostic failures, completed TRX paths, timing and configuration-fixture limitations. No owner database was used or changed.
+
+Site installation remains separate: hostname, trusted TLS, independent backup destination, services and production frontend login/identity screens. The [operations handoff](item-16-local-keycloak-operations.md) and [Suranther click list](suranther-local-keycloak-click-list.txt) describe the required installation work. Earlier migration-blocked/report-10-incomplete statements below are retained historical evidence and were superseded by the owner-witnessed fc6de74 and live 78-to-103 deployment.
+
+## Earlier compatibility rerun - 15 September 2026
 
 The real retained Keycloak container passed again against the current backend code: Release 1/1, zero failed/skipped, 130.532 seconds process wall time; Debug 1/1, zero failed/skipped, 95.017 seconds. Preceding complete project builds passed with zero warnings/errors (Release 34.06 seconds, Debug 124.42 seconds). TRX: local-evidence/overnight-20260914/keycloak-final-release.trx and keycloak-final-debug.trx.
 

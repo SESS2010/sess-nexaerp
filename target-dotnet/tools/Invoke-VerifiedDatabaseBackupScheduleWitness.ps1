@@ -7,7 +7,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $config=Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-if($config.ExpectedHost -ne '127.0.0.1' -or $config.ExpectedDatabase -ne 'advance_parser' -or
+if($config.ExpectedHost -ne '127.0.0.1' -or $config.ExpectedDatabase -notin @('advance_parser','keycloak_witness') -or
     $config.ExpectedPort -le 1024 -or $config.ExpectedPort -eq 5432 -or $config.ExpectedPort -eq 18444) {
     throw 'Schedule witness requires the disposable Windows source database.'
 }
@@ -38,7 +38,7 @@ try {
         $task=Get-ScheduledTask -TaskName $taskName
         if((Get-Date) -gt $deadline) { throw 'Scheduled backup witness timed out.' }
         $info=Get-ScheduledTaskInfo -TaskName $taskName
-        if($task.State -ne 'Running' -and $info.LastRunTime -ge $requested.AddSeconds(-1) -and $info.LastTaskResult -ne 0 -and $info.LastTaskResult -ne 267009) {
+        if($task.State -ne 'Running' -and $info.LastTaskResult -notin @(0,267009,267011)) {
             throw ('Scheduled backup exited before producing success: '+$info.LastTaskResult)
         }
 

@@ -1,0 +1,10 @@
+{
+  "KeycloakVersion": "26.7.3",
+  "KeycloakImage": "quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+  "PostgreSqlMajor": 17,
+  "DatabasePlatform": "Windows - dedicated identity instance",
+  "DeploymentState": "TEMPLATE_NOT_DEPLOYED",
+  "IdentityHostname": "REPLACE-IDENTITY-HOST",
+  "ReviewedBy": "REPLACE-WITH-NAMED-IT-MAINTAINER",
+  "DeployedUtc": null
+}

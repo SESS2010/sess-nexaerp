@@ -2,7 +2,7 @@
 
 ## Completion rule (15 September 2026)
 
-Run the full routine Release suite after implementation changes and before reporting an item complete. Targeted runs are diagnostic evidence; they do not replace full-suite acceptance. Whole-assembly checks such as RequestInputAndActorReadReachability can detect omissions outside a targeted report filter. Retain a TRX file for every full run, including failed runs, in a separate results directory for that run.
+Run the full routine Release suite after implementation changes and before reporting an item complete. The subsequent owner instruction also requires successful builds and explicit Debug and Release counts for each item commit; label any targeted count as targeted and retain its evidence. The local-Keycloak operations change will run the complete routine suite in both configurations. Targeted runs are diagnostic evidence; they do not replace full-suite acceptance. Whole-assembly checks such as RequestInputAndActorReadReachability can detect omissions outside a targeted report filter. Retain a TRX file for every full run, including failed runs, in a separate results directory for that run.
 
 Do not overlap full suites or rebuild the shared output while a suite is running. Before using --no-build, finish a routine Release build with all witness gates off. Record the executed/passed/failed counts and measured test-process wall time separately from build time. An overlapping run is not a clean routine timing measurement.
 

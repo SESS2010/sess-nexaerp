@@ -1,0 +1,16 @@
+{
+  "ConnectionEnvironment": "NexaErp__IdentityBackupConnection",
+  "ExpectedHost": "127.0.0.1",
+  "ExpectedPort": 55432,
+  "ExpectedDatabase": "keycloak",
+  "ExpectedSystemIdentifier": "REPLACE-WITH-IDENTITY-CLUSTER-ID",
+  "PostgreSqlBin": "C:\\Program Files\\PostgreSQL\\17\\bin",
+  "BackupRoot": "E:\\SESS-Backups\\Identity",
+  "WorkingRoot": "C:\\SESS-Identity-Backup-Verification",
+  "ConfigurationFiles": {
+    "keycloak.conf": "C:\\SESS-Identity\\deployment\\keycloak.conf",
+    "tls.crt": "C:\\SESS-Identity\\deployment\\tls.crt",
+    "tls.key": "C:\\SESS-Identity\\deployment\\tls.key",
+    "deployment-version.json": "C:\\SESS-Identity\\deployment\\deployment-version.json"
+  }
+}

@@ -19,6 +19,7 @@ internal static class VerifiedBackupEngine
         var started=DateTimeOffset.UtcNow;
         BackupFiles.AtomicJson(Path.Combine(bundle,"started.json"),new { RootId=rootId,RunId=run,StartedUtc=started });
         var toolsLog=Path.Combine(bundle,"tools.log");
+        await using var configuration=BackupConfigurationSnapshot.Open(config);
         await using var connection=new NpgsqlConnection(source.ConnectionString);
         await connection.OpenAsync();
         await RequireSource(connection,config);
@@ -40,13 +41,15 @@ internal static class VerifiedBackupEngine
         // Globals have no shared database snapshot. Refuse observable role changes.
         var rolesAfter=await BackupDatabaseSnapshot.Scalar(connection,null,BackupDatabaseSnapshot.RolesSql);
         if(evidence.Roles!=rolesAfter) throw new InvalidOperationException("Role definitions changed during backup; retry during a stable administration window.");
-        var files=new[]{await BackupFiles.Evidence(bundle,"database.dump"),await BackupFiles.Evidence(bundle,"globals.sql")};
+        var supplemental=await configuration.CopyAsync(bundle);
+        BackupFileEvidence[] files=[await BackupFiles.Evidence(bundle,"database.dump"),await BackupFiles.Evidence(bundle,"globals.sql"),..supplemental];
         await File.WriteAllTextAsync(Path.Combine(bundle,"source-evidence.json"),JsonSerializer.Serialize(evidence,BackupFiles.Json));
         await RestorePrivate(config,bundle,evidence,null,files);
         foreach(var file in files)
             if(file!=await BackupFiles.Evidence(bundle,file.Name))
                 throw new InvalidOperationException("Backup artifacts changed during restore verification.");
-        var manifest=new VerifiedBackupManifest(1,"VERIFIED",rootId,run,started,DateTimeOffset.UtcNow,
+        await configuration.RequireUnchanged(supplemental);
+        var manifest=new VerifiedBackupManifest(supplemental.Length==0 ? 1 : 2,"VERIFIED",rootId,run,started,DateTimeOffset.UtcNow,
             started.DayOfWeek==DayOfWeek.Sunday,config.ExpectedDatabase,config.ExpectedSystemIdentifier,evidence,files);
         BackupFiles.AtomicJson(Path.Combine(bundle,"manifest.json"),manifest);
         await Retain(config.BackupRoot,rootId,DateTimeOffset.UtcNow);
@@ -75,7 +78,7 @@ internal static class VerifiedBackupEngine
         var value=JsonSerializer.Deserialize<VerifiedBackupManifest>(File.ReadAllText(BackupFiles.Child(full,"manifest.json")),BackupFiles.Json)
             ?? throw new InvalidOperationException("Missing backup manifest.");
         if(value.RootId!=rootId || Path.GetFileName(full)!="run-"+value.RunId.ToString("N")
-            || value.RunId==Guid.Empty || value.Format!=1 || value.State!="VERIFIED")
+            || value.RunId==Guid.Empty || value.Format is not (1 or 2) || value.State!="VERIFIED")
             throw new InvalidOperationException("Backup bundle ownership mismatch.");
         return value;
     }
@@ -160,6 +163,13 @@ internal static class VerifiedBackupEngine
             foreach(var expectedFile in expectedFiles)
                 if(expectedFile!=await BackupFiles.Evidence(bundle,expectedFile.Name))
                     throw new InvalidOperationException("Backup artifacts changed during restore verification.");
+            if(recoveryDestination is not null)
+                foreach(var file in expectedFiles.Where(f=>BackupConfigurationSnapshot.IsArtifact(f.Name)))
+                {
+                    File.Copy(BackupFiles.Child(bundle,file.Name),BackupFiles.Child(scratch,file.Name),false);
+                    if(file!=await BackupFiles.Evidence(scratch,file.Name))
+                        throw new InvalidOperationException("Recovered configuration hash or size differs.");
+                }
             verified=true;
         }
         finally
@@ -181,7 +191,7 @@ internal static class VerifiedBackupEngine
             BackupFiles.AtomicJson(Path.Combine(scratch,"RECOVERED.json"),new {
                 State="RESTORED_VERIFIED_STOPPED",Database=config.ExpectedDatabase,
                 BootstrapRole=expected.BootstrapRole,DataDirectory=data,VerifiedUtc=DateTimeOffset.UtcNow,
-                Next="Re-establish service credentials and validate ERP principal grants before starting the API." });
+                Next="Re-establish database service credentials, restore reviewed application configuration and validate application access before enabling users." });
     }
 
     internal static async Task Retain(string root,Guid rootId,DateTimeOffset now)
@@ -201,6 +211,7 @@ internal static class VerifiedBackupEngine
             var allowed=new HashSet<string>(StringComparer.Ordinal) {
                 "database.dump","globals.sql","manifest.json","started.json","tools.log",
                 "last-restored-evidence.json","last-restore-postgresql.log","source-evidence.json" };
+            allowed.UnionWith(candidate.Manifest.Files.Select(f=>f.Name));
             if(Directory.EnumerateFileSystemEntries(candidate.Path).Any(x=>!allowed.Contains(Path.GetFileName(x)) || Directory.Exists(x)))
                 throw new InvalidOperationException("Retention refuses an unexpected backup entry.");
             foreach(var file in Directory.EnumerateFiles(candidate.Path)) BackupFiles.Canonical(file);

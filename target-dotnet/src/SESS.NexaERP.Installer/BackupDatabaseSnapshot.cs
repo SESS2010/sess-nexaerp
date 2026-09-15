@@ -7,7 +7,7 @@ using Npgsql;
 internal sealed record VerifiedBackupConfiguration(
     string ConnectionEnvironment, string ExpectedHost, int ExpectedPort,
     string ExpectedDatabase, string ExpectedSystemIdentifier,
-    string PostgreSqlBin, string BackupRoot, string WorkingRoot);
+    string PostgreSqlBin, string BackupRoot, string WorkingRoot, Dictionary<string,string>? ConfigurationFiles = null);
 
 internal sealed record BackupFileEvidence(string Name,long Length,string Sha256);
 internal sealed record BackupDatabaseEvidence(string BootstrapRole,int ServerVersion,
@@ -109,11 +109,29 @@ internal static class BackupDatabaseSnapshot
     internal static void RequireEqual(BackupDatabaseEvidence expected,BackupDatabaseEvidence actual)
     {
         if(expected.BootstrapRole!=actual.BootstrapRole || expected.ServerVersion/10000!=actual.ServerVersion/10000
-            || expected.Roles!=actual.Roles || expected.Metadata!=actual.Metadata
+            || expected.Roles!=actual.Roles || PortableMetadata(expected.Metadata)!=PortableMetadata(actual.Metadata)
             || expected.TableCounts.Count!=actual.TableCounts.Count || expected.TableCounts.Any(x=>!actual.TableCounts.TryGetValue(x.Key,out var count) || count!=x.Value))
             throw new InvalidOperationException("Restored database counts or security/schema metadata differ from the backup snapshot.");
     }
 
+    private static string PortableMetadata(string metadata)
+    {
+        var root=JsonNode.Parse(metadata)!.AsObject();
+        var indexes=new HashSet<(string Schema,string Name)>();
+        if(root["relations"] is JsonArray relations)
+            foreach(var relation in relations)
+                if(relation?["kind"]?.GetValue<string>() is "i" or "I")
+                    indexes.Add((relation!["schema"]!.GetValue<string>(),relation["name"]!.GetValue<string>()));
+        // pg_attribute also describes indexes. Column rename leaves historical index
+        // attribute labels that pg_dump legitimately regenerates. Keep their raw evidence,
+        // but compare logical index definitions (already in metadata), not those labels.
+        // Apply to both sides so existing format-1 backup evidence remains recoverable.
+        if(root["columns"] is JsonArray columns)
+            for(var i=columns.Count-1;i>=0;i--)
+                if(indexes.Contains((columns[i]!["schema"]!.GetValue<string>(),columns[i]!["table"]!.GetValue<string>())))
+                    columns.RemoveAt(i);
+        return root.ToJsonString();
+    }
     internal static string Quote(string value)=>"\""+value.Replace("\"","\"\"")+"\"";
 
     internal static async Task<string> Scalar(NpgsqlConnection c,NpgsqlTransaction? t,string sql)

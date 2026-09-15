@@ -1,0 +1,31 @@
+{
+    "ReadyUrl":  "https://REPLACE-IDENTITY-HOST:9000/health/ready",
+    "Realms":  [
+                   {
+                       "Name":  "Staff",
+                       "Issuer":  "https://REPLACE-IDENTITY-HOST/realms/staff",
+                       "DiscoveryUrl":  "https://REPLACE-IDENTITY-HOST/realms/staff/.well-known/openid-configuration",
+                       "JwksUrl":  "https://REPLACE-IDENTITY-HOST/realms/staff/protocol/openid-connect/certs"
+                   },
+                   {
+                       "Name":  "Approvers",
+                       "Issuer":  "https://REPLACE-IDENTITY-HOST/realms/approvers",
+                       "DiscoveryUrl":  "https://REPLACE-IDENTITY-HOST/realms/approvers/.well-known/openid-configuration",
+                       "JwksUrl":  "https://REPLACE-IDENTITY-HOST/realms/approvers/protocol/openid-connect/certs"
+                   }
+               ],
+    "BackupResults":  [
+                          {
+                              "Name":  "ERP",
+                              "Path":  "C:\\SESS-Backup\\logs\\last-run.json",
+                              "TaskName":  "SESS-NexaERP-VerifiedBackup"
+                          },
+                          {
+                              "Name":  "Identity",
+                              "Path":  "C:\\SESS-Identity\\backup-logs\\last-run.json",
+                              "TaskName":  "SESS-NexaERP-Identity-VerifiedBackup"
+                          }
+                      ],
+    "MaximumBackupAgeHours":  26,
+    "StatusDirectory":  "C:\\SESS-Identity\\status"
+}

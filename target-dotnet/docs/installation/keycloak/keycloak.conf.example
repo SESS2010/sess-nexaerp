@@ -1,0 +1,12 @@
+# Reviewed Keycloak 26.7.3 Linux VM, dedicated Windows PostgreSQL 17 instance.
+# Replace host before startup. Supply KC_DB_PASSWORD through the protected service environment.
+db=postgres
+db-url=jdbc:postgresql://REPLACE-PRIVATE-WINDOWS-HOST:55432/keycloak
+db-username=keycloak
+hostname=https://REPLACE-IDENTITY-HOST
+https-certificate-file=/etc/nexaerp-identity/tls.crt
+https-certificate-key-file=/etc/nexaerp-identity/tls.key
+http-enabled=false
+health-enabled=true
+metrics-enabled=true
+# Keep management interface private; do not publish port 9000 to users.

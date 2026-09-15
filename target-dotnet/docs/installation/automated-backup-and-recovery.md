@@ -1,4 +1,34 @@
 # Automated verified backup and recovery
+## 15 September: identity backup extension
+
+Local Keycloak is now the SESS default. Use the same backup commands and scheduler
+with a separate identity configuration, connection credential, task name, backup
+root and verification root. See keycloak/backup.identity.example.json and
+item-16-local-keycloak-operations.md. The owner reports the ERP chain 78 to 103
+applied, RECONCILED and VERIFIED; earlier migration failures below are history.
+
+Optional ConfigurationFiles maps safe logical names to explicit absolute files.
+When supplied, a format-2 bundle includes configuration-* artifacts, their sizes
+and SHA-256 hashes alongside database.dump and globals.sql. Recovery copies them
+into the new protected recovery directory; it does not apply them to live
+services. Existing format-1 bundles and their checks remain supported. Configuration
+files are held open against Windows writes/deletion through backup verification.
+Maintain a stable deployment configuration during a run.
+
+Keycloak password hashes, OTP credentials, subjects and realm signing keys are
+database contents and are backed up. The PostgreSQL role passwords deliberately
+omitted from globals are separate service credentials. A successful identity
+restore must additionally prove password/TOTP login with the original subjects.
+
+Both ERP and identity schedules must be fresh and successful. The operations
+monitor checks both. Back up any remaining external ERP attachment/object storage
+separately; adding identity does not make unrelated external files automatic.
+The identity bundle contains authentication secrets: restrict access and use
+independent encrypted storage. This implementation does not itself encrypt dumps.
+
+New recovery witness and full-suite acceptance: pending; see the current Item 16
+operations evidence rather than treating earlier ERP-only witnesses as proof.
+
 
 Release and Debug verification each passed eight targeted tests, including a real scheduled run and recovery. This is not a
 deployed customer schedule. No owner database was accessed during these tests.

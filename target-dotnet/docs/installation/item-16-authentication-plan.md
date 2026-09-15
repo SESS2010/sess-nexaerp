@@ -1,5 +1,7 @@
 # Item 16: authentication report before implementation
 
+> 15 September owner update: Item 15 is witnessed complete and ERP migrations 78 to 103 are applied, RECONCILED and VERIFIED. SESS now selects local Keycloak; retain Cognito for other customers. Earlier Cognito-waiting and migration-blocked statements below are historical. Current deployment, backup and recovery work is tracked in [local Keycloak operations](item-16-local-keycloak-operations.md). Pool promotion instructions apply equivalently to Staff/Approvers realms, preserving revoke/create mapping history.
+
 Prepared against HEAD 2f0a007, 12 September 2026. This is the original design report. Implementation and the latest passing Release/Debug Keycloak reruns are recorded in item-16-verification.md (15 September). No owner database changes. The protected-name migration blocker must be resolved before Tuesday deployment; the verification document records that boundary.
 
 ## On-premises alternative

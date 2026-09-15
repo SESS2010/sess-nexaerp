@@ -14,3 +14,35 @@ Resolved base image digest: quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed
 The Windows PC has no installed Docker engine. For this session, a checksum-verified portable QEMU VM runs Alpine Linux and Docker. Only the disposable guest disk was formatted; the owner ERP database is not used. Initial image startup under CPU emulation takes substantially longer than native Docker. The actual authentication result belongs in the Item 16 evidence report; these fixture instructions are not a pass claim.
 
 The successful API witness on this PC used a fixture-configured image committed after stock Keycloak augmentation and offline realm import. The exact derived image and container IDs, along with the passing result, are recorded in docs/installation/item-16-verification.md. A fresh invocation of the wrapper imports the same checked-in realms into the pinned-version base image.
+
+## PostgreSQL backup/recovery witness
+
+KeycloakWitness also compiles the separate Witness=KeycloakRecovery test. It is
+not selected by the existing login-only wrapper. Run it explicitly after a
+successful witness-enabled build, with a TRX logger and a unique results folder.
+
+Set SESS_KEYCLOAK_RECOVERY_CONTROL to an absolute path to the disposable
+controller script. tools/Control-KeycloakRecoveryWitness.ps1 is the Docker
+adapter; it also needs SESS_KEYCLOAK_WITNESS_CERTIFICATE and
+SESS_KEYCLOAK_WITNESS_PRIVATE_KEY. The existing URL and SHA256 pin variables still
+apply. Reserve the loopback HTTPS port for this witness. The controller starts
+only a labelled disposable provider using the test's fresh PostgreSQL port;
+never point it at customer data. The published database/password/user fixtures
+are test data and must never be deployed.
+
+The test uses the real scheduled Installer backup, recovers to another durable
+PostgreSQL cluster, makes its original identity database unavailable, and verifies
+fresh password/TOTP login, unchanged subjects/signing keys, and ERP OIDC/mapping
+behaviour. It also verifies recovery of a deployment-configuration file. The
+protected TLS mount is fixture infrastructure, not a witnessed production TLS
+installation. Routine builds exclude this external-runtime test.
+
+On this Windows PC the actual container runs in the retained, isolated QEMU
+Linux guest via a local control adapter; the generic Docker adapter has only been
+syntax-checked here. The provider is production-mode/PostgreSQL-backed, but the
+VM's CPU emulation and native Windows test PostgreSQL are not a production Linux
+appliance certification. Initial emulated startup may take up to 40 minutes.
+The local adapter retains the augmented server image between restarts; user and
+realm data remain in PostgreSQL. See item-16-identity-recovery-findings.md and
+item-16-local-keycloak-operations.md under docs/installation for evidence and
+site deployment boundaries.

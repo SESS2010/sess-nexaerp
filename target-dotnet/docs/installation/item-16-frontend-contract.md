@@ -22,4 +22,4 @@ POST /api/v1/rev869a/configuration/employee-identities/{id}/revoke requires secu
 
 Installer authentication-bootstrap takes --issuer and --subject. Ordinary replay refuses. --rerun verifies the identical completed result without changes or repair. --retire-development explicitly closes development history during initial transition and cannot be combined with --rerun. The runtime principal cannot execute the ceremony.
 
-See [promotion procedure](mandatory-mfa-role-promotion.md) and [forwardable Suranther list](suranther-tuesday-click-list.txt). Local Keycloak evidence is separate from Tuesday's real Cognito onboarding.
+See [promotion procedure](mandatory-mfa-role-promotion.md), [local Keycloak operations](item-16-local-keycloak-operations.md) and the [forwardable Suranther list](suranther-local-keycloak-click-list.txt). The 15 September owner decision selects local Keycloak for SESS; the Cognito configuration path remains available for other deployments.

@@ -1,8 +1,10 @@
 # Promotion to a mandatory-MFA role
 
+> 15 September owner update: Item 15 is witnessed complete and ERP migrations 78 to 103 are applied, RECONCILED and VERIFIED. SESS now selects local Keycloak; retain Cognito for other customers. Earlier Cognito-waiting and migration-blocked statements below are historical. Current deployment, backup and recovery work is tracked in [local Keycloak operations](item-16-local-keycloak-operations.md). Pool promotion instructions apply equivalently to Staff/Approvers realms, preserving revoke/create mapping history.
+
 Applies to TECHNICAL_DIRECTOR, MANAGING_DIRECTOR and ACCOUNTS_MANAGER. Example: an approved promotion of SESS-15 to ACCOUNTS_MANAGER.
 
-## What happens if the pool is wrong
+## What happens if the provider is wrong
 
 The identity provider can accept the Staff password, but ERP refuses all authenticated ERP access in a company where the employee's effective ERP roles require MFA. It returns HTTP 403 with Code MFA_REQUIRED. It does not allow ordinary screens and block only the final approval. Existing Staff tokens are checked against current ERP roles on subsequent requests; their remaining token lifetime is not an exemption.
 
@@ -16,12 +18,12 @@ Revocation is a runtime administrator operation, not a migration. The old mappin
 
 ## Who performs the handover
 
-SURANTHER P, SESS-12, operates the Cognito account setup using his AWS administrative access and the identity handover using his ERP IT_MANAGER permission. Another authorized ERP identity administrator can perform it. Cognito administration alone cannot alter ERP mappings or roles. An ERP identity administrator without AWS rights must coordinate with the Cognito administrator. Neither task bypasses the separate governed ERP role-assignment approval process. An administrator cannot revoke their own mapping through this route.
+SURANTHER P, SESS-12, operates local Keycloak account setup using his assigned realm-administration access and the identity handover using his ERP IT_MANAGER permission. Another authorized ERP identity administrator can perform it. Provider administration alone cannot alter ERP mappings or roles. For a customer using Cognito, the AWS administrator performs the provider steps; an ERP identity administrator without provider rights must coordinate with that administrator. Neither task bypasses the separate governed ERP role-assignment approval process. An administrator cannot revoke their own mapping through this route.
 
 ## Procedure before the promotion becomes effective
 
 1. Record the approved role change, effective company/date, employee code and responsible administrators. Check all company memberships requiring handover.
-2. Cognito administrator creates the employee in Approvers using the same employee code as the username, verifies their personal email and records the new immutable subject.
+2. The provider administrator creates the employee in the Approvers realm (or Cognito pool) using the same employee code as the username. Verify any supplied personal email and obtain the new immutable subject from a verified signed login.
 3. Employee changes the temporary password and enrolls their own TOTP authenticator. Verify a fresh password-plus-TOTP sign-in. End enrollment sessions before activating ERP access. Never share a phone or copy a TOTP secret.
 4. Schedule a short handover interruption and coordinate the role's effective activation through its existing governed workflow. If the role becomes effective first, Staff-based ERP access fails closed until the remaining steps finish.
 5. ERP IT_MANAGER lists the employee's existing company mappings. For each, POST /api/v1/rev869a/configuration/employee-identities/{identityId}/revoke with Version and Remarks containing the promotion reference.
@@ -33,7 +35,7 @@ SURANTHER P, SESS-12, operates the Cognito account setup using his AWS administr
 If any step fails, leave access refused and resolve the account/mapping problem; do not temporarily make MFA optional, reactivate the Staff mapping to bypass the role policy, or reset the bootstrap ceremony. A subsequent demotion does not require an immediate move back to Staff: the employee can continue using Approvers and MFA.
 
 
-Cognito can issue tokens during first-time enrollment even in a required-MFA pool. Before activating a new approver mapping, complete TOTP enrollment, end/revoke enrollment sessions, wait 16 minutes so any enrollment access token expires including the API's 30-second clock skew, then verify a fresh password-plus-TOTP sign-in. Do not activate the mapping earlier. This is an onboarding procedure, not a change to token lifetime. Source: https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-mfa.html .
+Cognito-specific additional step: Cognito can issue tokens during first-time enrollment even in a required-MFA pool. Before activating a new approver mapping, complete TOTP enrollment, end/revoke enrollment sessions, wait 16 minutes so any enrollment access token expires including the API's 30-second clock skew, then verify a fresh password-plus-TOTP sign-in. Do not activate the mapping earlier. This is an onboarding procedure, not a change to token lifetime. Source: https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-mfa.html .
 
 
 ## Documents already in progress

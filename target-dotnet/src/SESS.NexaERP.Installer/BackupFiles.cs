@@ -89,9 +89,14 @@ internal static class BackupFiles
     }
     internal static async Task RequireFiles(string bundle,VerifiedBackupManifest manifest)
     {
-        if(manifest.Format!=1 || manifest.State!="VERIFIED"
-            || manifest.Files.Length!=2
-            || !manifest.Files.Select(x=>x.Name).Order().SequenceEqual(new[]{"database.dump","globals.sql"}))
+        var names=manifest.Files.Select(f=>f.Name).ToArray();
+        var baseFiles=new[]{"database.dump","globals.sql"};
+        var valid=manifest.Format switch {
+            1=>names.Length==2 && names.Order().SequenceEqual(baseFiles),
+            2=>names.Length>2 && baseFiles.All(names.Contains)
+                && names.Where(n=>!baseFiles.Contains(n)).All(BackupConfigurationSnapshot.IsArtifact),
+            _=>false };
+        if(!valid || manifest.State!="VERIFIED" || names.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=names.Length)
             throw new InvalidOperationException("Invalid verified backup manifest.");
         foreach(var expected in manifest.Files)
             if(expected!=await Evidence(bundle,expected.Name))

@@ -1,5 +1,7 @@
 # Item 15 scale witness - 15 September 2026
 
+> Later owner acceptance: fc6de74 was witnessed and pushed, 836 passed with zero failed in 22m35s; the owner applied ERP migrations 78 to 103, RECONCILED and VERIFIED. Item 15 including report 10 is now accepted complete. The measurements below remain measurements of the stated earlier stock/roll-forward code and fixture, not a new run.
+
 Measured code: 9d2c0d4. Release opt-in witness passed 1/1, zero failed/skipped, 25m18s process wall time; preceding build passed with zero warnings/errors. This deliberate volume run is separate from the routine Release run, which passed 836/836 in 23m42s. Debug builds and report business checks pass as recorded in item-15-billed-not-received.md; no Debug volume timing is claimed.
 
 Exactly 300,000 items and 2,000,000 movements were verified and analyzed before timing. Report date: 2026-09-15. PostgreSQL temporary-file limit: 4 GB per backend.
