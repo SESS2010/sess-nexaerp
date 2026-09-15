@@ -97,7 +97,7 @@ internal static class CommandReceiptReplaySql
             DO $guard$
             BEGIN
               IF current_setting('server_version_num')::integer<170000
-                 OR current_database() IN ('postgres','template0','template1','sess_nexaerp','sess_nexa_erp') THEN
+                 OR current_database() IN ('postgres','template0','template1') THEN
                 RAISE EXCEPTION 'Receipt replay migration refuses this cluster or protected database.';
               END IF;
               IF to_regclass('advance.command_requests') IS NULL

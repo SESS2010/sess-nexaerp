@@ -1,5 +1,7 @@
 # Proposed explicit approval for the SESS migration target
 
+SUPERSEDED / NOT IMPLEMENTED: the user explicitly rejected this new approval mechanism and authorized only removal of the two SESS database names. See ../docs/installation/exact-name-migration-witness-2026-09-15.md for the implemented change and passing exact-name 78-to-102 witness.
+
 Status: proposal only. No production guard has been changed. The current chain still refuses sess_nexa_erp. Automatic approval review rejected applying the change without the user's explicit approval.
 
 ## Decision requested

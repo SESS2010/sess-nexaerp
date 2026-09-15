@@ -84,7 +84,7 @@ internal static class VendorBankAdviceMigrationSql
             DO $guard$
             BEGIN
               IF current_setting('server_version_num')::integer<170000
-                OR lower(current_database()) IN('postgres','template0','template1','sess_nexaerp','sess_nexa_erp')
+                OR lower(current_database()) IN('postgres','template0','template1')
                 OR to_regprocedure('pg_catalog.sha256(bytea)') IS NULL THEN
                 RAISE EXCEPTION 'Bank advice migration refuses this cluster or protected database.';
               END IF;

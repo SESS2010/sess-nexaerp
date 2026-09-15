@@ -45,7 +45,7 @@ internal static class ForeignPaymentBankAdviceSql
     internal static string Guard(string expected) => """
         DO $guard$
         BEGIN
-          IF lower(current_database()) IN ('sess_nexaerp','sess_nexa_erp') THEN
+          IF lower(current_database()) IN ('postgres','template0','template1') THEN
             RAISE EXCEPTION 'Foreign payment migration refuses the protected owner database.';
           END IF;
         END $guard$;

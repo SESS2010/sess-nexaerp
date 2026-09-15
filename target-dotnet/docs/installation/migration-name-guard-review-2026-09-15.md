@@ -1,5 +1,7 @@
 # Migration name guard review - 15 September 2026
 
+Subsequent decision: the user identified the SESS-name prohibition as misplaced test-time protection and explicitly authorized its removal, without the proposed approval mechanism. See [implemented change and exact-name proof](exact-name-migration-witness-2026-09-15.md). The review below records the earlier authorization boundary.
+
 No database was connected to or migrated for this review. No migration, guard or design-time factory was changed. This is source inspection against retained restore evidence.
 
 ## Finding and authorization boundary

@@ -1,5 +1,7 @@
 # Item 15 acceptance work — 14 September
 
+Latest migration result: the authorized name-only guard correction passed a fresh exact-name 78-to-102 witness and principal reconciliation. See [current migration proof](exact-name-migration-witness-2026-09-15.md). Earlier guard-blocker statements below are historical; report 10 remains outstanding.
+
 Priority: all ten reports before further dashboards; delivered-machine dossier last; then Keycloak authentication. The user has brought the report source prerequisites into this work. Previous partial report code is reused, not treated as completion.
 
 Verified checkpoint:

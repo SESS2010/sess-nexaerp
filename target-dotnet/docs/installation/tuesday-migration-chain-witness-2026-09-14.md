@@ -1,5 +1,7 @@
 # Tuesday migration chain - backup witness and deployment blocker
 
+Superseded on 15 September: the user authorized removing the two SESS names only. The fresh exact-name copy now passed 78 to 102, with RECONCILED/VERIFIED principals. See [current exact-name witness](exact-name-migration-witness-2026-09-15.md). The refusal below is retained historical evidence.
+
 ## Current answer: do not run the committed chain on sess_nexa_erp yet
 
 The chain has a database-name blocker. At revision 433f968 (unchanged by gate commit 983a45f), the first refusal is 20260913060000_CommandReceiptReplay, the seventh pending migration after the supplied 78-applied state. Six preceding migration transactions may commit before that refusal. Do not skip the migration, edit migration history, or use the earlier unqualified morning instruction.

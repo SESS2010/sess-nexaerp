@@ -91,7 +91,7 @@ internal static class PurchaseOrderSupersedeHistorySql
           marker_pos integer; query_start integer; query_end integer; patch text:={{Quote(Patch)}};
         BEGIN
           IF current_setting('server_version_num')::integer<170000 OR
-            lower(current_database()) IN('postgres','template0','template1','sess_nexaerp','sess_nexa_erp') THEN
+            lower(current_database()) IN('postgres','template0','template1') THEN
             RAISE EXCEPTION 'PO supersede history refuses this cluster or protected database.';
           END IF;
           SELECT p.* INTO fn FROM pg_proc p WHERE p.oid=to_regprocedure('{{Signature}}');
