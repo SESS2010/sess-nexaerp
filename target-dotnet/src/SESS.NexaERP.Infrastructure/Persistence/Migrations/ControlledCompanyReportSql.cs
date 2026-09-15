@@ -13,6 +13,7 @@ internal static class ControlledCompanyReportSql
 
     private static string Name(string key) => key switch
     {
+        "machine-dossier" => "company_report_machine_dossier",
         "billed-not-received" => "company_report_billed_not_received",
         "grni" => "company_report_grni",
         "vendor-purchases" => "company_report_vendor_purchases",

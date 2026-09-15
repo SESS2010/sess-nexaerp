@@ -85,7 +85,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
         Func<StoresQcStockWitnessContext,Task>? qcStock = null,
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false,
-        Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null)
+        Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -534,6 +534,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if (obligations is not null) await obligations(new(options,runtimeConnection,"FINAL"));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
+            if(machineDelivery is not null) await machineDelivery(new(options,runtimeConnection,user,storesId,tdId,managerId,productionId));
             if(fifoPartialReturn is not null)await fifoPartialReturn(new(client,options,user,productionId,storesId,managerId));
             if(supplierInvoices is not null)
             {
@@ -2398,6 +2399,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapNotificationEndpoints();
             app.MapVendorBillEndpoints();
             app.MapSupplierInvoiceEndpoints();
+            app.MapMachineDeliveryEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
             app.MapFitmentActualBomEndpoints();
             app.MapJobOrderFatReadinessEndpoints();

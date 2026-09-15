@@ -160,6 +160,7 @@ app.MapProductionEngineeringEndpoints();
 app.MapMaterialIssueEndpoints();
 app.MapVendorBillEndpoints();
 app.MapSupplierInvoiceEndpoints();
+app.MapMachineDeliveryEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();
 app.MapOpeningStockEndpoints();
 app.MapJobOrderEndpoints();

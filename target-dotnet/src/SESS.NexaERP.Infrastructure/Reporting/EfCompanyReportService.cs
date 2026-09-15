@@ -75,6 +75,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
         var command = await CommandAsync(ct);
         command.CommandText = definition.Key switch
         {
+            "machine-dossier" => SESS.NexaERP.Infrastructure.Persistence.Migrations.ControlledCompanyReportSql.Invocation("machine-dossier"),
             "stock-balance" => StockReportSql.Build(false),
             "movement-roll-forward" => StockReportSql.Build(true),
             "engineer-custody" => GroupedReportSql.Build(definition, EngineerCustodyReportSql.Source, "sum((metrics->>'quantity')::numeric)<>0"),
@@ -139,6 +140,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
 
     internal static CompanyReportRequest Normalize(ReportDefinition definition, CompanyReportRequest request, DateOnly? calendarToday = null)
     {
+        if(definition.Key=="machine-dossier" && (request.Group is null || !request.Group.Contains("machineSerial",StringComparison.Ordinal))) throw new ReportRequestException("Select exactly one machine serial for the delivered-machine dossier.");
         var today = calendarToday ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var to = request.ToDate ?? today;
         var from = definition.UsesPeriod ? request.FromDate ?? new DateOnly(to.Year, to.Month, 1) : DateOnly.MinValue;
@@ -171,6 +173,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
                     normalizedGroup.Add(property.Name,property.Name.EndsWith("Id",StringComparison.Ordinal)
                         ? Guid.Parse(property.Value.GetString()!).ToString("D") : property.Value.GetString());
                 }
+                if(definition.Key=="machine-dossier" && (!normalizedGroup.TryGetValue("machineSerial",out var serial) || string.IsNullOrWhiteSpace(serial))) throw new ReportRequestException("A nonempty machine serial is required.");
                 request = request with { Group = JsonSerializer.Serialize(normalizedGroup) };
             }
             catch (JsonException) { throw new ReportRequestException("Drill-through selection is not valid JSON."); }

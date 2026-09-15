@@ -52,7 +52,7 @@ internal static class ReportDefinitions
         new("allocatedCharges","Net allocated charges","number","allocatedCharges"),
         new("landedValue","Net accepted landed value","number","landedValue")
     ];
-    internal static IReadOnlySet<string> FilterKeys(ReportDefinition definition) => definition.Key is "grni" or "vendor-purchases" or "billed-not-received"
+    internal static IReadOnlySet<string> FilterKeys(ReportDefinition definition) => definition.Key == "machine-dossier" ? new HashSet<string>(["machineSerial","itemId","uom","currency"],StringComparer.Ordinal) : definition.Key is "grni" or "vendor-purchases" or "billed-not-received"
         ? new HashSet<string>(["vendorId","itemId","uom","currency"],StringComparer.Ordinal) : definition.Key == "purchase-register" ? new HashSet<string>(["prLineId","itemId","uom"],StringComparer.Ordinal)
         : definition.Key == "fifo-valuation" ? new HashSet<string>(["itemId","ownershipAccountId","ownership","uom","currency","ageBucket","costBasis"],StringComparer.Ordinal)
         : definition.Key == "pending-approvals" ? new HashSet<string>(["approverKey","uom"],StringComparer.Ordinal)
@@ -69,6 +69,15 @@ internal static class ReportDefinitions
 
     internal static readonly IReadOnlyList<ReportDefinition> All =
     [
+        new("machine-dossier","Delivered machine component ancestry",false,true,
+            [new("machineSerial","Machine serial"),new("dcNumber","Signed DC"),new("itemCode","Item code"),new("itemName","Component"),new("uom","Unit"),new("currency","Currency"),
+             new("quantity","Net fitted quantity","number","quantity"),new("materialValue","Material value","number","materialValue"),new("allocatedCharges","Allocated charges","number","allocatedCharges"),new("landedValue","Landed value","number","landedValue")],
+            [new("machineSerial","Machine serial"),new("dcNumber","Signed DC"),new("deliveredAt","Delivered at"),new("customerSignatory","Customer signatory"),new("signatureSha256","Signature SHA-256"),
+             new("entryId","Actual BOM entry"),new("entryKind","Entry kind"),new("itemCode","Item code"),new("itemName","Component"),new("uom","Unit"),new("currency","Currency"),
+             new("quantity","Quantity","number"),new("materialValue","Material value","number"),new("allocatedCharges","Allocated charges","number"),new("landedValue","Landed value","number"),
+             new("fitmentId","Fitment ID"),new("reversalId","Reversal ID"),new("issueLineId","Issue line ID"),new("grnLineId","GRN line ID"),new("grnDocuments","GRNs"),new("vendors","Vendors"),new("bills","Accepted bills"),new("qcDocuments","QC inspections"),new("evidencePart","Evidence part","number"),new("evidence","Source evidence JSON")],
+            [new("machineSerial","Machine serial"),new("uom","Unit"),new("currency","Currency")],
+            Coverage:"One signed delivered job-order machine. Immutable delivery/BOM membership; fitment and reversal history with current accepted landed-cost adjustments. Evidence parts reconstruct the complete JSON without Excel truncation; evidence rows contribute zero to totals. Returnable delivery remains outstanding until physical return."),
         new("billed-not-received","Billed, not received",false,true,
             [..FinancialDimensions,new("quantity","Invoiced quantity not received","number","quantity"),
              new("invoiceValue","Outstanding supplier-invoice value","number","invoiceValue")],
