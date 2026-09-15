@@ -519,7 +519,7 @@ internal static class DatabasePrincipalProvisioningSql
          END IF;
          END $machine_acl$;
 
-        """;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Provision;
 
     internal const string Verify = """
         DO $verify$
@@ -573,6 +573,10 @@ internal static class DatabasePrincipalProvisioningSql
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
               AND c.relname NOT IN ('opening_stock_import_staging_lines','opening_stocks','opening_stock_lines','opening_stock_events')
+              AND NOT (c.relname IN ('intercompany_purchase_publications','intercompany_purchase_publication_lines')
+                       AND to_regprocedure('advance.publish_intercompany_purchase(uuid,uuid,uuid,uuid,bigint,text,uuid,text,uuid,text,text)') IS NOT NULL)
+              AND NOT (c.relname IN ('intercompany_routes','intercompany_route_decisions')
+                       AND to_regprocedure('advance.record_intercompany_route(uuid,uuid,uuid,text,jsonb,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('command_requests','command_receipts')
                        AND to_regprocedure('advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)') IS NOT NULL)
               AND NOT (c.relname IN ('stock_posting_batches','stock_movements')
@@ -1009,7 +1013,7 @@ internal static class DatabasePrincipalProvisioningSql
             RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
           END IF;
         END $verify$;
-        """;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Verify;
 
     internal const string RoleStatus = """
         WITH managed("Ordinal","RoleName") AS (VALUES

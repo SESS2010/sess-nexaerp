@@ -162,6 +162,23 @@ internal static class RequestInputReachabilityManifest
         // GET /api/v1/stores/machine-deliveries/job-orders uses the dispatch Issue permission;
         // exercised through real page permissions by the routine canonical purchase witness.
         "SESS.NexaERP.Application.Stores.DispatchMachineRequest.JobOrderId",
+        // Intercompany route options expose these master IDs under the same View permission held by proposers.
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.BuyerCompanyId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.SellerSiteId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.BuyerSiteId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.SellerWarehouseId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.BuyerWarehouseId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.SellerGstRegistrationId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.BuyerGstRegistrationId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.SellerVendorId",
+        "SESS.NexaERP.Application.Stores.ProposeIntercompanyRouteRequest.BuyerCustomerId",
+        // GET /intercompany/routes/{id} returns the current decision version.
+        "SESS.NexaERP.Application.Stores.DecideIntercompanyRouteRequest.Version",
+        // Buyer publication options return the exact current PO, route and version under Issue permission.
+        "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.RouteId",
+        "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.PurchaseOrderId",
+        "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.Version",
+
         "SESS.NexaERP.Application.Stores.EngineeringDocumentActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.EstimatedBomActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.FinalizeGateEntryRequest.Version",

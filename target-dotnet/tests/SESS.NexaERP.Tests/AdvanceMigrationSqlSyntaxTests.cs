@@ -894,20 +894,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private readonly int _port;
         private bool _started;
         private readonly bool _durable;
+        private readonly string _database;
 
-        private DisposablePostgreSql(string bin, bool durable)
+        private DisposablePostgreSql(string bin, bool durable, string databaseName)
         {
             _bin = bin;
             _durable = durable;
+            _database = databaseName;
             _root = Path.Combine(Path.GetTempPath(), $"advance-postgresql-parser-{Guid.NewGuid():N}");
             _data = Path.Combine(_root, "data");
             _port = ReservePort();
             Directory.CreateDirectory(_root);
         }
 
-        public static DisposablePostgreSql Start(string bin, bool durable = false)
+        public static DisposablePostgreSql Start(string bin, bool durable = false, string databaseName = "advance_parser")
         {
-            var server = new DisposablePostgreSql(bin, durable);
+            var server = new DisposablePostgreSql(bin, durable, databaseName);
             try
             {
                 var initialization = new List<string> { "-D", server._data, "--username=postgres", "--auth=trust",
@@ -922,7 +924,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 server._started = true;
                 server.Require(server.Run("createdb", "--host", "127.0.0.1", "--port",
                     server._port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
-                    "advance_parser"), "createdb");
+                    server._database), "createdb");
                 return server;
             }
             catch
@@ -963,7 +965,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         public void Execute(string name, string sql) => Require(Psql(name, sql), name);
 
-        public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database=advance_parser;Username=postgres;Pooling=false";
+        public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database={_database};Username=postgres;Pooling=false";
 
         public string ReadDiagnosticLog()
         {
@@ -979,7 +981,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             File.WriteAllText(file, sql);
             return Run("psql", "-X", "--quiet", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
                 _port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
-                "--dbname", "advance_parser", "--file", file);
+                "--dbname", _database, "--file", file);
         }
 
         public void Dispose()

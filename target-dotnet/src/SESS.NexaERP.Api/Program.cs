@@ -161,6 +161,7 @@ app.MapMaterialIssueEndpoints();
 app.MapVendorBillEndpoints();
 app.MapSupplierInvoiceEndpoints();
 app.MapMachineDeliveryEndpoints();
+app.MapIntercompanyEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();
 app.MapOpeningStockEndpoints();
 app.MapJobOrderEndpoints();

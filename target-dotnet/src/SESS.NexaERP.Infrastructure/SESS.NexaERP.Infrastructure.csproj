@@ -38,4 +38,8 @@
 <ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260914090000_SupplierInvoiceReceipts.sql" LogicalName="SupplierInvoiceReceipts.20260914090000.sql" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915103000_MachineDeliveryDossier.sql" LogicalName="MachineDeliveryDossier.20260915103000.sql" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915103000_MachineDossierReport.sql" LogicalName="MachineDossierReport.20260915103000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\IntercompanyRoutes20260915AccessSql.cs" Link="Database\IntercompanyRoutes20260915AccessSql.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915180000_IntercompanyRoutes.sql" LogicalName="IntercompanyRoutes.20260915180000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\IntercompanyPurchase20260915AccessSql.cs" Link="Database\IntercompanyPurchase20260915AccessSql.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915190000_IntercompanyPurchasePublication.sql" LogicalName="IntercompanyPurchasePublication.20260915190000.sql" /></ItemGroup>
 </Project>

@@ -85,7 +85,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
         Func<StoresQcStockWitnessContext,Task>? qcStock = null,
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false,
-        Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null)
+        Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
+        Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
+        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -193,6 +195,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await seed.SaveChangesAsync();
         }
 
+        if (intercompanySetup is not null) await intercompanySetup(options);
         const string runtimePassword = "ordinary-purchase-runtime-123456789";
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
@@ -368,7 +371,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         ? issued => openOrderAmendment(new(options,runtimeConnection,issued,client,user,purchaseId)) : null,
                     storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,band.Code)),
                     qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,band.Code)),
-                    supplierInvoices is null ? null : (stage,id)=>supplierInvoices(new(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection))));
+                    supplierInvoices is null && intercompanyPurchase is null ? null : async (stage,id) =>
+                    {
+                        var context = new SupplierInvoiceWitnessContext(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection);
+                        if (supplierInvoices is not null) await supplierInvoices(context);
+                        if (intercompanyPurchase is not null) await intercompanyPurchase(context);
+                    }));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -2305,7 +2313,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public OrdinaryPrincipalEnvironment(string installerConnection, string runtimePassword)
         {
             Set("ConnectionStrings__NexaErpInstaller", installerConnection);
-            Set("NexaErp__ExpectedDatabase", "advance_parser");
+            Set("NexaErp__ExpectedDatabase", new Npgsql.NpgsqlConnectionStringBuilder(installerConnection).Database
+                ?? throw new ArgumentException("Disposable installer connection must name its database.", nameof(installerConnection)));
             Set("NEXAERP_MIGRATION_PASSWORD", "ordinary-migration-test-123456789");
             Set("NEXAERP_BOOTSTRAP_PASSWORD", "ordinary-bootstrap-test-123456789");
             Set("NEXAERP_RUNTIME_PASSWORD", runtimePassword);
@@ -2401,6 +2410,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapVendorBillEndpoints();
             app.MapSupplierInvoiceEndpoints();
             app.MapMachineDeliveryEndpoints();
+            app.MapIntercompanyEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();
             app.MapFitmentActualBomEndpoints();
             app.MapJobOrderFatReadinessEndpoints();
