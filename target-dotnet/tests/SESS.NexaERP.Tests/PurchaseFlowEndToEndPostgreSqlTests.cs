@@ -534,6 +534,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if (obligations is not null) await obligations(new(options,runtimeConnection,"FINAL"));
             await AssertTwoEngineerReport(client,options,user,departmentId,purchaseId,productionId,storesId,tdId);
             await AssertReportsSwitchBetweenAuthorizedCompanies(options,runtimeConnection,tdId,managerId);
+            await AssertMachineDeliveryJobOrderReachability(new(options,runtimeConnection,user,storesId,tdId,managerId,productionId));
             if(machineDelivery is not null) await machineDelivery(new(options,runtimeConnection,user,storesId,tdId,managerId,productionId));
             if(fifoPartialReturn is not null)await fifoPartialReturn(new(client,options,user,productionId,storesId,managerId));
             if(supplierInvoices is not null)

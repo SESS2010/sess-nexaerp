@@ -159,6 +159,9 @@ internal static class RequestInputReachabilityManifest
         "SESS.NexaERP.Application.Stores.CreateMaterialIssueRequest.RequestingDepartmentId",
         "SESS.NexaERP.Application.Stores.CreateMaterialIssueRequest.VendorId",
         "SESS.NexaERP.Application.Stores.CreateProductionBomRequest.JobOrderId",
+        // GET /api/v1/stores/machine-deliveries/job-orders uses the dispatch Issue permission;
+        // exercised through real page permissions by the routine canonical purchase witness.
+        "SESS.NexaERP.Application.Stores.DispatchMachineRequest.JobOrderId",
         "SESS.NexaERP.Application.Stores.EngineeringDocumentActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.EstimatedBomActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.FinalizeGateEntryRequest.Version",

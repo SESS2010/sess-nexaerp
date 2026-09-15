@@ -24,6 +24,32 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
         if (connection.State != ConnectionState.Open) await connection.OpenAsync(ct);
         return new(sql, connection, (NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction());
     }
+    private void RequireOperator()
+    {
+        _=user.RequireRole("issue","STORES_ASSISTANT","STORES_EXECUTIVE","STORES_MANAGER");
+        if(user.ResolvedRoleAssignmentType is not ("FULL" or "TEMPORARY")) throw new UnauthorizedAccessException("A substantive Stores assignment is required.");
+    }
+    public async Task<PagedResponse<MachineDeliveryJobOrderCandidate>> JobOrdersAsync(int? page,int? pageSize,string? search,CancellationToken ct)
+    {
+        RequireOperator();
+        var company=await Company(ct);
+        var size=Math.Clamp(pageSize ?? 50,1,200);
+        var number=Math.Clamp(page ?? 1,1,int.MaxValue/size);
+        var query=db.JobOrders.AsNoTracking().Where(j=>j.CompanyId==company && j.FatReadinessStatus=="READY"
+            && j.LatestFatReconciliationId!=null && j.CustomerPurchaseOrderId!=null);
+        if(!string.IsNullOrWhiteSpace(search))
+        {
+            var term=search.Trim().ToUpperInvariant();
+            if(term.Length>200) throw new StoresValidationException("Job-order search must be at most 200 characters.");
+            query=query.Where(j=>j.MachineSerial.ToUpper().Contains(term) || j.JobOrderNumber.ToUpper().Contains(term)
+                || j.CustomerName.ToUpper().Contains(term));
+        }
+        var total=await query.CountAsync(ct);
+        var rows=await query.OrderBy(j=>j.MachineSerial).ThenBy(j=>j.Id).Skip((number-1)*size).Take(size)
+            .Select(j=>new MachineDeliveryJobOrderCandidate(j.Id,j.JobOrderNumber,j.MachineSerial,j.MachineModel,j.CustomerName,j.FatReadinessStatus))
+            .ToListAsync(ct);
+        return new(total,number,size,rows);
+    }
     public Task<JsonElement> DispatchAsync(DispatchMachineRequest request, CancellationToken ct) =>
         Execute(null,"MachineDelivery.Dispatch",request.IdempotencyKey,request,null,ct);
     public Task<JsonElement> SignAsync(Guid id, SignMachineDeliveryRequest request, CancellationToken ct)
@@ -42,8 +68,7 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
     }
     private async Task<JsonElement> Execute(Guid? id,string operation,string key,object payload,byte[]? content,CancellationToken ct)
     {
-        _=user.RequireRole("issue","STORES_ASSISTANT","STORES_EXECUTIVE","STORES_MANAGER");
-        if(user.ResolvedRoleAssignmentType is not ("FULL" or "TEMPORARY")) throw new UnauthorizedAccessException("A substantive Stores assignment is required.");
+        RequireOperator();
         if(string.IsNullOrWhiteSpace(key) || key.Length>100) throw new StoresValidationException("IdempotencyKey is required, at most 100 characters.");
         try
         {

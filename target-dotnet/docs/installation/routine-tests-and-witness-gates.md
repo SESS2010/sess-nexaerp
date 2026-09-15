@@ -1,5 +1,17 @@
 # Routine tests and deliberate witnesses
 
+## Completion rule (15 September 2026)
+
+Run the full routine Release suite after implementation changes and before reporting an item complete. Targeted runs are diagnostic evidence; they do not replace full-suite acceptance. Whole-assembly checks such as RequestInputAndActorReadReachability can detect omissions outside a targeted report filter. Retain a TRX file for every full run, including failed runs, in a separate results directory for that run.
+
+Do not overlap full suites or rebuild the shared output while a suite is running. Before using --no-build, finish a routine Release build with all witness gates off. Record the executed/passed/failed counts and measured test-process wall time separately from build time. An overlapping run is not a clean routine timing measurement.
+
+```powershell
+dotnet test SESS.NexaERP.slnx -c Release --no-build --nologo --logger "trx;LogFileName=full-suite.trx" --results-directory local-evidence/<unique-run-directory>
+```
+
+The results below describe earlier checkpoints, not acceptance of subsequent changes.
+
 The 14 September overnight instruction requires a routine test run below 30 minutes and preserves deliberate heavy witnesses. This change does not change application routes, fields, envelopes, migrations, permissions or business rows.
 
 Build without witness properties for routine verification. All eight properties are opt-in (unset means off): KeycloakWitness, ReportVolumeWitness, DiskFullWitness, MigrationInterruptWitness, ConcurrencyWitness, HostFailureWitness, WorkflowWitness and MigrationLifecycleWitness. Conditional test methods are absent from discovery, rather than reported as passing or skipped. Shared helpers still compile, including helpers required by ordinary business tests.
