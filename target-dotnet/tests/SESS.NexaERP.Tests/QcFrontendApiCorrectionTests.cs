@@ -58,15 +58,17 @@ public sealed class QcFrontendApiCorrectionTests
     [Fact]
     public void QcQueueSupportsDirectAllocationGrnAndOverdueFilters()
     {
-        var endpoint = Read("src", "SESS.NexaERP.Api", "Endpoints", "QcEndpoints.cs");
-        var contract = Read("src", "SESS.NexaERP.Application", "Stores", "QcContracts.cs");
-        var service = Read("src", "SESS.NexaERP.Infrastructure", "Stores", "EfQcWorkflowService.cs");
-        Assert.Contains("Guid? allocationId,string? grnNumber,bool? overdueOnly", endpoint);
-        Assert.Contains("QueueAsync(Guid? allocationId, string? grnNumber, bool overdueOnly", contract);
-        Assert.Contains("a.Id==allocationId.Value", service);
-        Assert.Contains("GrnNumber==normalized", service);
-        Assert.Contains("QcCompletionDaysSnapshot)<now", service);
-        Assert.Contains("return new(total,page,pageSize,items)", service);
+        var method = typeof(SESS.NexaERP.Application.Stores.IQcWorkflowService)
+            .GetMethod(nameof(SESS.NexaERP.Application.Stores.IQcWorkflowService.QueueAsync))!;
+        var parameters = method.GetParameters();
+        Assert.Equal(new[] { "allocationId", "grnNumber", "overdueOnly", "page", "pageSize", "cancellationToken" },
+            parameters.Select(x => x.Name));
+        Assert.Equal(typeof(Guid?), parameters[0].ParameterType);
+        Assert.Equal(typeof(string), parameters[1].ParameterType);
+        Assert.Equal(typeof(bool), parameters[2].ParameterType);
+        Assert.Equal(typeof(Task<SESS.NexaERP.Application.Common.PagedResponse<SESS.NexaERP.Application.Stores.QcQueueItem>>),
+            method.ReturnType);
+        // Filter values and results are exercised by the routine purchase/QC HTTP witness.
     }
 
     [Fact]

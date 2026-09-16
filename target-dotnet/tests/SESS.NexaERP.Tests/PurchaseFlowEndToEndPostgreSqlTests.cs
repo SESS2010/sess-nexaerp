@@ -62,7 +62,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     [Fact]
     public Task CompletePurchaseFlowRunsAgainstDisposablePostgreSqlInAllThreeApprovalBands() =>
-        RunCompletePurchaseFlow();
+        RunCompletePurchaseFlow(multiSerialQcWitness: true);
 
     private async Task RunCompletePurchaseFlow(
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, bool serializedRace = false,
@@ -87,7 +87,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false,
         Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
         Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
-        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null)
+        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -165,7 +165,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .ExecuteUpdateAsync(x => x.SetProperty(e => e.LoginEnabled, true));
             seed.EmployeeIdentityMappings.AddRange(identities.Select(x => Mapping(companyId, x.Item1, x.Item2)));
             seed.EmployeeOperationalScopes.AddRange(identities
-                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId)
+                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId && x.Item1 != qcId)
                 .Select(x => new EmployeeOperationalScope
             {
                 CompanyId = companyId, OrganizationId = "SESS_PVT_LTD", EmployeeId = x.Item1,
@@ -259,6 +259,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var adminClient = adminHost.Client;
         var client = runtimeHost.Client;
         var approvalClient = approvalHost.Client;
+        var qcReachability = new QcReachabilityWitness(qcId, tdId,
+            roleAssignments.Values.Select(x => x.AssignmentId).ToHashSet());
+        await using var qcHost = await PurchaseFlowHost.StartAsync(runtimeConnection, user,
+            useRealPagePermissions: true, useRealOperationalScopes: true, captureRequest: qcReachability.Begin);
         var scopeClient = scopeHost.Client;
         var denialClient = denialHost.Client;
 
@@ -388,12 +392,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var qcNotifications = await Get<PagedResponse<InAppNotificationView>>(client,
                 "/api/v1/notifications?unreadOnly=true");
             Assert.Equal("QC_AGEING_OVERDUE", Assert.Single(qcNotifications.Items).EventType);
-            for(var i=0;i<grns.Count;i++)await RunQcWitness(approvalClient,options,user,bands[i],grns[i],qcId,tdId,
+            for(var i=0;i<grns.Count;i++)await RunQcWitness(qcHost.Client,options,user,bands[i],grns[i],qcId,tdId,
                 qcCorrection is null ? null : (original, command) => qcCorrection(new(options, runtimeConnection,
                     original, command, qcId, server.ReadDiagnosticLog)),
                 qcRace is null ? null : (original, command, draft, available) => qcRace(new(options, runtimeConnection,
                     original, command, draft, available, qcId, tdId, server.ReadDiagnosticLog)),
-                qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,bands[i].Code)));
+                qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,bands[i].Code)),
+                historicalPolicyFixture: historicalFifoUpgrade);
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
                 Assert.Equal(1, await new EfNotificationDueEventProcessor(notificationDb)
                     .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
@@ -549,18 +554,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             {
                 // Earlier governed receipts leave stock. Demand must exceed the
                 // remaining unreserved quantity to produce a real purchase handoff.
-                var invoiceRequestedQuantity = await Query(options, async db =>
-                {
-                    var company = await db.Companies.Where(x => x.Code == "SESS_PVT_LTD").Select(x => x.Id).SingleAsync();
-                    var item = await db.Items.Where(x => x.ItemCode == "TRIAL-ITEM-001").Select(x => x.Id).SingleAsync();
-                    var warehouse = await db.Warehouses.Where(x => x.CompanyId == company && x.WarehouseCode == "TRIAL-WH-C01").Select(x => x.Id).SingleAsync();
-                    var rack = await db.RackBins.Where(x => x.CompanyId == company && x.WarehouseId == warehouse && x.BinCode == "TRIAL-C01-GEN-01").Select(x => x.Id).SingleAsync();
-                    var onHand = await db.StockMovements.Where(x => x.CompanyId == company && x.ItemId == item && x.WarehouseId == warehouse && x.RackBinId == rack)
-                        .SumAsync(x => x.QuantityIn - x.QuantityOut);
-                    var reserved = await db.StockReservations.Where(x => x.CompanyId == company && x.ItemId == item && x.WarehouseId == warehouse && x.RackBinId == rack && x.Status == "Active")
-                        .SumAsync(x => x.ReservedQuantity);
-                    return Math.Max(onHand - reserved, 0m) + 1m;
-                });
+                var invoiceRequestedQuantity = await PurchaseWitnessRequestedQuantity(options, 1m);
                 var extraBand=bands[1] with { Code="INVOICE" };
                 Assert.InRange(invoiceRequestedQuantity * extraBand.PrAmount, 5000m, 100000m);
                 var partialGrn=await RunPurchaseBand(adminClient,approvalClient,client,options,user,extraBand,
@@ -572,7 +566,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 #if REPORT_VOLUME_WITNESS
             if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null && fifoPartialReturn is null && supplierInvoices is null) await RunReportVolumeWitness(options,runtimeConnection);
 #endif
-
+            if (multiSerialQcWitness)
+            {
+                var demand = await PurchaseWitnessRequestedQuantity(options, 2m);
+                var multi = await RunPurchaseBand(adminClient, approvalClient, client, options, user,
+                    new PurchaseFlowBand("QCMULTI", 100000.01m, 100000.01m, 2, managerId, mdId),
+                    creatorId, managerId, tdId, mdId, verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id,
+                    receiptQuantity: 2m, requestedQuantity: demand, expectedHandoffQuantity: 2m);
+                await ProveMultiSerialQcDiscrepancy(qcHost.Client, options, user, multi, qcId, tdId);
+                await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
+            }
         }
         finally { }
     }
@@ -746,7 +749,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
         Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
-        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m)
+        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -843,7 +846,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 [new(1, "TRIAL-WH-C01", "TRIAL-C01-GEN-01")]), $"{band.Code}-stock");
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs
             .Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
-        Assert.Equal(1m, handoff.HandoffQuantity);
+        Assert.Equal(expectedHandoffQuantity, handoff.HandoffQuantity);
         await AssertPrEvidence(options, pr.Id, "StockCheck", 4 + band.RequiredSteps, 4 + band.RequiredSteps);
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseExecutive,
@@ -985,7 +988,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var gateEvidence=new NexaErpDbContext(options); Assert.Equal(3,await gateEvidence.AuditLogs.CountAsync(x=>x.EntityId==gate.Id.ToString()&&x.Module=="Stores"));
 
         IReadOnlyList<GoodsReceiptSerialRequest> serials=band.QuoteRate>5000m
-            ? [new(1,1,$"TRIAL-SERIAL-{band.Code}",$"TRIAL-SERIAL-{band.Code}",false,null)] : [];
+            ? Enumerable.Range(1,checked((int)receiptQuantity)).Select(n => new GoodsReceiptSerialRequest(n,1,receiptQuantity==1?$"TRIAL-SERIAL-{band.Code}":$"TRIAL-SERIAL-{band.Code}-{n}",receiptQuantity==1?$"TRIAL-SERIAL-{band.Code}":$"TRIAL-SERIAL-{band.Code}-{n}",false,null)).ToArray() : [];
         var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=band.Code=="LOW"?DateTimeOffset.UtcNow.AddDays(-3):DateTimeOffset.UtcNow;
         var grn=await Post<GoodsReceiptResult>(prClient,"/api/v1/stores/goods-receipts/",
             new CreateGoodsReceiptRequest(gate.GateEntryNumber,$"TRIAL-BILL-{band.Code}",billDate,receivedAt,"{\"billChecked\":true}",
@@ -1032,7 +1035,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId,
         Func<QcInspectionResult, FinalizeQcInspectionRequest, Task<QcInspectionResult>>? correctionWitness = null,
         Func<QcInspectionResult, FinalizeQcInspectionRequest, InventoryConcessionResult, Guid, Task<InventoryConcessionResult>>? concessionWitness = null,
-        Func<string,Guid,Task>? qcStock = null)
+        Func<string,Guid,Task>? qcStock = null, bool historicalPolicyFixture = false)
     {
         var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
         user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
@@ -1042,7 +1045,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var missingQueue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");Assert.Contains(missingQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.HasEffectivePolicy);
             var deniedBody=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,available,[],serials);using var deniedRequest=new HttpRequestMessage(HttpMethod.Post,"/api/v1/qc/inspections"){Content=JsonContent.Create(deniedBody)};deniedRequest.Headers.Add("Idempotency-Key","LOW-qc-missing-policy");using var denied=await client.SendAsync(deniedRequest);Assert.Equal(HttpStatusCode.Conflict,denied.StatusCode);
             Assert.False(await Query(options,db=>db.QcInspections.AnyAsync(x=>x.GoodsReceiptLineLotAllocationId==lot.Id)));Assert.Equal(1m,await Query(options,db=>db.StockMovements.Where(x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut)));
-            await Query(options,async db=>{var uom=await db.Uoms.OrderBy(x=>x.Code).Select(x=>x.Id).FirstAsync();var p=new QcInspectionPolicy{CompanyId=Guid.Parse("70000000-0000-0000-0000-000000000001"),OrganizationId="SESS_PVT_LTD",ItemId=grn.Lines.Single().ItemId,ParameterCode="DIMENSIONAL_LIMIT",MeasurementUomId=uom,LowerLimit=0,UpperLimit=10,InspectionMethod="Disposable calibrated measurement",SampleSize=1,EffectiveFrom=new DateOnly(2026,1,1),ApprovalStatus="APPROVED",IsActive=true,CreatedBy="PURCHASE_FLOW_TEST"};db.QcInspectionPolicies.Add(p);await db.SaveChangesAsync();return p.Id;});
+            if (historicalPolicyFixture)
+                await CreateHistoricalQcPolicyFixture(options, grn.Lines.Single().ItemId);
+            else
+                await CreateAndDecideQcPolicyThroughApi(client, options, user, grn, qcId, tdId);
         }
         var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");var queueItem=Assert.Single(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.IsOverdue==(band.Code=="LOW")&&x.HasEffectivePolicy);if(serialId.HasValue)Assert.Equal(serialId.Value,Assert.Single(queueItem.InventorySerialIds));var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
         var result=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.Equal(accepted,result.AcceptedQuantity);Assert.Equal(rejected,result.RejectedQuantity);Assert.NotNull(result.StockPostingBatchId);Assert.False(result.Replayed);
@@ -2335,6 +2341,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed class PurchaseFlowHost(WebApplication app, HttpClient client) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
+        public IReadOnlyList<string> QcMutationRoutes => QcReachabilityWitness.Routes((Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)app);
 
         public static async Task<PurchaseFlowHost> StartAsync(
             string connectionString,
@@ -2342,7 +2349,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             bool useRealPagePermissions = false,
             bool useRealOperationalScopes = false,
             bool denyLifecycleScope = false, Func<Microsoft.AspNetCore.Http.HttpContext, TaxWorkflowUser>? requestUser = null,
-            Action<ICurrentUser, bool>? observeRequest = null)
+            Action<ICurrentUser, bool>? observeRequest = null,
+            Func<Microsoft.AspNetCore.Http.HttpContext, ICurrentUser, Action>? captureRequest = null)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -2379,6 +2387,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.UseMiddleware<ExceptionHandlingMiddleware>();
             app.UseAuthentication();
             app.UseAuthorization();
+            if (captureRequest is not null)
+                app.Use(async (context, next) =>
+                {
+                    var completed = captureRequest(context, context.RequestServices.GetRequiredService<ICurrentUser>());
+                    await next(context);
+                    completed();
+                });
             if (observeRequest is not null)
                 app.Use(async (context, next) =>
                 {
@@ -2388,6 +2403,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     finally { observeRequest(current, false); }
                 });
             app.MapRev869AConfigurationEndpoints();
+            app.MapReferenceMasterEndpoints();
             app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();

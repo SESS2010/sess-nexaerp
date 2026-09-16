@@ -11,6 +11,28 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         RunCompletePurchaseFlow(historicalFifoUpgrade:true,mixedRun:_=>Task.CompletedTask);
 
 #endif
+
+    // The historical FIFO upgrade intentionally starts before QcPolicyDecisions.
+    // Retain its old approved-policy fixture; this is not evidence of an API approval.
+    // The routine purchase witness always creates and approves the policy over HTTP.
+    private static async Task CreateHistoricalQcPolicyFixture(
+        DbContextOptions<NexaErpDbContext> options, Guid itemId)
+    {
+        await using var db = new NexaErpDbContext(options);
+        Assert.DoesNotContain("20260916170000_QcPolicyDecisions", await db.Database.GetAppliedMigrationsAsync());
+        var uom = await db.Uoms.OrderBy(x => x.Code).Select(x => x.Id).FirstAsync();
+        db.QcInspectionPolicies.Add(new SESS.NexaERP.Domain.Inventory.QcInspectionPolicy
+        {
+            CompanyId = Guid.Parse("70000000-0000-0000-0000-000000000001"),
+            OrganizationId = "SESS_PVT_LTD", ItemId = itemId,
+            ParameterCode = "DIMENSIONAL_LIMIT", MeasurementUomId = uom,
+            LowerLimit = 0, UpperLimit = 10, InspectionMethod = "Historical calibrated measurement",
+            SampleSize = 1, EffectiveFrom = new DateOnly(2026, 1, 1),
+            ApprovalStatus = "APPROVED", IsActive = true, CreatedBy = "HISTORICAL_FIFO_FIXTURE"
+        });
+        await db.SaveChangesAsync();
+    }
+
     private static async Task<string> ReadOriginalFifoHistory(DbContextOptions<NexaErpDbContext> options)
     {
         await using var db=new NexaErpDbContext(options);

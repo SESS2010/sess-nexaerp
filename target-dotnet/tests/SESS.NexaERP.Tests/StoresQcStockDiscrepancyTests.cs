@@ -54,7 +54,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Null(inspection.StockPostingBatchId);
             Assert.Equal(0,inspection.AcceptedQuantity);Assert.Equal(0,inspection.RejectedQuantity);
             var oldQueue=await Get<PagedResponse<QcQueueItem>>(host.Client,"/api/v1/qc/queue?page=1&pageSize=100");
-            Assert.DoesNotContain(oldQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==allocation.Id);
+            Assert.Contains(oldQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==allocation.Id && x.CurrentRevisionId==inspection.RevisionId);
             await using var runtime=new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>()
                 .UseNpgsql(context.RuntimeConnection).Options);
             var reader=await QcStockReader(source,"SESS-35");

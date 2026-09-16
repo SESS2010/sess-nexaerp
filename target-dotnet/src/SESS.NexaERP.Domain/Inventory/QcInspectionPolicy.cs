@@ -23,7 +23,7 @@ public sealed class QcInspectionPolicy : CompanyScopedAuditableEntity
     public bool IsActive { get; set; } = true;
 
     public static string ResolveMissingPolicyCondition(QcInspectionPolicy? policy, DateOnly onDate) =>
-        policy is not null && policy.IsActive && policy.ApprovalStatus == MasterApprovalStatuses.Approved && policy.EffectiveFrom <= onDate && (!policy.EffectiveTo.HasValue || policy.EffectiveTo.Value >= onDate)
+        policy is not null && policy.IsActive && (policy.ApprovalStatus == MasterApprovalStatuses.Approved || policy.ApprovalStatus == "APPROVED") && policy.EffectiveFrom <= onDate && (!policy.EffectiveTo.HasValue || policy.EffectiveTo.Value >= onDate)
             ? InventoryConditionCodes.Available
             : InventoryConditionCodes.QcHold;
 }
