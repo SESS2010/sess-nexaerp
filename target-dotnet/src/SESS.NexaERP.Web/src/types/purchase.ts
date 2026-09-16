@@ -282,15 +282,25 @@ export interface TechnicalVerificationRequest {
   IdempotencyKey: string
 }
 
+// Canonical enum names from Domain/Masters/VendorRegistrationTypes.cs — the
+// tax resolver matches the stored rule's value exactly, so 'Regular' never
+// resolves a rule created as 'REGULAR'.
 export const VENDOR_REGISTRATION_TYPES = [
-  'Regular',
-  'Composition',
-  'Unregistered',
+  'REGULAR',
+  'COMPOSITION',
+  'UNREGISTERED',
   'SEZ',
-  'Overseas',
+  'OVERSEAS',
+  'DEEMED_EXPORT',
+  'UIN',
 ] as const
 
-export const QUOTATION_SUBMISSION_SOURCES = ['Email', 'Portal', 'Hardcopy', 'Fax'] as const
+// The service accepts only the two received-on-behalf-of-vendor sources
+// (EfRev869BPurchaseService.RfqQuotation.cs:163); anything else is rejected.
+export const QUOTATION_SUBMISSION_SOURCES = [
+  { value: 'EMAIL_RECEIVED', label: 'Received by email' },
+  { value: 'PHYSICAL_RECEIVED', label: 'Received physically (hardcopy)' },
+] as const
 
 // --- Commercial comparison ---
 

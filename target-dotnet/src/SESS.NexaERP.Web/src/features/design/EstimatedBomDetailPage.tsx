@@ -106,8 +106,11 @@ export function EstimatedBomDetailPage() {
   const canSubmit = revision.Status === 'DRAFT' && can(page, 'submit')
   // Approve is granted to TECHNICAL_DIRECTOR only, and the service refuses the preparer.
   const canApprove = revision.Status === 'SUBMITTED' && can(page, 'approve') && !isPreparer
+  // Return-to-draft (EstimatedBomEndpoints.cs) sits under the Reject grant and
+  // is the only way out of a SUBMITTED revision that must not be approved.
+  const canReturn = revision.Status === 'SUBMITTED' && can(page, 'reject')
   const canRevise = revision.Status === 'APPROVED' && can(page, 'create')
-  const needsReason = canSubmit || canApprove || canRevise
+  const needsReason = canSubmit || canApprove || canReturn || canRevise
   const mergedLines = revision.Lines.filter((line) => line.CanonicalItemId !== line.OriginalItemId)
 
   return (
@@ -124,6 +127,7 @@ export function EstimatedBomDetailPage() {
           {canEdit && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit lines</button>}
           {canSubmit && <button type="button" className="btn btn-primary" disabled={busy || revision.Lines.length === 0} onClick={() => void transition('submit')}>Submit</button>}
           {canApprove && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void transition('approve')}>Approve</button>}
+          {canReturn && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void transition('return-to-draft')}>Return to draft</button>}
           {canRevise && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void newRevision()}>New revision</button>}
         </div>
       </div>

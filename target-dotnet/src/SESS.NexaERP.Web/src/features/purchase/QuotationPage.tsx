@@ -77,7 +77,7 @@ export function QuotationPage() {
   const [paymentTerms, setPaymentTerms] = useState('')
   const [deliveryTerms, setDeliveryTerms] = useState('')
   const [warrantyTerms, setWarrantyTerms] = useState('')
-  const [submissionSource, setSubmissionSource] = useState<string>(QUOTATION_SUBMISSION_SOURCES[0])
+  const [submissionSource, setSubmissionSource] = useState<string>(QUOTATION_SUBMISSION_SOURCES[0].value)
   const [receivedAt, setReceivedAt] = useState(todayLocal())
   const [attachmentObjectKey, setAttachmentObjectKey] = useState('')
   const [attachmentSha256, setAttachmentSha256] = useState('')
@@ -352,7 +352,7 @@ export function QuotationPage() {
             <label className="field">
               <span className="field-label">Submission source *</span>
               <select className="input" value={submissionSource} onChange={(e) => setSubmissionSource(e.target.value)}>
-                {QUOTATION_SUBMISSION_SOURCES.map((option) => <option key={option} value={option}>{option}</option>)}
+                {QUOTATION_SUBMISSION_SOURCES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="field">

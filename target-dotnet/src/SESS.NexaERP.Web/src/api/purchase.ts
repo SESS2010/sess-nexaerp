@@ -72,7 +72,11 @@ export function getPurchaseRequisition(prNumber: string): Promise<PurchaseRequis
 export function createPurchaseRequisition(
   body: CreatePurchaseRequisitionRequest,
 ): Promise<PurchaseRequisitionDetail> {
-  return api.post<PurchaseRequisitionDetail>(PR_BASE, body)
+  // PR creation became retryable on 13 Sep (c3e4902): the server now demands
+  // an Idempotency-Key and replays the same PR for a repeated key.
+  return api.post<PurchaseRequisitionDetail>(PR_BASE, body, {
+    'Idempotency-Key': newIdempotencyKey('pr-create'),
+  })
 }
 
 export function updatePurchaseRequisition(

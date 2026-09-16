@@ -54,7 +54,7 @@ export function replaceEstimatedBomLines(bomNumber: string, body: ReplaceEstimat
   return api.put<EstimatedBomView>(`${ESTIMATED}/${encodeURIComponent(bomNumber)}`, body)
 }
 
-export type BomTransition = 'submit' | 'approve'
+export type BomTransition = 'submit' | 'approve' | 'return-to-draft'
 
 export function transitionEstimatedBom(bomNumber: string, transition: BomTransition, body: EstimatedBomActionRequest): Promise<EstimatedBomView> {
   return api.post<EstimatedBomView>(`${ESTIMATED}/${encodeURIComponent(bomNumber)}/${transition}`, body)
