@@ -575,6 +575,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     receiptQuantity: 2m, requestedQuantity: demand, expectedHandoffQuantity: 2m);
                 await ProveMultiSerialQcDiscrepancy(qcHost.Client, options, user, multi, qcId, tdId);
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
+                await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
             }
         }
         finally { }
@@ -2404,6 +2405,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 });
             app.MapRev869AConfigurationEndpoints();
             app.MapReferenceMasterEndpoints();
+            app.MapInventoryEndpoints();
             app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();
