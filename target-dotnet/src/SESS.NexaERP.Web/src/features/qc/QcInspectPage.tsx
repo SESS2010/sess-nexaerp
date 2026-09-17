@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { finalizeQcInspection, findQcQueueItem } from '../../api/qc'
+import { finalizeQcInspection, findQcQueueItem, listEffectiveQcPolicies } from '../../api/qc'
 import { listGoodsReceipts } from '../../api/goodsReceipts'
-import type { QcQueueItem } from '../../types/qc'
+import { getItem } from '../../api/items'
+import type { QcInspectionPolicy, QcQueueItem } from '../../types/qc'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 import { QcDispositionForm, type QcDispositionValues, type QcSerialSource } from './QcDispositionForm'
@@ -20,6 +21,7 @@ export function QcInspectPage() {
   const { can } = useSession()
   const [item, setItem] = useState<QcQueueItem | null>((location.state as { item?: QcQueueItem } | null)?.item ?? null)
   const [serials, setSerials] = useState<QcSerialSource[] | null>(null)
+  const [policies, setPolicies] = useState<QcInspectionPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
@@ -43,7 +45,21 @@ export function QcInspectPage() {
         const units = (line?.Serials ?? [])
           .filter((serial) => serial.LotOrdinal === row.LotOrdinal && serial.InventorySerialId)
           .map((serial) => ({ inventorySerialId: serial.InventorySerialId as string, serialNumber: serial.StoredSerialNumber }))
-        if (!cancelled) setSerials(units)
+        if (cancelled) return
+        setSerials(units)
+        // The policies the server will demand sample results for. The queue
+        // resolves item-or-category on the server; the item's category comes
+        // from the item master so the same resolution can be repeated here.
+        if (row.HasEffectivePolicy) {
+          let categoryId: string | null = null
+          try {
+            categoryId = (await getItem(row.ItemCode)).CategoryId ?? null
+          } catch {
+            // Item-bound policies still resolve without the category.
+          }
+          const effective = await listEffectiveQcPolicies(row.ItemId, categoryId)
+          if (!cancelled) setPolicies(effective)
+        }
       } catch (err) {
         if (!cancelled) setError(err)
       } finally {
@@ -66,7 +82,7 @@ export function QcInspectPage() {
           RejectedQuantity: values.rejectedQuantity,
           DiscrepancyPendingQuantity: values.discrepancyPendingQuantity,
           AcceptedConditionLocationId: values.acceptedConditionLocationId,
-          ParameterResults: [],
+          ParameterResults: values.parameterResults,
           SerialDispositions: values.serialDispositions,
         },
         idempotencyKey,
@@ -119,6 +135,7 @@ export function QcInspectPage() {
           quantity={item.Quantity}
           serials={serials}
           hasEffectivePolicy={item.HasEffectivePolicy}
+          policies={policies}
           busy={busy}
           submitLabel="Finalize & post stock"
           onSubmit={finalize}

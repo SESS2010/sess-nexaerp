@@ -11,6 +11,7 @@ import type {
   RejectInventoryConcessionRequest,
   ReverseInventoryConcessionRequest,
   FinalizeQcInspectionRequest,
+  QcInspectionPolicy,
   QcInspectionResult,
   QcQueueItem,
   WarehouseConditionLocation,
@@ -88,6 +89,25 @@ export function listAvailableConditionLocations(): Promise<WarehouseConditionLoc
   return api.get<WarehouseConditionLocation[]>(
     `/api/v1/rev869a/configuration/warehouse-condition-locations?${params.toString()}`,
   )
+}
+
+/**
+ * Policies the server will demand parameter results for
+ * (EfQcWorkflowService.EffectivePolicies): effective today and either bound to
+ * the item, or bound to its category with no item. The list endpoint ANDs its
+ * filters, so the two bindings are fetched separately and merged.
+ */
+export async function listEffectiveQcPolicies(itemId: string, categoryId: string | null): Promise<QcInspectionPolicy[]> {
+  const base = '/api/v1/rev869a/configuration/qc-inspection-policies'
+  const byItem = api.get<QcInspectionPolicy[]>(`${base}?itemId=${encodeURIComponent(itemId)}&effectiveOnly=true`)
+  const byCategory = categoryId
+    ? api.get<QcInspectionPolicy[]>(`${base}?categoryId=${encodeURIComponent(categoryId)}&effectiveOnly=true`)
+    : Promise.resolve<QcInspectionPolicy[]>([])
+  const [item, category] = await Promise.all([byItem, byCategory])
+  const merged = new Map<string, QcInspectionPolicy>()
+  for (const policy of item) merged.set(policy.Id, policy)
+  for (const policy of category) if (policy.ItemId === null) merged.set(policy.Id, policy)
+  return [...merged.values()].sort((a, b) => a.ParameterCode.localeCompare(b.ParameterCode))
 }
 
 /* ------------------------------------------------------------------ */

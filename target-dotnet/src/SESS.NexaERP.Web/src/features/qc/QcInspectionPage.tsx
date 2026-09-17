@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { correctQcInspection, getQcInspection } from '../../api/qc'
+import { correctQcInspection, getQcInspection, listEffectiveQcPolicies } from '../../api/qc'
 import { listGoodsReceipts } from '../../api/goodsReceipts'
-import type { QcInspectionResult } from '../../types/qc'
+import { getItem } from '../../api/items'
+import type { QcInspectionPolicy, QcInspectionResult } from '../../types/qc'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
@@ -21,6 +22,7 @@ export function QcInspectionPage() {
   const [inspection, setInspection] = useState<QcInspectionResult | null>(null)
   const [serials, setSerials] = useState<QcSerialSource[]>([])
   const [hasPolicy, setHasPolicy] = useState(false)
+  const [policies, setPolicies] = useState<QcInspectionPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string>((location.state as { notice?: string } | null)?.notice ?? '')
@@ -33,9 +35,19 @@ export function QcInspectionPage() {
     try {
       const loaded = await getQcInspection(number)
       setInspection(loaded)
-      // Parameter results on the revision prove an effective policy existed
-      // at inspection time; a correction must then supply them again.
-      setHasPolicy(loaded.ParameterResults.length > 0)
+      // A correction is judged against the policies effective today, so a lot
+      // finalized as all-discrepancy under a missing policy can be completed
+      // once the policy is approved. Prior results on the revision also prove
+      // a policy exists even when the read fails.
+      let effective: QcInspectionPolicy[] = []
+      try {
+        const item = await getItem(loaded.ItemCode)
+        effective = await listEffectiveQcPolicies(item.Id, item.CategoryId ?? null)
+      } catch {
+        // Item lookup or policy list unavailable; the form fails closed below.
+      }
+      setPolicies(effective)
+      setHasPolicy(effective.length > 0 || loaded.ParameterResults.length > 0)
       try {
         const receipts = await listGoodsReceipts({ page: 1, pageSize: 1, grnNumber: loaded.GrnNumber })
         const grn = receipts.Items?.[0]
@@ -77,7 +89,7 @@ export function QcInspectionPage() {
           RejectedQuantity: values.rejectedQuantity,
           DiscrepancyPendingQuantity: values.discrepancyPendingQuantity,
           AcceptedConditionLocationId: values.acceptedConditionLocationId,
-          ParameterResults: [],
+          ParameterResults: values.parameterResults,
           SerialDispositions: values.serialDispositions,
         },
         idempotencyKey,
@@ -152,7 +164,15 @@ export function QcInspectionPage() {
                         <StatusBadge value={row.Result} />
                         {row.Result === 'FAIL' && inspection.RejectedQuantity > 0 && canRaiseConcession && (
                           <button type="button" className="link-button" onClick={() => navigate('/qc/concessions', {
-                            state: { prefill: { failedParameterResultId: row.Id, failedParameter: row.ParameterCode, measuredValue: row.MeasuredValue, inspectionNumber: inspection.InspectionNumber } },
+                            state: { prefill: {
+                              failedParameterResultId: row.Id,
+                              failedParameter: row.ParameterCode,
+                              measuredValue: row.MeasuredValue,
+                              inspectionNumber: inspection.InspectionNumber,
+                              lotDispositionId: inspection.QcInspectionLotDispositionId,
+                              rejectedQuantity: inspection.RejectedQuantity,
+                              rejectedSerialIds: inspection.SerialDispositions.filter((s) => s.Disposition === 'REJECTED').map((s) => s.InventorySerialId),
+                            } },
                           })}>
                             Raise concession
                           </button>
@@ -203,6 +223,7 @@ export function QcInspectionPage() {
             quantity={inspection.InspectedQuantity}
             serials={serials}
             hasEffectivePolicy={hasPolicy}
+            policies={policies}
             initial={{
               acceptedQuantity: inspection.AcceptedQuantity,
               rejectedQuantity: inspection.RejectedQuantity,

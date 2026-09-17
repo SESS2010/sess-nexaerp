@@ -28,6 +28,30 @@ export interface QcQueueItem {
   PolicyResolution: string
 }
 
+/**
+ * An approved QC inspection policy as listed by
+ * GET /api/v1/rev869a/configuration/qc-inspection-policies. Finalize needs one
+ * PASS/FAIL result per sample (1..SampleSize) for every policy effective on the
+ * lot's item, or on its category when the policy carries no item.
+ */
+export interface QcInspectionPolicy {
+  Id: string
+  CompanyId: string
+  ItemId: string | null
+  ItemCategoryId: string | null
+  ParameterCode: string
+  MeasurementUomCode: string
+  LowerLimit: number | null
+  UpperLimit: number | null
+  InspectionMethod: string
+  SampleSize: number
+  ApprovalStatus: string
+  IsActive: boolean
+  EffectiveFrom: string
+  EffectiveTo: string | null
+  Version: number
+}
+
 export const SERIAL_DISPOSITIONS = ['ACCEPTED', 'REJECTED'] as const
 export type SerialDispositionValue = (typeof SERIAL_DISPOSITIONS)[number]
 
@@ -92,6 +116,8 @@ export interface QcInspectionResult {
   InspectionId: string
   InspectionNumber: string
   RevisionId: string
+  /** The lot disposition a concession is raised against. */
+  QcInspectionLotDispositionId: string
   RevisionNumber: number
   GoodsReceiptLineLotAllocationId: string
   GrnNumber: string
@@ -110,6 +136,8 @@ export interface QcInspectionResult {
   Replayed: boolean
   ParameterResults: QcParameterResultView[]
   SerialDispositions: QcSerialDispositionView[]
+  /** GRN serial identities on the lot allocation, in receipt order. */
+  InventorySerialIds: string[]
 }
 
 /** Row of GET /api/v1/rev869a/configuration/warehouse-condition-locations. */

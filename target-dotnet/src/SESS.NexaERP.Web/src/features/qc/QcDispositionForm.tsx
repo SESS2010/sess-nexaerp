@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { listAvailableConditionLocations } from '../../api/qc'
 import { newIdempotencyKey } from '../../api/stores'
 import type {
+  QcInspectionPolicy,
+  QcParameterResultRequest,
   QcSerialDispositionRequest,
   SerialDispositionValue,
   WarehouseConditionLocation,
@@ -19,6 +21,7 @@ export interface QcDispositionValues {
   rejectedQuantity: number
   discrepancyPendingQuantity: number
   acceptedConditionLocationId: string | null
+  parameterResults: QcParameterResultRequest[]
   serialDispositions: QcSerialDispositionRequest[]
 }
 
@@ -28,6 +31,12 @@ interface Props {
   /** Serialized units on this lot allocation; empty for non-serialized items. */
   serials: QcSerialSource[]
   hasEffectivePolicy: boolean
+  /**
+   * Policies effective for the lot's item (or category). The server demands
+   * samples 1..SampleSize for each; an empty list with hasEffectivePolicy
+   * means the policies could not be read and finalize is blocked.
+   */
+  policies: QcInspectionPolicy[]
   initial?: Partial<{
     inspectionStartedAt: string
     acceptedQuantity: number
@@ -45,6 +54,14 @@ interface Props {
    * the user edits anything, which is what the server's fingerprint check wants.
    */
   onSubmit: (values: QcDispositionValues, idempotencyKey: string, correctionReason: string) => Promise<void>
+}
+
+interface DraftSample {
+  policyId: string
+  sampleOrdinal: number
+  observed: string
+  result: 'PASS' | 'FAIL' | ''
+  remarks: string
 }
 
 interface DraftSerial {
@@ -71,6 +88,7 @@ export function QcDispositionForm({
   quantity,
   serials,
   hasEffectivePolicy,
+  policies,
   initial,
   correction = false,
   busy,
@@ -88,6 +106,13 @@ export function QcDispositionForm({
       const disposition = prior?.Disposition === 'ACCEPTED' || prior?.Disposition === 'REJECTED' ? prior.Disposition : ''
       return { ...serial, disposition, reason: '' }
     }),
+  )
+  const [draftSamples, setDraftSamples] = useState<DraftSample[]>(() =>
+    policies.flatMap((policy) =>
+      Array.from({ length: policy.SampleSize }, (_, i) => ({
+        policyId: policy.Id, sampleOrdinal: i + 1, observed: '', result: '' as const, remarks: '',
+      })),
+    ),
   )
   const [locations, setLocations] = useState<WarehouseConditionLocation[]>([])
   const [locationError, setLocationError] = useState<unknown>(null)
@@ -110,6 +135,10 @@ export function QcDispositionForm({
   const discrepancy = Math.round((quantity - acceptedNumber - rejectedNumber) * 1e6) / 1e6
   const serialized = serials.length > 0
 
+  const policiesUnreadable = hasEffectivePolicy && policies.length === 0
+  const policyById = useMemo(() => new Map(policies.map((policy) => [policy.Id, policy])), [policies])
+  const isNumeric = (policy: QcInspectionPolicy) => policy.LowerLimit !== null || policy.UpperLimit !== null
+
   const acceptedSerials = useMemo(() => draftSerials.filter((s) => s.disposition === 'ACCEPTED').length, [draftSerials])
   const rejectedSerials = useMemo(() => draftSerials.filter((s) => s.disposition === 'REJECTED').length, [draftSerials])
 
@@ -119,8 +148,24 @@ export function QcDispositionForm({
     if (discrepancy < 0) return `Accepted (${acceptedNumber}) + rejected (${rejectedNumber}) exceeds the lot quantity of ${quantity}.`
     if (acceptedNumber + rejectedNumber + discrepancy <= 0) return 'The lot quantity is zero — nothing to inspect.'
     if (acceptedNumber > 0 && !locationId) return 'Pick the AVAILABLE location the accepted stock moves to.'
-    if (hasEffectivePolicy) {
-      return 'This item has an effective QC parameter policy, so the server requires parameter sample results. The API has no endpoint to read the policy (parameter codes, sample sizes, limits), so this screen cannot capture them yet — reported as a backend gap.'
+    if (policiesUnreadable) {
+      return 'This item has an effective QC parameter policy but it could not be read, so the sample results the server requires cannot be captured. Check the qc.inspection-policies View permission.'
+    }
+    // Mirrors AddParameterResults: every sample needs an observation and a
+    // PASS/FAIL, and a numeric observation must agree with the policy limits.
+    for (const sample of draftSamples) {
+      const policy = policyById.get(sample.policyId)
+      if (!policy) continue
+      const label = `${policy.ParameterCode} sample ${sample.sampleOrdinal}`
+      if (!sample.result) return `${label}: pick PASS or FAIL.`
+      if (!sample.observed.trim()) return `${label}: an observation is required.`
+      if (isNumeric(policy)) {
+        const value = Number(sample.observed)
+        if (!Number.isFinite(value)) return `${label}: the observation must be a number (${policy.MeasurementUomCode}).`
+        const within = (policy.LowerLimit === null || value >= policy.LowerLimit) && (policy.UpperLimit === null || value <= policy.UpperLimit)
+        if (within && sample.result !== 'PASS') return `${label}: ${value} is within limits, so the result must be PASS.`
+        if (!within && sample.result !== 'FAIL') return `${label}: ${value} is outside limits, so the result must be FAIL.`
+      }
     }
     if (serialized) {
       if (!Number.isInteger(acceptedNumber) || !Number.isInteger(rejectedNumber)) return 'Serialized quantities must be whole units.'
@@ -141,6 +186,17 @@ export function QcDispositionForm({
       rejectedQuantity: rejectedNumber,
       discrepancyPendingQuantity: discrepancy,
       acceptedConditionLocationId: acceptedNumber > 0 ? locationId : null,
+      parameterResults: draftSamples.map((sample) => {
+        const numeric = isNumeric(policyById.get(sample.policyId)!)
+        return {
+          QcInspectionPolicyId: sample.policyId,
+          SampleOrdinal: sample.sampleOrdinal,
+          ObservedNumericValue: numeric ? Number(sample.observed) : null,
+          ObservedTextValue: numeric ? null : sample.observed.trim(),
+          Result: sample.result as 'PASS' | 'FAIL',
+          Remarks: sample.remarks.trim() || null,
+        }
+      }),
       serialDispositions: draftSerials
         .filter((s) => s.disposition !== '')
         .map((s) => ({
@@ -160,6 +216,9 @@ export function QcDispositionForm({
     }
   }
 
+  const setSample = (index: number, patch: Partial<DraftSample>) =>
+    setDraftSamples((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
+
   const setSerial = (index: number, patch: Partial<DraftSerial>) =>
     setDraftSerials((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
 
@@ -175,13 +234,12 @@ export function QcDispositionForm({
           </p>
         </div>
       )}
-      {hasEffectivePolicy && (
+      {policiesUnreadable && (
         <div className="alert alert-warn" role="status">
-          <div className="alert-title">Parameter results cannot be captured yet</div>
+          <div className="alert-title">Parameter results cannot be captured</div>
           <p className="alert-body">
-            This item has an effective QC parameter policy, so finalize needs one PASS/FAIL result per required sample.
-            The API exposes no read endpoint for QC inspection policies, so the parameter codes and sample sizes are
-            unknown to this screen. Reported to the backend team; finalize is blocked until it lands.
+            This item has an effective QC parameter policy, so finalize needs one PASS/FAIL result per required sample,
+            but no policy could be read for it. Finalize is blocked until the policy list is readable.
           </p>
         </div>
       )}
@@ -232,6 +290,39 @@ export function QcDispositionForm({
           )}
         </label>
       </div>
+
+      {policies.length > 0 && (
+        <>
+          <h2 className="form-section-title">Parameter results ({draftSamples.length} samples)</h2>
+          <p className="field-hint">
+            One observation and PASS/FAIL per sample. A numeric observation must agree with the approved limits.
+          </p>
+          <div className="serial-list">
+            {draftSamples.map((sample, index) => {
+              const policy = policyById.get(sample.policyId)!
+              const numeric = isNumeric(policy)
+              const limits = numeric
+                ? ` (${policy.LowerLimit ?? '-inf'} to ${policy.UpperLimit ?? 'inf'} ${policy.MeasurementUomCode})`
+                : ''
+              return (
+                <div key={`${sample.policyId}-${sample.sampleOrdinal}`} className="serial-row">
+                  <span className="mono serial-ordinal">{sample.sampleOrdinal}</span>
+                  <span className="mono" title={policy.InspectionMethod}>{policy.ParameterCode}{limits}</span>
+                  <input className="input" disabled={busy} type={numeric ? 'number' : 'text'} step="any"
+                    placeholder={numeric ? `Observed ${policy.MeasurementUomCode}` : 'Observation'}
+                    value={sample.observed} onChange={(event) => setSample(index, { observed: event.target.value })} />
+                  <select className="input" disabled={busy} value={sample.result}
+                    onChange={(event) => setSample(index, { result: event.target.value as DraftSample['result'] })}>
+                    <option value="">Result...</option>
+                    <option value="PASS">PASS</option>
+                    <option value="FAIL">FAIL</option>
+                  </select>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       {serialized && (
         <>

@@ -62,14 +62,21 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
       ? current
       : { ...current, [row.line.Id]: { scanCode, returned: String(row.outstanding), consumed: '0', stillHeld: '0' } })
 
+  // A serialized line must be declared with its exact serial, which the server
+  // checks against InventorySerial.StoredSerialNumber. The issue view carries
+  // only InventorySerialId, so a serial scan cannot be matched to its line
+  // here: it is taken as the serial of the next undeclared serialized line and
+  // the server rejects a mismatch. Reported as a backend gap (serial number
+  // missing from MaterialIssueLineView).
   const onScan = (raw: string) => {
     const code = normalizeScan(raw)
-    const row = open.find((candidate) => normalizeScan(candidate.itemCode) === code && !declarations[candidate.line.Id])
+    const byItem = open.find((candidate) => normalizeScan(candidate.itemCode) === code && !declarations[candidate.line.Id])
+    const row = byItem ?? open.find((candidate) => candidate.line.InventorySerialId && !declarations[candidate.line.Id])
     if (!row) {
       setWarning(`“${raw}” matches no undeclared line on ${issue.IssueNumber}.`)
       return
     }
-    setWarning('')
+    setWarning(byItem || !row.line.InventorySerialId ? '' : `“${raw}” taken as the serial of line ${row.line.LineNumber}; correct it in the row if it belongs to another line.`)
     declare(row, raw)
   }
 
@@ -86,6 +93,10 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
     const payload = []
     for (const [lineId, declaration] of entries) {
       const row = open.find((candidate) => candidate.line.Id === lineId)!
+      if (row.line.InventorySerialId && normalizeScan(declaration.scanCode) === normalizeScan(row.itemCode)) {
+        setError(`${row.itemCode} line ${row.line.LineNumber}: a serialized return needs the exact issued serial, not the item code.`)
+        return
+      }
       const returned = Number(declaration.returned)
       const consumed = Number(declaration.consumed || 0)
       const stillHeld = Number(declaration.stillHeld || 0)
@@ -166,7 +177,15 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
                   return (
                     <tr key={row.line.Id}>
                       <td className="mono">{row.line.LineNumber}</td>
-                      <td><span className="mono">{row.itemCode}</span>{row.itemName ? ` — ${row.itemName}` : ''}{row.line.InventorySerialId ? <span className="field-hint">serialized: exact serial scan, full return of 1</span> : null}</td>
+                      <td>
+                        <span className="mono">{row.itemCode}</span>{row.itemName ? ` — ${row.itemName}` : ''}
+                        {row.line.InventorySerialId ? (
+                          declaration ? (
+                            <input className="input mono" placeholder="Issued serial number" value={declaration.scanCode}
+                              onChange={(event) => patch(row.line.Id, { scanCode: event.target.value })} />
+                          ) : <span className="field-hint">serialized: exact serial scan, full return of 1</span>
+                        ) : null}
+                      </td>
                       <td className="text-right mono">{row.outstanding}</td>
                       {declaration ? (
                         <>
@@ -178,7 +197,7 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
                       ) : (
                         <>
                           <td colSpan={3} className="field-hint">Scan to declare</td>
-                          <td><button type="button" className="btn btn-ghost" onClick={() => declare(row, row.itemCode)}>Declare without scan</button></td>
+                          <td><button type="button" className="btn btn-ghost" onClick={() => declare(row, row.line.InventorySerialId ? '' : row.itemCode)}>{row.line.InventorySerialId ? 'Enter serial' : 'Declare without scan'}</button></td>
                         </>
                       )}
                     </tr>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { acceptMaterialReturn, getMaterialIssue, getMaterialIssueRequest, listMaterialReturns } from '../../api/materialIssues'
 import { newIdempotencyKey } from '../../api/stores'
+import { listComponentFitments } from '../../api/production'
 import type { MaterialIssueRequestView, MaterialIssueView, MaterialReturnView } from '../../types/materialIssue'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
@@ -21,6 +22,7 @@ export function MaterialIssueDetailPage() {
   const [issue, setIssue] = useState<MaterialIssueView | null>(null)
   const [mir, setMir] = useState<MaterialIssueRequestView | null>(null)
   const [returns, setReturns] = useState<MaterialReturnView[]>([])
+  const [fittedByLine, setFittedByLine] = useState<Map<string, number>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
@@ -34,12 +36,25 @@ export function MaterialIssueDetailPage() {
     try {
       const loaded = await getMaterialIssue(id)
       setIssue(loaded)
-      const [request, page] = await Promise.all([
+      const [request, page, fitments] = await Promise.all([
         getMaterialIssueRequest(loaded.MaterialIssueRequestId).catch(() => null),
         listMaterialReturns({ page: 1, pageSize: 50, materialIssueId: loaded.Id }).catch(() => ({ Items: [] as MaterialReturnView[] })),
+        // Consumption is posted at fitment, and the issue line view carries no
+        // fitted quantity, so confirmed fitments on the job order are subtracted
+        // here. Non-Production roles may not read fitments; then outstanding
+        // shows issued minus returned only.
+        loaded.JobOrderId
+          ? listComponentFitments({ page: 1, pageSize: 200, jobOrderId: loaded.JobOrderId, activeOnly: true }).catch(() => ({ Items: [] }))
+          : Promise.resolve({ Items: [] }),
       ])
       setMir(request)
       setReturns(page.Items ?? [])
+      const fitted = new Map<string, number>()
+      for (const fitment of fitments.Items ?? []) {
+        if (fitment.IsReversed) continue
+        fitted.set(fitment.MaterialIssueLineId, (fitted.get(fitment.MaterialIssueLineId) ?? 0) + fitment.QuantityBase)
+      }
+      setFittedByLine(fitted)
     } catch (err) {
       setIssue(null)
       setError(err)
@@ -97,7 +112,7 @@ export function MaterialIssueDetailPage() {
       line,
       itemCode: requestLine?.ItemCode ?? line.ItemId,
       itemName: requestLine?.ItemName ?? '',
-      outstanding: line.QuantityBase - (acceptedReturned.get(line.Id) ?? 0),
+      outstanding: line.QuantityBase - (acceptedReturned.get(line.Id) ?? 0) - (fittedByLine.get(line.Id) ?? 0),
     }
   })
   const isCustodian = me?.EmployeeId === issue.IssuedToEmployeeId
@@ -149,7 +164,7 @@ export function MaterialIssueDetailPage() {
       <div className="table-wrap">
         <table className="table">
           <thead>
-            <tr><th>#</th><th>Item</th><th className="text-right">Issued (base)</th><th className="text-right">Returned</th><th className="text-right">Outstanding</th><th>Serial</th><th>Location</th></tr>
+            <tr><th>#</th><th>Item</th><th className="text-right">Issued (base)</th><th className="text-right">Returned</th><th className="text-right">Fitted</th><th className="text-right">Outstanding</th><th>Serial</th><th>Location</th></tr>
           </thead>
           <tbody>
             {lines.map((row) => (
@@ -158,6 +173,7 @@ export function MaterialIssueDetailPage() {
                 <td><span className="mono">{row.itemCode}</span>{row.itemName ? ` — ${row.itemName}` : ''}</td>
                 <td className="text-right mono">{row.line.QuantityBase}</td>
                 <td className="text-right mono">{acceptedReturned.get(row.line.Id) ?? 0}</td>
+                <td className="text-right mono">{fittedByLine.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{row.outstanding}</td>
                 <td className="mono">{row.line.InventorySerialId ? row.line.InventorySerialId.slice(0, 8) + '…' : '—'}</td>
                 <td className="mono">{row.line.WarehouseConditionLocationId.slice(0, 8)}…</td>

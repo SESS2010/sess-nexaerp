@@ -19,6 +19,9 @@ interface CreatePrefill {
   failedParameter?: string
   measuredValue?: string
   inspectionNumber?: string
+  lotDispositionId?: string
+  rejectedQuantity?: number
+  rejectedSerialIds?: string[]
 }
 
 /**
@@ -54,14 +57,14 @@ export function ConcessionPage() {
   // (CreateConcessionAsync) enforces no role beyond the page grant.
   const canCreate = can(PAGE_KEYS.qc, 'create')
   const [showCreate, setShowCreate] = useState(Boolean(prefill) && canCreate)
-  const [lotDispositionId, setLotDispositionId] = useState('')
+  const [lotDispositionId, setLotDispositionId] = useState(prefill?.lotDispositionId ?? '')
   const [failedResultId, setFailedResultId] = useState(prefill?.failedParameterResultId ?? '')
-  const [quantity, setQuantity] = useState('')
+  const [quantity, setQuantity] = useState(prefill?.rejectedQuantity ? String(prefill.rejectedQuantity) : '')
   const [failedParameter, setFailedParameter] = useState(prefill?.failedParameter ?? '')
   const [measuredValue, setMeasuredValue] = useState(prefill?.measuredValue ?? '')
   const [justification, setJustification] = useState('')
   const [intendedUse, setIntendedUse] = useState('')
-  const [serialIds, setSerialIds] = useState('')
+  const [serialIds, setSerialIds] = useState(prefill?.rejectedSerialIds?.join(', ') ?? '')
   const keyRef = useRef<{ fingerprint: string; key: string } | null>(null)
 
   // Approve/reject are qc.inspection-policies:approve and reverse is …:cancel;
@@ -199,14 +202,15 @@ export function ConcessionPage() {
       {showCreate && canCreate && (
         <div className="card">
           <h2 className="form-section-title">Raise concession{prefill?.inspectionNumber ? <> for <span className="mono">{prefill.inspectionNumber}</span></> : null}</h2>
-          <div className="alert alert-warn" role="status">
-            <div className="alert-title">Lot disposition id must be supplied by hand</div>
-            <p className="alert-body">
-              The concession is raised against the rejected lot disposition of the finalized QC revision, but no read
-              endpoint returns that id (GET /qc/inspections/{'{number}'} omits it). Reported as a backend gap; until it
-              lands the id has to come from the database.
-            </p>
-          </div>
+          {!prefill?.lotDispositionId && (
+            <div className="alert alert-warn" role="status">
+              <div className="alert-title">Lot disposition id must be supplied by hand</div>
+              <p className="alert-body">
+                Open the finalized inspection and use its Raise concession link so the rejected lot disposition,
+                quantity and serials are carried over from GET /qc/inspections/{'{number}'}.
+              </p>
+            </div>
+          )}
           <div className="form-grid">
             <label className="field">
               <span className="field-label">QC lot disposition id *</span>
