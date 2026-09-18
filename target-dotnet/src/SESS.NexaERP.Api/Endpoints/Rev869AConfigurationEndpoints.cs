@@ -556,7 +556,7 @@ public static partial class Rev869AConfigurationEndpoints
         if(itemId.HasValue)query=query.Where(x=>x.ItemId==itemId.Value);
         if(categoryId.HasValue)query=query.Where(x=>x.ItemCategoryId==categoryId.Value);
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&(x.ApprovalStatus==MasterApprovalStatuses.Approved||x.ApprovalStatus=="APPROVED")&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
-        var rows=await query.Include(x=>x.MeasurementUom).OrderBy(x=>x.ParameterCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.CompanyId,x.ItemId,x.ItemCategoryId,x.ParameterCode,MeasurementUomCode=x.MeasurementUom!.Code,x.LowerLimit,x.UpperLimit,x.InspectionMethod,x.SampleSize,x.ApprovalStatus,x.IsActive,x.EffectiveFrom,x.EffectiveTo,x.Version}).ToListAsync(ct);return Results.Ok(rows);
+        var rows=await query.Include(x=>x.MeasurementUom).OrderBy(x=>x.ParameterCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.CompanyId,x.ItemId,ItemCode=x.Item==null?null:x.Item.ItemCode,x.ItemCategoryId,x.ParameterCode,MeasurementUomCode=x.MeasurementUom!.Code,x.LowerLimit,x.UpperLimit,x.InspectionMethod,x.SampleSize,x.ApprovalStatus,x.IsActive,x.EffectiveFrom,x.EffectiveTo,x.Version}).ToListAsync(ct);return Results.Ok(rows);
     }
 
     private static async Task RollbackCommandAttemptAsync(

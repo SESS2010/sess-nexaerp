@@ -47,6 +47,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var pendingList = await Get<JsonElement>(client, policies + "?effectiveOnly=false");
         var pending = Assert.Single(pendingList.EnumerateArray(), x => x.GetProperty("Id").GetGuid() == id);
         Assert.Equal(MasterApprovalStatuses.PendingApproval, pending.GetProperty("ApprovalStatus").GetString());
+        Assert.Equal(lot.ItemCode, pending.GetProperty("ItemCode").GetString());
         var version = pending.GetProperty("Version").GetUInt32();
         var approvePath = policies + "/" + id + "/approve";
         using (var denied = await QcDecisionResponse(client, approvePath, new("QC cannot self-approve", version), "qc-self-approve"))
