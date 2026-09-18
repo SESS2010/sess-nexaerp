@@ -102,6 +102,13 @@ internal static class DatabasePrincipalProvisioningSql
           EXECUTE format('ALTER DATABASE %I OWNER TO nexa_erp_owner',current_database());
         END $ownership$;
 
+        -- Reassignment can preserve revoked owner ACLs. Restore exactly the
+        -- four owner grants already required by migration 75.
+        GRANT USAGE,CREATE ON SCHEMA advance TO nexa_erp_owner;
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA advance TO nexa_erp_owner;
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA advance TO nexa_erp_owner;
+        GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA advance TO nexa_erp_owner;
+
         DO $database_acl$
         BEGIN
           EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC',current_database());
@@ -561,6 +568,25 @@ internal static class DatabasePrincipalProvisioningSql
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','S','f')
               AND pg_catalog.pg_get_userbyid(c.relowner)<>'nexa_erp_owner'
           ) THEN RAISE EXCEPTION 'An advance relation is not owned by nexa_erp_owner.'; END IF;
+          IF NOT has_schema_privilege('nexa_erp_owner','advance','USAGE')
+             OR NOT has_schema_privilege('nexa_erp_owner','advance','CREATE') THEN
+            RAISE EXCEPTION 'Owner schema privileges are incomplete.';
+          END IF;
+          IF EXISTS(
+            SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace,
+              unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) privilege
+            WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
+              AND NOT has_table_privilege('nexa_erp_owner',c.oid,privilege)
+          ) OR EXISTS(
+            SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace,
+              unnest(ARRAY['USAGE','SELECT','UPDATE']) privilege
+            WHERE n.nspname='advance' AND c.relkind='S'
+              AND NOT has_sequence_privilege('nexa_erp_owner',c.oid,privilege)
+          ) OR EXISTS(
+            SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='advance' AND p.prokind IN ('f','p')
+              AND NOT has_function_privilege('nexa_erp_owner',p.oid,'EXECUTE')
+          ) THEN RAISE EXCEPTION 'Owner relation, sequence or routine privileges are incomplete.'; END IF;
           IF has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','SELECT')
              OR has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','INSERT')
              OR has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','UPDATE')

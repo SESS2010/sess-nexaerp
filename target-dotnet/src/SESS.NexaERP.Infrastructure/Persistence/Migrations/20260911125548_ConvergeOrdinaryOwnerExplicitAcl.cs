@@ -22,7 +22,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql(Converge);
         }
 
-        private const string Converge = """
+        private static readonly string Converge = $$"""
             DO $converge$
             DECLARE
               was_installed boolean;
@@ -58,7 +58,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
               IF was_installed THEN
                 FOREACH role_name IN ARRAY target_roles LOOP
-                  EXECUTE format('REASSIGN OWNED BY %I TO nexa_erp_owner',role_name);
+                  {{RetiredRoleOwnershipSql.ReassignIfNeeded}}
                 END LOOP;
               END IF;
 

@@ -59,7 +59,7 @@ internal static class RetireRev869BOrdinaryDeploymentSql
           END IF;
 
           FOREACH role_name IN ARRAY {{SqlArray(TargetRoles)}} LOOP
-            EXECUTE format('REASSIGN OWNED BY %I TO nexa_erp_owner',role_name);
+            {{RetiredRoleOwnershipSql.ReassignIfNeeded}}
           END LOOP;
         END $repair$;
         """;
@@ -139,8 +139,9 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_owner') THEN " +
         "RAISE EXCEPTION USING ERRCODE='55000',MESSAGE='Refusing REV869B retirement: nexa_erp_owner is missing.'; " +
         "END IF; END $ownership_target$;" + "\n" +
-        string.Join("\n", TargetRoles.Select(role =>
-            $"REASSIGN OWNED BY {role} TO nexa_erp_owner;"));
+        "DO $retired_ownership$ DECLARE role_name text; BEGIN FOREACH role_name IN ARRAY " +
+        SqlArray(TargetRoles) + " LOOP " + RetiredRoleOwnershipSql.ReassignIfNeeded +
+        " END LOOP; END $retired_ownership$;";
 
     private const string RestorePreparation = """
         DROP TRIGGER IF EXISTS "TR_rev869b_command_outcomes_immutable" ON advance.rev869b_command_attempt_outcomes;

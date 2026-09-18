@@ -1,5 +1,7 @@
 # Developer database runtime principals
 
+For a legacy installation before migration 75, first read [the REV869B upgrade privilege procedure](legacy-rev869b-upgrade-privileges.md). The ordinary sequence below does not authorize an unprivileged ownership transfer from retired roles. The owner-approved one-migration administrator exception is documented there.
+
 This is the exact sequence for an existing, populated developer database after
 REV869B retirement. The managed topology contains only:
 
