@@ -52,6 +52,32 @@ export interface QcInspectionPolicy {
   Version: number
 }
 
+/**
+ * POST /api/v1/rev869a/configuration/qc-inspection-policies
+ * (Rev869AConfigurationEndpoints.CreateQcPolicy). Exactly one of ItemCode /
+ * ItemCategoryCode; the server binds them by code, not id. QC_MANAGER only.
+ */
+export interface CreateQcInspectionPolicyRequest {
+  OrganizationId: string
+  ItemCode: string | null
+  ItemCategoryCode: string | null
+  ParameterCode: string
+  MeasurementUomCode: string
+  LowerLimit: number | null
+  UpperLimit: number | null
+  InspectionMethod: string
+  SampleSize: number
+  EffectiveFrom: string
+  EffectiveTo: string | null
+  Remarks: string
+}
+
+/** Approve / reject a pending policy (MasterActionRequest). TECHNICAL_DIRECTOR only; never the preparer. */
+export interface QcPolicyDecisionRequest {
+  Remarks: string
+  Version: number
+}
+
 export const SERIAL_DISPOSITIONS = ['ACCEPTED', 'REJECTED'] as const
 export type SerialDispositionValue = (typeof SERIAL_DISPOSITIONS)[number]
 

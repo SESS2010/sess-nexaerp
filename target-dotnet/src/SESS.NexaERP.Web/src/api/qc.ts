@@ -7,6 +7,8 @@ import type {
   ApproveInventoryConcessionRequest,
   CorrectQcInspectionRequest,
   CreateInventoryConcessionRequest,
+  CreateQcInspectionPolicyRequest,
+  QcPolicyDecisionRequest,
   InventoryConcessionResult,
   RejectInventoryConcessionRequest,
   ReverseInventoryConcessionRequest,
@@ -108,6 +110,31 @@ export async function listEffectiveQcPolicies(itemId: string, categoryId: string
   for (const policy of item) merged.set(policy.Id, policy)
   for (const policy of category) if (policy.ItemId === null) merged.set(policy.Id, policy)
   return [...merged.values()].sort((a, b) => a.ParameterCode.localeCompare(b.ParameterCode))
+}
+
+const POLICIES = '/api/v1/rev869a/configuration/qc-inspection-policies'
+
+/** Every policy in the company, any status (qc.inspection-policies:view). */
+export function listQcPolicies(): Promise<QcInspectionPolicy[]> {
+  return api.get<QcInspectionPolicy[]>(POLICIES)
+}
+
+/** qc.inspection-policies:create; the endpoint additionally requires the QC_MANAGER role. */
+export function createQcPolicy(body: CreateQcInspectionPolicyRequest): Promise<{ Id: string; ApprovalStatus: string; Version: number }> {
+  return api.post(POLICIES, body)
+}
+
+/**
+ * qc.inspection-policies:approve / :reject, TECHNICAL_DIRECTOR on the server,
+ * and the preparer may not decide their own policy. Idempotency-Key is
+ * mandatory (8–200 chars).
+ */
+export function decideQcPolicy(policyId: string, approve: boolean, body: QcPolicyDecisionRequest, idempotencyKey: string) {
+  return api.post<{ Id: string; ApprovalStatus: string; IsActive: boolean; Version: number }>(
+    `${POLICIES}/${encodeURIComponent(policyId)}/${approve ? 'approve' : 'reject'}`,
+    body,
+    { 'Idempotency-Key': idempotencyKey },
+  )
 }
 
 /* ------------------------------------------------------------------ */

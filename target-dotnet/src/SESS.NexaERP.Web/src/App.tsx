@@ -33,6 +33,7 @@ import { QcQueuePage } from './features/qc/QcQueuePage'
 import { QcInspectPage } from './features/qc/QcInspectPage'
 import { QcInspectionPage } from './features/qc/QcInspectionPage'
 import { ConcessionPage } from './features/qc/ConcessionPage'
+import { QcPolicyPage } from './features/qc/QcPolicyPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
 import { MaterialIssueRequestListPage } from './features/stores/MaterialIssueRequestListPage'
 import { MaterialIssueRequestDetailPage } from './features/stores/MaterialIssueRequestDetailPage'
@@ -66,6 +67,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
+  ['/qc/inspection-policies', 'QC Inspection Policies'],
   ['/production/job-orders', 'Job Order'],
   ['/production/component-fitments', 'Component Fitment'],
   ['/production/boms', 'Production BOM'],
@@ -133,6 +135,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.grn) && <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
             {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
+            {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspection-policies" className={navLinkClass}>QC Policies</NavLink>}
             {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR</NavLink>}
             {can(PAGE_KEYS.materialIssues) && <NavLink to="/stores/material-issues" className={navLinkClass}>Material Issues</NavLink>}
             {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
@@ -206,6 +209,7 @@ export default function App() {
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />
                 <Route path="/qc/concessions" element={<ConcessionPage />} />
                 <Route path="/qc/concessions/:number" element={<ConcessionPage />} />
+                <Route path="/qc/inspection-policies" element={<QcPolicyPage />} />
                 <Route path="/production/job-orders" element={<JobOrderListPage />} />
                 <Route path="/production/job-orders/:id" element={<JobOrderDetailPage />} />
                 <Route path="/production/component-fitments" element={<ComponentFitmentListPage />} />
