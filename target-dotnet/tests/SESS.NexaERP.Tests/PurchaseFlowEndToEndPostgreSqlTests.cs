@@ -576,6 +576,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveMultiSerialQcDiscrepancy(qcHost.Client, options, user, multi, qcId, tdId);
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
+                await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);
             }
         }
         finally { }
@@ -2371,7 +2372,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.AddAuthorization();
             builder.Services.ConfigureHttpJsonOptions(x => ApiJsonContract.Configure(x.SerializerOptions));
             builder.Services.AddInfrastructure(builder.Configuration);
-            if (requestUser is null) builder.Services.AddSingleton<ICurrentUser>(user);
+            if (requestUser is null) builder.Services.AddScoped<ICurrentUser>(_ => user.ForRequest());
             else
             {
                 builder.Services.AddHttpContextAccessor();
@@ -2406,6 +2407,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapRev869AConfigurationEndpoints();
             app.MapReferenceMasterEndpoints();
             app.MapInventoryEndpoints();
+            app.MapMasterDataTransferEndpoints();
             app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
             app.MapRev869BPurchaseEndpoints();

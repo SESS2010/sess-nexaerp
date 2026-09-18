@@ -149,7 +149,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private readonly IReadOnlyDictionary<string, EffectiveRoleAssignment> knownAssignments;
         private IReadOnlyList<EffectiveRoleAssignment> assignments = [];
         private ResolvedRoleAuthority? authority;
-        private string selectedRole = "none";
         private readonly Dictionary<Guid, string> rotatedSubjects = [];
         public void RotateSubject(Guid employeeId, string subject)
         {
@@ -165,7 +164,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public static string AssignmentKey(Guid employeeId, string roleCode) => $"{employeeId:N}|{roleCode.Trim().ToUpperInvariant()}";
         public Guid CurrentEmployeeId { get; private set; }
         public string LoginId { get; private set; } = string.Empty;
-        public string RoleCode => authority?.RoleCode ?? selectedRole;
+        public string RoleCode => authority?.RoleCode ?? "none";
         public IReadOnlyList<string> RoleCodes => assignments.Select(x => x.RoleCode).ToArray();
         public IReadOnlyList<string> FullAuthorityRoleCodes => assignments.Where(x => x.AssignmentType != "SUPPORT").Select(x => x.RoleCode).ToArray();
         public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => assignments;
@@ -177,13 +176,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public string? IdentityIssuer => "https://issuer.purchase-flow.test";
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
-        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
+        public TaxWorkflowUser ForRequest() => new(CurrentEmployeeId, LoginId, "none", knownAssignments)
+        {
+            assignments = assignments.ToArray(),
+            CurrentOrganizationId = CurrentOrganizationId
+        };
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value)
+        {
+            if (value.AssignmentId == Guid.Empty || !assignments.Any(x => x.AssignmentId == value.AssignmentId &&
+                string.Equals(x.RoleCode, value.RoleCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(x.AssignmentType, value.AssignmentType, StringComparison.OrdinalIgnoreCase)))
+                throw new UnauthorizedAccessException("Resolved role authority is not an effective assignment for this test employee.");
+            authority = value;
+        }
         public void SetOrganization(string organizationId) => CurrentOrganizationId = organizationId;
         public void Set(Guid id, string subject, string roleCode, params string[] effectiveRoles)
         {
             CurrentEmployeeId = id;
             LoginId = rotatedSubjects.GetValueOrDefault(id, subject);
-            selectedRole = roleCode;
             authority = null;
             var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
             assignments = roles.Distinct(StringComparer.Ordinal).Select(code =>

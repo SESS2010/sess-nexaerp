@@ -16,15 +16,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         public Action Begin(HttpContext context, ICurrentUser user)
         {
-            var role = user.RoleCode;
-            var actor = new ActorEvidence(user.EmployeeId, role,
-                user.EffectiveRoleAssignments.FirstOrDefault(x => x.RoleCode == role)?.AssignmentId);
+
             return () =>
             {
                 if (context.Response.StatusCode is < 200 or >= 300 ||
                     context.GetEndpoint() is not RouteEndpoint endpoint ||
                     !IsQc(endpoint.RoutePattern.RawText) || !IsWrite(context.Request.Method)) return;
-                reached[context.Request.Method + " " + endpoint.RoutePattern.RawText] = actor;
+                // Authority is operation-specific and is resolved during endpoint execution.
+                // Capture the actual resolved assignment, never a pre-request role guess.
+                reached[context.Request.Method + " " + endpoint.RoutePattern.RawText] =
+                    new ActorEvidence(user.EmployeeId, user.RoleCode, user.ResolvedRoleAssignmentId);
             };
         }
 

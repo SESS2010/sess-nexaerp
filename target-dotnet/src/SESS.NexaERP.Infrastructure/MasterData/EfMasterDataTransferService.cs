@@ -426,14 +426,14 @@ public sealed class EfMasterDataTransferService(
             ?? throw new UnauthorizedAccessException("Resolved organization does not identify an active company.");
     }
 
-    private async Task<string> ResolveOperationalRoleAsync(IMasterDataDefinition definition, CancellationToken cancellationToken)
+    internal async Task<string> ResolveOperationalRoleAsync(IMasterDataDefinition definition, CancellationToken cancellationToken)
     {
         foreach (var role in definition.OperationalRolePriority)
         {
-            if (!string.Equals(user.RoleCode, role, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!user.RoleCodes.Contains(role, StringComparer.OrdinalIgnoreCase)) continue;
             if (await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Create, cancellationToken)
                 && await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Update, cancellationToken))
-                return role;
+                return user.RequireRole($"{definition.PageKey}:create", role);
         }
         throw new UnauthorizedAccessException("No effective role has both create and update authority for this master-data import.");
     }
