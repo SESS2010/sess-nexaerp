@@ -130,14 +130,11 @@ public static partial class Rev869BPurchaseEndpoints
         await audit.WriteAsync("Security", "Denied", "CommercialValues", row.Id.ToString(), null, new { reason = "Commercial values masked", user.RoleCode }, ct);
         return Results.Ok(new { row.Id, row.PoNumber, row.RevisionNumber, row.IsCurrentVersion, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, row.Status, row.CurrencyCode, row.IssuedAt, row.CancelledAt, row.CancellationReason, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.ItemId, x.ItemCodeSnapshot, x.ItemNameSnapshot, x.UomSnapshot, x.OrderedQuantity }) });
     }
-    private static async Task<IResult> GetQuotationAttachment(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> GetQuotationAttachment(string number, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var row = await db.VendorQuotations.AsNoTracking().Include(x => x.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation)
+        var row = await ScopeQuotations(db.VendorQuotations.AsNoTracking().Include(x => x.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation), db, user)
             .SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.QuotationNumber == number.Trim().ToUpperInvariant(), ct);
         if (row is null) return await Missing(audit, "purchase.vendor-quotations", number, user, ct);
-        var rfq = row.RfqVendorInvitation!.RequestForQuotation!;
-        if (!await Allowed(user, scopes, row.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, rfq.OwnerEmployeeId, ct))
-            return await Denied(audit, "purchase.vendor-quotations", number, user, ct);
         await audit.WriteAsync("Purchase", "AttachmentAccess", nameof(VendorQuotation), row.Id.ToString(), null,
             new { row.QuotationNumber, organizationId = row.OrganizationId, evidencePresent = true }, ct);
         return Results.Ok(new { row.QuotationNumber, row.AttachmentObjectKey, row.AttachmentSha256, row.SubmissionSource, row.ReceivedAt });

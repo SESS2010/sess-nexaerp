@@ -131,6 +131,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid tdId;
         Guid mdId;
         Guid verifierId;
+        Guid technicalVerifierId;
         Guid purchaseId;
         Guid storesId;
         Guid qcId;
@@ -158,25 +159,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             tdId = await Employee(seed, "SESS-01");
             mdId = await Employee(seed, "SESS-02");
             verifierId = await Employee(seed, "SESS-05");
+            technicalVerifierId = await Employee(seed, "SESS-04");
             purchaseId = await Employee(seed, "SESS-15");
             storesId = await Employee(seed, "SESS-35");
             qcId = await Employee(seed, "SESS-33");
             productionId = await Employee(seed, "SESS-25");
             accountsSupportId = await Employee(seed, "SESS-41");
             secondReceiptOperatorId = await Employee(seed, "SESS-16");
-            var identities = new[]
+            var identities = new List<(Guid, string)>
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
                 (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"),
                 (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, "SESS-41"),
                 (secondReceiptOperatorId, "SESS-16")
             };
+            if (multiSerialQcWitness) identities.Add((technicalVerifierId, "SESS-04"));
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
                 .ExecuteUpdateAsync(x => x.SetProperty(e => e.LoginEnabled, true));
             seed.EmployeeIdentityMappings.AddRange(identities.Select(x => Mapping(companyId, x.Item1, x.Item2)));
             seed.EmployeeOperationalScopes.AddRange(identities
-                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId && x.Item1 != qcId)
+                .Where(x => x.Item1 != managerId && x.Item1 != tdId && x.Item1 != mdId && x.Item1 != qcId && x.Item1 != technicalVerifierId)
                 .Select(x => new EmployeeOperationalScope
             {
                 CompanyId = companyId, OrganizationId = "SESS_PVT_LTD", EmployeeId = x.Item1,
@@ -391,7 +394,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         var context = new SupplierInvoiceWitnessContext(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection);
                         if (supplierInvoices is not null) await supplierInvoices(context);
                         if (intercompanyPurchase is not null) await intercompanyPurchase(context);
-                    }));
+                    }, technicalWitnessClient: multiSerialQcWitness ? qcHost.Client : null,
+                    technicalWitnessActorId: multiSerialQcWitness ? technicalVerifierId : null));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -583,7 +587,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var multi = await RunPurchaseBand(adminClient, approvalClient, client, options, user,
                     new PurchaseFlowBand("QCMULTI", 100000.01m, 100000.01m, 2, managerId, mdId),
                     creatorId, managerId, tdId, mdId, verifierId, purchaseId, storesId, qcId, vendor1Id, vendor2Id,
-                    receiptQuantity: 2m, requestedQuantity: demand, expectedHandoffQuantity: 2m);
+                    receiptQuantity: 2m, requestedQuantity: demand, expectedHandoffQuantity: 2m,
+                    technicalWitnessClient: qcHost.Client, technicalWitnessActorId: technicalVerifierId);
                 await ProveMultiSerialQcDiscrepancy(qcHost.Client, options, user, multi, qcId, tdId);
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
@@ -764,7 +769,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
         Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
-        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m)
+        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -911,6 +916,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(verifierId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER");
         foreach (var quote in quotations)
         {
+            if (technicalWitnessClient is not null)
+            {
+                var director = band.Code == "LOW";
+                await ProveSeededTechnicalVerification(technicalWitnessClient, options, user, quote,
+                    director ? tdId : technicalWitnessActorId!.Value, director ? "SESS-01" : "SESS-04",
+                    director ? "TECHNICAL_DIRECTOR" : "TECHNICAL_SUPPORT_MANAGER",
+                    $"{band.Code}-technical-{quote.Id:N}", (band.Code is "LOW" or "TD") && quote.Id == quotations[0].Id);
+                continue;
+            }
             var lineId = await Query(options, db => db.VendorQuotationLines.Where(x => x.VendorQuotationId == quote.Id).Select(x => x.Id).SingleAsync());
             await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/quotations/{quote.Number}/technical-verifications",
                 new Rev869BTechnicalVerificationRequest(lineId, true, """{"trial":true}""", "Technically compliant",
