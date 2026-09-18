@@ -123,6 +123,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     VendorRegistrationType.REGULAR.ToCanonicalValue(), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1), 100), default);
             Assert.Equal(successorId, resolved.Id);
             Assert.Equal(12, resolved.GstRate);
+            Assert.Equal(InputTaxCreditEligibility.FullyRecoverable, predecessor.ItcEligibility);
+            Assert.Null(predecessor.RecoverableTaxPercent);
+        }
+        foreach (var (hsn, eligibility, percent) in new[]
+        {
+            ("ITC-BLOCK", InputTaxCreditEligibility.Blocked, (decimal?)null),
+            ("ITC-PART", InputTaxCreditEligibility.PartiallyRecoverable, (decimal?)37.5m)
+        })
+        {
+            await using var db = new NexaErpDbContext(runtimeOptions);
+            user.Set(accountsId, "SESS-14", "ACCOUNTS_MANAGER");
+            var service = new EfTaxGstWorkflowService(db, user, new EfAuditWriter(db, user));
+            var created = await service.CreateAsync(Request(hsn) with
+                { ItcEligibility = eligibility, RecoverableTaxPercent = percent }, "itc-create-" + hsn, default);
+            user.Set(tdId, "SESS-01", "TECHNICAL_DIRECTOR");
+            await service.ApproveAsync(created.Id, new(0, "Accounts ITC classification approved", "itc-approve-" + hsn), default);
+            var rule = await db.TaxGstSettings.AsNoTracking().SingleAsync(x => x.Id == created.Id);
+            Assert.Equal(eligibility, rule.ItcEligibility);
+            Assert.Equal(percent, rule.RecoverableTaxPercent);
+            var history = await db.ControlledConfigurationHistories.Where(x => x.EntityId == created.Id && x.Action == "Approve").SingleAsync();
+            Assert.Contains(eligibility, history.AfterJson);
         }
     }
 

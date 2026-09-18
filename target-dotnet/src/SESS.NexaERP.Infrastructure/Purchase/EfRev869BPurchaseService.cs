@@ -290,7 +290,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         tax.Id, tax.OrganizationId, tax.JurisdictionCode, tax.HsnSacCode, tax.SupplyType, tax.SupplierStateCode,
         tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
         tax.IgstRate, tax.CessRate, tax.IsExempt, tax.IsReverseCharge, tax.CurrencyCode, tax.RoundingScale,
-        tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive);
+        tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive)
+        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent };
 
     private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateOnly quotationReceivedDate)
     {
@@ -320,10 +321,13 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var rfqLine = line.RequestForQuotationLine ?? throw new Rev869BConflictException("Quotation line RFQ provenance is missing.");
         var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, calculated.Tax.CgstRate, calculated.Tax.SgstRate, calculated.Tax.IgstRate, calculated.Tax.CessRate, line.RoundOff, calculated.Tax.RoundingScale)
         { HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
-        return JsonSerializer.Serialize(new ComparisonCommercialSnapshot(
+        var snapshot = JsonSerializer.SerializeToNode(new ComparisonCommercialSnapshot(
             comparison.OrganizationId, comparison.Id, comparison.RequestForQuotationId, quote.VendorId, quote.Id,
             quote.RevisionNumber, line.Id, rfqLine.ItemId, line.Quantity, rfqLine.UomSnapshot, quote.CurrencyCode,
-            1m, input, calculated.Breakdown, calculated.Tax), JsonOptions);
+            1m, input, calculated.Breakdown, calculated.Tax), JsonOptions)!;
+        // Preserve the agreed evidence, including the shape of legacy snapshots.
+        snapshot["taxRule"] = System.Text.Json.Nodes.JsonNode.Parse(line.TaxRuleSnapshotJson);
+        return snapshot.ToJsonString(JsonOptions);
     }
     private async Task ReconcileComparisonAsync(CommercialComparison comparison, CancellationToken ct)
     {

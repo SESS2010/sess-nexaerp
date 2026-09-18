@@ -104,6 +104,9 @@ public sealed partial class NexaErpDbContext
             entity.Property(x => x.SupplierStateCode).HasMaxLength(10).IsRequired();
             entity.Property(x => x.PlaceOfSupplyStateCode).HasMaxLength(10).IsRequired();
             entity.Property(x => x.VendorRegistrationType).HasMaxLength(30).IsRequired();
+            entity.Property(x => x.ItcEligibility).HasMaxLength(30).HasDefaultValue(InputTaxCreditEligibility.FullyRecoverable).IsRequired();
+            entity.Property(x => x.RecoverableTaxPercent).HasPrecision(9, 6);
+            entity.ToTable(t => t.HasCheckConstraint("CK_tax_gst_itc_eligibility", """("ItcEligibility" IN ('FULLY_RECOVERABLE','BLOCKED') AND "RecoverableTaxPercent" IS NULL) OR ("ItcEligibility"='PARTIALLY_RECOVERABLE' AND "RecoverableTaxPercent" IS NOT NULL AND "RecoverableTaxPercent">0 AND "RecoverableTaxPercent"<100)"""));
             entity.Property(x => x.CurrencyCode).HasMaxLength(3).IsRequired();
             entity.Property(x => x.ApprovalStatus).HasMaxLength(50).IsRequired();
             entity.Property(x => x.DecisionRoleCode).HasMaxLength(100);

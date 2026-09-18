@@ -24,6 +24,8 @@ public sealed class TaxGstSetting : CompanyScopedAuditableEntity
     public decimal CessRate { get; set; }
     public bool IsExempt { get; set; }
     public bool IsReverseCharge { get; set; }
+    public string ItcEligibility { get; set; } = InputTaxCreditEligibility.FullyRecoverable;
+    public decimal? RecoverableTaxPercent { get; set; }
     public string CurrencyCode { get; set; } = "INR";
     public int RoundingScale { get; set; } = 2;
     public DateOnly EffectiveFrom { get; set; }

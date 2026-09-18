@@ -102,6 +102,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var initialMigration=historicalFifoUpgrade?model.Database.GetMigrations()
             .TakeWhile(x=>x!="20260914080000_FifoReturnRestorations").Last():latest;
         server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", initialMigration));
+        if (historicalFifoUpgrade)
+        {
+            // This synthetic FIFO predecessor fixture uses the current application.
+            // Install only its new tax-rule columns early; FIFO functions/evidence
+            // remain at the historical predecessor until the actual upgrade below.
+            var migrations = model.Database.GetMigrations().ToArray();
+            var credit = Array.IndexOf(migrations, "20260918085900_GovernedTaxInputCreditEligibility");
+            Assert.True(credit > 0);
+            server.Execute("historical-fifo-current-tax-contract.sql",
+                migrator.GenerateScript(migrations[credit - 1], migrations[credit]));
+        }
         if (returnRace is not null)
         {
             var migrations = model.Database.GetMigrations().ToArray();
@@ -442,7 +453,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if(historicalFifoUpgrade)
             {
                 var originalHistory=await ReadOriginalFifoHistory(options);
-                server.Execute("fifo-historical-return-upgrade.sql",migrator.GenerateScript(initialMigration,latest));
+                server.Execute("fifo-historical-return-upgrade.sql",migrator.GenerateScript(initialMigration,latest,MigrationsSqlGenerationOptions.Idempotent));
                 Assert.Equal(0,await DatabasePrincipalCommand.RunAsync(["database-principals","provision"]));
                 await VerifyHistoricalFifoRestoration(options,originalHistory);
             }
@@ -1524,10 +1535,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var actual = await Get<ActualBomView>(client,
             $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
         Assert.Equal("LANDED_ACCEPTED", Assert.Single(actual.Entries).ValuationStatus);
-        var expectedMaterial = decimal.Round(acceptedAllocation.AcceptedValue /
-            acceptedAllocation.AllocatedQuantity * .30m, 6);
         var expectedCharges = decimal.Round(allocatedCharge /
             acceptedAllocation.AllocatedQuantity * .30m, 6);
+        var expectedLandedTotal = decimal.Round(Assert.Single(acceptedLandedBill.Lines).LandedUnitRate * .30m, 6);
+        var expectedMaterial = expectedLandedTotal - expectedCharges;
+        Assert.Equal(expectedLandedTotal, actual.TotalAcceptedValue);
         Assert.Equal(expectedMaterial, actual.TotalAcceptedMaterialValue);
         Assert.Equal(expectedCharges, actual.TotalAllocatedChargeValue);
         Assert.Equal(expectedMaterial + expectedCharges, actual.TotalAcceptedValue);
@@ -2239,6 +2251,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task AssertPoEvidence(DbContextOptions<NexaErpDbContext> options, Guid id, string auditAction)
     {
         await using var db = new NexaErpDbContext(options);
+        var snapshots = await db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == id)
+            .Select(x => x.TaxRuleSnapshotJson).ToListAsync();
+        Assert.NotEmpty(snapshots);
+        foreach (var json in snapshots)
+        {
+            using var captured = JsonDocument.Parse(json);
+            var taxId = captured.RootElement.GetProperty("id").GetGuid();
+            var agreedRule = await db.TaxGstSettings.AsNoTracking().SingleAsync(x => x.Id == taxId);
+            Assert.Equal(agreedRule.ItcEligibility, captured.RootElement.GetProperty("itcEligibility").GetString());
+            var percent = captured.RootElement.GetProperty("recoverableTaxPercent");
+            Assert.Equal(agreedRule.RecoverableTaxPercent,
+                percent.ValueKind == JsonValueKind.Null ? (decimal?)null : percent.GetDecimal());
+        }
         Assert.True(await db.PurchaseOrderHistories.AnyAsync(x => x.PurchaseOrderId == id));
         Assert.True(await db.PurchaseTransactionStatusHistories.AnyAsync(x => x.EntityType == "PurchaseOrder" && x.EntityId == id));
         Assert.True(await db.AuditLogs.AnyAsync(x => x.EntityId == id.ToString() && x.Action == auditAction));
