@@ -33,7 +33,7 @@ public sealed record CreateMaterialIssue(string IdempotencyKey, Guid IssuedToEmp
 public sealed record MaterialIssueLineView(Guid Id, Guid MaterialIssueRequestLineId, int LineNumber,
     Guid ItemId, decimal QuantityBase, Guid OwnershipAccountId, Guid FromCustodyAssignmentId,
     Guid ToCustodyAssignmentId, Guid InventoryProvenanceLayerId, Guid? InventoryLotId,
-    Guid? InventorySerialId, Guid WarehouseConditionLocationId);
+    Guid? InventorySerialId, Guid WarehouseConditionLocationId, string? StoredSerialNumber, decimal FittedQuantityBase);
 public sealed record MaterialIssueView(Guid Id, string IssueNumber, Guid MaterialIssueRequestId,
     Guid? JobOrderId, Guid IssuedToEmployeeId, DateTimeOffset IssuedAt, DateTimeOffset ReturnDueAt,
     string Status, Guid? StockPostingBatchId,

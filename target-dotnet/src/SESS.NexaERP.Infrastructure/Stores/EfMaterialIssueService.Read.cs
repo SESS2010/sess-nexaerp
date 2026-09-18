@@ -41,7 +41,7 @@ public sealed partial class EfMaterialIssueService
     {
         var company = await CompanyAsync(ct);
         var issue = await IssueQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
-        return issue is null ? null : IssueView(issue, false);
+        return issue is null ? null : await IssueViewAsync(issue, false, ct);
     }
 
     public async Task<IReadOnlyList<OutstandingEngineerCustodyView>> OutstandingCustodyAsync(
@@ -189,8 +189,21 @@ public sealed partial class EfMaterialIssueService
                     l.ExcessClassification, decisionLines.Contains(l.Id), l.Remarks)).ToList());
     }
 
-    private static MaterialIssueView IssueView(MaterialIssue x, bool replayed) =>
-        new(x.Id, x.IssueNumber, x.MaterialIssueRequestId, x.JobOrderId, x.IssuedToEmployeeId,
+    private async Task<MaterialIssueView> IssueViewAsync(MaterialIssue x, bool replayed, CancellationToken ct)
+    {
+        var serialIds = x.Lines.Where(l => l.InventorySerialId.HasValue)
+            .Select(l => l.InventorySerialId!.Value).Distinct().ToArray();
+        var serials = await db.InventorySerials.AsNoTracking()
+            .Where(s => s.CompanyId == x.CompanyId && serialIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.StoredSerialNumber, ct);
+        var lineIds = x.Lines.Select(l => l.Id).ToArray();
+        var fitted = await db.ComponentFitments.AsNoTracking()
+            .Where(f => f.CompanyId == x.CompanyId && lineIds.Contains(f.MaterialIssueLineId) &&
+                !db.ComponentFitmentReversals.Any(r => r.CompanyId == f.CompanyId && r.ComponentFitmentId == f.Id))
+            .GroupBy(f => f.MaterialIssueLineId)
+            .Select(g => new { LineId = g.Key, Quantity = g.Sum(f => f.QuantityBase) })
+            .ToDictionaryAsync(g => g.LineId, g => g.Quantity, ct);
+        return new(x.Id, x.IssueNumber, x.MaterialIssueRequestId, x.JobOrderId, x.IssuedToEmployeeId,
             x.IssuedAt, x.ReturnDueAt, x.Status, x.StockPostingBatchId,
             x.ActorRoleCode, x.ResolvedRoleAssignmentId, x.ResolvedRoleAssignmentType,
             x.Version, replayed,
@@ -198,8 +211,10 @@ public sealed partial class EfMaterialIssueService
                 l.Id, l.MaterialIssueRequestLineId, l.LineNumber, l.ItemId, l.QuantityBase,
                 l.OwnershipAccountId, l.FromCustodyAssignmentId, l.ToCustodyAssignmentId,
                 l.InventoryProvenanceLayerId, l.InventoryLotId, l.InventorySerialId,
-                l.WarehouseConditionLocationId)).ToList());
-
+                l.WarehouseConditionLocationId,
+                l.InventorySerialId.HasValue ? serials.GetValueOrDefault(l.InventorySerialId.Value) : null,
+                fitted.GetValueOrDefault(l.Id))).ToList());
+    }
     private static MaterialReturnView ReturnView(MaterialReturn x, bool replayed) =>
         new(x.Id, x.ReturnNumber, x.MaterialIssueId, x.ReturnedByEmployeeId, x.DeclaredAt,
             x.Status, x.AcceptedAt, x.AcceptedByEmployeeId, x.StockPostingBatchId, x.Version,

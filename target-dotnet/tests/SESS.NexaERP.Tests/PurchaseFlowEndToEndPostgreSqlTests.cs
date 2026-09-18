@@ -589,6 +589,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
+                await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
             }
         }
         finally { }

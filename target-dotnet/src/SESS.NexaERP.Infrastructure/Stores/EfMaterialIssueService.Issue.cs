@@ -46,7 +46,7 @@ public sealed partial class EfMaterialIssueService
             if (replay.RequestFingerprint != hash)
                 throw new StoresConflictException("Idempotency key was reused with different Issue content.");
             await tx.CommitAsync(ct);
-            return IssueView(replay, true);
+            return await IssueViewAsync(replay, true, ct);
         }
 
         var request = await RequestQuery(true).SingleOrDefaultAsync(
@@ -193,7 +193,7 @@ public sealed partial class EfMaterialIssueService
             issue.Id.ToString(), null, new { issue.IssueNumber, posting.BatchId }, ct);
         await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
         await tx.CommitAsync(ct);
-        return IssueView(issue, posting.Replayed);
+        return await IssueViewAsync(issue, posting.Replayed, ct);
     }
 
     private async Task<InventoryCustodyAccount> EmployeeCustodyAccountAsync(
