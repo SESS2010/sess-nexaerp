@@ -58,6 +58,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await Refused();
         await Sql(original);
         await Sql(PurchaseOrderCancellationHistorySql.Guard(true));
+        // A stored function may come from an older Windows CRLF build.
+        await Sql(original.Replace("\r\n","\n",StringComparison.Ordinal).Replace("\n","\r\n",StringComparison.Ordinal));
+        await Sql(PurchaseOrderCancellationHistorySql.Guard(true));
         server.Execute("cancel-down.sql",migrator.GenerateScript(current,previous));
         server.Execute("cancel-reapply.sql",migrator.GenerateScript(previous,current));
         await Sql(PurchaseOrderCancellationHistorySql.Guard(true));

@@ -135,7 +135,7 @@ internal static class ReceiptQuantityAcrossPoRevisionsSql
         var first=value.IndexOf(oldValue,StringComparison.Ordinal);
         if(first<0||value.IndexOf(oldValue,first+oldValue.Length,StringComparison.Ordinal)>=0)
             throw new InvalidOperationException("Receipt predecessor fragment is missing or ambiguous.");
-        return value[..first]+newValue+value[(first+oldValue.Length)..];
+        return (value[..first]+newValue+value[(first+oldValue.Length)..]).Replace("\r\n","\n",StringComparison.Ordinal);
     }
     private static string Body(string definition)
     {

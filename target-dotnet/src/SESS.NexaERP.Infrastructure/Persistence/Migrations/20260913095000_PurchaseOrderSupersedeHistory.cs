@@ -40,7 +40,7 @@ internal static class PurchaseOrderSupersedeHistorySql
             return source[first..last].Replace("''", "'", StringComparison.Ordinal);
         }
     }
-    private const string Patch = """
+    private static readonly string Patch = """
   /*ITEM11_PO_SUPERSEDE_APPROVAL*/
   IF NOT authorized AND NEW."Action"='Supersede' AND history_entity_type='PurchaseOrder'
     AND TG_TABLE_NAME IN('purchase_order_history','purchase_transaction_status_history') THEN
@@ -66,7 +66,7 @@ internal static class PurchaseOrderSupersedeHistorySql
         AND (approval_step->>'employeeId')::uuid=NEW."ActorEmployeeId"
         AND approval_step->>'roleCode'=NEW."ActorRoleCode") INTO authorized;
   END IF;
-""" + "\n";
+""".Replace("\r\n", "\n", StringComparison.Ordinal) + "\n";
 
     private static string BeforeBody
     {
@@ -134,7 +134,7 @@ internal static class PurchaseOrderSupersedeHistorySql
         DO $supersede_change$
         DECLARE definition text; patch text:={{Quote(Patch)}}; anchor text:={{Quote(Anchor)}};
         BEGIN
-          definition:=pg_get_functiondef('{{Signature}}'::regprocedure);
+          definition:=replace(pg_get_functiondef('{{Signature}}'::regprocedure),E'\r\n',E'\n');
           IF position(anchor IN definition)=0 OR position(anchor IN substring(definition FROM position(anchor IN definition)+length(anchor)))>0 THEN
             RAISE EXCEPTION 'PO supersede history authority anchor changed.';
           END IF;

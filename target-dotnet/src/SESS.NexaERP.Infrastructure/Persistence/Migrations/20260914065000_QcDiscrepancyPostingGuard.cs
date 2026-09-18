@@ -50,7 +50,7 @@ internal static class QcDiscrepancyPostingSql
             """;
         if(definition.Split(old,StringSplitOptions.None).Length!=2)
             throw new InvalidOperationException("QC posting guard expected exactly one disposition check.");
-        return installed?definition.Replace(old,replacement,StringComparison.Ordinal):definition;
+        return installed?definition.Replace(old,replacement.Replace("\r\n","\n",StringComparison.Ordinal),StringComparison.Ordinal):definition;
     }
 
     internal static string Guard(bool installed)

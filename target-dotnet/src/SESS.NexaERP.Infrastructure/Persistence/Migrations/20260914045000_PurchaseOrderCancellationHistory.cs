@@ -24,7 +24,7 @@ internal static class PurchaseOrderCancellationHistorySql
     internal const string Signature="advance.rev869b_guard_history_insert()";
     private const string Marker="/*ITEM21_PO_CANCELLATION_DIRECTOR*/";
     private const string Anchor="  IF NOT authorized THEN";
-    private const string Patch="""
+    private static readonly string Patch="""
   /*ITEM21_PO_CANCELLATION_DIRECTOR*/
   IF NEW."Action"='Cancel' AND history_entity_type='PurchaseOrder'
     AND TG_TABLE_NAME IN('purchase_order_history','purchase_transaction_status_history') THEN
@@ -39,7 +39,7 @@ internal static class PurchaseOrderCancellationHistorySql
         AND cancelled."CancelledAt" IS NOT NULL
         AND length(btrim(coalesce(cancelled."CancellationReason",'')))>0) INTO authorized;
   END IF;
-"""+"\n";
+""".Replace("\r\n", "\n", StringComparison.Ordinal)+"\n";
     private static string Quote(string value)=>"'"+value.Replace("'","''",StringComparison.Ordinal)+"'";
 
     internal static string Guard(bool installed)
@@ -82,7 +82,7 @@ internal static class PurchaseOrderCancellationHistorySql
         DO $cancellation_change$
         DECLARE definition text; patch text:={{Quote(Patch)}}; anchor text:={{Quote(Anchor)}};
         BEGIN
-          definition:=pg_get_functiondef('{{Signature}}'::regprocedure);
+          definition:=replace(pg_get_functiondef('{{Signature}}'::regprocedure),E'\r\n',E'\n');
           IF position(anchor IN definition)=0 OR position(anchor IN substring(definition FROM position(anchor IN definition)+length(anchor)))>0 THEN
             RAISE EXCEPTION 'PO cancellation history anchor changed.';
           END IF;

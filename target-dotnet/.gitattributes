@@ -1,3 +1,7 @@
 * text=auto
 *.ps1 text eol=lf
 *.sh text eol=lf
+# Raw C# SQL literals must be stable on Windows checkouts.
+src/SESS.NexaERP.Infrastructure/Persistence/Migrations/** text eol=lf
+# Shared SQL constants are also embedded by migrations.
+src/Shared/** text eol=lf

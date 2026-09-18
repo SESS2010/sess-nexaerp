@@ -11,9 +11,9 @@ internal static class RetireRev869BOrdinaryDeploymentSql
     ];
 
     internal static string Up => BuildPreflight() + WrapWhenInstalled(
-        Rev869BControlledMutationSql.Remove + Environment.NewLine +
-        Rev869BCommandContextSql.RetirePreservingEvidence + Environment.NewLine +
-        ReassignRetiredOwnership + Environment.NewLine +
+        Rev869BControlledMutationSql.Remove + "\n" +
+        Rev869BCommandContextSql.RetirePreservingEvidence + "\n" +
+        ReassignRetiredOwnership + "\n" +
         RevokeRetiredRoleAccess) + """
 
         DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON advance.vendor_qualifications;
@@ -26,8 +26,8 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         END $owner$;
         """;
 
-    internal static string Down => WrapWhenInstalled(RestorePreparation + Environment.NewLine +
-        Rev869BCommandContextSql.RestorePreservedEvidence + Environment.NewLine +
+    internal static string Down => WrapWhenInstalled(RestorePreparation + "\n" +
+        Rev869BCommandContextSql.RestorePreservedEvidence + "\n" +
         Rev869BControlledMutationSql.Install) + """
 
         DROP TABLE advance.rev869b_retirement_state;
@@ -129,17 +129,17 @@ internal static class RetireRev869BOrdinaryDeploymentSql
         "ARRAY[" + string.Join(',', values.Select(x => "'" + x.Replace("'", "''", StringComparison.Ordinal) + "'")) + "]::text[]";
 
     private static readonly string RevokeRetiredRoleAccess =
-        "REVOKE USAGE ON SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + Environment.NewLine +
-        "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + Environment.NewLine +
-        "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + Environment.NewLine +
+        "REVOKE USAGE ON SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + "\n" +
+        "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + "\n" +
+        "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";" + "\n" +
         "REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA advance FROM " + string.Join(',', TargetRoles) + ";";
 
     private static readonly string ReassignRetiredOwnership =
         "DO $ownership_target$ BEGIN " +
         "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_owner') THEN " +
         "RAISE EXCEPTION USING ERRCODE='55000',MESSAGE='Refusing REV869B retirement: nexa_erp_owner is missing.'; " +
-        "END IF; END $ownership_target$;" + Environment.NewLine +
-        string.Join(Environment.NewLine, TargetRoles.Select(role =>
+        "END IF; END $ownership_target$;" + "\n" +
+        string.Join("\n", TargetRoles.Select(role =>
             $"REASSIGN OWNED BY {role} TO nexa_erp_owner;"));
 
     private const string RestorePreparation = """

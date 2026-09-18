@@ -98,6 +98,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         server.Execute("cash-cap-body-restored.sql",
             "ALTER FUNCTION advance.vendor_po_cash_totals(uuid,uuid,text,uuid) SET search_path=pg_catalog,advance;");
+        server.Execute("cash-cap-stored-crlf.sql", """
+            DO $crlf$ BEGIN
+              EXECUTE replace(replace(pg_get_functiondef('advance.rev869b_guard_history_insert()'::regprocedure),
+                E'\r\n',E'\n'),E'\n',E'\r\n');
+            END $crlf$;
+            """ + PurchaseOrderSupersedeHistorySql.Guard(true));
         server.Execute("cash-cap-down.sql", migrator.GenerateScript(target, previous) + VendorPoCashCapMigrationSql.Guard(false) + PurchaseOrderSupersedeHistorySql.Guard(false));
         server.Execute("cash-cap-reapply.sql", migrator.GenerateScript(previous, target) + VendorPoCashCapMigrationSql.Guard(true) + PurchaseOrderSupersedeHistorySql.Guard(true));
         await using var runtime = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(server.ConnectionString)
