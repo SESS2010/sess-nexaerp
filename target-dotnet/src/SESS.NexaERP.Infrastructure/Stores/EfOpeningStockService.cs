@@ -160,6 +160,10 @@ public sealed class EfOpeningStockService(
                 throw new StoresConflictException("Controlled opening-stock command returned no result.");
             return (reader.GetGuid(0), reader.GetBoolean(1));
         }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.InsufficientPrivilege)
+        {
+            throw new UnauthorizedAccessException("Opening-stock authority was refused.", e);
+        }
         catch (PostgresException e) when (e.SqlState is "23505" or "23514" or "P0001")
         {
             throw new StoresConflictException(e.MessageText);
