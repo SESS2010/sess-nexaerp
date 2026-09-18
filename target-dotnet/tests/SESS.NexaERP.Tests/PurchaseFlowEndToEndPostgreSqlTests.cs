@@ -588,6 +588,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);
+                await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
             }
         }
         finally { }
