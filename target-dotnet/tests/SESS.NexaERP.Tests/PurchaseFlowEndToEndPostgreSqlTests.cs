@@ -213,6 +213,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         const string runtimePassword = "ordinary-purchase-runtime-123456789";
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+        if (multiSerialQcWitness) await ProveRequiredReadGrantMigration(server, options, migrator, model.Database.GetMigrations().ToArray());
         if (concessionHistoryWitness)
             await AssertConcessionHistoryMigration(options, migrator, (name, sql) => server.Execute(name, sql));
         if (paymentRace is not null)
@@ -596,6 +597,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
                 await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId);
+                await ProveRequiredActorLookups(qcHost.Client, options, user, purchaseId, tdId);
             }
         }
         finally { }
