@@ -2449,6 +2449,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapRev869AConfigurationEndpoints();
             app.MapReferenceMasterEndpoints();
             app.MapInventoryEndpoints();
+            app.MapMasterEndpoints();
             app.MapMasterDataTransferEndpoints();
             app.MapEmployeeEndpoints();
             app.MapPurchaseRequisitionEndpoints();
