@@ -2,8 +2,13 @@
 # Seeds real UOMs and categories, then inserts items (dedup on item code).
 import openpyxl
 import uuid
+import sys
 
 PATH = r"C:\Users\SESS IT\Downloads\sess\testing files\item-master.xlsx"
+
+if len(sys.argv) > 1:
+    PATH = sys.argv[1]
+OUTPUT = sys.argv[2] if len(sys.argv) > 2 else "item_import.sql"
 
 wb = openpyxl.load_workbook(PATH, read_only=True, data_only=True)
 ws = wb["Sheet3"]
@@ -18,9 +23,10 @@ UOM_MAP = {  # normalized code -> (name, dimension, precision)
 }
 UOM_ALIAS = {"NOS": "NOS", "NOS.": "NOS", "NOs": "NOS", "MTRS": "MTR", "MTR": "MTR", "FT": "FT",
              "KGS": "KGS", "LTR": "LTR", "BOX": "BOX", "PKT": "PKT", "ROLL": "ROLL"}
-CATEGORIES = {"REFRIDGERATION": ("REFRIGERATION", "Refrigeration"),
-              "ELECTRICALS": ("ELECTRICALS", "Electricals"),
-              "FABRICATION": ("FABRICATION", "Fabrication")}
+CATEGORIES = {"REFRIDGERATION": ("REF", "Refrigeration"),
+              "REFRIGERATION": ("REF", "Refrigeration"),
+              "ELECTRICALS": ("ELE", "Electricals"),
+              "FABRICATION": ("FAB", "Fabrication")}
 
 
 def q(v):
@@ -57,7 +63,9 @@ for n, r in enumerate(rows[2:], start=3):
     uom_raw = (cell(r, "UOM") or "NOS").strip()
     uom = UOM_ALIAS.get(uom_raw, UOM_ALIAS.get(uom_raw.upper(), "NOS"))
     dept = (cell(r, "Department") or "").upper()
-    cat = CATEGORIES.get(dept, (None, None))[0]
+    if dept not in CATEGORIES:
+        raise ValueError(f"row {n}: unmapped department {dept!r}; no receivable category can be selected")
+    cat = CATEGORIES[dept][0]
     hsn = cell(r, "HSN Code")
     if hsn and hsn.endswith(".0"):
         hsn = hsn[:-2]
@@ -103,7 +111,7 @@ for code, (name, dim, prec) in UOM_MAP.items():
         f"SELECT gen_random_uuid(),{q(code)},{q(name)},{q(dim)},{prec},true,now(),'EXCEL_IMPORT',0 "
         f'WHERE NOT EXISTS (SELECT 1 FROM advance.uoms WHERE "Code"={q(code)});')
 # Seed real categories
-for legacy, (code, name) in CATEGORIES.items():
+for code, name in dict.fromkeys(CATEGORIES.values()):
     lines.append(
         f'INSERT INTO advance.item_categories ("Id","Code","Name","IsActive","CreatedAt","CreatedBy","Version") '
         f"SELECT gen_random_uuid(),{q(code)},{q(name)},true,now(),'EXCEL_IMPORT',0 "
@@ -127,6 +135,6 @@ for v in items:
         'ON CONFLICT ("ItemCode") DO NOTHING;')
 lines.append("COMMIT;")
 lines.append("SELECT COUNT(*) AS total_items FROM advance.items;")
-with open("item_import.sql", "w", encoding="utf-8") as f:
+with open(OUTPUT, "w", encoding="utf-8", newline="\n") as f:
     f.write("\n".join(lines))
 print("SQL written with", len(items), "item inserts")

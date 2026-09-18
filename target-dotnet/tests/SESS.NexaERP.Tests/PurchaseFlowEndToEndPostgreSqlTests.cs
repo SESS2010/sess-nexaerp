@@ -595,6 +595,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
+                await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId);
             }
         }
         finally { }

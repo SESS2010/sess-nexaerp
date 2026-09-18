@@ -36,14 +36,16 @@ public static class InventoryEndpoints
             return Results.Ok(new PagedResponse<ItemSummary>(total, p.PageNumber, p.PageSize, rows));
         }).RequirePagePermission("masters.items", PagePermissionActions.View);
 
-        group.MapGet("/items/{code}", async (string code, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        async Task<IResult> GetItemByCode(string code, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
         {
             var item = await db.Items.AsNoTracking().Include(x => x.Category).Include(x => x.Subcategory).Include(x => x.PreferredVendor).SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct);
             if (item is null) return Results.NotFound(new { message = "Item not found." });
             var companyId = await SelectedCompanyId(db, user, ct);
             var price = await db.ItemCompanyLastPurchases.AsNoTracking().SingleOrDefaultAsync(x => x.CompanyId == companyId && x.ItemId == item.Id, ct);
             return Results.Ok(ToDetail(item, price));
-        }).RequirePagePermission("masters.items", PagePermissionActions.View);
+        }
+        group.MapGet("/items/{code}", GetItemByCode).RequirePagePermission("masters.items", PagePermissionActions.View);
+        group.MapGet("/item-by-code", GetItemByCode).RequirePagePermission("masters.items", PagePermissionActions.View);
 
         group.MapPost("/items", async (UpsertItemRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
         {
@@ -53,14 +55,16 @@ public static class InventoryEndpoints
             return Results.Created($"/api/v1/inventory/items/{item.ItemCode}", ToDetail(item));
         }).RequirePagePermission("masters.items", PagePermissionActions.Create);
 
-        group.MapPut("/items/{code}", async (string code, UpsertItemRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct) =>
+        async Task<IResult> UpdateItemByCode(string code, UpsertItemRequest r, NexaErpDbContext db, IAuditWriter audit, ICurrentUser user, CancellationToken ct)
         {
             var item = await db.Items.Include(x => x.Category).Include(x => x.Subcategory).Include(x => x.PreferredVendor).SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (item is null) return Results.NotFound(new { message = "Item not found." });
             if (item.IsItemCodeLocked && MasterEndpointHelpers.NormalizeCode(r.ItemCode) != item.ItemCode) return Results.BadRequest(new { message = "Item code is immutable after approval." });
             if (r.Version is null || r.Version.Value != item.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
             var validation = await ValidateItem(r, db, item.Id, ct); if (validation is not null) return validation; var before = ToDetail(item); Apply(item, r, user.LoginId, false); await ApplyItemRelationships(item, r, db, ct);
             await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "UpdateDraft", nameof(Item), item.Id.ToString(), before, item, ct); return Results.Ok(ToDetail(item));
-        }).RequirePagePermission("masters.items", PagePermissionActions.Update);
+        }
+        group.MapPut("/items/{code}", UpdateItemByCode).RequirePagePermission("masters.items", PagePermissionActions.Update);
+        group.MapPut("/item-by-code", UpdateItemByCode).RequirePagePermission("masters.items", PagePermissionActions.Update);
 
         MapItemAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
         MapItemApprove(group);
