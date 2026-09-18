@@ -176,12 +176,46 @@ export interface ActualBomEntryView {
   SerialNumber: string | null
   GoodsReceiptLineId: string
   GrnNumber: string
-  VendorBillLineId: string
-  BillNumber: string
+  /** Null until an accepted vendor bill covers the GRN line the stock came from. */
+  VendorBillLineId: string | null
+  BillNumber: string | null
+  /** LANDED_ACCEPTED (valued from an accepted bill) or PROVISIONAL_UNBILLED (₹0 until then). */
+  ValuationStatus: string
   AcceptedMaterialValue: number
   AllocatedChargeValue: number
   TotalAcceptedValue: number
+  ValuedAt: string | null
   OccurredAt: string
+}
+
+export interface ActualBomVarianceLineView {
+  ItemId: string
+  ItemCode: string
+  ItemName: string
+  BaseUomId: string
+  BaseUomCode: string
+  BaselineQuantity: number
+  ActualQuantity: number
+  QuantityVariance: number
+  /** Null when the baseline revision carries no cost. */
+  BaselineValue: number | null
+  ActualAcceptedValue: number
+  ValueVariance: number | null
+}
+
+/**
+ * Actual accepted value against a pinned baseline: COMMERCIAL_ESTIMATED_BOM
+ * (the offer) or OPERATIONAL_PRODUCTION_BOM (the plan). Computed by the server.
+ */
+export interface ActualBomBaselineVarianceView {
+  BaselineType: string
+  BaselineRevisionId: string
+  BaselineRevisionNumber: number
+  BaselineCostAvailable: boolean
+  BaselineValue: number | null
+  ActualAcceptedValue: number
+  ValueVariance: number | null
+  Lines: ActualBomVarianceLineView[]
 }
 
 export interface ActualBomView {
@@ -193,6 +227,8 @@ export interface ActualBomView {
   TotalAllocatedChargeValue: number
   TotalAcceptedValue: number
   Entries: ActualBomEntryView[]
+  OperationalVariance: ActualBomBaselineVarianceView
+  CommercialVariance: ActualBomBaselineVarianceView
 }
 
 // --- FAT readiness ---

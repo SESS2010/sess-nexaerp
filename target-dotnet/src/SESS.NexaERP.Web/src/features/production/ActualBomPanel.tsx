@@ -1,17 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { getActualBom } from '../../api/production'
-import type { ActualBomView } from '../../types/production'
+import type { ActualBomBaselineVarianceView, ActualBomView } from '../../types/production'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 const money = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** Signed rupee figure; null means the baseline revision carries no cost. */
+function signed(value: number | null): string {
+  if (value === null) return '—'
+  if (value > 0) return `+${money.format(value)}`
+  return money.format(value)
+}
+
+const BASELINE_TITLE: Record<string, string> = {
+  COMMERCIAL_ESTIMATED_BOM: 'Offer vs actual — Estimated BOM',
+  OPERATIONAL_PRODUCTION_BOM: 'Plan vs actual — Production BOM',
+}
 
 /**
  * GET /api/v1/production/component-fitments/job-orders/{id}/actual-bom.
  * Generated from fitments, never authored: every entry carries the GRN and
  * vendor-bill provenance of the exact stock that was fitted, and a reversal
  * appears as its own negative entry rather than editing the fitment.
+ *
+ * An entry is PROVISIONAL_UNBILLED (₹0) until Accounts accepts a vendor bill
+ * on its GRN line; then it becomes LANDED_ACCEPTED and the variance blocks
+ * below carry the accepted value against the pinned Estimated BOM (the
+ * offer) and Production BOM (the plan). The server computes both.
  */
 export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
   const [bom, setBom] = useState<ActualBomView | null>(null)
@@ -48,6 +65,8 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
     return <ErrorAlert error={error} onReload={() => void load()} fallback="Actual BOM could not be loaded." />
   }
 
+  const unbilled = bom.Entries.filter((entry) => entry.ValuationStatus === 'PROVISIONAL_UNBILLED').length
+
   return (
     <div>
       <div className="detail-grid" style={{ marginBottom: 16 }}>
@@ -56,6 +75,11 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
         <div><span className="field-label">Allocated charges</span> <span className="mono">{money.format(bom.TotalAllocatedChargeValue)}</span></div>
         <div><span className="field-label">Total accepted value</span> <span className="mono">{money.format(bom.TotalAcceptedValue)}</span></div>
       </div>
+      {unbilled > 0 && (
+        <div className="alert alert-warn">
+          {unbilled} of {bom.Entries.length} entries are provisional: no accepted vendor bill covers their GRN line yet, so they count as ₹0 here and in the variances below.
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -67,13 +91,14 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
               <th>Serial</th>
               <th>GRN</th>
               <th>Vendor bill</th>
+              <th>Valuation</th>
               <th className="text-right">Material</th>
               <th className="text-right">Charges</th>
               <th className="text-right">Total</th>
             </tr>
           </thead>
           <tbody>
-            {bom.Entries.length === 0 && <tr><td colSpan={10} className="table-empty">No entries.</td></tr>}
+            {bom.Entries.length === 0 && <tr><td colSpan={11} className="table-empty">No entries.</td></tr>}
             {bom.Entries.map((entry) => (
               <tr key={entry.Id}>
                 <td>{new Date(entry.OccurredAt).toLocaleString()}</td>
@@ -82,7 +107,11 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
                 <td className="text-right mono">{entry.QuantityBase} {entry.UomCode}</td>
                 <td className="mono">{entry.SerialNumber ?? '—'}</td>
                 <td className="mono">{entry.GrnNumber}</td>
-                <td className="mono">{entry.BillNumber}</td>
+                <td className="mono">{entry.BillNumber ?? '—'}</td>
+                <td>
+                  <StatusBadge value={entry.ValuationStatus} />
+                  {entry.ValuedAt && <div className="text-ink-faint text-[11.5px]">valued {new Date(entry.ValuedAt).toLocaleString()}</div>}
+                </td>
                 <td className="text-right mono">{money.format(entry.AcceptedMaterialValue)}</td>
                 <td className="text-right mono">{money.format(entry.AllocatedChargeValue)}</td>
                 <td className="text-right mono">{money.format(entry.TotalAcceptedValue)}</td>
@@ -91,6 +120,58 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
           </tbody>
         </table>
       </div>
+
+      <VarianceBlock variance={bom.CommercialVariance} />
+      <VarianceBlock variance={bom.OperationalVariance} />
     </div>
+  )
+}
+
+function VarianceBlock({ variance }: { variance: ActualBomBaselineVarianceView }) {
+  const title = BASELINE_TITLE[variance.BaselineType] ?? variance.BaselineType
+  return (
+    <section style={{ marginTop: 24 }}>
+      <h3 style={{ marginBottom: 8 }}>{title} <span className="text-ink-faint">rev {variance.BaselineRevisionNumber}</span></h3>
+      {!variance.BaselineCostAvailable && (
+        <div className="alert alert-warn">This baseline revision carries no unit cost, so only quantities can be compared.</div>
+      )}
+      <div className="detail-grid" style={{ marginBottom: 12 }}>
+        <div><span className="field-label">Baseline value</span> <span className="mono">{variance.BaselineValue === null ? '—' : money.format(variance.BaselineValue)}</span></div>
+        <div><span className="field-label">Actual accepted value</span> <span className="mono">{money.format(variance.ActualAcceptedValue)}</span></div>
+        <div>
+          <span className="field-label">Variance (actual − baseline)</span>{' '}
+          <span className={`mono ${variance.ValueVariance !== null && variance.ValueVariance > 0 ? 'text-red-700' : ''}`}>{signed(variance.ValueVariance)}</span>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th className="text-right">Baseline qty</th>
+              <th className="text-right">Actual qty</th>
+              <th className="text-right">Qty variance</th>
+              <th className="text-right">Baseline value</th>
+              <th className="text-right">Actual value</th>
+              <th className="text-right">Value variance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {variance.Lines.length === 0 && <tr><td colSpan={7} className="table-empty">No lines.</td></tr>}
+            {variance.Lines.map((line) => (
+              <tr key={line.ItemId}>
+                <td><span className="mono">{line.ItemCode}</span> — {line.ItemName}</td>
+                <td className="text-right mono">{line.BaselineQuantity} {line.BaseUomCode}</td>
+                <td className="text-right mono">{line.ActualQuantity} {line.BaseUomCode}</td>
+                <td className="text-right mono">{signed(line.QuantityVariance)}</td>
+                <td className="text-right mono">{line.BaselineValue === null ? '—' : money.format(line.BaselineValue)}</td>
+                <td className="text-right mono">{money.format(line.ActualAcceptedValue)}</td>
+                <td className={`text-right mono ${line.ValueVariance !== null && line.ValueVariance > 0 ? 'text-red-700' : ''}`}>{signed(line.ValueVariance)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }

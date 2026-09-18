@@ -56,6 +56,9 @@ const TONE_BY_VALUE: Record<string, string> = {
   UNEXPLAINED: 'error',
   EXPLAINED: 'ok',
   Overdue: 'error',
+  // Actual BOM entry valuation
+  LANDED_ACCEPTED: 'ok',
+  PROVISIONAL_UNBILLED: 'warn',
 }
 
 export function StatusBadge({ value }: { value: string }) {
