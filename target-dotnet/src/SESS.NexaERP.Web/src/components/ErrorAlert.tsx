@@ -62,8 +62,80 @@ function classifyConflict(message: string): Conflict {
     }
   }
 
+  // Opening stock ceremony (OpeningStockSql.cs). Each refusal is a different
+  // person's problem, so each gets its own sentence rather than one generic one.
+  if (text.includes('already has stock movements')) {
+    return {
+      title: 'This company already has stock movements',
+      guidance:
+        'Opening stock can only be loaded into an empty company. Every GRN, issue or return that has already been posted makes an opening balance meaningless, so the ceremony is refused here for good.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('already exists for this company and period')) {
+    return {
+      title: 'This period has already been loaded',
+      guidance:
+        'An opening stock ceremony for exactly this period exists in this company. Open it from the list instead of starting another; a different period needs a different import.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('may not count and value') || text.includes('three separate employees')) {
+    return {
+      title: 'The same person cannot take two of the three steps',
+      guidance:
+        'Count, value and authorization must each be done by a different employee — Stores Manager, Accounts Manager and Technical Director. Ask the next person in the chain to take this step.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('full or temporary') && text.includes('authority')) {
+    return {
+      title: 'Your role assignment does not carry this authority',
+      guidance:
+        'The step needs a current FULL or TEMPORARY assignment of the named role in this company. A SUPPORT assignment, an expired one, or one still awaiting approval is refused.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('error-free import for this company')) {
+    return {
+      title: 'No usable import batch for this company',
+      guidance:
+        'The import batch must be an opening-stock workbook uploaded in this company, completed with zero invalid rows and at least one row created. Check the company you are signed into, and re-upload a corrected workbook if any row was rejected.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  if (text.includes('stale version or invalid status')) {
+    return {
+      title: 'The ceremony has moved on',
+      guidance:
+        'Either someone else already took this step, or this ceremony is not at the stage this step expects (count → value → authorize). Reload to see its current stage.',
+      reloadable: true,
+      technical: false,
+    }
+  }
+
+  if (text.includes('idempotency mismatch') || text.includes('command ledger') || text.includes('registered current company-scoped import command')) {
+    return {
+      title: 'The command context did not match',
+      guidance:
+        'The same idempotency key was reused with different content, or the request was not registered in the ordinary command ledger for this company. Start the step again so a fresh key is issued.',
+      reloadable: true,
+      technical: true,
+    }
+  }
+
   // Word match: "conversion" also contains "version" and is a different conflict.
-  if (text.includes('stale') || /version/.test(text)) {
+  if (text.includes('stale') || /\bversion\b/.test(text)) {
     return {
       title: 'Someone else changed this record',
       guidance:

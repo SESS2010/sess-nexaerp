@@ -40,6 +40,8 @@ import { MaterialIssueRequestDetailPage } from './features/stores/MaterialIssueR
 import { MaterialIssueListPage } from './features/stores/MaterialIssueListPage'
 import { MaterialIssueDetailPage } from './features/stores/MaterialIssueDetailPage'
 import { MaterialReturnListPage } from './features/stores/MaterialReturnListPage'
+import { OpeningStockListPage } from './features/stores/OpeningStockListPage'
+import { OpeningStockDetailPage } from './features/stores/OpeningStockDetailPage'
 import { JobOrderListPage } from './features/production/JobOrderListPage'
 import { JobOrderDetailPage } from './features/production/JobOrderDetailPage'
 import { ComponentFitmentListPage } from './features/production/ComponentFitmentListPage'
@@ -64,6 +66,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/material-issue-requests', 'Material Issue Request'],
   ['/stores/material-issues', 'Material Issue'],
   ['/stores/material-returns', 'Material Return'],
+  ['/stores/opening-stock', 'Opening Stock'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
@@ -139,6 +142,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR</NavLink>}
             {can(PAGE_KEYS.materialIssues) && <NavLink to="/stores/material-issues" className={navLinkClass}>Material Issues</NavLink>}
             {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
+            {can(PAGE_KEYS.openingStock) && <NavLink to="/stores/opening-stock" className={navLinkClass}>Opening Stock</NavLink>}
           </NavSection>
 
           <NavSection id="production" label="Production" defaultOpen={inProduction}>
@@ -204,6 +208,8 @@ export default function App() {
                 <Route path="/stores/material-issues" element={<MaterialIssueListPage />} />
                 <Route path="/stores/material-issues/:id" element={<MaterialIssueDetailPage />} />
                 <Route path="/stores/material-returns" element={<MaterialReturnListPage />} />
+                <Route path="/stores/opening-stock" element={<OpeningStockListPage />} />
+                <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
                 <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />

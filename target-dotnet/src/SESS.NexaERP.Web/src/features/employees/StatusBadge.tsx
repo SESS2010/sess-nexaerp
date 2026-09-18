@@ -56,6 +56,10 @@ const TONE_BY_VALUE: Record<string, string> = {
   UNEXPLAINED: 'error',
   EXPLAINED: 'ok',
   Overdue: 'error',
+  // Opening stock ceremony
+  COUNTED: 'info',
+  VALUED: 'warn',
+  POSTED: 'ok',
   // Actual BOM entry valuation
   LANDED_ACCEPTED: 'ok',
   PROVISIONAL_UNBILLED: 'warn',

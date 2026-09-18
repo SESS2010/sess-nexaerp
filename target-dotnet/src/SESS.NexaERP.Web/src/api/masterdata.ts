@@ -2,7 +2,8 @@ import { getStoredToken } from './client'
 
 const BASE = '/api/v1/master-data'
 
-export type MasterKey = 'customers' | 'vendors' | 'uoms'
+/** Keys in the API's IMasterDataRegistry that a screen imports through today. */
+export type MasterKey = 'customers' | 'vendors' | 'uoms' | 'opening-stock'
 
 function authHeaders(): Record<string, string> {
   const token = getStoredToken()
@@ -53,17 +54,39 @@ export interface ImportRowResult {
   Errors: ImportRowError[] | null
 }
 
+/** MasterDataImportResult (MasterDataTransferContracts.cs). */
 export interface ImportResult {
   BatchId: string
+  MasterKey: string
   Status: string
   Mode: string
   TotalRows: number
   ValidRows: number
+  InvalidRows: number
   RejectedRows: number
+  NotImportedRows: number
   CreatedRows: number
   UpdatedRows: number
   UnchangedRows: number
+  UploadedAt: string
+  CompletedAt: string | null
   Rows: ImportRowResult[]
+}
+
+/** GET /api/v1/master-data/imports/{batchId} — the batch as stored, any master. */
+export async function getImportBatch(batchId: string): Promise<ImportResult> {
+  const response = await fetch(`${BASE}/imports/${encodeURIComponent(batchId)}`, { headers: authHeaders() })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(payload?.Detail || payload?.message || `Import batch lookup failed (${response.status})`)
+  return payload as ImportResult
+}
+
+/**
+ * GET /api/v1/master-data/imports/{batchId}/errors.xlsx — the rejected rows
+ * with their error columns, ready to correct and re-upload.
+ */
+export function downloadErrorWorkbook(batchId: string): Promise<void> {
+  return downloadFile(`${BASE}/imports/${encodeURIComponent(batchId)}/errors.xlsx`, `import-${batchId.slice(0, 8)}-errors.xlsx`)
 }
 
 export async function importWorkbook(masterKey: MasterKey, file: File): Promise<ImportResult> {
