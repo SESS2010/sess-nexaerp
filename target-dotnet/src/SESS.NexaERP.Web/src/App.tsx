@@ -42,6 +42,8 @@ import { MaterialIssueDetailPage } from './features/stores/MaterialIssueDetailPa
 import { MaterialReturnListPage } from './features/stores/MaterialReturnListPage'
 import { OpeningStockListPage } from './features/stores/OpeningStockListPage'
 import { OpeningStockDetailPage } from './features/stores/OpeningStockDetailPage'
+import { ReportCataloguePage } from './features/reports/ReportCataloguePage'
+import { ReportViewerPage } from './features/reports/ReportViewerPage'
 import { JobOrderListPage } from './features/production/JobOrderListPage'
 import { JobOrderDetailPage } from './features/production/JobOrderDetailPage'
 import { ComponentFitmentListPage } from './features/production/ComponentFitmentListPage'
@@ -67,6 +69,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/material-issues', 'Material Issue'],
   ['/stores/material-returns', 'Material Return'],
   ['/stores/opening-stock', 'Opening Stock'],
+  ['/reports', 'Reports'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
   ['/qc/concessions', 'QC Concessions'],
@@ -89,6 +92,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')
   const inProduction = location.pathname.startsWith('/production') || location.pathname.startsWith('/design')
+  const inReports = location.pathname.startsWith('/reports')
   // Session permissions ("page:Action") hide screens the role cannot View.
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
@@ -152,6 +156,12 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.componentFitments) && <NavLink to="/production/component-fitments" className={navLinkClass}>Fitments / Actual BOM</NavLink>}
             <span className="nav-link disabled">Engineering Documents</span>
           </NavSection>
+
+          {/* Report access is decided per report by the server (report_grants); the
+              catalogue shows what the session may open, so the link needs no page key. */}
+          <NavSection id="reports" label="Reports" defaultOpen={inReports}>
+            <NavLink to="/reports" className={navLinkClass}>Company reports</NavLink>
+          </NavSection>
         </nav>
       </aside>
       <div className="main">
@@ -210,6 +220,8 @@ export default function App() {
                 <Route path="/stores/material-returns" element={<MaterialReturnListPage />} />
                 <Route path="/stores/opening-stock" element={<OpeningStockListPage />} />
                 <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
+                <Route path="/reports" element={<ReportCataloguePage />} />
+                <Route path="/reports/:key" element={<ReportViewerPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
                 <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
                 <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />
