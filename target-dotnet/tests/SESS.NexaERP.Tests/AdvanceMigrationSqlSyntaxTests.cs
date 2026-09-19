@@ -672,9 +672,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string Part2Assertions = """
         DO $assert$
         BEGIN
-          IF (SELECT count(*) FROM advance.roles)<>52 THEN RAISE EXCEPTION 'Expected 52 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations)<>104 THEN RAISE EXCEPTION 'Expected 104 company role activations.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>86 THEN RAISE EXCEPTION 'Expected 86 enabled company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles)<>53 THEN RAISE EXCEPTION 'Expected 53 roles including the documented CFO.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations)<>106 THEN RAISE EXCEPTION 'Expected 106 company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>88 THEN RAISE EXCEPTION 'Expected 88 enabled company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+              WHERE r."Code"='CHIEF_FINANCIAL_OFFICER')<>1
+           OR (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+              JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId" WHERE r."Code"='CHIEF_FINANCIAL_OFFICER'
+               AND d."PageKey"='accounts.inventory-periods' AND p."CanView" AND p."CanApprove" AND p."CanViewAuditHistory"
+               AND NOT p."HasFullControl")<>1
+            THEN RAISE EXCEPTION 'CFO must have exactly the inventory-period page grant.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='LEGACY_ALIAS' AND NOT "IsEmployeeAssignable" AND "ReplacementRoleId" IS NOT NULL)<>8
             THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
@@ -717,9 +724,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments)<>159 THEN RAISE EXCEPTION 'Expected 159 retained role assignment history rows.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"<>md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>159
+            OR (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"=md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>2
+          THEN RAISE EXCEPTION 'Expected the original 159 retained assignments plus exactly two documented CFO assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "ApprovalStatus" IN ('Approved','SeedApproved') AND "EffectiveFrom"<=DATE '2026-09-05' AND ("EffectiveTo" IS NULL OR "EffectiveTo">=DATE '2026-09-05'))<>118 THEN RAISE EXCEPTION 'Expected 118 effective confirmed assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignment_events)<>148 THEN RAISE EXCEPTION 'Expected 148 immutable role history events.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode" IS DISTINCT FROM 'CHIEF_FINANCIAL_OFFICER')<>148
+            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER')<>2
+            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER'
+              AND "Operation"='BASELINE_CONFIRM' AND "ActorLoginId"='migration-governed-inventory-periods')<>2
+          THEN RAISE EXCEPTION 'Expected the original 148 immutable events plus exactly two explicitly marked CFO baseline events.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
               WHERE e."EmployeeCode"='SESS-41' AND r."Code"='STORES_MANAGER' AND a."AssignmentType"='FULL' AND a."ApprovalStatus" IN ('Approved','SeedApproved'))<>2
             THEN RAISE EXCEPTION 'KARTHICK must hold FULL STORES_MANAGER in both companies.'; END IF;

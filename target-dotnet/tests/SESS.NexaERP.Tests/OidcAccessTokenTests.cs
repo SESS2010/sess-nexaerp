@@ -127,7 +127,16 @@ public sealed class OidcAccessTokenTests
     [InlineData("ACCOUNTS_MANAGER", true, 200)]
     [InlineData("STORES_MANAGER", false, 200)]
     [InlineData("STORES_MANAGER", true, 200)]
-    public async Task Mfa_is_mandatory_for_the_three_current_ERP_roles_only(string role, bool assured, int expected)
+    public Task Mfa_is_mandatory_for_existing_financial_roles(string role, bool assured, int expected) =>
+        AssertMfaForRole(role, assured, expected);
+
+    [Theory]
+    [InlineData(false, 403)]
+    [InlineData(true, 200)]
+    public Task Cfo_authority_requires_mfa_independently_of_md_role(bool assured, int expected) =>
+        AssertMfaForRole("CHIEF_FINANCIAL_OFFICER", assured, expected);
+
+    private static async Task AssertMfaForRole(string role, bool assured, int expected)
     {
         using var services = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };

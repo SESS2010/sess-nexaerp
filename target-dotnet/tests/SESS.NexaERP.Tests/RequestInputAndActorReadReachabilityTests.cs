@@ -79,6 +79,9 @@ internal static class RequestInputReachabilityManifest
 {
     internal static readonly HashSet<string> DeclaredSelectors = new(StringComparer.Ordinal)
     {
+        // CFO GET /api/v1/accounts/inventory-periods/{id} returns the current close Version.
+        // InventoryPeriodUsesResolvedCfoAndRetainsCommandReplay exercises that actual read.
+        "SESS.NexaERP.Application.Stores.CloseInventoryPeriodRequest.Version",
         "SESS.NexaERP.Application.Authorization.UpsertRolePagePermissionRequest.Version",
         "SESS.NexaERP.Application.Common.MasterActionRequest.Version",
         "SESS.NexaERP.Application.Employees.EmployeeApprovalRequest.Version",

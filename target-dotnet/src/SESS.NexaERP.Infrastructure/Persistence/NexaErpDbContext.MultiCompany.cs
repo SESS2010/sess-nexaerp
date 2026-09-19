@@ -258,7 +258,7 @@ public sealed partial class NexaErpDbContext
             });
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.Code }).IsUnique();
-            entity.HasIndex(x => new { x.CompanyId, x.StartDate, x.EndDate }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.PeriodType, x.StartDate, x.EndDate }).IsUnique();
             entity.Property(x => x.Code).HasMaxLength(30).IsRequired();
             entity.Property(x => x.Name).HasMaxLength(150).IsRequired();
             entity.Property(x => x.PeriodType).HasMaxLength(30).IsRequired();

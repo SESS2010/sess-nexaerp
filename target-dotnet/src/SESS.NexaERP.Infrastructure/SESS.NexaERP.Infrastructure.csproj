@@ -44,4 +44,8 @@
 <ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915190000_IntercompanyPurchasePublication.sql" LogicalName="IntercompanyPurchasePublication.20260915190000.sql" /></ItemGroup>
 <ItemGroup><Compile Include="..\Shared\IntercompanyInvoice20260919AccessSql.cs" Link="Database\IntercompanyInvoice20260919AccessSql.cs" /></ItemGroup>
 <ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260919100000_IntercompanyInvoiceEvidence.sql" LogicalName="IntercompanyInvoiceEvidence.20260919100000.sql" /></ItemGroup>
-</Project>
+<ItemGroup><Compile Include="..\Shared\InventoryPeriod20260919AccessSql.cs" Link="Database\InventoryPeriod20260919AccessSql.cs" /></ItemGroup>
+<ItemGroup>
+<EmbeddedResource Include="Persistence/Migrations/Sql/20260919110000_InventoryPeriodCfoBaseline.sql" LogicalName="InventoryPeriodCfoBaseline.20260919110000.sql" />
+<EmbeddedResource Include="Persistence/Migrations/Sql/20260919120000_InventoryPeriods.sql" LogicalName="InventoryPeriods.20260919120000.sql" />
+</ItemGroup></Project>

@@ -2,7 +2,7 @@
 
 > 15 September owner update: Item 15 is witnessed complete and ERP migrations 78 to 103 are applied, RECONCILED and VERIFIED. SESS now selects local Keycloak; retain Cognito for other customers. Earlier Cognito-waiting and migration-blocked statements below are historical. Current deployment, backup and recovery work is tracked in [local Keycloak operations](item-16-local-keycloak-operations.md). Pool promotion instructions apply equivalently to Staff/Approvers realms, preserving revoke/create mapping history.
 
-Applies to TECHNICAL_DIRECTOR, MANAGING_DIRECTOR and ACCOUNTS_MANAGER. Example: an approved promotion of SESS-15 to ACCOUNTS_MANAGER.
+Applies to TECHNICAL_DIRECTOR, MANAGING_DIRECTOR, ACCOUNTS_MANAGER and CHIEF_FINANCIAL_OFFICER. Example: an approved promotion of SESS-15 to ACCOUNTS_MANAGER.
 
 ## What happens if the provider is wrong
 

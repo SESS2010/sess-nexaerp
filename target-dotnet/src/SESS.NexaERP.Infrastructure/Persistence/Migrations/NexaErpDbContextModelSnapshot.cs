@@ -46792,7 +46792,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.HasIndex("CompanyId", "Code")
                         .IsUnique();
 
-                    b.HasIndex("CompanyId", "StartDate", "EndDate")
+                    b.HasIndex("CompanyId", "PeriodType", "StartDate", "EndDate")
                         .IsUnique();
 
                     b.ToTable("financial_periods", "advance", t =>

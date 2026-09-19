@@ -29,7 +29,7 @@ public sealed class EmployeeIdentityResolutionMiddleware(RequestDelegate next)
                 : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
 #endif
             if (resolution.Success &&
-                resolution.RoleCodes.Any(role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_MANAGER") &&
+                resolution.RoleCodes.Any(role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_MANAGER" or "CHIEF_FINANCIAL_OFFICER") &&
                 validated?.MfaAssured != true
 #if DEBUG
                 && context.RequestServices.GetService<DevelopmentTokenService>() is null
