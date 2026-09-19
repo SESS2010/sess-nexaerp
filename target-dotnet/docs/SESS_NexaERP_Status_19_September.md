@@ -5,7 +5,49 @@ Verified from git and the live database, not estimated
 
 ---
 
-# PART 1 — WHERE IT STANDS
+## Verified correction — 19 September, 14:04
+
+The 11:35 note below is retained as a historical planning record. Its completion,
+live-database, percentage and schedule claims are not current acceptance evidence.
+This run has not accessed or changed the owner database. Its proposed owner-database
+upgrade is not an action authorized by the current task.
+
+- Main is published through `4293aa4`; the latest accepted runtime foundation is
+  `17366ee` (full Debug 922/922, Release 919/919, zero failed/skipped). Subsequent
+  commits through `4293aa4` are documentation only.
+- The twelve-finding code changes are pushed, including the exact −1,250 Actual BOM
+  regression. Migration #2 still lacks the exact field pre-75 dump/globals witness;
+  disposable-database tests do not establish a successful upgrade of that field state.
+- Original authority diagnostics: 16 real (14 current item, 2 unpublished UOM draft),
+  4 test-model mismatches and 4 seed/configuration dead ends. Correcting the model
+  exposed two additional seed dead ends: the graph still fails with 22 diagnostics.
+  See [the classification report](installation/reachability-authority-classification.md).
+- **A1 is incomplete:** routes, buyer PO publication and GST invoice evidence exist;
+  seller dispatch, destination acceptance and both complete ledgers remain.
+- **A2 is incomplete:** approval/date/revision domain rules are published. Inventory
+  periods and independent CFO MFA are under final-candidate acceptance; actual
+  physical/FIFO adjustment posting remains unfinished.
+- **A3 is incomplete:** `a88d4e2` corrects the specification. Individual-custody and
+  opening-identity domain code is under candidate acceptance. Persisted custody,
+  actual register import and operational resignation clearance remain unfinished.
+- **A4 is incomplete:** `d46f47f` corrects the specification. Domain calculations,
+  governed manual GRN assessments and quality/delivery source reads are under
+  candidate acceptance. Remaining automatic source rules, aggregation, purchasing
+  decisions and the actual 1,057-row LEGACY import remain unfinished.
+- **Item 35 is a specification correction**, including any one of PM/QC/Design signing
+  and shared rework responsibility. The operational fifteen-stage sheet is not built.
+  The fitment/reversal/return witness is in the ordinary suite; REV869B retirement
+  includes `ControlPlane.Tests`.
+
+The current frozen combined candidate has a clean Debug build and 14/14 focused
+Debug checks. Its full Debug suite is running; full Debug/Release acceptance is
+not yet reported. Each subsequent item commit will state its actual scope and
+identify any shared final-candidate suite evidence. Do not infer readiness or a
+calendar delivery commitment from the historical percentages below.
+
+## Historical 11:35 note
+
+# PART 1 — WHERE IT STOOD IN THAT NOTE
 
 ## Measured this morning
 
