@@ -256,10 +256,16 @@ weighbridge slip above 500 kg.
 
 ### C4 — Stage check sheet (item 35)
 
-Fifteen stages per job order, prepared by QC only. A chamber cannot reach FAT
-with an unsigned stage. Thickness and test values read from the job order, never
-a global constant. Stage authority binds to the **QC_MANAGER role**, never to a
-person.
+Fifteen stages per job order, prepared by QC. A chamber cannot reach FAT with
+an unsigned stage. Thickness and test values read from the job order, never
+a global constant. Production Manager, QC Manager or Design Engineer verifies
+each stage; **any one may sign** through their effective company-scoped role.
+Authority never binds to a named person.
+
+Rework requires TD approval. Responsibility is shared by the engineer who did
+the work, the Production Manager and QC Manager responsible for guidance and
+detection, and the Design Engineer responsible for clear specifications.
+Retain the original failure and the separate signed re-inspection.
 
 **20 to 25 days.**
 

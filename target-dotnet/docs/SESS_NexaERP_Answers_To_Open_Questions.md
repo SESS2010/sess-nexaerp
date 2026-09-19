@@ -33,13 +33,18 @@ order, not from a global constant.
 
 ## 3. Who signs a stage
 
-**NARREN, SESS-33, QC_MANAGER today. Any QC person appointed later, also.**
+The Technical Director's later correction governs: **Production Manager,
+QC Manager or Design Engineer may verify and sign a stage. Any one may sign;
+three signatures are not required.** QC prepares the check sheet.
 
-Bind the authority to the **role**, never to the employee code. When a second
-QC person is hired and given QC_MANAGER, they sign — with no code change, no
-migration, no developer.
+Bind signature authority to the effective company-scoped PRODUCTION_MANAGER,
+QC_MANAGER or DESIGN_ENGINEER role, never to an employee code. A newly appointed
+holder of any of these roles can sign without a code change or migration.
 
-This is the same principle already applied to approval routing.
+Rework requires TD approval. Retain shared responsibility for the engineer who
+did the work, the Production Manager and QC Manager responsible for guidance
+and detection, and the Design Engineer responsible for clear specifications.
+Rework approval does not replace the separate re-inspection signature.
 
 ## 4. Pressure, vacuum and leak test values
 
@@ -184,7 +189,7 @@ is correct under ISO and it must be enforced, not assumed.
 So bind it to a **role**, `MANAGEMENT_REPRESENTATIVE`, never to SESS-02. When
 the MRM changes, the role assignment moves and nothing else does.
 
-The same rule as the QC stage signature, and for the same reason.
+The same role-based rule as the stage signature, and for the same reason.
 
 ---
 
@@ -207,7 +212,8 @@ The same rule as the QC stage signature, and for the same reason.
 
 Three answers say the same thing in different words:
 
-- stage signature bound to the QC_MANAGER role, not to NARREN
+- stage signature bound to PRODUCTION_MANAGER, QC_MANAGER or DESIGN_ENGINEER,
+  not to a named employee
 - quality manual approved by MANAGEMENT_REPRESENTATIVE, not by the MD
 - test values read from the job order, not from a constant
 
