@@ -45,6 +45,7 @@ import { OpeningStockDetailPage } from './features/stores/OpeningStockDetailPage
 import { ReportCataloguePage } from './features/reports/ReportCataloguePage'
 import { VendorBillListPage } from './features/accounts/VendorBillListPage'
 import { VendorBillDetailPage } from './features/accounts/VendorBillDetailPage'
+import { VendorPaymentsPage } from './features/accounts/VendorPaymentsPage'
 import { ReportViewerPage } from './features/reports/ReportViewerPage'
 import { JobOrderListPage } from './features/production/JobOrderListPage'
 import { JobOrderDetailPage } from './features/production/JobOrderDetailPage'
@@ -72,6 +73,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/material-returns', 'Material Return'],
   ['/stores/opening-stock', 'Opening Stock'],
   ['/accounts/vendor-bills', 'Vendor Bills'],
+  ['/accounts/vendor-payments', 'Vendor Payments'],
   ['/reports', 'Reports'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
@@ -161,9 +163,10 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="nav-link disabled">Engineering Documents</span>
           </NavSection>
 
-          {can(PAGE_KEYS.vendorBills) && (
+          {(can(PAGE_KEYS.vendorBills) || can(PAGE_KEYS.vendorPayments)) && (
             <NavSection id="accounts" label="Accounts" defaultOpen={inAccounts}>
-              <NavLink to="/accounts/vendor-bills" className={navLinkClass}>Vendor Bills</NavLink>
+              {can(PAGE_KEYS.vendorBills) && <NavLink to="/accounts/vendor-bills" className={navLinkClass}>Vendor Bills</NavLink>}
+              {can(PAGE_KEYS.vendorPayments) && <NavLink to="/accounts/vendor-payments" className={navLinkClass}>Vendor Payments</NavLink>}
             </NavSection>
           )}
 
@@ -232,6 +235,7 @@ export default function App() {
                 <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
                 <Route path="/accounts/vendor-bills" element={<VendorBillListPage />} />
                 <Route path="/accounts/vendor-bills/:id" element={<VendorBillDetailPage />} />
+                <Route path="/accounts/vendor-payments" element={<VendorPaymentsPage />} />
                 <Route path="/reports" element={<ReportCataloguePage />} />
                 <Route path="/reports/:key" element={<ReportViewerPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />
