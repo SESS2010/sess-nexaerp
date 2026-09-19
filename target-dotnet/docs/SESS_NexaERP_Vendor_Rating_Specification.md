@@ -6,144 +6,77 @@ Based on the existing ISO form **F/OP3/3** maintained in Excel
 
 ---
 
-## 1. Why this replaces the spreadsheet
+## 1. Current evidence and governing correction
 
-The existing Excel does the right things. It captures per-receipt data, scores
-five dimensions, and classifies vendors automatically. The ISO structure is
-sound and this specification keeps it.
+The reviewed register contains 1,057 historical bills from 225 vendors, with
+an average score of 96.9. Technical /15, Warranty /10, Commercial /10,
+Response /5 and Overall /5 score full marks on every bill. Documents /10 is
+always 7.5. No rejections were recorded in those 1,057 bills.
 
-It has one fatal weakness. Of 107 vendors the average score is **95.89 per
-cent**, the highest is 96 and almost every vendor sits between 95 and 96.
+Those five constant full-mark dimensions total **45 points**, not 65. The
+approved eight weights below total 100: automatic 75 and manual 25. These
+arithmetic corrections do not change any dimension or its approved weight.
 
-A rating where everybody scores the same tells you nothing. It cannot inform a
-comparison, it cannot trigger corrective action, and an auditor will notice
-that no supplier has ever been marked down.
-
-The cause is that Quality, Technical Compliance, Documentation and Overall
-Rating are all typed by hand, and every row says "Excellent".
-
-**The fix is to compute what can be computed.** Delivery, quality and
-documentation come from data the ERP already holds. Nobody types them, so
-nobody can flatter a vendor.
-
-The summary sheet is also wrong — Excellent 107 plus Acceptable 2 plus Poor 1
-is 110, against 107 vendors. That is what happens when a spreadsheet grows past
-what a spreadsheet can hold.
-
----
+The latest owner instruction supersedes the earlier six-dimension model and
+the instruction to discard typed historical ratings.
 
 ## 2. What is rated, and when
 
-**Rating happens after GRN, performed by the QC Manager.**
+Rating happens after GRN. Quality comes from each GRN line's recorded QC
+accepted and received quantities. Delivery, warranty, commercial terms,
+documents and the three manual dimensions belong to the GRN. A multi-line
+GRN must not multiply the manual or shipment scores by its number of lines.
 
-He has the goods, the bill, the documents and the inspection result in front of
-him. That is the only moment when every dimension can be judged honestly.
+QC Manager records the three manual dimensions per GRN. Automatic dimensions
+must retain their source record IDs, effective revisions and scoring-rule
+version. Missing source evidence cannot silently become full marks.
 
-| Rated per | Dimension |
-|---|---|
-| **GRN line** | Quality — one line may be accepted and another rejected |
-| **GRN** | Delivery, documentation, technical compliance, response |
+## 3. Eight dimensions
 
-The Excel rates every dimension per line. A twelve-line GRN therefore produces
-twelve identical delivery scores, which inflates the sample and makes one late
-delivery look like twelve. Delivery is a property of the shipment, not the item.
+| Dimension | Maximum | Source |
+|---|---:|---|
+| Quality | 25 | QC accepted / received quantity, per GRN line |
+| Delivery | 20 | PO committed delivery date against actual GRN receipt date |
+| Warranty | 10 | Warranty months already recorded at GRN |
+| Commercial | 10 | Payment terms already recorded on the PO |
+| Documents | 10 | Presence of the required attachments on the GRN |
+| Technical | 15 | Manual per GRN |
+| Response | 5 | Manual per GRN |
+| Overall | 5 | Manual per GRN |
 
----
+**Automatic: 75. Manual: 25. Total: 100.** A caller cannot submit scores for
+the five automatic dimensions. Retain the evidence behind every calculation.
+Concession-accepted quantities count as accepted and remain identifiable.
 
-## 3. Six dimensions
+The existing delivery scale remains applicable, multiplied by its new
+20-point weight:
 
-### Computed — the ERP works these out
+| Days late | Percentage | Points |
+|---|---:|---:|
+| On time or early | 100 | 20 |
+| 1–3 | 90 | 18 |
+| 4–7 | 75 | 15 |
+| 8–15 | 50 | 10 |
+| Over 15 | 0 | 0 |
 
-**Quality — weight 30%**
-```
-accepted quantity ÷ received quantity, per GRN line
-```
-Comes straight from the QC disposition. Concession-accepted material counts as
-accepted, but the concession is recorded and visible.
+The approved months-to-score and payment-terms-to-score scales must be
+recorded as governed rules before warranty and commercial scores can be
+computed. No such scales are defined in the source specification; do not
+invent thresholds or substitute constant full marks. Required-document
+policy must identify the attachments relevant to that GRN, retaining their
+actual presence as evidence rather than importing the old constant 7.5.
 
-**Delivery — weight 25%**
-```
-GRN date versus PO date, against the agreed commitment days
-```
+Implementation source check: the current typed GRN contract exposes an expiry
+date calculated as bill date plus 13 months. It does not expose the supplier's
+actual warranty duration in months. PO warranty terms are retained as free
+text. The existing source field/JSON key or legacy column for actual supplier
+months must be identified before connecting this score. Do not treat the
+constant generated expiry as measured supplier warranty, and do not guess a
+duration by parsing arbitrary commercial prose.
 
-| Days late | Score |
-|---|---|
-| On time or early | 100 |
-| 1–3 | 90 |
-| 4–7 | 75 |
-| 8–15 | 50 |
-| Over 15 | 0 |
-
-**Documentation — weight 10%**
-
-Four checks, 25 each:
-- vendor bill present and matching the PO
-- delivery challan present
-- test or material certificate where the item requires one
-- bill and goods arrived together
-
-The ERP knows all four. Nobody types this.
-
-### Judged — a person decides
-
-**Technical compliance — weight 20%**
-
-Did what arrived match what was ordered — brand, make, specification?
-
-| | Score |
-|---|---|
-| Exact match | 100 |
-| Equivalent, accepted | 80 |
-| Deviation, accepted under concession | 50 |
-| Wrong item | 0 |
-
-The Danfoss-versus-Castel case is exactly this. If the order said Danfoss and
-Castel arrived, that is a deviation whatever the price was.
-
-**Response to non-conformity — weight 10%**
-
-Only scored when there was a rejection. When nothing was rejected the dimension
-is not counted and the remaining weights are rescaled.
-
-| | Score |
-|---|---|
-| Replaced or credited within a week | 100 |
-| Within a month | 75 |
-| Beyond a month | 40 |
-| Ignored | 0 |
-
-**Price competitiveness — weight 5%**
-
-Against the other quotations on the same RFQ.
-
-| | Score |
-|---|---|
-| Lowest | 100 |
-| Within 5% of lowest | 90 |
-| Within 10% | 75 |
-| Within 20% | 50 |
-| Beyond 20% | 25 |
-
-Only where a comparison exists. Direct and emergency purchases skip it and the
-weights rescale.
-
-### Weights
-
-| Dimension | Weight |
-|---|---|
-| Quality | 30% |
-| Delivery | 25% |
-| Technical compliance | 20% |
-| Documentation | 10% |
-| Response to non-conformity | 10% |
-| Price competitiveness | 5% |
-
-Quality carries the most because a bad compressor in a chamber costs more than
-a late delivery.
-
-**Weights are configuration**, editable by TD, MD or IT_MANAGER with full
-change history. The ISO auditor may ask for a dimension to be added — that must
-be a screen, not a code change.
+Weights and scoring-rule changes retain full history and apply through a
+versioned rule. Historical measured scores retain the rule and evidence used
+at the time; changing a rule must not rewrite old evidence.
 
 ---
 
@@ -237,8 +170,8 @@ is the corrective-action record an auditor asks for.
 
 | Role | Rating role |
 |---|---|
-| **QC_MANAGER** | Primary. Scores technical compliance and response after GRN. |
-| **PRODUCTION_MANAGER** | May also score, where he received the material |
+| **QC_MANAGER** | Records Technical /15, Response /5 and Overall /5 per GRN. |
+| **PRODUCTION_MANAGER** | May also record the three manual dimensions where he received the material, as already specified. |
 | **TECHNICAL_DIRECTOR** | Approves revaluation, concurs on poor-vendor override |
 | **MANAGING_DIRECTOR** | Concurs on poor-vendor override |
 | Everyone else | Read only |
@@ -291,25 +224,31 @@ of Danfoss, so we took L2."
 
 ## 11. Migrating the existing data
 
-The Excel holds two financial years of receipts. It is worth importing:
-computed dimensions can be recalculated from the GRN, PO and invoice data it
-already carries.
+Import all **1,057 historical bills**, retaining the original typed dimension
+scores and marking every imported rating **LEGACY**. Preserve source workbook,
+sheet and row identity, bill identity, vendor mapping and original values.
+Re-importing the same source must not duplicate bills or ratings.
 
-The hand-typed ratings should **not** be imported. Every row says Excellent and
-importing them would carry the flat distribution into the new system on day one.
+A LEGACY score is historical evidence of what was typed, not proof of a
+measurement. Display its provenance with the score in detail and summaries.
+Do not relabel a typed 15/15 as measured, fabricate QC rejections, or invent
+missing GRN attachments. Any later calculation from corroborated source facts
+must be separate evidence, preserving the imported original.
 
-Import the facts. Recompute the scores.
+Acceptance reconciles 1,057 bills and 225 distinct vendors against the actual
+workbook, including source totals and dimension distributions. No generated
+fixture can establish that the historical import is complete.
 
 ---
 
 ## 12. Decisions frozen here
 
 1. Rating happens after GRN, by the QC Manager.
-2. Quality is per GRN line; delivery, documentation, technical and response are
-   per GRN.
-3. Six dimensions. Quality 30, delivery 25, technical 20, documentation 10,
-   response 10, price 5. Configurable.
-4. Delivery, quality and documentation are computed, never typed.
+2. Quality is per GRN line; the other seven dimensions are per GRN.
+3. Eight dimensions: Quality 25, Delivery 20, Warranty 10, Commercial 10,
+   Documents 10, Technical 15, Response 5, Overall 5.
+4. Quality, delivery, warranty, commercial and documents are computed.
+   Technical, response and overall remain manual per GRN.
 5. Twelve-month rolling window.
 6. New vendors open at 100 per cent, marked provisional until three receipts.
 7. Bands: 90+ Excellent, 80–89 Good, 70–79 Acceptable, below 70 Poor.
@@ -320,5 +259,5 @@ Import the facts. Recompute the scores.
 10. Reinstatement is on probation for five receipts.
 11. The comparison sheet shows three separate rankings; a human selects and
     records the reason.
-12. Import the facts from the Excel, recompute the scores, discard the
-    hand-typed ratings.
+12. Import all 1,057 historical bills with their original scores marked
+    LEGACY; never present typed history as measured evidence.

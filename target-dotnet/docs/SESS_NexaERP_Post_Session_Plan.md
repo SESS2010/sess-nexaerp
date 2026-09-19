@@ -85,8 +85,8 @@ The spreadsheet has been analysed. **1,057 bills, 225 vendors, average 96.9.**
 | Quality /25 | 24.93 | 99% |
 | **Delivery /20** | **19.46** | **88%** |
 
-**Sixty-five points of a hundred measure nothing.** Documents adds a further
-ten that are constant.
+**Forty-five points of a hundred are constant full marks.** Documents adds
+another ten-point dimension whose observed score is always 7.5.
 
 **Only two dimensions carry signal**, and one of those is undermined:
 
@@ -206,7 +206,7 @@ holds:
 **Three stay manual**, per GRN, by the QC Manager: Technical /15, Response /5,
 Overall /5.
 
-Then **80 of 100 points come from evidence**, and a vendor who delivers late or
+Then **75 of 100 points come from evidence**, and a vendor who delivers late or
 ships rejects cannot score 96.
 
 The 1,057 historical bills import as history, **marked LEGACY**, so nobody
