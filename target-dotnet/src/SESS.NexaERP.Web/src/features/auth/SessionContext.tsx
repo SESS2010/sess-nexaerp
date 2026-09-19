@@ -106,6 +106,7 @@ export const PAGE_KEYS = {
   materialIssueExcess: 'stores.material-issue-excess',
   materialReturns: 'stores.material-returns',
   openingStock: 'stores.opening-stock',
+  vendorBills: 'accounts.vendor-bills',
   jobOrders: 'production.job-orders',
   componentFitments: 'production.component-fitments',
   fatReadiness: 'production.fat-readiness',
