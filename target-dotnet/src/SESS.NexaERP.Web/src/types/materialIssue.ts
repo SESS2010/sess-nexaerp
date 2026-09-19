@@ -168,6 +168,10 @@ export interface MaterialIssueLineView {
   InventoryLotId: string | null
   InventorySerialId: string | null
   WarehouseConditionLocationId: string
+  /** Serial as printed on the part (053a81e); null for lot/plain lines. Absent from APIs before 20260918092000. */
+  StoredSerialNumber?: string | null
+  /** Base quantity already consumed by confirmed, unreversed fitments (053a81e). */
+  FittedQuantityBase?: number
 }
 
 export interface MaterialIssueView {

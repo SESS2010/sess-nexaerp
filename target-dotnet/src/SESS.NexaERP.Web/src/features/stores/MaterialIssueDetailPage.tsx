@@ -39,11 +39,11 @@ export function MaterialIssueDetailPage() {
       const [request, page, fitments] = await Promise.all([
         getMaterialIssueRequest(loaded.MaterialIssueRequestId).catch(() => null),
         listMaterialReturns({ page: 1, pageSize: 50, materialIssueId: loaded.Id }).catch(() => ({ Items: [] as MaterialReturnView[] })),
-        // Consumption is posted at fitment, and the issue line view carries no
-        // fitted quantity, so confirmed fitments on the job order are subtracted
-        // here. Non-Production roles may not read fitments; then outstanding
-        // shows issued minus returned only.
-        loaded.JobOrderId
+        // Consumption is posted at fitment. Since 053a81e the line view carries
+        // FittedQuantityBase; the fitment list is only the fallback for an API
+        // that predates it (then non-Production roles may not read fitments and
+        // outstanding shows issued minus returned only).
+        loaded.JobOrderId && loaded.Lines.some((line) => line.FittedQuantityBase === undefined)
           ? listComponentFitments({ page: 1, pageSize: 200, jobOrderId: loaded.JobOrderId, activeOnly: true }).catch(() => ({ Items: [] }))
           : Promise.resolve({ Items: [] }),
       ])
@@ -112,7 +112,7 @@ export function MaterialIssueDetailPage() {
       line,
       itemCode: requestLine?.ItemCode ?? line.ItemId,
       itemName: requestLine?.ItemName ?? '',
-      outstanding: line.QuantityBase - (acceptedReturned.get(line.Id) ?? 0) - (fittedByLine.get(line.Id) ?? 0),
+      outstanding: line.QuantityBase - (acceptedReturned.get(line.Id) ?? 0) - (line.FittedQuantityBase ?? fittedByLine.get(line.Id) ?? 0),
     }
   })
   const isCustodian = me?.EmployeeId === issue.IssuedToEmployeeId
@@ -175,7 +175,7 @@ export function MaterialIssueDetailPage() {
                 <td className="text-right mono">{acceptedReturned.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{fittedByLine.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{row.outstanding}</td>
-                <td className="mono">{row.line.InventorySerialId ? row.line.InventorySerialId.slice(0, 8) + '…' : '—'}</td>
+                <td className="mono">{row.line.StoredSerialNumber ?? (row.line.InventorySerialId ? row.line.InventorySerialId.slice(0, 8) + '…' : '—')}</td>
                 <td className="mono">{row.line.WarehouseConditionLocationId.slice(0, 8)}…</td>
               </tr>
             ))}

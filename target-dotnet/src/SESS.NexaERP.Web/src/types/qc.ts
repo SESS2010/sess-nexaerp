@@ -38,6 +38,8 @@ export interface QcInspectionPolicy {
   Id: string
   CompanyId: string
   ItemId: string | null
+  /** Item code for item-bound policies (c4ee501); absent from APIs before it. */
+  ItemCode?: string | null
   ItemCategoryId: string | null
   ParameterCode: string
   MeasurementUomCode: string

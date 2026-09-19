@@ -63,15 +63,16 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
       : { ...current, [row.line.Id]: { scanCode, returned: String(row.outstanding), consumed: '0', stillHeld: '0' } })
 
   // A serialized line must be declared with its exact serial, which the server
-  // checks against InventorySerial.StoredSerialNumber. The issue view carries
-  // only InventorySerialId, so a serial scan cannot be matched to its line
-  // here: it is taken as the serial of the next undeclared serialized line and
-  // the server rejects a mismatch. Reported as a backend gap (serial number
-  // missing from MaterialIssueLineView).
+  // checks against InventorySerial.StoredSerialNumber. Since 053a81e the line
+  // view carries StoredSerialNumber, so a serial scan is matched to its own
+  // line. Against an older API (no serial on the line) the scan is taken as
+  // the serial of the next undeclared serialized line and the server rejects
+  // a mismatch.
   const onScan = (raw: string) => {
     const code = normalizeScan(raw)
-    const byItem = open.find((candidate) => normalizeScan(candidate.itemCode) === code && !declarations[candidate.line.Id])
-    const row = byItem ?? open.find((candidate) => candidate.line.InventorySerialId && !declarations[candidate.line.Id])
+    const bySerial = open.find((candidate) => candidate.line.StoredSerialNumber && normalizeScan(candidate.line.StoredSerialNumber) === code && !declarations[candidate.line.Id])
+    const byItem = bySerial ?? open.find((candidate) => normalizeScan(candidate.itemCode) === code && !declarations[candidate.line.Id])
+    const row = byItem ?? open.find((candidate) => candidate.line.InventorySerialId && !candidate.line.StoredSerialNumber && !declarations[candidate.line.Id])
     if (!row) {
       setWarning(`“${raw}” matches no undeclared line on ${issue.IssueNumber}.`)
       return
@@ -183,7 +184,7 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
                           declaration ? (
                             <input className="input mono" placeholder="Issued serial number" value={declaration.scanCode}
                               onChange={(event) => patch(row.line.Id, { scanCode: event.target.value })} />
-                          ) : <span className="field-hint">serialized: exact serial scan, full return of 1</span>
+                          ) : <span className="field-hint">serialized{row.line.StoredSerialNumber ? <> <span className="mono">{row.line.StoredSerialNumber}</span></> : ''}: exact serial scan, full return of 1</span>
                         ) : null}
                       </td>
                       <td className="text-right mono">{row.outstanding}</td>

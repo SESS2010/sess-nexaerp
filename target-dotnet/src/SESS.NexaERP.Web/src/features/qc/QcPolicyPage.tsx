@@ -281,7 +281,7 @@ export function QcPolicyPage() {
                 <tr key={policy.Id}>
                   <td>
                     {policy.ItemId
-                      ? <><span className="field-label">Item</span> <span className="mono">{policy.ItemId.slice(0, 8)}…</span></>
+                      ? <><span className="field-label">Item</span> <span className="mono">{policy.ItemCode ?? policy.ItemId.slice(0, 8) + '…'}</span></>
                       : <><span className="field-label">Category</span> {category ? `${category.Code} — ${category.Name}` : <span className="mono">{policy.ItemCategoryId?.slice(0, 8)}…</span>}</>}
                   </td>
                   <td className="mono">{policy.ParameterCode}</td>
