@@ -6,7 +6,7 @@ Status: **A1 is partial.** Governed routes, publication of a normally issued buy
 
 The frozen [schema guideline](../SESS_ERP_Stores_Full_Schema_Guideline.docx), section 5.8 and X1/X3/X4/X5/X6/X7, governs. [Answers to Open Questions](../SESS_NexaERP_Answers_To_Open_Questions.md) corrects older drafts. [Pending Work item 19](../SESS_NexaERP_Pending_Work_Specification.md), the [Post Session Plan](../SESS_NexaERP_Post_Session_Plan.md), [Role Catalogue](../SESS_NexaERP_Role_Catalogue.md) and owner instructions require a real sale, the receiving company's normal PR/approval/PO naming the seller as vendor, a GST invoice and complete separate company ledgers. No PO means no movement.
 
-The seller retains ownership and carrying value until destination acceptance. The destination storekeeper must use normal GRN/QC. Physical serial/lot selection and accounting FIFO remain separate: FIFO selects the oldest eligible company/item/ownership-value-pool layers, rather than the receipt that supplied the physically selected serial. Machine delivery remains job-order based and is not reused for component sales.
+The seller retains ownership and carrying value until destination QC acceptance. The destination storekeeper must use normal GRN/QC. Physical serial/lot selection and accounting FIFO remain separate: FIFO selects the oldest eligible company/item/ownership-value-pool layers, rather than the receipt that supplied the physically selected serial. Machine delivery remains job-order based and is not reused for component sales.
 
 ## Implemented behavior
 
@@ -70,23 +70,26 @@ Review found a defect that the initial full Release pass (843/843, 23.3916 measu
 
 A similar substantive-assignment restriction exists in the previously shipped machine-delivery service. It needs a separate workflow review; this A1 phase does not change that service or its applied migration.
 
-## Pending owner decision: destination acceptance
+## Owner decision: destination QC acceptance
 
-The owner has been asked whether the ownership/value transfer happens at finalized GRN or only at QC acceptance. No answer has arrived. The existing GRN service finalizes stock and creates buyer-owned FIFO layers in one Serializable transaction, so this is an accounting transition, not a label.
+On 19 September 2026, the owner explicitly selected **destination QC acceptance** as the ownership/value transfer event. Finalizing the destination GRN records custody; it does not transfer ownership or create buyer-owned value for unaccepted intercompany quantity. This is an approved business rule; its runtime integration remains unfinished.
 
-| Event | If acceptance means finalized GRN | If acceptance means QC acceptance |
-|---|---|---|
-| Seller dispatch | Reserve source layers; seller retains transit value | Same |
-| Buyer finalized GRN | Seller consumption and buyer-owned QC-hold value become effective | Buyer records custody, but uninspected goods remain seller-owned; ordinary owned FIFO creation must be deferred |
-| Buyer QC accepts part | Quality disposition; ownership already passed at GRN | Only that accepted quantity transfers ownership/value |
-| Buyer QC rejects | Buyer owns rejected goods until its normal return/correction process | Seller still owns rejected goods; physical return closes the matching transit allocation |
-| Buyer accepted bill | Existing landed-cost process applies to owned layers | Cost evidence can precede ownership and must not prematurely value seller-owned goods in the buyer ledger |
+| Event | Required ownership and valuation behavior |
+|---|---|
+| Seller dispatch | Reserve source stock and FIFO allocations; the seller retains transit ownership and carrying value. Reserved quantity is unavailable for another issue. |
+| Buyer finalized GRN | Record custody through the buyer's normal PO/GRN flow; uninspected goods remain seller-owned. Defer buyer-owned FIFO recognition. |
+| Destination QC acceptance | Transfer only the accepted quantity, retaining exact source allocations and immutable acceptance evidence in both company ledgers. |
+| Destination QC rejection or pending discrepancy | Retain seller ownership; a physical return closes its matching transit allocation. Do not recognize rejected quantity as buyer-owned stock. |
+| Accepted bill and later cost adjustments | Retain normal bill evidence and correlate costs with the quantity actually transferred. A bill must not prematurely recognize seller-owned custody as buyer-owned FIFO value. |
+| Correction, reversal and replay | Preserve prior evidence and exact allocations; neither company may gain or lose quantity/value twice. Revalidate downstream use before permitting reversal. |
 
-These are alternatives, not an authorization to choose either. The completed route/publication controls do not depend on the choice.
+The seller's FIFO carrying value and the buyer's agreed purchase/landed value are distinct. Reconciliation must retain both, together with currency, UOM, quantity and the relevant timestamps; it must not force the two rates to match.
+
+The existing ordinary GRN service currently creates buyer-owned FIFO layers immediately, and ordinary QC movements retain the source ownership account. Intercompany dispatch, receiving, QC, bill allocation, issue eligibility and historical reports must be integrated together to implement this decision. Ordinary purchases retain their existing behavior. This decision does not prove a completed intercompany sale or authorize a cross-company inward shortcut.
 
 ## Exact continuation
 
-Finish the invoice/dispatch/receiving phase after the acceptance event is settled. Seller invoice evidence must link to the buyer's own normal supplier-invoice and accepted-bill operations; seller commands must not create or approve buyer GRNs/bills. Retain legally applicable e-way evidence. Partial receipts must respect the normal PO remaining quantity; discrepancies must remain visible and block unexplained closure.
+Finish the dispatch/receiving phase using the confirmed destination QC acceptance event. Seller invoice evidence must link to the buyer's own normal supplier-invoice and accepted-bill operations; seller commands must not create or approve buyer GRNs/bills. Retain legally applicable e-way evidence. Partial receipts must respect the normal PO remaining quantity; discrepancies must remain visible and block unexplained closure.
 
 Dispatch reservations must reduce availability for later issues while preserving seller transit value. Acceptance consumes the relevant recorded reservations; returns restore/release those recorded allocations. New events must be visible consistently to issue eligibility, FIFO valuation, returns and later landed-cost adjustment. Existing relevant code is concentrated in `VendorBillCostingSql`, `ImmutableLandedCostAdjustmentsSql`, the return/reversed-receipt migrations and `FifoValuationReportSql`. Introduce new versioned migrations/functions rather than edit applied ones.
 
