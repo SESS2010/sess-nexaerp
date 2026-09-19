@@ -164,6 +164,8 @@ app.MapMachineDeliveryEndpoints();
 app.MapIntercompanyEndpoints();
 app.MapIntercompanyInvoiceEndpoints();
 app.MapInventoryPeriodEndpoints();
+app.MapVendorManualAssessmentEndpoints();
+app.MapVendorRatingEvidenceEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();
 app.MapOpeningStockEndpoints();
 app.MapJobOrderEndpoints();

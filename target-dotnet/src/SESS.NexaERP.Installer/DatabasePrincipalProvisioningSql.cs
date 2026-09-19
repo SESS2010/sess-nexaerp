@@ -526,7 +526,7 @@ internal static class DatabasePrincipalProvisioningSql
          END IF;
          END $machine_acl$;
 
-        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Provision + SESS.NexaERP.Database.InventoryPeriod20260919AccessSql.Provision;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Provision + SESS.NexaERP.Database.InventoryPeriod20260919AccessSql.Provision + SESS.NexaERP.Database.VendorManualAssessment20260919AccessSql.Provision;
 
     internal const string Verify = """
         DO $verify$
@@ -599,6 +599,8 @@ internal static class DatabasePrincipalProvisioningSql
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
               AND c.relname NOT IN ('opening_stock_import_staging_lines','opening_stocks','opening_stock_lines','opening_stock_events')
+              AND NOT (c.relname='vendor_manual_assessments'
+                       AND to_regprocedure('advance.record_vendor_manual_assessment(uuid,uuid,uuid,bigint,uuid,numeric,numeric,numeric,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname='inventory_period_events'
                        AND to_regprocedure('advance.open_inventory_period(uuid,uuid,text,text,date,date,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname='intercompany_invoice_evidence'
@@ -1043,7 +1045,7 @@ internal static class DatabasePrincipalProvisioningSql
             RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
           END IF;
         END $verify$;
-        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Verify + SESS.NexaERP.Database.InventoryPeriod20260919AccessSql.Verify;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Verify + SESS.NexaERP.Database.InventoryPeriod20260919AccessSql.Verify + SESS.NexaERP.Database.VendorManualAssessment20260919AccessSql.Verify;
 
     internal const string RoleStatus = """
         WITH managed("Ordinal","RoleName") AS (VALUES

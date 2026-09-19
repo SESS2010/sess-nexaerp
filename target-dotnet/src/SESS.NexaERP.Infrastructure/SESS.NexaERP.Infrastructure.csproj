@@ -48,4 +48,4 @@
 <ItemGroup>
 <EmbeddedResource Include="Persistence/Migrations/Sql/20260919110000_InventoryPeriodCfoBaseline.sql" LogicalName="InventoryPeriodCfoBaseline.20260919110000.sql" />
 <EmbeddedResource Include="Persistence/Migrations/Sql/20260919120000_InventoryPeriods.sql" LogicalName="InventoryPeriods.20260919120000.sql" />
-</ItemGroup></Project>
+</ItemGroup><ItemGroup><Compile Include="../Shared/VendorManualAssessment20260919AccessSql.cs" Link="Database/VendorManualAssessment20260919AccessSql.cs"/></ItemGroup><ItemGroup><EmbeddedResource Include="Persistence/Migrations/Sql/20260919130000_VendorManualAssessments.sql" LogicalName="VendorManualAssessments.20260919130000.sql"/></ItemGroup></Project>

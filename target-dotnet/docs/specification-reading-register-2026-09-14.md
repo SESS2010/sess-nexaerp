@@ -330,3 +330,14 @@ These are code, SQL, configuration, machine-readable schemas or archived artifac
 - outputs/rev868c3_employee_reconciliation_idempotent.sql
 - outputs/rev868c3_up_idempotent.sql
 - outputs/rev869b_security_package_up.sql
+
+
+## Owner resolutions recorded 19 September 2026
+
+The later owner instructions resolve the earlier conflicts recorded above:
+stock counts are quarterly with automatic annual-consumption-value ABC classification
+and a reasoned Stores Manager override. Vendor rating uses eight dimensions,
+five automatic (75 points) and three manual (25 points), as now specified in
+SESS_NexaERP_Vendor_Rating_Specification.md. Historical typed ratings are retained
+as LEGACY. The earlier six-dimension model and direction to discard that history
+are superseded; the 14 September entry remains as a record of what was then unresolved.

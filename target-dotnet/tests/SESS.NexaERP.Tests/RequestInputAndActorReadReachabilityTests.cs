@@ -79,6 +79,10 @@ internal static class RequestInputReachabilityManifest
 {
     internal static readonly HashSet<string> DeclaredSelectors = new(StringComparer.Ordinal)
     {
+        // QC GET vendor-rating-evidence/receipts and vendor-manual-assessments/for-receipt/{id} supply these selectors.
+        "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.GoodsReceiptId",
+        "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.GoodsReceiptVersion",
+        "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.SupersedesAssessmentId",
         // CFO GET /api/v1/accounts/inventory-periods/{id} returns the current close Version.
         // InventoryPeriodUsesResolvedCfoAndRetainsCommandReplay exercises that actual read.
         "SESS.NexaERP.Application.Stores.CloseInventoryPeriodRequest.Version",

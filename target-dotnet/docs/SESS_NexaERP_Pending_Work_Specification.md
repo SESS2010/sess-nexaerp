@@ -394,7 +394,7 @@ waiting, shortfalls to explain, own deviation count.
 
 - adjustment bands: below ₹5,000 Stores Manager, ₹5,000–₹1,00,000 TD, above MD,
   serialized identity always TD, write-off TD with Accounts concurrence
-- cycle count — A monthly, B quarterly, C half-yearly, full count annually
+- cycle counts are quarterly from go-live; ABC classification is automatic by annual consumption value, with a reasoned Stores Manager override
 - count freeze; break requires TD approval, is recorded, and the affected scope
   is recounted
 - inventory periods; backdating maximum 7 days, beyond that TD
@@ -460,11 +460,13 @@ Full specification: `docs/SESS_NexaERP_Vendor_Rating_Specification.md`.
 
 - rated after GRN by the QC Manager
 - quality per GRN LINE; delivery, documentation, technical and response per GRN
-- six dimensions: quality 30, delivery 25, technical 20, documentation 10,
-  response 10, price 5 — configurable
-- **delivery, quality and documentation are COMPUTED, never typed.** The
-  existing spreadsheet scores every vendor 95 per cent because four dimensions
-  are hand-entered. That is the defect this fixes.
+- eight dimensions: Quality /25, Delivery /20, Warranty /10, Commercial /10,
+  Documents /10, Technical /15, Response /5 and Overall /5
+- Quality, Delivery, Warranty, Commercial and Documents are computed from
+  retained QC/GRN/PO evidence. Missing evidence must not become full marks.
+- QC Manager records Technical /15, Response /5 and Overall /5 per GRN.
+- retain the 1,057 historical bill ratings as LEGACY, preserving their typed
+  marks rather than presenting them as measured results
 - twelve-month rolling window
 - new vendors open at 100 per cent, provisional until three receipts
 - bands: 90+ Excellent, 80–89 Good, 70–79 Acceptable, below 70 Poor

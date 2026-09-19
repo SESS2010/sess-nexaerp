@@ -78,6 +78,8 @@ public static class DependencyInjection
         services.AddScoped<IIntercompanyService, EfIntercompanyService>();
         services.AddScoped<IIntercompanyInvoiceService, EfIntercompanyInvoiceService>();
         services.AddScoped<IInventoryPeriodService, EfInventoryPeriodService>();
+        services.AddScoped<IVendorManualAssessmentService, EfVendorManualAssessmentService>();
+        services.AddScoped<IVendorRatingEvidenceService, EfVendorRatingEvidenceService>();
         services.AddScoped<IVendorFinancialEvidenceService, EfVendorFinancialEvidenceService>();
         services.AddScoped<IVendorBankAdviceService, EfVendorBankAdviceService>();
         services.AddScoped<IOpeningStockService, EfOpeningStockService>();
