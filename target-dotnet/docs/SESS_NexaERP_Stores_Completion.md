@@ -218,13 +218,15 @@ argument.
 
 ### Permanent custody
 
-A tool assigned to an employee indefinitely — their own set, their
-responsibility.
+Each tool is assigned individually to an employee indefinitely. There is no
+set-level custody record. Eight tools mean eight individually identified
+assets and eight custody records, including on transfer to a successor.
 
 - assigned by Stores, accepted by the employee
 - no due date
 - transfers require both parties, like a DC handoff
-- **resignation clearance is blocked while any permanent custody is open**
+- **resignation clearance is blocked while any tool custody is open, permanent
+  or temporary, and names every outstanding tool**
 
 ### Temporary issue
 
@@ -241,13 +243,35 @@ A tool issued for a job, for a stated period.
 
 **It is a LOSS, never consumption.**
 
-- written off with Technical Director approval
+- written off at depreciated value under the Accounts policy, with Technical
+  Director approval; retain the accepted valuation and policy evidence
 - the write-off names the custodian
 - the loss is recorded against that engineer's deviation count
 - the tool's identity is retired, not deleted — its history remains
 
 A consumable that is used up is consumption. A tool that disappears is a loss.
 The ERP must never let one be recorded as the other.
+
+## A damaged tool
+
+Damage is not a loss write-off. Record the replacement against the same open
+custody, naming both the damaged asset and its replacement. Preserve the
+original asset's history and the custodian's acceptance of the replacement;
+do not make the custody disappear or create a set-level transaction.
+
+## Opening register and clearance
+
+The supplied register totals are 164 tool types, 730 purchased, 564 issued,
+166 in Stores, 288 historical custody lines and 23 holders. Every type row
+balances purchased minus issued. Import each physical asset with its own
+identity, retaining the source row and custody-line reference when a legacy
+line represents several tools. Do not collapse 564 individually held assets
+into 288 set records. These totals are import acceptance checks; they do not
+substitute for the actual register or establish purchase/depreciation values.
+
+Clearance is a business decision separate from login disablement. Open
+custody blocks resignation clearance and names the tools, but must never
+prevent revoking a departing employee's login access.
 
 ## What must be visible
 
@@ -322,11 +346,12 @@ are tools **and** calibrated equipment. Both sets of rules apply:
    records the sale? A customer PO against which the DC closes, or something
    else?
 
-2. **Permanent tool custody transfer.** When an engineer leaves and hands his
-   set to a successor, is that one transaction or one per tool?
+2. **Permanent tool custody transfer: answered.** Each tool transfers
+   individually; both parties participate. There is no set-level record.
 
-3. **Tool loss value.** Written off at what — purchase cost, depreciated value,
-   or replacement cost? Accounts will decide.
+3. **Tool loss value: answered.** Depreciated value under the Accounts
+   policy, with TD approval. Damage is replacement against the same custody,
+   not a loss write-off.
 
 4. **Customer property held too long.** A machine has sat for eight months
    awaiting a PO that never came. What is the escalation beyond notifying TD
