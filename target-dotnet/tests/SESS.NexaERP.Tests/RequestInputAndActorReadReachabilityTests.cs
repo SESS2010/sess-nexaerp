@@ -79,7 +79,7 @@ internal static class RequestInputReachabilityManifest
 {
     internal static readonly HashSet<string> DeclaredSelectors = new(StringComparer.Ordinal)
     {
-        // QC GET vendor-rating-evidence/receipts and vendor-manual-assessments/for-receipt/{id} supply these selectors.
+        // QC and receiving PM use vendor-manual-assessments/receipts and for-receipt/{id}; QC also retains the rating-evidence reader.
         "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.GoodsReceiptId",
         "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.GoodsReceiptVersion",
         "SESS.NexaERP.Application.Stores.RecordVendorManualAssessmentRequest.SupersedesAssessmentId",

@@ -1,17 +1,18 @@
-﻿using System.Data;
+using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Npgsql;
 using NpgsqlTypes;
 using SESS.NexaERP.Application.Audit;
+using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
 
-public sealed class EfVendorManualAssessmentService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit)
+public sealed class EfVendorManualAssessmentService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, IPagePermissionService permissions)
     : IVendorManualAssessmentService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -35,7 +36,7 @@ public sealed class EfVendorManualAssessmentService(NexaErpDbContext db, ICurren
     }
     public async Task<VendorManualAssessmentView> RecordAsync(RecordVendorManualAssessmentRequest request, CancellationToken ct)
     {
-        user.RequireRole("create", "QC_MANAGER");
+        await VendorManualAssessmentAuthority.RequireRoleAsync(user, permissions, "create", ct);
         var reason = Required(request.Reason, "Reason", 2000);
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         if (request.GoodsReceiptId == Guid.Empty || request.GoodsReceiptVersion < 0
@@ -86,10 +87,36 @@ public sealed class EfVendorManualAssessmentService(NexaErpDbContext db, ICurren
         catch (PostgresException error) when (error.SqlState is PostgresErrorCodes.RaiseException or PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.CheckViolation or PostgresErrorCodes.ForeignKeyViolation)
         { throw new StoresConflictException(error.MessageText); }
     }
+    public async Task<VendorRatingReceiptPage> ListReceiptsAsync(int page, int pageSize, CancellationToken ct)
+    {
+        var role = await VendorManualAssessmentAuthority.RequireRoleAsync(user, permissions, "view", ct);
+        var organization = user.OrganizationId?.Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(organization)) throw new UnauthorizedAccessException("Select a company.");
+        page = Math.Clamp(page, 1, 100000); pageSize = Math.Clamp(pageSize, 1, 100);
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
+        var company = await db.Companies.Where(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE")
+            .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct)
+            ?? throw new UnauthorizedAccessException("Selected company is unavailable.");
+        var query = db.GoodsReceipts.AsNoTracking().Where(x => x.CompanyId == company
+            && (role == "QC_MANAGER" || x.ReceivedByEmployeeId == user.EmployeeId)
+            && x.DocumentKind == "NORMAL" && x.Status == "FINALIZED"
+            && !db.GoodsReceipts.Any(reversal => reversal.CompanyId == company
+                && reversal.ReversesGoodsReceiptId == x.Id && reversal.Status == "FINALIZED"));
+        var count = await query.CountAsync(ct);
+        var items = await query.OrderByDescending(x => x.ReceivedAt).ThenBy(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(x => new VendorRatingReceiptOption(x.Id, x.Version, x.GrnNumber, x.VendorId, x.ReceivedAt)).ToListAsync(ct);
+        await tx.CommitAsync(ct);
+        return new(count, page, pageSize, items.AsReadOnly());
+    }
+
     public async Task<IReadOnlyList<VendorManualAssessmentView>> HistoryAsync(Guid goodsReceiptId, CancellationToken ct)
     {
-        user.RequireRole("view", "QC_MANAGER");
+        var role = await VendorManualAssessmentAuthority.RequireRoleAsync(user, permissions, "view", ct);
         var company = await Company(ct);
+        if (role == "PRODUCTION_MANAGER" && !await db.GoodsReceipts.AnyAsync(x => x.CompanyId == company
+            && x.Id == goodsReceiptId && x.ReceivedByEmployeeId == user.EmployeeId, ct))
+            return Array.Empty<VendorManualAssessmentView>();
         await using var command = await Command("SELECT advance.vendor_manual_assessment_history(@company,@receipt)::text", ct);
         command.Parameters.AddWithValue("company", company); command.Parameters.AddWithValue("receipt", goodsReceiptId);
         return JsonSerializer.Deserialize<List<VendorManualAssessmentView>>((string)(await command.ExecuteScalarAsync(ct))!, Json)!;

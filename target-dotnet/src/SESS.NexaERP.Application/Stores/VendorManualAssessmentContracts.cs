@@ -10,6 +10,7 @@ public sealed record VendorManualAssessmentView(Guid Id, Guid CompanyId, Guid Go
     Guid RoleAssignmentId, string RoleAssignmentType, bool Replayed);
 public interface IVendorManualAssessmentService
 {
+    Task<VendorRatingReceiptPage> ListReceiptsAsync(int page, int pageSize, CancellationToken ct);
     Task<VendorManualAssessmentView> RecordAsync(RecordVendorManualAssessmentRequest request, CancellationToken ct);
     Task<IReadOnlyList<VendorManualAssessmentView>> HistoryAsync(Guid goodsReceiptId, CancellationToken ct);
 }

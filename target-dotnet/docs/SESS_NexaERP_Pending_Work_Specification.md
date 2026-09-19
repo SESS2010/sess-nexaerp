@@ -458,13 +458,15 @@ waiting, shortfalls to explain, own deviation count.
 
 Full specification: `docs/SESS_NexaERP_Vendor_Rating_Specification.md`.
 
-- rated after GRN by the QC Manager
+- rated after GRN by the QC Manager; a Production Manager may record the manual
+  assessment only for a GRN naming that employee as its actual receiver
 - quality per GRN LINE; delivery, documentation, technical and response per GRN
 - eight dimensions: Quality /25, Delivery /20, Warranty /10, Commercial /10,
   Documents /10, Technical /15, Response /5 and Overall /5
 - Quality, Delivery, Warranty, Commercial and Documents are computed from
   retained QC/GRN/PO evidence. Missing evidence must not become full marks.
-- QC Manager records Technical /15, Response /5 and Overall /5 per GRN.
+- QC Manager, or the receiving Production Manager under that exception, records
+  Technical /15, Response /5 and Overall /5 per GRN.
 - retain the 1,057 historical bill ratings as LEGACY, preserving their typed
   marks rather than presenting them as measured results
 - twelve-month rolling window
