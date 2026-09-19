@@ -1,4 +1,3 @@
-#if WORKFLOW_WITNESS
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Reporting;
@@ -34,10 +33,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var fifoBefore = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/fifo-valuation"));
         Assert.Equal(2.58m, Assert.Single(fifoBefore.Totals).GetProperty("quantity").GetDecimal());
 
+        async Task<long> RestorationCount() => await db.Database.SqlQueryRaw<long>("""
+            SELECT count(*) AS "Value" FROM advance.fifo_cost_restorations r
+            JOIN advance.material_return_lines l ON l."Id"=r."MaterialReturnLineId"
+            WHERE l."MaterialIssueLineId"={0}
+            """, issueLine.Id).SingleAsync();
+        var restorationCountBeforeReversal = await RestorationCount();
         user.Set(context.ProductionId, "SESS-25", "PRODUCTION_MANAGER");
         var path = $"/api/v1/production/component-fitments/job-orders/{fitment.JobOrderId}/actual-bom";
         var before = await Get<ActualBomView>(client, path);
-        Assert.Equal(1419.60m, before.TotalAcceptedValue);
+        // 0.30 * (4000 ex-tax + 12 capitalized charges).
+        Assert.Equal(1203.60m, before.TotalAcceptedValue);
         await Post<ComponentFitmentSummary>(client, $"/api/v1/production/component-fitments/{fitment.Id}/reverse",
             new ReverseComponentFitmentRequest("Remove this component and return it to Stores without re-fitment",
                 "reversed-component-return-reverse"));
@@ -47,6 +53,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(0m, reversed.TotalAllocatedChargeValue);
         Assert.Equal(0m, reversed.TotalAcceptedValue);
         Assert.Equal(0m, reversed.CommercialVariance.ActualAcceptedValue);
+
+        // Reversal restores engineer custody, not the Stores FIFO layer.
+        user.Set(context.AccountsId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        var fifoAfterReversal = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/fifo-valuation"));
+        Assert.Equal(fifoBefore.Totals.Single().GetRawText(), fifoAfterReversal.Totals.Single().GetRawText());
+        Assert.Equal(restorationCountBeforeReversal, await RestorationCount());
 
         user.Set(engineer.Id, engineer.EmployeeCode, "TECHNICAL_SUPPORT_MANAGER", "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         var declared = await Post<MaterialReturnView>(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
@@ -110,4 +122,3 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 afterAcceptanceCounts }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }
-#endif
