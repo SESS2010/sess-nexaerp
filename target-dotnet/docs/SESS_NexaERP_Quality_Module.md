@@ -21,13 +21,16 @@ from vendors — has no home in the ERP.
 
 ## 35. THE PROCESS CHECK SHEET
 
-### One per job order. Prepared by the QC team. Nobody else.
+### One per job order. Prepared by QC; verified by Production, QC or Design.
 
-A chamber passes through fifteen stages. At each, the QC team verifies against
-a drawing, a standard or a measurement, and records the result. The chamber
-does not advance until the stage is signed.
+A chamber passes through fifteen stages. At each, the Production Manager, QC
+Manager or Design Engineer verifies against a drawing, a standard or a
+measurement and records the result. Any one of these three roles may sign;
+three signatures are not required. The chamber does not advance until the
+stage is signed. This is the Technical Director’s correction to the earlier
+QC-only signing rule.
 
-| # | Stage | What QC verifies | Against |
+| # | Stage | What the verifier checks | Against |
 |---|---|---|---|
 | 1 | CNC cutting and folding | dimensions, angles, hole positions | part drawing, ±tolerance marked by the design team |
 | 2 | Fabrication — welding | weld quality, joint integrity | welding process standard |
@@ -47,8 +50,10 @@ does not advance until the stage is signed.
 
 ### Rules
 
-**The QC team prepares the sheet.** Not design, not production. QC decides what
-is measured because QC is accountable for the answer.
+**The QC team prepares the sheet.** Template preparation does not restrict
+stage verification to QC. Production Manager, QC Manager and Design Engineer
+share verification responsibility; any one may sign using their effective
+company-scoped role.
 
 **Stage-wise, per job order.** A 550-litre bench chamber and a walk-in do not
 share a sheet. Both may start from a template, but the sheet belongs to the job
@@ -59,6 +64,14 @@ exists, the reference it was measured against, pass or fail, and remarks.
 
 **A failed stage does not delete.** It records the failure, the rectification,
 and the re-inspection. The original failure is evidence.
+
+**Rework requires Technical Director approval before execution.** Retain the
+approval, reason, affected stage and drawing revision with the rework record.
+Responsibility is shared: record the engineer who performed the work, the
+Production Manager and QC Manager responsible for guidance and detection, and
+the Design Engineer responsible for clear specifications. Do not attribute
+rework to the engineer alone. Re-inspection remains a separate signed event;
+approving rework does not turn the failed result into a pass.
 
 **A stage cannot be skipped.** If a chamber genuinely does not need a stage —
 no humidity, so no humidity calibration — the QC team marks it *not applicable*
@@ -281,7 +294,10 @@ Manager has to look in a drawer, the finding is written before he opens it.
 **Done when:**
 
 1. A job order can carry a stage check sheet prepared by QC, with all fifteen
-   stages, and a chamber cannot reach FAT with an unsigned stage.
+   stages. Production Manager, QC Manager or Design Engineer can independently
+   verify and sign a stage; a chamber cannot reach FAT with an unsigned stage.
+   Rework requires TD approval and retains shared responsibility for the
+   engineer, Production Manager, QC Manager and Design Engineer.
 2. A powder-coating return can be inspected after its GRN, fail, and follow any
    of the three failure paths, with the path recorded.
 3. A CNC return is measured against the part drawing revision pinned to the job
@@ -296,7 +312,9 @@ Manager has to look in a drawer, the finding is written before he opens it.
 **Must refuse:**
 
 - FAT readiness while any stage is unsigned
-- a stage signed by anyone outside the QC team
+- a stage signed without an effective Production Manager, QC Manager or Design Engineer role
+- rework executed without TD approval
+- rework responsibility recorded against only the engineer
 - deleting a failed stage rather than recording its rectification
 - issuing an instrument that is away at the laboratory
 - a job-work inspection with no GRN behind it
@@ -318,9 +336,10 @@ visible in its record.
 2. **Powder coating thickness.** Is there a single agreed micron range for all
    work, or does it vary by customer or by part?
 
-3. **Who signs a stage?** Any QC team member, or NARREN as QC Manager only? The
-   answer decides whether a second QC person can be hired without a code
-   change.
+3. **Stage signing — resolved by the Technical Director.** Production Manager,
+   QC Manager or Design Engineer; any one may sign. Authority is role-based,
+   not tied to a named individual. Rework needs TD approval and shared
+   responsibility as specified above.
 
 4. **Pressure, vacuum and leak test values.** Are the acceptance values fixed by
    SESS standard, or per chamber from the offer?
