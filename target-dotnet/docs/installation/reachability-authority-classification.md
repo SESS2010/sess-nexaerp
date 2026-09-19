@@ -19,13 +19,13 @@ Source: [item approval](../../src/SESS.NexaERP.Api/Endpoints/InventoryEndpoints.
 
 ## Four graph modelling errors: impossible MD-verifier paths
 
-V3 checks the page grant and its known service-role table. That table had no VendorQualification branch, so MD full-control was taken as verification authority. The retained `rev869b_guard_qualification_lifecycle` trigger permits verification only with ACCOUNTS_HEAD or TECHNICAL_DIRECTOR; MD alone cannot execute that transition. Creator TD/verifier MD and creator Purchase Manager/verifier MD are therefore impossible paths, each reported once per company.
+V3 checks the page grant and its known service-role table. That table had no VendorQualification branch, so MD full-control was taken as verification authority. The installed `ordinary_guard_qualification_lifecycle` trigger (generated from the retained REV869B SQL) permits verification only with ACCOUNTS_HEAD or TECHNICAL_DIRECTOR; MD alone cannot execute that transition. Creator TD/verifier MD and creator Purchase Manager/verifier MD are therefore impossible paths, each reported once per company.
 
 Source: [database lifecycle guard](../../src/SESS.NexaERP.Infrastructure/Persistence/Migrations/Rev869BControlledMutationSql.cs), verification branch; [endpoint independence checks](../../src/SESS.NexaERP.Api/Endpoints/Rev869AConfigurationEndpoints.cs). This is a test model omission of a database-enforced business rule, not permission to remove independence.
 
 Before editing the test, the error and its reason were reported to the owner. The isolated V4 draft adds the actual verification and approval role restrictions; it does not change production grants, employee assignments, guards or independence assertions. The graph still asserts that no failures exist: known gaps are not converted into an expected-success test.
 
-Correcting this model should also reveal a missing independent verifier for TD-created qualifications. The old graph incorrectly supplied MD for that role. Therefore removing four impossible paths must not be reported as four business defects fixed. V4 recheck results are recorded below when available.
+Correcting this model should also reveal a missing independent verifier for TD-created qualifications. The old graph incorrectly supplied MD for that role. Therefore removing four impossible paths must not be reported as four business defects fixed. The corrected V5 result below confirms these two additional diagnostics.
 
 ## Four seed/configuration diagnostics: MD-created qualification
 
@@ -70,4 +70,8 @@ However, independent UOM approval was introduced in this draft and has not been 
 
 Original V3: clean Debug build, focused runtime witness failed at the final authority graph after twelve checkpoints; full reachability acceptance is not claimed. V3 source hashes and output remain retained. Classification does not modify any business row or frontend contract. The V4 diagnostic uses a fresh disposable Windows/PostgreSQL17 database, current chain and repository seeds; it does not reproduce the field pre-75 database name, starting state, role history or supplied dump line endings. The exact field dump/globals witness remains pending. No owner database was used.
 
-V4 status at publication: Debug build passed with zero warnings/errors. The first graph process ended without a TRX or exit marker; a single-diagnostic retry is running. No revised failure count or V4 pass is claimed. The original 24-message classification above is a source-and-retained-evidence audit.
+V4 build passed, but its retry failed before the graph: the new diagnostic looked up the retired `rev869b_guard_qualification_lifecycle` function name. Ordinary-authority migration renames that function. This probe error was reported before correcting the lookup; no authority rule was changed. V5 resolves the enabled lifecycle trigger attached to the actual qualification table and verifies its installed role clauses.
+
+V5: Debug build passed with zero warnings/errors. The focused diagnostic **failed, 0/1**, at the graph assertion with **22 messages**, after verifying the installed guard. All 879 indexed source hashes were checked. Four impossible MD-verifier paths disappeared; two genuine TD-created qualification paths without an independent verifier appeared. Remaining diagnostics: 14 current item gaps, 2 unpublished UOM-draft gaps, and 6 qualification seed/configuration dead ends. The first item creator named by the generic gate changed from SESS-25 to SESS-01; that gate stops at the first failure and does not establish a different authority defect.
+
+This is classification evidence, not a passing reachability suite or a repair of the outstanding business gaps. The isolated diagnostic still asserts zero failures. No expected-failure allowance, seeded employee, permission grant, service restriction or independence rule was added or removed. The original 24-message record above remains unchanged.
