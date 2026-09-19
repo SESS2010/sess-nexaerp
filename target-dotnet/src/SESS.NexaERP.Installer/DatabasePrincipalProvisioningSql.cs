@@ -526,7 +526,7 @@ internal static class DatabasePrincipalProvisioningSql
          END IF;
          END $machine_acl$;
 
-        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Provision;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Provision + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Provision;
 
     internal const string Verify = """
         DO $verify$
@@ -599,6 +599,8 @@ internal static class DatabasePrincipalProvisioningSql
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
               AND c.relname NOT IN ('opening_stock_import_staging_lines','opening_stocks','opening_stock_lines','opening_stock_events')
+              AND NOT (c.relname='intercompany_invoice_evidence'
+                       AND to_regprocedure('advance.record_intercompany_invoice(uuid,uuid,uuid,text,date,text,text,bytea,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('intercompany_purchase_publications','intercompany_purchase_publication_lines')
                        AND to_regprocedure('advance.publish_intercompany_purchase(uuid,uuid,uuid,uuid,bigint,text,uuid,text,uuid,text,text)') IS NOT NULL)
               AND NOT (c.relname IN ('intercompany_routes','intercompany_route_decisions')
@@ -1039,7 +1041,7 @@ internal static class DatabasePrincipalProvisioningSql
             RAISE EXCEPTION 'Ordinary command ledger is partially installed.';
           END IF;
         END $verify$;
-        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Verify;
+        """ + SESS.NexaERP.Database.IntercompanyRoutes20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyPurchase20260915AccessSql.Verify + SESS.NexaERP.Database.IntercompanyInvoice20260919AccessSql.Verify;
 
     internal const string RoleStatus = """
         WITH managed("Ordinal","RoleName") AS (VALUES

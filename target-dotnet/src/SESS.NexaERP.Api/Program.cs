@@ -162,6 +162,7 @@ app.MapVendorBillEndpoints();
 app.MapSupplierInvoiceEndpoints();
 app.MapMachineDeliveryEndpoints();
 app.MapIntercompanyEndpoints();
+app.MapIntercompanyInvoiceEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();
 app.MapOpeningStockEndpoints();
 app.MapJobOrderEndpoints();

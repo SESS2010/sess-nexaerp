@@ -15,7 +15,7 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
-#if WORKFLOW_WITNESS
+
     [Fact]
     public async Task IntercompanyPublicationUsesNormalIssuedPurchaseAndLimitsSellerDisclosure()
     {
@@ -118,12 +118,76 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(published.CorrelationId,Assert.Single(sellerPage.Items).CorrelationId);
             using (var privatePo = await sellerHost.Client.GetAsync("/api/v1/purchase/purchase-orders/"+po.PoNumber))
                 Assert.Contains(privatePo.StatusCode,new[] { HttpStatusCode.Forbidden,HttpStatusCode.NotFound });
+            const string invoices = "/api/v1/accounts/intercompany-invoices";
+            var invoiceRequest = new RecordIntercompanyInvoiceRequest(published.CorrelationId, "IC-LOW-2026-0001", today,
+                new("intercompany-gst-invoice.pdf", "application/pdf", SupplierInvoiceFixturePdf("INTERCOMPANY GST")), "ic-invoice-record");
+            sellerUser.Set(director, "SESS-01", "TECHNICAL_DIRECTOR");
+            using (var forbiddenInvoice = await sellerHost.Client.PostAsJsonAsync(invoices, invoiceRequest))
+                Assert.Equal(HttpStatusCode.Forbidden, forbiddenInvoice.StatusCode);
+            sellerUser.Set(context.AccountsId, "SESS-14", "ACCOUNTS_MANAGER");
+            var invoice = await Post<IntercompanyInvoiceView>(sellerHost.Client, invoices, invoiceRequest);
+            Assert.Equal(seller, invoice.CompanyId);
+            Assert.Equal(seller, invoice.SellerCompanyId);
+            Assert.Equal(buyer, invoice.BuyerCompanyId);
+            Assert.Equal(published.CorrelationId, invoice.CorrelationId);
+            Assert.Equal(received.CommercialOrder.GetRawText(), invoice.OrderSnapshot.GetRawText());
+            Assert.False(invoice.Replayed);
+            var invoiceReplay = await Post<IntercompanyInvoiceView>(sellerHost.Client, invoices, invoiceRequest);
+            Assert.True(invoiceReplay.Replayed);
+            Assert.Equal(invoice.Id, invoiceReplay.Id);
+            using (var changedInvoice = await sellerHost.Client.PostAsJsonAsync(invoices,
+                invoiceRequest with { InvoiceNumber = "IC-DIFFERENT" }))
+                Assert.Equal(HttpStatusCode.Conflict, changedInvoice.StatusCode);
+            using (var duplicateInvoice = await sellerHost.Client.PostAsJsonAsync(invoices,
+                invoiceRequest with { IdempotencyKey = "ic-invoice-duplicate" }))
+                Assert.Equal(HttpStatusCode.Conflict, duplicateInvoice.StatusCode);
+            using (var invalidFile = await sellerHost.Client.PostAsJsonAsync(invoices,
+                invoiceRequest with { Evidence = new("invalid.pdf", "application/pdf", [1, 2, 3]), IdempotencyKey = "ic-invalid-file" }))
+                Assert.Equal(HttpStatusCode.BadRequest, invalidFile.StatusCode);
+            Assert.Equal(invoice.Id, Assert.Single(await Get<List<IntercompanyInvoiceView>>(sellerHost.Client,
+                invoices + "/for-purchase/" + published.CorrelationId)).Id);
+            using (var download = await sellerHost.Client.GetAsync(invoices + "/" + invoice.Id + "/evidence"))
+            {
+                Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+                Assert.Equal(invoiceRequest.Evidence.Content, await download.Content.ReadAsByteArrayAsync());
+                Assert.Equal("application/pdf", download.Content.Headers.ContentType?.MediaType);
+            }
+            user.Set(context.AccountsId, "SESS-14", "ACCOUNTS_MANAGER");
+            var buyerInvoice = await Get<IntercompanyInvoiceView>(buyerHost.Client, invoices + "/" + invoice.Id);
+            Assert.Equal(buyer, buyerInvoice.CompanyId);
+            Assert.Equal(invoice.OrderSnapshot.GetRawText(), buyerInvoice.OrderSnapshot.GetRawText());
+            Assert.Equal(invoice.Evidence.Sha256, buyerInvoice.Evidence.Sha256);
+            using (var wrongCompanyRecord = await buyerHost.Client.PostAsJsonAsync(invoices,
+                invoiceRequest with { IdempotencyKey = "ic-buyer-cannot-record-sale" }))
+                Assert.Equal(HttpStatusCode.Conflict, wrongCompanyRecord.StatusCode);
+            Assert.Empty(await Get<List<IntercompanyInvoiceView>>(buyerHost.Client, invoices + "/for-purchase/" + Guid.NewGuid()));
+            await using (var privateRead = new NpgsqlConnection(context.RuntimeConnection))
+            {
+                await privateRead.OpenAsync();
+                await using var raw = new NpgsqlCommand("SELECT * FROM advance.intercompany_invoice_evidence", privateRead);
+                var refused = await Assert.ThrowsAsync<PostgresException>(async () => await raw.ExecuteNonQueryAsync());
+                Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+            }
+            var immutableUpdate = await Assert.ThrowsAsync<PostgresException>(async () =>
+                await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE advance.intercompany_invoice_evidence SET \"InvoiceNumber\"='changed' WHERE \"Id\"={invoice.Id}"));
+            Assert.Equal(PostgresErrorCodes.RaiseException, immutableUpdate.SqlState);
+            Assert.Contains("immutable", immutableUpdate.MessageText, StringComparison.OrdinalIgnoreCase);
+            var immutableDelete = await Assert.ThrowsAsync<PostgresException>(async () =>
+                await db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM advance.intercompany_invoice_evidence WHERE \"Id\"={invoice.Id}"));
+            Assert.Equal(PostgresErrorCodes.RaiseException, immutableDelete.SqlState);
+            user.Set(supportPurchase, "SESS-41", "PURCHASE_MANAGER");
             sellerUser.Set(director,"SESS-01","TECHNICAL_DIRECTOR");
             await Post<IntercompanyRouteView>(sellerHost.Client,routes+"/"+route.Id+"/revoke",new DecideIntercompanyRouteRequest(route.Version,"Stop new business, keep evidence","ic-po-revoke"));
             sellerUser.Set(context.AccountsId,"SESS-14","ACCOUNTS_MANAGER");
             var retained = await Get<IntercompanyPurchaseView>(sellerHost.Client,purchases+"/"+published.CorrelationId);
             Assert.Equal("REFRESH_REQUIRED",retained.Eligibility);
             Assert.Equal(received.CommercialOrder.GetRawText(),retained.CommercialOrder.GetRawText());
+            var retainedInvoice = await Get<IntercompanyInvoiceView>(sellerHost.Client, invoices + "/" + invoice.Id);
+            Assert.Equal(invoice.OrderSnapshot.GetRawText(), retainedInvoice.OrderSnapshot.GetRawText());
+            Assert.True((await Post<IntercompanyInvoiceView>(sellerHost.Client, invoices, invoiceRequest)).Replayed);
+            using (var revokedRouteInvoice = await sellerHost.Client.PostAsJsonAsync(invoices,
+                invoiceRequest with { InvoiceNumber = "IC-AFTER-REVOKE", IdempotencyKey = "ic-after-revoke" }))
+                Assert.Equal(HttpStatusCode.Conflict, revokedRouteInvoice.StatusCode);
             Assert.Equal(published.CorrelationId,(await Post<IntercompanyPurchaseView>(buyerHost.Client,purchases,request)).CorrelationId);
             Assert.Equal(beforeMovements,await db.StockMovements.CountAsync());
             await db.Database.OpenConnectionAsync();
@@ -135,5 +199,5 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Assert.Equal(1,publications);
     }
-#endif
+
 }

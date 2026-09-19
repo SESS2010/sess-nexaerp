@@ -178,6 +178,8 @@ internal static class RequestInputReachabilityManifest
         "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.RouteId",
         "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.PurchaseOrderId",
         "SESS.NexaERP.Application.Stores.PublishIntercompanyPurchaseRequest.Version",
+        // Accounts reads CorrelationId from GET /stores/intercompany/purchases; runtime invoice witness uses that reader.
+        "SESS.NexaERP.Application.Stores.RecordIntercompanyInvoiceRequest.CorrelationId",
 
         "SESS.NexaERP.Application.Stores.EngineeringDocumentActionRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Stores.EstimatedBomActionRequest.ExpectedVersion",
