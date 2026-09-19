@@ -172,8 +172,18 @@ export function OpeningStockDetailPage() {
                 </button>
               )}
               {canAuthorize && (
-                <button type="button" className="btn btn-primary" disabled={busy || !reason.trim()} onClick={() => void run('authorize')}>
-                  Authorize and post
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy || !reason.trim()}
+                  onClick={() => {
+                    // Last stop before the one irreversible action in the system.
+                    if (window.confirm(`Authorize and post ${money.format(view.TotalValue)} across ${view.Lines.length} line(s) as ${me?.OrganizationId ?? 'this company'}'s opening stock?
+
+This is done ONCE. It cannot be undone or re-run once posted.`)) void run('authorize')
+                  }}
+                >
+                  Authorize and post — once, no undo
                 </button>
               )}
             </div>

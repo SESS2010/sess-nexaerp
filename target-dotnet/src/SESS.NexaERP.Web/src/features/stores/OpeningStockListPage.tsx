@@ -94,6 +94,20 @@ export function OpeningStockListPage() {
         </div>
       </div>
 
+      {/* The manager asked for this to be the loudest thing on the screen: the
+          ceremony has no undo, and the company's first stock movement locks it. */}
+      <div className="alert alert-warn" role="alert">
+        <div className="alert-title" style={{ fontSize: 15 }}>⚠ OPENING STOCK IS DONE ONCE PER COMPANY. THERE IS NO UNDO.</div>
+        <div className="alert-body">
+          Once the Technical Director authorizes it, the quantities and values below become this company's stock and its first FIFO layers, and the ceremony can never be run again here —
+          the server refuses it as soon as the company has a single stock movement. Corrections afterwards are ordinary movements, not a second opening balance.
+        </div>
+        <div className="alert-detail">
+          Count only from a workbook with <strong>Rejected 0</strong>. Check every quantity, bin and rate against the physical count sheet before Record count.
+          Practise in a trial company, never in the company going live.
+        </div>
+      </div>
+
       {canCount && (
         <div className="card" style={{ marginBottom: 20 }}>
           <h2 className="form-section-title">Stage 1 — Count from an imported workbook</h2>

@@ -83,6 +83,31 @@ if the same person tries two steps.
 Reports → Pending approvals as TD (what is waiting on whom), Engineer custody
 (what is out and overdue), GRNI (received, not yet billed).
 
+
+### 1.5 The room sheet — the 28 steps by person (manager's mapping, 19 Sep)
+
+| Code | Person / role | Their steps on 1 October |
+|---|---|---|
+| SESS-01 | **Manager — Technical Director** | 0.1 item import · 0.2 vendor / customer import · 0.4 approve QC policies · **3 authorize opening stock** · 4 stock balance check · 6 (TD approve when the route says so) · **10 technical verification (until finding 17 is fixed)** · 18 customer PO · 19 approve Estimated BOM · 21 approve Production BOM · 28 dossier · 1.4 pending approvals |
+| SESS-02 | MD | 0.5 approve tax rules · approvals above TD's band (comparison / PO routes DEPARTMENT_THEN_MD) |
+| SESS-04 | TSM | 19 create / submit Estimated BOM · 10 technical verification **after** finding 17 |
+| SESS-12 | IT Manager | 0.3 logins and roles · end the two SUPPORT roles · identity mappings when Keycloak lands |
+| SESS-14 | Accounts Manager | 0.5 create tax rules · **2 confirm opening stock value** · 6 verify + approve PR · 11 approve comparison · 12 approve PO · **16 vendor bill raise + accept** · **17 advances and payments** · 20 verify job order · 1.4 GRNI |
+| **SESS-15** | **PRIYA — Purchase Manager** | 5 raise PR · 7 stock check · 8 RFQ + invite · 9 record quotation · 11 build + recommend comparison · 12 create, submit, issue PO |
+| SESS-25 | Production Manager | 20 job orders · 21 create / submit Production BOM · 22 approve MIR · 24 fitments / Actual BOM · 25 declare returns (as custodian) |
+| SESS-33 | QC Manager | 0.4 prepare QC policies · **15 inspect and finalize lots** · concessions · 26 FAT readiness |
+| **SESS-35** | **SUDALAI — Stores Executive** | **13 gate entry · 14 GRN (scan serials) · 23 material issue by scan · 25 accept returns** |
+| SESS-41 | Stores Manager | 0.6 condition locations · **1 opening stock count (workbook, Record count)** · 27 machine delivery + signature (API) |
+| SESS-16 | Stores Assistant | none on day one once the TECHNICAL_ENGINEER SUPPORT role is ended; second pair of hands on 13 / 14 / 23 |
+
+Bold = the steps that person owns outright. The morning order is 0.x the
+evening before → 1, 2, 3, 4 (SESS-41 → SESS-14 → SESS-01, nobody else
+touches anything) → then PRIYA opens the first PR.
+
+**Read aloud in training, twice:** *Opening stock is done once. There is no
+undo. Practise in the trial company, never in the live one.* The screen now
+says the same thing in amber at the top and asks once more before Authorize.
+
 ---
 
 ## 2. Where a screen assumes something a first-time user does not know
