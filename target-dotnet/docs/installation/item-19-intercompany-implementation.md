@@ -1,6 +1,6 @@
-# A1 intercompany — routes and PO publication
+# A1 intercompany â€” routes and PO publication
 
-Status: **A1 is partial.** Governed routes and publication of a normally issued buyer PO are implemented. GST invoice capture, dispatch, in-transit costing, destination acceptance and reconciliation are not yet implemented. No live database operations have been performed. Item 16 was committed and pushed separately as `060132f`.
+Status: **A1 is partial.** Governed routes, publication of a normally issued buyer PO and [retained GST invoice evidence](intercompany-invoice-evidence.md) are implemented. Dispatch, in-transit costing, destination acceptance and reconciliation remain unimplemented; a real sale with both complete company ledgers has not been accepted. No live database operations have been performed. Item 16 was committed and pushed separately as `060132f`.
 
 ## Governing record
 
@@ -58,7 +58,7 @@ Raw TRX/logs are retained under `local-evidence/item19` and are not committed.
 | Check | Result |
 |---|---|
 | Corrected route/publication workflows, migration lifecycle and whole-assembly reachability | Release 5/5, zero failed/skipped, 5m10s (`support-fixed-release.trx`) |
-| New migrations on exact-name disposable `sess_nexa_erp`, schema 103→105, both rollbacks, route reapply and private access | Release 1/1, zero failed/skipped, 1m05s (`deployment2-release.trx`) |
+| New migrations on exact-name disposable `sess_nexa_erp`, schema 103â†’105, both rollbacks, route reapply and private access | Release 1/1, zero failed/skipped, 1m05s (`deployment2-release.trx`) |
 | Final full routine Debug, all witness gates off | 846/846, zero failed/skipped, 1459.2351358 seconds (24.3206 minutes), `final-debug/full-suite.trx` |
 | Final full routine Release, all witness gates off | 843/843, zero failed/skipped, 1411.9202038 seconds (23.5320 minutes), `final-release/full-suite.trx` |
 
