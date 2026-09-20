@@ -313,6 +313,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(2, routeOptions.GetProperty("gstRegistrations").GetArrayLength());
         Assert.Equal(0, routeOptions.GetProperty("sites").GetArrayLength());
 
+        // 5b. Stock adjustments (A2). The CFO opens the inventory period. Stores records a count
+        // variance on the opening-stock item (one unit short): the value is the FIFO carrying value
+        // of the opening layer, the Stores Manager band, and the approval posts the ledgers. A damage
+        // write-off of one declared unit needs the Technical Director and Accounts Manager, in any
+        // order, by different people. A correction adds two purchased units at a stated value.
+        await ProveStockAdjustments(client, options, user, employees, companyId, item, declared, purchased, today, evidence);
+
         // 6. The ten company reports, each by a seeded viewer.
         Actor("SESS-05", "SERVICE_ENGINEER", "SERVICE_ENGINEER", "TECHNICAL_SUPPORT_MANAGER");
         var pendingMir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
@@ -351,5 +358,113 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             job = job.JobOrderNumber, fitment = fitment.FitmentNumber, fat = fat.Result, delivery = deliveryId, bill = bill.BillNumber,
             advance = advance.AdvanceNumber, payment = payment.PaymentNumber, evidence
         }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static async Task ProveStockAdjustments(HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
+        IReadOnlyDictionary<string, Guid> employees, Guid companyId, SESS.NexaERP.Domain.Inventory.Item item,
+        SESS.NexaERP.Domain.Inventory.Item declared, SESS.NexaERP.Domain.Inventory.Item purchased, DateOnly today, Dictionary<string, object?> evidence)
+    {
+        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
+        const string path = "/api/v1/stores/stock-adjustments";
+        Task<decimal> StoresCustody(Guid itemId) => Query(options, db => db.StockMovements.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && x.ItemId == itemId && x.ConditionCode == "AVAILABLE"
+                && x.CustodyAssignment!.CustodyAccount!.CustodyType == "WAREHOUSE").SumAsync(x => x.QuantityIn - x.QuantityOut));
+
+        // The CFO opens the inventory year; Stores sees it through the adjustment page's own reader.
+        Actor("SESS-02", "CHIEF_FINANCIAL_OFFICER");
+        var fyStart = today.Month >= 4 ? new DateOnly(today.Year, 4, 1) : new DateOnly(today.Year - 1, 4, 1);
+        var period = await Post<InventoryPeriodView>(client, "/api/v1/accounts/inventory-periods",
+            new OpenInventoryPeriodRequest("INV-GO-LIVE", "Go-live inventory year", fyStart, fyStart.AddYears(1).AddDays(-1), "Inventory year opened for go-live", "go-live-inventory-period"));
+        Assert.Equal("OPEN", period.Status);
+        Actor("SESS-41", "STORES_MANAGER");
+        var available = Assert.Single((await Get<JsonElement>(client, "/api/v1/rev869a/configuration/warehouse-condition-locations?warehouseCode=MAIN&conditionCode=AVAILABLE&effectiveOnly=true")).EnumerateArray());
+        var locationId = available.GetProperty("Id").GetGuid();
+        var warehouseId = available.GetProperty("WarehouseId").GetGuid();
+        Actor("SESS-35", "STORES_EXECUTIVE");
+        Assert.Equal(period.Id, Assert.Single(await Get<StockAdjustmentPeriodView[]>(client, path + "/inventory-periods")).Id);
+
+        // Count variance: one opening-stock unit short. A removal never states a value; it is the FIFO carrying value.
+        using (var valuedRemoval = await client.PostAsJsonAsync(path, new CreateStockAdjustmentRequest(warehouseId, "COUNT_VARIANCE", today, period.Id,
+                "Wrong", [new StockAdjustmentLineInput(item.Id, locationId, -1m, 125m)], "go-live-adj-valued-removal")))
+            Assert.Equal(HttpStatusCode.BadRequest, valuedRemoval.StatusCode);
+        var varianceRequest = new CreateStockAdjustmentRequest(warehouseId, "COUNT_VARIANCE", today, period.Id, "Physical count found one unit short",
+            [new StockAdjustmentLineInput(item.Id, locationId, -1m, null, null, null, "Counted 7, book 8")], "go-live-adj-variance", [employees["SESS-33"]]);
+        var variance = await Post<StockAdjustmentView>(client, path, varianceRequest);
+        Assert.Equal("DRAFT", variance.Status);
+        Assert.StartsWith("ADJ-SESS_PVT_LTD-", variance.AdjustmentNumber);
+        Assert.Equal(125m, Assert.Single(variance.Lines).AcceptedLineValue);
+        var replayed = await Post<StockAdjustmentView>(client, path, varianceRequest);
+        Assert.True(replayed.Replayed); Assert.Equal(variance.Id, replayed.Id);
+        variance = await Post<StockAdjustmentView>(client, $"{path}/{variance.Id}/submit", new StockAdjustmentTransitionRequest(variance.Version, "Count sheet attached", "go-live-adj-variance-submit"));
+        Assert.Equal("SUBMITTED", variance.Status);
+        Assert.Equal(new[] { "STORES_MANAGER" }, variance.RequiredRoleCodes);
+        Assert.Contains(employees["SESS-35"], variance.ExcludedEmployeeIds); Assert.Contains(employees["SESS-33"], variance.ExcludedEmployeeIds);
+        // The Technical Director is not the band for 125 rupees: not an approver of this adjustment.
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        using (var wrongBand = await client.PostAsJsonAsync($"{path}/{variance.Id}/approve", new StockAdjustmentDecisionRequest(variance.Version, "Not my band", "go-live-adj-variance-td")))
+            Assert.Equal(HttpStatusCode.Forbidden, wrongBand.StatusCode);
+        var custodyBefore = await StoresCustody(item.Id);
+        Actor("SESS-41", "STORES_MANAGER");
+        variance = await Post<StockAdjustmentView>(client, $"{path}/{variance.Id}/approve", new StockAdjustmentDecisionRequest(variance.Version, "Recount agreed", "go-live-adj-variance-approve"));
+        Assert.Equal("POSTED", variance.Status);
+        Assert.NotNull(variance.StockPostingBatchId);
+        Assert.Equal("STORES_MANAGER", Assert.Single(variance.Decisions).RoleCode);
+        Assert.Equal(custodyBefore - 1m, await StoresCustody(item.Id));
+        // The removal leg carries the opening line as its origin and the FIFO consumption is against the opening layer at 125.
+        var varianceLine = Assert.Single(variance.Lines);
+        var removal = await Query(options, db => db.StockMovements.AsNoTracking().SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == varianceLine.Id));
+        Assert.Equal("CONSUMPTION_OUT", removal.MovementLeg); Assert.Equal(1m, removal.QuantityOut); Assert.NotNull(removal.OriginOpeningStockLineId);
+        var consumption = await Query(options, db => db.FifoCostConsumptions.AsNoTracking().Include(x => x.FifoInventoryCostLayer)
+            .SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == varianceLine.Id));
+        Assert.Equal(125m, consumption.UnitCost); Assert.Null(consumption.MaterialIssueLineId); Assert.NotNull(consumption.FifoInventoryCostLayer!.OpeningStockLineId);
+        // A posted adjustment is immutable: revision and re-approval are refused.
+        using (var revisePosted = await client.PutAsJsonAsync($"{path}/{variance.Id}", new ReviseStockAdjustmentRequest(variance.Version, "Changed", [new StockAdjustmentLineInput(item.Id, locationId, -2m)], "Late edit", "go-live-adj-variance-revise")))
+            Assert.Equal(HttpStatusCode.Conflict, revisePosted.StatusCode);
+
+        // Damage write-off of one declared unit: Technical Director plus Accounts Manager concurrence.
+        Actor("SESS-35", "STORES_EXECUTIVE");
+        var declaredBefore = await StoresCustody(declared.Id);
+        var writeOff = await Post<StockAdjustmentView>(client, path, new CreateStockAdjustmentRequest(warehouseId, "DAMAGE_LOSS", today, period.Id, "Unit damaged in handling; scrapped",
+            [new StockAdjustmentLineInput(declared.Id, locationId, -1m)], "go-live-adj-writeoff"));
+        writeOff = await Post<StockAdjustmentView>(client, $"{path}/{writeOff.Id}/submit", new StockAdjustmentTransitionRequest(writeOff.Version, "Damage report attached", "go-live-adj-writeoff-submit"));
+        Assert.Equal(new[] { "ACCOUNTS_MANAGER", "TECHNICAL_DIRECTOR" }, writeOff.RequiredRoleCodes);
+        Actor("SESS-41", "STORES_MANAGER");
+        using (var notTheBand = await client.PostAsJsonAsync($"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Stores agrees", "go-live-adj-writeoff-stores")))
+            Assert.Equal(HttpStatusCode.Forbidden, notTheBand.StatusCode);
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        writeOff = await Post<StockAdjustmentView>(client, $"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Write-off accepted", "go-live-adj-writeoff-td"));
+        Assert.Equal("SUBMITTED", writeOff.Status);
+        Assert.Equal(new[] { "ACCOUNTS_MANAGER" }, writeOff.OutstandingRoleCodes);
+        using (var twice = await client.PostAsJsonAsync($"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Again", "go-live-adj-writeoff-td-2")))
+            Assert.Equal(HttpStatusCode.Forbidden, twice.StatusCode);
+        Actor("SESS-14", "ACCOUNTS_MANAGER");
+        writeOff = await Post<StockAdjustmentView>(client, $"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Accounts concurs", "go-live-adj-writeoff-accounts"));
+        Assert.Equal("POSTED", writeOff.Status);
+        Assert.Equal(2, writeOff.Decisions.Count);
+        Assert.Equal(declaredBefore - 1m, await StoresCustody(declared.Id));
+        Assert.Equal(60m, (await Query(options, db => db.FifoCostConsumptions.AsNoTracking().SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == writeOff.Lines.Single().Id))).UnitCost);
+
+        // Correction: two purchased units found with a stated ex-tax value; a new FIFO layer at that value.
+        Actor("SESS-35", "STORES_EXECUTIVE");
+        var purchasedBefore = await StoresCustody(purchased.Id);
+        var correction = await Post<StockAdjustmentView>(client, path, new CreateStockAdjustmentRequest(warehouseId, "CORRECTION", today, period.Id, "Two units found in the old rack",
+            [new StockAdjustmentLineInput(purchased.Id, locationId, 2m, 95m)], "go-live-adj-correction"));
+        correction = await Post<StockAdjustmentView>(client, $"{path}/{correction.Id}/submit", new StockAdjustmentTransitionRequest(correction.Version, "Found stock", "go-live-adj-correction-submit"));
+        Assert.Equal(190m, correction.AbsoluteValue);
+        Actor("SESS-41", "STORES_MANAGER");
+        correction = await Post<StockAdjustmentView>(client, $"{path}/{correction.Id}/approve", new StockAdjustmentDecisionRequest(correction.Version, "Seen the units", "go-live-adj-correction-approve"));
+        Assert.Equal("POSTED", correction.Status);
+        Assert.Equal(purchasedBefore + 2m, await StoresCustody(purchased.Id));
+        var layer = await Query(options, db => db.FifoInventoryCostLayers.AsNoTracking().SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == correction.Lines.Single().Id));
+        Assert.Equal("ADJUSTMENT_STATED", layer.CostBasis); Assert.Equal(95m, layer.UnitCost); Assert.Equal(190m, layer.LayerValue);
+        var addition = await Query(options, db => db.StockMovements.AsNoTracking().SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == correction.Lines.Single().Id));
+        Assert.Equal("RECEIPT_IN", addition.MovementLeg); Assert.Equal(correction.Lines.Single().Id, addition.OriginStockAdjustmentLineId);
+        // The stated layer is visible to FIFO valuation and the roll-forward through the adjustment number.
+        Actor("SESS-14", "ACCOUNTS_MANAGER");
+        var valuation = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details&pageSize=1000"));
+        Assert.Contains(valuation.Rows, row => row.ToString().Contains(purchased.ItemCode, StringComparison.Ordinal) && row.ToString().Contains("95", StringComparison.Ordinal));
+        var list = await Get<StockAdjustmentPage>(client, path + "?status=POSTED&pageSize=50");
+        Assert.Equal(3, list.Total);
+        evidence["stockAdjustments"] = new { variance = variance.AdjustmentNumber, writeOff = writeOff.AdjustmentNumber, correction = correction.AdjustmentNumber };
     }
 }

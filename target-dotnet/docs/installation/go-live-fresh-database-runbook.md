@@ -81,8 +81,8 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (117 at `c69366d`; 129 with the twelve 20 September migrations, which
-apply in timestamp order 090000 → 200000 with no other ordering requirement). Expected
+in the built assembly (117 at `c69366d`; 130 with the thirteen 20 September migrations, which
+apply in timestamp order 090000 → 210000 with no other ordering requirement). Expected
 configuration rows from the 20 September commits: 3 + 1 page + 9 + 1 + 2 + 2 role page
 permissions, 8 audit receipts (the route page copies its 9 grants without receipts; its
 rollback compares rows instead), one rewritten trigger function
@@ -93,7 +93,18 @@ opening-stock line tables plus the 22-argument staging overload, and the Actual 
 entry origin column with its rewritten fitment, reversal and dossier functions, 23 report
 export grants (one receipt each) and the Technical Support Manager Estimated BOM preparer
 grant (one receipt), the Estimated BOM line `ValueSource` column (existing priced lines
-classified) and the rewritten draft-line replacement function; zero business rows. `status` prints VERIFIED.
+classified) and the rewritten draft-line replacement function, and the A2 stock-adjustment
+contract (20260920210000): three new tables (`stock_adjustments`, `stock_adjustment_lines`,
+`stock_adjustment_decisions`) with their immutability triggers, five new nullable ledger
+columns (`StockAdjustmentId` on batches; `StockAdjustmentLineId` and
+`OriginStockAdjustmentLineId` on movements; `StockAdjustmentLineId` on FIFO layers and
+consumptions, whose `MaterialIssueLineId` becomes nullable under a one-of check), the
+batch-kind, batch-source, movement-contract, outbound-origin and FIFO-layer checks widened,
+five rewritten functions (batch/movement/reconcile guards, `consume_fifo_for_issue`,
+`company_report_fifo_valuation`), two new functions (`post_stock_adjustment`,
+`fifo_carrying_value_preview`), the page `stores.stock-adjustments` with 5 role grants (no
+receipts; the rollback refuses once an adjustment exists); zero business rows. `status`
+prints VERIFIED.
 
 ## 5. Authentication bootstrap and identities (DBA, then API)
 

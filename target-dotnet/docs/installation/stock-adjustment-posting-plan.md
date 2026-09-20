@@ -72,6 +72,29 @@ balance, FIFO valuation and movement roll-forward and checks the FIFO consumptio
 against the opening layer. A focused test covers the bands, the excluded recorder, the
 closed-period refusal, backdating, replay and the reversal.
 
+## Built (20 September 2026, late evening) — where it differs from the plan
+
+- No `stock_adjustment_revisions` table: lines carry `RevisionNumber`; a revision appends
+  the next revision's lines and returns the record to DRAFT, so the snapshot is retaken at
+  the next submission and decisions bind to the revision they approved.
+- The removal value is a FIFO fact: `advance.fifo_carrying_value_preview` walks the item's
+  layers oldest-first (net of restorations) and the service records that as the accepted
+  line value; a removal that states a unit value is refused. At the decision that completes
+  the review the value is recomputed and the band must not have moved, or the decision is
+  refused with 409 and Stores resubmits.
+- Cost basis of an addition's layer is `ADJUSTMENT_STATED`; the provenance layer type is
+  `ADJUSTMENT`; the layer is dated from the effective date.
+- Serialized identity change (`TRANSFER_OUT`/`TRANSFER_IN` on a serial) is **not built**. A
+  serialized line changes exactly one unit in or out; renaming a serial is a removal and an
+  addition until that path exists. Stated here so it is not mistaken for finished work.
+- The approver acts in one of the outstanding required roles; the request may name it,
+  otherwise the least privileged outstanding role the employee holds is used. The recorder
+  and the counters are excluded by the snapshot; a role outside the band is refused (403).
+- Rejection returns the record to REJECTED; it is revised (new revision) before it can be
+  submitted again. A posted adjustment is immutable (trigger and status check).
+- Stores reads open inventory periods through `GET /api/v1/stores/stock-adjustments/inventory-periods`
+  (the accounts list is CFO-only), and the rehearsal opens the period as the CFO first.
+
 ## Order of work
 
 1. Migration: tables, ledger contract (batch kind, document reference, origin, FIFO

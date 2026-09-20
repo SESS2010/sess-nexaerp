@@ -86,6 +86,20 @@ internal static class RequestInputReachabilityManifest
         // CFO GET /api/v1/accounts/inventory-periods/{id} returns the current close Version.
         // InventoryPeriodUsesResolvedCfoAndRetainsCommandReplay exercises that actual read.
         "SESS.NexaERP.Application.Stores.CloseInventoryPeriodRequest.Version",
+        // Stock adjustments (A2): Stores reads warehouses and rack-bin condition locations from the masters,
+        // open inventory periods from GET /api/v1/stores/stock-adjustments/inventory-periods (the accounts
+        // list is CFO-only), and GET /api/v1/stores/stock-adjustments/{id} returns the Version and the
+        // posted adjustment a reversal names. The rehearsal exercises them.
+        "SESS.NexaERP.Application.Stores.CreateStockAdjustmentRequest.BackdateEvidenceId",
+        "SESS.NexaERP.Application.Stores.CreateStockAdjustmentRequest.InventoryPeriodId",
+        "SESS.NexaERP.Application.Stores.CreateStockAdjustmentRequest.ReversesStockAdjustmentId",
+        "SESS.NexaERP.Application.Stores.CreateStockAdjustmentRequest.WarehouseId",
+        "SESS.NexaERP.Application.Stores.ReviseStockAdjustmentRequest.BackdateEvidenceId",
+        "SESS.NexaERP.Application.Stores.ReviseStockAdjustmentRequest.Version",
+        "SESS.NexaERP.Application.Stores.StockAdjustmentDecisionRequest.Version",
+        "SESS.NexaERP.Application.Stores.StockAdjustmentLineInput.ItemId",
+        "SESS.NexaERP.Application.Stores.StockAdjustmentLineInput.WarehouseConditionLocationId",
+        "SESS.NexaERP.Application.Stores.StockAdjustmentTransitionRequest.Version",
         "SESS.NexaERP.Application.Authorization.UpsertRolePagePermissionRequest.Version",
         "SESS.NexaERP.Application.Common.MasterActionRequest.Version",
         "SESS.NexaERP.Application.Employees.EmployeeApprovalRequest.Version",

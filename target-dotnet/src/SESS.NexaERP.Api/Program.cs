@@ -168,6 +168,7 @@ app.MapVendorManualAssessmentEndpoints();
 app.MapVendorRatingEvidenceEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();
 app.MapOpeningStockEndpoints();
+app.MapStockAdjustmentEndpoints();
 app.MapJobOrderEndpoints();
 app.MapFitmentActualBomEndpoints();
 app.MapJobOrderFatReadinessEndpoints();
