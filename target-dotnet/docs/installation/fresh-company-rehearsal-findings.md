@@ -298,24 +298,55 @@ that only SQL could ever create; it belongs in the configuration-export requirem
 
 ## Observations recorded, not changed
 
-- Report **export** is a separate grant from view. The Purchase Manager views the purchase
-  register but cannot export it (PURCHASE_HEAD, retired, could — as can any Service
-  Engineer); the Stores Manager views pending approvals but cannot export them
-  (STORE_HEAD could). Same class as #18/#21: the retired head kept a right the successor
-  never received. The rehearsal records the 403 and exports as the Technical Director.
+- Report **export** was a separate grant from view and had stayed with the retired heads.
+  Decided 20 September: the role that can view a report can export it.
+  `20260920180000_ReportExportFollowsView` gives every employee-assignable role with view
+  on a `reports.*` page the export right (23 rows on the seed: engineer-custody,
+  movement-roll-forward, stock-balance for the Stores executive/assistant;
+  pending-approvals for ten roles; purchase-register for seven), one receipt each, exact
+  rollback. Portal roles (customer, vendor) are untouched. The rehearsal now exports every
+  report as the role that viewed it.
 - `billed-not-received` and `grni` legitimately return no rows at the end of the walk: the
   only bill follows its receipt, and it is accepted. GRNI shows the receipt before the
   bill is accepted (asserted).
-- Estimated BOM preparation is limited by employee code (`SESS-04`, `SESS-05`) in
-  `EfEstimatedBomService.RequirePreparerAsync`, and the canonical purchase-flow test runs
-  without real page permissions, where a Service Engineer prepares it. Under real page
-  permissions only DESIGN_ENGINEER and TECHNICAL_DIRECTOR hold `design.estimated-bom`;
-  the rehearsal uses the Design Engineer (SESS-17).
+- Estimated BOM preparers were hard-coded by employee code (`SESS-04`, `SESS-05`) in
+  `EfEstimatedBomService.RequirePreparerAsync`. The rule is now by role: DESIGN_ENGINEER,
+  TECHNICAL_DIRECTOR and TECHNICAL_SUPPORT_MANAGER (the role those two employees hold; a
+  SUPPORT assignment of it may prepare), and
+  `20260920190000_TechnicalSupportEstimatedBomGrant` gives that role the preparer page
+  grant the Design Engineer holds (view, create, update, submit; never approve). The
+  rehearsal has SESS-04 open and submit a revision under real page permissions and refuses
+  a plain Service Engineer. Observed on the way: a new Estimated BOM revision carries no
+  price, and an item with no accepted-bill purchase rate needs a stated value before
+  submission — the opening-stock carrying value is not offered as the default. For the
+  Technical Director: should it be?
 - No SALES_ENGINEER or SALES_HEAD is seeded; the IT Manager (and TD/MD) hold
   `sales.customer-po`, so the IT Manager creates the customer PO.
-- `RunCompletePurchaseFlow` witnesses (machine delivery, FIFO partial fitment, supplier
-  invoices, cash caps, foreign payment advice, obligations…) compile only under
-  `-p:WorkflowWitness=true`; the routine suite never runs them.
+- **Witness-gated tests.** The routine suite compiles without eight gates. What each gate
+  hides, and whether it covers a path that runs on 1 October:
+  - `WorkflowWitness` (22 files, each re-runs the complete purchase flow): machine
+    delivery + dossier, FIFO partial fitment/return and historical return, Actual BOM
+    reversal report, QC correction, Stores workload and QC-stock dashboards, purchase
+    workload/spending/obligations/open-orders dashboards, PO cancellation, amendment and
+    receipt revision, supplier invoices, vendor bank advice, PO cash cap and revision,
+    foreign payment advice and currency positions. **Day-one paths: machine delivery,
+    partial fitment/return, supplier invoices, the dashboards, PO amendment.** The
+    rehearsal now covers machine delivery and partial fitment/return itself; the rest is
+    covered only when the gate is on. They are gated for runtime (each is a full ten-minute
+    flow), not because they are optional: the routine suite would roughly triple.
+    Recommended: a scheduled run with `-p:WorkflowWitness=true` (nightly), and moving
+    supplier invoice, PO amendment and the two dashboards into the rehearsal.
+  - `ConcurrencyWitness` (15 files): concurrent GRN, MIR approval, PR approval, QC
+    concessions, role change, serial issue, vendor bill and payment, opening stock. Day-one
+    paths under load; gated for runtime and flakiness. Same recommendation.
+  - `MigrationLifecycleWitness` (16 files): up/down of individual migrations (estimated
+    BOM, material issue and return, job orders, FAT readiness, production engineering,
+    ACL convergence, login). Not a runtime path; they belong to the migration gate the
+    runbook runs before go-live (`-p:MigrationLifecycleWitness=true` once on the release
+    build).
+  - `KeycloakWitness`, `DiskFullWitness`, `HostFailureWitness`,
+    `MigrationInterruptWitness`, `ReportVolumeWitness`: environment witnesses (containers,
+    disk-full, killed hosts, volume); not day-one paths.
 
 - `IT_MANAGER` holds view only on `purchase.requisitions`, and the requester must be
   the caller. Department requesters therefore cannot raise their own requisitions;

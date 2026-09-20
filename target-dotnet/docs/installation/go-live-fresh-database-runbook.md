@@ -81,8 +81,8 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (117 at `c69366d`; 126 with the nine 20 September migrations, which
-apply in timestamp order 090000 → 170000 with no other ordering requirement). Expected
+in the built assembly (117 at `c69366d`; 128 with the eleven 20 September migrations, which
+apply in timestamp order 090000 → 190000 with no other ordering requirement). Expected
 configuration rows from the 20 September commits: 3 + 1 page + 9 + 1 + 2 + 2 role page
 permissions, 8 audit receipts (the route page copies its 9 grants without receipts; its
 rollback compares rows instead), one rewritten trigger function
@@ -90,8 +90,9 @@ rollback compares rows instead), one rewritten trigger function
 on `stock_movements` and `material_issue_lines`) with their backfill of existing opening
 receipts and three rewritten posting functions (#26), eight provenance columns on the two
 opening-stock line tables plus the 22-argument staging overload, and the Actual BOM
-entry origin column with its rewritten fitment, reversal and dossier functions; zero
-business rows. `status` prints VERIFIED.
+entry origin column with its rewritten fitment, reversal and dossier functions, 23 report
+export grants (one receipt each) and the Technical Support Manager Estimated BOM preparer
+grant (one receipt); zero business rows. `status` prints VERIFIED.
 
 ## 5. Authentication bootstrap and identities (DBA, then API)
 
