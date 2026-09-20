@@ -47,7 +47,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.False(await seed.WarehouseConditionLocations.AnyAsync(x => x.CompanyId == companyId));
             Assert.True(await seed.Items.CountAsync(x => x.CreatedBy == "EXCEL_IMPORT" && x.ApprovalStatus == "Approved") > 1000);
             foreach (var code in new[] { "SESS-41", "SESS-14", "SESS-01", "SESS-02", "SESS-04", "SESS-05", "SESS-12", "SESS-15", "SESS-33", "SESS-35",
-                "SESS-25", "SESS-13", "SESS-28", "SESS-17" })
+                "SESS-25", "SESS-13", "SESS-28", "SESS-17", "SESS-09" })
             {
                 var employee = await seed.Employees.SingleAsync(x => x.EmployeeCode == code);
                 employee.LoginEnabled = true;

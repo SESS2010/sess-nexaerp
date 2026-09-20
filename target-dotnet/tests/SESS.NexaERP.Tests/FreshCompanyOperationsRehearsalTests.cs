@@ -113,6 +113,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Baseline approved", "go-live-ebom-approve"));
         Assert.Equal("APPROVED", estimated.Status);
+        // Preparers are roles, not employee codes: the Technical Support Manager (SESS-04, FULL) opens the
+        // next revision under real page permissions; a Service Engineer without that role is refused.
+        Actor("SESS-04", "TECHNICAL_SUPPORT_MANAGER");
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/revisions",
+            new NewEstimatedBomRevisionRequest(estimated.Version, "Technical Support revises the baseline", "go-live-ebom-revision"));
+        Assert.Equal("DRAFT", estimated.Status);
+        // A new revision carries no price: without an accepted bill the preparer must state the values
+        // (opening-stock carrying value is not offered as a default; recorded for the Technical Director).
+        estimated = await Put<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}", new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version, "Revised quantities",
+            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m), new EstimatedBomLineInput(declared.Id, declared.BaseUomId, 1m, "Legacy component", 60m)], "go-live-ebom-revision-lines"));
+        Actor("SESS-09", "SERVICE_ENGINEER");
+        using (var refused = await client.PostAsJsonAsync($"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Not a preparer", "go-live-ebom-refused")))
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Actor("SESS-04", "TECHNICAL_SUPPORT_MANAGER");
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Revision ready", "go-live-ebom-revision-submit"));
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Revision approved", "go-live-ebom-revision-approve"));
+        Assert.Equal("APPROVED", estimated.Status);
         // Production BOM: Production Manager prepares and submits; Technical Director approves; Production pins it to the job.
         Actor("SESS-25", "PRODUCTION_MANAGER");
         var production = await Post<ProductionBomView>(client, "/api/v1/production/boms", new CreateProductionBomRequest(job.Id, "Go-live production baseline", "go-live-pbom-create"));
@@ -292,18 +310,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var page = await Get<CompanyReportPage>(client, WitnessReportPath($"/api/v1/reports/{key}{query}"));
             reportRows[key] = page.TotalRows;
             Assert.True(!expectRows || page.Rows.Count > 0, $"Report {key} returned no rows.");
+            // The role that can view a report can export it (20260920180000): the same actor exports.
             using var excel = await client.GetAsync(WitnessReportPath($"/api/v1/reports/{key}/excel{query}"));
-            if (excel.StatusCode == HttpStatusCode.Forbidden)
-            {
-                // Export is a separate grant. The Purchase Manager and Stores Manager may view the purchase
-                // register and pending approvals but not export them (the retired heads could); recorded,
-                // and the Technical Director exports instead.
-                Assert.Contains(key, new[] { "purchase-register", "pending-approvals" });
-                Actor("SESS-01", "TECHNICAL_DIRECTOR");
-                using var directorExport = await client.GetAsync(WitnessReportPath($"/api/v1/reports/{key}/excel{query}"));
-                Assert.True(directorExport.IsSuccessStatusCode, $"Report {key} Excel export returned {(int)directorExport.StatusCode}: {await directorExport.Content.ReadAsStringAsync()}");
-                continue;
-            }
             Assert.True(excel.IsSuccessStatusCode, $"Report {key} Excel export returned {(int)excel.StatusCode}: {await excel.Content.ReadAsStringAsync()}");
         }
         evidence["reportRows"] = reportRows;

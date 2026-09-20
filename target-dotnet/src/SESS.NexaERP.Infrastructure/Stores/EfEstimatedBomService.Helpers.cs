@@ -123,13 +123,13 @@ public sealed partial class EfEstimatedBomService
         return decimal.Round(baseUnitValue * baseQuantityPerLineUnit, 6);
     }
 
-    private async Task RequirePreparerAsync(CancellationToken ct)
+    // Preparers are roles, never employee codes: Design Engineers, the Technical Director and the
+    // Technical Support Manager (the role the two service-side preparers hold; a SUPPORT assignment
+    // of it may prepare). The page grant on design.estimated-bom is the other half of the rule.
+    private Task RequirePreparerAsync(CancellationToken ct)
     {
-        var code = await db.Employees.AsNoTracking().Where(x => x.Id == Actor()).Select(x => x.EmployeeCode).SingleAsync(ct);
-        var allowed = code is "SESS-04" or "SESS-05"
-            ? new[] { "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR", "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER" }
-            : new[] { "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR" };
-        _ = user.RequireRole("create", allowed);
+        _ = user.RequireRole("create", "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR", "TECHNICAL_SUPPORT_MANAGER");
+        return Task.CompletedTask;
     }
 
     private void AddHistory(EstimatedBom bom, EstimatedBomRevision revision, string action,
