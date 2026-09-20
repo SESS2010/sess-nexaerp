@@ -52,7 +52,9 @@ public static partial class MasterEndpoints
 
     private static async Task<IResult> VerifyVendorCommercial(string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IPagePermissionService permissions, IAuditWriter audit, CancellationToken cancellationToken)
     {
-        if (!string.Equals(Rev869ARoleCodes.Normalize(currentUser.RoleCode), "ACCOUNTS_HEAD", StringComparison.Ordinal)) return Results.Forbid();
+        // Role governance retired ACCOUNTS_HEAD and names ACCOUNTS_MANAGER as its replacement;
+        // Accounts commercial verification follows that replacement (finding #21).
+        if (Rev869ARoleCodes.Normalize(currentUser.RoleCode) is not ("ACCOUNTS_HEAD" or Rev869ARoleCodes.AccountsManager)) return Results.Forbid();
         if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Accounts verification remarks are required." });
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
         if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
