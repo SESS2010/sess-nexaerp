@@ -199,6 +199,9 @@ public sealed partial class EfMaterialIssueService
         request.Purpose = Code(purpose, "Purpose");
         request.Situation = Code(situation, "Situation");
         request.DestinationType = Code(destinationType, "DestinationType");
+        // CK_mir_lifecycle enforces the same list; validating here answers 400 instead of 500.
+        if (request.Purpose is not ("FACTORY_ASSEMBLY" or "PROJECT" or "SERVICE" or "WARRANTY" or "DEMO" or "SALE" or "FREE_OF_COST"))
+            throw new StoresValidationException("Purpose must be FACTORY_ASSEMBLY, PROJECT, SERVICE, WARRANTY, DEMO, SALE or FREE_OF_COST.");
         var jobRequired = JobSituations.Contains(request.Situation);
         var spareSale = request.Situation == SpareSaleSituation;
         if (!jobRequired && !spareSale && request.Situation != "CONSUMABLE_OFFICE")
