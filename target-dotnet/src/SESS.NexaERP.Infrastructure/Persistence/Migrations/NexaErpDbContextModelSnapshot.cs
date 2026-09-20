@@ -50269,6 +50269,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("OriginGoodsReceiptLineId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("OriginOpeningStockLineId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("OwnershipAccountId")
                         .HasColumnType("uuid");
 
@@ -61651,6 +61654,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("OriginGoodsReceiptLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("OriginOpeningStockLineId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("OwnershipAccountId")

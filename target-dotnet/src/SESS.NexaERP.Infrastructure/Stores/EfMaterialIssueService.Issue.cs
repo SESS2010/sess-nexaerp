@@ -146,6 +146,7 @@ public sealed partial class EfMaterialIssueService
                         CustodyCaseLineId = layer.CustodyCaseLineId,
                         InventoryLotId = layer.InventoryLotId, InventorySerialId = layer.InventorySerialId,
                         OriginGoodsReceiptLineId = layer.OriginGoodsReceiptLineId,
+                        OriginOpeningStockLineId = layer.OriginOpeningStockLineId,
                         GoodsReceiptLineLotAllocationId = layer.GoodsReceiptLineLotAllocationId,
                         QcInspectionLotDispositionId = layer.QcInspectionLotDispositionId,
                         WarehouseConditionLocationId = layer.WarehouseConditionLocationId,
@@ -229,18 +230,18 @@ public sealed partial class EfMaterialIssueService
                 (!serialId.HasValue || x.InventorySerialId == serialId))
             .GroupBy(x => new { x.WarehouseConditionLocationId, x.OwnershipAccountId,
                 x.CustodyAssignmentId, x.InventoryProvenanceLayerId, x.CustodyCaseLineId,
-                x.InventoryLotId, x.InventorySerialId, x.OriginGoodsReceiptLineId,
+                x.InventoryLotId, x.InventorySerialId, x.OriginGoodsReceiptLineId, x.OriginOpeningStockLineId,
                 x.GoodsReceiptLineLotAllocationId, x.QcInspectionLotDispositionId })
             .Select(g => new { g.Key.WarehouseConditionLocationId, g.Key.OwnershipAccountId,
                 g.Key.CustodyAssignmentId, g.Key.InventoryProvenanceLayerId,
                 g.Key.CustodyCaseLineId, g.Key.InventoryLotId, g.Key.InventorySerialId,
-                g.Key.OriginGoodsReceiptLineId, g.Key.GoodsReceiptLineLotAllocationId,
+                g.Key.OriginGoodsReceiptLineId, g.Key.OriginOpeningStockLineId, g.Key.GoodsReceiptLineLotAllocationId,
                 g.Key.QcInspectionLotDispositionId, Balance = g.Sum(x => x.QuantityIn - x.QuantityOut) })
             .Where(x => x.Balance > 0).ToListAsync(ct);
         var rows = grouped.Select(x => new AvailableLayer(x.WarehouseConditionLocationId!.Value,
             x.OwnershipAccountId, x.CustodyAssignmentId, x.InventoryProvenanceLayerId,
             x.CustodyCaseLineId, x.InventoryLotId, x.InventorySerialId,
-            x.OriginGoodsReceiptLineId, x.GoodsReceiptLineLotAllocationId,
+            x.OriginGoodsReceiptLineId, x.OriginOpeningStockLineId, x.GoodsReceiptLineLotAllocationId,
             x.QcInspectionLotDispositionId, x.Balance)).ToList();
         var provenanceDates = await db.InventoryProvenanceLayers.AsNoTracking()
             .Where(x => rows.Select(r => r.InventoryProvenanceLayerId).Contains(x.Id))
@@ -287,7 +288,7 @@ public sealed partial class EfMaterialIssueService
         string.Concat(Required(value, "ScanCode").Where(char.IsLetterOrDigit)).ToUpperInvariant();
     private sealed record AvailableLayer(Guid WarehouseConditionLocationId, Guid OwnershipAccountId,
         Guid CustodyAssignmentId, Guid InventoryProvenanceLayerId, Guid? CustodyCaseLineId,
-        Guid? InventoryLotId, Guid? InventorySerialId, Guid? OriginGoodsReceiptLineId,
+        Guid? InventoryLotId, Guid? InventorySerialId, Guid? OriginGoodsReceiptLineId, Guid? OriginOpeningStockLineId,
         Guid? GoodsReceiptLineLotAllocationId, Guid? QcInspectionLotDispositionId, decimal Balance);
     private sealed record IssuePostingLeg(Guid MaterialIssueLineId, Guid MaterialIssueRequestLineId,
         int LineNumber, Guid ItemId, decimal Quantity, Guid WarehouseConditionLocationId,

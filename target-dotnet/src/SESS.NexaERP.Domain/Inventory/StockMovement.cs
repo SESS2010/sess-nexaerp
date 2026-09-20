@@ -43,6 +43,7 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public DeliveryChallanLine? DeliveryChallanLine { get; set; }
     public Guid? OriginGoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? OriginGoodsReceiptLine { get; set; }
+    public Guid? OriginOpeningStockLineId { get; set; }
     public Guid OwnershipAccountId { get; set; }
     public InventoryOwnershipAccount? OwnershipAccount { get; set; }
     public Guid CustodyAssignmentId { get; set; }
