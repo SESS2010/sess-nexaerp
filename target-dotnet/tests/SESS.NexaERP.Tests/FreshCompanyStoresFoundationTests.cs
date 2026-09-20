@@ -183,36 +183,35 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-approve"));
         Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
-        // A correction within one month of creation returns the record to approval; a manager approves it.
-        // The maker-checker rule excludes the record's creator and its last editor for good, so the
-        // IT Manager (who holds item create/update today) corrects and the Purchase Manager approves.
-        Actor("SESS-12", "IT_MANAGER");
+        // A correction within one month of creation returns the record to approval. Maker-checker
+        // excludes only the maker of the current pending change: the Purchase Manager corrects the
+        // item the Stores Manager created, and the Stores Manager approves that correction.
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         var detail = await Detail("GO-LIVE-ITM-001");
         var corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected" };
         await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
         Assert.Equal(MasterApprovalStatuses.PendingApproval, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-maker-young-correction"));
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-td-young-correction"));
         Actor("SESS-41", "STORES_MANAGER");
-        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-creator-young-correction"));
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
-        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-young-correction"));
+        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-creator-approves-young-correction"));
         // A correction to a record more than one month old (since creation) needs the Technical Director.
         server.Execute("age-go-live-item.sql", """UPDATE advance.items SET "CreatedAt"=now()-interval '35 days' WHERE "ItemCode"='GO-LIVE-ITM-001';""");
-        Actor("SESS-12", "IT_MANAGER");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         detail = await Detail("GO-LIVE-ITM-001");
         corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected after one month" };
         await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
-        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-purchase-old-correction"));
+        Actor("SESS-41", "STORES_MANAGER");
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-stores-old-correction"));
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-td-old-correction"));
         Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
-        // Duplicate merge is the director's alone. The Stores Manager approves this one (created by IT).
-        Actor("SESS-12", "IT_MANAGER");
+        // Duplicate merge is the director's alone.
+        Actor("SESS-41", "STORES_MANAGER");
         var duplicate = await Post<JsonElement>(client, "/api/v1/inventory/items", Draft("GO-LIVE-ITM-002"));
         await Post<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-002/submit", new MasterActionRequest("Submitted", duplicate.GetProperty("Version").GetUInt32()));
-        Actor("SESS-41", "STORES_MANAGER");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-002", "item-duplicate-approve"));
         var survivorId = (await Detail("GO-LIVE-ITM-001")).GetProperty("Id").GetGuid();
         var sourceId = (await Detail("GO-LIVE-ITM-002")).GetProperty("Id").GetGuid();

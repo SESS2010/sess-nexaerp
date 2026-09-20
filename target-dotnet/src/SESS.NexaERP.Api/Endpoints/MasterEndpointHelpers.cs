@@ -182,7 +182,7 @@ public static partial class MasterEndpointHelpers
         if (string.IsNullOrWhiteSpace(remarks)) return Results.BadRequest(new { message = "Remarks/reason are required for this action." });
         if (IsMismatch(version, entity.Version)) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
         var before = new { Status = getStatus(entity), ApprovalStatus = getApproval(entity), entity.Version };
-        if (action == "Approve" && IsSelfApprovalAttempt(entity, currentUser))
+        if (action == "Approve" && await IsSelfApprovalAttemptAsync(db, masterType, entity, currentUser, cancellationToken))
         {
             await audit.WriteAsync("Security", "Denied", masterType, entity.Id.ToString(), before, new { reason = "Self-approval blocked", attemptedAction = action, role = currentUser.RoleCode }, cancellationToken);
             return Results.Forbid();
@@ -212,10 +212,28 @@ public static partial class MasterEndpointHelpers
     }
 
 
-    public static bool IsSelfApprovalAttempt(AuditableEntity entity, ICurrentUser currentUser)
+    // Maker-checker (decision of 20 September 2026): the person who made the current pending change
+    // cannot approve it; everyone else holding the grant can. The maker is the actor of the latest
+    // maker action in the approval history (submit, resubmit, correction, controlled-details change),
+    // falling back to the last editor, then the creator, for records without such history. The
+    // creator is not excluded for the record's life: with two approving roles that deadlocked a
+    // record one manager created and the other corrected.
+    private static readonly string[] MakerActions = ["Submit", "Resubmit", "Correct", "ControlledDetailsChanged"];
+
+    public static async Task<bool> IsSelfApprovalAttemptAsync(NexaErpDbContext db, string masterType, AuditableEntity entity, ICurrentUser currentUser, CancellationToken cancellationToken)
     {
-        return string.Equals(entity.CreatedBy, currentUser.LoginId, StringComparison.OrdinalIgnoreCase)
-            || (!string.IsNullOrWhiteSpace(entity.UpdatedBy) && string.Equals(entity.UpdatedBy, currentUser.LoginId, StringComparison.OrdinalIgnoreCase));
+        var historyMaker = await db.MasterApprovalHistories.AsNoTracking()
+            .Where(x => x.MasterType == masterType && x.MasterId == entity.Id && MakerActions.Contains(x.Action))
+            .OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Select(x => x.ActorLoginId).FirstOrDefaultAsync(cancellationToken);
+        return IsSelfApprovalAttempt(historyMaker, entity, currentUser);
+    }
+
+    public static bool IsSelfApprovalAttempt(string? historyMaker, AuditableEntity entity, ICurrentUser currentUser)
+    {
+        var maker = !string.IsNullOrWhiteSpace(historyMaker) ? historyMaker
+            : !string.IsNullOrWhiteSpace(entity.UpdatedBy) ? entity.UpdatedBy : entity.CreatedBy;
+        return string.Equals(maker, currentUser.LoginId, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsCustomerPortalUser(ICurrentUser currentUser) => string.Equals(currentUser.RoleCode, "customer", StringComparison.OrdinalIgnoreCase) || string.Equals(currentUser.RoleCode, "customer_user", StringComparison.OrdinalIgnoreCase);

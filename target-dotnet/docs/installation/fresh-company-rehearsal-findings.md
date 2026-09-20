@@ -139,15 +139,39 @@ The rehearsal proves each rule with the seeded actors (self-approval refused, TD
 on a young correction, Purchase refused on an old one, TD accepted, merge refused for
 Stores and accepted for TD).
 
-The existing maker-checker rule on item approval excludes the record's creator **and its
-last editor** for as long as the record lives (`MasterEndpointHelpers.IsSelfApprovalAttempt`).
-With two approving roles this means: an item the Stores Manager created is only ever
-approved by the Purchase Manager, and a correction the Purchase Manager makes to it can be
-approved by nobody but the Technical Director (who is refused unless the record is a month
-old). In practice the IT Manager, who holds item create/update today, makes the record and
-the corrections, and either manager approves; the rehearsal does the same. Whether a
-manager-made correction should be approvable by the other manager is a rule question for
-the Technical Director, not changed here.
+### Maker-checker (decided by the Technical Director, 20 September 2026)
+
+The master maker-checker rule (`MasterEndpointHelpers.IsSelfApprovalAttempt`, shared by
+items, vendors, customers, warehouses and rack-bins) excluded the record's creator **and
+its last editor for the record's life**. With two approving roles that deadlocked a
+record: an item the Stores Manager created and the Purchase Manager corrected could be
+approved by nobody but the Technical Director, who is refused unless the record is a
+month old.
+
+Decision: **only the maker of the current pending change is excluded**; everyone else
+holding the grant can approve; the director exceptions are unchanged. The maker is the
+actor of the latest maker action in the master approval history (`Submit`, `Resubmit`,
+`Correct`, `ControlledDetailsChanged`), falling back to the last editor and then the
+creator for records without such history. Checker actions (Accounts verification,
+clarification requests) do not make their actor the maker, so a vendor the Managing
+Director submitted stays refused to the Managing Director after Accounts verifies it.
+The rehearsal proves the decided example: Stores creates, Purchase corrects, Stores
+approves the correction; the corrector and the director are refused.
+
+Other lifetime creator exclusions found, **not changed**:
+
+- Vendor qualification (`Rev869AConfigurationEndpoints.ChangeVendorQualificationLifecycle`):
+  the creator can never verify or approve the qualification. With one final approver this
+  is the reachability diagnostic "MD-created vendor qualification has no independent
+  approver". Same class as the rule above; needs the same decision.
+- Purchase transactions (requisition, RFQ, purchase order): the Rev869B history trigger
+  and `EfPurchaseApprovalWorkflowService` refuse the creator's approval for the
+  transaction's life. A transaction's creator is the maker of the whole record, so this
+  is the ordinary rule, not a deadlock.
+- QC inspection policy and QC concession: the creator cannot approve or decide their own
+  record (`DecidedByEmployeeId <> CreatedByEmployeeId` is a check constraint on
+  concessions). The approver role (Technical Director) differs from the creating role
+  (QC), so no deadlock unless the director creates the record.
 
 ## #24 — no item merge had ever succeeded
 

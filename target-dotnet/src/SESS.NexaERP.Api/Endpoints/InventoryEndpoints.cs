@@ -205,7 +205,7 @@ public static class InventoryEndpoints
             : user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
         if (string.IsNullOrWhiteSpace(r.Remarks)) return Results.BadRequest(new { message = "Remarks/reason are required." });
         if (item.Version != r.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
-        if (MasterEndpointHelpers.IsSelfApprovalAttempt(item, user)) return Results.Forbid();
+        if (await MasterEndpointHelpers.IsSelfApprovalAttemptAsync(db, nameof(Item), item, user, ct)) return Results.Forbid();
         var before = new { item.Status, item.ApprovalStatus, item.Version };
         var correlation = "ITEM-APPROVE-" + key;
         item.Status = MasterStatuses.Active; item.ApprovalStatus = MasterApprovalStatuses.Approved;
