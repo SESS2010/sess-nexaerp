@@ -46,7 +46,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.False(await seed.Warehouses.AnyAsync(x => x.CompanyId == companyId), "A fresh database must start without warehouses.");
             Assert.False(await seed.WarehouseConditionLocations.AnyAsync(x => x.CompanyId == companyId));
             Assert.True(await seed.Items.CountAsync(x => x.CreatedBy == "EXCEL_IMPORT" && x.ApprovalStatus == "Approved") > 1000);
-            foreach (var code in new[] { "SESS-41", "SESS-14", "SESS-01", "SESS-02", "SESS-12", "SESS-15", "SESS-33", "SESS-35" })
+            foreach (var code in new[] { "SESS-41", "SESS-14", "SESS-01", "SESS-02", "SESS-04", "SESS-05", "SESS-12", "SESS-15", "SESS-33", "SESS-35" })
             {
                 var employee = await seed.Employees.SingleAsync(x => x.EmployeeCode == code);
                 employee.LoginEnabled = true;
@@ -147,7 +147,83 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(10m, movement.QuantityIn);
         Assert.Equal(1250m, await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).SumAsync(x => x.LayerValue));
         await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, locations["AVAILABLE"], today);
+        await ProveItemMasterAuthority(server, client, options, user, employees, item);
+        // The merge trigger rewrite refuses rollback once Technical Director merge evidence exists.
+        const string mergeAuthority = "20260920140000_ItemMergeDirectorAuthority";
+        server.AssertRejected("item-merge-authority-refuse-down.sql", "SET SESSION AUTHORIZATION nexa_erp_migration; SET ROLE nexa_erp_owner;\n"
+            + migrator.GenerateScript(mergeAuthority, migrations[Array.IndexOf(migrations, mergeAuthority) - 1]), "Technical Director item merge evidence exists");
         await ProveStoresTopologyGrantMigration(server, options, migrator, migrations);
+    }
+
+    // Item permission move: Stores and Purchase Managers approve item master records; the
+    // Technical Director approves only a correction to a record more than one month old (since
+    // creation) and a duplicate merge. A first approval never needs the director.
+    private static async Task ProveItemMasterAuthority(DisposablePostgreSql server, HttpClient client, DbContextOptions<NexaErpDbContext> options,
+        TaxWorkflowUser user, IReadOnlyDictionary<string, Guid> employees, SESS.NexaERP.Domain.Inventory.Item template)
+    {
+        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
+        UpsertItemRequest Draft(string code) => new(code, "Go-live item " + code, "Go-live item " + code, template.CategoryId!.Value, null, template.MaterialType, template.ItemType,
+            false, template.Uom, null, null, null, template.HsnSacCode, template.GstPercentage, null, null, false, false, false, false, 0, 0, 0, null, null, null, null, null, null, null, null);
+        async Task<JsonElement> Detail(string code) => await Get<JsonElement>(client, "/api/v1/inventory/items/" + code);
+        async Task<HttpStatusCode> Approve(string code, string key)
+        {
+            var detail = await Detail(code);
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/inventory/items/{code}/approve") { Content = JsonContent.Create(new MasterActionRequest("Approved", detail.GetProperty("Version").GetUInt32())) };
+            request.Headers.Add("Idempotency-Key", key);
+            using var response = await client.SendAsync(request);
+            return response.StatusCode;
+        }
+        // Stores Manager creates and submits; the Purchase Manager approves (self-approval is refused).
+        Actor("SESS-41", "STORES_MANAGER");
+        var created = await Post<JsonElement>(client, "/api/v1/inventory/items", Draft("GO-LIVE-ITM-001"));
+        await Post<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001/submit", new MasterActionRequest("Submitted", created.GetProperty("Version").GetUInt32()));
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-self-approve"));
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-td-ordinary-approve"));
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-approve"));
+        Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
+        // A correction within one month of creation returns the record to approval; a manager approves it.
+        // The maker-checker rule excludes the record's creator and its last editor for good, so the
+        // IT Manager (who holds item create/update today) corrects and the Purchase Manager approves.
+        Actor("SESS-12", "IT_MANAGER");
+        var detail = await Detail("GO-LIVE-ITM-001");
+        var corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected" };
+        await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
+        Assert.Equal(MasterApprovalStatuses.PendingApproval, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-td-young-correction"));
+        Actor("SESS-41", "STORES_MANAGER");
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-creator-young-correction"));
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-young-correction"));
+        // A correction to a record more than one month old (since creation) needs the Technical Director.
+        server.Execute("age-go-live-item.sql", """UPDATE advance.items SET "CreatedAt"=now()-interval '35 days' WHERE "ItemCode"='GO-LIVE-ITM-001';""");
+        Actor("SESS-12", "IT_MANAGER");
+        detail = await Detail("GO-LIVE-ITM-001");
+        corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected after one month" };
+        await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-purchase-old-correction"));
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-td-old-correction"));
+        Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
+        // Duplicate merge is the director's alone. The Stores Manager approves this one (created by IT).
+        Actor("SESS-12", "IT_MANAGER");
+        var duplicate = await Post<JsonElement>(client, "/api/v1/inventory/items", Draft("GO-LIVE-ITM-002"));
+        await Post<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-002/submit", new MasterActionRequest("Submitted", duplicate.GetProperty("Version").GetUInt32()));
+        Actor("SESS-41", "STORES_MANAGER");
+        Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-002", "item-duplicate-approve"));
+        var survivorId = (await Detail("GO-LIVE-ITM-001")).GetProperty("Id").GetGuid();
+        var sourceId = (await Detail("GO-LIVE-ITM-002")).GetProperty("Id").GetGuid();
+        var merge = new MergeItemRequest(survivorId, "Duplicate of GO-LIVE-ITM-001", "item-merge-go-live");
+        Actor("SESS-41", "STORES_MANAGER");
+        using (var refused = await client.PostAsJsonAsync($"/api/v1/inventory/items/{sourceId}/merge", merge))
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        using (var merged = await client.PostAsJsonAsync($"/api/v1/inventory/items/{sourceId}/merge", merge))
+            Assert.True(merged.StatusCode == HttpStatusCode.NoContent, await merged.Content.ReadAsStringAsync());
+        Assert.True(await Query(options, db => db.ItemMergeAliases.AnyAsync(x => x.SourceItemId == sourceId && x.SurvivorItemId == survivorId)));
     }
 
     // 5. First real receipt. Every governed prerequisite a fresh company needs before its
@@ -242,9 +318,28 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var quotation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfq-invitations/{invitation.Id}/quotations", new Rev869BSubmitQuotationRequest("GO-LIVE-Q1", "INR", "30 days", "Delivered to MAIN", "12 months", false, null, "EMAIL_RECEIVED",
             DateTimeOffset.UtcNow.AddMinutes(-1), "go-live/vendor-1.pdf", new string('A', 64), "Entered from vendor quotation", 0, null, "go-live-quote",
             [new(rfqLineId, handoff.HandoffQuantity, 100m, 0, 0, 0, 0, 0, required, hsn, "33", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)]));
-        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        // Finding #17 probe: the seeded Technical Support Managers (SESS-04 FULL, SESS-05 SUPPORT) must
+        // receive a decision (200) or a refusal (403) on technical verification, never a 500.
         var quotationLineId = await Query(options, db => db.VendorQuotationLines.Where(x => x.VendorQuotationId == quotation.Id).Select(x => x.Id).SingleAsync());
-        await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/quotations/{quotation.Number}/technical-verifications", new Rev869BTechnicalVerificationRequest(quotationLineId, true, """{"goLive":true}""", "Technically compliant", quotation.Version, "go-live-technical"));
+        var verified = false;
+        foreach (var (code, roles) in new[] { ("SESS-04", new[] { "TECHNICAL_SUPPORT_MANAGER" }), ("SESS-05", new[] { "SERVICE_ENGINEER", "TECHNICAL_SUPPORT_MANAGER" }) })
+        {
+            if (verified) break;
+            Actor(code, "TECHNICAL_SUPPORT_MANAGER", roles);
+            using var attempt = await client.PostAsJsonAsync($"/api/v1/purchase/quotations/{quotation.Number}/technical-verifications",
+                new Rev869BTechnicalVerificationRequest(quotationLineId, true, """{"goLive":true}""", "Technically compliant", quotation.Version, "go-live-technical-" + code));
+            var attemptBody = await attempt.Content.ReadAsStringAsync();
+            Assert.True(attempt.StatusCode is HttpStatusCode.OK or HttpStatusCode.Forbidden, $"{code} technical verification returned {(int)attempt.StatusCode}: {attemptBody}");
+            var probeDirectory = Path.Combine(FindRepositoryRoot(), "local-evidence", "finding-17");
+            Directory.CreateDirectory(probeDirectory);
+            await File.AppendAllTextAsync(Path.Combine(probeDirectory, "tsm-probe.jsonl"), JsonSerializer.Serialize(new { at = DateTimeOffset.Now, actor = code, roles, status = (int)attempt.StatusCode, body = attemptBody }) + "\n");
+            verified = attempt.StatusCode == HttpStatusCode.OK;
+        }
+        if (!verified)
+        {
+            Actor("SESS-01", "TECHNICAL_DIRECTOR");
+            await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/quotations/{quotation.Number}/technical-verifications", new Rev869BTechnicalVerificationRequest(quotationLineId, true, """{"goLive":true}""", "Technically compliant", quotation.Version, "go-live-technical"));
+        }
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         rfqVersion = await Query(options, db => db.RequestForQuotations.Where(x => x.Id == rfq.Id).Select(x => x.Version).SingleAsync());
         var comparison = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/comparisons", new Rev869BCreateComparisonRequest(rfq.Number, rfqVersion, "go-live-comparison"));
@@ -271,8 +366,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         grn = await Post<GoodsReceiptResult>(client, $"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "go-live-grn-finalize"));
         Assert.Equal("FINALIZED", grn.Status);
         Assert.NotNull(grn.StockPostingBatchId);
-        // QC accepts the lot into the AVAILABLE location Stores created.
+        // The Stores Manager supervises receipts: view only, never finalize (finding #12).
+        Actor("SESS-41", "STORES_MANAGER");
+        Assert.Equal(grn.Id, (await Get<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/" + grn.Id)).Id);
+        using (var managerCannotFinalize = await client.PostAsJsonAsync($"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "stores-manager-read-does-not-grant-submit")))
+            Assert.Equal(HttpStatusCode.Forbidden, managerCannotFinalize.StatusCode);
+        // QC reads the receipt it inspects (finding #12) and accepts the lot into the AVAILABLE location Stores created.
         Actor("SESS-33", "QC_MANAGER");
+        var qcRead = await Get<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/" + grn.Id);
+        Assert.Equal(grn.GrnNumber, qcRead.GrnNumber);
+        using (var qcCannotFinalize = await client.PostAsJsonAsync($"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(qcRead.Version, "qc-read-does-not-grant-submit")))
+            Assert.Equal(HttpStatusCode.Forbidden, qcCannotFinalize.StatusCode);
         var queue = await Get<PagedResponse<QcQueueItem>>(client, "/api/v1/qc/queue?pageSize=100");
         var lot = Assert.Single(queue.Items, x => x.GrnNumber == grn.GrnNumber);
         var policies = await Get<JsonElement>(client, $"{configuration}/qc-inspection-policies?effectiveOnly=true&itemId={lot.ItemId}");

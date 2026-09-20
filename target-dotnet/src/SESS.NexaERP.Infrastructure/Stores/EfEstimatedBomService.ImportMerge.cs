@@ -30,7 +30,8 @@ public sealed partial class EfEstimatedBomService
 
     public async Task MergeItemAsync(Guid sourceItemId, MergeItemRequest request, CancellationToken ct)
     {
-        _ = user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
+        // Duplicate merge is one of the two item master decisions reserved to the Technical Director.
+        _ = user.RequireRole("approve", "TECHNICAL_DIRECTOR");
         if (sourceItemId == Guid.Empty || request.SurvivorItemId == Guid.Empty || sourceItemId == request.SurvivorItemId)
             throw new StoresValidationException("Distinct source and survivor ItemIds are required.");
         var reason = Required(request.Reason, "Reason"); var key = Required(request.IdempotencyKey, "IdempotencyKey");

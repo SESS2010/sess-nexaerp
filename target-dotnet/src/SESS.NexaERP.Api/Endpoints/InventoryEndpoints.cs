@@ -61,7 +61,18 @@ public static class InventoryEndpoints
             if (item.IsItemCodeLocked && MasterEndpointHelpers.NormalizeCode(r.ItemCode) != item.ItemCode) return Results.BadRequest(new { message = "Item code is immutable after approval." });
             if (r.Version is null || r.Version.Value != item.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
             var validation = await ValidateItem(r, db, item.Id, ct); if (validation is not null) return validation; var before = ToDetail(item); Apply(item, r, user.LoginId, false); await ApplyItemRelationships(item, r, db, ct);
-            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", "UpdateDraft", nameof(Item), item.Id.ToString(), before, item, ct); return Results.Ok(ToDetail(item));
+            // A correction to an approved record returns it to approval. The approving authority is
+            // decided at approval time from the record's age: Stores or Purchase Manager within one
+            // month of creation, the Technical Director afterwards (item permission move).
+            var correction = before.ApprovalStatus == MasterApprovalStatuses.Approved;
+            if (correction)
+            {
+                item.ApprovalStatus = MasterApprovalStatuses.PendingApproval;
+                MasterEndpointHelpers.AddApprovalHistory(db, nameof(Item), item.Id, item.ItemCode, "Correct",
+                    before.ApprovalStatus, item.ApprovalStatus, ItemCorrectionRequiresDirector(item) ? "Correction to a record more than one month old; Technical Director approval required." : "Correction submitted for Stores/Purchase Manager approval.",
+                    user, "ITEM-CORRECT-" + Guid.NewGuid().ToString("N"));
+            }
+            await db.SaveChangesAsync(ct); await audit.WriteAsync("Masters", correction ? "CorrectApproved" : "UpdateDraft", nameof(Item), item.Id.ToString(), before, item, ct); return Results.Ok(ToDetail(item));
         }
         group.MapPut("/items/{code}", UpdateItemByCode).RequirePagePermission("masters.items", PagePermissionActions.Update);
         group.MapPut("/item-by-code", UpdateItemByCode).RequirePagePermission("masters.items", PagePermissionActions.Update);
@@ -174,15 +185,24 @@ public static class InventoryEndpoints
     private static void MapItemAction(RouteGroupBuilder g, string route, string action, string status, string approval, string permission) => g.MapPost($"/items/{{code}}/{route}", async (string code, MasterActionRequest r, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
     { if(route=="approve")_ = user.RequireRole("approve","STORES_MANAGER","PURCHASE_MANAGER"); var e = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct); if (e is null) return Results.NotFound(new { message = "Item not found." }); return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, user, e, nameof(Item), e.ItemCode, action, status, approval, r.Remarks, r.Version, (x, s, actor) => { x.Status = s; x.IsActive = s != MasterStatuses.Inactive; if (s == MasterStatuses.Active) { x.IsItemCodeLocked = true; x.ApprovedBy = actor; x.ApprovedAt = DateTimeOffset.UtcNow; } }, x => x.Status, x => x.ApprovalStatus, (x, s) => x.ApprovalStatus = s, ct); }).RequirePagePermission("masters.items", permission);
 
+    // A record is "more than one month old" from its creation, not its last change. Only a
+    // previously approved record (code locked) can be corrected; a first approval never needs the director.
+    private static bool ItemCorrectionRequiresDirector(Item item) =>
+        item.IsItemCodeLocked && item.CreatedAt <= DateTimeOffset.UtcNow.AddMonths(-1);
+
     private static void MapItemApprove(RouteGroupBuilder g) => g.MapPost("/items/{code}/approve", async
         (string code, MasterActionRequest r, HttpRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct) =>
     {
-        var role = user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
         var key = request.Headers["Idempotency-Key"].ToString().Trim();
         if (key.Length == 0) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var item = await db.Items.SingleOrDefaultAsync(x => x.ItemCode == MasterEndpointHelpers.NormalizeCode(code), ct);
         if (item is null) return Results.NotFound(new { message = "Item not found." });
+        // Stores Manager and Purchase Manager approve item master records. The Technical Director
+        // approves only a correction to a record more than one month old (since creation).
+        var role = ItemCorrectionRequiresDirector(item)
+            ? user.RequireRole("approve", "TECHNICAL_DIRECTOR")
+            : user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
         if (string.IsNullOrWhiteSpace(r.Remarks)) return Results.BadRequest(new { message = "Remarks/reason are required." });
         if (item.Version != r.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
         if (MasterEndpointHelpers.IsSelfApprovalAttempt(item, user)) return Results.Forbid();
