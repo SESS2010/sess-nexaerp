@@ -20,7 +20,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     // only ever been proven on databases the development-only trial script had built.
     private static async Task ProveOperationsAfterAvailable(HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
-        SESS.NexaERP.Domain.Inventory.Item item, FreshReceipt receipt, DateOnly today)
+        SESS.NexaERP.Domain.Inventory.Item item, SESS.NexaERP.Domain.Inventory.Item declared, FreshReceipt receipt, DateOnly today)
     {
         void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
         var purchased = receipt.Purchased;
@@ -108,7 +108,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // Estimated BOM: Design Engineer prepares and submits; Technical Director approves.
         Actor("SESS-17", "DESIGN_ENGINEER", "DESIGN_ENGINEER", "SERVICE_ENGINEER");
         var estimated = await Post<EstimatedBomView>(client, "/api/v1/design/estimated-boms", new CreateEstimatedBomRequest(job.Id, "Go-live commercial baseline",
-            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m)], "go-live-ebom-create"));
+            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m), new EstimatedBomLineInput(declared.Id, declared.BaseUomId, 1m, "Legacy component", 60m)], "go-live-ebom-create"));
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Ready for review", "go-live-ebom-submit"));
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/approve", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Baseline approved", "go-live-ebom-approve"));
@@ -123,36 +123,76 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         job = await Get<JobOrderView>(client, $"/api/v1/production/job-orders/{job.Id}");
         production = await Post<ProductionBomView>(client, $"/api/v1/production/boms/{production.BomNumber}/pin", new PinProductionBomRevisionRequest(production.CurrentRevision.Id, job.Version, "Pinned to the go-live job", "go-live-pbom-pin"));
         Assert.Equal(production.CurrentRevision.Id, production.PinnedRevisionId);
-        // Job MIR by the Production Coordinator, approved by the Production Manager, issued by Stores to the coordinator.
+        // Job MIR by the Production Coordinator for 3 purchased units (2 opening + 1 GRN) and 1 declared-provenance
+        // unit; approved by the Production Manager; issued by Stores to the coordinator in two issues.
         Actor("SESS-13", "PRODUCTION_COORDINATOR");
         var jobMir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
             new CreateMaterialIssueRequest("FACTORY_ASSEMBLY", "CHAMBER_MANUFACTURE", "JOB_ORDER", job.Id, null, null, null, "Go-live chamber assembly",
-                departments["PRODUCTION"], today, [new MaterialIssueRequestLineInput(purchased.Id, purchased.BaseUomId, 2m, null, "Assembly components")], "go-live-mir-job"));
-        Assert.Equal(0m, Assert.Single(jobMir.Lines).ExcessBaseQuantity);
+                departments["PRODUCTION"], today, [new MaterialIssueRequestLineInput(purchased.Id, purchased.BaseUomId, 3m, null, "Assembly components"),
+                    new MaterialIssueRequestLineInput(declared.Id, declared.BaseUomId, 1m, null, "Legacy component")], "go-live-mir-job"));
+        Assert.All(jobMir.Lines, x => Assert.Equal(0m, x.ExcessBaseQuantity));
         jobMir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{jobMir.Id}/submit", new MaterialIssueTransitionRequest(jobMir.Version, "Assembly starts", "go-live-mir-job-submit"));
         Actor("SESS-25", "PRODUCTION_MANAGER");
         jobMir = await Post<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{jobMir.Id}/approve", new MaterialIssueTransitionRequest(jobMir.Version, "Production approves requirement", "go-live-mir-job-approve"));
+        var purchasedLine = jobMir.Lines.Single(x => x.ItemId == purchased.Id);
+        var declaredLine = jobMir.Lines.Single(x => x.ItemId == declared.Id);
+        // FIFO: opening stock consumes first. The first issue takes exactly the opening quantity of the
+        // purchased item; the GRN layer is untouched while opening stock of that item remains.
         Actor("SESS-35", "STORES_EXECUTIVE");
-        var jobIssue = await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{jobMir.Id}",
-            new CreateMaterialIssue("go-live-issue-job", employees["SESS-13"], DateTimeOffset.UtcNow, [new MaterialIssueScan(jobMir.Lines.Single().Id, purchased.ItemCode, null, 2m)]));
-        Assert.Equal(job.Id, jobIssue.JobOrderId);
-        // Fitment of one unit by the coordinator; the other unit goes back to Stores; the Actual BOM is provisional until the bill is accepted.
+        var firstIssue = await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{jobMir.Id}",
+            new CreateMaterialIssue("go-live-issue-job-1", employees["SESS-13"], DateTimeOffset.UtcNow,
+                [new MaterialIssueScan(purchasedLine.Id, purchased.ItemCode, null, 2m), new MaterialIssueScan(declaredLine.Id, declared.ItemCode, null, 1m)]));
+        Assert.Equal(job.Id, firstIssue.JobOrderId);
+        var openingPurchasedLine = Assert.Single(firstIssue.Lines, x => x.ItemId == purchased.Id);
+        var openingDeclaredLine = Assert.Single(firstIssue.Lines, x => x.ItemId == declared.Id);
+        var layers = await Query(options, async db => await db.FifoInventoryCostLayers.AsNoTracking().Where(x => x.CompanyId == companyId && x.ItemId == purchased.Id)
+            .Select(x => new { x.Id, Opening = x.OpeningStockLineId != null, Grn = x.GoodsReceiptLineId != null, x.QuantityReceived,
+                Consumed = db.FifoCostConsumptions.Where(c => c.FifoInventoryCostLayerId == x.Id).Sum(c => (decimal?)c.Quantity) ?? 0m }).ToListAsync());
+        Assert.Equal(2m, Assert.Single(layers, x => x.Opening).Consumed);
+        Assert.Equal(0m, Assert.Single(layers, x => x.Grn).Consumed);
+        Assert.True(await Query(options, db => db.MaterialIssueLines.AsNoTracking().AnyAsync(x => x.Id == openingPurchasedLine.Id && x.OriginOpeningStockLineId != null && x.OriginGoodsReceiptLineId == null)));
+        var secondIssue = await Post<MaterialIssueView>(client, $"/api/v1/stores/material-issues/from-request/{jobMir.Id}",
+            new CreateMaterialIssue("go-live-issue-job-2", employees["SESS-13"], DateTimeOffset.UtcNow, [new MaterialIssueScan(purchasedLine.Id, purchased.ItemCode, null, 1m)]));
+        var grnPurchasedLine = Assert.Single(secondIssue.Lines);
+        Assert.True(await Query(options, db => db.MaterialIssueLines.AsNoTracking().AnyAsync(x => x.Id == grnPurchasedLine.Id && x.OriginGoodsReceiptLineId != null && x.OriginOpeningStockLineId == null)));
+        layers = await Query(options, async db => await db.FifoInventoryCostLayers.AsNoTracking().Where(x => x.CompanyId == companyId && x.ItemId == purchased.Id)
+            .Select(x => new { x.Id, Opening = x.OpeningStockLineId != null, Grn = x.GoodsReceiptLineId != null, x.QuantityReceived,
+                Consumed = db.FifoCostConsumptions.Where(c => c.FifoInventoryCostLayerId == x.Id).Sum(c => (decimal?)c.Quantity) ?? 0m }).ToListAsync());
+        Assert.Equal(2m, Assert.Single(layers, x => x.Opening).Consumed);
+        Assert.Equal(1m, Assert.Single(layers, x => x.Grn).Consumed);
+        // Fitment: one purchased unit of opening origin, one of GRN origin, one declared-provenance unit; the
+        // second opening-origin purchased unit goes back to Stores. Valuation resolves by origin.
         Actor("SESS-13", "PRODUCTION_COORDINATOR");
-        var fitment = await Post<ComponentFitmentSummary>(client, "/api/v1/production/component-fitments",
-            new ConfirmComponentFitmentRequest(job.Id, jobIssue.Lines.Single().Id, 1m, DateTimeOffset.UtcNow, "Component fitted to chamber", null, "go-live-fitment"));
-        Assert.False(fitment.IsReversed);
-        var jobReturn = await Post<MaterialReturnView>(client, $"/api/v1/stores/material-returns/from-issue/{jobIssue.Id}",
-            new CreateMaterialReturn(DateTimeOffset.UtcNow, [new MaterialReturnLineInput(jobIssue.Lines.Single().Id, purchased.ItemCode, 1m, 0m, 0m)], "go-live-return-job"));
+        var openingFitment = await Post<ComponentFitmentSummary>(client, "/api/v1/production/component-fitments",
+            new ConfirmComponentFitmentRequest(job.Id, openingPurchasedLine.Id, 1m, DateTimeOffset.UtcNow, "Opening-stock component fitted", null, "go-live-fitment-opening"));
+        var grnFitment = await Post<ComponentFitmentSummary>(client, "/api/v1/production/component-fitments",
+            new ConfirmComponentFitmentRequest(job.Id, grnPurchasedLine.Id, 1m, DateTimeOffset.UtcNow, "Purchased component fitted", null, "go-live-fitment-grn"));
+        var declaredFitment = await Post<ComponentFitmentSummary>(client, "/api/v1/production/component-fitments",
+            new ConfirmComponentFitmentRequest(job.Id, openingDeclaredLine.Id, 1m, DateTimeOffset.UtcNow, "Legacy component fitted", null, "go-live-fitment-declared"));
+        Assert.False(openingFitment.IsReversed || grnFitment.IsReversed || declaredFitment.IsReversed);
+        var fitment = openingFitment;
+        var jobReturn = await Post<MaterialReturnView>(client, $"/api/v1/stores/material-returns/from-issue/{firstIssue.Id}",
+            new CreateMaterialReturn(DateTimeOffset.UtcNow, [new MaterialReturnLineInput(openingPurchasedLine.Id, purchased.ItemCode, 1m, 0m, 0m)], "go-live-return-job"));
         Actor("SESS-35", "STORES_EXECUTIVE");
         jobReturn = await Post<MaterialReturnView>(client, $"/api/v1/stores/material-returns/{jobReturn.Id}/accept",
             new AcceptMaterialReturn(jobReturn.Version, DateTimeOffset.UtcNow, "Unfitted component returned", "go-live-return-job-accept"));
         Assert.Equal("ACCEPTED", jobReturn.Status);
         Actor("SESS-25", "PRODUCTION_MANAGER");
         var actual = await Get<ActualBomView>(client, $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
-        var provisional = Assert.Single(actual.Entries);
+        Assert.Equal(3, actual.Entries.Count);
+        var openingEntry = Assert.Single(actual.Entries, x => x.ComponentFitmentId == openingFitment.Id);
+        Assert.Equal("OPENING_CONFIRMED", openingEntry.ValuationStatus);
+        Assert.Equal(90m, openingEntry.AcceptedMaterialValue);
+        Assert.Equal(0m, openingEntry.AllocatedChargeValue);
+        Assert.NotNull(openingEntry.OpeningStockLineId);
+        Assert.Null(openingEntry.GoodsReceiptLineId);
+        var declaredEntry = Assert.Single(actual.Entries, x => x.ComponentFitmentId == declaredFitment.Id);
+        Assert.Equal("OPENING_CONFIRMED", declaredEntry.ValuationStatus);
+        Assert.Equal(60m, declaredEntry.TotalAcceptedValue);
+        var provisional = Assert.Single(actual.Entries, x => x.ComponentFitmentId == grnFitment.Id);
         Assert.Equal("PROVISIONAL_UNBILLED", provisional.ValuationStatus);
-        Assert.Equal(1m, provisional.QuantityBase);
-        // FAT readiness: QC reconciles custody; everything issued is fitted or returned.
+        Assert.NotNull(provisional.GoodsReceiptLineId);
+        Assert.Equal(150m, actual.TotalAcceptedValue);        // FAT readiness: QC reconciles custody; everything issued is fitted or returned.
         Actor("SESS-33", "QC_MANAGER");
         var fat = await Post<FatReconciliationView>(client, $"/api/v1/production/job-orders/{job.Id}/fat-readiness/reconcile", new ReconcileJobOrderFatRequest("Issue custody fitted or returned", "go-live-fat-reconcile"));
         Assert.Equal("READY", fat.Result);
@@ -175,7 +215,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         var dossier = await Get<CompanyReportPage>(client, $"/api/v1/reports/machine-dossier?selection={dossierSelection}&mode=details&pageSize=1000");
         Assert.NotEmpty(dossier.Rows);
-        Assert.Contains(dossier.Rows, row => row.GetProperty("itemCode").GetString() == purchased.ItemCode);
+        string Provenance(CompanyReportPage page, Guid fitmentId) => Assert.Single(page.Rows, row => row.TryGetProperty("fitmentId", out var f) && f.ValueKind == JsonValueKind.String && f.GetGuid() == fitmentId && row.GetProperty("evidencePart").GetInt32() == 0).GetProperty("provenance").GetString()!;
+        // The dossier tells declared from proved: what SESS asserted at opening stock, what this system verified, and what it authorised.
+        Assert.Equal("Bill INV-2024-0892 - declared at opening stock, not verified in this system", Provenance(dossier, declaredFitment.Id));
+        Assert.Equal($"Opening stock, authorised {DateTime.Now.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)} by SESS-01", Provenance(dossier, openingFitment.Id));
+        Assert.Equal($"GRN {receipt.Grn.GrnNumber} - bill not yet accepted", Provenance(dossier, grnFitment.Id));
 
         // 4. Vendor bill from the GRN -> landed cost -> advance -> payment. GRNI shows the receipt until the bill is accepted.
         var grni = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/grni?mode=details&pageSize=1000"));
@@ -195,8 +239,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(12m, landed);
         Actor("SESS-25", "PRODUCTION_MANAGER");
         actual = await Get<ActualBomView>(client, $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
-        Assert.Equal("LANDED_ACCEPTED", Assert.Single(actual.Entries).ValuationStatus);
-        Assert.True(actual.TotalAcceptedValue > 0m);
+        Assert.Equal("LANDED_ACCEPTED", Assert.Single(actual.Entries, x => x.ComponentFitmentId == grnFitment.Id).ValuationStatus);
+        Assert.Equal(2, actual.Entries.Count(x => x.ValuationStatus == "OPENING_CONFIRMED"));
+        Assert.True(actual.TotalAcceptedValue > 150m);
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         var advance = await Post<VendorAdvanceView>(client, "/api/v1/accounts/vendor-financial-evidence/advances",
             new RecordVendorAdvanceRequest(receipt.PurchaseOrderId, today, 100m, "INR", "UTR-GO-LIVE-ADV-1", "evidence/go-live-advance-1.pdf", "go-live-advance"));
@@ -206,6 +251,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(50m, Assert.Single(payment.Allocations).Amount);
         var payments = await Get<VendorPaymentPage>(client, $"/api/v1/accounts/vendor-financial-evidence/payments?vendorId={receipt.VendorId}");
         Assert.Contains(payments.Items, x => x.Id == payment.Id);
+        // The dossier now states the GRN-origin component was accepted, matched and part-paid; the opening lines are unchanged.
+        var dossierAfterBill = await Get<CompanyReportPage>(client, $"/api/v1/reports/machine-dossier?selection={dossierSelection}&mode=details&pageSize=1000");
+        Assert.Equal($"Bill {bill.BillNumber} - accepted, matched, part-paid", Provenance(dossierAfterBill, grnFitment.Id));
+        Assert.Equal("Bill INV-2024-0892 - declared at opening stock, not verified in this system", Provenance(dossierAfterBill, declaredFitment.Id));
 
         // 5. Intercompany. Only the sale path (route -> published PO -> GST invoice evidence) exists; a
         // DC-only transfer has no endpoint (A1, not started). The sale path itself needs company sites

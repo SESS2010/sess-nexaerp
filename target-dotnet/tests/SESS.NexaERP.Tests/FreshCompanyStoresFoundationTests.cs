@@ -115,11 +115,25 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(employees["SESS-41"], "SESS-41", "STORES_MANAGER");
         Assert.True(await Query(options, db => db.StoreCategoryRoutes.AnyAsync(x => x.Id == route.Id && x.CompanyId == companyId && x.CreatedBy == "SESS-41")));
 
-        // 4. Opening stock for a real imported item, through the three-actor ceremony.
+        // 4. Opening stock through the three-actor ceremony: three real imported items of the routed
+        // category. Provenance is filled where SESS knows it (the third line declares a vendor bill)
+        // and blank where it does not; the value is always the Accounts-confirmed ex-tax unit value.
+        var siblings = await Query(options, db => db.Items.AsNoTracking().Where(x => x.CreatedBy == "EXCEL_IMPORT" && x.IsActive
+            && x.CategoryId == item.CategoryId && x.Id != item.Id && !x.SerialNumberTracking && !x.BatchTracking).OrderBy(x => x.ItemCode).Take(2).ToListAsync());
+        var purchased = siblings[0];
+        var declared = siblings[1];
         var workbook = new MasterDataWorkbookService().Create(new OpeningStockImportDefinition(),
             [new(new Dictionary<string, object?> {
                 ["LineReference"] = "GO-LIVE-0001", ["ItemCode"] = item.ItemCode, ["WarehouseCode"] = "MAIN",
-                ["RackBinCode"] = "MAIN-R01-A", ["LotNumber"] = null, ["SerialNumber"] = null, ["Quantity"] = 10m, ["Rate"] = 125m })],
+                ["RackBinCode"] = "MAIN-R01-A", ["LotNumber"] = null, ["SerialNumber"] = null, ["Quantity"] = 10m, ["Rate"] = 125m }),
+             new(new Dictionary<string, object?> {
+                ["LineReference"] = "GO-LIVE-0002", ["ItemCode"] = purchased.ItemCode, ["WarehouseCode"] = "MAIN",
+                ["RackBinCode"] = "MAIN-R01-A", ["LotNumber"] = null, ["SerialNumber"] = null, ["Quantity"] = 2m, ["Rate"] = 90m }),
+             new(new Dictionary<string, object?> {
+                ["LineReference"] = "GO-LIVE-0003", ["ItemCode"] = declared.ItemCode, ["WarehouseCode"] = "MAIN",
+                ["RackBinCode"] = "MAIN-R01-A", ["LotNumber"] = null, ["SerialNumber"] = null, ["Quantity"] = 4m, ["Rate"] = 60m,
+                ["VendorName"] = "Legacy Supplies", ["VendorBillNumber"] = "INV-2024-0892", ["BillDate"] = "2024-11-15", ["PurchaseDate"] = "2024-11-10",
+                ["Make"] = "Danfoss", ["Model"] = "FR10G", ["PartNumber"] = "195B0300", ["Remarks"] = "Bought before this system" })],
             DateTimeOffset.UtcNow);
         using var form = new MultipartFormDataContent();
         form.Add(new ByteArrayContent(workbook), "File", "opening-stock.xlsx");
@@ -129,7 +143,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var importBody = await imported.Content.ReadAsStringAsync();
         Assert.True(imported.IsSuccessStatusCode, importBody);
         var batch = JsonSerializer.Deserialize<MasterDataImportResult>(importBody, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.Equal(1, batch.CreatedRows);
+        Assert.Equal(3, batch.CreatedRows);
         Assert.Equal(0, batch.InvalidRows);
         var opening = await Post<OpeningStockView>(client, "/api/v1/stores/opening-stock/from-import",
             new CreateOpeningStockFromImportRequest(batch.BatchId, new DateOnly(today.Year, 4, 1), today, "Physical count on go-live day", "fresh-company-count"));
@@ -140,16 +154,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         opening = await Post<OpeningStockView>(client, $"/api/v1/stores/opening-stock/{opening.Id}/authorize",
             new OpeningStockTransitionRequest(opening.Version, "Opening stock authorized", "fresh-company-authorize"));
         Assert.Equal("POSTED", opening.Status);
-        Assert.Equal(1250m, opening.TotalValue);
+        Assert.Equal(1250m + 180m + 240m, opening.TotalValue);
+        var declaredLine = Assert.Single(opening.Lines, x => x.ItemId == declared.Id);
+        Assert.Equal("INV-2024-0892", declaredLine.VendorBillNumber);
+        Assert.Equal(new DateOnly(2024, 11, 10), declaredLine.PurchaseDate);
+        Assert.Null(Assert.Single(opening.Lines, x => x.ItemId == item.Id).VendorBillNumber);
         await using var evidence = new NexaErpDbContext(options);
-        var movement = await evidence.StockMovements.AsNoTracking().SingleAsync(x => x.CompanyId == companyId);
-        Assert.Equal("AVAILABLE", movement.ConditionCode);
-        Assert.Equal(locations["AVAILABLE"], movement.WarehouseConditionLocationId);
-        Assert.Equal(10m, movement.QuantityIn);
-        Assert.Equal(1250m, await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).SumAsync(x => x.LayerValue));
-        var receipt = await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, locations["AVAILABLE"], today);
+        var movements = await evidence.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId).ToListAsync();
+        Assert.Equal(3, movements.Count);
+        Assert.All(movements, x => { Assert.Equal("AVAILABLE", x.ConditionCode); Assert.Equal(locations["AVAILABLE"], x.WarehouseConditionLocationId); Assert.NotNull(x.OriginOpeningStockLineId); });
+        Assert.Equal(10m, movements.Single(x => x.ItemId == item.Id).QuantityIn);
+        Assert.Equal(1670m, await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).SumAsync(x => x.LayerValue));
+        // FIFO dates opening layers from the ceremony period end, never from the declared purchase date.
+        Assert.All(await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).ToListAsync(),
+            x => Assert.Equal(today.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), x.ReceivedAt.UtcDateTime));
+        var receipt = await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, purchased, locations["AVAILABLE"], today);
         await ProveItemMasterAuthority(server, client, options, user, employees, item);
-        await ProveOperationsAfterAvailable(client, options, user, employees, companyId, item, receipt, today);
+        await ProveOperationsAfterAvailable(client, options, user, employees, companyId, item, declared, receipt, today);
         // The merge trigger rewrite refuses rollback once Technical Director merge evidence exists.
         const string mergeAuthority = "20260920140000_ItemMergeDirectorAuthority";
         server.AssertRejected("item-merge-authority-refuse-down.sql", "SET SESSION AUTHORIZATION nexa_erp_migration; SET ROLE nexa_erp_owner;\n"
@@ -236,15 +257,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
     private static async Task<FreshReceipt> ProveFreshCompanyReceipt(HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, Dictionary<string, EffectiveRoleAssignment> assignments, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
-        SESS.NexaERP.Domain.Inventory.Item item, Guid availableLocationId, DateOnly today)
+        SESS.NexaERP.Domain.Inventory.Item item, SESS.NexaERP.Domain.Inventory.Item purchased, Guid availableLocationId, DateOnly today)
     {
         void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
         const string configuration = "/api/v1/rev869a/configuration";
         var category = item.Category!.Code;
-        // Purchase a second item of the routed category: the opening-stock item is fully available, so a
-        // requisition for it would close at stock check without any purchase requirement.
-        var purchased = await Query(options, db => db.Items.AsNoTracking().Where(x => x.CreatedBy == "EXCEL_IMPORT" && x.IsActive
-            && x.CategoryId == item.CategoryId && x.Id != item.Id && !x.SerialNumberTracking && !x.BatchTracking).OrderBy(x => x.ItemCode).FirstAsync());
+        // The purchased item has 2 opening units: the stock check reserves them and hands 3 to procurement,
+        // so the company ends with an opening layer and a GRN layer of the same item (the FIFO proof).
         var hsn = purchased.HsnSacCode!;
         // Vendor: IT Manager uploads the mandatory GST certificate, creates and submits; Technical Director approves.
         Actor("SESS-12", "IT_MANAGER");
@@ -312,6 +331,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-35", "STORES_EXECUTIVE");
         await PostNoResult(client, $"/api/v1/purchase/requisitions/{pr.PrNumber}/stock-check", new StockCheckRequest("No stock; purchase required", pr.Version, "go-live-stock", [new(1, "MAIN", "MAIN-R01-A")]), "go-live-stock");
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs.Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
+        var quantity = handoff.HandoffQuantity;
+        Assert.Equal(3m, quantity);
         // RFQ, single-source invitation, quotation entered on the vendor's behalf.
         Actor("SESS-15", "PURCHASE_EXECUTIVE", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         var rfq = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/rfqs", new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", true, "Only qualified vendor at go-live", "go-live-rfq", [new(handoff.Id, handoff.HandoffQuantity)]));
@@ -361,10 +382,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // Gate entry and GRN by Stores; the GRN resolves the route Stores created.
         Actor("SESS-35", "STORES_EXECUTIVE");
         var poLineId = await Query(options, db => db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == po.Id).Select(x => x.Id).SingleAsync());
-        var gate = await Post<GateEntryResult>(client, "/api/v1/stores/gate-entries/", new CreateGateEntryRequest(po.Number, "GO-LIVE-DC-1", "TN-01-0001", "ROAD", DateTimeOffset.UtcNow, """{"packagesChecked":true}""", [new(poLineId, 5m)]), "go-live-gate");
+        var gate = await Post<GateEntryResult>(client, "/api/v1/stores/gate-entries/", new CreateGateEntryRequest(po.Number, "GO-LIVE-DC-1", "TN-01-0001", "ROAD", DateTimeOffset.UtcNow, """{"packagesChecked":true}""", [new(poLineId, quantity)]), "go-live-gate");
         gate = await Post<GateEntryResult>(client, $"/api/v1/stores/gate-entries/{gate.Id}/finalize", new FinalizeGateEntryRequest(gate.Version, "go-live-gate-finalize"));
         var grn = await Post<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/", new CreateGoodsReceiptRequest(gate.GateEntryNumber, "GO-LIVE-BILL-1", today, DateTimeOffset.UtcNow, """{"billChecked":true}""",
-            [new(gate.Lines.Single().Id, [new(1, 5m, "GO-LIVE-LOT-1", null, today.AddMonths(-1), today.AddYears(2))], [])]), "go-live-grn");
+            [new(gate.Lines.Single().Id, [new(1, quantity, "GO-LIVE-LOT-1", null, today.AddMonths(-1), today.AddYears(2))], [])]), "go-live-grn");
         // inventory.grn create/submit belongs to the Stores Executive; the Stores Manager holds no GRN grant (see #12).
         grn = await Post<GoodsReceiptResult>(client, $"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "go-live-grn-finalize"));
         Assert.Equal("FINALIZED", grn.Status);
@@ -384,12 +405,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var lot = Assert.Single(queue.Items, x => x.GrnNumber == grn.GrnNumber);
         var policies = await Get<JsonElement>(client, $"{configuration}/qc-inspection-policies?effectiveOnly=true&itemId={lot.ItemId}");
         var policyId = Assert.Single(policies.EnumerateArray()).GetProperty("Id").GetGuid();
-        var inspection = await Post<QcInspectionResult>(client, "/api/v1/qc/inspections", new FinalizeQcInspectionRequest(lot.GoodsReceiptLineLotAllocationId, DateTimeOffset.UtcNow, 5m, 0m, 0m, availableLocationId,
+        var inspection = await Post<QcInspectionResult>(client, "/api/v1/qc/inspections", new FinalizeQcInspectionRequest(lot.GoodsReceiptLineLotAllocationId, DateTimeOffset.UtcNow, quantity, 0m, 0m, availableLocationId,
             [new QcParameterResultRequest(policyId, 1, 1, null, "PASS", "Accepted")], []), "go-live-qc");
         Assert.NotNull(inspection.StockPostingBatchId);
         await using var db = new NexaErpDbContext(options);
         var received = await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ItemId == purchased.Id && x.WarehouseConditionLocationId == availableLocationId).SumAsync(x => x.QuantityIn - x.QuantityOut);
-        Assert.Equal(5m, received);
+        Assert.Equal(2m + quantity, received);
         Assert.Equal(0m, await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ConditionCode == "QC_HOLD").SumAsync(x => x.QuantityIn - x.QuantityOut));
         Assert.True(await db.FifoInventoryCostLayers.AsNoTracking().AnyAsync(x => x.CompanyId == companyId && x.GoodsReceiptLineId != null));
         return new FreshReceipt(vendorId, purchased, po.Id, grn);

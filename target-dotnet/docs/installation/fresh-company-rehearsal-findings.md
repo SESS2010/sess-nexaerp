@@ -225,6 +225,50 @@ GRN line, and an opening line has no bill (its value is the opening carrying val
 Dispatch (`DISPATCH_OUT`, delivery challans) from opening stock is not exercised by this
 walk either. The rehearsal fits purchased stock.
 
+## Opening stock decisions of 20 September (evening) — built
+
+1. **Value is ex-tax.** The template's `Rate` column is now headed *Unit Value Ex-Tax*;
+   Accounts confirms the taxable value; recoverable GST is never entered.
+2. **Template carries provenance, optional.** Version 2 of `opening-stock` adds vendor
+   name, vendor bill number, bill date, purchase date, make, model, part number and
+   remarks — filled where SESS knows them, blank where not. Delivered as
+   `docs/installation/opening-stock-template-v2.xlsx` (also `GET
+   /api/v1/master-data/opening-stock/template` once the database exists). Migration
+   `20260920160000_OpeningStockProvenance` stores the eight columns on staging and
+   opening lines; the staging function gains a 22-argument overload (the 14-argument
+   signature stays as a wrapper so the installer contract and existing callers are
+   unchanged); the installer grants and verifies the overload where present.
+3. **Valuation resolves by origin.** `20260920170000_OpeningStockFitmentValuation`:
+   Actual BOM entries carry either a GRN line or an opening stock line; an opening-origin
+   fitment is valued at the line's confirmed ex-tax unit value with no charges and is
+   `OPENING_CONFIRMED` at once; a GRN-origin fitment is valued from the accepted bill as
+   before. Declared vendor/bill fields never value anything; no synthetic bill is created.
+4. **Dossier distinguishes declared from accepted.** New `provenance` column:
+   GRN → `Bill <n> - accepted, matched, paid|part-paid|unpaid` (or `GRN <n> - bill not yet
+   accepted`); opening with a declared bill → `Bill <n> - declared at opening stock, not
+   verified in this system`; opening without → `Opening stock, authorised <date> by
+   <employee>`. The rehearsal asserts all three, and the GRN line's change to
+   `part-paid` after the payment.
+5. **FIFO: opening stock consumes first.** Opening layers are dated from the ceremony's
+   count period end (the cutover date the Stores Manager records), never from the
+   declared purchase date. The rehearsal posts 2 opening units and receives 3 of the same
+   item: the first issue of 2 consumes only the opening layer (GRN consumption 0), the
+   GRN layer is consumed only by the next issue. If the period end is entered later than
+   the first GRN date the order would invert; the runbook's step 13 period is the cutover
+   date, so it cannot.
+6. **The normal path is rehearsed:** three opening lines (one with declared provenance),
+   issue from both origins, fitment of both, the dossier rendering each, then the bill.
+   **DISPATCH_OUT from opening stock cannot be exercised: no delivery-challan dispatch
+   endpoint or service exists** (the ledger accepts `DC_DISPATCH` postings; nothing creates
+   them; machine delivery moves no stock). Migration `150000` already accepts the opening
+   origin on `DISPATCH_OUT` for when it is built.
+7. **Vendor qualification maker-checker:** a qualification has no correction or
+   resubmission path, so the maker of its pending change is its creator; the decided rule
+   therefore changes nothing and the trigger (`rev869b_qualification_actor_binding`) is
+   left as it is. The diagnostic's cause is a Managing Director creating a record that
+   only the MD or TD may approve after the TD verified it: the record must be created by
+   the Purchase Manager, as the rehearsal does.
+
 ## #27 — a fitted component still had to be "returned, consumed or held"
 
 The return statement reconciled the whole issued quantity, ignoring quantity already

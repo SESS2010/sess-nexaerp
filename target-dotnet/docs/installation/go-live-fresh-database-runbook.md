@@ -81,15 +81,17 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (117 at `c69366d`; 124 with the seven 20 September migrations, which
-apply in timestamp order 090000 → 150000 with no other ordering requirement). Expected
+in the built assembly (117 at `c69366d`; 126 with the nine 20 September migrations, which
+apply in timestamp order 090000 → 170000 with no other ordering requirement). Expected
 configuration rows from the 20 September commits: 3 + 1 page + 9 + 1 + 2 + 2 role page
 permissions, 8 audit receipts (the route page copies its 9 grants without receipts; its
 rollback compares rows instead), one rewritten trigger function
 (`guard_estimated_bom_governance`), two new nullable columns (`OriginOpeningStockLineId`
 on `stock_movements` and `material_issue_lines`) with their backfill of existing opening
-receipts and three rewritten posting functions (#26); zero business rows. `status`
-prints VERIFIED.
+receipts and three rewritten posting functions (#26), eight provenance columns on the two
+opening-stock line tables plus the 22-argument staging overload, and the Actual BOM
+entry origin column with its rewritten fitment, reversal and dossier functions; zero
+business rows. `status` prints VERIFIED.
 
 ## 5. Authentication bootstrap and identities (DBA, then API)
 
@@ -213,7 +215,11 @@ Director authorizes and does not prepare. The count is a physical count of what 
 racks on the cutover date, not a copy of any earlier system's balance.
 
 **What it must contain.** One row per item, warehouse, rack and (where the item is tracked)
-lot or serial, in the `opening-stock` template (`GET /api/v1/master-data/opening-stock/template`):
+lot or serial, in version 2 of the `opening-stock` template — `docs/installation/opening-stock-template-v2.xlsx`
+now, `GET /api/v1/master-data/opening-stock/template` once the database exists. Values are
+**ex-tax**. The optional provenance columns (vendor name, vendor bill number, bill date,
+purchase date, make, model, part number, remarks) are filled where SESS knows them and left
+blank where it does not; they never change the value:
 
 | Column | Rule |
 |---|---|
@@ -224,7 +230,8 @@ lot or serial, in the `opening-stock` template (`GET /api/v1/master-data/opening
 | `LotNumber` | required for batch-tracked items, blank otherwise |
 | `SerialNumber` | required for serial-tracked items; one row per unit with `Quantity` = 1 |
 | `Quantity` | greater than zero; zero-quantity lines are left out, negative is refused |
-| `Rate` | the landed-cost-basis unit rate in rupees, zero or more; the stated legacy value is deliberately not imported and the line value is recomputed as Quantity × Rate |
+| `Unit Value Ex-Tax` | the taxable unit value in rupees without GST, zero or more; the stated legacy value is deliberately not imported and the line value is recomputed as Quantity × Unit Value |
+| provenance columns | optional; declared, not verified; shown in the machine dossier as "declared at opening stock, not verified in this system" |
 
 Items with lot or serial tracking are the rows most likely to be wrong on the day: get the
 serial lists from the racks, not from the old system. A row that fails validation stops
@@ -239,9 +246,10 @@ after it, the rule "company already has movements" applies to PVT LTD for good.
 Check: status POSTED; movement count equals the workbook line count; FIFO layer value
 equals the confirmed total; `GET /api/v1/reports/…` stock and FIFO valuation agree.
 Then the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
-opening-stock unit could be issued at all; the rehearsal now issues and returns opening
-stock. Fitting an opening-stock component into a machine is still not possible (its
-value has no vendor bill); see the findings.
+opening-stock unit could be issued at all; the rehearsal now issues, returns and fits
+opening stock, values the fitment at the confirmed ex-tax value, and shows it in the
+dossier as opening stock. Opening stock consumes before any later receipt of the same
+item (FIFO dates it from the period end above).
 
 ## 14. Close
 
