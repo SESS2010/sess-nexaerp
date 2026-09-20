@@ -119,10 +119,29 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         estimated = await Post<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}/revisions",
             new NewEstimatedBomRevisionRequest(estimated.Version, "Technical Support revises the baseline", "go-live-ebom-revision"));
         Assert.Equal("DRAFT", estimated.Status);
-        // A new revision carries no price: without an accepted bill the preparer must state the values
-        // (opening-stock carrying value is not offered as a default; recorded for the Technical Director).
+        // The revision carries the approved values and offers, never imposes, a suggestion: no bill is
+        // accepted yet, so the opening-stock carrying value is offered (90 and 60). The preparer accepts
+        // it for the legacy component and types 100 for the chamber component; both sources are recorded.
+        var offered = estimated.CurrentRevision.Lines.Single(x => x.CanonicalItemId == purchased.Id);
+        Assert.Equal(90m, offered.SuggestedUnitValue);
+        Assert.Equal("OPENING_STOCK", offered.SuggestedValueSource);
+        Assert.Equal("ENGINEER", offered.ValueSource);
         estimated = await Put<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}", new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version, "Revised quantities",
-            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m), new EstimatedBomLineInput(declared.Id, declared.BaseUomId, 1m, "Legacy component", 60m)], "go-live-ebom-revision-lines"));
+            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m), new EstimatedBomLineInput(declared.Id, declared.BaseUomId, 1m, "Legacy component", UseSuggestedValue: true)], "go-live-ebom-revision-lines"));
+        Assert.Equal(60m, estimated.CurrentRevision.Lines.Single(x => x.CanonicalItemId == declared.Id).EstimatedUnitValue);
+        Assert.Equal("OPENING_STOCK", estimated.CurrentRevision.Lines.Single(x => x.CanonicalItemId == declared.Id).ValueSource);
+        using (var unpriced = await client.PutAsJsonAsync($"/api/v1/design/estimated-boms/{estimated.BomNumber}", new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version, "Unpriced attempt",
+            [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component")], "go-live-ebom-unpriced")))
+        {
+            // A line with neither a typed value nor an accepted suggestion stays unpriced and cannot be submitted.
+            Assert.True(unpriced.IsSuccessStatusCode, await unpriced.Content.ReadAsStringAsync());
+            var unpricedView = JsonSerializer.Deserialize<EstimatedBomView>(await unpriced.Content.ReadAsStringAsync(), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.Null(unpricedView.CurrentRevision.Lines.Single().EstimatedUnitValue);
+            using var refusedSubmit = await client.PostAsJsonAsync($"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit", new EstimatedBomActionRequest(unpricedView.CurrentRevision.Version, "Unpriced", "go-live-ebom-unpriced-submit"));
+            Assert.Equal(HttpStatusCode.Conflict, refusedSubmit.StatusCode);
+            estimated = await Put<EstimatedBomView>(client, $"/api/v1/design/estimated-boms/{estimated.BomNumber}", new ReplaceEstimatedBomLinesRequest(unpricedView.CurrentRevision.Version, "Revised quantities",
+                [new EstimatedBomLineInput(purchased.Id, purchased.BaseUomId, 3m, "Chamber component", 100m), new EstimatedBomLineInput(declared.Id, declared.BaseUomId, 1m, "Legacy component", UseSuggestedValue: true)], "go-live-ebom-revision-lines-2"));
+        }
         Actor("SESS-09", "SERVICE_ENGINEER");
         using (var refused = await client.PostAsJsonAsync($"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit", new EstimatedBomActionRequest(estimated.CurrentRevision.Version, "Not a preparer", "go-live-ebom-refused")))
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
@@ -210,7 +229,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var provisional = Assert.Single(actual.Entries, x => x.ComponentFitmentId == grnFitment.Id);
         Assert.Equal("PROVISIONAL_UNBILLED", provisional.ValuationStatus);
         Assert.NotNull(provisional.GoodsReceiptLineId);
-        Assert.Equal(150m, actual.TotalAcceptedValue);        // FAT readiness: QC reconciles custody; everything issued is fitted or returned.
+        Assert.Equal(150m, actual.TotalAcceptedValue);
+        // The commercial baseline is the first approved revision, where both values were typed; the later
+        // revision that accepted the opening-stock value is engineering, not the offer baseline.
+        Assert.All(actual.CommercialVariance.Lines, x => Assert.Equal("ENGINEER", x.BaselineValueSource));        // FAT readiness: QC reconciles custody; everything issued is fitted or returned.
         Actor("SESS-33", "QC_MANAGER");
         var fat = await Post<FatReconciliationView>(client, $"/api/v1/production/job-orders/{job.Id}/fat-readiness/reconcile", new ReconcileJobOrderFatRequest("Issue custody fitted or returned", "go-live-fat-reconcile"));
         Assert.Equal("READY", fat.Result);

@@ -12,7 +12,8 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 public sealed partial class EfEstimatedBomService
 {
     private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks,
-        decimal? EstimatedUnitValue, bool EstimatedUnitValueOverridden);
+        decimal? EstimatedUnitValue, bool EstimatedUnitValueOverridden, string? ValueSource);
+    internal sealed record SuggestedValue(decimal UnitValue, string Source);
 
     private async Task<IReadOnlyList<MaterialLine>> MaterializeLinesAsync(Guid companyId, IReadOnlyList<EstimatedBomLineInput> lines, CancellationToken ct)
     {
@@ -40,9 +41,16 @@ public sealed partial class EfEstimatedBomService
                     ((x.FromUomId == uom.Id && x.ToUomId == baseUom.Id) || (x.FromUomId == baseUom.Id && x.ToUomId == uom.Id)), ct);
                 if (!conversion) throw new StoresValidationException($"No effective approved UOM conversion relates {uom.Code} and {baseUom.Code}.");
             }
-            var value = line.EstimatedUnitValue ?? await ResolveDefaultEstimatedUnitValueAsync(companyId, item.Id, uom.Id, ct);
+            // Nothing is priced silently: the engineer types a value (ENGINEER) or accepts the offered one.
+            decimal? value = line.EstimatedUnitValue; string? source = line.EstimatedUnitValue.HasValue ? "ENGINEER" : null;
+            if (!line.EstimatedUnitValue.HasValue && line.UseSuggestedValue)
+            {
+                var suggestion = await SuggestUnitValueAsync(companyId, item.Id, uom.Id, ct)
+                    ?? throw new StoresConflictException($"Item {item.ItemCode} has no accepted-bill rate and no opening-stock carrying value to suggest; state the EstimatedUnitValue.");
+                value = suggestion.UnitValue; source = suggestion.Source;
+            }
             result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim(),
-                value, line.EstimatedUnitValue.HasValue));
+                value, source == "ENGINEER", source));
         }
         return result;
     }
@@ -66,7 +74,7 @@ public sealed partial class EfEstimatedBomService
             revision.Lines.Add(new EstimatedBomLine { CompanyId = companyId, EstimatedBomRevisionId = revision.Id,
                 LineNumber = ++number, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
                 Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue,
-                EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden, CreatedBy = user.LoginId });
+                EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden, ValueSource = line.ValueSource, CreatedBy = user.LoginId });
     }
 
     private static EstimatedBomRevision Current(EstimatedBom bom) =>
@@ -81,19 +89,32 @@ public sealed partial class EfEstimatedBomService
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminal, ct);
             if (!item.IsActive) throw new StoresConflictException($"Canonical item {item.ItemCode} is inactive; submission is blocked.");
             if (!line.EstimatedUnitValue.HasValue)
-                throw new StoresConflictException($"Item {item.ItemCode} has no accepted-bill purchase rate; provide an EstimatedUnitValue override before submission.");
+                throw new StoresConflictException($"Item {item.ItemCode} is unpriced; state an EstimatedUnitValue or accept the suggested value before submission.");
         }
     }
 
-    private async Task FreezeEstimatedValuesAsync(EstimatedBomRevision revision, CancellationToken ct)
+    // Values are what the preparer typed or accepted at preparation; approval freezes them as they are.
+    private static Task FreezeEstimatedValuesAsync(EstimatedBomRevision revision, CancellationToken ct)
     {
-        foreach (var line in revision.Lines.Where(x => !x.EstimatedUnitValueOverridden))
-        {
-            line.EstimatedUnitValue = await ResolveDefaultEstimatedUnitValueAsync(
-                revision.CompanyId, line.ItemId, line.UomId, ct)
-                ?? throw new StoresConflictException("An Estimated BOM line lost its accepted-bill purchase rate after submission; return it to Draft and provide an override.");
-            line.EstimatedUnitValueOverridden = false;
-        }
+        if (revision.Lines.Any(x => !x.EstimatedUnitValue.HasValue))
+            throw new StoresConflictException("An unpriced Estimated BOM line cannot be approved; return it to Draft.");
+        return Task.CompletedTask;
+    }
+
+    // The offered value: the last accepted bill's landed rate when one exists, else the opening-stock
+    // carrying value Accounts confirmed. Offered, never imposed; the accepted source is recorded.
+    internal async Task<SuggestedValue?> SuggestUnitValueAsync(Guid companyId, Guid itemId, Guid lineUomId, CancellationToken ct)
+    {
+        var bill = await ResolveDefaultEstimatedUnitValueAsync(companyId, itemId, lineUomId, ct);
+        if (bill.HasValue) return new(bill.Value, "LAST_ACCEPTED_BILL");
+        var terminalId = await TerminalItemIdAsync(itemId, ct);
+        var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+        var opening = await db.OpeningStockLines.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && x.ItemId == terminalId && x.OpeningStock!.Status == "POSTED")
+            .OrderByDescending(x => x.OpeningStock!.PeriodEnd).ThenByDescending(x => x.LineNumber)
+            .Select(x => new { x.UnitRate, x.OpeningStock!.PeriodEnd }).FirstOrDefaultAsync(ct);
+        if (opening is null) return null;
+        return new(await ConvertBaseUnitValueAsync(opening.UnitRate, item.BaseUomId, lineUomId, opening.PeriodEnd, item.ItemCode, ct), "OPENING_STOCK");
     }
 
     private async Task<decimal?> ResolveDefaultEstimatedUnitValueAsync(Guid companyId, Guid itemId, Guid lineUomId, CancellationToken ct)
@@ -186,9 +207,10 @@ public sealed partial class EfEstimatedBomService
         {
             var original = items[line.ItemId]; var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
             var terminal = terminalId == original.Id ? original : await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+            var suggested = revision.Status == "DRAFT" ? await SuggestUnitValueAsync(bom.CompanyId, terminal.Id, line.UomId, ct) : null;
             lines.Add(new(line.Id, line.LineNumber, original.Id, original.ItemCode, terminal.Id, terminal.ItemCode,
                 terminal.IsActive, terminal.ApprovalStatus, line.UomId, uoms[line.UomId].Code, line.Quantity, line.Remarks,
-                line.EstimatedUnitValue, line.EstimatedUnitValueOverridden, "INR"));
+                line.EstimatedUnitValue, line.EstimatedUnitValueOverridden, "INR", line.ValueSource, suggested?.UnitValue, suggested?.Source));
         }
         var canonical = new List<EstimatedBomCanonicalLineView>();
         foreach (var group in lines.GroupBy(x => x.CanonicalItemId))

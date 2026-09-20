@@ -44,7 +44,7 @@ public sealed partial class NexaErpDbContext
             e.HasAlternateKey(x => new { x.CompanyId, x.Id });
             e.HasIndex(x => new { x.EstimatedBomRevisionId, x.LineNumber }).IsUnique();
             e.HasIndex(x => new { x.CompanyId, x.ItemId });
-            e.Property(x => x.Quantity).HasPrecision(24, 6);
+            e.Property(x => x.Quantity).HasPrecision(24, 6); e.Property(x => x.ValueSource).HasMaxLength(30);
             e.Property(x => x.EstimatedUnitValue).HasPrecision(20, 6);
             e.ToTable(t => t.HasCheckConstraint("CK_estimated_bom_line_value", "\"EstimatedUnitValue\" IS NULL OR \"EstimatedUnitValue\">=0"));
             e.Property(x => x.Remarks).HasMaxLength(1000);

@@ -236,7 +236,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             .SingleAsync(x => x.CompanyId == companyId && x.Id == baselineId && x.Status == "APPROVED", ct);
         return await VarianceAsync("COMMERCIAL_ESTIMATED_BOM", revision.Id, revision.RevisionNumber,
             revision.ApprovedAt ?? revision.CreatedAt,
-            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.EstimatedUnitValue)), actual, ct);
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.EstimatedUnitValue, x.ValueSource)), actual, ct);
     }
 
     private async Task<ActualBomBaselineVarianceView> VarianceAsync(string type, Guid revisionId,
@@ -244,6 +244,8 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         IReadOnlyList<ActualBomEntryView> actualLines, CancellationToken ct)
     {
         var baseline = new Dictionary<Guid, (decimal Quantity, decimal Value, bool Available)>();
+        // A baseline valued from opening stock and one the engineer typed are different claims.
+        var sources = new Dictionary<Guid, string?>();
         foreach (var line in baselineLines)
         {
             var itemId = await TerminalItemIdAsync(line.ItemId, ct);
@@ -251,6 +253,8 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             var quantity = await ToBaseQuantityAsync(line.Quantity, line.UomId, item.BaseUomId,
                 DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
             var prior = baseline.GetValueOrDefault(itemId);
+            sources[itemId] = !sources.TryGetValue(itemId, out var priorSource) ? line.ValueSource
+                : string.Equals(priorSource, line.ValueSource, StringComparison.Ordinal) ? priorSource : "MIXED";
             baseline[itemId] = (prior.Quantity + quantity,
                 prior.Value + (line.UnitValue.HasValue ? line.Quantity * line.UnitValue.Value : 0),
                 (prior.Available || prior.Quantity == 0) && line.UnitValue.HasValue);
@@ -276,7 +280,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             return new ActualBomVarianceLineView(id, item.ItemCode, item.Name, item.BaseUomId,
                 uoms[item.BaseUomId], baselineValue.Quantity, actualValue.Quantity,
                 actualValue.Quantity - baselineValue.Quantity, frozenValue, actualValue.Value,
-                frozenValue.HasValue ? actualValue.Value - frozenValue.Value : null);
+                frozenValue.HasValue ? actualValue.Value - frozenValue.Value : null, sources.GetValueOrDefault(id));
         }).OrderBy(x => x.ItemCode).ToArray();
         var available = baseline.Values.All(x => x.Available);
         var totalBaseline = available ? baseline.Values.Sum(x => x.Value) : (decimal?)null;
@@ -313,7 +317,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
     private sealed record ActualBomValuationProjection(Guid ActualBomEntryId, Guid VendorBillLineId,
         string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
         decimal TotalAcceptedValue, DateTimeOffset CreatedAt);
-    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity, decimal? UnitValue);
+    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity, decimal? UnitValue, string? ValueSource = null);
     private IQueryable<ComponentFitment> Query() => db.ComponentFitments.AsNoTracking()
         .Include(x => x.JobOrder).Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.Item)
         .Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.MaterialIssue)

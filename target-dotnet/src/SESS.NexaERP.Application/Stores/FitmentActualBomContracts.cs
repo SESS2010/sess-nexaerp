@@ -27,7 +27,8 @@ public sealed record ActualBomEntryView(Guid Id, string EntryKind, Guid? Compone
 
 public sealed record ActualBomVarianceLineView(Guid ItemId, string ItemCode, string ItemName,
     Guid BaseUomId, string BaseUomCode, decimal BaselineQuantity, decimal ActualQuantity,
-    decimal QuantityVariance, decimal? BaselineValue, decimal ActualAcceptedValue, decimal? ValueVariance);
+    decimal QuantityVariance, decimal? BaselineValue, decimal ActualAcceptedValue, decimal? ValueVariance,
+    string? BaselineValueSource = null);
 
 public sealed record ActualBomBaselineVarianceView(string BaselineType, Guid BaselineRevisionId,
     int BaselineRevisionNumber, bool BaselineCostAvailable, decimal? BaselineValue,

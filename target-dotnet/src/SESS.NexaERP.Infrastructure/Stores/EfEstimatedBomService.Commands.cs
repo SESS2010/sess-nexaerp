@@ -61,7 +61,7 @@ public sealed partial class EfEstimatedBomService
         var lineNumber = 0;
         var lineJson = JsonSerializer.Serialize(material.Select(x => new { lineNumber = ++lineNumber, itemId = x.ItemId,
             uomId = x.UomId, quantity = x.Quantity, remarks = x.Remarks, estimatedUnitValue = x.EstimatedUnitValue,
-            estimatedUnitValueOverridden = x.EstimatedUnitValueOverridden }));
+            estimatedUnitValueOverridden = x.EstimatedUnitValueOverridden, valueSource = x.ValueSource }));
         var replaced = await db.Database.SqlQuery<int>($"SELECT advance.replace_estimated_bom_draft_lines({company.Id},{company.Code},{revision.Id},{request.ExpectedVersion},{Actor()},{user.IdentityIssuer!},{user.IdentitySubject!},{user.RoleCode},{user.LoginId},{lineJson}::jsonb) AS \"Value\"").SingleAsync(ct);
         if (replaced != material.Count) throw new InvalidOperationException("Controlled Estimated BOM draft replacement returned an unexpected line count.");
         await audit.WriteAsync("Design", "EstimatedBom.Update", nameof(EstimatedBom), bom.Id.ToString(), null,
@@ -134,11 +134,12 @@ public sealed partial class EfEstimatedBomService
             IdempotencyKey = key, ContentFingerprint = Fingerprint(request), CreatedBy = user.LoginId };
         foreach (var line in source.Lines.OrderBy(x => x.LineNumber))
         {
-            var currentValue = await ResolveDefaultEstimatedUnitValueAsync(company.Id, line.ItemId, line.UomId, ct);
+            // The new revision carries the approved values and their sources; the preparer re-prices
+            // by typing or by accepting the current suggestion, never by silent refresh.
             revision.Lines.Add(new EstimatedBomLine { CompanyId = company.Id, EstimatedBomRevisionId = revision.Id,
                 LineNumber = line.LineNumber, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
-                Remarks = line.Remarks, EstimatedUnitValue = currentValue, EstimatedUnitValueOverridden = false,
-                CreatedBy = user.LoginId });
+                Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue, EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden,
+                ValueSource = line.ValueSource, CreatedBy = user.LoginId });
         }
         bom.Revisions.Add(revision); db.EstimatedBomRevisions.Add(revision);
         bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT"; bom.Version = checked(bom.Version + 1);
