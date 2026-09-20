@@ -44,6 +44,9 @@ public static partial class Rev869AConfigurationEndpoints
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
         group.MapGet("/warehouse-condition-locations", ListWarehouseConditionLocations).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.View);
         group.MapPost("/warehouse-condition-locations/{locationId:guid}/close", CloseWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Deactivate);
+        group.MapPost("/store-category-routes", CreateStoreCategoryRoute).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.Create);
+        group.MapGet("/store-category-routes", ListStoreCategoryRoutes).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.View);
+        group.MapPost("/store-category-routes/{routeId:guid}/close", CloseStoreCategoryRoute).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.Deactivate);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         group.MapGet("/qc-inspection-policies", ListQcPolicies).RequirePagePermission("qc.inspection-policies", PagePermissionActions.View);
         group.MapPost("/qc-inspection-policies/{policyId:guid}/approve", ApproveQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Approve);
