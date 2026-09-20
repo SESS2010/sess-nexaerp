@@ -325,8 +325,18 @@ that only SQL could ever create; it belongs in the configuration-export requirem
   rehearsal has SESS-04 open and submit a revision under real page permissions and refuses
   a plain Service Engineer. Observed on the way: a new Estimated BOM revision carries no
   price, and an item with no accepted-bill purchase rate needs a stated value before
-  submission — the opening-stock carrying value is not offered as the default. For the
-  Technical Director: should it be?
+  submission. Decided 20 September (evening): **offer, never impose, and record which was
+  used.** The line view now carries `SuggestedUnitValue` / `SuggestedValueSource` (the last
+  accepted bill's landed rate when one exists, else the opening-stock carrying value);
+  `EstimatedBomLineInput.UseSuggestedValue` accepts it; a typed value records `ENGINEER`;
+  nothing is prefilled silently (the previous silent fill from the last accepted bill, and
+  the silent refresh at approval, are gone). `ValueSource` is stored
+  (`20260920200000_EstimatedBomValueSource`, existing lines classified from what was
+  recorded; the draft-line replacement function rewritten from its installed body), shown on
+  the line, and carried into the Actual BOM variance lines as `BaselineValueSource`
+  (`ENGINEER`, `LAST_ACCEPTED_BILL`, `OPENING_STOCK`, or `MIXED` when one item's lines
+  differ). The rehearsal accepts the opening value for one line, types the other, proves an
+  unpriced line cannot be submitted, and reads the sources back.
 - No SALES_ENGINEER or SALES_HEAD is seeded; the IT Manager (and TD/MD) hold
   `sales.customer-po`, so the IT Manager creates the customer PO.
 - **Witness-gated tests.** The routine suite compiles without eight gates. What each gate
@@ -341,8 +351,13 @@ that only SQL could ever create; it belongs in the configuration-export requirem
     rehearsal now covers machine delivery and partial fitment/return itself; the rest is
     covered only when the gate is on. They are gated for runtime (each is a full ten-minute
     flow), not because they are optional: the routine suite would roughly triple.
-    Recommended: a scheduled run with `-p:WorkflowWitness=true` (nightly), and moving
-    supplier invoice, PO amendment and the two dashboards into the rehearsal.
+    Decided 20 September (evening): a nightly run and the four day-one flows moved into the
+    rehearsal. `tools/Run-WorkflowWitness.ps1` builds and runs the `WorkflowWitness`,
+    `ConcurrencyWitness` and `MigrationLifecycleWitness` gates one after another (each is a
+    compile-time constant, so each gets its own build), writes TRX and logs under
+    `local-evidence/nightly/<date>/`, and exits non-zero if any gate fails; the `schtasks`
+    line at the top of the script registers it. All three gates compile at `HEAD`; the first
+    nightly tells whether they are green.
   - `ConcurrencyWitness` (15 files): concurrent GRN, MIR approval, PR approval, QC
     concessions, role change, serial issue, vendor bill and payment, opening stock. Day-one
     paths under load; gated for runtime and flakiness. Same recommendation.
