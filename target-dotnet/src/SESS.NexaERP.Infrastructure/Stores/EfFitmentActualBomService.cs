@@ -148,7 +148,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             throw new StoresConflictException("Actual BOM variance requires the Job Order's pinned Production BOM revision.");
         var entries = await db.ActualBomEntries.AsNoTracking()
             .Where(x => x.CompanyId == company.Id && x.ActualBomId == bom.Id)
-            .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial)
+            .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial).Include(x => x.OpeningStockLine)
             .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(ct);
         var valuationRows = await LandedValuationsAsync(company.Id, bom.Id, ct);
         var valuations = valuationRows.GroupBy(x => x.ActualBomEntryId).ToDictionary(x => x.Key,
@@ -186,13 +186,15 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
                 valuedAt = originalValuation.ValuedAt;
                 billNumber = originalValuation.BillNumber;
             }
-            var status = billLineId.HasValue ? "LANDED_ACCEPTED" : "PROVISIONAL_UNBILLED";
+            // Valuation resolves by origin: a GRN line is valued from its accepted bill, an opening
+            // stock line from its Accounts-confirmed ex-tax value (never from declared provenance).
+            var status = x.OpeningStockLineId.HasValue ? "OPENING_CONFIRMED" : billLineId.HasValue ? "LANDED_ACCEPTED" : "PROVISIONAL_UNBILLED";
             return new ActualBomEntryView(x.Id, x.EntryKind, x.ComponentFitmentId,
                 x.ComponentFitmentReversalId, x.MaterialIssueLineId, x.ItemId, x.Item!.ItemCode,
                 x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase, x.InventoryProvenanceLayerId,
                 x.InventoryLotId, x.InventorySerialId, x.InventorySerial?.StoredSerialNumber,
                 x.GoodsReceiptLineId, x.GrnNumberSnapshot, billLineId, billNumber, status,
-                material, charges, total, valuedAt, x.OccurredAt);
+                material, charges, total, valuedAt, x.OccurredAt, x.OpeningStockLineId, x.OpeningStockLine?.LineReference);
         }).ToArray();
         var operational = await OperationalVarianceAsync(company.Id,
             job.PinnedProductionBomRevisionId.Value, views, ct);

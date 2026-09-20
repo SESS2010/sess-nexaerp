@@ -77,8 +77,10 @@ public sealed class ActualBomEntry
     public InventoryLot? InventoryLot { get; set; }
     public Guid? InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
-    public Guid GoodsReceiptLineId { get; set; }
+    public Guid? GoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+    public Guid? OpeningStockLineId { get; set; }
+    public OpeningStockLine? OpeningStockLine { get; set; }
     public string GrnNumberSnapshot { get; set; } = string.Empty;
     public Guid? VendorBillLineId { get; set; }
     public VendorBillLine? VendorBillLine { get; set; }

@@ -57,7 +57,7 @@ WITH RECURSIVE target AS (
  r."AllocatedChargeValue"+coalesce(v.charges,0)-coalesce(rv.charges,0) AS charges,
  coalesce((SELECT po."CurrencyCode" FROM advance.goods_receipt_lines gl JOIN advance.goods_receipts g ON g."CompanyId"=gl."CompanyId" AND g."Id"=gl."GoodsReceiptId"
  JOIN advance.purchase_orders po ON po."CompanyId"=g."CompanyId" AND po."Id"=g."PurchaseOrderId"
- WHERE gl."CompanyId"=r."CompanyId" AND gl."Id"=r."GoodsReceiptLineId"),'UNVALUED') AS currency
+ WHERE gl."CompanyId"=r."CompanyId" AND gl."Id"=r."GoodsReceiptLineId"),CASE WHEN r."OpeningStockLineId" IS NOT NULL THEN 'INR' ELSE 'UNVALUED' END) AS currency
  FROM component_rows r JOIN advance.uoms u ON u."Id"=r."UomId"
  LEFT JOIN LATERAL(SELECT sum("acceptedMaterialValue") material,sum("allocatedChargeValue") charges FROM valuation WHERE "actualBomEntryId"=r."Id") v ON true
  LEFT JOIN LATERAL(SELECT sum(vv."acceptedMaterialValue") material,sum(vv."allocatedChargeValue") charges
@@ -74,6 +74,7 @@ SELECT jsonb_build_object('machineSerial',r."MachineSerial",'itemId',r."ItemId",
  'vendors',(SELECT string_agg(DISTINCT g->>'Vendor','; ') FROM jsonb_array_elements(r.payload->'SourceGrns') g),
  'bills',(SELECT string_agg(b->>'BillNumber','; ') FROM jsonb_array_elements(r.payload->'SourceGrns') g CROSS JOIN LATERAL jsonb_array_elements(g->'AcceptedBills') b),
  'qcDocuments',(SELECT string_agg(q->>'InspectionNumber','; ') FROM jsonb_array_elements(r.payload->'SourceGrns') g CROSS JOIN LATERAL jsonb_array_elements(g->'QcHistory') q),
+ 'provenance',CASE WHEN r."OpeningStockLineId" IS NOT NULL THEN (SELECT CASE WHEN o."VendorBillNumber" IS NOT NULL THEN 'Bill '||o."VendorBillNumber"||' - declared at opening stock, not verified in this system' ELSE 'Opening stock, authorised '||to_char(s."AuthorizedAt" AT TIME ZONE @report_timezone,'DD Mon YYYY')||' by '||coalesce(emp."EmployeeCode",'?') END FROM advance.opening_stock_lines o JOIN advance.opening_stocks s ON s."CompanyId"=o."CompanyId" AND s."Id"=o."OpeningStockId" LEFT JOIN advance.employees emp ON emp."Id"=s."AuthorizedByEmployeeId" WHERE o."CompanyId"=r."CompanyId" AND o."Id"=r."OpeningStockLineId") ELSE coalesce((SELECT 'Bill '||bill."BillNumber"||' - accepted, matched'||CASE WHEN coalesce(paid.total,0)>=bill."TotalLandedValue" THEN ', paid' WHEN coalesce(paid.total,0)>0 THEN ', part-paid' ELSE ', unpaid' END FROM advance.vendor_bill_lines bl JOIN advance.vendor_bills bill ON bill."CompanyId"=bl."CompanyId" AND bill."Id"=bl."VendorBillId" AND bill."Status"='ACCEPTED' LEFT JOIN LATERAL (SELECT sum(pa."Amount") AS total FROM advance.vendor_payment_allocations pa WHERE pa."CompanyId"=bill."CompanyId" AND pa."VendorBillId"=bill."Id") paid ON true WHERE bl."CompanyId"=r."CompanyId" AND bl."GoodsReceiptLineId"=r."GoodsReceiptLineId" ORDER BY bill."DecidedAt" DESC NULLS LAST LIMIT 1),'GRN '||r."GrnNumberSnapshot"||' - bill not yet accepted') END,
  'evidencePart',part.n,'evidence',CASE WHEN part.n=0 THEN '' ELSE substring(r.payload::text FROM (part.n-1)*10000+1 FOR 10000) END) AS detail,
  jsonb_build_object('quantity',CASE WHEN part.n=0 THEN r."QuantityBase" ELSE 0 END,
  'materialValue',CASE WHEN part.n=0 THEN r.material ELSE 0 END,'allocatedCharges',CASE WHEN part.n=0 THEN r.charges ELSE 0 END,

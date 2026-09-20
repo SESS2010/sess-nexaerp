@@ -64,6 +64,7 @@ public sealed partial class NexaErpDbContext
             e.HasOne(x => x.InventoryLot).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventoryLotId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.InventorySerial).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.GoodsReceiptLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.GoodsReceiptLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.OpeningStockLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.OpeningStockLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.VendorBillLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.VendorBillLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<ActualBomValuationAdjustment>(e =>
