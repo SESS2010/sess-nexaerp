@@ -142,6 +142,13 @@ internal static class RequestInputReachabilityManifest
         "SESS.NexaERP.Application.Purchase.UpdatePurchaseRequisitionRequest.Version",
         "SESS.NexaERP.Application.Rev869A.ChangeVendorQualificationLifecycleRequest.ExpectedVersion",
         "SESS.NexaERP.Application.Rev869A.CloseWarehouseConditionLocationRequest.Version",
+        // Stores Manager GET /api/v1/rev869a/configuration/store-category-routes returns Version;
+        // GET /warehouse-condition-locations supplies the three location ids (masters.warehouse-condition-locations:view).
+        // FreshCompanyReachesAvailableStockThroughSeededStoresAuthority exercises both reads.
+        "SESS.NexaERP.Application.Rev869A.CloseStoreCategoryRouteRequest.Version",
+        "SESS.NexaERP.Application.Rev869A.CreateStoreCategoryRouteRequest.DefaultAcceptedConditionLocationId",
+        "SESS.NexaERP.Application.Rev869A.CreateStoreCategoryRouteRequest.PendingReturnConditionLocationId",
+        "SESS.NexaERP.Application.Rev869A.CreateStoreCategoryRouteRequest.QcHoldConditionLocationId",
         "SESS.NexaERP.Application.Rev869A.CreateOperationalScopeRequest.RackBinId",
         "SESS.NexaERP.Application.Rev869A.CreateTaxGstSettingRequest.SupersedesTaxGstSettingId",
         "SESS.NexaERP.Application.Rev869A.CreateWarehouseConditionLocationRequest.RackBinId",
