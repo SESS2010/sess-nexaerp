@@ -28,7 +28,10 @@ public sealed class OpeningStockTemplateTests
             Assert.Equal("INV-2024-0892", data.Cell(2, 10).GetString());
             Assert.Equal("No purchase history", data.Cell(3, 16).GetString());
         }
-        var target = Path.Combine(AdvanceMigrationSqlSyntaxTests.FindRepositoryRoot(), "docs", "installation", "opening-stock-template-v2.xlsx");
+        // The delivered copy lives in docs/installation/opening-stock-template-v2.xlsx; the run writes its
+        // own copy to local-evidence so the tracked workbook does not churn on every run.
+        var target = Path.Combine(AdvanceMigrationSqlSyntaxTests.FindRepositoryRoot(), "local-evidence", "opening-stock-template", "opening-stock-template-v2.xlsx");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         File.WriteAllBytes(target, bytes);
     }
 }
