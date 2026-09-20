@@ -154,7 +154,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     && row.InventorySerialId == serialId && row.ConditionCode == "AVAILABLE"
                     && row.CustodyAssignment!.CustodyAccount!.CustodyType == "WAREHOUSE")
                     .SumAsync(row => row.QuantityIn - row.QuantityOut),
-                Consumption = await state.FifoCostConsumptions.Where(row => lineIds.Contains(row.MaterialIssueLineId))
+                Consumption = await state.FifoCostConsumptions.Where(row => row.MaterialIssueLineId != null && lineIds.Contains(row.MaterialIssueLineId.Value))
                     .Select(row => new { row.FifoInventoryCostLayerId, row.Quantity, row.ConsumedValue }).ToListAsync(),
                 FifoBalances = await state.FifoInventoryCostLayers.Where(row => row.CompanyId == companyId && row.ItemId == itemId)
                     .Select(row => new { row.Id, Remaining = row.QuantityReceived - (state.FifoCostConsumptions

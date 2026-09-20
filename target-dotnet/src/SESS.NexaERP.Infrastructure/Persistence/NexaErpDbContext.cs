@@ -100,6 +100,7 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureFitmentActualBom(modelBuilder);
         ConfigureJobOrderFatReadiness(modelBuilder);
         ConfigureOpeningStock(modelBuilder);
+        ConfigureStockAdjustments(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
         ConfigureInventoryOwnershipCustody(modelBuilder);
         ConfigureInventoryProvenanceGenealogy(modelBuilder);

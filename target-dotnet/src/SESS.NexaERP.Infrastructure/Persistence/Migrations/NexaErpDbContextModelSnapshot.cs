@@ -50272,6 +50272,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("OriginOpeningStockLineId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("OriginStockAdjustmentLineId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("OwnershipAccountId")
                         .HasColumnType("uuid");
 
@@ -50314,6 +50317,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(40)");
 
                     b.Property<Guid?>("ReversesStockMovementId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("StockAdjustmentLineId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("StockPostingBatchId")
@@ -57682,7 +57688,10 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("FifoInventoryCostLayerId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("MaterialIssueLineId")
+                    b.Property<Guid?>("MaterialIssueLineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("StockAdjustmentLineId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Quantity")
@@ -57730,6 +57739,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("GoodsReceiptLineId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("StockAdjustmentLineId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("ItemId")
                         .HasColumnType("uuid");
 
@@ -57766,7 +57778,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.ToTable("fifo_inventory_cost_layers", "advance", t =>
                         {
-                            t.HasCheckConstraint("CK_fifo_cost_layer", "\"QuantityReceived\">0 AND \"UnitCost\">=0 AND \"LayerValue\">=0 AND \"CostBasis\" IN ('PO_PROVISIONAL_IDENTICAL','OPENING_LANDED') AND num_nonnulls(\"GoodsReceiptLineId\",\"OpeningStockLineId\")=1");
+                            t.HasCheckConstraint("CK_fifo_cost_layer", "\"QuantityReceived\">0 AND \"UnitCost\">=0 AND \"LayerValue\">=0 AND \"CostBasis\" IN ('PO_PROVISIONAL_IDENTICAL','OPENING_LANDED','ADJUSTMENT_STATED') AND num_nonnulls(\"GoodsReceiptLineId\",\"OpeningStockLineId\",\"StockAdjustmentLineId\")=1");
                         });
                 });
 
@@ -63643,6 +63655,241 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.ToTable("qc_inspection_serial_dispositions", "advance");
                 });
 
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.StockAdjustment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AdjustmentNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ApprovalSnapshotJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<Guid?>("BackdateEvidenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BackdateReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CounterEmployeeIdsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<int>("CurrentRevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DaysBackdated")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("EffectiveDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("InventoryPeriodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PostedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PostedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PostingIdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PostingRequestFingerprint")
+                        .HasColumnType("character(64)");
+
+                    b.Property<string>("ReasonKind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("RecordedByEmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RecordedRoleAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Remarks")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("character(64)");
+
+                    b.Property<Guid?>("ReversesStockAdjustmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("StockPostingBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("stock_adjustments", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.StockAdjustmentLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AcceptedLineValue")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LotNumber")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("QuantityChange")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("StockAdjustmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("UnitValue")
+                        .HasPrecision(24, 6)
+                        .HasColumnType("numeric(24,6)");
+
+                    b.Property<Guid>("WarehouseConditionLocationId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("stock_adjustment_lines", "advance");
+                });
+
+            modelBuilder.Entity("SESS.NexaERP.Domain.Stores.StockAdjustmentDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("RoleAssignmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RoleAssignmentType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RoleCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("StockAdjustmentId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("stock_adjustment_decisions", "advance");
+                });
+
             modelBuilder.Entity("SESS.NexaERP.Domain.Stores.StockPostingBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -63717,6 +63964,9 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(30)");
 
                     b.Property<Guid?>("QcInspectionRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("StockAdjustmentId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ReferenceNumber")
@@ -67466,8 +67716,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("CompanyId", "MaterialIssueLineId")
                         .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("FifoInventoryCostLayer");
 

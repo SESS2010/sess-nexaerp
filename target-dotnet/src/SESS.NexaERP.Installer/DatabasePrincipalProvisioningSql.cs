@@ -297,6 +297,11 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text) TO nexa_erp_runtime';
           END IF;
+          IF to_regprocedure('advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text),advance.fifo_carrying_value_preview(uuid,uuid,numeric) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text),advance.fifo_carrying_value_preview(uuid,uuid,numeric) TO nexa_erp_runtime';
+            EXECUTE 'GRANT SELECT,INSERT,UPDATE ON advance.stock_adjustments,advance.stock_adjustment_lines,advance.stock_adjustment_decisions TO nexa_erp_runtime';
+          END IF;
           IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regprocedure('advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
             IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NULL
@@ -702,6 +707,15 @@ internal static class DatabasePrincipalProvisioningSql
                   OR has_function_privilege('nexa_erp_bootstrap','advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)','EXECUTE')
                   OR has_function_privilege('nexa_erp_migration','advance.post_material_return_acceptance(uuid,uuid,text,text,text,uuid,text)','EXECUTE')) THEN
             RAISE EXCEPTION 'Controlled Material Return acceptance function ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)') IS NOT NULL
+             AND (NOT has_function_privilege('nexa_erp_runtime','advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_migration','advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)','EXECUTE')
+                  OR NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text)') AND p.prosecdef)
+                  OR NOT has_function_privilege('nexa_erp_runtime','advance.fifo_carrying_value_preview(uuid,uuid,numeric)','EXECUTE')
+                  OR has_function_privilege('nexa_erp_bootstrap','advance.fifo_carrying_value_preview(uuid,uuid,numeric)','EXECUTE')) THEN
+            RAISE EXCEPTION 'Controlled stock adjustment posting function ACL is invalid.';
           END IF;
 
           IF EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase')

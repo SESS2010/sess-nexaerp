@@ -29,6 +29,7 @@ public sealed class StockPostingBatch : CompanyScopedAuditableEntity
     public Guid? ComponentFitmentId { get; set; }
     public ComponentFitment? ComponentFitment { get; set; }
     public Guid? OpeningStockId { get; set; }
+    public Guid? StockAdjustmentId { get; set; }
     public OpeningStock? OpeningStock { get; set; }
     public Guid? ReversesPostingBatchId { get; set; }
     public StockPostingBatch? ReversesPostingBatch { get; set; }

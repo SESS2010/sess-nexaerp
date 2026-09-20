@@ -194,7 +194,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var lineIds = new[] { firstInput.LineId,secondInput.LineId };
         var state = await Query(options, async db => new
         {
-            Consumptions = await db.FifoCostConsumptions.Where(row => lineIds.Contains(row.MaterialIssueLineId))
+            Consumptions = await db.FifoCostConsumptions.Where(row => row.MaterialIssueLineId != null && lineIds.Contains(row.MaterialIssueLineId.Value))
                 .Select(row => new { row.MaterialIssueLineId,row.FifoInventoryCostLayerId,row.Quantity,row.UnitCost,row.ConsumedValue }).ToListAsync(),
             Remainders = (await ReadRemaining(options)).Select(x=>x.Remaining).ToList()
         });

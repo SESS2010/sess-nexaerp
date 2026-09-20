@@ -134,6 +134,7 @@ public sealed class FifoInventoryCostLayer
     public Guid? GoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
     public Guid? OpeningStockLineId { get; set; }
+    public Guid? StockAdjustmentLineId { get; set; }
     public OpeningStockLine? OpeningStockLine { get; set; }
     public Guid ItemId { get; set; }
     public Item? Item { get; set; }
@@ -152,8 +153,9 @@ public sealed class FifoCostConsumption
     public Guid CompanyId { get; set; }
     public Guid FifoInventoryCostLayerId { get; set; }
     public FifoInventoryCostLayer? FifoInventoryCostLayer { get; set; }
-    public Guid MaterialIssueLineId { get; set; }
+    public Guid? MaterialIssueLineId { get; set; }
     public MaterialIssueLine? MaterialIssueLine { get; set; }
+    public Guid? StockAdjustmentLineId { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitCost { get; set; }
     public decimal ConsumedValue { get; set; }
