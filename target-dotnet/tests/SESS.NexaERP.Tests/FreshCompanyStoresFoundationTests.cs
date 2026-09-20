@@ -9,6 +9,7 @@ using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Inventory;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Application.Reporting;
 using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Masters;
@@ -253,7 +254,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     // permissions and real operational scopes: vendor, vendor qualification, GST rule,
     // QC policy, then requisition -> RFQ -> quotation -> technical verification ->
     // comparison -> PO -> gate entry -> GRN -> QC acceptance into Stores' AVAILABLE location.
-    private sealed record FreshReceipt(Guid VendorId, SESS.NexaERP.Domain.Inventory.Item Purchased, Guid PurchaseOrderId, GoodsReceiptResult Grn);
+    private sealed record FreshReceipt(Guid VendorId, SESS.NexaERP.Domain.Inventory.Item Purchased, Guid PurchaseOrderId, GoodsReceiptResult Grn, SupplierInvoiceView SupplierInvoice);
 
     private static async Task<FreshReceipt> ProveFreshCompanyReceipt(HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, Dictionary<string, EffectiveRoleAssignment> assignments, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
@@ -379,17 +380,63 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/issue", new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, "go-live-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
+        // Day-one flows moved in from the gated witnesses (decision of 20 September, evening):
+        // 1. The supplier invoice arrives before the goods; Accounts records it against the PO with its
+        //    PDF, and "billed, not received" shows it until the receipt lands.
+        var poLineId = await Query(options, db => db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == po.Id).Select(x => x.Id).SingleAsync());
+        var poLinePayable = await Query(options, db => db.PurchaseOrderLines.Where(x => x.Id == poLineId).Select(x => x.TotalPayableValue).SingleAsync());
+        Actor("SESS-28", "ACCOUNTS_ASSISTANT");
+        var invoiceOptions = await Get<PagedResponse<SupplierInvoicePurchaseOrderOption>>(client, "/api/v1/accounts/supplier-invoices/purchase-order-options?search=" + Uri.EscapeDataString(po.Number));
+        var invoiceOption = Assert.Single(invoiceOptions.Items, x => x.PoNumber == po.Number);
+        var supplierInvoice = await Post<SupplierInvoiceView>(client, "/api/v1/accounts/supplier-invoices/", new RecordSupplierInvoiceRequest(invoiceOption.Id, "GO-LIVE-BILL-1", today, "INR",
+            [new SupplierInvoiceLineInput(poLineId, quantity, 100m, poLinePayable)], new SupplierInvoiceEvidenceInput("go-live-bill-1.pdf", "application/pdf", SupplierInvoiceFixturePdf("GO-LIVE-BILL-1")), "go-live-supplier-invoice"));
+        Assert.Equal("RECORDED", supplierInvoice.Status);
+        Actor("SESS-14", "ACCOUNTS_MANAGER");
+        var billedNotReceived = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/billed-not-received?mode=details&pageSize=1000"));
+        Assert.Contains(billedNotReceived.Rows, row => row.GetProperty("itemCode").GetString() == purchased.ItemCode);
+        // 2. The PO is amended before receipt (delivery terms); the amendment is approved and issued and the
+        //    open-orders dashboard flags the delivery date as unconfirmed. The receipt is against the amended revision.
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        var openBefore = await Get<PurchaseOpenOrdersPage>(client, "/api/v1/dashboards/purchase/open-orders");
+        Assert.Equal(1, openBefore.OpenPoCount);
+        Assert.Equal(0, openBefore.DeliveryDateUnconfirmedPoCount);
+        var priorPo = await Query(options, db => db.PurchaseOrders.AsNoTracking().Where(x => x.Id == po.Id).Select(x => new { x.PaymentTermsSnapshot, x.WarrantyTermsSnapshot, x.Version }).SingleAsync());
+        var poPath = "/api/v1/purchase/purchase-orders/" + Uri.EscapeDataString(po.Number);
+        var amended = await Post<Rev869BDocumentResult>(client, poPath + "/amend", new Rev869BAmendPurchaseOrderRequest("Delivery terms revised before receipt", priorPo.PaymentTermsSnapshot, "Delivery date to be reconfirmed", priorPo.WarrantyTermsSnapshot, priorPo.Version, "go-live-po-amend"));
+        amended = await Post<Rev869BDocumentResult>(client, poPath + "/submit", new Rev869BSubmitPurchaseOrderRequest("Amended terms submitted", amended.Version, "go-live-po-amend-submit"));
+        Actor("SESS-14", "ACCOUNTS_MANAGER");
+        var priorVersion = await Query(options, db => db.PurchaseOrders.AsNoTracking().Where(x => x.Id == po.Id).Select(x => x.Version).SingleAsync());
+        amended = await Post<Rev869BDocumentResult>(client, poPath + "/approve", new Rev869BPoApprovalActionRequest("Amendment approved", amended.Version, priorVersion, "go-live-po-amend-approve"));
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        amended = await Post<Rev869BDocumentResult>(client, poPath + "/issue", new Rev869BIssuePurchaseOrderRequest("Amendment issued", amended.Version, "go-live-po-amend-issue"));
+        Assert.Equal(Rev869BStatuses.Issued, amended.Status);
+        Assert.NotEqual(po.Id, amended.Id);
+        var openAfter = await Get<PurchaseOpenOrdersPage>(client, "/api/v1/dashboards/purchase/open-orders");
+        Assert.Equal(1, openAfter.OpenPoCount);
+        Assert.Equal(1, openAfter.DeliveryDateUnconfirmedPoCount);
+        Assert.Equal(2, Assert.Single(openAfter.Rows).RevisionNumber);
+        po = amended;
+        poLineId = await Query(options, db => db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == po.Id).Select(x => x.Id).SingleAsync());
         // Gate entry and GRN by Stores; the GRN resolves the route Stores created.
         Actor("SESS-35", "STORES_EXECUTIVE");
-        var poLineId = await Query(options, db => db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == po.Id).Select(x => x.Id).SingleAsync());
         var gate = await Post<GateEntryResult>(client, "/api/v1/stores/gate-entries/", new CreateGateEntryRequest(po.Number, "GO-LIVE-DC-1", "TN-01-0001", "ROAD", DateTimeOffset.UtcNow, """{"packagesChecked":true}""", [new(poLineId, quantity)]), "go-live-gate");
         gate = await Post<GateEntryResult>(client, $"/api/v1/stores/gate-entries/{gate.Id}/finalize", new FinalizeGateEntryRequest(gate.Version, "go-live-gate-finalize"));
+        // 3. Stores workload dashboard: the finalized gate entry waits for its GRN.
+        var workload = await Get<StoresWorkloadPage>(client, "/api/v1/dashboards/stores/workload?queue=gate-no-grn");
+        Assert.Contains(workload.Rows, x => x.DocumentNumber == gate.GateEntryNumber);
+        Assert.Equal(1, Assert.Single(workload.Tiles, x => x.Key == "gate-no-grn").Count);
         var grn = await Post<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/", new CreateGoodsReceiptRequest(gate.GateEntryNumber, "GO-LIVE-BILL-1", today, DateTimeOffset.UtcNow, """{"billChecked":true}""",
             [new(gate.Lines.Single().Id, [new(1, quantity, "GO-LIVE-LOT-1", null, today.AddMonths(-1), today.AddYears(2))], [])]), "go-live-grn");
         // inventory.grn create/submit belongs to the Stores Executive; the Stores Manager holds no GRN grant (see #12).
         grn = await Post<GoodsReceiptResult>(client, $"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "go-live-grn-finalize"));
         Assert.Equal("FINALIZED", grn.Status);
         Assert.NotNull(grn.StockPostingBatchId);
+        // 4. QC-stock dashboard: the received lot sits in QC hold until QC decides.
+        var qcStock = await Get<StoresQcStockPage>(client, "/api/v1/dashboards/stores/qc-stock?queue=QC_HOLD");
+        var heldRow = Assert.Single(qcStock.Rows, x => x.DocumentNumber == grn.GrnNumber);
+        Assert.Equal(quantity, heldRow.Quantity);
+        Assert.Equal(1, Assert.Single(qcStock.Tiles, x => x.Key == "QC_HOLD").LineCount);
+        Assert.Empty((await Get<StoresWorkloadPage>(client, "/api/v1/dashboards/stores/workload?queue=gate-no-grn")).Rows);
         // The Stores Manager supervises receipts: view only, never finalize (finding #12).
         Actor("SESS-41", "STORES_MANAGER");
         Assert.Equal(grn.Id, (await Get<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/" + grn.Id)).Id);
@@ -413,7 +460,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(2m + quantity, received);
         Assert.Equal(0m, await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ConditionCode == "QC_HOLD").SumAsync(x => x.QuantityIn - x.QuantityOut));
         Assert.True(await db.FifoInventoryCostLayers.AsNoTracking().AnyAsync(x => x.CompanyId == companyId && x.GoodsReceiptLineId != null));
-        return new FreshReceipt(vendorId, purchased, po.Id, grn);
+        return new FreshReceipt(vendorId, purchased, po.Id, grn, supplierInvoice);
     }
 
     // The grant is audited and exactly reversible; drift refuses rollback; a site-added

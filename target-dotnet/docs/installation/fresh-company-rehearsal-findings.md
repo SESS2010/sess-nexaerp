@@ -357,7 +357,12 @@ that only SQL could ever create; it belongs in the configuration-export requirem
     compile-time constant, so each gets its own build), writes TRX and logs under
     `local-evidence/nightly/<date>/`, and exits non-zero if any gate fails; the `schtasks`
     line at the top of the script registers it. All three gates compile at `HEAD`; the first
-    nightly tells whether they are green.
+    nightly tells whether they are green. The four day-one flows are now in the rehearsal:
+    the supplier invoice recorded before the goods (with `billed-not-received` showing it
+    until the receipt, and the link to the accepted bill afterwards), the PO amendment
+    approved and issued before receipt (open-orders dashboard flags the unconfirmed delivery
+    date; the receipt is against the amended revision), the Stores workload dashboard
+    (gate entry waiting for its GRN) and the QC-stock dashboard (the lot in QC hold).
   - `ConcurrencyWitness` (15 files): concurrent GRN, MIR approval, PR approval, QC
     concessions, role change, serial issue, vendor bill and payment, opening stock. Day-one
     paths under load; gated for runtime and flakiness. Same recommendation.

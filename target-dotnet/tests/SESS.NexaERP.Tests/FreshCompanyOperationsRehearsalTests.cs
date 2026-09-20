@@ -275,6 +275,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         bill = await Post<VendorBillView>(client, $"/api/v1/accounts/vendor-bills/{bill.Id}/accept", new VendorBillDecisionRequest(bill.Version, "Three-way match accepted", "go-live-bill-accept"));
         Assert.Equal("ACCEPTED", bill.Status);
+        // The supplier invoice recorded before the goods is now linked to the accepted bill.
+        var currentInvoice = await Get<SupplierInvoiceView>(client, $"/api/v1/accounts/supplier-invoices/{receipt.SupplierInvoice.Id}");
+        Assert.NotEmpty(currentInvoice.ReceiptMatches); // the receipt matched the invoice when the GRN was finalized
+        var linkedInvoice = await Post<SupplierInvoiceView>(client, $"/api/v1/accounts/supplier-invoices/{receipt.SupplierInvoice.Id}/link-accepted-bill",
+            new LinkSupplierInvoiceAcceptedBillRequest(currentInvoice.Version, bill.Id, "go-live-supplier-invoice-link"));
+        Assert.Contains(bill.Id, linkedInvoice.AcceptedBillIds);
         var landed = await Query(options, db => db.FifoLandedCostAdjustments.AsNoTracking().Where(x => x.VendorBillLine!.VendorBillId == bill.Id).SumAsync(x => x.AllocatedChargeValue));
         Assert.Equal(12m, landed);
         Actor("SESS-25", "PRODUCTION_MANAGER");
@@ -321,7 +327,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             ("engineer-custody", "SESS-01", "TECHNICAL_DIRECTOR", "?pageSize=1000", true),
             ("fifo-valuation", "SESS-14", "ACCOUNTS_MANAGER", "?pageSize=1000", true),
             ("grni", "SESS-14", "ACCOUNTS_MANAGER", "?pageSize=1000", false),
-            ("billed-not-received", "SESS-14", "ACCOUNTS_MANAGER", "?pageSize=1000", false),
+            ("billed-not-received", "SESS-14", "ACCOUNTS_MANAGER", "?pageSize=1000", false), // empty at the end: the invoice met its receipt
             ("vendor-purchases", "SESS-14", "ACCOUNTS_MANAGER", "?fromDate=2026-01-01&pageSize=1000", true),
             ("machine-dossier", "SESS-14", "ACCOUNTS_MANAGER", $"?selection={dossierSelection}&mode=details&pageSize=1000", true),
             ("purchase-register", "SESS-15", "PURCHASE_MANAGER", "?pageSize=1000", true),
