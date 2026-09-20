@@ -46,13 +46,18 @@ public sealed class OpeningStockIssueOrigin : Migration
               END IF;
             END $guard$;
             ALTER TABLE advance.stock_movements ADD COLUMN "OriginOpeningStockLineId" uuid NULL
-              CONSTRAINT "FK_stock_movements_opening_stock_lines_OriginOpeningStockLineId" REFERENCES advance.opening_stock_lines("Id");
+              CONSTRAINT "FK_stock_movements_OriginOpeningStockLineId" REFERENCES advance.opening_stock_lines("Id");
             CREATE INDEX "IX_stock_movements_OriginOpeningStockLineId" ON advance.stock_movements("OriginOpeningStockLineId");
             ALTER TABLE advance.material_issue_lines ADD COLUMN "OriginOpeningStockLineId" uuid NULL
-              CONSTRAINT "FK_material_issue_lines_opening_stock_lines_OriginOpeningStockLineId" REFERENCES advance.opening_stock_lines("Id");
-            -- Opening receipts are their own origin, exactly as GRN receipts are.
+              CONSTRAINT "FK_material_issue_lines_OriginOpeningStockLineId" REFERENCES advance.opening_stock_lines("Id");
+            -- Opening receipts are their own origin, exactly as GRN receipts are. The ledger is
+            -- append-only by trigger; this one-time backfill adds provenance to existing opening
+            -- receipts (a column that did not exist when they were posted) and changes nothing else,
+            -- so the user triggers are suspended for exactly this statement and re-enabled after it.
+            ALTER TABLE advance.stock_movements DISABLE TRIGGER USER;
             UPDATE advance.stock_movements SET "OriginOpeningStockLineId"="OpeningStockLineId"
               WHERE "OpeningStockLineId" IS NOT NULL AND "MovementLeg"='RECEIPT_IN';
+            ALTER TABLE advance.stock_movements ENABLE TRIGGER USER;
             ALTER TABLE advance.stock_movements DROP CONSTRAINT "CK_stock_movement_outbound_origin";
             ALTER TABLE advance.stock_movements ADD CONSTRAINT "CK_stock_movement_outbound_origin"
               CHECK ("LedgerSchemaVersion"=1 OR "MovementLeg" NOT IN ('ISSUE_OUT','DISPATCH_OUT')
