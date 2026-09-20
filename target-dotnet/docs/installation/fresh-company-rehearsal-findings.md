@@ -189,7 +189,89 @@ the column is read only on that table and naming FULL or TEMPORARY TECHNICAL_DIR
 the merge authority. Rollback restores both clauses and refuses once Technical Director
 merge evidence exists; the rehearsal proves the refusal.
 
+## The walk after AVAILABLE stock (20 September, evening)
+
+`ProveOperationsAfterAvailable` continues on the same fresh database: consumable MIR →
+issue by scan → custody → return; customer → customer PO → job order → Estimated BOM →
+Production BOM → job MIR → issue → fitment → Actual BOM → FAT readiness; machine delivery
+challan → customer signature → ancestry dossier; vendor bill → landed cost → advance →
+payment; intercompany route options; the ten company reports with their Excel exports.
+Each step by the seeded actor who owns it, under real page permissions and real
+operational scopes. The customer PO had never been created through the API by any test
+(fixtures wrote it to the database), and the test host had never mapped
+`/api/v1/sales/customer-pos`; it does now.
+
+## #26 — opening stock could never be issued
+
+`CK_stock_movement_outbound_origin` (August) requires every `ISSUE_OUT` or `DISPATCH_OUT`
+movement to carry `OriginGoodsReceiptLineId`. Opening stock (September) enters without a
+GRN, so the first MIR against the ceremony's stock failed at issue with a check violation
+and the API answered 500. Every unit posted by the PROPRIETORSHIP ceremony on 19 September,
+and every unit PVT LTD will post at step 13, was unissuable. The FIFO consumption already
+understood opening layers; only the ledger origin did not.
+
+Correction: `20260920150000_OpeningStockIssueOrigin`. Stock movements and material issue
+lines carry `OriginOpeningStockLineId` exactly as they carry `OriginGoodsReceiptLineId`;
+opening receipts are their own origin (existing rows backfilled, `authorize_opening_stock`
+writes it from now on); the outbound check accepts either origin; the issue and return
+postings copy the opening origin from the issue line. The three functions are rewritten
+from their installed bodies and refuse an unexpected body; rollback refuses once opening
+stock has been issued. The rehearsal issues 3 of the 10 opening units, returns 1, and
+checks the four outbound/return legs carry the opening origin and no GRN origin.
+
+Not changed, for the Technical Director: a component drawn from opening stock cannot yet
+be **fitted** — the Actual BOM values a fitment from the accepted vendor bill of the issued
+GRN line, and an opening line has no bill (its value is the opening carrying value).
+Dispatch (`DISPATCH_OUT`, delivery challans) from opening stock is not exercised by this
+walk either. The rehearsal fits purchased stock.
+
+## #27 — a fitted component still had to be "returned, consumed or held"
+
+The return statement reconciled the whole issued quantity, ignoring quantity already
+fitted into a machine. After fitting 1 of 2 issued units the engineer could not declare
+the remaining unit returned without also declaring the fitted unit "consumed" or "still
+held". `EfMaterialIssueService.CreateReturnAsync` now subtracts fitted quantity net of
+reversals, the same figure the issue detail and FAT reconciliation report. The opt-in
+FIFO partial-fitment witness declared the fitted 0.20 as consumed; it now declares only
+the outstanding 0.15.
+
+## #28 — an unknown MIR purpose answered 500
+
+`CK_mir_lifecycle` restricts `Purpose` to seven codes; the service validated the situation
+and destination but not the purpose, so an unknown purpose reached the database and came
+back as an internal error. The service now refuses it with 400 and the allowed list.
+
+## #25 — intercompany routes cannot be prepared on a fresh database
+
+A route needs a seller site, a buyer site and approved customer/vendor company
+relationships. `company_sites` and `customer_company_relationships` have no API and no
+seed: on a fresh database `GET /stores/intercompany/routes/options` returns two companies,
+two GST registrations, **no site and no customer**, so no route can be proposed and the
+sale path (route → published PO → GST invoice evidence) is unreachable. The DC-only
+transfer path has no endpoint at all (A1, not started). The rehearsal asserts the empty
+options and stops there. Same class as the Stores category route finding: configuration
+that only SQL could ever create; it belongs in the configuration-export requirement.
+
 ## Observations recorded, not changed
+
+- Report **export** is a separate grant from view. The Purchase Manager views the purchase
+  register but cannot export it (PURCHASE_HEAD, retired, could — as can any Service
+  Engineer); the Stores Manager views pending approvals but cannot export them
+  (STORE_HEAD could). Same class as #18/#21: the retired head kept a right the successor
+  never received. The rehearsal records the 403 and exports as the Technical Director.
+- `billed-not-received` and `grni` legitimately return no rows at the end of the walk: the
+  only bill follows its receipt, and it is accepted. GRNI shows the receipt before the
+  bill is accepted (asserted).
+- Estimated BOM preparation is limited by employee code (`SESS-04`, `SESS-05`) in
+  `EfEstimatedBomService.RequirePreparerAsync`, and the canonical purchase-flow test runs
+  without real page permissions, where a Service Engineer prepares it. Under real page
+  permissions only DESIGN_ENGINEER and TECHNICAL_DIRECTOR hold `design.estimated-bom`;
+  the rehearsal uses the Design Engineer (SESS-17).
+- No SALES_ENGINEER or SALES_HEAD is seeded; the IT Manager (and TD/MD) hold
+  `sales.customer-po`, so the IT Manager creates the customer PO.
+- `RunCompletePurchaseFlow` witnesses (machine delivery, FIFO partial fitment, supplier
+  invoices, cash caps, foreign payment advice, obligations…) compile only under
+  `-p:WorkflowWitness=true`; the routine suite never runs them.
 
 - `IT_MANAGER` holds view only on `purchase.requisitions`, and the requester must be
   the caller. Department requesters therefore cannot raise their own requisitions;

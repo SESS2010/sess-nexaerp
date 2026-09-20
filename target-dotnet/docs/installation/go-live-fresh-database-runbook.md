@@ -81,12 +81,15 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (117 at `c69366d`; 123 with the six 20 September migrations, which
-apply in timestamp order 090000 → 140000 with no other ordering requirement). Expected
+in the built assembly (117 at `c69366d`; 124 with the seven 20 September migrations, which
+apply in timestamp order 090000 → 150000 with no other ordering requirement). Expected
 configuration rows from the 20 September commits: 3 + 1 page + 9 + 1 + 2 + 2 role page
 permissions, 8 audit receipts (the route page copies its 9 grants without receipts; its
 rollback compares rows instead), one rewritten trigger function
-(`guard_estimated_bom_governance`); zero business rows. `status` prints VERIFIED.
+(`guard_estimated_bom_governance`), two new nullable columns (`OriginOpeningStockLineId`
+on `stock_movements` and `material_issue_lines`) with their backfill of existing opening
+receipts and three rewritten posting functions (#26); zero business rows. `status`
+prints VERIFIED.
 
 ## 5. Authentication bootstrap and identities (DBA, then API)
 
@@ -235,6 +238,10 @@ after it, the rule "company already has movements" applies to PVT LTD for good.
 
 Check: status POSTED; movement count equals the workbook line count; FIFO layer value
 equals the confirmed total; `GET /api/v1/reports/…` stock and FIFO valuation agree.
+Then the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
+opening-stock unit could be issued at all; the rehearsal now issues and returns opening
+stock. Fitting an opening-stock component into a machine is still not possible (its
+value has no vendor bill); see the findings.
 
 ## 14. Close
 

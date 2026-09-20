@@ -46,7 +46,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.False(await seed.Warehouses.AnyAsync(x => x.CompanyId == companyId), "A fresh database must start without warehouses.");
             Assert.False(await seed.WarehouseConditionLocations.AnyAsync(x => x.CompanyId == companyId));
             Assert.True(await seed.Items.CountAsync(x => x.CreatedBy == "EXCEL_IMPORT" && x.ApprovalStatus == "Approved") > 1000);
-            foreach (var code in new[] { "SESS-41", "SESS-14", "SESS-01", "SESS-02", "SESS-04", "SESS-05", "SESS-12", "SESS-15", "SESS-33", "SESS-35" })
+            foreach (var code in new[] { "SESS-41", "SESS-14", "SESS-01", "SESS-02", "SESS-04", "SESS-05", "SESS-12", "SESS-15", "SESS-33", "SESS-35",
+                "SESS-25", "SESS-13", "SESS-28", "SESS-17" })
             {
                 var employee = await seed.Employees.SingleAsync(x => x.EmployeeCode == code);
                 employee.LoginEnabled = true;
@@ -146,8 +147,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(locations["AVAILABLE"], movement.WarehouseConditionLocationId);
         Assert.Equal(10m, movement.QuantityIn);
         Assert.Equal(1250m, await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).SumAsync(x => x.LayerValue));
-        await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, locations["AVAILABLE"], today);
+        var receipt = await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, locations["AVAILABLE"], today);
         await ProveItemMasterAuthority(server, client, options, user, employees, item);
+        await ProveOperationsAfterAvailable(client, options, user, employees, companyId, item, receipt, today);
         // The merge trigger rewrite refuses rollback once Technical Director merge evidence exists.
         const string mergeAuthority = "20260920140000_ItemMergeDirectorAuthority";
         server.AssertRejected("item-merge-authority-refuse-down.sql", "SET SESSION AUTHORIZATION nexa_erp_migration; SET ROLE nexa_erp_owner;\n"
@@ -230,7 +232,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     // permissions and real operational scopes: vendor, vendor qualification, GST rule,
     // QC policy, then requisition -> RFQ -> quotation -> technical verification ->
     // comparison -> PO -> gate entry -> GRN -> QC acceptance into Stores' AVAILABLE location.
-    private static async Task ProveFreshCompanyReceipt(HttpClient client, DbContextOptions<NexaErpDbContext> options,
+    private sealed record FreshReceipt(Guid VendorId, SESS.NexaERP.Domain.Inventory.Item Purchased, Guid PurchaseOrderId, GoodsReceiptResult Grn);
+
+    private static async Task<FreshReceipt> ProveFreshCompanyReceipt(HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, Dictionary<string, EffectiveRoleAssignment> assignments, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
         SESS.NexaERP.Domain.Inventory.Item item, Guid availableLocationId, DateOnly today)
     {
@@ -388,6 +392,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(5m, received);
         Assert.Equal(0m, await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ConditionCode == "QC_HOLD").SumAsync(x => x.QuantityIn - x.QuantityOut));
         Assert.True(await db.FifoInventoryCostLayers.AsNoTracking().AnyAsync(x => x.CompanyId == companyId && x.GoodsReceiptLineId != null));
+        return new FreshReceipt(vendorId, purchased, po.Id, grn);
     }
 
     // The grant is audited and exactly reversible; drift refuses rollback; a site-added

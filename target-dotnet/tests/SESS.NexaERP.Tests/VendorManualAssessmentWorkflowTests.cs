@@ -44,9 +44,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using var host = await PurchaseFlowHost.StartAsync(context.RuntimeConnection, actor, true, true);
             var client = host.Client;
             const string path = "/api/v1/quality/vendor-manual-assessments";
-            // The Stores detail remains forbidden; QC obtains only the required receipt selectors.
-            using (var storesDetail = await client.GetAsync($"/api/v1/stores/goods-receipts/{grn.Id}"))
-                Assert.Equal(HttpStatusCode.Forbidden, storesDetail.StatusCode);
+            // Finding #12: QC now reads the receipt it inspects (view only); finalize stays refused.
+            Assert.Equal(grn.Id, (await Get<GoodsReceiptResult>(client, $"/api/v1/stores/goods-receipts/{grn.Id}")).Id);
+            using (var storesFinalize = await client.PostAsJsonAsync($"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "qc-cannot-finalize")))
+                Assert.Equal(HttpStatusCode.Forbidden, storesFinalize.StatusCode);
             var receiptPage = await Get<VendorRatingReceiptPage>(client, "/api/v1/quality/vendor-rating-evidence/receipts?page=1&pageSize=50");
             var qcReceipt = Assert.Single(receiptPage.Items, x => x.GoodsReceiptId == grn.Id);
             Assert.Equal(grn.Version, qcReceipt.GoodsReceiptVersion);
