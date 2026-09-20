@@ -2,6 +2,51 @@
 
 Status: correction under verification. This is not clearance for the pending real pre-75 field upgrade.
 
+## 20 September 2026 — finding #19: a pulled worktree keeps CRLF
+
+`.gitattributes` governs only what Git writes on checkout. A worktree that already
+held CRLF migration sources keeps them after a pull, and its binary compiles CRLF
+into every raw string literal. The migrations themselves must therefore tolerate
+CRLF sources.
+
+**Reproduction.** The whole `src` tree was copied, every `.cs`/`.sql`/`.csproj`
+converted to CRLF, the Infrastructure assembly compiled from it, and every
+migration's Up and Down operations materialized without a database. Exactly one
+migration failed: `20260918090000_ActualBomLandedRateValuation` Up threw
+"Actual BOM fitment valuation baseline changed" — `BillJson` normalized the
+fragment it searched for but not the baseline it searched in. After CRLF→LF
+normalization the SQL of every other migration was identical to the LF build.
+
+**Correction.**
+
+- `MigrationText.Lf` is the single normalizer. Migration 108 normalizes both sides
+  in `BillJson`, `ReplaceOnce` and the Down extraction.
+- `LineEndingNormalizingMigrationsSqlGenerator` (registered in
+  `NexaErpDbContext.OnConfiguring`) rewrites every raw `SqlOperation` to LF at
+  generation time. A CRLF worktree now installs byte-identical function bodies to
+  an LF checkout, and every stored-body guard, which already normalizes `prosrc`,
+  compares like with like. `E'\r\n'` escape sequences are backslash text and are
+  untouched. EF's own DDL formatting (CreateTable and friends, joined with
+  `Environment.NewLine`) is outside the correction.
+
+**Tests.** `MigrationLineEndingToleranceTests` proves the generator normalizes a
+CRLF operation and preserves escapes, that every migration's raw SQL operations
+generate LF in both directions, and that migration 108 derives identical SQL from
+CRLF and LF baselines.
+
+**Witness.** Disposable PostgreSQL 17.10 on Windows: 0→113 installed from the LF
+script; all 206 `advance` functions re-created with CRLF text (205 bodies stored
+with CRLF, the field state a CRLF binary leaves behind); 114→119 applied from the
+corrected build with exit 0, the Stores route page, nine mirrored grants and three
+audited Stores grant receipts present. A harsher emulation that converts the guard
+expected-body literals themselves to CRLF fails at
+`20260913020000_FitmentIssueHeaderLockOrder`; the generator makes that state
+unreachable from any worktree. Evidence is under `local-evidence/finding-19`.
+
+Not reproduced: the field database name, starting state, role history, original
+dump line endings and operating system; the witness scripts ran as the cluster
+superuser, not `nexa_erp_migration`.
+
 ## Defect and sweep
 
 C# raw multiline strings preserve their source file's line endings. Under the previous `* text=auto` checkout rule, Windows could compile CRLF into a patch while its PostgreSQL guard normalized the stored function body to LF. Exact comparison then rejected its own installed patch.

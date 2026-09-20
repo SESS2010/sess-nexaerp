@@ -23,15 +23,20 @@ public sealed class ActualBomLandedRateValuation : Migration
         migrationBuilder.Sql(FitmentIssueHeaderLockOrderSql.Guard(CorrectedConfirm));
         migrationBuilder.Sql(FitmentIssueHeaderLockOrderSql.After);
         migrationBuilder.Sql(BillJson(false));
+        migrationBuilder.Sql(OriginalProjection(ImmutableLandedCostAdjustmentsSql.Up));
+        migrationBuilder.Sql("DROP FUNCTION advance.vendor_bill_inventory_landed_rate(uuid,uuid); DROP FUNCTION advance.inventory_tax_unit_rate(jsonb,jsonb,numeric,numeric);");
+    }
+
+    internal static string OriginalProjection(string source)
+    {
         const string start = "CREATE FUNCTION advance.get_actual_bom_landed_valuations";
         const string end = "CREATE OR REPLACE FUNCTION advance.vendor_bill_json";
-        var source = ImmutableLandedCostAdjustmentsSql.Up;
+        source = MigrationText.Lf(source);
         var first = source.IndexOf(start, StringComparison.Ordinal);
         var last = source.IndexOf(end, first, StringComparison.Ordinal);
         if (first < 0 || last <= first) throw new InvalidOperationException("Original valuation SQL markers changed.");
-        migrationBuilder.Sql(source[first..last].Replace(start,
-            "CREATE OR REPLACE FUNCTION advance.get_actual_bom_landed_valuations", StringComparison.Ordinal));
-        migrationBuilder.Sql("DROP FUNCTION advance.vendor_bill_inventory_landed_rate(uuid,uuid); DROP FUNCTION advance.inventory_tax_unit_rate(jsonb,jsonb,numeric,numeric);");
+        return source[first..last].Replace(start,
+            "CREATE OR REPLACE FUNCTION advance.get_actual_bom_landed_valuations", StringComparison.Ordinal);
     }
 
     internal static string CorrectedConfirm
@@ -57,9 +62,11 @@ public sealed class ActualBomLandedRateValuation : Migration
         }
     }
 
-    private static string BillJson(bool corrected)
+    internal static string BillJson(bool corrected) => BillJson(corrected, ImmutableLandedCostAdjustmentsSql.Up);
+
+    internal static string BillJson(bool corrected, string source)
     {
-        var source = ImmutableLandedCostAdjustmentsSql.Up;
+        source = MigrationText.Lf(source);
         var start = source.IndexOf("CREATE OR REPLACE FUNCTION advance.vendor_bill_json", StringComparison.Ordinal);
         var end = source.IndexOf("CREATE OR REPLACE FUNCTION advance.guard_vendor_bill_financial_evidence", start, StringComparison.Ordinal);
         if (start < 0 || end <= start) throw new InvalidOperationException("Vendor bill reader SQL markers changed.");
@@ -125,8 +132,10 @@ coalesce((
 
     private static string ReplaceOnce(string sql, string before, string after)
     {
-        before = before.Replace("\r\n", "\n", StringComparison.Ordinal);
-        after = after.Replace("\r\n", "\n", StringComparison.Ordinal);
+        // The searched baseline is a compiled raw literal too; normalize both sides.
+        sql = MigrationText.Lf(sql);
+        before = MigrationText.Lf(before);
+        after = MigrationText.Lf(after);
         var index = sql.IndexOf(before, StringComparison.Ordinal);
         if (index < 0 || sql.IndexOf(before, index + before.Length, StringComparison.Ordinal) >= 0)
             throw new InvalidOperationException("Actual BOM fitment valuation baseline changed.");
