@@ -219,8 +219,15 @@ from their installed bodies and refuse an unexpected body; rollback refuses once
 stock has been issued. The rehearsal issues 3 of the 10 opening units, returns 1, and
 checks the four outbound/return legs carry the opening origin and no GRN origin.
 
-Not changed, for the Technical Director: a component drawn from opening stock cannot yet
-be **fitted** — the Actual BOM values a fitment from the accepted vendor bill of the issued
+The full suite on `86d6767` (Debug 1016/1017, Release 1013/1014) caught what the focused
+runs had not: on a database that already holds posted opening stock, the backfill of the
+opening receipts' origin was refused by the append-only ledger trigger and the migration
+failed. `ffc7966` suspends the user triggers for exactly that statement (provenance added
+to rows that predate the column; nothing else changes) — the field database, with the
+PROPRIETORSHIP ceremony posted, is exactly that case.
+
+Superseded on the same evening (see the decisions below): a component drawn from opening
+stock could not yet be **fitted** — the Actual BOM values a fitment from the accepted vendor bill of the issued
 GRN line, and an opening line has no bill (its value is the opening carrying value).
 Dispatch (`DISPATCH_OUT`, delivery challans) from opening stock is not exercised by this
 walk either. The rehearsal fits purchased stock.
