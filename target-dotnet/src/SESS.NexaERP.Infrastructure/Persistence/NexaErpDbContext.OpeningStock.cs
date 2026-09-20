@@ -23,6 +23,7 @@ public sealed partial class NexaErpDbContext
             e.Property(x => x.LineReference).HasMaxLength(160).IsRequired();
             e.Property(x => x.LotNumber).HasMaxLength(160); e.Property(x => x.SerialNumber).HasMaxLength(300);
             e.Property(x => x.Quantity).HasPrecision(24, 6); e.Property(x => x.UnitRate).HasPrecision(24, 6);
+            e.Property(x => x.VendorName).HasMaxLength(200); e.Property(x => x.VendorBillNumber).HasMaxLength(100); e.Property(x => x.Make).HasMaxLength(100); e.Property(x => x.Model).HasMaxLength(100); e.Property(x => x.PartNumber).HasMaxLength(100); e.Property(x => x.Remarks).HasMaxLength(500);
             e.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Warehouse).WithMany().HasForeignKey(x => new { x.CompanyId, x.WarehouseId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.RackBin).WithMany().HasForeignKey(x => new { x.CompanyId, x.RackBinId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
@@ -69,6 +70,7 @@ public sealed partial class NexaErpDbContext
             e.HasIndex(x => x.ImportStagingLineId).IsUnique();
             e.Property(x => x.LineReference).HasMaxLength(160).IsRequired(); e.Property(x => x.LotNumber).HasMaxLength(160); e.Property(x => x.SerialNumber).HasMaxLength(300);
             e.Property(x => x.Quantity).HasPrecision(24, 6); e.Property(x => x.UnitRate).HasPrecision(24, 6); e.Property(x => x.LineValue).HasPrecision(24, 6);
+            e.Property(x => x.VendorName).HasMaxLength(200); e.Property(x => x.VendorBillNumber).HasMaxLength(100); e.Property(x => x.Make).HasMaxLength(100); e.Property(x => x.Model).HasMaxLength(100); e.Property(x => x.PartNumber).HasMaxLength(100); e.Property(x => x.Remarks).HasMaxLength(500);
             e.HasOne(x => x.OpeningStock).WithMany(x => x.Lines).HasForeignKey(x => new { x.CompanyId, x.OpeningStockId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.ImportStagingLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.ImportStagingLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Restrict);

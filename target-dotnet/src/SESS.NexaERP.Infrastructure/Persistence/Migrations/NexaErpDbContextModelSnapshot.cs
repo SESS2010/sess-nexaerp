@@ -56233,13 +56233,16 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
-                    b.Property<Guid>("GoodsReceiptLineId")
+                    b.Property<Guid?>("GoodsReceiptLineId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("GrnNumberSnapshot")
                         .IsRequired()
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
+
+                    b.Property<Guid?>("OpeningStockLineId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("InventoryLotId")
                         .HasColumnType("uuid");
@@ -56293,6 +56296,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasFilter("\"ComponentFitmentReversalId\" IS NOT NULL");
 
                     b.HasIndex("CompanyId", "GoodsReceiptLineId");
+
+                    b.HasIndex("CompanyId", "OpeningStockLineId");
 
                     b.HasIndex("CompanyId", "InventoryLotId");
 
@@ -62711,6 +62716,36 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<string>("VendorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VendorBillNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly?>("BillDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PurchaseDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Make")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PartNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<decimal>("Quantity")
                         .HasPrecision(24, 6)
                         .HasColumnType("numeric(24,6)");
@@ -62808,6 +62843,36 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("OpeningStockId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("VendorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("VendorBillNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateOnly?>("BillDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PurchaseDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Make")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PartNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(24, 6)
@@ -66868,8 +66933,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("CompanyId", "GoodsReceiptLineId")
                         .HasPrincipalKey("CompanyId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SESS.NexaERP.Domain.Stores.OpeningStockLine", "OpeningStockLine")
+                        .WithMany()
+                        .HasForeignKey("CompanyId", "OpeningStockLineId")
+                        .HasPrincipalKey("CompanyId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SESS.NexaERP.Domain.Stores.InventoryLot", "InventoryLot")
                         .WithMany()
@@ -66910,6 +66980,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Navigation("ComponentFitmentReversal");
 
                     b.Navigation("GoodsReceiptLine");
+
+                    b.Navigation("OpeningStockLine");
 
                     b.Navigation("InventoryLot");
 

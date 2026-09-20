@@ -172,6 +172,11 @@ internal static class DatabasePrincipalProvisioningSql
             GRANT SELECT ON advance.opening_stock_import_staging_lines,advance.opening_stocks,advance.opening_stock_lines,advance.opening_stock_events TO nexa_erp_runtime;
             REVOKE EXECUTE ON FUNCTION advance.guard_opening_stock_evidence(),advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text) FROM nexa_erp_runtime;
             GRANT EXECUTE ON FUNCTION advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text),advance.record_opening_stock_count(uuid,uuid,date,date,text,text,text,uuid,text,uuid,text,text),advance.confirm_opening_stock_value(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text),advance.authorize_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text) TO nexa_erp_runtime;
+            -- Provenance overload (20260920160000): present only from that migration on.
+            IF to_regprocedure('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text,text,text,date,date,text,text,text,text)') IS NOT NULL THEN
+              REVOKE ALL ON FUNCTION advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text,text,text,date,date,text,text,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+              GRANT EXECUTE ON FUNCTION advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text,text,text,date,date,text,text,text,text) TO nexa_erp_runtime;
+            END IF;
           END IF;
         END $opening_stock_acl$;
 
@@ -987,6 +992,16 @@ internal static class DatabasePrincipalProvisioningSql
                OR has_function_privilege('nexa_erp_runtime',to_regprocedure('advance.opening_stock_command_valid(uuid,uuid,text,uuid,text,text,text)'),'EXECUTE') THEN
               RAISE EXCEPTION 'Opening Stock controlled commands or read-only evidence ACL is invalid.';
             END IF;
+          END IF;
+          IF to_regprocedure('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text,text,text,date,date,text,text,text,text)') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc p JOIN pg_roles owner_role ON owner_role.oid=p.proowner
+                WHERE p.oid=to_regprocedure('advance.stage_opening_stock_import_line(uuid,text,uuid,uuid,uuid,text,text,numeric,numeric,uuid,text,uuid,text,text,text,text,date,date,text,text,text,text)')
+                  AND (NOT p.prosecdef OR owner_role.rolname<>'nexa_erp_owner'
+                   OR NOT coalesce(p.proconfig @> ARRAY['search_path=pg_catalog, advance'],false)
+                   OR NOT has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+                   OR has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+                   OR has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+                   OR EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))) THEN
+            RAISE EXCEPTION 'Opening Stock provenance staging overload ACL is invalid.';
           END IF;
           IF to_regclass('advance.item_company_last_purchases') IS NOT NULL
              AND (NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')

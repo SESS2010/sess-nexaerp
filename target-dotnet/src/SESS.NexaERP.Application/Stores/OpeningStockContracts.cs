@@ -11,7 +11,9 @@ public sealed record OpeningStockLineView(
     Guid RackBinId, string RackBinCode, Guid WarehouseConditionLocationId,
     string? LotNumber, string? SerialNumber, decimal Quantity,
     decimal UnitRate, decimal LineValue, Guid? InventoryLotId,
-    Guid? InventorySerialId, Guid? FifoInventoryCostLayerId);
+    Guid? InventorySerialId, Guid? FifoInventoryCostLayerId,
+    string? VendorName = null, string? VendorBillNumber = null, DateOnly? BillDate = null, DateOnly? PurchaseDate = null,
+    string? Make = null, string? Model = null, string? PartNumber = null, string? Remarks = null);
 public sealed record OpeningStockActorView(
     Guid EmployeeId, string EmployeeCode, string EmployeeName,
     string RoleCode, Guid RoleAssignmentId, string AssignmentType,

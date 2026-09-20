@@ -26,6 +26,14 @@ public sealed class OpeningStockImportStagingLine : CompanyScopedAuditableEntity
     public string? SerialNumber { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitRate { get; set; }
+    public string? VendorName { get; set; }
+    public string? VendorBillNumber { get; set; }
+    public DateOnly? BillDate { get; set; }
+    public DateOnly? PurchaseDate { get; set; }
+    public string? Make { get; set; }
+    public string? Model { get; set; }
+    public string? PartNumber { get; set; }
+    public string? Remarks { get; set; }
 }
 
 public sealed class OpeningStock : CompanyScopedAuditableEntity
@@ -93,6 +101,14 @@ public sealed class OpeningStockLine
     public decimal Quantity { get; set; }
     public decimal UnitRate { get; set; }
     public decimal LineValue { get; set; }
+    public string? VendorName { get; set; }
+    public string? VendorBillNumber { get; set; }
+    public DateOnly? BillDate { get; set; }
+    public DateOnly? PurchaseDate { get; set; }
+    public string? Make { get; set; }
+    public string? Model { get; set; }
+    public string? PartNumber { get; set; }
+    public string? Remarks { get; set; }
     public Guid? InventoryLotId { get; set; }
     public InventoryLot? InventoryLot { get; set; }
     public Guid? InventorySerialId { get; set; }

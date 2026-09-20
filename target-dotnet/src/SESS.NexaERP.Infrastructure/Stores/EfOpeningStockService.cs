@@ -204,7 +204,8 @@ public sealed class EfOpeningStockService(
                 l.Item.Name, l.WarehouseId, l.Warehouse!.WarehouseCode, l.RackBinId,
                 l.RackBin!.BinCode, l.WarehouseConditionLocationId, l.LotNumber,
                 l.SerialNumber, l.Quantity, l.UnitRate, l.LineValue, l.InventoryLotId,
-                l.InventorySerialId, l.FifoInventoryCostLayerId)).ToArray());
+                l.InventorySerialId, l.FifoInventoryCostLayerId, l.VendorName, l.VendorBillNumber, l.BillDate, l.PurchaseDate,
+                l.Make, l.Model, l.PartNumber, l.Remarks)).ToArray());
     }
 
     private static void ValidatePeriod(DateOnly from, DateOnly to)
