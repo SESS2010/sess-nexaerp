@@ -628,8 +628,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.All(detail.Rows,row=>Assert.Equal(total.GetProperty("engineerCode").GetString(),row.GetProperty("engineerCode").GetString()));
             Assert.Equal(total.GetProperty("quantity").GetDecimal(),detail.Rows.Sum(row=>row.GetProperty("quantity").GetDecimal()));
         }
+        using(var storesExport=await client.GetAsync(WitnessReportPath("/api/v1/reports/engineer-custody/excel")))
+            Assert.Equal(HttpStatusCode.OK,storesExport.StatusCode); // The role that can view a report can export it (20260920180000).
+        user.Set(purchaseId,"SESS-15",Rev869ARoleCodes.PurchaseExecutive,Rev869ARoleCodes.PurchaseExecutive); // no engineer-custody view at all
         using var response=await client.GetAsync(WitnessReportPath("/api/v1/reports/engineer-custody/excel"));
-        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode); // Stores view does not imply export.
+        Assert.Equal(HttpStatusCode.Forbidden,response.StatusCode);
         var denied=(await response.Content.ReadFromJsonAsync<StandardErrorEnvelope>())!;
         Assert.Equal("REPORT_ACCESS_DENIED",denied.Code);
         Assert.Null(denied.AdministratorActionRequired);
@@ -1596,7 +1599,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/design/estimated-boms/{estimated.BomNumber}",
             new ReplaceEstimatedBomLinesRequest(estimated.CurrentRevision.Version,
                 "Engineering now expects more material",
-                [new EstimatedBomLineInput(itemId, fixture.UomId, 1.20m, "Later engineering revision")],
+                [new EstimatedBomLineInput(itemId, fixture.UomId, 1.20m, "Later engineering revision", UseSuggestedValue: true)],
                 "fitment-est-revision-lines"));
         estimated = await Post<EstimatedBomView>(client,
             $"/api/v1/design/estimated-boms/{estimated.BomNumber}/submit",
@@ -1612,6 +1615,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.NotNull(lastPurchase.LastPurchaseBillId);
         Assert.Equal(lastPurchase.LastPurchaseRate, estimated.CurrentRevision.Lines.Single().EstimatedUnitValue);
         Assert.False(estimated.CurrentRevision.Lines.Single().EstimatedUnitValueOverridden);
+        Assert.Equal("LAST_ACCEPTED_BILL", estimated.CurrentRevision.Lines.Single().ValueSource);
         var afterEngineeringRevision = await Get<ActualBomView>(client,
             $"/api/v1/production/component-fitments/job-orders/{job.Id}/actual-bom");
         Assert.NotEqual(estimated.CurrentRevision.Id, afterEngineeringRevision.CommercialVariance.BaselineRevisionId);

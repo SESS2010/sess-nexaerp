@@ -22,8 +22,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrations = scriptDb.Database.GetMigrations().ToArray();
         server.Execute("report-schema.sql",migrator.GenerateScript("0",migrations[^1]));
         var reportIndex = Array.IndexOf(migrations, "20260913010000_CompanyReportPermissions");
+        // 20260920180000_ReportExportFollowsView changes the rows this migration owns; it is rolled back
+        // first and re-applied last, as an operator would.
+        var exportIndex = Array.IndexOf(migrations, "20260920180000_ReportExportFollowsView");
+        server.Execute("report-export-down.sql",migrator.GenerateScript(migrations[exportIndex],migrations[exportIndex-1]));
         server.Execute("report-down.sql",migrator.GenerateScript(migrations[reportIndex],migrations[reportIndex-1]));
         server.Execute("report-reapply.sql",migrator.GenerateScript(migrations[reportIndex-1],migrations[reportIndex]));
+        server.Execute("report-export-reapply.sql",migrator.GenerateScript(migrations[exportIndex-1],migrations[exportIndex]));
         server.Execute("report-login.sql","""
             UPDATE advance.employees SET "LoginEnabled"=true WHERE "EmployeeCode" IN ('SESS-01','SESS-14');
             """);

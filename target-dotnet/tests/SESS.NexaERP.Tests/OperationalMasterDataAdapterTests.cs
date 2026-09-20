@@ -49,8 +49,10 @@ public sealed class OperationalMasterDataAdapterTests
         var definition=new OpeningStockImportDefinition();
         Assert.True(definition.Columns.Single(x=>x.Key=="RackBinCode").RequiredOnCreate);
         Assert.True(definition.Columns.Single(x=>x.Key=="Rate").RequiredOnCreate);
+        // Version 2: the stated legacy value is still not a column; the unit value is ex-tax and headed so.
         Assert.DoesNotContain(definition.Columns,x=>x.Key.Contains("Value",StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(definition.WorkbookGuideNotes,x=>x.Contains("Quantity x Rate",StringComparison.Ordinal));
+        Assert.Equal("Unit Value Ex-Tax",definition.Columns.Single(x=>x.Key=="Rate").Header);
+        Assert.Contains(definition.WorkbookGuideNotes,x=>x.Contains("Quantity x Unit Value",StringComparison.Ordinal));
         Assert.Contains(definition.WorkbookGuideNotes,x=>x.Contains("Each company",StringComparison.Ordinal));
     }
 }
