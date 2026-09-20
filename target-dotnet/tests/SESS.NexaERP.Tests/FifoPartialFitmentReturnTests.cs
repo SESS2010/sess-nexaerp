@@ -59,7 +59,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(engineer.Id,engineer.EmployeeCode,"TECHNICAL_SUPPORT_MANAGER","TECHNICAL_SUPPORT_MANAGER","SERVICE_ENGINEER");
         var declared=await Post<MaterialReturnView>(client,$"/api/v1/stores/material-returns/from-issue/{issue.Id}",
             new CreateMaterialReturn(DateTimeOffset.UtcNow,
-                [new MaterialReturnLineInput(issueLine.Id,itemCode,.10m,.20m,.05m)],"fifo-partial-return-declare"));
+                // The fitted 0.20 has left the engineer's custody; the statement reconciles the outstanding 0.15 only.
+                [new MaterialReturnLineInput(issueLine.Id,itemCode,.10m,0m,.05m)],"fifo-partial-return-declare"));
         user.Set(context.StoresId,"SESS-35",Rev869ARoleCodes.StoresExecutive);
         var accept=new AcceptMaterialReturn(declared.Version,DateTimeOffset.UtcNow,
             "Accept the removed 0.10 while 0.20 remains fitted and 0.05 remains accountable","fifo-partial-return-accept");

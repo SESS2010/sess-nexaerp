@@ -66,7 +66,13 @@ public sealed partial class EfMaterialIssueService
             var alreadyDeclared = await db.MaterialReturnLines.AsNoTracking().Where(x =>
                 x.CompanyId == company.Id && x.MaterialIssueLineId == issueLine.Id)
                 .SumAsync(x => (decimal?)x.ReturnedQuantityBase, ct) ?? 0;
-            var outstanding = issueLine.QuantityBase - alreadyDeclared;
+            // Quantity already fitted into a machine (net of reversals) is no longer in the engineer's
+            // custody; the returner cannot be asked to declare it returned, consumed or still held.
+            var fitted = await db.ComponentFitments.AsNoTracking().Where(f =>
+                f.CompanyId == company.Id && f.MaterialIssueLineId == issueLine.Id &&
+                !db.ComponentFitmentReversals.Any(r => r.CompanyId == f.CompanyId && r.ComponentFitmentId == f.Id))
+                .SumAsync(f => (decimal?)f.QuantityBase, ct) ?? 0;
+            var outstanding = issueLine.QuantityBase - alreadyDeclared - fitted;
             if (outstanding <= 0 || input.ReturnedQuantity > outstanding)
                 throw new StoresConflictException("Returned quantity may not exceed the outstanding issued quantity.");
             if (input.ReturnedQuantity + input.ReportedConsumedQuantity + input.ReportedStillHeldQuantity != outstanding)
