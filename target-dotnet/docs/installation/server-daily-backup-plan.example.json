@@ -1,6 +1,6 @@
 {
   "Server": "DESKTOP-SPF5420",
-  "DestinationHost": "[ILAMPARUTHI PC hostname]",
+  "DestinationHost": "RECEIVER_NOT_SET",
   "InstallerPath": "C:\\SESS-Backup\\Installer\\SESS.NexaERP.Installer.exe",
   "StatusDirectory": "C:\\SESS-Backup\\status",
   "Databases": [
@@ -8,14 +8,14 @@
       "ConfigPath": "C:\\SESS-Backup\\ERP.json",
       "CredentialFile": "C:\\SESS-Backup\\ERP.clixml",
       "LogDirectory": "C:\\SESS-Backup\\logs\\ERP",
-      "DestinationRoot": "\\\\[ILAMPARUTHI PC hostname]\\SESS-Backup-Incoming$\\ERP",
+      "DestinationRoot": "\\\\RECEIVER_NOT_SET\\SESS-Backup-Incoming$\\ERP",
       "RequiredRunGiB": 0
     },
     {
       "ConfigPath": "C:\\SESS-Backup\\Identity.json",
       "CredentialFile": "C:\\SESS-Backup\\Identity.clixml",
       "LogDirectory": "C:\\SESS-Backup\\logs\\Identity",
-      "DestinationRoot": "\\\\[ILAMPARUTHI PC hostname]\\SESS-Backup-Incoming$\\Identity",
+      "DestinationRoot": "\\\\RECEIVER_NOT_SET\\SESS-Backup-Incoming$\\Identity",
       "RequiredRunGiB": 0
     }
   ]

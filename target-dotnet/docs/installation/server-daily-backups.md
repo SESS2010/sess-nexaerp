@@ -21,10 +21,17 @@ cable replacement as clearance. No new backup data is written to that HDD.
 Designated receiver: **Ilamparuthi's PC**, the frontend developer's machine,
 identified by the owner as **IT TEAM 2**.
 **DESKTOP-AP is the Technical Director's development laptop and is NOT the receiver.**
-The exact `hostname` command output is pending: **[ILAMPARUTHI PC hostname]**. Replace this
+The exact `hostname` command output is pending. The packaged configuration state is
+**RECEIVER_NOT_SET** (an intentionally invalid hostname, not a computer name). Replace this
 placeholder in the plan's DestinationHost, both UNC roots and every account/command
 below before setup. The placeholder deliberately fails hostname validation; do not
 schedule until `hostname` on Ilamparuthi's PC and name resolution agree.
+The receiver is configured only in the administrator-protected daily-plan.json:
+DestinationHost and both DestinationRoot values must be changed together. There is no
+Set-BackupReceiver.ps1 command in this release and no receiver editor in the ERP.
+The current runner rejects RECEIVER_NOT_SET with its generic off-machine-host failure;
+it does not emit a new specialised status code. Test-ProductionState reports FAIL for
+an absent/failed task or missing/stale daily receipt, including while setup remains unset.
 `IT TEAM 2` contains spaces and is not accepted by the hostname guard; do not guess
 IT-TEAM-2 or ITTEAM2, rename the PC, or loosen validation to make setup pass.
 Microsoft's [DNS host naming rules](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/naming-conventions-for-computer-domain-site-ou#dns-host-names)
@@ -42,7 +49,7 @@ On the SERVER create nonadministrator **DESKTOP-SPF5420\SESSBackup** with Log on
 a batch job. Task uses PASSWORD logon, runs whether a user is logged on or not, and
 must be allowed SMB network access. Do not use S4U/"Do not store password", SYSTEM,
 Guest or an interactive-only task for this sender. On the RECEIVER create
-**[ILAMPARUTHI PC hostname]\SESSBackup**, nonadministrator, matching strong password for workgroup
+**RECEIVER_NOT_SET\SESSBackup**, nonadministrator, matching strong password for workgroup
 pass-through authentication. Permit its share/network logon; deny interactive/RDP
 logon after one-time credential provisioning. Store the password in the approved
 secret store, not scripts; rotate both and the task credential together. Domain sites
@@ -51,12 +58,12 @@ may instead use a dedicated domain backup identity, with the same narrow rights.
 Receiver setup (receiver agent/admin only, no changes to the server's services):
 create Incoming, D:\SESS-Backup-Vault and D:\SESS-Backup-ReceiverStatus. Disable NTFS
 inheritance on these NEW folders; Incoming grants SYSTEM/Administrators Full and
-[ILAMPARUTHI PC hostname]\SESSBackup Modify. Vault and ReceiverStatus grant only SYSTEM/Administrators
+RECEIVER_NOT_SET\SESSBackup Modify. Vault and ReceiverStatus grant only SYSTEM/Administrators
 Full; **no SESSBackup access**, no network share for Vault. Never reuse a general
 Everyone-writable folder. Then:
 
 ```powershell
-New-SmbShare -Name 'SESS-Backup-Incoming$' -Path 'D:\SESS-Backup-Incoming' -ChangeAccess '[ILAMPARUTHI PC hostname]\SESSBackup' -FullAccess 'BUILTIN\Administrators' -EncryptData $true -CachingMode None
+New-SmbShare -Name 'SESS-Backup-Incoming$' -Path 'D:\SESS-Backup-Incoming' -ChangeAccess 'RECEIVER_NOT_SET\SESSBackup' -FullAccess 'BUILTIN\Administrators' -EncryptData $true -CachingMode None
 Get-SmbShareAccess -Name 'SESS-Backup-Incoming$'
 ```
 
@@ -163,7 +170,7 @@ local bundles plus one verification cannot fit, the site is blocked pending capa
 
 On Ilamparuthi's PC copy Archive-IncomingBackups.ps1 and VerifiedBackupTransfer.psm1 into
 an administrator-controlled tools folder. Register an hourly task as **SYSTEM**, run
-whether logged on or not, invoking the script with -Receiver "[ILAMPARUTHI PC hostname]" -Incoming
+whether logged on or not, invoking the script with -Receiver "RECEIVER_NOT_SET" -Incoming
 D:\SESS-Backup-Incoming -Archive D:\SESS-Backup-Vault -StatusDirectory
 D:\SESS-Backup-ReceiverStatus. Use IgnoreNew, StartWhenAvailable; Task Scheduler GUI
 can set daily trigger, repeat every 1 hour for 1 day indefinitely. No credentials for

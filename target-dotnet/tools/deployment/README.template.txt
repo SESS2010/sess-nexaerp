@@ -31,11 +31,14 @@ Apply in this exact order, checking each numbered server-runbook step below:
 5. Serve web at same origin, scope firewall 8443 to 192.168.68.0/24; another-PC check.
 6. Complete the demo walk and reboot/no-login witness, then drop only the demo DB.
 7. Create sess_nexa_erp directly on server with Option C. No stock-moving command
-   before BOTH opening-stock ceremonies are posted. Do not restore the demo.
+   before BOTH opening-stock ceremonies are posted. Do not restore the demo or any
+   developer database. NO DUMP: items from the checked-in legacy script; SESS enters
+   other setup on 28-30 September using the SETUP-BEFORE-FIRST-GRN checklist, then
+   both template-v2 opening ceremonies. Daily transactions start 1 October.
 8. Configure and witness daily verified ERP/identity backups on C: PLUS DAILY off-machine copy;
    D: and E: are rejected because their physical HDD is suspect. Follow
    installer/docs/server-daily-backups.md, including the 25 GiB free-space gate.
-   Receiver is Ilamparuthi's PC (identified as IT TEAM 2), NOT DESKTOP-AP. Replace [ILAMPARUTHI PC hostname]
+   Receiver is Ilamparuthi's PC (identified as IT TEAM 2), NOT DESKTOP-AP. Replace RECEIVER_NOT_SET
    with its verified Windows hostname before setup; the example intentionally refuses.
    Use server-production-state.example.json with Test-ProductionState.ps1 every
    morning: stale/missing/failed daily off-machine receipts must produce FAIL.

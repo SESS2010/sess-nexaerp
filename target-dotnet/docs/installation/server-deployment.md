@@ -331,7 +331,7 @@ End the field report RESULT_REPORTED_PENDING_WITNESS until actual acceptance.
 
 The daily backup receiver is **Ilamparuthi's PC (frontend developer), identified as IT TEAM 2**. DESKTOP-AP
 is the Technical Director's development laptop and must not be configured as the
-receiver. The exact hostname is pending: `[ILAMPARUTHI PC hostname]`. Confirm it on
+receiver. The exact hostname is pending: `RECEIVER_NOT_SET`. Confirm it on
 the receiver before replacing the placeholders in the site plan and commands.
 Follow [daily backups](server-daily-backups.md) for the dedicated password account,
 one writable incoming share, hash verification after landing and receiver-owned
