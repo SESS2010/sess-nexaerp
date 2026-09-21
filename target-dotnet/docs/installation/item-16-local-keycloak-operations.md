@@ -2,7 +2,15 @@
 
 Decision: Technical Director, 15 September 2026, after witnessing fc6de74 and live migration 78 to 103. Item 15 is accepted. Local Keycloak is now the SESS default; the provider-agnostic validator and Cognito profile remain supported. Earlier text that says production awaits Cognito is superseded by this decision.
 
-## Placement and ownership
+## Current server deployment supersedes the original placement
+
+The 21 September owner decision replaces the laptop Linux VM and separate PostgreSQL
+instance below: native Java 17 on DESKTOP-SPF5420, HTTPS8444 and sess_keycloak in its
+existing PostgreSQL17.11 cluster. Follow [server installation](server-keycloak-install.md)
+and [mandatory protected services](server-protection.md). The old placement/port/storage
+paragraphs below are historical witness context only and MUST NOT be applied.
+
+## Historical placement and ownership
 
 For the first month, use a dedicated Linux VM on the ERP laptop, initially 2 vCPUs and 4 GB RAM, subject to a measured login/load check. The inspected host has 32 GB RAM, Windows 10 Pro, firmware virtualization enabled and no active hypervisor. Enabling Hyper-V/rebooting is deployment work, not part of a test run. The portable emulated Alpine witness is not a production appliance.
 
