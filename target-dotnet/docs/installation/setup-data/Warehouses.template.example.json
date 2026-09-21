@@ -1,0 +1,7 @@
+{
+  "Kind": "Warehouses",
+  "Action": "Template",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": []
+}

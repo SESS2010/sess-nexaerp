@@ -1,0 +1,16 @@
+{
+  "Kind": "VendorQualifications",
+  "Action": "Verify",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": [
+    {
+      "OperationId": "REPLACE-WITH-NEW-GUID",
+      "RecordId": "REPLACE-WITH-READ-BACK-ID",
+      "Body": {
+        "ExpectedVersion": null,
+        "Remarks": "REPLACE with independent decision reference"
+      }
+    }
+  ]
+}
