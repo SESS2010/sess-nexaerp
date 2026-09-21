@@ -1,9 +1,11 @@
 using System.Data;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 using SESS.NexaERP.Application.Audit;
@@ -12,10 +14,12 @@ using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Reporting;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
 
-public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit)
+public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit,
+    IOptions<ReportCalendarOptions>? calendar = null)
     : IFitmentActualBomService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -149,6 +153,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         var entries = await db.ActualBomEntries.AsNoTracking()
             .Where(x => x.CompanyId == company.Id && x.ActualBomId == bom.Id)
             .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial).Include(x => x.OpeningStockLine)
+                .ThenInclude(x => x!.OpeningStock).ThenInclude(x => x!.AuthorizedByEmployee)
             .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(ct);
         var valuationRows = await LandedValuationsAsync(company.Id, bom.Id, ct);
         var valuations = valuationRows.GroupBy(x => x.ActualBomEntryId).ToDictionary(x => x.Key,
@@ -164,6 +169,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             .ToDictionaryAsync(x => x.Id, x => x.ComponentFitmentId, ct);
         var fitmentEntries = entries.Where(x => x.ComponentFitmentId.HasValue)
             .ToDictionary(x => x.ComponentFitmentId!.Value);
+        var provenanceZone = (calendar?.Value ?? new ReportCalendarOptions()).Resolve(company.Code);
         var views = entries.Select(x =>
         {
             var material = x.AcceptedMaterialValue; var charges = x.AllocatedChargeValue;
@@ -194,7 +200,8 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
                 x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase, x.InventoryProvenanceLayerId,
                 x.InventoryLotId, x.InventorySerialId, x.InventorySerial?.StoredSerialNumber,
                 x.GoodsReceiptLineId, x.GrnNumberSnapshot, billLineId, billNumber, status,
-                material, charges, total, valuedAt, x.OccurredAt, x.OpeningStockLineId, x.OpeningStockLine?.LineReference);
+                material, charges, total, valuedAt, x.OccurredAt, x.OpeningStockLineId, x.OpeningStockLine?.LineReference,
+                EntryProvenance(x, billLineId, billNumber, provenanceZone));
         }).ToArray();
         var operational = await OperationalVarianceAsync(company.Id,
             job.PinnedProductionBomRevisionId.Value, views, ct);
@@ -202,6 +209,28 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         return new(bom.Id, jobOrderId, job.JobOrderNumber, bom.GeneratedAt,
             views.Sum(x => x.AcceptedMaterialValue), views.Sum(x => x.AllocatedChargeValue),
             views.Sum(x => x.TotalAcceptedValue), views, operational, commercial);
+    }
+
+    // Production/Stores provenance deliberately has no payment input or payable lookup.
+    // The commercially permissioned dossier owns the fuller payment sentence.
+    internal static string EntryProvenance(ActualBomEntry entry, Guid? billLineId,
+        string? billNumber, TimeZoneInfo zone)
+    {
+        if (entry.OpeningStockLineId.HasValue)
+        {
+            var line = entry.OpeningStockLine
+                ?? throw new StoresConflictException("Opening stock provenance is unavailable.");
+            if (!string.IsNullOrWhiteSpace(line.VendorBillNumber))
+                return $"Bill {line.VendorBillNumber} - declared at opening stock, not verified in this system";
+            var stock = line.OpeningStock;
+            if (stock?.AuthorizedAt is not { } authorizedAt || stock.AuthorizedByEmployee is null)
+                throw new StoresConflictException("Opening stock authorization provenance is unavailable.");
+            var date = TimeZoneInfo.ConvertTime(authorizedAt, zone).ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+            return $"Opening stock, authorised {date} by {stock.AuthorizedByEmployee.EmployeeCode}";
+        }
+        return billLineId.HasValue
+            ? $"Bill {billNumber} - accepted, matched"
+            : $"GRN {entry.GrnNumberSnapshot} - bill not yet accepted";
     }
 
     private async Task<IReadOnlyList<ActualBomValuationProjection>> LandedValuationsAsync(

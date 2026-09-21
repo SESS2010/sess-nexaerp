@@ -23,7 +23,7 @@ public sealed record ActualBomEntryView(Guid Id, string EntryKind, Guid? Compone
     string? BillNumber, string ValuationStatus, decimal AcceptedMaterialValue,
     decimal AllocatedChargeValue, decimal TotalAcceptedValue,
     DateTimeOffset? ValuedAt, DateTimeOffset OccurredAt,
-    Guid? OpeningStockLineId = null, string? OpeningLineReference = null);
+    Guid? OpeningStockLineId = null, string? OpeningLineReference = null, string? Provenance = null);
 
 public sealed record ActualBomVarianceLineView(Guid ItemId, string ItemCode, string ItemName,
     Guid BaseUomId, string BaseUomCode, decimal BaselineQuantity, decimal ActualQuantity,

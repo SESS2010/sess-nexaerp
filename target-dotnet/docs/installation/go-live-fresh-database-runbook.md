@@ -138,6 +138,37 @@ Check: `SELECT count(*) FROM advance.items WHERE "CreatedBy"='EXCEL_IMPORT'` = 1
 `Approved`; categories ELE/FAB/REF present; UOMs present. The #11 reconcile script is not
 needed on a database the corrected import created.
 
+### Category reconciliation command (Owner)
+
+```powershell
+# Run from the repository root after backup; select the intended database explicitly.
+# For today's repair use the developer's server at 130; for go-live use the go-live host/database.
+$categoryHost = Read-Host 'PostgreSQL host'
+$categoryPort = Read-Host 'PostgreSQL port (normally 5432)'
+$categoryDatabase = Read-Host 'Target database name'
+# Principal: nexa_erp_migration, SET ROLE nexa_erp_owner (not the API runtime login).
+psql -X --host "$categoryHost" --port "$categoryPort" --username nexa_erp_migration --dbname "$categoryDatabase" -v ON_ERROR_STOP=1 -c "SET ROLE nexa_erp_owner" -f .\database\postgresql\reconcile-legacy-item-categories.sql
+if ($LASTEXITCODE -ne 0) { throw 'Category reconciliation failed; retain output and resolve the reported guard before retrying.' }
+# Changes: EXCEL_IMPORT item categories ELECTRICALS->ELE, FABRICATION->FAB,
+# REFRIGERATION->REF; increments versions/update metadata and writes GLOBAL item audits.
+# Retires active import-owned legacy aliases, with separate category audits.
+# Preserves IDs, receipt snapshots and historical QC evidence.
+# Refuses: system databases; missing/inactive required canonical categories; active
+# legacy QC policies, vendor qualifications or Stores routes; affected imported items
+# with subcategories; active non-import items or active subcategories preventing alias retirement.
+# The script owns one SERIALIZABLE transaction: any error rolls the repair back.
+# Replay: paste this same block with the same target. With no new affected data it
+# changes zero items/aliases and appends zero audits. Do not rerun the original import as a repair.
+# Check afterwards: exit 0 and COMMIT; corrected_items sum = 1,087 for today's
+# guarded database at 130 (go-live: use its own preflight count, possibly zero).
+# Check zero EXCEL_IMPORT items remain on the three legacy codes; ELE/FAB/REF are active;
+# retired_import_aliases matches the active import-owned aliases (normally 3).
+# Audit deltas: ReconcileImportedCategory = corrected items; RetireImportedCategoryAlias
+# = retired aliases; Scope GLOBAL, UserLoginId nexa_erp_migration, ActorRoleCode INSTALLER.
+# Replay check: zero corrected items/retired aliases and zero additional audit rows.
+# Before receipts, configure effective canonical Stores routes, QC policies and vendor qualifications.
+```
+
 **Applying the item differences.** Diff `items-export.xlsx` from step 1 against the script
 by ItemCode (`tools/` gets a small script for this when the dump arrives; it prints one row
 per differing item and column). Then:
