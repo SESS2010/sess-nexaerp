@@ -144,7 +144,12 @@ internal static class DatabasePrincipalProvisioningSql
             GRANT SELECT ON TABLE advance.item_company_last_purchases TO nexa_erp_runtime;
           END IF;
         END $item_last_purchase_acl$;
-        REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
+        DO $bootstrap_state_acl$
+        BEGIN
+          IF to_regclass('advance.authentication_bootstrap_state') IS NOT NULL THEN
+            REVOKE ALL ON TABLE advance.authentication_bootstrap_state FROM nexa_erp_runtime,nexa_erp_bootstrap;
+          END IF;
+        END $bootstrap_state_acl$;
 
         DO $opening_stock_acl$
         BEGIN
@@ -480,6 +485,9 @@ internal static class DatabasePrincipalProvisioningSql
 
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON TABLES FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE ALL ON SEQUENCES FROM PUBLIC;
+        -- Per-schema revocation cannot remove PostgreSQL's global PUBLIC EXECUTE default.
+        -- Limit this database-local default to the managed owner role, across its schemas.
+        ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
         ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner IN SCHEMA advance REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
                 DO $supplier_acl$
         DECLARE relation text; signature text; principal text;
@@ -597,10 +605,10 @@ internal static class DatabasePrincipalProvisioningSql
             WHERE n.nspname='advance' AND p.prokind IN ('f','p')
               AND NOT has_function_privilege('nexa_erp_owner',p.oid,'EXECUTE')
           ) THEN RAISE EXCEPTION 'Owner relation, sequence or routine privileges are incomplete.'; END IF;
-          IF has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','SELECT')
-             OR has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','INSERT')
-             OR has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','UPDATE')
-             OR has_table_privilege('nexa_erp_runtime','advance.authentication_bootstrap_state','DELETE') THEN
+          IF has_table_privilege('nexa_erp_runtime',to_regclass('advance.authentication_bootstrap_state'),'SELECT')
+             OR has_table_privilege('nexa_erp_runtime',to_regclass('advance.authentication_bootstrap_state'),'INSERT')
+             OR has_table_privilege('nexa_erp_runtime',to_regclass('advance.authentication_bootstrap_state'),'UPDATE')
+             OR has_table_privilege('nexa_erp_runtime',to_regclass('advance.authentication_bootstrap_state'),'DELETE') THEN
             RAISE EXCEPTION 'Runtime must have no direct bootstrap-state access.';
           END IF;
           IF EXISTS(
@@ -718,6 +726,7 @@ internal static class DatabasePrincipalProvisioningSql
             RAISE EXCEPTION 'Controlled stock adjustment posting function ACL is invalid.';
           END IF;
 
+          IF to_regclass('advance.page_definitions') IS NOT NULL THEN
           IF EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase')
              OR to_regprocedure('advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)') IS NOT NULL THEN
             IF NOT EXISTS(SELECT 1 FROM advance.page_definitions WHERE "PageKey"='dashboards.purchase')
@@ -800,6 +809,10 @@ internal static class DatabasePrincipalProvisioningSql
                     WHERE a.grantee<>p.proowner AND(a.grantee<>'nexa_erp_runtime'::regrole OR a.is_grantable))) THEN
               RAISE EXCEPTION 'Stores QC stock authority is incomplete or invalid.';
             END IF;
+          END IF;
+
+          ELSIF EXISTS(SELECT 1 FROM (VALUES ('advance.purchase_obligations(text,uuid,uuid[],text,text,uuid,text,uuid,bigint,integer)'),('advance.purchase_open_orders(text,uuid,uuid[],text,uuid,text,uuid,boolean,bigint,integer)'),('advance.purchase_spending(text,uuid,uuid[],text,text,date,uuid,uuid,text,uuid,bigint,integer)'),('advance.purchase_workload(text,uuid,uuid[],text,text,text,bigint,integer)'),('advance.stores_qc_stock(text,uuid,uuid[],text,text,uuid,bigint,integer)'),('advance.stores_workload(text,uuid,uuid[],text,text,uuid,bigint,integer)')) f(name) WHERE to_regprocedure(f.name) IS NOT NULL) THEN
+            RAISE EXCEPTION 'Dashboard authority exists without page definitions.';
           END IF;
 
           IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
