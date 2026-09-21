@@ -60,3 +60,18 @@ witnessed templates; import and login on this Windows 26.7.4 server remain field
 acceptance, not a newly executed production witness.
 
 [Keycloak offline import semantics](https://www.keycloak.org/server/importExport).
+
+## Initial wrapper callback (22 September handoff)
+
+After importing both realm exports, the identity maintainer adds the exact redirect
+URI `http://127.0.0.1:8765/callback/` to BOTH public clients `nexaerp-staff` in Staff
+and `nexaerp-approvers` in Approvers. Keep existing exact SPA redirects. No wildcard,
+localhost alias, alternate port or unrestricted web origin. This narrow HTTP exception
+is the native loopback callback on the EMPLOYEE'S PC, not a server HTTP listener.
+Exports in this package retain their original SPA redirect lists: this is an explicit
+post-import configuration step, not an assertion that exports already contain it.
+Check standard flow enabled, S256 required, direct/implicit/service-account grants off,
+audience/scope/azp contract intact, and Approvers required password+OTP flow unchanged.
+Save a redacted client-settings receipt. No employee impersonation or password grant.
+For server-agent-demo-start.md, defer general employee onboarding and wrapper rehearsal;
+only verified SESS-12 identity/bootstrap is in the initial handoff.

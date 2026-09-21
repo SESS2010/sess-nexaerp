@@ -122,3 +122,15 @@ Sources checked 21 September 2026:
 - [Procrun environment settings](https://commons.apache.org/proper/commons-daemon/procrun.html)
 - [Database configuration](https://www.keycloak.org/server/db)
 - [Temporary administrator bootstrap](https://www.keycloak.org/server/bootstrap-admin-recovery)
+
+## Field state confirmed 22 September
+
+Keycloak is NOT installed. PostgreSQL 17.11 and ASP.NET Core .NET 10 runtime plus
+server preparation are the only confirmed prerequisites. Check the exact Java 17
+binary before running these steps; do not infer Java is installed from a planned
+path. If absent, stage the approved Java 17 distribution on C: and verify publisher/
+checksum and `java -version` before proceeding. Scope JAVA_HOME to SESSKeycloak;
+never change Java used by protected engineering software. The ERP package does not
+contain Java, Keycloak or Commons Daemon: stage the pinned, hash-checked prerequisites
+in this guide separately. Follow server-agent-demo-start.md for the authorised order.
+`Java 17` is listed in the upstream [supported configurations](https://www.keycloak.org/server/supported-configurations), checked 22 September 2026; retain the pinned distribution rather than silently upgrading it.

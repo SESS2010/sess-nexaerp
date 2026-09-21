@@ -12,7 +12,10 @@
 The selected `feature/frontend` source at `0c59254f58bd49fc13a8b919387ba0cf5a1d9988`
 builds, but its login uses `/api/v1/dev/*`, deliberately absent
 from Release. Obtain the frontend developer's production/OIDC-capable source, rebuild,
-repeat acceptance and issue a new hashed package before step 4. Do not enable Debug
+repeat acceptance and issue a new hashed package before serving the frontend or the demo walk.
+The authorised exception is backend-only DEMO commissioning in
+[server-agent-demo-start.md](server-agent-demo-start.md): D4, D2, D3, DEMO migrations,
+API health, then SESS-12 bootstrap and STOP. Do not serve the candidate web folder. Do not enable Debug
 authentication or invent employee identities to bypass this gate. Install local Keycloak using server-keycloak-install.md and trusted HTTPS using
 server-https.md. The production frontend must implement server-frontend-oidc-contract.md.
 
@@ -174,9 +177,9 @@ Check no SDK was installed to accomplish this. See `sdk-free-migration-proof.md`
 
 ## 4. Configure and start the API Windows service
 
-**STOP here while the production frontend/OIDC gate is unresolved.** Use the real
+**For backend-only DEMO commissioning follow server-agent-demo-start.md and stop at its boundary.** Use the real
 provider's issuer/metadata/JWKS/client/audience settings from
-`authentication.server.keycloak.json` and the exact D1 contract; complete D2-D5 first. Follow `authentication-bootstrap.md` for the one-time
+`authentication.server.keycloak.json` and the exact D1 contract; complete D2-D4 first; D5 bootstrap follows API health in the bounded handoff. Follow `authentication-bootstrap.md` for the one-time
 SESS-12 issuer/subject ceremony using the published Installer as `nexa_erp_bootstrap`
 (`authentication-bootstrap --issuer <https-issuer> --subject <stable-subject>`), then
 map employees through governed APIs. Never use a development identity command.
