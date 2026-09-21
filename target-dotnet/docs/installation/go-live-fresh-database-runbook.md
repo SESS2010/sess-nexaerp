@@ -379,19 +379,23 @@ item (FIFO dates it from the period end above).
 | 11 qualifications | `[dump]` | 3 each | TD + MD |
 | 12–13 ceremonies | 2 | 3 each | Accounts + TD |
 
-## 15. DESKTOP-SPF5420: dedicated production server at all hours
+## 15. DESKTOP-SPF5420: ERP with protected existing engineering services
 
 Decision, 21 September 2026: use the existing office PC DESKTOP-SPF5420. The laptop
 returns to development and LabVIEW after successful cutover. The former laptop
 09:30-18:30 production-only rule and 1 October witness cutoff are superseded.
 
-**Nothing except the ERP and its operational dependencies runs on the server, ever.**
-This includes PostgreSQL, required identity/runtime services, verified backup/restore
-verification, monitoring, OS/security maintenance and controlled ERP deployment.
-No development editors/agents, builds, tests, nightly witnesses, LabVIEW/NI or general
-office work, including at night. Build/publish on the laptop and deploy artifacts.
-A backup's isolated restore-verification cluster is an ERP backup operation, not a
-permission to run development witnesses on the server.
+No new development, builds, tests, nightly witnesses, LabVIEW or general office work
+is added to this server, at any hour. The existing engineering workload is protected:
+SQL Server Express SESS_SQLEXPRESS and TEW_SQLEXPRESS hold approximately 77 SOLIDWORKS
+Electrical project databases, and the SOLIDWORKS Electrical Collaborative Server
+service runs. NEVER stop, disable, modify or remove these instances, databases or
+services. NEVER a clean Windows install. This protection overrides the earlier
+"ERP only" wording. Inventory/read-only checks are permitted; reconfiguration is not.
+Wampserver Apache, MySQL and MariaDB are Stopped/Manual: leave them exactly that way.
+IIS already owns 80 and 81: preserve its sites and bindings. ERP-specific PostgreSQL,
+API, backup and monitoring are the only new workload. Backup restore-verification
+clusters are permitted ERP operations, one at a time; development clusters are not.
 
 ### 15.1 Selected server specification and disk allocation
 
@@ -401,13 +405,19 @@ Owner-supplied specification; deployment checks on the actual server remain to b
 |---|---|
 | Host / OS | DESKTOP-SPF5420; currently Windows 10 Pro 64-bit; Windows 10 retained by TD decision; Windows 11 planned later; ESU costs in 15.1a |
 | CPU | Intel Core i5-10600K, desktop, 6 physical cores / 12 logical; reported not throttled |
-| RAM | 15.9 GB; reserved for ERP and its dependencies |
+| RAM | 15.9 GB total; approximately 9 GB in use at idle, reported 7.6 GB free; preserve engineering workload |
 | Physical SSD | WDC WDS240G2G0A, 224 GB; C:, currently 40 GB free; Windows, ERP binaries and production PostgreSQL data |
 | Physical HDD | Seagate ST1000DM010, 932 GB; D: currently 284 GB free, E: 339 GB free |
 | Verified bundles | `D:SESS-Backups` on the separate physical HDD |
 | Verification work | Prefer `E:SESS-Backup-Verification`; `D:SESS-Backup-Verification` also permitted as a separate directory |
 | Network | Realtek Gaming GbE Ethernet adapter; currently negotiated at 100 Mbps |
 | Power / account | UPS connected; Windows login password set |
+| LAN | 192.168.68.130; gateway 192.168.68.1; address reservation in progress on router |
+| Installed database | PostgreSQL 17.11 running; administrator password as on laptop, never included in package |
+| Installed runtime | ASP.NET Core/.NET 10.0.12; Hosting Bundle ANCM present; SDK removed |
+| Protected existing services | SQL Server Express SESS_SQLEXPRESS / TEW_SQLEXPRESS (~77 design databases), SOLIDWORKS Electrical Collaborative Server |
+| Other services | Wampserver Apache/MySQL/MariaDB Stopped/Manual; leave unchanged; IIS 80/81 retained |
+
 
 C: and D: are on **different physical disks**. D: and E: are partitions of the **same
 HDD**; using both does not create a third independent copy. Record the volume-to-disk
@@ -415,8 +425,17 @@ mapping during setup (`Get-Partition -DriveLetter C,D,E | Get-Disk`), and confir
 PostgreSQL `SHOW data_directory` resolves to C:. Never infer physical independence
 from drive letters alone.
 
-The CPU and RAM are suitable for the estimated eleven-user ERP workload, subject to
-normal cutover checks under real use. There is no need to buy the previously proposed
+The CPU is suitable for the estimated eleven-user ERP workload; RAM is shared with
+the protected engineering applications. Start PostgreSQL conservatively: shared_buffers
+512MB, effective_cache_size 2GB (planner estimate, not allocation), work_mem 4MB,
+maintenance_work_mem 128MB, max_connections 40, max_parallel_workers 2 and
+max_parallel_workers_per_gather 1. Limit the ERP runtime Npgsql pool to 20 connections.
+Apply only after recording PostgreSQL's existing settings and confirming no other
+PostgreSQL database depends on them; do not change SQL Server memory settings.
+These are initial estimates, not measured guarantees. Observe available RAM during
+SOLIDWORKS use, eleven-user ERP activity and the one-at-a-time backup verification.
+Investigate below 2GB available; defer heavy backup verification if it would impair
+the engineering workload. Never reclaim memory by stopping the protected services. There is no need to buy the previously proposed
 server before this deployment. Windows 10 support ended on 14 October 2025. Resolve the OS decision now as follows.
 
 ### 15.1a Windows 10 retained now; Windows 11 planned later
@@ -489,12 +508,12 @@ ERP/API readiness and login from client PCs, UPS operation, no sleep/hibernation
 reserved LAN address/name resolution and firewall rules, C: reserve, and successful
 ERP plus identity backups. Use service accounts and supported service/task hosting;
 do not assume the laptop's interactive startup shortcut survives sign-out/reboot.
-Keep unrelated services and applications off the server.
+Preserve the protected existing engineering services; add no unrelated workload.
 
 `tools/production-state.json` and `Enter-ProductionDay.ps1` describe the old laptop
 setup; do not deploy or run them unchanged. A server monitoring profile must use its
 actual services, API readiness URL, cluster path and backup paths, require no witness
-task, use C: >= 25 GB free and a provisional available-RAM alert at 4 GB (not the old
+task, use C: >= 25 GB free and a provisional available-RAM alert at 2 GB (not the old
 12 GB threshold for a 32 GB laptop), and account for the authorised backup verification
 cluster during its run. Measure memory during backup and normal use before tuning.
 Keep backup/identity freshness checks; a successful old laptop check is not server evidence.
@@ -511,7 +530,7 @@ new server's configuration. Create these on the server:
   `pg_control_system()` / `pg_controldata`; never copy `7647792057875705176` from the laptop.
 - `BackupRoot`: `D:SESS-Backups`; `WorkingRoot`: `E:SESS-Backup-Verification`
   (or the separate D: directory above). Roots must not overlap; initially empty/absent
-  roots are enrolled by the tool. Do not initialise them over unrelated colleague files.
+  roots are enrolled by the tool. Both D: directories already exist: empty or correctly tool-owned is required; never clear an unmarked nonempty directory.
 - Protected logs: `C:SESS-Backuplogs`; DPAPI file made by the scheduled Windows
   account **on this server**. Retain application configuration in the backup/recovery
   inventory; credentials are managed separately.

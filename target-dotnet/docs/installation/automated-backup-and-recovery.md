@@ -11,8 +11,8 @@ unpatched OS can encrypt C: and D: together despite their being separate disks.
 Option C creates the fresh go-live database directly on this server. Production
 PostgreSQL data stays on C: (224 GB WDC SSD, currently 40 GB free). Verified bundles
 go to `D:\SESS-Backups` on the separate 932 GB Seagate HDD (D: 284 GB free, E: 339 GB
-free). Prefer `E:\SESS-Backup-Verification` for restore working space; a separate
-`D:\SESS-Backup-Verification` directory is also supported. D: and E: share the HDD;
+free). Use the existing `D:\SESS-Backup-Verification` for restore working space, separate
+from the existing `D:\SESS-Backups`. Do not clear unmarked nonempty roots. D: and E: share the HDD;
 neither is independent of the other, but both are physically separate from C:.
 Record the actual disk mapping at installation. SSD failure leaves the HDD bundles
 available for recovery. Keep an external/offsite copy for whole-PC loss.
@@ -87,7 +87,7 @@ a separately restricted backup account has not been witnessed.
 
 Use PostgreSQL 17 tools and a destination on an independent physical disk, external
 media or network storage that supports the required directory permissions. The selected
-server uses D: on its separate HDD plus an external/offsite copy. Use a UNC path for network storage; mapped drive letters may be unavailable to a scheduled account. WorkingRoot is a separate
+server uses D: on its separate HDD plus the required weekly off-machine copy. Use a UNC path for network storage; mapped drive letters may be unavailable to a scheduled account. WorkingRoot is a separate
 local directory used for temporary verification clusters. The backup root
 must initially be empty. The Installer creates a private ownership marker and
 refuses unmarked nonempty directories, overlapping roots and reparse points.
