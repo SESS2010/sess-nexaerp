@@ -24,7 +24,7 @@ sequence. References below are included in the package's installer/docs folder a
 supply the exact certificate/service commands; use only the named bounded sections,
 not later production/demo-walk steps. Never record passwords, bearer tokens or private keys.
 
-## 0. READ-ONLY permission check — report before installation
+## 0. READ-ONLY permission check - report before installation
 
 Run on the confirmed SERVER in elevated PowerShell. This step changes no ACLs.
 Do not copy the laptop's permissions or assume the server has the same problem.
