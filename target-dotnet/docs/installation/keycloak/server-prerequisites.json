@@ -1,0 +1,17 @@
+{
+  "CheckedDate": "2026-09-21",
+  "DownloadedAndExecutedHere": false,
+  "Keycloak": {
+    "Version": "26.7.4",
+    "Url": "https://github.com/keycloak/keycloak/releases/download/26.7.4/keycloak-26.7.4.zip",
+    "Sha256": "a286e98b4296d4e75ee88d8527c7cd463b307caa022f088c9f22cffccc741fa1",
+    "MetadataSource": "https://api.github.com/repos/keycloak/keycloak/releases/tags/26.7.4"
+  },
+  "ApacheCommonsDaemon": {
+    "Version": "1.6.1",
+    "Url": "https://downloads.apache.org/commons/daemon/binaries/windows/commons-daemon-1.6.1-bin-windows.zip",
+    "Sha512": "a878177edc92e663c1113858f8903451ec02b5b033bca373bea4f8761d9196323771301fcd6a7b8387d8e2300f7a1056b9e08e83fca9703df32ac3ecd5b129f7",
+    "ChecksumSource": "https://downloads.apache.org/commons/daemon/binaries/windows/commons-daemon-1.6.1-bin-windows.zip.sha512",
+    "Binary": "amd64/prunsrv.exe"
+  }
+}

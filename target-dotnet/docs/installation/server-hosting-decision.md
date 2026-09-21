@@ -21,7 +21,7 @@ The selected frontend developer branch (`0c59254f58bd49fc13a8b919387ba0cf5a1d998
 contains the Actual BOM pane, but still uses Debug-only identity/token endpoints. Its
 Vite production build is not a production authentication implementation. Release
 continues to refuse development authentication. Obtain the production frontend and
-existing HTTPS OIDC provider configuration before the demo; this package is a
+the local Keycloak configuration specified in server-keycloak-install.md before the demo; this package is a
 candidate until that is resolved. It does not bundle an identity server.
 
 Service startup, certificate access, reboot without login, another-PC sign-in and

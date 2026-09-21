@@ -16,7 +16,8 @@ replace a JVM used by engineering software. Retained unpatched Windows 10 is sti
 the TD's OS decision, not a claim of vendor support for that OS. No VM/Hyper-V,
 Docker, IIS rewrite, SDK, Maven or npm is required on the server.
 
-Only the server agent applies this procedure. Commands require appropriate local
+Set `$kc="C:\SESS-Identity\keycloak-26.7.4"` in the installation console and use
+that directory for each relative bin command below. Only the server agent applies this procedure. Commands require appropriate local
 administrator/DBA rights. This is an installation recipe, not a claim it has run there.
 Read [D1](server-frontend-oidc-contract.md), [D3](server-keycloak-realms.md),
 [D4](server-https.md), [D5](server-identity-mapping.md) and the daily backup gate first.
@@ -29,9 +30,11 @@ Read [D1](server-frontend-oidc-contract.md), [D3](server-keycloak-realms.md),
 2. Obtain keycloak-26.7.4.zip from the official versioned GitHub release linked by
    keycloak.org/downloads. Verify its release checksum/signature from the official
    release metadata before extraction and record URL, SHA256 and date in
-   C:\SESS-Identity\deployment-version.json. Download the current signed Apache Commons
-   Daemon Windows binaries from Apache, verify their SHA512/signature and record the
-   exact release and checksum too. Use the amd64 prunsrv.exe. Never silently use latest
+   C:\SESS-Identity\deployment-version.json. Download signed Apache Commons Daemon **1.6.1** Windows binaries from Apache,
+   verify their SHA512/signature and record the exact release and checksum too.
+   Expected official asset digests and exact URLs are in keycloak/server-prerequisites.json;
+   compare the downloaded bytes, not merely the filename. Those metadata digests were
+   read from the publishers on 21 September; the binaries themselves are not included. Use the amd64 prunsrv.exe. Never silently use latest
    on a later rebuild. Extract into C:\SESS-Identity\keycloak-26.7.4; put prunsrv.exe in
    its bin folder. Refuse to overwrite an existing installation. These third-party
    binaries are separately acquired prerequisites, not asserted to be in the ERP package.
@@ -80,7 +83,7 @@ Read [D1](server-frontend-oidc-contract.md), [D3](server-keycloak-realms.md),
    options before registering (the exact PostgreSQL service name comes from step 1):
 
    ```powershell
-   & "$kc\bin\kc.bat" tools windows-service install --name SESSKeycloak --startup=delayed --depends-on='<actual-postgresql-service>;Tcpip;Afd'
+   & "$kc\bin\kc.bat" tools windows-service install --name SESSKeycloak --startup=delayed --stop-timeout=60 --log-path=C:\SESS-Identity\logs --depends-on='<actual-postgresql-service>;Tcpip;Afd'
    if ($LASTEXITCODE -ne 0) { throw 'Keycloak service installation failed' }
    # Configure only this new service; use Services console Log On tab to enter the
    # SESSKeycloak account/password securely and verify Log on as a service.
