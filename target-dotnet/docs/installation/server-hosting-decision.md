@@ -1,5 +1,13 @@
 # DESKTOP-SPF5420 hosting decision
 
+> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
+> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
+> Windows install; NEVER install a .NET SDK on this server. All application here is
+> by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
+
+
 Use a Windows service, SCM name `SESSNexaERP`, on HTTPS 8443. IIS owns 80 and 81;
 this preserves its sites and avoids a reverse-proxy/site-binding dependency.
 The API integrates with Windows Service Control Manager. Delayed automatic start

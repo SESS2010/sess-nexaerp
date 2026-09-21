@@ -1,5 +1,13 @@
 # Go-live runbook: fresh database, 1 October 2026
 
+> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
+> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
+> Windows install; NEVER install a .NET SDK on this server. All application here is
+> by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
+
+
 For this runtime-only server, use [server-deployment.md](server-deployment.md) for
 package verification, DEMO-first order, service setup and migration bundle commands.
 Its deployment sequence supersedes the source/SDK examples below. Principal provisioning
@@ -413,8 +421,8 @@ Owner-supplied specification; deployment checks on the actual server remain to b
 |---|---|
 | Host / OS | DESKTOP-SPF5420; currently Windows 10 Pro 64-bit; Windows 10 retained by TD decision; Windows 11 planned later; ESU costs in 15.1a |
 | CPU | Intel Core i5-10600K, desktop, 6 physical cores / 12 logical; reported not throttled |
-| RAM | 15.9 GB total; approximately 9 GB in use at idle, reported 7.6 GB free; preserve engineering workload |
-| Physical SSD | WDC WDS240G2G0A, 224 GB; C:, currently 40 GB free; Windows, ERP binaries and production PostgreSQL data |
+| RAM | 15.9 GB total; 6.4 GB free with all existing services running (16:01 measurement); preserve engineering workload |
+| Physical SSD | WDC WDS240G2G0A, 224 GB; C:, currently 41.6 GB free; Windows, ERP binaries and production PostgreSQL data |
 | Physical HDD | Seagate ST1000DM010, 932 GB; D: currently 284 GB free, E: 339 GB free |
 | Verified bundles | `D:SESS-Backups` on the separate physical HDD |
 | Verification work | Prefer `E:SESS-Backup-Verification`; `D:SESS-Backup-Verification` also permitted as a separate directory |
@@ -437,7 +445,7 @@ The CPU is suitable for the estimated eleven-user ERP workload; RAM is shared wi
 the protected engineering applications. Start PostgreSQL conservatively: shared_buffers
 512MB, effective_cache_size 2GB (planner estimate, not allocation), work_mem 4MB,
 maintenance_work_mem 128MB, max_connections 40, max_parallel_workers 2 and
-max_parallel_workers_per_gather 1. Limit the ERP runtime Npgsql pool to 20 connections.
+max_parallel_workers_per_gather 1. Limit the ERP runtime Npgsql pool to 15 connections; Keycloak pool maximum 10.
 Apply only after recording PostgreSQL's existing settings and confirming no other
 PostgreSQL database depends on them; do not change SQL Server memory settings.
 These are initial estimates, not measured guarantees. Observe available RAM during

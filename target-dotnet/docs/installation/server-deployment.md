@@ -1,5 +1,13 @@
 # DESKTOP-SPF5420: package-to-server deployment
 
+> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
+> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
+> Windows install; NEVER install a .NET SDK on this server. All application here is
+> by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
+
+
 **Status: candidate; production frontend/OIDC integration and field witness pending.**
 The selected `feature/frontend` source at `0c59254f58bd49fc13a8b919387ba0cf5a1d9988`
 builds, but its login uses `/api/v1/dev/*`, deliberately absent
@@ -23,20 +31,20 @@ stops progression; never call a partially completed demo an accepted deployment.
 - NEVER stop, disable, modify or remove `SESS_SQLEXPRESS`, `TEW_SQLEXPRESS`, their SQL
   services/databases, or SOLIDWORKS Electrical Collaborative Server. About 77 design
   databases are protected. Existing engineering services are the explicit exception
-  to the server's no-new-non-ERP-work rule. No development, LabVIEW or ad-hoc workloads.
+  to the server's no-new-non-ERP-work rule. No new development or ad-hoc workloads; existing NI/Siemens workloads stay running.
 - Leave Wamp Apache/MySQL/MariaDB stopped/manual. Leave IIS ports 80/81 and its sites.
 - Reserve 192.168.68.130, gateway 192.168.68.1. Gigabit adapter currently at 100 Mbps:
   sufficient for eleven ERP users; no go-live gigabit prerequisite. Large copies/restores
   will take longer. Replace/test the cable later without making it a launch dependency.
-- C: SSD has 40 GB free; estimated six-month DB 5-8 GB fits. Keep at least 25 GB free
+- C: SSD has 41.6 GB free; estimated six-month DB 5-8 GB fits. Keep at least 25 GB free
   after data/package/log growth; alert below 25 GB and address before falling below
   20 GB. Recheck actual daily growth/WAL/log retention; do not promise a fixed forecast.
   D: HDD is a different physical disk: backups `D:\SESS-Backups`, verification working
   root `D:\SESS-Backup-Verification`. E: shares D:'s HDD, not a third physical disk.
-- At idle ~9 GB RAM is used, ~7.6 GB available. PostgreSQL initial sizing: shared_buffers
+- With existing workloads running, 6.4 GB RAM is available. PostgreSQL initial sizing: shared_buffers
   512MB, effective_cache_size 2GB (planner hint), work_mem 4MB, maintenance_work_mem
   128MB, max_connections 40, max_parallel_workers 2, max_parallel_workers_per_gather 1.
-  API pool maximum 20. Validate under eleven-user load, alert at <2 GB available RAM.
+  API pool maximum 15; Keycloak pool maximum 10. Validate under eleven-user load, alert at <2 GB available RAM.
   Apply only to the ERP PostgreSQL instance after verifying its data_directory; never
   adjust SQL Server/SOLIDWORKS resources. Record PostgreSQL settings and planned ERP-only
   service restart separately; keep other workloads running.
@@ -57,10 +65,9 @@ Get-MpComputerStatus | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,
 Check host/IP/disks/runtime against the facts above. PostgreSQL data_directory must
 resolve to C: on the SSD; verify before changing its configuration. If 8443 is occupied,
 identify its owner and stop this installation; never kill an existing service to take
-the port. Defender must remain active with
-current definitions (`Update-MpSignature`, or approved offline definition update).
-Disable RDP: `Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 1`.
-Verify that value is 1 and remove/disable existing Remote Desktop inbound allow rules.
+the port. Time/power/account/Defender/RDP/network-profile preparation is ALREADY DONE:
+reference C:\SESS-ServerPrep and its checks, not repeat setup commands. Defender is
+active, signatures update every four hours daily, RDP is off and network is Private.
 Review existing firewall rules without breaking protected engineering traffic. The ERP
 inbound rule must allow ONLY TCP8443 from 192.168.68.0/24; broad existing allow rules can
 undermine this. Escalate any conflict with protected SOLIDWORKS rules to TD rather than
