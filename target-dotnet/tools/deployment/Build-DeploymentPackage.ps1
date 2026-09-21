@@ -14,7 +14,7 @@ $head=(& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '\A[0-9a-f]{40}\z') { throw 'Cannot identify source HEAD.' }
 $frontendSha=(& git rev-parse "$FrontendRef^{commit}").Trim()
 if ($LASTEXITCODE -ne 0 -or $frontendSha -notmatch '\A[0-9a-f]{40}\z') { throw 'Cannot identify frontend source commit.' }
-$dirty=& git status --porcelain -- src tests tools/deployment
+$dirty=& git status --porcelain -- src tests tools/deployment tools/setup
 if ($dirty) { throw 'Commit source, tests and deployment tools before packaging.' }
 $proof=Get-Content -LiteralPath $MigrationProof -Raw | ConvertFrom-Json
 if ($proof.sdk_list -ne '' -or $proof.databases.Count -ne 2 -or @($proof.databases | Where-Object { -not $_.verified -or -not $_.reconciled -or -not $_.replay_history_and_audits_unchanged }).Count) { throw 'Migration proof is incomplete.' }
@@ -54,6 +54,8 @@ Copy-Item -LiteralPath $bundle -Destination (Join-Path $stage 'migrate/efbundle.
 Copy-Item -LiteralPath $MigrationProof -Destination (Join-Path $stage 'migrate/proof.json')
 foreach ($file in @('Invoke-VerifiedDatabaseBackup.ps1','Register-VerifiedDatabaseBackup.ps1','Test-ProductionState.ps1','Test-DailyBackupState.ps1')) { Copy-Item -LiteralPath (Join-Path $repo "tools/$file") -Destination (Join-Path $stage 'installer/tools') }
 foreach ($file in @('Verify-Package.ps1','VerifiedBackupTransfer.psm1','Invoke-ServerDailyBackup.ps1','Archive-IncomingBackups.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $stage 'installer/tools') }
+New-Item -ItemType Directory -Path (Join-Path $stage 'installer/tools/setup') -Force | Out-Null
+foreach ($file in @('Invoke-Setup.ps1','SetupOperator.psm1')) { Copy-Item -LiteralPath (Join-Path $repo "tools/setup/$file") -Destination (Join-Path $stage 'installer/tools/setup') }
 # Export committed documents/business scripts, never unrelated local working edits.
 foreach ($export in @(@{Tree='docs/installation';Destination='installer/docs'},@{Tree='database/postgresql';Destination='installer/database/postgresql'})) {
  $archive=Join-Path $stage ('archive-'+[Guid]::NewGuid().ToString('N')+'.zip')
