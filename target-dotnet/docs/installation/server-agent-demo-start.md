@@ -24,6 +24,48 @@ sequence. References below are included in the package's installer/docs folder a
 supply the exact certificate/service commands; use only the named bounded sections,
 not later production/demo-walk steps. Never record passwords, bearer tokens or private keys.
 
+## 0. READ-ONLY permission check — report before installation
+
+Run on the confirmed SERVER in elevated PowerShell. This step changes no ACLs.
+Do not copy the laptop's permissions or assume the server has the same problem.
+Identify the actual PostgreSQL data directory with an authenticated read-only query:
+
+```powershell
+whoami
+& 'C:\Program Files\PostgreSQL\17\bin\psql.exe' -X -h 127.0.0.1 -U postgres -d postgres -At -c 'SHOW data_directory;'
+if ($LASTEXITCODE -ne 0) { throw 'Cannot identify PostgreSQL data directory' }
+$pgData=Read-Host 'Exact data_directory returned above (must be on C:)'
+if (-not [IO.Path]::GetFullPath($pgData).StartsWith('C:\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected PostgreSQL disk; stop' }
+foreach ($path in @('C:\','C:\Users',$pgData,'C:\SESS-Deploy')) {
+ if (-not (Test-Path -LiteralPath $path)) { Write-Output "ABSENT: $path"; continue }
+ $acl=Get-Acl -LiteralPath $path
+ Write-Output "PATH: $path OWNER: $($acl.Owner) INHERITANCE_DISABLED: $($acl.AreAccessRulesProtected)"
+ $acl.Access | Select-Object IdentityReference,AccessControlType,FileSystemRights,IsInherited,InheritanceFlags,PropagationFlags | Format-Table -AutoSize
+}
+Get-LocalGroupMember -Group 'Administrators' | Select-Object Name,ObjectClass,PrincipalSource
+Get-LocalGroupMember -Group 'Users' | Select-Object Name,ObjectClass,PrincipalSource
+```
+
+Check/report **all Allow entries containing FullControl, Modify, Write, CreateFiles,
+CreateDirectories, ChangePermissions or TakeOwnership**, alongside Deny entries and
+inheritance/propagation. Explicitly call out Everyone, Authenticated Users, BUILTIN\Users,
+interactive users, local groups and service identities. Root-container rights may
+not apply to descendants; a DACL listing is not a complete effective-access calculation.
+Resolve nested/domain group membership or use Windows Advanced Security / Effective
+Access read-only for any ambiguous principal; mark unresolved membership UNKNOWN.
+Do not read database contents or print secrets. An absent C:\SESS-Deploy is reported
+as absent; inspect C:\ inheritance before creating it later.
+
+Retain the redacted ACL/group report and submit the findings to TD. **No ACL change
+or broad repair is authorised by this check.** If untrusted users can modify the
+PostgreSQL data directory or package/installation contents, pause installation for
+TD's explicit remediation decision. Do not use icacls /grant, /reset or /inheritance,
+takeown, or a security-template reset to repair these findings. The later dedicated
+ERP/Keycloak directory/private-key ACL steps also require TD approval of the exact
+paths, principals and rights BEFORE execution. Present that proposed change with this
+report; do not treat an installation command as approval. Never broaden the approved
+change to C:\, C:\Users, existing PostgreSQL ACLs or protected services.
+
 ## 1. Copy and verify
 
 Copy the immutable package to `C:\SESS-Deploy\<source-head-sha>` and its separately
