@@ -47,8 +47,8 @@ ERP databases. Keycloak's sess_keycloak database persists independently of DEMO.
    for an empty fresh customer DB; never run any *-development command.
 5. SESS-12 signs in through the production SPA, selects each company and checks
    GET /api/v1/session/me, EmployeeCode=SESS-12, expected OrganizationId and authority.
-   The frontend's governed identity-management screen (or a reviewed authenticated
-   API client) now creates each employee mapping. Existing API, not database SQL:
+   The reviewed employee-authenticated setup wrapper now creates each approved missing
+   employee mapping; no identity-management screen is assumed. Existing API, not database SQL:
 
    POST /api/v1/rev869a/configuration/employee-identities
    Authorization: Bearer <SESS-12-access-token>
@@ -77,3 +77,51 @@ ERP databases. Keycloak's sess_keycloak database persists independently of DEMO.
 The configuration adds no API field or route. It binds the existing validator and
 ceremonies to the D1 issuers. Deployment acceptance still requires the frontend's
 production source/build and field witnesses; no login is claimed installed here.
+
+
+## D5 completion for assisted setup (21 September decision)
+
+The Installer fully covers **SESS-12 bootstrap only**, including its two company mappings
+and governed IT authority/scopes. It does not create every Keycloak account, map all
+employees or prove every operator has usable department/warehouse scope. The earlier D5
+text mentioned assignments but omitted an explicit operational-scope completion step.
+Use this order in DEMO; repeat mappings/scopes for clean production without restoring DEMO:
+
+1. Server identity maintainer completes D2-D4, trusts CA on operator PCs and enables only
+   the exact additional CLI loopback callback described in setup-operator-wrappers.md.
+   Creates named Staff/Approvers accounts; verifies sub, password change and required OTP.
+   D5's audience/client/scope validation remains unchanged. No direct password grants.
+2. Server DBA/operator runs the published Installer as nexa_erp_bootstrap with the exact
+   confirmed DEMO/production target, for verified SESS-12 issuer/sub. Retain COMPLETED and
+   its verification receipts; use only documented identical-result verification on replay.
+3. SESS-12 signs in as themselves. IT reconciles the approved named setup roster against
+   active employee, company, department and role assignments in each company. TD/MD,
+   Accounts, Stores, Purchase and QC must have their actual effective ERP roles. Neither
+   Keycloak groups nor the mapping wrapper can grant roles or repair inactive assignments.
+4. IT uses Identities Read, then Identities Create plans only for missing approved mappings,
+   through the wrapper as SESS-12. Subjects come from verified provider users, never guessed
+   usernames. Read back recipient/issuer/company/dates and subject hash. Do not enable
+   ordinary transaction users before BOTH ceremonies.
+5. IT uses Scopes Read for each operator/company and compares existing effective scope
+   with their active department assignment. Create only missing, approved scope through
+   Scopes Create. DepartmentCode is required; cross-scope privilege stays false. A setup
+   department scope with no warehouse restriction is broader than a warehouse scope:
+   approve it explicitly, and if temporary set EffectiveTo=2026-09-30. This enables initial
+   warehouse creation before warehouse IDs exist. After warehouses/racks exist, add only
+   the approved operational restrictions/periods for use from 1 October.
+6. Each real operator signs in separately and proves session/me plus allowed and refused
+   company/department operations. A mapping row alone is not proof of scope. Retain this
+   operator-access matrix before either opening ceremony. Repeat it after scope dates or
+   roles change, without stock-moving probes on production.
+
+**Remaining boundary:** operational-scope API currently offers create/list, not a general
+edit/revoke endpoint. Adding a narrower row does NOT remove an existing broader effective
+scope. If an existing broad/incorrect scope needs removal, or an employee assignment/role
+is wrong, this wrapper/Installer does not fix it. Stop and resolve through the applicable
+governed administration workflow (or a separately reviewed backend change if none exists),
+never SQL or a fictitious narrower-row fix. Do not call D5 fully accepted until every named
+operator's actual scope passes the matrix. Fresh correctly assigned operators can be
+covered by the explicit mapping/create-scope sequence above.
+
+[Executable wrapper and rehearsal](setup-operator-wrappers.md);
+[identity/scope input columns](setup-data/README.md).

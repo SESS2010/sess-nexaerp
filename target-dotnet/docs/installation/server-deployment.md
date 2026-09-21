@@ -287,13 +287,14 @@ is absent and after demo acceptance. Do not restore DEMO or the laptop developme
 All roles already exist: reconciliation preserves credentials. Verify 130/head,
 RECONCILED/VERIFIED and zero stock movements. Update BOTH service connection database
 and ExpectedDatabase, perform real identity bootstrap and fresh-database runbook
-steps 6-13: checked-in legacy item script, SESS-entered business setup through screens,
+steps 6-13: checked-in legacy item script, SESS-entered business setup through existing screens and the approved assisted workflows,
 and BOTH authorised template-v2 opening-stock ceremonies on 28-30 September.
 **NO DUMP:** nothing is carried from the frontend developer's database, including
 attachments. SESS uploads its own supplier certificates into this clean database.
 Follow the SETUP-BEFORE-FIRST-GRN checklist in dependency order, with its named roles,
-independent decisions and effective-state checks. Demonstrate required setup screens in
-DEMO before training; unresolved screen gaps are acceptance gates, not SQL/API shortcuts.
+independent decisions and effective-state checks. Demonstrate the approved imports/API wrappers and existing screens in
+DEMO before training (setup-operator-wrappers.md). Only vendor commercial verification gets
+a small new frontend action after login; the other setup screens follow after go-live.
 Configuration entries do not create stock movements and do not block either ceremony;
 ANY GRN, issue or adjustment before BOTH ceremonies is forbidden. Daily use begins
 1 October only after both POSTED receipts and all deployment gates are accepted.

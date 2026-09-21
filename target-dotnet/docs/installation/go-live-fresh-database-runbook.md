@@ -20,7 +20,8 @@ Status: decision updated 21 September 2026: **NO DUMP.** Build Option C clean on
 DESKTOP-SPF5420. Nothing is carried from the frontend developer's database: no data,
 attachments, exported masters, identity mappings or earlier opening-stock balances.
 Migrations supply the system baseline; the checked-in legacy item script supplies items.
-SESS's own team enters all other business setup through screens on **28-30 September**
+SESS's own team enters all other business setup on **28-30 September** through existing
+screens and the approved assisted-entry workflows
 as training, and posts **both opening-stock ceremonies using template v2** in that window.
 Daily transactions start **1 October 2026**, only after the release checks below.
 The disposable fresh-company rehearsal is evidence for backend behaviour, not proof that
@@ -85,16 +86,17 @@ and customer details. Use the checked-in item script and two freshly prepared te
 opening-stock workbooks based on physical counts and Accounts' carrying values.
 Do not request a developer dump, export counts or attachment GUIDs.
 
-**Screen acceptance gate:** before training, demonstrate each checklist operation in
-DEMO using the intended roles, then follow the DEMO deletion gate in server-deployment.md.
-The reviewed frontend has vendor/customer and QC policy pages; the source inventory does
-not establish complete warehouse/rack, condition-location, category-route, GST-rule or
-vendor-qualification administration screens. A backend endpoint or seeded page permission
-is not a working screen. Record any missing operation with the frontend developer and TD
-as a training/go-live dependency. Do not silently substitute SQL, direct API entry or a
-source-database import for SESS's screen-based training. This documentation change does
-not authorise building a new configuration page; login remains the critical path.
-See [the configuration inventory](../configuration-inventory-and-proposal.md).
+**Launch workflow acceptance gate (TD decision after screen-gap review):** no new setup
+screens except the frontend developer's vendor commercial-verification action after login.
+Warehouses/racks use governed workbook imports, followed by separate Stores submission
+and TD approval. Condition locations, category routes, GST and vendor qualifications use
+[the reviewed employee-authenticated wrapper](setup-operator-wrappers.md), with independent
+decisions/review and read-back. Proper administration screens follow after go-live.
+SESS prepares [these exact columns/forms](setup-data/README.md) now; no developer-source
+business data is used. Demonstrate the complete assisted workflows in DEMO, including
+Keycloak/MFA and D5 operator scopes, before applying the clean-production setup.
+The Configuration Page remains deferred; login remains the critical path.
+The one frontend addition is [specified here](vendor-commercial-verification-contract.md).
 
 ## 1.5 Server OS decision (Technical Director, 21 September)
 
@@ -220,7 +222,7 @@ import to repair a used database. Keep canonical ELE / FAB / REF active.
 
 ## 8. SETUP-BEFORE-FIRST-GRN: warehouse and receiving topology
 
-Complete steps 8-11 through the accepted screens during **28-30 September**, in the
+Complete steps 8-11 through the accepted screens/imports/API wrappers during **28-30 September**, in the
 order below. Repeat company-scoped setup for **SESS_PROPRIETORSHIP and SESS_PVT_LTD**;
 shared parties need not be duplicated. The named roles below are the training assignment,
 not an exhaustive list of all permission holders. Record IDs/codes, company, versions,
@@ -244,7 +246,7 @@ starts transactions. The two authorised opening postings are the only planned ex
 The diagnostic read paths behind the screens are `/api/v1/inventory/warehouses`,
 `/api/v1/inventory/rack-bins`, and `/api/v1/rev869a/configuration/` followed by
 `warehouse-condition-locations?effectiveOnly=true` or `store-category-routes?effectiveOnly=true`.
-Use read-only inspection for verification; do not prove routing by posting a GRN.
+Use the wrapper Read action and independent TD review for verification; do not prove routing by posting a GRN.
 
 ## 9. SETUP-BEFORE-FIRST-GRN: GST rules
 
@@ -277,7 +279,7 @@ requirements before use, without changing stock.
 | Order / entry | WHO enters; maker-checker rule | Check before marking complete |
 |---|---|---|
 | 11.1 Vendor GST certificate, then vendor create/submit | IT Manager uploads the certificate and creates/submits the vendor through the screen. The creation request must reference this database's uploaded GST certificate. This is document validation, not a separate certificate-approval workflow. | Certificate opens from the screen and its identity is reviewed against the vendor; required GST/PAN, addresses and commercial details are correct. No copied attachment IDs. Retain vendor code and upload evidence. |
-| 11.2 Vendor commercial verification | Accounts Manager checks commercial/bank/GST information and performs verify-commercial with remarks. Keep this actor separate from the maker. | Verification is Approved, verification identity/date retained, RequiresReverification is false; the vendor still awaits final approval. |
+| 11.2 Vendor commercial verification | Accounts Manager checks commercial/bank/GST information and performs verify-commercial with remarks. Keep this actor separate from the maker. | Retain the successful AccountsVerify action and refreshed approval history with actor/date; the vendor remains Pending Approval. The current VendorDetail DTO does not expose commercial-verification fields: use the [frontend contract](vendor-commercial-verification-contract.md), not an invented status field. |
 | 11.3 Vendor final approval | Managing Director, the effective VENDOR_FINAL_APPROVER policy role, approves independently of the maker. Commercial verification is mandatory; the master lifecycle refuses self-approval of the current maker's submission. | Vendor Active and Approved, commercial verification current, code locked; retain approval history. A controlled commercial change requires re-verification and approval. |
 | 11.4 Vendor qualification per supplied canonical category and company | Purchase Manager creates; TD verifies; MD approves. Three distinct employees: creator cannot verify/approve and verifier cannot approve. | Qualification is Verified and Approved, active and effective for the company, vendor and ELE/FAB/REF category actually supplied. Retain the qualification and decision IDs; mere vendor approval is insufficient. Do not qualify categories a vendor cannot supply. |
 | 11.5 Customer | IT Manager creates/submits; a different TD approves through the customer lifecycle. Unlike the vendor, the customer has no vendor-style verify-commercial step. | Customer Active and Approved; correct identity/GST/contact/billing/shipping details and applicable company relationship; inspect independent approval history. Accounts reviews commercial/credit values with its permitted access. |
@@ -310,9 +312,10 @@ This is source review, not a server or screen witness; retain actual training ev
 
 ### Recovery and replay
 
-A configuration error is corrected through its governed screen, preserving audit history.
-A timeout requires reading the result first; replay an identical idempotent request with
-the same key, not a new key that could duplicate it. Changed input is a new action after
+A configuration error is corrected through its supported governed workflow, preserving audit history.
+The initial-entry wrapper does not implement closures/edits or silently replace used records.
+A timeout requires reading the result first. The wrapper blocks uncertain PENDING receipts
+for reconciliation; do not delete them or assign a new key to force a retry. Changed input is a new action after
 resolving the prior outcome. Never casually drop the go-live database or erase training
 and approval evidence because no stock has yet moved.
 
