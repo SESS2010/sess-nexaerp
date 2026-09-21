@@ -287,14 +287,22 @@ is absent and after demo acceptance. Do not restore DEMO or the laptop developme
 All roles already exist: reconciliation preserves credentials. Verify 130/head,
 RECONCILED/VERIFIED and zero stock movements. Update BOTH service connection database
 and ExpectedDatabase, perform real identity bootstrap and fresh-database runbook
-steps 6-13 (selective attachments, item master, category script, governed workbook
-imports, warehouses/bins, QC/vendor/store rules, BOTH authorised opening-stock ceremonies).
+steps 6-13: checked-in legacy item script, SESS-entered business setup through screens,
+and BOTH authorised template-v2 opening-stock ceremonies on 28-30 September.
+**NO DUMP:** nothing is carried from the frontend developer's database, including
+attachments. SESS uploads its own supplier certificates into this clean database.
+Follow the SETUP-BEFORE-FIRST-GRN checklist in dependency order, with its named roles,
+independent decisions and effective-state checks. Demonstrate required setup screens in
+DEMO before training; unresolved screen gaps are acceptance gates, not SQL/API shortcuts.
+Configuration entries do not create stock movements and do not block either ceremony;
+ANY GRN, issue or adjustment before BOTH ceremonies is forbidden. Daily use begins
+1 October only after both POSTED receipts and all deployment gates are accepted.
 The package includes installation docs and committed business scripts under
-`installer/database/postgresql`; approved business workbooks/source dump must be
-supplied separately. Review the real source inputs before applying any business script.
+`installer/database/postgresql`; SESS supplies its own physical-count template-v2
+workbooks and supporting documents separately. Review these inputs before the ceremonies.
 These scripts are not executed by package installation. For the older runbook's
 relative `database/postgresql` paths, first run `Set-Location "$install\installer"`;
-use explicit paths for separately supplied workbooks/dumps. Its source-based
+use explicit paths for the two separately prepared opening-stock workbooks. Its source-based
 `dotnet run`/`dotnet ef` examples are replaced by this runbook's published Installer
 and bundle commands; do not install an SDK on the server.
 

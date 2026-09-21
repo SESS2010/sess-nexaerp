@@ -16,12 +16,15 @@ bundle runs as migration login with `Options=-c role=nexa_erp_owner`, followed b
 RECONCILED/VERIFIED. The checked-in frontend's production authentication is still a gate.
 
 
-Status: updated 21 September 2026: Option C directly on DESKTOP-SPF5420. Row counts marked
-`[dump]` are filled in from the frontend developer's dump when it arrives. The fresh-company
-database workflow has disposable-database evidence in
-`FreshCompanyReachesAvailableStockThroughSeededStoresAuthority`; the selected server
-installation, capacity and backup checks still need deployment evidence. Nothing here touches
-the current field database except the backup and the exports in steps 0 and 1.
+Status: decision updated 21 September 2026: **NO DUMP.** Build Option C clean on
+DESKTOP-SPF5420. Nothing is carried from the frontend developer's database: no data,
+attachments, exported masters, identity mappings or earlier opening-stock balances.
+Migrations supply the system baseline; the checked-in legacy item script supplies items.
+SESS's own team enters all other business setup through screens on **28-30 September**
+as training, and posts **both opening-stock ceremonies using template v2** in that window.
+Daily transactions start **1 October 2026**, only after the release checks below.
+The disposable fresh-company rehearsal is evidence for backend behaviour, not proof that
+all training screens, production login or the selected server installation are accepted.
 
 Actors: **DBA** = the PostgreSQL administrator (superuser session, `postgres`);
 **Owner** = `nexa_erp_migration` acting as `nexa_erp_owner` (psql `SET ROLE`);
@@ -31,7 +34,6 @@ Precondition for every step that runs a migration: the pulled worktree carries c
 `b13cebd` or later (finding #19). Build Release once on the development laptop: `dotnet build SESS.NexaERP.slnx -c Release`.
 Publish the deployment artifacts there; do not build or test on DESKTOP-SPF5420.
 In steps 2 onward, execute on the server; `<host>` means 127.0.0.1. No remote DB connection from the laptop.
-`<field-host>` in step 0 remains the old laptop.
 
 ## 0. Preserve what exists (DBA, before anything else)
 
@@ -39,11 +41,10 @@ In steps 2 onward, execute on the server; `<host>` means 127.0.0.1. No remote DB
 
 DESKTOP-SPF5420 is the production server. Build the fresh Option C database there
 using steps 2-14; section 15 records its specification, disk layout and cutover.
-The laptop remains the source of the field backup/exports until cutover, then returns
-to development and LabVIEW. The previous 30 September laptop witness cutoff is
+The laptop supplies no go-live business data and returns to development and LabVIEW
+after cutover. The previous 30 September laptop witness cutoff is
 superseded: `NexaERP nightly witnesses` may remain on the laptop after server cutover.
-Never install or run that task on DESKTOP-SPF5420. Pause laptop witnesses during the
-source backup/export window if they would compete with that work.
+Never install or run that task on DESKTOP-SPF5420. Keep login and cutover work ahead of optional laptop witnesses.
 
 The existing laptop witness tooling and PostgreSQL binaries can remain in place.
 The failure-cleanup limitations below still apply; moving production does not cure
@@ -68,46 +69,38 @@ cleanup or orphan-cluster check before the next gate. Thus one cluster at a time
 cleanup on every failure is not guaranteed. This was source/settings inspection only;
 no heavy witnesses were launched.
 
-### Backup
+### Preserve existing environments
 
-```powershell
-pg_dump --format=custom --file .\sess_nexa_erp-pre-go-live.dump --dbname "host=<field-host> port=5432 dbname=sess_nexa_erp user=postgres"
-pg_dumpall --globals-only --file .\postgres-globals-pre-go-live.sql --host <field-host> --port 5432 --username postgres
-```
+Leave developer databases and their existing evidence untouched. No source backup,
+export or restore is an input to this clean installation. This decision does **not**
+cancel normal verified backups of the newly configured server: section 15.1 and the
+server daily-backup procedure still apply.
 
-Check: both files non-empty; in the dump, `advance.stock_movements` > 0, one POSTED
-`advance.opening_stocks` row for SESS_PROPRIETORSHIP, ~1,368 `advance.items` with
-`CreatedBy='EXCEL_IMPORT'`. This is the only copy of the 16 September masters and the
-19 September ceremony.
+## 1. Prepare SESS training inputs, not a database transfer
 
-## 1. Export the masters from the field database (API, as the roles named)
+TD coordinates the 28-30 September setup roster: Stores, Purchase, Accounts, QC, IT,
+TD and MD, with separate named maker/checker logins. SESS supplies its own warehouse
+and rack plan, receiving routes, approved GST/QC requirements, supplier certificates
+and customer details. Use the checked-in item script and two freshly prepared template-v2
+opening-stock workbooks based on physical counts and Accounts' carrying values.
+Do not request a developer dump, export counts or attachment GUIDs.
 
-`GET /api/v1/master-data/{key}/export` saves `{key}-export.xlsx`. Company-scoped keys are
-exported once per company (switch the selected company between calls).
-
-| Key | Role that holds `export` | Scope | Notes |
-|---|---|---|---|
-| `uoms` | TD / MD | shared | round-trips |
-| `vendors` | TD / MD (also needs `view-commercial-values`) | shared | bank details excluded by design; attachments carried by step 6 |
-| `customers` | TD / MD (also needs `view-commercial-values`) | shared | |
-| `item-vendors` | STORES_MANAGER / PURCHASE_MANAGER (after commit for the item move) or TD | shared | import after items and vendors |
-| `warehouses` | STORES_MANAGER (after `f2958cb`) or IT_MANAGER | per company | |
-| `rack-bins` | STORES_MANAGER (after `f2958cb`) or IT_MANAGER | per company | condition locations are not in it |
-| `items` | STORES_MANAGER / PURCHASE_MANAGER or TD | shared | **diff only** — items are reloaded by the script in step 7 |
-| `employees` | IT_MANAGER | per company | reference only; employees are migration-seeded |
-
-Also list, as JSON, for re-creation in steps 9–12 (`GET`): item categories/subcategories/
-manufacturers, GST rules (`/api/v1/rev869a/configuration/tax-gst`), condition locations,
-Stores category routes, QC inspection policies, vendor qualifications, UOM conversions,
-operational scopes, identity mappings, temporary role covers.
-
-Check: row counts equal the field screen counts; keep the files with the backup.
+**Screen acceptance gate:** before training, demonstrate each checklist operation in
+DEMO using the intended roles, then follow the DEMO deletion gate in server-deployment.md.
+The reviewed frontend has vendor/customer and QC policy pages; the source inventory does
+not establish complete warehouse/rack, condition-location, category-route, GST-rule or
+vendor-qualification administration screens. A backend endpoint or seeded page permission
+is not a working screen. Record any missing operation with the frontend developer and TD
+as a training/go-live dependency. Do not silently substitute SQL, direct API entry or a
+source-database import for SESS's screen-based training. This documentation change does
+not authorise building a new configuration page; login remains the critical path.
+See [the configuration inventory](../configuration-inventory-and-proposal.md).
 
 ## 1.5 Server OS decision (Technical Director, 21 September)
 
 Windows 10 Pro stays for this deployment, without ESU currently activated. Windows 11
 is a planned later upgrade, not a prerequisite for API deployment. Apply the compensating
-controls in section 15.1a and follow `server-deployment.md`. No clean Windows install.
+controls in the server deployment procedure and follow `server-deployment.md`. No clean Windows install.
 
 ## 2. Create the database on the server (DBA)
 
@@ -162,22 +155,21 @@ prints VERIFIED.
 Run the one-time ceremony as `nexa_erp_bootstrap` with SESS-12's exact issuer and `sub`
 (see `authentication-bootstrap.md` steps 7–12), then sign in as SESS-12 and create every
 other employee's identity mapping through the governed identity endpoint
-(`security.employee-identities`) — `[dump]` mappings. Re-create any temporary role covers
-still in effect (`[dump]`).
+(`security.employee-identities`) for the approved SESS setup roster and new Keycloak
+identities. Add only explicitly approved, dated temporary covers if needed; do not copy
+mappings or covers from another database. Enable ordinary users after both ceremonies.
 
 Check: `/api/v1/session/me` for SESS-12; each mapped user can sign in and sees their company.
 
-## 6. Carry the attachments across (Owner)
+## 6. Prepare fresh supporting documents (SESS team)
 
-Vendor and customer attachments are `bytea` rows with their own GUIDs and no outward foreign
-keys; the vendor workbook's `AttachmentMetadataJson` references them by GUID.
-
-```powershell
-pg_restore --host <host> --port 5432 --username nexa_erp_migration --dbname sess_nexa_erp --data-only --schema advance --table vendor_attachments --table customer_attachments .\sess_nexa_erp-pre-go-live.dump
-```
-
-(run with `PGOPTIONS="-c role=nexa_erp_owner"`). Check: row counts equal the field
-(`[dump]` vendor attachments, `[dump]` customer attachments); no other table touched.
+Collect vendor GST certificates from SESS's own records. IT Manager uploads each original
+through the vendor screen into this database and links the newly returned certificate
+reference when creating the vendor (step 11). The create endpoint already requires an
+uploaded GST certificate, so upload precedes vendor creation, not final approval.
+Upload any customer supporting documents afresh through its screen as needed.
+No attachment table restore, old GUID reuse or developer workbook metadata is permitted.
+Check each uploaded document opens from the new screen and belongs to the intended party.
 
 ## 7. Load the item master (Owner)
 
@@ -221,89 +213,132 @@ if ($LASTEXITCODE -ne 0) { throw 'Category reconciliation failed; retain output 
 # Before receipts, configure effective canonical Stores routes, QC policies and vendor qualifications.
 ```
 
-**Applying the item differences.** Diff `items-export.xlsx` from step 1 against the script
-by ItemCode (`tools/` gets a small script for this when the dump arrives; it prints one row
-per differing item and column). Then:
+**Item baseline.** The checked-in script is the approved source; no comparison with a
+developer database is required. SESS reviews the loaded item list. Any necessary screen
+correction follows the existing item maker-checker workflow; do not replay the original
+import to repair a used database. Keep canonical ELE / FAB / REF active.
 
-- **Up to about ten differences**: `PUT /api/v1/inventory/items/{code}` through the item
-  screen as Stores or Purchase Manager. Each correction returns the item to approval; the
-  other manager approves it (the record is less than a month old on the fresh database).
-- **More than that**: correct the checked-in script instead and re-run step 7 on a fresh
-  database — the script is the source of truth for 1,368 items, and regenerating it from
-  the corrected workbook (`tools/generate-item-import.py`) is one reviewed change plus one
-  owner command, not fifty screen edits followed by fifty approvals. Commit the corrected
-  script so the next installation carries the corrections too.
+## 8. SETUP-BEFORE-FIRST-GRN: warehouse and receiving topology
 
-Either way the check is the same: after the corrections, the export of the fresh database
-equals the export of the field database column for column.
+Complete steps 8-11 through the accepted screens during **28-30 September**, in the
+order below. Repeat company-scoped setup for **SESS_PROPRIETORSHIP and SESS_PVT_LTD**;
+shared parties need not be duplicated. The named roles below are the training assignment,
+not an exhaustive list of all permission holders. Record IDs/codes, company, versions,
+effective dates, maker/checker identities and approval receipts in the training record.
+A saved draft or HTTP success alone is not evidence that a setting is effective.
 
-## 8. Import the workbook masters (API)
+**Configuration entries do NOT create stock movements and therefore do NOT block the
+opening-stock ceremony. ANY GRN, issue or adjustment before BOTH opening-stock ceremonies
+are POSTED is forbidden and can make a ceremony refuse.** Do not create even test drafts
+of those transactions on go-live. The database's existing-movement refusal is per company;
+the operational gate is deliberately stronger: both companies must finish before either
+starts transactions. The two authorised opening postings are the only planned exceptions.
 
-Order and roles, per company where scoped:
-
-1. `uoms` — Purchase or Stores Manager.
-2. item categories, subcategories, manufacturers not created by step 7 — `POST /api/v1/masters/…` (`[dump]` rows).
-3. `vendors` — IT Manager or TD (create), then per vendor: Accounts Manager
-   `verify-commercial`, Managing Director `approve` (`[dump]` vendors → 2 governed actions each).
-4. `customers` — same lifecycle (`[dump]` customers).
-5. `item-vendors` — Purchase Manager.
-6. `warehouses`, then `rack-bins` — Stores Manager, per company.
-
-Check after each: import result `InvalidRows = 0`; counts equal step 1.
-
-## 9. Stores topology (API, Stores Manager, per company)
-
-For each rack: `POST /api/v1/rev869a/configuration/warehouse-condition-locations`
-(`[dump]` rows). For each item category received: `POST …/store-category-routes` naming
-the QC_HOLD, PENDING_RETURNABLE_DC and AVAILABLE locations of one warehouse (`[dump]` rows).
-
-Check: `GET …/warehouse-condition-locations?effectiveOnly=true` shows one AVAILABLE per
-receiving warehouse; `GET …/store-category-routes?effectiveOnly=true` shows one route per
-category that will be received.
-
-## 10. Tax and QC rules (API)
-
-GST rules: Accounts Manager `POST …/tax-gst`, Managing Director `POST …/tax-gst/{id}/approve`
-(`[dump]` rules × 2 actions). QC policies: QC Manager `POST …/qc-inspection-policies`,
-Technical Director approve (`[dump]` policies × 2 actions). UOM conversions if any.
-
-## 11. Vendor qualifications (API)
-
-Per vendor and category: Purchase Manager create, Technical Director verify, Managing
-Director approve (`[dump]` qualifications × 3 actions).
-
-## Rollback points
-
-Nothing before step 12 posts stock, so every step before it can be redone from a known
-state without losing evidence that matters:
-
-| If this goes wrong | Restore | Redo |
+| Order / entry | WHO enters; maker-checker rule | Check before marking complete |
 |---|---|---|
-| Steps 2–4 (create, provision, migrate) | `dropdb sess_nexa_erp` (DBA) | from step 2 |
-| Step 5 (bootstrap, identities) | the ceremony is one-time per database: `dropdb` and restart from step 2 | from step 2 |
-| Steps 6–7 (attachments, item script) | `dropdb` and restart from step 2 — both are idempotent scripts but a partial script leaves rows with `CreatedBy='EXCEL_IMPORT'` you would have to reason about | from step 2 |
-| Steps 8–11 halfway (imports, topology, rules) | **take a `pg_dump` before step 8** (`go-live-after-items.dump`) and restore it (`dropdb`, `createdb`, `pg_restore`, then `database-principals provision` + `status`) | from the first import that did not complete; every import is idempotent per workbook and idempotency key, so re-running a completed import is a replay, not a duplicate |
-| Step 12 or 13 fails before `authorize` | nothing to restore: count and value are drafts | re-run the failed action with a new idempotency key |
-| Step 12 or 13 fails after `authorize` returned 200 | the ceremony is posted; **do not** restore a pre-ceremony dump on top of a database that has been used since | none — investigate before touching anything |
+| 8.1 Warehouse, per company | Stores Manager creates and submits; a different Technical Director approves through the warehouse lifecycle. | Correct selected company/code, Active, Approved, IsActive; inspect approval history and responsible employee assignment. |
+| 8.2 Rack/bin under each warehouse | Stores Manager creates and submits; a different TD approves. Set material condition deliberately before a condition location references it. | Active/Approved bin belongs to the intended company and warehouse; its condition agrees with its planned use. Provide AVAILABLE, QC_HOLD and PENDING_RETURNABLE_DC bins for the receiving route. |
+| 8.3 Condition location for each required bin | Stores Manager creates an effective version. Current API has create/list/close, **no separate approval stage**. TD performs and records an independent operational review; this is not an enforced maker-checker approval. | Effective-location read shows the correct company, warehouse, bin and condition, active on the opening date and 1 October. AVAILABLE location exists for every opening-stock bin; required QC_HOLD and PENDING_RETURNABLE_DC locations exist for receiving. |
+| 8.4 Category route, explicitly **ELE**, **FAB**, **REF** in each company | Stores Manager creates after 8.3. Current API has create/list/close, **no separate approval stage**; TD records independent review. | Exactly one effective route per canonical category on the intended receipt date; all three location references are effective, in the same company and one warehouse, with their required conditions. No legacy category aliases or overlapping routes. |
 
-Take one more `pg_dump` after step 11 (`go-live-configured.dump`): that is the
-configured-but-empty database, the natural restart point for either ceremony.
+The diagnostic read paths behind the screens are `/api/v1/inventory/warehouses`,
+`/api/v1/inventory/rack-bins`, and `/api/v1/rev869a/configuration/` followed by
+`warehouse-condition-locations?effectiveOnly=true` or `store-category-routes?effectiveOnly=true`.
+Use read-only inspection for verification; do not prove routing by posting a GRN.
+
+## 9. SETUP-BEFORE-FIRST-GRN: GST rules
+
+**Accounts Manager** enters applicable GST rules after reviewing company/state, item
+HSN/SAC, supplier registration and place-of-supply combinations. A **different TD or MD**
+approves; the service refuses the creator's own decision. Do not treat an item's display
+GST percentage as a substitute for an effective tax rule.
+
+Check the tax/GST read view (`/api/v1/rev869a/configuration/tax-gst`) for Approved, active,
+correct effective dates covering the intended transaction date, matching jurisdiction,
+HSN/SAC, supply states and registration type; confirm CGST/SGST or IGST, exemption/RCM,
+ITC and rounding with Accounts. Retain rule ID/version and independent decision evidence.
+Resolve missing or conflicting coverage without creating a production receipt.
+
+## 10. SETUP-BEFORE-FIRST-GRN: QC policies
+
+**QC Manager** creates item- or canonical-category inspection policies; a **different TD**
+approves. Creator self-approval is refused. Confirm the required coverage for ELE / FAB /
+REF and any item-specific policy, parameter/UOM, limits, method, sample size and dates.
+
+Check the QC Inspection Policies screen/read (`qc-inspection-policies` under the same
+configuration API) shows Approved and active in the correct company, effective on the
+intended receipt date. Pending policies are not ready. Missing QC policy must not be
+worked around by releasing stock; retain approved policy IDs/versions. Verify required
+UOMs already exist from the item baseline; resolve additional governed UOM/conversion
+requirements before use, without changing stock.
+
+## 11. SETUP-BEFORE-FIRST-GRN: vendors and customers
+
+| Order / entry | WHO enters; maker-checker rule | Check before marking complete |
+|---|---|---|
+| 11.1 Vendor GST certificate, then vendor create/submit | IT Manager uploads the certificate and creates/submits the vendor through the screen. The creation request must reference this database's uploaded GST certificate. This is document validation, not a separate certificate-approval workflow. | Certificate opens from the screen and its identity is reviewed against the vendor; required GST/PAN, addresses and commercial details are correct. No copied attachment IDs. Retain vendor code and upload evidence. |
+| 11.2 Vendor commercial verification | Accounts Manager checks commercial/bank/GST information and performs verify-commercial with remarks. Keep this actor separate from the maker. | Verification is Approved, verification identity/date retained, RequiresReverification is false; the vendor still awaits final approval. |
+| 11.3 Vendor final approval | Managing Director, the effective VENDOR_FINAL_APPROVER policy role, approves independently of the maker. Commercial verification is mandatory; the master lifecycle refuses self-approval of the current maker's submission. | Vendor Active and Approved, commercial verification current, code locked; retain approval history. A controlled commercial change requires re-verification and approval. |
+| 11.4 Vendor qualification per supplied canonical category and company | Purchase Manager creates; TD verifies; MD approves. Three distinct employees: creator cannot verify/approve and verifier cannot approve. | Qualification is Verified and Approved, active and effective for the company, vendor and ELE/FAB/REF category actually supplied. Retain the qualification and decision IDs; mere vendor approval is insufficient. Do not qualify categories a vendor cannot supply. |
+| 11.5 Customer | IT Manager creates/submits; a different TD approves through the customer lifecycle. Unlike the vendor, the customer has no vendor-style verify-commercial step. | Customer Active and Approved; correct identity/GST/contact/billing/shipping details and applicable company relationship; inspect independent approval history. Accounts reviews commercial/credit values with its permitted access. |
+
+Check the vendor and customer screens and approval histories; qualification diagnostics
+are at `/api/v1/rev869a/configuration/vendor-qualifications`. Purchase enters necessary
+item/vendor links after both masters exist. Confirm selected-company visibility and any
+required party/company relationship through the supported screens. Do not duplicate a
+shared party merely to make it appear in another company.
+
+**Setup exit check (TD with Stores, Accounts and QC):** all checklist receipts complete;
+all dates cover their intended use; all six company/category route combinations checked;
+required suppliers qualified and certificates readable; customers approved. Use read-only
+stock-ledger checks to confirm **zero stock movements in each company before its own
+opening ceremony**. Configuration audit/history records are expected and must be retained.
+
+### Checklist source checks
+
+The role/lifecycle checks above were reviewed against
+[warehouse/rack endpoints](../../src/SESS.NexaERP.Api/Endpoints/InventoryEndpoints.cs),
+[master maker-checker enforcement](../../src/SESS.NexaERP.Api/Endpoints/MasterEndpointHelpers.cs),
+[party endpoints](../../src/SESS.NexaERP.Api/Endpoints/MasterEndpoints.cs),
+[vendor verification/final approval](../../src/SESS.NexaERP.Api/Endpoints/MasterEndpoints.Rev869A.cs),
+[certificate validation](../../src/SESS.NexaERP.Api/Endpoints/MasterEndpoints.VendorAttachments.cs),
+[configuration endpoints](../../src/SESS.NexaERP.Api/Endpoints/Rev869AConfigurationEndpoints.cs),
+[category routes](../../src/SESS.NexaERP.Api/Endpoints/Rev869AConfigurationEndpoints.StoreCategoryRoutes.cs),
+[QC decisions](../../src/SESS.NexaERP.Api/Endpoints/Rev869AConfigurationEndpoints.QcPolicies.cs), and
+[GST workflow](../../src/SESS.NexaERP.Infrastructure/Masters/EfTaxGstWorkflowService.cs).
+This is source review, not a server or screen witness; retain actual training evidence.
+
+### Recovery and replay
+
+A configuration error is corrected through its governed screen, preserving audit history.
+A timeout requires reading the result first; replay an identical idempotent request with
+the same key, not a new key that could duplicate it. Changed input is a new action after
+resolving the prior outcome. Never casually drop the go-live database or erase training
+and approval evidence because no stock has yet moved.
+
+Use normal verified server backups for recovery checkpoints, including after setup and
+after both ceremonies. These are backups of this new installation, never source inputs
+from the frontend developer. A restore/restart needs a separately reviewed recovery plan.
+After authorisation may have succeeded, inspect the posted receipt before any retry;
+do not restore an earlier checkpoint over subsequent business activity.
 
 ## 12. Opening stock, SESS_PROPRIETORSHIP (API, three actors)
 
-Stores Manager: `POST /api/v1/master-data/opening-stock/import` with the retained
-workbook, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
+Stores Manager: `POST /api/v1/master-data/opening-stock/import` with a freshly prepared template-v2
+workbook during 28-30 September, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
 `…/confirm-value`. Technical Director: `…/authorize`.
 
 Check: status POSTED; `stock_movements` count for the company equals the workbook line
-count; FIFO layer value equals the confirmed total; the values equal the 19 September
-ceremony in the backup.
+count; FIFO layer value equals the Accounts-confirmed physical-count workbook total.
+Do not copy the developer ceremony or its balances. Template and preparation rules in
+step 13 apply equally to this company.
 
 ## 13. Opening stock, SESS_PVT_LTD (API, three actors) — the one step with no rehearsal
 
 PVT LTD's opening stock has never been posted anywhere. The PROPRIETORSHIP ceremony was
 done once on the developer's machine, so its shape is known; PVT LTD will be the first
-time, with real quantities, on go-live day. Prepare the workbook before the day, not on it.
+time with real quantities. Complete both ceremonies on 28-30 September; daily
+transactions start 1 October. Prepare and independently review both workbooks in advance.
 
 **Who prepares it.** The Stores Manager (SESS-41) prepares the physical count; Accounts
 (SESS-14) supplies the rate per line from the carrying-value policy; the Technical
@@ -322,7 +357,7 @@ blank where it does not; they never change the value:
 | `LineReference` | unique within the workbook (e.g. `PVT-OPEN-0001`); it is the operator's stable row reference in every later report |
 | `ItemCode` | an approved, active item — exactly as loaded by step 7 |
 | `WarehouseCode` | an active PVT LTD warehouse created in step 8 |
-| `RackBinCode` | an active rack of that warehouse whose condition is AVAILABLE and that has an effective AVAILABLE condition location (step 9); the rack is mandatory because the legacy export has no rack data |
+| `RackBinCode` | an active rack of that warehouse whose condition is AVAILABLE and that has an effective AVAILABLE condition location (step 8); the rack is mandatory and must come from the physical-count plan |
 | `LotNumber` | required for batch-tracked items, blank otherwise |
 | `SerialNumber` | required for serial-tracked items; one row per unit with `Quantity` = 1 |
 | `Quantity` | greater than zero; zero-quantity lines are left out, negative is refused |
@@ -341,7 +376,7 @@ after it, the rule "company already has movements" applies to PVT LTD for good.
 
 Check: status POSTED; movement count equals the workbook line count; FIFO layer value
 equals the confirmed total; `GET /api/v1/reports/…` stock and FIFO valuation agree.
-Then the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
+Only after BOTH ceremonies are POSTED and ordinary use opens on 1 October, the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
 opening-stock unit could be issued at all; the rehearsal now issues, returns and fits
 opening stock, values the fitment at the confirmed ex-tax value, and shows it in the
 dossier as opening stock. Opening stock consumes before any later receipt of the same
@@ -350,24 +385,19 @@ item (FIFO dates it from the period end above).
 ## 14. Close
 
 - Reconciliation: DBA `database-principals provision` then `status` → VERIFIED.
-- Backup: run the server verified-backup job from section 15.3; retain its VERIFIED
+- Backup: run the server verified-backup job from section 15.1; retain its VERIFIED
   manifest and successful restore evidence, labelled go-live. Verify identity and
   external ERP files through their separate backup procedures too.
 - **No walk-throughs in either company from this point.** The opening-stock rule refuses a
   company that already has movements; there is no legitimate escape from it.
 
-## Human effort (to be completed from the dump)
+## Release for daily transactions: 1 October
 
-| Step | Rows | Actions | Second actor |
-|---|---:|---:|---|
-| 5 identities | `[dump]` | 1 each | — |
-| 8.3 vendors | `[dump]` | 3 each | Accounts + MD |
-| 8.4 customers | `[dump]` | 2–3 each | approver |
-| 9 locations + routes | `[dump]` | 1 each | — |
-| 10 GST rules | `[dump]` | 2 each | MD |
-| 10 QC policies | `[dump]` | 2 each | TD |
-| 11 qualifications | `[dump]` | 3 each | TD + MD |
-| 12–13 ceremonies | 2 | 3 each | Accounts + TD |
+TD records completion of training on 28-30 September, setup checklist evidence and both
+POSTED template-v2 ceremony receipts; Accounts confirms values and Stores confirms counts.
+Also require accepted production login, other-PC/reboot checks and verified backup evidence
+from the server deployment procedure. Only then release ordinary users on 1 October.
+No developer-source row counts or dump delivery is a release dependency.
 
 ## 15. DESKTOP-SPF5420: current operating specification
 

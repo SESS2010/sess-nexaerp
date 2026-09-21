@@ -389,10 +389,14 @@ that only SQL could ever create; it belongs in the configuration-export requirem
   frontend developer saw predates `f7f0c24`. The probe outcome is appended to
   `local-evidence/finding-17/tsm-probe.jsonl` on every run so a regression shows up
   as a status other than 200 there and as a failed rehearsal.
-- Every vendor created through the API needs an uploaded GST certificate. On a
-  rebuild the certificates carry over from `advance.vendor_attachments` (bytea rows
-  with their own GUIDs, no outward foreign keys) and the vendor workbook's
-  `AttachmentMetadataJson` references those GUIDs.
+- **#20 - GST certificate dependency; decision revised 21 September: NO DUMP.**
+  Vendor creation requires an uploaded GST certificate. SESS uploads its own original
+  certificates through the vendor screen into the clean server database, then creates
+  each vendor referencing its new upload. No attachment-table restore, old GUID or
+  developer workbook is required or permitted. Complete commercial verification,
+  independent final approval and category/company qualifications before first GRN.
+  Screen availability is a training acceptance gate, not permission to bypass screens.
+  See the [SETUP-BEFORE-FIRST-GRN checklist](go-live-fresh-database-runbook.md#8-setup-before-first-grn-warehouse-and-receiving-topology).
 
 ## Duplicate merge: what was built
 
