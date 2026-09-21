@@ -13,7 +13,8 @@ Perform in DEMO first and again for fresh Option C production after DEMO accepta
 Do not restore DEMO into production. Do not alter employee subjects when changing
 ERP databases. Keycloak's sess_keycloak database persists independently of DEMO.
 
-1. Complete D2-D4 and the production frontend contract. In the installed API copy,
+1. Complete D2-D4. The production frontend contract gates browser rollout, not the
+   authorised backend-only DEMO handoff in server-agent-demo-start.md. In the installed API copy,
    merge Authentication and Reporting from authentication.server.keycloak.json into
    appsettings.Production.json; preserve Kestrel, runtime-only ConnectionStrings and
    exact ExpectedDatabase. Staff issuer ends /realms/staff with nexaerp-staff client;
@@ -125,3 +126,29 @@ covered by the explicit mapping/create-scope sequence above.
 
 [Executable wrapper and rehearsal](setup-operator-wrappers.md);
 [identity/scope input columns](setup-data/README.md).
+
+## Mandatory signed scope roster before entry (22 September)
+
+Use [the one-page roster](setup-data/scope-roster.html). TD completes and signs the
+FULL roster before ANY scope is entered, including the Installer-created SESS-12
+bootstrap authority in BOTH companies. Record the Installer scope preview/description
+on the form; never treat bootstrap as an exception to approval. No signature: stop
+before authentication-bootstrap. The complete roster may use numbered signed pages.
+
+One row per employee/company/department/warehouse restriction and effective period.
+Write ALL explicitly for unrestricted warehouses, never leave it ambiguous. Record
+OwnRecordsOnly, cross-scope privilege (false for these wrappers), effective dates and
+any rack restriction on the form continuation. TD must explicitly approve temporary
+setup scopes that cover all warehouses before warehouse IDs exist. A later narrower
+scope does not cancel a broad scope; initial and later dated scopes must both appear
+on the approved roster. Read existing scopes, compare exactly, enter missing approved
+rows ONCE, then read back and retain IDs/version/receipt and second-person check.
+After an uncertain response, read back before any retry. Do not blindly resubmit.
+
+The Installer covers SESS-12 only. Named employee mappings, active role/company/
+department assignments and per-person scope/access witnesses remain later D5 work.
+No scope edit/revoke endpoint exists. Wrong scope: STOP; do not use SQL or add a
+narrower row as a purported fix. Revoke endpoint estimate after go-live: 3-5 engineering
+days for authorised versioned revocation, audit/history, live request enforcement and
+security/regression tests; another 0.5-1 day for an operator wrapper/documentation.
+This is an estimate, not implemented functionality.
