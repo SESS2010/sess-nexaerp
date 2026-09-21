@@ -4,6 +4,7 @@ import { getActualBom } from '../../api/production'
 import type { ActualBomBaselineVarianceView, ActualBomView } from '../../types/production'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { EMPTY_LOOKUPS, loadProvenanceLookups, provenanceText, type ProvenanceLookups } from './provenance'
 
 const money = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -21,17 +22,25 @@ const BASELINE_TITLE: Record<string, string> = {
 
 /**
  * GET /api/v1/production/component-fitments/job-orders/{id}/actual-bom.
- * Generated from fitments, never authored: every entry carries the GRN and
- * vendor-bill provenance of the exact stock that was fitted, and a reversal
- * appears as its own negative entry rather than editing the fitment.
+ * Generated from fitments, never authored: every entry carries the origin of
+ * the exact stock that was fitted — a GRN line and its vendor bill, or an
+ * opening-stock ceremony line — and a reversal appears as its own negative
+ * entry rather than editing the fitment.
  *
- * An entry is PROVISIONAL_UNBILLED (₹0) until Accounts accepts a vendor bill
- * on its GRN line; then it becomes LANDED_ACCEPTED and the variance blocks
- * below carry the accepted value against the pinned Estimated BOM (the
- * offer) and Production BOM (the plan). The server computes both.
+ * A GRN-origin entry is PROVISIONAL_UNBILLED (₹0) until Accounts accepts a
+ * vendor bill on its GRN line; then it becomes LANDED_ACCEPTED. An
+ * opening-stock entry is OPENING_CONFIRMED, valued from the ex-tax value
+ * Accounts confirmed at the ceremony — a bill number SESS declared on the
+ * workbook is shown but was never verified here. The variance blocks below
+ * carry the accepted value against the pinned Estimated BOM (the offer) and
+ * Production BOM (the plan). The server computes both.
+ *
+ * The Provenance column states, in words, which of those an auditor is
+ * looking at (see provenance.ts for the four texts).
  */
 export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
   const [bom, setBom] = useState<ActualBomView | null>(null)
+  const [lookups, setLookups] = useState<ProvenanceLookups>(EMPTY_LOOKUPS)
   const [missing, setMissing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -41,7 +50,9 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
     setError(null)
     setMissing(false)
     try {
-      setBom(await getActualBom(jobOrderId))
+      const loaded = await getActualBom(jobOrderId)
+      setBom(loaded)
+      setLookups(await loadProvenanceLookups(loaded.Entries))
     } catch (err) {
       setBom(null)
       if (err instanceof ApiError && err.status === 404) setMissing(true)
@@ -66,6 +77,7 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
   }
 
   const unbilled = bom.Entries.filter((entry) => entry.ValuationStatus === 'PROVISIONAL_UNBILLED').length
+  const opening = bom.Entries.filter((entry) => entry.ValuationStatus === 'OPENING_CONFIRMED').length
 
   return (
     <div>
@@ -80,6 +92,11 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
           {unbilled} of {bom.Entries.length} entries are provisional: no accepted vendor bill covers their GRN line yet, so they count as ₹0 here and in the variances below.
         </div>
       )}
+      {opening > 0 && (
+        <div className="alert">
+          {opening} of {bom.Entries.length} entries came from the opening-stock ceremony. Their value is the ex-tax figure Accounts confirmed there; where a bill number is shown it was declared by SESS on the workbook and has not been verified in this system.
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -89,8 +106,8 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
               <th>Item</th>
               <th className="text-right">Qty (base)</th>
               <th>Serial</th>
-              <th>GRN</th>
-              <th>Vendor bill</th>
+              <th>Origin</th>
+              <th>Provenance</th>
               <th>Valuation</th>
               <th className="text-right">Material</th>
               <th className="text-right">Charges</th>
@@ -106,8 +123,12 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
                 <td><span className="mono">{entry.ItemCode}</span> — {entry.ItemName}</td>
                 <td className="text-right mono">{entry.QuantityBase} {entry.UomCode}</td>
                 <td className="mono">{entry.SerialNumber ?? '—'}</td>
-                <td className="mono">{entry.GrnNumber}</td>
-                <td className="mono">{entry.BillNumber ?? '—'}</td>
+                <td className="mono">
+                  {entry.OpeningStockLineId
+                    ? <>Opening stock{entry.OpeningLineReference ? ` ${entry.OpeningLineReference}` : ''}</>
+                    : entry.GrnNumber}
+                </td>
+                <td>{provenanceText(entry, lookups)}</td>
                 <td>
                   <StatusBadge value={entry.ValuationStatus} />
                   {entry.ValuedAt && <div className="text-ink-faint text-[11.5px]">valued {new Date(entry.ValuedAt).toLocaleString()}</div>}

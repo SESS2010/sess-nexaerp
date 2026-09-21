@@ -63,6 +63,7 @@ const TONE_BY_VALUE: Record<string, string> = {
   // Actual BOM entry valuation
   LANDED_ACCEPTED: 'ok',
   PROVISIONAL_UNBILLED: 'warn',
+  OPENING_CONFIRMED: 'info',
 }
 
 export function StatusBadge({ value }: { value: string }) {

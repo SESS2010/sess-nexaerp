@@ -174,18 +174,36 @@ export interface ActualBomEntryView {
   InventoryLotId: string | null
   InventorySerialId: string | null
   SerialNumber: string | null
-  GoodsReceiptLineId: string
+  /** Null for stock that entered at the opening-stock ceremony; then GrnNumber is ''. */
+  GoodsReceiptLineId: string | null
   GrnNumber: string
   /** Null until an accepted vendor bill covers the GRN line the stock came from. */
   VendorBillLineId: string | null
+  /**
+   * For a GRN origin: the accepted bill. For an opening-stock origin: the bill
+   * number SESS DECLARED on the workbook — never verified in this system.
+   */
   BillNumber: string | null
-  /** LANDED_ACCEPTED (valued from an accepted bill) or PROVISIONAL_UNBILLED (₹0 until then). */
+  /**
+   * LANDED_ACCEPTED (valued from an accepted bill), PROVISIONAL_UNBILLED
+   * (₹0 until then) or OPENING_CONFIRMED (valued from the Accounts-confirmed
+   * ex-tax value at the opening-stock ceremony).
+   */
   ValuationStatus: string
   AcceptedMaterialValue: number
   AllocatedChargeValue: number
   TotalAcceptedValue: number
   ValuedAt: string | null
   OccurredAt: string
+  /** Set when the fitted stock came from the opening-stock ceremony rather than a GRN. */
+  OpeningStockLineId: string | null
+  OpeningLineReference: string | null
+  /**
+   * Requested, not yet in the contract: the same provenance sentence the
+   * machine dossier prints. When the server sends it the pane shows it as-is;
+   * until then provenance.ts composes it from the fields above.
+   */
+  Provenance?: string | null
 }
 
 export interface ActualBomVarianceLineView {

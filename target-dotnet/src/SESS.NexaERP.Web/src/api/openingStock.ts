@@ -31,6 +31,17 @@ export interface OpeningStockLineView {
   InventoryLotId: string | null
   InventorySerialId: string | null
   FifoInventoryCostLayerId: string | null
+  // Template v2 provenance — what SESS DECLARED on the workbook. Optional, blank
+  // is fine; none of it is verified by this system, and a declared bill number
+  // is never an accepted vendor bill.
+  VendorName?: string | null
+  VendorBillNumber?: string | null
+  BillDate?: string | null
+  PurchaseDate?: string | null
+  Make?: string | null
+  Model?: string | null
+  PartNumber?: string | null
+  Remarks?: string | null
 }
 
 export interface OpeningStockActorView {

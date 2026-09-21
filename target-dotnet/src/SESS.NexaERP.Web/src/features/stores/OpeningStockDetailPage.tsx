@@ -193,6 +193,14 @@ This is done ONCE. It cannot be undone or re-run once posted.`)) void run('autho
         <ErrorAlert error={actionError} onReload={() => void load()} fallback="The step was refused." className="mt-3" />
       </div>
 
+      {view.Lines.some((line) => line.VendorBillNumber) && (
+        <div className="alert" style={{ marginBottom: 12 }}>
+          Some lines carry a bill number from the workbook. That is what SESS <strong>declared</strong> — it is not an
+          accepted vendor bill in this system and does not become one. The value posted is the ex-tax rate Accounts
+          confirms here; the machine dossier and Actual BOM will say "declared at opening stock, not verified in this system"
+          against any part fitted from these lines.
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -204,8 +212,10 @@ This is done ONCE. It cannot be undone or re-run once posted.`)) void run('autho
               <th>Lot</th>
               <th>Serial</th>
               <th className="text-right">Quantity</th>
-              <th className="text-right">Rate</th>
+              <th className="text-right">Rate (ex-tax)</th>
               <th className="text-right">Value</th>
+              <th>Declared purchase</th>
+              <th>Make / model / part</th>
               <th>Posted</th>
             </tr>
           </thead>
@@ -221,6 +231,29 @@ This is done ONCE. It cannot be undone or re-run once posted.`)) void run('autho
                 <td className="text-right mono">{line.Quantity}</td>
                 <td className="text-right mono">{money.format(line.UnitRate)}</td>
                 <td className="text-right mono">{money.format(line.LineValue)}</td>
+                <td className="text-[12px]">
+                  {line.VendorBillNumber || line.VendorName || line.BillDate || line.PurchaseDate
+                    ? (
+                      <>
+                        {line.VendorName && <div>{line.VendorName}</div>}
+                        {line.VendorBillNumber && (
+                          <div>
+                            Bill <span className="mono">{line.VendorBillNumber}</span>
+                            {line.BillDate && <> dated {line.BillDate}</>}
+                            {' '}<span className="text-ink-faint">— declared, not verified in this system</span>
+                          </div>
+                        )}
+                        {line.PurchaseDate && <div className="text-ink-faint">purchased {line.PurchaseDate}</div>}
+                        {line.Remarks && <div className="text-ink-faint">{line.Remarks}</div>}
+                      </>
+                    )
+                    : <span className="text-ink-faint">none declared</span>}
+                </td>
+                <td className="mono text-[12px]">
+                  {[line.Make, line.Model, line.PartNumber].some(Boolean)
+                    ? [line.Make, line.Model, line.PartNumber].filter(Boolean).join(' / ')
+                    : <span className="text-ink-faint">—</span>}
+                </td>
                 <td className="mono text-[12px]">
                   {line.FifoInventoryCostLayerId
                     ? <>layer {line.FifoInventoryCostLayerId.slice(0, 8)}{line.InventorySerialId ? ` · serial ${line.InventorySerialId.slice(0, 8)}` : ''}{line.InventoryLotId ? ` · lot ${line.InventoryLotId.slice(0, 8)}` : ''}</>
