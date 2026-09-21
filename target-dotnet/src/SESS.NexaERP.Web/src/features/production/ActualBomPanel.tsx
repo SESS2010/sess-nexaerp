@@ -4,7 +4,7 @@ import { getActualBom } from '../../api/production'
 import type { ActualBomBaselineVarianceView, ActualBomView } from '../../types/production'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
-import { EMPTY_LOOKUPS, loadProvenanceLookups, provenanceText, type ProvenanceLookups } from './provenance'
+import { provenanceText } from './provenance'
 
 const money = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -36,11 +36,11 @@ const BASELINE_TITLE: Record<string, string> = {
  * Production BOM (the plan). The server computes both.
  *
  * The Provenance column states, in words, which of those an auditor is
- * looking at (see provenance.ts for the four texts).
+ * looking at (see provenance.ts for the four texts — without payment state,
+ * which is Accounts' to see on the dossier, not this pane's).
  */
 export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
   const [bom, setBom] = useState<ActualBomView | null>(null)
-  const [lookups, setLookups] = useState<ProvenanceLookups>(EMPTY_LOOKUPS)
   const [missing, setMissing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -50,9 +50,7 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
     setError(null)
     setMissing(false)
     try {
-      const loaded = await getActualBom(jobOrderId)
-      setBom(loaded)
-      setLookups(await loadProvenanceLookups(loaded.Entries))
+      setBom(await getActualBom(jobOrderId))
     } catch (err) {
       setBom(null)
       if (err instanceof ApiError && err.status === 404) setMissing(true)
@@ -128,7 +126,7 @@ export function ActualBomPanel({ jobOrderId }: { jobOrderId: string }) {
                     ? <>Opening stock{entry.OpeningLineReference ? ` ${entry.OpeningLineReference}` : ''}</>
                     : entry.GrnNumber}
                 </td>
-                <td>{provenanceText(entry, lookups)}</td>
+                <td>{provenanceText(entry)}</td>
                 <td>
                   <StatusBadge value={entry.ValuationStatus} />
                   {entry.ValuedAt && <div className="text-ink-faint text-[11.5px]">valued {new Date(entry.ValuedAt).toLocaleString()}</div>}

@@ -199,8 +199,8 @@ export interface ActualBomEntryView {
   OpeningStockLineId: string | null
   OpeningLineReference: string | null
   /**
-   * Requested, not yet in the contract: the same provenance sentence the
-   * machine dossier prints. When the server sends it the pane shows it as-is;
+   * Being added server-side (agreed 2026-09-21): the provenance sentence
+   * without payment state. When the server sends it the pane shows it as-is;
    * until then provenance.ts composes it from the fields above.
    */
   Provenance?: string | null
