@@ -174,8 +174,7 @@ Check no SDK was installed to accomplish this. See `sdk-free-migration-proof.md`
 
 **STOP here while the production frontend/OIDC gate is unresolved.** Use the real
 provider's issuer/metadata/JWKS/client/audience settings from
-`authentication.keycloak.example.json` or `authentication.cognito.example.json`,
-not the example addresses. Follow `authentication-bootstrap.md` for the one-time
+`authentication.server.keycloak.json` and the exact D1 contract; complete D2-D5 first. Follow `authentication-bootstrap.md` for the one-time
 SESS-12 issuer/subject ceremony using the published Installer as `nexa_erp_bootstrap`
 (`authentication-bootstrap --issuer <https-issuer> --subject <stable-subject>`), then
 map employees through governed APIs. Never use a development identity command.
@@ -192,7 +191,7 @@ Check `COMPLETED` for the one-time ceremony; do not replay it as a connectivity 
 
 Copy `installer/service-settings.example.json` to `api/appsettings.Production.json`
 on the installed copy; enter runtime password locally, set ExpectedDatabase and the
-connection database to DEMO, retain Maximum Pool Size=20, merge Authentication/Reporting.
+connection database to DEMO, set Maximum Pool Size=15;Minimum Pool Size=0, merge Authentication/Reporting.
 Do not include any development flags, even set false. Install a certificate into
 LocalMachine\My, subject DESKTOP-SPF5420, with server-auth EKU, IP SAN 192.168.68.130,
 valid dates, private key; the server and clients must trust its issuer. Use the configured unique

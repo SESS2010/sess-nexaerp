@@ -1,0 +1,44 @@
+{
+  "Reporting": {
+    "DefaultTimeZone": "Asia/Kolkata",
+    "CompanyTimeZones": {}
+  },
+  "Authentication": {
+    "Providers": {
+      "staff": {
+        "Authority": "https://192.168.68.130:8444/realms/staff",
+        "MetadataAddress": "https://192.168.68.130:8444/realms/staff/.well-known/openid-configuration",
+        "AudienceMode": "Audience",
+        "Audience": "nexaerp",
+        "ClientId": "nexaerp-staff",
+        "ClientIdClaim": "azp",
+        "TokenUseClaim": "typ",
+        "AccessTokenUseValue": "Bearer",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": false,
+        "JwksAddress": "https://192.168.68.130:8444/realms/staff/protocol/openid-connect/certs",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      },
+      "approvers": {
+        "Authority": "https://192.168.68.130:8444/realms/approvers",
+        "MetadataAddress": "https://192.168.68.130:8444/realms/approvers/.well-known/openid-configuration",
+        "AudienceMode": "Audience",
+        "Audience": "nexaerp",
+        "ClientId": "nexaerp-approvers",
+        "ClientIdClaim": "azp",
+        "TokenUseClaim": "typ",
+        "AccessTokenUseValue": "Bearer",
+        "SubjectClaim": "sub",
+        "ScopeClaim": "scope",
+        "RequiredScope": "nexaerp/access",
+        "MfaGuaranteedByProvider": true,
+        "JwksAddress": "https://192.168.68.130:8444/realms/approvers/protocol/openid-connect/certs",
+        "OrganizationSelectionMode": "MappedHeader",
+        "OrganizationHeader": "X-NexaERP-Company"
+      }
+    }
+  }
+}
