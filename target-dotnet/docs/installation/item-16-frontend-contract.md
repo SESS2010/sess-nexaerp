@@ -1,5 +1,7 @@
 # Item 16 frontend and deployment contract
 
+For DESKTOP-SPF5420 use the exact frozen [D1 server contract](server-frontend-oidc-contract.md), which supersedes placeholder URLs below.
+
 Configure every provider's issuer, discovery and JWKS URLs, client binding, token-use claim/value, subject claim and API scope. Discovery must advertise the exact configured issuer and JWKS URL. Example configurations contain deliberately unusable deployment placeholders.
 
 For deployment, copy the edited Authentication section from the chosen example into the published API's appsettings.Production.json, or set the equivalent Authentication__Providers__... environment variables. Run the published Release API with Production as its environment. Keep the existing database connection and expected-database guard configuration. The example filenames are templates; the API does not automatically load files with those names. Remove NexaErp__AllowDevelopmentAuthentication entirely from Release configuration. Restart the API after changing provider trust configuration, then verify sign-in and refusals in each company.
