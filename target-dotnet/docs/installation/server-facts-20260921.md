@@ -13,10 +13,18 @@ India Standard Time; high performance/no sleep/hibernation/device power-off; Gue
 blocked; password-protected Admin untouched; Defender current with four-hour updates;
 Vite 5173 stopped; RDP off; network Private. Do not repeat those actions.
 
-DESKTOP-SPF5420: Windows 10 Pro, i5-10600K, 15.9 GB total RAM, **6.4 GB free**;
+DESKTOP-SPF5420: Windows 10 Pro 64-bit, Intel i5-10600K desktop CPU (six physical
+cores, 12 logical; reported not throttled), 15.9 GB total RAM, **6.4 GB free**;
 C: SSD **41.6 GB free**. Keep at least 25 GB free. D:/E: are the same suspect HDD;
 do not put new backups or verification work on either. See the daily off-machine
 backup procedure before enabling users; cable replacement alone does not certify it.
+
+Physical disks remain C: WDC WDS240G2G0A 224 GB SSD, and D:/E: Seagate ST1000DM010
+932 GB HDD. D:/E: are two partitions of the same failing/suspect disk, not two copies.
+UPS is connected. Realtek Gaming GbE adapter currently links at 100 Mbps: adequate for
+11 transactional users, with longer backup transfers. Address 192.168.68.130,
+gateway 192.168.68.1; confirm router reservation. ASP.NET Core/.NET 10.0.12 runtime is
+installed, SDK removed. Preserve those facts when recording later measurements.
 
 PostgreSQL 17.11 runs as NetworkService; data is
 C:\Program Files\PostgreSQL\17\data. Current listen_addresses='*', max_connections=100,
@@ -29,7 +37,9 @@ shared_buffers=512MB, effective_cache_size=2GB, work_mem=4MB,
 maintenance_work_mem=128MB, max_connections=40, max_parallel_workers=2,
 max_parallel_workers_per_gather=1. API Maximum Pool Size=15, Minimum Pool Size=0;
 Keycloak pool min=1/initial=1/max=10 and Java heap -Xms128m -Xmx512m. Retain capacity
-for admin/backup connections. Heap is not total JVM memory. Watch actual process
+for admin/backup connections. Budget roughly 1 GiB for the API working set initially, then measure eleven-user
+load and large-report peaks; this is a capacity allowance, not an enforced process
+limit. Heap is not total JVM memory. Watch actual process
 working sets and available RAM under eleven-user and engineering load; alert below
 2 GB. Run restore verification serially outside peak load. Do not cap or stop protected
 services to meet this budget. API GC configuration needs measured adjustment, not a
