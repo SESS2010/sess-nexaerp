@@ -1,9 +1,10 @@
 # Go-live runbook: fresh database, 1 October 2026
 
-Status: draft of 20 September 2026 for the owner's decision "Option C". Row counts marked
-`[dump]` are filled in from the frontend developer's dump when it arrives; every command,
-principal and check below is already witnessed on a disposable database by
-`FreshCompanyReachesAvailableStockThroughSeededStoresAuthority`. Nothing here touches
+Status: updated 21 September 2026: Option C directly on DESKTOP-SPF5420. Row counts marked
+`[dump]` are filled in from the frontend developer's dump when it arrives. The fresh-company
+database workflow has disposable-database evidence in
+`FreshCompanyReachesAvailableStockThroughSeededStoresAuthority`; the selected server
+installation, capacity and backup checks still need deployment evidence. Nothing here touches
 the current field database except the backup and the exports in steps 0 and 1.
 
 Actors: **DBA** = the PostgreSQL administrator (superuser session, `postgres`);
@@ -11,9 +12,47 @@ Actors: **DBA** = the PostgreSQL administrator (superuser session, `postgres`);
 **API** = a signed-in seeded employee through the screens or the API.
 
 Precondition for every step that runs a migration: the pulled worktree carries commit
-`b13cebd` or later (finding #19). Build Release once: `dotnet build SESS.NexaERP.slnx -c Release`.
+`b13cebd` or later (finding #19). Build Release once on the development laptop: `dotnet build SESS.NexaERP.slnx -c Release`.
+Publish the deployment artifacts there; do not build or test on DESKTOP-SPF5420.
+In steps 2 onward, `<host>` means DESKTOP-SPF5420 (or its reserved LAN address).
+`<field-host>` in step 0 remains the old laptop.
 
 ## 0. Preserve what exists (DBA, before anything else)
+
+### Production server and development laptop (decision, 21 September)
+
+DESKTOP-SPF5420 is the production server. Build the fresh Option C database there
+using steps 2-14; section 15 records its specification, disk layout and cutover.
+The laptop remains the source of the field backup/exports until cutover, then returns
+to development and LabVIEW. The previous 30 September laptop witness cutoff is
+superseded: `NexaERP nightly witnesses` may remain on the laptop after server cutover.
+Never install or run that task on DESKTOP-SPF5420. Pause laptop witnesses during the
+source backup/export window if they would compete with that work.
+
+The existing laptop witness tooling and PostgreSQL binaries can remain in place.
+The failure-cleanup limitations below still apply; moving production does not cure
+them. Retain gate logs/TRX, review failures, and prevent overlapping witness runs.
+The frontend developer's PC is no longer required as the replacement witness host.
+
+### Laptop memory-guard inspection (21 September 2026; still relevant to witnesses)
+
+**Partial protection only; complete failure-safe cleanup is not guaranteed.** The
+installed task is Ready, daily at 01:00, `MultipleInstances=IgnoreNew`, with no trigger
+end date and a 72-hour execution limit. No task settings were changed in this inspection.
+The script waits for each gate before the next. The private `DisposablePostgreSql`
+helper belongs to the partial `AdvanceMigrationSqlSyntaxTests` xUnit class, whose tests
+run sequentially within one test process. There is no machine-wide lock against another
+manual or scheduled test process.
+
+Test `using` scopes dispose clusters on ordinary assertion/exception failures, and
+startup catches call `Dispose`. But `_started` is set only after `pg_ctl start` succeeds:
+partially successful startup can escape stop cleanup. `Dispose` does not check the stop
+exit code, and process termination can bypass disposal. The nightly wrapper has no final
+cleanup or orphan-cluster check before the next gate. Thus one cluster at a time with
+cleanup on every failure is not guaranteed. This was source/settings inspection only;
+no heavy witnesses were launched.
+
+### Backup
 
 ```powershell
 pg_dump --format=custom --file .\sess_nexa_erp-pre-go-live.dump --dbname "host=<field-host> port=5432 dbname=sess_nexa_erp user=postgres"
@@ -48,15 +87,34 @@ operational scopes, identity mappings, temporary role covers.
 
 Check: row counts equal the field screen counts; keep the files with the backup.
 
-## 2. Create the database (DBA)
+## 1.5 Decide and prepare the server OS before ERP deployment
+
+Complete section 15.1a on DESKTOP-SPF5420 before step 2 and before deploying the API:
+back up the existing PC, check Windows 11 eligibility, upgrade if eligible, and record
+the post-upgrade checks. The preferred sequence is OS first, PostgreSQL/runtime second,
+fresh Option C database third, API deployment afterwards. If prerequisites were already
+installed, verify them again after upgrading. Do not defer the OS decision until go-live.
+
+## 2. Create the database directly on DESKTOP-SPF5420 (DBA)
+
+Option C is a fresh database on the final production server, not a full restore of the
+field database. Install PostgreSQL 17 with its production data directory on C: first.
+Confirm the target hostname and `SHOW data_directory`; do not drop or overwrite an
+existing database if this name is already present. Keep the laptop source intact.
+
 
 ```powershell
-createdb --host <host> --port 5432 --username postgres sess_nexa_erp
+createdb --host DESKTOP-SPF5420 --port 5432 --username postgres sess_nexa_erp
 ```
 
 Check: `SELECT current_database()` = `sess_nexa_erp`; `to_regnamespace('advance')` is null.
 
 ## 3. Provision the principals (DBA)
+
+Run the source-based `dotnet run` commands below from the development laptop targeting
+DESKTOP-SPF5420. Alternatively run the matching published Installer on the server;
+server installation does not require a source checkout, SDK, compiler or test suite.
+
 
 ```powershell
 $env:ConnectionStrings__NexaErpInstaller = 'Host=<host>;Port=5432;Database=sess_nexa_erp;Username=postgres;Password=<administrator-secret>'
@@ -70,6 +128,11 @@ dotnet run --project .\src\SESS.NexaERP.Installer\SESS.NexaERP.Installer.csproj 
 Check: four roles exist, `nexa_erp_owner` is `NOLOGIN`, no business rows (there are none yet).
 
 ## 4. Migrate 0 → current (Owner)
+
+Run this development command from the laptop against DESKTOP-SPF5420 while its API
+is stopped. It builds tooling on the laptop and creates the production schema on the
+server. Applying reviewed ERP migrations is production maintenance; running builds,
+tests or disposable development clusters on the server is prohibited at all hours.
 
 ```powershell
 $env:ConnectionStrings__NexaErp = 'Host=<host>;Port=5432;Database=sess_nexa_erp;Username=nexa_erp_migration;Password=<migration-secret>;Options=-c role=nexa_erp_owner'
@@ -137,6 +200,7 @@ psql --host <host> --port 5432 --username nexa_erp_migration --dbname sess_nexa_
 Check: `SELECT count(*) FROM advance.items WHERE "CreatedBy"='EXCEL_IMPORT'` = 1,368, all
 `Approved`; categories ELE/FAB/REF present; UOMs present. The #11 reconcile script is not
 needed on a database the corrected import created.
+
 
 ### Category reconciliation command (Owner)
 
@@ -298,7 +362,9 @@ item (FIFO dates it from the period end above).
 ## 14. Close
 
 - Reconciliation: DBA `database-principals provision` then `status` → VERIFIED.
-- Backup: `pg_dump` + `pg_dumpall --globals-only` of the new database, labelled go-live.
+- Backup: run the server verified-backup job from section 15.3; retain its VERIFIED
+  manifest and successful restore evidence, labelled go-live. Verify identity and
+  external ERP files through their separate backup procedures too.
 - **No walk-throughs in either company from this point.** The opening-stock rule refuses a
   company that already has movements; there is no legitimate escape from it.
 
@@ -315,209 +381,254 @@ item (FIFO dates it from the period end above).
 | 11 qualifications | `[dump]` | 3 each | TD + MD |
 | 12–13 ceremonies | 2 | 3 each | Accounts + TD |
 
-## 15. Operating rule from 1 October: production by day, development by night
+## 15. DESKTOP-SPF5420: dedicated production server at all hours
 
-Decision, 21 September 2026: a separate server is not affordable yet, so this laptop
-(HP ProBook 440 G5, i5-7200U 2 cores/4 threads, 32 GB, one 477 GB SATA SSD carrying both
-C: and D:) is the production ERP server from 1 October. The ERP runtime itself is light
-(measured 21 September: node + PostgreSQL 17 + MySQL 5.1 = 264 MB working set, near-idle
-CPU); what pins the machine is development â€” builds, the full suites (1,018 tests, ~1â€“2 h
-per configuration, Roslyn compiler server up to 6 GB), the nightly witnesses (4 h 25 m on
-21 September) and the editor tooling (VS Code + Edge + Roslyn â‰ˆ 7 GB). Production and
-development are therefore separated **in time**:
+Decision, 21 September 2026: use the existing office PC DESKTOP-SPF5420. The laptop
+returns to development and LabVIEW after successful cutover. The former laptop
+09:30-18:30 production-only rule and 1 October witness cutoff are superseded.
 
-| Window | State | Allowed | Not allowed |
-|---|---|---|---|
-| **09:30 â€“ 18:30** | PRODUCTION ONLY | ERP running for eleven users; PostgreSQL; the verified backup at 18:45 (starts after the window) | VS Code, Claude Code, Codex; `dotnet build`/`test`/`publish`; any migration; witnesses; LabVIEW / NI services; anything that creates a PostgreSQL cluster |
-| **18:30 â€“ 09:30** | DEVELOPMENT | builds, suites, migrations, witnesses â€” after the 18:45 backup has finished (`logs\last-run.json` ExitCode 0) | touching the production database from a development process; leaving a disposable cluster or a test host running past 09:30 |
+**Nothing except the ERP and its operational dependencies runs on the server, ever.**
+This includes PostgreSQL, required identity/runtime services, verified backup/restore
+verification, monitoring, OS/security maintenance and controlled ERP deployment.
+No development editors/agents, builds, tests, nightly witnesses, LabVIEW/NI or general
+office work, including at night. Build/publish on the laptop and deploy artifacts.
+A backup's isolated restore-verification cluster is an ERP backup operation, not a
+permission to run development witnesses on the server.
 
-Tools (committed with this section): `tools/Enter-ProductionDay.ps1`,
-`tools/Test-ProductionState.ps1`, `tools/production-state.json`. Both scripts run as the
-logged-in user, need no administrator rights, write their evidence to
-`local-evidence/production-days/`, and exit 0 only when the machine is in production state.
+### 15.1 Selected server specification and disk allocation
 
-### 15.1 Before 09:30 â€” close development (checklist)
+Owner-supplied specification; deployment checks on the actual server remain to be recorded:
 
-1. Finish or abandon the current edit; commit and push what is committed-worthy. A
-   migration that is executing is never interrupted: let `dotnet ef database update`
-   finish, then run `database-principals provision` + `status` (step 4) before closing.
-2. Run the closer from any PowerShell window (it closes VS Code gracefully first, then
-   Claude Code, Codex, test hosts, the Roslyn/MSBuild compiler servers, the C# Dev Kit
-   helpers; stops every disposable PostgreSQL cluster with `pg_ctl stop -m fast` and removes
-   leftover `advance-postgresql-parser-*` / `nexa-installer-release-*` folders in `%TEMP%`;
-   never touches the PostgreSQL service, the ERP's own node/dotnet processes or browsers):
+| Component | Selected hardware / allocation |
+|---|---|
+| Host / OS | DESKTOP-SPF5420; currently Windows 10 Pro 64-bit; Windows 11 Pro eligibility/upgrade before ERP deployment (15.1a), commercial ESU only if ineligible |
+| CPU | Intel Core i5-10600K, desktop, 6 physical cores / 12 logical; reported not throttled |
+| RAM | 15.9 GB; reserved for ERP and its dependencies |
+| Physical SSD | WDC WDS240G2G0A, 224 GB; C:, currently 40 GB free; Windows, ERP binaries and production PostgreSQL data |
+| Physical HDD | Seagate ST1000DM010, 932 GB; D: currently 284 GB free, E: 339 GB free |
+| Verified bundles | `D:SESS-Backups` on the separate physical HDD |
+| Verification work | Prefer `E:SESS-Backup-Verification`; `D:SESS-Backup-Verification` also permitted as a separate directory |
+| Network | Realtek Gaming GbE Ethernet adapter; currently negotiated at 100 Mbps |
+| Power / account | UPS connected; Windows login password set |
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File tools\Enter-ProductionDay.ps1
-   ```
+C: and D: are on **different physical disks**. D: and E: are partitions of the **same
+HDD**; using both does not create a third independent copy. Record the volume-to-disk
+mapping during setup (`Get-Partition -DriveLetter C,D,E | Get-Disk`), and confirm
+PostgreSQL `SHOW data_directory` resolves to C:. Never infer physical independence
+from drive letters alone.
 
-   Preview first with `-DryRun`. It refuses (exit 2) while a migration is running.
-3. Read the FAIL lines it prints (it ends by running `Test-ProductionState.ps1`). Exit 0
-   means the production day is open. Anything else is fixed before users start, not after.
-4. Leave the laptop plugged in, lid open, sleep and hibernation off, Wiâ€‘Fi/LAN as on the
-   previous day. Do not sign out: the ERP master server runs in the interactive session
-   (`SESS NexaERP Master Server` startup shortcut â†’ `node.exe --port=8783`).
+The CPU and RAM are suitable for the estimated eleven-user ERP workload, subject to
+normal cutover checks under real use. There is no need to buy the previously proposed
+server before this deployment. Windows 10 support ended on 14 October 2025. Resolve the OS decision now as follows.
 
-### 15.2 Confirming production state
+### 15.1a Windows 11 decision, backup and upgrade before deploying the API
 
-`tools/Test-ProductionState.ps1` (read-only; contract in `tools/production-state.json`)
-checks, and records under `local-evidence/production-days/<date>-state-<time>.txt`:
+**Preferred decision: upgrade this PC to Windows 11 Pro now if PC Health Check passes.**
+The i5-10600K belongs to the supported 10th-generation Intel Core i5 family
+([Microsoft supported processors](https://learn.microsoft.com/en-us/windows-hardware/design/minimum/supported/windows-11-supported-intel-processors)).
+CPU support alone does not establish full PC eligibility. Record Microsoft's
+[PC Health Check](https://support.microsoft.com/en-us/windows/experience/compatibility/how-to-use-the-pc-health-check-app)
+result, motherboard/firmware, TPM 2.0 readiness (`tpm.msc`, specification version 2.0),
+and UEFI/Secure Boot capability (`msinfo32`, BIOS Mode UEFI; Secure Boot State).
+Enable Intel PTT/TPM and Secure Boot through the motherboard vendor's supported
+procedure if available but disabled, then rerun PC Health Check. Do not bypass the
+hardware checks. The Windows requirement is Secure Boot capability; enable it for
+this deployment. Check compatible drivers, Windows activation, and upgrade free-space
+requirements too ([Microsoft requirements](https://support.microsoft.com/en-us/windows/experience/compatibility/windows-11-system-requirements)).
 
-| # | Check | Passes when |
-|---|---|---|
-| 1 | development processes closed | no VS Code, Claude Code, Codex, Roslyn/MSBuild servers, C# Dev Kit helpers |
-| 2 | no test/build/migration running | no `testhost`, `VBCSCompiler`, `MSBuild`, `dotnet test/build/ef` |
-| 3 | no disposable PostgreSQL clusters | every `postgres.exe` belongs to `C:\Program Files\PostgreSQL\17\data`; no cluster folders left in `%TEMP%` |
-| 4 | service `postgresql-x64-17` | Running |
-| 5 | ERP endpoints | node master server `http://127.0.0.1:8783/` answers (200/301/302/401/403); the API readiness URL is filled in at step 14 and then made `Required` |
-| 6 | headroom | â‰¥ 12,000 MB available RAM, commit < 70 %, CPU (3 s) â‰¤ 60 %, C: â‰¥ 15 GB, D: â‰¥ 20 GB free |
-| 7 | NI / LabVIEW services | none running (all 15 disabled on 21 September; `pc-maintenance-20260921\RESTORE-NI-Siemens.ps1` restores them for a chamber test) |
-| 8 | nightly witness task | `Disabled` (section 0 cutoff); `-BeforeGoLive` tolerates `Ready` until 30 September |
-| 9 | verified backup fresh | `C:\SESS-Backup\logs\last-run.json` ExitCode 0 and finished â‰¤ 26 h ago |
+1. **Backup first, before firmware/boot changes or the OS upgrade.** Preserve the
+   colleague's files and the PC's existing C:/D:/E: data, record the disk layout, and
+   take a recoverable system image plus a verified file backup to independent media.
+   Open sample backed-up files and retain recovery media and any BitLocker/device-
+   encryption recovery keys off this PC. A future ERP dump is not this pre-upgrade
+   PC backup. If PostgreSQL/data already exists, take and verify its database backup
+   too. Do not erase the HDD or its backup directories as part of the OS work.
+2. If eligible, upgrade activated Windows 10 Pro to Windows 11 Pro through the
+   supported Microsoft upgrade route, before deploying the API or creating the final
+   go-live database. The eligible Windows 10-to-11 upgrade has **no Microsoft upgrade
+   licence charge**; backup/setup labour is separate
+   ([Microsoft upgrade FAQ](https://support.microsoft.com/en-us/windows/deployment/install-upgrade/upgrade-to-windows-11-faq)).
+   Finish updates, supported chipset/network drivers and reboots. Keep recovery media
+   until acceptance; recheck the 25 GB C: reserve after upgrade and installation.
+3. Record Windows 11 edition/activation, PC Health Check result, TPM/Secure Boot state,
+   LAN address/link and UPS/startup behaviour. Then install or reverify prerequisites:
+   - PostgreSQL 17 service is Running and starts after reboot; `pg_isready` succeeds;
+     connection works and `SHOW data_directory` remains on C:. If installed before
+     upgrade, confirm its original cluster identity/data and service account survived.
+   - `dotnet --list-runtimes` contains the deployed API's required x64 .NET 10 and
+     ASP.NET Core 10 runtimes (`Microsoft.NETCore.App` and `Microsoft.AspNetCore.App`).
+     Install the matching Hosting Bundle if IIS hosting is chosen; no SDK is required
+     on the server. Verify API readiness after its later deployment.
+   - Recheck the active Windows network profile and intended inbound ERP firewall
+     rules/ports from another office PC. Preserve LAN scoping; do not disable the
+     firewall or open PostgreSQL to the internet. Confirm administration access only
+     from its approved hosts, and verify API/client connectivity after deployment.
+4. Only after those checks proceed with Option C on this server. The OS upgrade has
+   not been performed by this document update; retain actual server evidence.
 
-Run it again at any time during the day if the ERP feels slow; the FAIL line names the
-cause. Free memory below the threshold with no development process present means a
-production process is growing â€” capture with `pc-maintenance-20260921\CAPTURE-NOW.cmd`
-and report; do not "fix" it by restarting PostgreSQL during the day.
+**If the PC genuinely cannot qualify:** keep Windows 10 Pro 22H2 only with activated
+**commercial Windows 10 ESU**, or replace/upgrade the incompatible hardware before ERP
+deployment. Microsoft's standard business price is **US$61/device for Year 1,
+US$122 for Year 2, US$244 for Year 3**: **US$427 over three years**, before applicable
+tax/local reseller pricing. These are annual programme years, not twelve months from
+purchase; prior years are cumulative and partial-year purchases are unavailable.
+An October 2026 go-live is near the end of Year 1: budget **US$183 for Years 1+2** if
+continuing into Year 2, rather than assuming US$61 covers the next twelve months.
+Obtain the INR quote and coverage dates from the business licensing supplier. ESU
+provides critical/important security updates, not new features or general OS support.
+Record activation and successful ESU updates before API deployment
+([Microsoft commercial ESU terms and prices](https://learn.microsoft.com/en-us/windows/whats-new/extended-security-updates)).
+Do not use consumer/free ESU offers as the budget for this office production server.
 
-### 15.3 Daily verified backup to D: at 18:45 (Item 26)
+### 15.2 Capacity, network and operating checks
 
-This laptop is the only copy of production. Findings of 21 September: none of the three
-existing backup tasks produce anything â€” `NEXA_ERP_Daily_Backup` (23:00) writes to
-`D:\CODEX\NEXA_ERP_BACKUPS\DAILY\`, which does not exist, and masks the `pg_dump` failure as
-exit 0 (it also carries the `postgres` password in clear text in the task action);
-`SESS NexaERP PostgreSQL Daily Backup` (23:30) and its rotation task point to script files
-that no longer exist (result 0xFFFD0000). The newest dump on D: is from 16 July. The Item 26
-verified backup (`automated-backup-and-recovery.md`) replaces them.
+**40 GB free on C: is enough for the estimated 5-8 GB PostgreSQL footprint at six
+months.** Conservatively subtracting the whole 8 GB leaves about 32 GB before new
+software, Windows updates, pagefile changes and other growth. This is a planning
+estimate, not a measured growth guarantee. Keep **at least 25 GB free** in operation;
+target **40 GB or more free after installation and the colleague's files are moved**.
+Do not count pending file moves as already recovered space. If installation or growth
+would breach the 25 GB reserve, reclaim space or expand the SSD before proceeding.
 
-Prepared on 21 September (no task registered yet):
+The 5-8 GB estimate assumes modest eleven-user transactions and approximately
+20 attachments/day at 1 MB across working days. Attachments stored as `bytea`, indexes,
+audit rows, identity data, logs and actual usage must be measured. `max_wal_size` is
+not a hard cap: do not assume WAL can never exceed 1 GB
+([PostgreSQL WAL guidance](https://www.postgresql.org/docs/17/wal-configuration.html)).
+Keep dumps and verification restores off C:. Check free space daily and trend database,
+cluster/WAL, logs, attachment and backup sizes monthly. `pg_database_size` measures the
+database, not the whole cluster or its WAL.
 
-- Installer published to `C:\SESS-Backup\Installer\SESS.NexaERP.Installer.exe`.
-- `C:\SESS-Backup\backup.json`: database `sess_nexa_erp` on `127.0.0.1:5432`, cluster
-  system identifier `7647792057875705176` (from `pg_controldata`; unchanged by the fresh
-  database of step 2 because the cluster is not re-initialised), `BackupRoot`
-  `D:\SESS-Backups` (must not exist or be empty at first run), `WorkingRoot`
-  `D:\SESS-Backup-Verification` (temporary verification clusters; D: has the space, C: does not).
-- `C:\SESS-Backup\logs\` for the wrapper's per-run log and `last-run.json`.
+100 Mbps is adequate for the expected eleven-user transactional workload. Its nominal
+ceiling is 12.5 MB/s shared across transfers; large uploads, exports and initial copies
+will take longer. No go-live step requires gigabit: database creation/migrations are
+small transfers and scheduled dump/restore verification runs locally between SSD and
+HDD. Allow time for initial file copies and verify normal client response at cutover.
+Check/replace the cable with a known-good Cat5e/Cat6 cable and confirm the switch port
+supports gigabit; the cable is a likely cause, not a confirmed diagnosis. A stable
+100 Mbps link alone does not block go-live.
 
-Two commands remain for the account that will run the task (the DPAPI credential is bound to
-that Windows account, and registration needs its password â€” neither is typed by anyone else):
+Before admitting users, record: production service startup and restart behaviour,
+ERP/API readiness and login from client PCs, UPS operation, no sleep/hibernation,
+reserved LAN address/name resolution and firewall rules, C: reserve, and successful
+ERP plus identity backups. Use service accounts and supported service/task hosting;
+do not assume the laptop's interactive startup shortcut survives sign-out/reboot.
+Keep unrelated services and applications off the server.
+
+`tools/production-state.json` and `Enter-ProductionDay.ps1` describe the old laptop
+setup; do not deploy or run them unchanged. A server monitoring profile must use its
+actual services, API readiness URL, cluster path and backup paths, require no witness
+task, use C: >= 25 GB free and a provisional available-RAM alert at 4 GB (not the old
+12 GB threshold for a 32 GB laptop), and account for the authorised backup verification
+cluster during its run. Measure memory during backup and normal use before tuning.
+Keep backup/identity freshness checks; a successful old laptop check is not server evidence.
+
+### 15.3 Daily verified backup on the separate HDD at 18:45
+
+Install the published Installer and both scheduling scripts on DESKTOP-SPF5420.
+The old laptop's prepared configuration, cluster ID and DPAPI credential are not the
+new server's configuration. Create these on the server:
+
+- Installer: `C:SESS-BackupInstallerSESS.NexaERP.Installer.exe`.
+- Config: `C:SESS-Backupackup.json`, database `sess_nexa_erp`, local host
+  `127.0.0.1:5432`, **the new server's own verified cluster system identifier** from
+  `pg_control_system()` / `pg_controldata`; never copy `7647792057875705176` from the laptop.
+- `BackupRoot`: `D:SESS-Backups`; `WorkingRoot`: `E:SESS-Backup-Verification`
+  (or the separate D: directory above). Roots must not overlap; initially empty/absent
+  roots are enrolled by the tool. Do not initialise them over unrelated colleague files.
+- Protected logs: `C:SESS-Backuplogs`; DPAPI file made by the scheduled Windows
+  account **on this server**. Retain application configuration in the backup/recovery
+  inventory; credentials are managed separately.
+
+As that scheduled account, on DESKTOP-SPF5420:
 
 ```powershell
-# 1. as the scheduled account, once: the backup connection string (postgres or a role that can dump all ERP data, globals and pg_control_system)
-Read-Host 'Database backup connection string' -AsSecureString | Export-Clixml -LiteralPath 'C:\SESS-Backup\connection.clixml'
-# 2. register the 18:45 task, then run it once by hand and read logs\last-run.json and D:\SESS-Backups\run-<id>\manifest.json (VERIFIED)
-$backupAccount = Get-Credential   # the Windows account the task runs as
-.\tools\Register-VerifiedDatabaseBackup.ps1 -InstallerPath 'C:\SESS-Backup\Installer\SESS.NexaERP.Installer.exe' -ConfigPath 'C:\SESS-Backup\backup.json' -CredentialFile 'C:\SESS-Backup\connection.clixml' -LogDirectory 'C:\SESS-Backup\logs' -DailyAt '18:45' -Credential $backupAccount
+Read-Host 'Database backup connection string' -AsSecureString | Export-Clixml -LiteralPath 'C:SESS-Backupconnection.clixml'
+$backupAccount = Get-Credential
+.	oolsRegister-VerifiedDatabaseBackup.ps1 -InstallerPath 'C:SESS-BackupInstallerSESS.NexaERP.Installer.exe' -ConfigPath 'C:SESS-Backupackup.json' -CredentialFile 'C:SESS-Backupconnection.clixml' -LogDirectory 'C:SESS-Backuplogs' -DailyAt '18:45' -Credential $backupAccount
 Start-ScheduledTask -TaskName 'SESS-NexaERP-VerifiedBackup'
 ```
 
-What one run does: REPEATABLE READ snapshot â†’ custom-format `pg_dump` + globals (no
-password hashes) â†’ restore into a fresh private cluster on D: â†’ table counts and
-schema/security metadata compared â†’ SHA-256 recorded â†’ manifest `VERIFIED` â†’ retention.
-Only a VERIFIED run counts; the 15.2 check reads the wrapper's `last-run.json`.
+Use a database principal able to dump the database/globals and read the control-system
+identity, not the ERP runtime account. Check exit 0 in `logslast-run.json`, a VERIFIED
+manifest under `D:SESS-Backups
+un-<id>`, and restore/count/schema/security/hash evidence.
+Test the scheduled run while signed out. Register the separate identity backup with
+its own config, account credential, roots and task; avoid overlapping restore jobs.
+Measure job duration on this HDD; the laptop's duration is not a server measurement.
+The 18:45 schedule remains, but it is no longer a boundary before server development.
 
-Retention (built into Item 26): daily bundles 30 days; runs starting on Sunday UTC are
-weekly bundles kept 84 days; the newest two verified bundles are never deleted. Expected
-footprint on D: at six months: â‰¤ 42 bundles Ã— (dump + globals), i.e. under 10 GB at the
-growth estimate below, plus a transient 2 Ã— database size in `D:\SESS-Backup-Verification`
-during each run.
+Each run dumps a consistent snapshot and globals, restores into a private cluster in
+WorkingRoot, verifies it, records hashes and applies retention. This deliberately runs
+on the production server as ERP recovery verification. Daily retention is 30 days;
+Sunday UTC runs are retained 84 days; the newest two verified bundles are protected.
+Budget roughly 30-42 full bundles **times the measured dump size**, plus failed-run
+residue and identity bundles. The former "under 10 GB total at six months" estimate is
+withdrawn: attachments can compress poorly. For example, 42 bundles at 3 GB need
+126 GB; at 8 GB they need 336 GB, exceeding today's 284 GB free on D:. Trend measured
+usage and extend/reallocate backup capacity before D: fills; do not silently shorten
+retention. Reserve at least 20 GB free on D: beyond the retained-bundle budget and
+about 25 GB free in the verification partition for the estimated 8 GB database
+(roughly 2x database size plus margin). If WorkingRoot is on D:, budget both together.
 
-Timing: 18:45 is after the production window closes and before development starts;
-development waits for `last-run.json` (ExitCode 0). A run of the 526 MB cluster takes minutes,
-not the four-hour limit the task allows.
+The D: backup **does protect against failure of the C: SSD**, unlike the laptop's two
+partitions on one SSD. It does not protect against whole-PC loss, theft or damage to
+both disks. Copy the newest complete VERIFIED bundle plus required identity/config/file
+backups to an independent external/offsite destination at least weekly. E: on this PC
+is not that destination. Retain the ownership marker and manifests with recovery media;
+see `automated-backup-and-recovery.md`. Daily backup leaves loss since the last usable
+run; weekly offsite copies leave a longer possible gap if the whole PC is lost.
 
-**D: is the same physical disk as C:** (disk 0). The D: bundle protects against deletion,
-a bad migration and database corruption; it does not protect against the SSD failing. Once a
-week, copy the newest `D:\SESS-Backups\run-<id>` (dump, globals, manifest together) to a
-device that leaves the building â€” the external archive disk already used on 19 September
-(`E:\PC_Storage_Archive`) or a cloud folder â€” and note the copy in the go-live evidence. The
-recovery procedure is `automated-backup-and-recovery.md` â†’ "If the laptop disk fails".
+### 15.4 Build Option C directly on the final server and cut over
 
-After the first VERIFIED run, the three dead tasks are unregistered (owner approval;
-`Unregister-ScheduledTask` for `NEXA_ERP_Daily_Backup`, `SESS NexaERP PostgreSQL Daily
-Backup`, `SESS NexaERP PostgreSQL Evidence Backup Rotation`) so that the Task Scheduler no
-longer shows a "successful" backup that wrote nothing.
+1. Preserve the laptop field backup, exports, attachment/configuration files and identity
+   mapping evidence (steps 0-1); keep them intact through acceptance.
+2. Complete the backed-up Windows 11 upgrade or commercial ESU decision (15.1a) first.
+   Install the production dependencies on DESKTOP-SPF5420. Publish the release on the
+   laptop. Use the server's SSD PostgreSQL cluster and create the fresh production
+   database there (step 2); run provisioning/migrations against that target (steps 3-4).
+   Do not restore the entire field database as the go-live database.
+3. Complete steps 5-13 on the server: bootstrap identities, selectively carry attachments,
+   import/configure masters, routes/QC/qualifications, and complete both authorised
+   opening-stock ceremonies. No rehearsal transactions in the production companies.
+4. Carry required external ERP files/configuration, configure identity and startup,
+   reserve the server LAN address, and point client apps at it. Use the existing
+   `CHANGE_SESS_NEXA_MASTER_IP.bat` / firewall setup where applicable. Check one user
+   per company, permissions, readiness and reconciliations without polluting opening stock.
+5. Complete step 14 and the server's first VERIFIED ERP and identity backups, including
+   external-file recovery coverage. Record acceptance and prevent further writes to the
+   laptop field database; keep its preserved source evidence.
+6. Stop the laptop production ERP endpoints and retire its production-backup tasks only
+   after server acceptance. Keep development services needed by the laptop and ensure
+   production credentials/connections are not used by development processes.
 
-### 15.4 Development during the day: it waits
+Controlled ERP updates and database migrations remain permitted maintenance on the
+server: prepare/test on the laptop, take a fresh verified backup, deploy in an agreed
+window, apply the reviewed migration and reconcile principals, then verify readiness.
+Even an urgent production defect is built/tested on the laptop, not on the server.
 
-The answer to "can this build/test/migration run now?" between 09:30 and 18:30 is **no**;
-it runs at 18:30 after the backup. The one exception is a production defect that stops the
-eleven users from working and cannot wait for the evening. Then:
+### 15.5 Laptop returns to development, LabVIEW and nightly witnesses
 
-1. The Technical Director decides, and the decision is written first: what is broken,
-   which users are stopped, why 18:30 is too late. One line in
-   `local-evidence/production-days/<date>-exception.md`.
-2. Users are told the ERP will be slow or paused, and when.
-3. An ad-hoc verified backup runs first (`Start-ScheduledTask -TaskName 'SESS-NexaERP-VerifiedBackup'`,
-   wait for `last-run.json` ExitCode 0) â€” a daytime change is made only on top of a fresh
-   VERIFIED bundle.
-4. The smallest possible action: a hot-fix build of the one project, or one migration,
-   never a full suite or a witness. Targeted evidence is labelled targeted
-   (`routine-tests-and-witness-gates.md`); the full suites run that night.
-5. Then `Enter-ProductionDay.ps1` again, and the exception file gets the outcome, the
-   commit SHA and the time production resumed.
+After section 15.4 acceptance, the production-hours rule no longer applies to the
+laptop. Do not run the production-day closer there. Restore its NI/Siemens recorded
+service/startup state with the existing script, elevated, on the laptop only:
 
-Everything else â€” "just a quick build", a refactor, a test run to check something â€”
-waits. A developer machine for daytime work is the frontend developer's PC (section 0,
-"Separate witness machine"), not this laptop.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .pc-maintenance-20260921RESTORE-NI-Siemens.ps1
+```
 
-### 15.5 Nightly witnesses on this server
+This restores recorded settings, including services that were intentionally disabled;
+it is not a blanket "start every NI service" command. Confirm the LabVIEW/chamber setup.
+`NexaERP nightly witnesses` may stay scheduled on the laptop. There is no requirement
+to disable it on 30 September or move it to the frontend developer's PC. Keep witness
+failure review and isolated-cluster cleanup; coordinate resource-heavy runs with LabVIEW.
+No witnesses run on DESKTOP-SPF5420, at any time.
 
-Section 0, "Production-server witness cutoff": the task `NexaERP nightly witnesses`
-stays as it is through 30 September and is disabled before its 01:00 trigger on
-1 October. Check 8 of 15.2 enforces that from 1 October. The first unattended run
-(21 September 01:00â€“05:25) failed all three gates; its evidence is in
-`local-evidence/nightly/2026-09-21/` and is reported separately â€” it does not change
-the cutoff.
+### 15.6 Deployment evidence still to record
 
-### 15.6 Planned step: the separate server (when payment allows)
-
-Minimum specification (measured need, 21 September): 4 cores / 8 threads without thermal
-limits (Core i5-12400 / Xeon E-2400 / Ryzen 5 PRO class), 16 GB RAM (32 GB ECC recommended),
-500 GB NVMe (2 Ã— 1 TB NVMe RAID-1 recommended) plus a separate backup disk or NAS, 1 GbE
-wired, on a UPS, Windows Server 2022 Standard or Windows 11 Pro, the ERP and PostgreSQL run
-as services under service accounts. Business-tower minimum â‰ˆ â‚¹70â€“90 k; tower server with
-ECC and RAID-1 â‰ˆ â‚¹1.8â€“2.6 lakh.
-
-Migration path from this laptop, in order:
-
-1. Evening window: verified backup runs; development stops on the laptop for the night.
-2. New server: PostgreSQL 17 (same major), the Installer, the ERP publish; restore the
-   newest VERIFIED bundle with `backup recover` (`automated-backup-and-recovery.md`, steps
-   1â€“5; preserve the `postgres` bootstrap identity); `database-principals provision` +
-   `status` â†’ VERIFIED; re-establish the three runtime passwords (globals omit them).
-3. Copy the ERP's non-database files: `C:\Users\User\AppData\Local\SESS NexaERP` (server,
-   app, runtime, secure â€” the node master server) and `D:\SESS_NEXA_ERP_DATA` (uploads,
-   exports, departments, legacy-retained); MySQL 5.1 data only if the node server still
-   reads it on that date.
-4. Point the clients at the new master IP (`CHANGE_SESS_NEXA_MASTER_IP.bat` in the app
-   folder), open the firewall rule (`ALLOW_SESS_NEXA_ERP_FIREWALL.bat`), sign in as SESS-12
-   and one user per company, run the reports of step 14.
-5. Register the verified backup on the server (its own DPAPI file and account), run it,
-   read the manifest. Only then stop the laptop's ERP and unregister its backup task.
-6. The laptop returns to development and LabVIEW: `pc-maintenance-20260921\RESTORE-NI-Siemens.ps1`
-   (elevated) re-enables the NI services; the operating rule of this section ends.
-
-### 15.7 Pending owner decisions recorded here
-
-- `Everyone = Full Control` on `C:\` and `C:\Users` (non-default; report of 21 September):
-  correction is `icacls C:\ /remove:g Everyone` and `icacls C:\Users /remove:g Everyone`
-  then `icacls C:\Users /grant "Everyone:(OI)(CI)(RX)"`. It does not touch the PostgreSQL
-  data directory, the ERP folder under the user profile, `ProgramData\MySQL` or anything on
-  D: (all have their own protected ACLs). It changes the inherited ACE on the third-party
-  folders at the root of C: (EBpro, Watlow, Angelantoni, WinKratos, ISRO_EProcClient,
-  Siemens, Intel, chamber_calc, logs, temp) and on the IIS profile folders under
-  `C:\Users`; `C:\Users\SESS` and `C:\Users\Public` carry their own explicit `Everyone
-  Full` and are separate decisions. Not applied until approved.
-- C: free space (31 GB, 16 %): reclaimable without loss â€” `hiberfil.sys` 12.8 GB
-  (`powercfg /h off`, elevated; a server does not hibernate), `bin/` + `obj/` under
-  `Documents\Codex` 8.2 GB (regenerated by the next build), `%TEMP%` 1.7 GB; movable to D:
-  â€” `local-evidence/` 16.2 GB (retained TRX evidence: move, do not delete). Together â‰ˆ 39 GB.
-- Production database growth, six months, fresh database of step 2 (estimate, no field
-  volume yet): masters + configuration < 100 MB; 11 users Ã— ~200 governed actions/day Ã—
-  audit receipts â‰ˆ 0.5â€“1 GB of rows and indexes; vendor/customer attachments are `bytea`
-  rows in the database â€” at 20 attachments/day Ã— 1 MB â‰ˆ 2.5 GB; WAL steady state â‰¤ 1 GB
-  (`max_wal_size`). Plan for **5â€“8 GB on C:** for the cluster at six months and **10 GB on
-  D:** for the retained bundles; both fit after the reclaim above. Re-measure monthly with
-  `SELECT pg_size_pretty(pg_database_size('sess_nexa_erp'))` and the D: bundle sizes.
+The selected hardware and layout are confirmed by the owner's report; this document
+update has not installed software or created a database on the remote PC. Record the
+actual server disk mapping, installed release, fresh cluster ID, service configuration,
+security-update status, post-install free space, client checks and verified backup runs
+at deployment. Old laptop disk/ACL measurements and prepared backup files are historical
+and must not be applied to this server as though they had been inspected here.
