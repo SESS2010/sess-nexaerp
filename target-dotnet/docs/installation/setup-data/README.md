@@ -41,14 +41,17 @@ is non-negative, UOM is an active master. Zone at most 120, barcode 128, descrip
 Rack Name and Bin / Partition Number are not the opening-stock key. The opening bin must
 have Material Condition AVAILABLE and an effective AVAILABLE condition-location mapping.
 
-Stores can prepare these column lists in Excel today. For actual upload, copy the data
-into the API-generated workbook; do not rename columns or manufacture metadata. Run the
-wrapper with the [Warehouses Template plan](Warehouses.template.example.json) or
-[RackBins Template plan](RackBins.template.example.json) to download the canonical workbook when
-DEMO is available. It contains exactly `Data`, `Column Guide`, hidden `_Metadata`, in that
-order (template version 1); retain those sheets and metadata. Remove the illustrative
-example row before entering real data. A plain CSV or single-sheet workbook is not a
-valid import. The JSON examples ending `.import.example.json` name that completed .xlsx.
+The four ready-to-fill workbooks are in [excel](excel/), one warehouse and one rack/bin
+file for each company. They preserve the three-sheet import contract, version 1 and
+hidden metadata; do not rename columns/sheets or alter metadata. There are 200 blank
+entry rows. Column Guide contains the opening-stock Bin Code note and company warning.
+Dropdowns: Warehouse Type STORES; Location Type RACK/PARTITION/QC_SECTION (checked-in
+examples, business choices pending TD review); all seven server material conditions;
+Capacity UOM NOS/MTR/FT/KGS/LTR/BOX/PKT/ROLL from the legacy setup script. Verify the UOM
+is active before import. Leave capacity and UOM both blank if capacity is not used.
+Excel blocks typed values outside the lists, but pasted input still requires governed
+server validation. Filename is NOT a company security binding: check signed-in company
+and import plan. Use the API Template action for a fresh canonical template if needed.
 The import uses REJECT_ENTIRE_FILE; a successful import creates drafts, not approvals.
 Stores submits each record separately, then a different TD approves its current version.
 Only then build location references. Do this warehouse-first, rack-second.
