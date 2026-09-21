@@ -29,7 +29,7 @@ D1 frontend contract was immediately committed/pushed at c9ac742; D2-D5 separate
 followed. Production frontend source remains pending at feature/frontend 0c59254,
 so release remains a candidate. Final artifact migration proof is identified by the
 MANIFEST/build report, not a claim of field acceptance. Native Keycloak 26.7.4,
-Java 17/Procrun 1.6.1 service, TLS on eleven PCs, MFA enrollment, receiver DESKTOP-AP
+Java 17/Procrun 1.6.1 service, TLS on eleven PCs, MFA enrollment, receiver (now corrected to Ilamparuthi's PC; exact hostname pending)
 health/availability/share credentials, capacity and signed-out schedules remain field
 checks. Provider binaries were not installed here. Publisher digests are recorded.
 

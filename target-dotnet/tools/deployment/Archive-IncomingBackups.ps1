@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Receiver='DESKTOP-AP',[string]$Incoming='D:\SESS-Backup-Incoming',[string]$Archive='D:\SESS-Backup-Vault',[Parameter(Mandatory=$true)][string]$StatusDirectory)
+param([Parameter(Mandatory=$true)][ValidatePattern('\A[A-Za-z0-9-]+\z')][string]$Receiver,[string]$Incoming='D:\SESS-Backup-Incoming',[string]$Archive='D:\SESS-Backup-Vault',[Parameter(Mandatory=$true)][string]$StatusDirectory)
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'VerifiedBackupTransfer.psm1') -Force
 $lock=$null;$result=1

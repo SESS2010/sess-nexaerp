@@ -18,26 +18,31 @@ cable replacement as clearance. No new backup data is written to that HDD.
 
 ## Destination and accounts
 
-Designated proposed receiver: **DESKTOP-AP**, the development laptop, path
-**D:\SESS-Backup-Incoming**, share **\\DESKTOP-AP\SESS-Backup-Incoming$**.
-Read-only local inventory on 21 September found ~95 GiB free on its D:. This is a
-DIFFERENT MACHINE from the server; laptop C:/D: sharing an SSD does not defeat that
-separation. Receiver identity/disk health, usable capacity and daily availability
-still need the operator's field acceptance. No account/share/task has been created
-by this laptop work. If the owner nominates another PC, change DestinationHost and
-both UNC roots together and repeat acceptance before scheduling. No hidden fallback
-to a server-local path or to D:/E: is allowed.
+Designated receiver: **Ilamparuthi's PC**, the frontend developer's machine,
+identified by the owner as **IT TEAM 2**.
+**DESKTOP-AP is the Technical Director's development laptop and is NOT the receiver.**
+The exact `hostname` command output is pending: **[ILAMPARUTHI PC hostname]**. Replace this
+placeholder in the plan's DestinationHost, both UNC roots and every account/command
+below before setup. The placeholder deliberately fails hostname validation; do not
+schedule until `hostname` on Ilamparuthi's PC and name resolution agree.
+`IT TEAM 2` contains spaces and is not accepted by the hostname guard; do not guess
+IT-TEAM-2 or ITTEAM2, rename the PC, or loosen validation to make setup pass.
+Microsoft's [DNS host naming rules](https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/naming-conventions-for-computer-domain-site-ou#dns-host-names)
+exclude whitespace. Confirm the actual computer name locally before filling UNC paths.
 
-The receiver must remain on, awake and connected for the 18:45 backup window and
-retries. A laptop taken away/offline makes this plan fail; nominate an always-on
-healthy office PC instead if that cannot be guaranteed. Daily copying is the only
-server-disk-failure protection here; local C: backup is not a second physical copy.
+Proposed receiver-local paths are D:\SESS-Backup-Incoming and D:\SESS-Backup-Vault;
+these are NOT the prohibited server HDD. Confirm this PC has that healthy volume,
+capacity for retention, and daily availability before creating anything. No capacity
+measurement from DESKTOP-AP applies to this receiver. If its approved volume differs,
+update receiver-local paths together. No account/share/task has been created here.
+The receiver must remain awake and connected for the 18:45 backup window and retries.
+No fallback to a server-local path or DESKTOP-AP is allowed.
 
 On the SERVER create nonadministrator **DESKTOP-SPF5420\SESSBackup** with Log on as
 a batch job. Task uses PASSWORD logon, runs whether a user is logged on or not, and
 must be allowed SMB network access. Do not use S4U/"Do not store password", SYSTEM,
 Guest or an interactive-only task for this sender. On the RECEIVER create
-**DESKTOP-AP\SESSBackup**, nonadministrator, matching strong password for workgroup
+**[ILAMPARUTHI PC hostname]\SESSBackup**, nonadministrator, matching strong password for workgroup
 pass-through authentication. Permit its share/network logon; deny interactive/RDP
 logon after one-time credential provisioning. Store the password in the approved
 secret store, not scripts; rotate both and the task credential together. Domain sites
@@ -46,16 +51,20 @@ may instead use a dedicated domain backup identity, with the same narrow rights.
 Receiver setup (receiver agent/admin only, no changes to the server's services):
 create Incoming, D:\SESS-Backup-Vault and D:\SESS-Backup-ReceiverStatus. Disable NTFS
 inheritance on these NEW folders; Incoming grants SYSTEM/Administrators Full and
-DESKTOP-AP\SESSBackup Modify. Vault and ReceiverStatus grant only SYSTEM/Administrators
+[ILAMPARUTHI PC hostname]\SESSBackup Modify. Vault and ReceiverStatus grant only SYSTEM/Administrators
 Full; **no SESSBackup access**, no network share for Vault. Never reuse a general
 Everyone-writable folder. Then:
 
 ```powershell
-New-SmbShare -Name 'SESS-Backup-Incoming$' -Path 'D:\SESS-Backup-Incoming' -ChangeAccess 'DESKTOP-AP\SESSBackup' -FullAccess 'BUILTIN\Administrators' -EncryptData $true -CachingMode None
+New-SmbShare -Name 'SESS-Backup-Incoming$' -Path 'D:\SESS-Backup-Incoming' -ChangeAccess '[ILAMPARUTHI PC hostname]\SESSBackup' -FullAccess 'BUILTIN\Administrators' -EncryptData $true -CachingMode None
 Get-SmbShareAccess -Name 'SESS-Backup-Incoming$'
 ```
 
-Check share AND NTFS permissions, no Everyone/Guest grant. Receiver firewall permits
+Check share AND NTFS permissions, no Everyone/Guest grant. This account may write
+only the SESS-Backup-Incoming$ share: audit its effective permissions on all other
+receiver shares (including access inherited through Users/Everyone), and verify
+writes there are denied. Resolve any conflicting grant before accepting the setup;
+do not change unrelated shares blindly. Receiver firewall permits
 SMB TCP445 from 192.168.68.130 only for this transfer; review existing overlapping
 share rules without breaking unrelated use. No 445/5432 inbound opening is added to
 the ERP server. Require SMB3 encryption; record Get-SmbConnection under the task
@@ -152,9 +161,9 @@ local bundles plus one verification cannot fit, the site is blocked pending capa
 
 ## Receiver-owned archive and acceptance
 
-On DESKTOP-AP copy Archive-IncomingBackups.ps1 and VerifiedBackupTransfer.psm1 into
+On Ilamparuthi's PC copy Archive-IncomingBackups.ps1 and VerifiedBackupTransfer.psm1 into
 an administrator-controlled tools folder. Register an hourly task as **SYSTEM**, run
-whether logged on or not, invoking the script with -Receiver DESKTOP-AP -Incoming
+whether logged on or not, invoking the script with -Receiver "[ILAMPARUTHI PC hostname]" -Incoming
 D:\SESS-Backup-Incoming -Archive D:\SESS-Backup-Vault -StatusDirectory
 D:\SESS-Backup-ReceiverStatus. Use IgnoreNew, StartWhenAvailable; Task Scheduler GUI
 can set daily trigger, repeat every 1 hour for 1 day indefinitely. No credentials for
@@ -194,3 +203,24 @@ here repairs/reformats D:/E: or changes protected engineering data.
 
 References: [encrypted SMB share and permissions](https://learn.microsoft.com/en-us/powershell/module/smbshare/new-smbshare),
 [Task Scheduler logon modes](https://learn.microsoft.com/en-us/windows/win32/taskschd/principal-logontype).
+
+## Daily production-state check
+
+Copy packaged installer/tools/Test-ProductionState.ps1 and Test-DailyBackupState.ps1
+into C:\SESS-Backup\tools. Copy server-production-state.example.json to
+C:\SESS-Backup\production-state.json; confirm service names and endpoints locally.
+This server profile does not require NI/Siemens services to stop and does not apply
+the old laptop production-hours rule. Run every morning on the server:
+
+```powershell
+powershell -NoProfile -File C:\SESS-Backup\tools\Test-ProductionState.ps1 -ConfigPath C:\SESS-Backup\production-state.json
+```
+
+The daily off-machine check requires a successful, enabled scheduled task and a
+receipt no older than 26 hours with ExitCode=0 and OffMachineVerified=true. Missing,
+unreadable, malformed, future-dated or stale receipts and failed/disabled/missing
+tasks produce FAIL and a nonzero exit, including with -BeforeGoLive. Investigate and
+record resolution the same day; never dismiss a missed day as silent success.
+The receipt represents both ERP and identity copied and hashed after landing. Also
+check the receiver's separate protected archive receipt; the server does not gain
+access to the receiver-owned vault or its status directory through this monitor.

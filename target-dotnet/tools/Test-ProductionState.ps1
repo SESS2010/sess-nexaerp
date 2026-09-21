@@ -1,4 +1,5 @@
-# Test-ProductionState.ps1 - is this laptop in PRODUCTION state? (runbook section 15, from 1 October 2026)
+# Test-ProductionState.ps1 - read-only production checks using an explicit machine profile.
+# DESKTOP-SPF5420: use server-production-state.example.json; legacy default is laptop-only.
 # Read-only. Prints one PASS/FAIL line per check, writes the same to local-evidence/production-days/,
 # and exits with the number of failed checks (0 = production state confirmed).
 #
@@ -11,7 +12,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
 $root = Split-Path -Parent $PSScriptRoot
-$evidenceDir = Join-Path $root $config.EvidenceDirectory
+$evidenceDir = if ([IO.Path]::IsPathRooted($config.EvidenceDirectory)) { $config.EvidenceDirectory } else { Join-Path $root $config.EvidenceDirectory }
 New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
 $evidence = Join-Path $evidenceDir ("{0:yyyy-MM-dd}-state-{0:HHmmss}.txt" -f (Get-Date))
 $failed = 0
@@ -25,6 +26,8 @@ function Is-Protected([string]$commandLine) {
     foreach ($p in $config.ProtectedCommandLinePatterns) { if ($commandLine -and $commandLine -match $p) { return $true } }
     return $false
 }
+
+if ($config.ExpectedHost) { Check ($env:COMPUTERNAME -eq $config.ExpectedHost) 'expected server' $config.ExpectedHost }
 
 # 1. Development processes closed (a process whose command line is protected, e.g. the ERP's own node/dotnet, does not count).
 $procs = Get-CimInstance Win32_Process
@@ -69,8 +72,11 @@ Check ($cpu -le $config.MaxCpuPercent) 'CPU load (3 s)' ("{0} % (maximum {1})" -
 foreach ($d in $config.MinFreeSpaceGB.PSObject.Properties) { $free = [math]::Round((Get-PSDrive $d.Name -ErrorAction SilentlyContinue).Free / 1GB, 1); Check ($free -ge $d.Value) "free space $($d.Name):" ("{0} GB (minimum {1})" -f $free, $d.Value) }
 
 # 7. LabVIEW / NI services stopped (disabled 21 September; restore with pc-maintenance-20260921\RESTORE-NI-Siemens.ps1 for a chamber test).
+if ($config.NiServiceDisplayNamePattern) {
 $ni = Get-Service | Where-Object { $_.DisplayName -match $config.NiServiceDisplayNamePattern -and $_.Status -eq 'Running' }
 Check ($ni.Count -eq 0) 'NI / LabVIEW services stopped' $(if ($ni) { ($ni | ForEach-Object { $_.Name }) -join ', ' } else { 'none running' })
+
+}
 
 # 8. Nightly witness task disabled on the production server (runbook section 0).
 $task = Get-ScheduledTask -TaskName $config.WitnessTaskName -ErrorAction SilentlyContinue
@@ -79,6 +85,16 @@ if ($BeforeGoLive -and -not $taskOk) { $lines += "SKIP  nightly witness task    
 else { Check $taskOk 'nightly witness task disabled' $(if ($task) { $task.State } else { 'not registered' }) }
 
 # 9. Verified backup: last run finished within BackupMaxAgeHours with exit code 0 (Item 26 wrapper writes logs\last-run.json).
+if ($config.DailyOffMachineBackup) {
+    . (Join-Path $PSScriptRoot 'Test-DailyBackupState.ps1')
+    $daily = $config.DailyOffMachineBackup
+    try {
+        $backupTask = Get-ScheduledTask -TaskName $daily.TaskName -ErrorAction Stop
+        $taskInfo = Get-ScheduledTaskInfo -TaskName $daily.TaskName -ErrorAction Stop
+        $state = Test-DailyBackupState -StatusPath $daily.StatusFile -MaxAgeHours $daily.MaxAgeHours -TaskEnabled ($backupTask.State -ne 'Disabled') -TaskResult $taskInfo.LastTaskResult
+        Check $state.Ok 'daily off-machine backup' $state.Detail
+    } catch { Check $false 'daily off-machine backup' ('task/status unavailable: ' + $_.Exception.Message) }
+} else {
 $statusFile = $config.BackupStatusFile
 if (Test-Path -LiteralPath $statusFile) {
     $st = Get-Content -LiteralPath $statusFile -Raw | ConvertFrom-Json
@@ -86,6 +102,8 @@ if (Test-Path -LiteralPath $statusFile) {
     Check (($st.ExitCode -eq 0) -and ($age -le $config.BackupMaxAgeHours)) 'verified backup fresh' ("exit {0}, finished {1:N1} h ago (maximum {2} h)" -f $st.ExitCode, $age, $config.BackupMaxAgeHours)
 } elseif ($BeforeGoLive) { $lines += "SKIP  verified backup fresh               $statusFile absent (register the 18:45 task before 1 October)"; Write-Host $lines[-1] -ForegroundColor Yellow }
 else { Check $false 'verified backup fresh' "$statusFile absent - the 18:45 verified backup task is not registered or has never run" }
+
+}
 
 $summary = "RESULT: $(if ($failed -eq 0) { 'PRODUCTION STATE CONFIRMED' } else { "$failed check(s) failed - NOT in production state" })"
 $lines += $summary

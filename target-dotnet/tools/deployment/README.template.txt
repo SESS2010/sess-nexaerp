@@ -35,6 +35,10 @@ Apply in this exact order, checking each numbered server-runbook step below:
 8. Configure and witness daily verified ERP/identity backups on C: PLUS DAILY off-machine copy;
    D: and E: are rejected because their physical HDD is suspect. Follow
    installer/docs/server-daily-backups.md, including the 25 GiB free-space gate.
+   Receiver is Ilamparuthi's PC (identified as IT TEAM 2), NOT DESKTOP-AP. Replace [ILAMPARUTHI PC hostname]
+   with its verified Windows hostname before setup; the example intentionally refuses.
+   Use server-production-state.example.json with Test-ProductionState.ps1 every
+   morning: stale/missing/failed daily off-machine receipts must produce FAIL.
 
 Never touch SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, ewserver or their data;
 ALL NI, Siemens and Rockwell services stay; preserve IIS Default Web Site and

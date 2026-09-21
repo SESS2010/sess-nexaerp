@@ -318,3 +318,14 @@ After cutover the LAPTOP returns to development/LabVIEW; its production-hours ru
 ends, RESTORE-NI-Siemens.ps1 is for that laptop only, and its nightly witness may stay.
 NEVER run NI/Siemens restoration/disablement on this server: all those services stay.
 End the field report RESULT_REPORTED_PENDING_WITNESS until actual acceptance.
+
+### Section E receiver correction
+
+The daily backup receiver is **Ilamparuthi's PC (frontend developer), identified as IT TEAM 2**. DESKTOP-AP
+is the Technical Director's development laptop and must not be configured as the
+receiver. The exact hostname is pending: `[ILAMPARUTHI PC hostname]`. Confirm it on
+the receiver before replacing the placeholders in the site plan and commands.
+Follow [daily backups](server-daily-backups.md) for the dedicated password account,
+one writable incoming share, hash verification after landing and receiver-owned
+archive. Install the supplied server profile for `Test-ProductionState`: a missed
+or failed daily off-machine copy must return FAIL/nonzero, never silent success.
