@@ -87,13 +87,11 @@ operational scopes, identity mappings, temporary role covers.
 
 Check: row counts equal the field screen counts; keep the files with the backup.
 
-## 1.5 Decide and prepare the server OS before ERP deployment
+## 1.5 Server OS decision (Technical Director, 21 September)
 
-Complete section 15.1a on DESKTOP-SPF5420 before step 2 and before deploying the API:
-back up the existing PC, check Windows 11 eligibility, upgrade if eligible, and record
-the post-upgrade checks. The preferred sequence is OS first, PostgreSQL/runtime second,
-fresh Option C database third, API deployment afterwards. If prerequisites were already
-installed, verify them again after upgrading. Do not defer the OS decision until go-live.
+Windows 10 Pro stays for this deployment, without ESU currently activated. Windows 11
+is a planned later upgrade, not a prerequisite for API deployment. Apply the compensating
+controls in section 15.1a and follow `server-deployment.md`. No clean Windows install.
 
 ## 2. Create the database directly on DESKTOP-SPF5420 (DBA)
 
@@ -401,7 +399,7 @@ Owner-supplied specification; deployment checks on the actual server remain to b
 
 | Component | Selected hardware / allocation |
 |---|---|
-| Host / OS | DESKTOP-SPF5420; currently Windows 10 Pro 64-bit; Windows 11 Pro eligibility/upgrade before ERP deployment (15.1a), commercial ESU only if ineligible |
+| Host / OS | DESKTOP-SPF5420; currently Windows 10 Pro 64-bit; Windows 10 retained by TD decision; Windows 11 planned later; ESU costs in 15.1a |
 | CPU | Intel Core i5-10600K, desktop, 6 physical cores / 12 logical; reported not throttled |
 | RAM | 15.9 GB; reserved for ERP and its dependencies |
 | Physical SSD | WDC WDS240G2G0A, 224 GB; C:, currently 40 GB free; Windows, ERP binaries and production PostgreSQL data |
@@ -421,64 +419,42 @@ The CPU and RAM are suitable for the estimated eleven-user ERP workload, subject
 normal cutover checks under real use. There is no need to buy the previously proposed
 server before this deployment. Windows 10 support ended on 14 October 2025. Resolve the OS decision now as follows.
 
-### 15.1a Windows 11 decision, backup and upgrade before deploying the API
+### 15.1a Windows 10 retained now; Windows 11 planned later
 
-**Preferred decision: upgrade this PC to Windows 11 Pro now if PC Health Check passes.**
-The i5-10600K belongs to the supported 10th-generation Intel Core i5 family
-([Microsoft supported processors](https://learn.microsoft.com/en-us/windows-hardware/design/minimum/supported/windows-11-supported-intel-processors)).
-CPU support alone does not establish full PC eligibility. Record Microsoft's
-[PC Health Check](https://support.microsoft.com/en-us/windows/experience/compatibility/how-to-use-the-pc-health-check-app)
-result, motherboard/firmware, TPM 2.0 readiness (`tpm.msc`, specification version 2.0),
-and UEFI/Secure Boot capability (`msinfo32`, BIOS Mode UEFI; Secure Boot State).
-Enable Intel PTT/TPM and Secure Boot through the motherboard vendor's supported
-procedure if available but disabled, then rerun PC Health Check. Do not bypass the
-hardware checks. The Windows requirement is Secure Boot capability; enable it for
-this deployment. Check compatible drivers, Windows activation, and upgrade free-space
-requirements too ([Microsoft requirements](https://support.microsoft.com/en-us/windows/experience/compatibility/windows-11-system-requirements)).
+The Technical Director has decided to retain Windows 10 for now, without ESU/security
+patch coverage. Do not upgrade or reinstall it as part of this ERP deployment.
+This supersedes c7832b3's upgrade-before-API requirement. Required controls:
 
-1. **Backup first, before firmware/boot changes or the OS upgrade.** Preserve the
-   colleague's files and the PC's existing C:/D:/E: data, record the disk layout, and
-   take a recoverable system image plus a verified file backup to independent media.
-   Open sample backed-up files and retain recovery media and any BitLocker/device-
-   encryption recovery keys off this PC. A future ERP dump is not this pre-upgrade
-   PC backup. If PostgreSQL/data already exists, take and verify its database backup
-   too. Do not erase the HDD or its backup directories as part of the OS work.
-2. If eligible, upgrade activated Windows 10 Pro to Windows 11 Pro through the
-   supported Microsoft upgrade route, before deploying the API or creating the final
-   go-live database. The eligible Windows 10-to-11 upgrade has **no Microsoft upgrade
-   licence charge**; backup/setup labour is separate
-   ([Microsoft upgrade FAQ](https://support.microsoft.com/en-us/windows/deployment/install-upgrade/upgrade-to-windows-11-faq)).
-   Finish updates, supported chipset/network drivers and reboots. Keep recovery media
-   until acceptance; recheck the 25 GB C: reserve after upgrade and installation.
-3. Record Windows 11 edition/activation, PC Health Check result, TPM/Secure Boot state,
-   LAN address/link and UPS/startup behaviour. Then install or reverify prerequisites:
-   - PostgreSQL 17 service is Running and starts after reboot; `pg_isready` succeeds;
-     connection works and `SHOW data_directory` remains on C:. If installed before
-     upgrade, confirm its original cluster identity/data and service account survived.
-   - `dotnet --list-runtimes` contains the deployed API's required x64 .NET 10 and
-     ASP.NET Core 10 runtimes (`Microsoft.NETCore.App` and `Microsoft.AspNetCore.App`).
-     Install the matching Hosting Bundle if IIS hosting is chosen; no SDK is required
-     on the server. Verify API readiness after its later deployment.
-   - Recheck the active Windows network profile and intended inbound ERP firewall
-     rules/ports from another office PC. Preserve LAN scoping; do not disable the
-     firewall or open PostgreSQL to the internet. Confirm administration access only
-     from its approved hosts, and verify API/client connectivity after deployment.
-4. Only after those checks proceed with Option C on this server. The OS upgrade has
-   not been performed by this document update; retain actual server evidence.
+- At least WEEKLY, copy the newest complete VERIFIED ERP backup, identity/configuration
+  backups and required external files OFF this machine. Verify copied hashes and retain
+  a dated copy record. Disconnect removable media after the copy, or use off-machine
+  storage with credentials/immutability that this PC cannot use to encrypt/delete history.
+  An always-writable network share is not sufficient ransomware isolation. C: and D:
+  are different disks, but ransomware on this unpatched PC can encrypt both together.
+- Windows Firewall enabled; ERP inbound TCP 8443 allowed ONLY from `192.168.68.0/24`.
+  Default inbound block; no internet/router port forwarding. Audit existing broad allow
+  rules: one scoped new rule does not narrow other existing rules. Do not blindly disable
+  rules needed by protected SOLIDWORKS services; any conflict with the requested
+  server-wide ERP-only inbound policy must be resolved and recorded by the TD first.
+- Microsoft Defender active, real-time protection on and definitions current. Record
+  `Get-MpComputerStatus`; OS security patches and Defender definitions are different.
+- RDP off, including inbound RDP rules. Use local console for deployment/maintenance.
 
-**If the PC genuinely cannot qualify:** keep Windows 10 Pro 22H2 only with activated
-**commercial Windows 10 ESU**, or replace/upgrade the incompatible hardware before ERP
-deployment. Microsoft's standard business price is **US$61/device for Year 1,
-US$122 for Year 2, US$244 for Year 3**: **US$427 over three years**, before applicable
-tax/local reseller pricing. These are annual programme years, not twelve months from
-purchase; prior years are cumulative and partial-year purchases are unavailable.
-An October 2026 go-live is near the end of Year 1: budget **US$183 for Years 1+2** if
-continuing into Year 2, rather than assuming US$61 covers the next twelve months.
-Obtain the INR quote and coverage dates from the business licensing supplier. ESU
-provides critical/important security updates, not new features or general OS support.
-Record activation and successful ESU updates before API deployment
-([Microsoft commercial ESU terms and prices](https://learn.microsoft.com/en-us/windows/whats-new/extended-security-updates)).
-Do not use consumer/free ESU offers as the budget for this office production server.
+Plan a later Windows 11 in-place upgrade after a recoverable PC/data backup and
+SOLIDWORKS compatibility review. NEVER a clean Windows install. The i5-10600K CPU
+family is eligible, but run PC Health Check and verify TPM 2.0, UEFI/Secure Boot and
+drivers on this actual motherboard. Back up encryption recovery keys and verify
+SQL Server/SOLIDWORKS, PostgreSQL, .NET and firewall behaviour after that future upgrade.
+
+ESU cost is a reason to plan the upgrade rather than leave this indefinite:
+Microsoft's standard commercial price is US$61/device for programme Year 1, US$122
+for Year 2 and US$244 for Year 3 (US$427 total), before taxes/local reseller pricing.
+Prior years are cumulative; no partial-year purchase. Near the October 2026 Year 1
+boundary, Years 1+2 total US$183. These are not twelve months from purchase. ESU is
+an available option, not purchased/activated by this decision. Confirm INR quotes and
+coverage with the supplier ([Microsoft terms](https://learn.microsoft.com/en-us/windows/whats-new/extended-security-updates)).
+The retained OS risk is accepted by the TD; the controls do not make it equivalent
+to a patched OS. Do not claim Windows 10 is supported merely because Defender is current.
 
 ### 15.2 Capacity, network and operating checks
 
@@ -583,7 +559,7 @@ run; weekly offsite copies leave a longer possible gap if the whole PC is lost.
 
 1. Preserve the laptop field backup, exports, attachment/configuration files and identity
    mapping evidence (steps 0-1); keep them intact through acceptance.
-2. Complete the backed-up Windows 11 upgrade or commercial ESU decision (15.1a) first.
+2. Apply the Windows 10 compensating controls in 15.1a; do not upgrade/reinstall Windows.
    Install the production dependencies on DESKTOP-SPF5420. Publish the release on the
    laptop. Use the server's SSD PostgreSQL cluster and create the fresh production
    database there (step 2); run provisioning/migrations against that target (steps 3-4).

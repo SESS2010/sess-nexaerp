@@ -1,11 +1,12 @@
 # Automated verified backup and recovery
 ## Selected production server: DESKTOP-SPF5420 (21 September 2026)
 
-Before installing the ERP, complete the runbook's Windows 11 compatibility/upgrade
-step 15.1a. Back up the existing PC and colleague files to independent media first,
-including recoverable system/recovery information and encryption keys. An ERP database
-dump does not replace that pre-upgrade PC backup. After upgrade recheck PostgreSQL,
-.NET runtimes and firewall rules; then configure the backup account/task on the final OS.
+Windows 10 stays by Technical Director decision. A later Windows 11 upgrade is planned;
+it is not a prerequisite for this package. NEVER a clean Windows install.
+At least weekly copy the newest complete VERIFIED backup, identity/configuration and
+external-file backups OFF this machine, verify the copied hashes, and disconnect the
+media or protect retained versions from this PC's credentials. Ransomware on this
+unpatched OS can encrypt C: and D: together despite their being separate disks.
 
 Option C creates the fresh go-live database directly on this server. Production
 PostgreSQL data stays on C: (224 GB WDC SSD, currently 40 GB free). Verified bundles
