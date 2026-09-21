@@ -1,5 +1,13 @@
 # Go-live runbook: fresh database, 1 October 2026
 
+For this runtime-only server, use [server-deployment.md](server-deployment.md) for
+package verification, DEMO-first order, service setup and migration bundle commands.
+Its deployment sequence supersedes the source/SDK examples below. Principal provisioning
+requires `CREATE SCHEMA advance` on an empty database before the Installer; then the
+bundle runs as migration login with `Options=-c role=nexa_erp_owner`, followed by
+RECONCILED/VERIFIED. The checked-in frontend's production authentication is still a gate.
+
+
 Status: updated 21 September 2026: Option C directly on DESKTOP-SPF5420. Row counts marked
 `[dump]` are filled in from the frontend developer's dump when it arrives. The fresh-company
 database workflow has disposable-database evidence in
@@ -436,7 +444,7 @@ These are initial estimates, not measured guarantees. Observe available RAM duri
 SOLIDWORKS use, eleven-user ERP activity and the one-at-a-time backup verification.
 Investigate below 2GB available; defer heavy backup verification if it would impair
 the engineering workload. Never reclaim memory by stopping the protected services. There is no need to buy the previously proposed
-server before this deployment. Windows 10 support ended on 14 October 2025. Resolve the OS decision now as follows.
+server before this deployment. Windows 10 support ended on 14 October 2025. The TD decision and required controls follow.
 
 ### 15.1a Windows 10 retained now; Windows 11 planned later
 
