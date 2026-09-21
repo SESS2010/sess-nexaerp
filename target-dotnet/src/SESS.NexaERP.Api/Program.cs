@@ -15,6 +15,7 @@ using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddWindowsService(options => options.ServiceName = "SESSNexaERP");
 if (builder.Environment.IsDevelopment())
 {
     builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
@@ -77,6 +78,8 @@ await using (var startupScope = app.Services.CreateAsyncScope())
         .GetRequiredService<DatabaseRuntimePrincipalGuard>()
         .ValidateAsync();
 }
+
+SESS.NexaERP.Api.Hosting.DeploymentFrontend.Configure(app);
 
 app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
