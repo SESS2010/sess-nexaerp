@@ -1,16 +1,16 @@
 {
   "ConnectionEnvironment": "NexaErp__IdentityBackupConnection",
   "ExpectedHost": "127.0.0.1",
-  "ExpectedPort": 55432,
-  "ExpectedDatabase": "keycloak",
-  "ExpectedSystemIdentifier": "REPLACE-WITH-IDENTITY-CLUSTER-ID",
+  "ExpectedPort": 5432,
+  "ExpectedDatabase": "sess_keycloak",
+  "ExpectedSystemIdentifier": "REPLACE_WITH_FIELD_CLUSTER_ID",
   "PostgreSqlBin": "C:\\Program Files\\PostgreSQL\\17\\bin",
-  "BackupRoot": "E:\\SESS-Backups\\Identity",
-  "WorkingRoot": "C:\\SESS-Identity-Backup-Verification",
+  "BackupRoot": "C:\\SESS-Backups\\Identity",
+  "WorkingRoot": "C:\\SESS-Backup-Verification\\Identity",
   "ConfigurationFiles": {
-    "keycloak.conf": "C:\\SESS-Identity\\deployment\\keycloak.conf",
-    "tls.crt": "C:\\SESS-Identity\\deployment\\tls.crt",
-    "tls.key": "C:\\SESS-Identity\\deployment\\tls.key",
-    "deployment-version.json": "C:\\SESS-Identity\\deployment\\deployment-version.json"
+    "keycloak.conf": "C:\\SESS-Identity\\keycloak-26.7.4\\conf\\keycloak.conf",
+    "tls.crt": "C:\\SESS-Identity\\tls\\keycloak.crt",
+    "tls.key": "C:\\SESS-Identity\\tls\\keycloak.key",
+    "deployment-version.json": "C:\\SESS-Identity\\deployment-version.json"
   }
 }

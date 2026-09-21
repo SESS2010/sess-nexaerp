@@ -53,7 +53,7 @@ if (-not $proof.migration_sources) { throw 'Proof lacks migration source hashes.
 Copy-Item -LiteralPath $bundle -Destination (Join-Path $stage 'migrate/efbundle.exe')
 Copy-Item -LiteralPath $MigrationProof -Destination (Join-Path $stage 'migrate/proof.json')
 foreach ($file in @('Invoke-VerifiedDatabaseBackup.ps1','Register-VerifiedDatabaseBackup.ps1')) { Copy-Item -LiteralPath (Join-Path $repo "tools/$file") -Destination (Join-Path $stage 'installer/tools') }
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Verify-Package.ps1') -Destination (Join-Path $stage 'installer/tools')
+foreach ($file in @('Verify-Package.ps1','VerifiedBackupTransfer.psm1','Invoke-ServerDailyBackup.ps1','Archive-IncomingBackups.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $stage 'installer/tools') }
 # Export committed documents/business scripts, never unrelated local working edits.
 foreach ($export in @(@{Tree='docs/installation';Destination='installer/docs'},@{Tree='database/postgresql';Destination='installer/database/postgresql'})) {
  $archive=Join-Path $stage ('archive-'+[Guid]::NewGuid().ToString('N')+'.zip')

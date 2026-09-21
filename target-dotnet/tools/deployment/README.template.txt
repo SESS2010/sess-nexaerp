@@ -8,8 +8,8 @@ The selected frontend branch production build still signs in through Debug-only
 the frontend developer's production/OIDC-capable source and provider settings,
 then rebuild/retest the package. Never enable development authentication in Release.
 No production credentials, certificate private keys or identity-provider service
-are included. An existing reachable HTTPS OIDC provider is a configuration
-prerequisite. The ERP binaries themselves need only .NET 10 ASP.NET Core runtime
+are included. Install local Keycloak on this server following installer/docs/server-keycloak-install.md;
+Java 17 is already present. Production frontend integration remains a prerequisite. The ERP binaries themselves need only .NET 10 ASP.NET Core runtime
 and PostgreSQL 17; Node, an SDK and EF tools are not required on the server.
 
 api/       Release framework-dependent API; Windows service SESSNexaERP, HTTPS 8443.
@@ -32,8 +32,11 @@ Apply in this exact order, checking each numbered server-runbook step below:
 6. Complete the demo walk and reboot/no-login witness, then drop only the demo DB.
 7. Create sess_nexa_erp directly on server with Option C. No stock-moving command
    before BOTH opening-stock ceremonies are posted. Do not restore the demo.
-8. Configure and witness daily verified backup on D: and weekly off-machine copy.
+8. Configure and witness daily verified ERP/identity backups on C: PLUS DAILY off-machine copy;
+   D: and E: are rejected because their physical HDD is suspect. Follow
+   installer/docs/server-daily-backups.md, including the 25 GiB free-space gate.
 
-Do not touch SESS_SQLEXPRESS, TEW_SQLEXPRESS or SOLIDWORKS services/data; leave
-Wamp and IIS 80/81 intact. Never clean-install Windows. No owner DB was touched
+Never touch SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, ewserver or their data;
+ALL NI, Siemens and Rockwell services stay; preserve IIS Default Web Site and
+/Updater; Wamp remains stopped/manual. Reference C:\SESS-ServerPrep; no repeated preparation. Never clean-install Windows. No owner DB was touched
 by this package build/proof. Field application remains a separate witnessed action.

@@ -13,13 +13,14 @@ The selected `feature/frontend` source at `0c59254f58bd49fc13a8b919387ba0cf5a1d9
 builds, but its login uses `/api/v1/dev/*`, deliberately absent
 from Release. Obtain the frontend developer's production/OIDC-capable source, rebuild,
 repeat acceptance and issue a new hashed package before step 4. Do not enable Debug
-authentication or invent employee identities to bypass this gate. An existing reachable
-HTTPS OIDC provider and trusted ERP certificate are required; neither is bundled.
+authentication or invent employee identities to bypass this gate. Install local Keycloak using server-keycloak-install.md and trusted HTTPS using
+server-https.md. The production frontend must implement server-frontend-oidc-contract.md.
 
 Use an elevated Windows PowerShell on the server for installation. Do not run builds,
 `dotnet ef`, npm, Python or tests there. The package runs with PostgreSQL 17.11 and the
 installed ASP.NET Core .NET 10.0.12 runtime; no SDK. First follow steps 1-6 against the
-DEMO only. Record command exits, checks and operator/date after each step. Any failure
+DEMO only. Record command exits, checks and operator/date after each step in
+server-acceptance-receipt.md. Any failure
 stops progression; never call a partially completed demo an accepted deployment.
 
 ## Protected machine and preflight
@@ -36,11 +37,11 @@ stops progression; never call a partially completed demo an accepted deployment.
 - Reserve 192.168.68.130, gateway 192.168.68.1. Gigabit adapter currently at 100 Mbps:
   sufficient for eleven ERP users; no go-live gigabit prerequisite. Large copies/restores
   will take longer. Replace/test the cable later without making it a launch dependency.
-- C: SSD has 41.6 GB free; estimated six-month DB 5-8 GB fits. Keep at least 25 GB free
+- C: SSD has 41.6 GB free; the old 5-8 GB estimate covers only ERP data, not backups. Keep at least 25 GB free
   after data/package/log growth; alert below 25 GB and address before falling below
   20 GB. Recheck actual daily growth/WAL/log retention; do not promise a fixed forecast.
-  D: HDD is a different physical disk: backups `D:\SESS-Backups`, verification working
-  root `D:\SESS-Backup-Verification`. E: shares D:'s HDD, not a third physical disk.
+  D:/E: share the suspect HDD and are prohibited. Use the C: plus DAILY off-machine
+  design in server-daily-backups.md; the six-month combined capacity is not yet proved.
 - With existing workloads running, 6.4 GB RAM is available. PostgreSQL initial sizing: shared_buffers
   512MB, effective_cache_size 2GB (planner hint), work_mem 4MB, maintenance_work_mem
   128MB, max_connections 40, max_parallel_workers 2, max_parallel_workers_per_gather 1.
@@ -71,7 +72,8 @@ active, signatures update every four hours daily, RDP is off and network is Priv
 Review existing firewall rules without breaking protected engineering traffic. The ERP
 inbound rule must allow ONLY TCP8443 from 192.168.68.0/24; broad existing allow rules can
 undermine this. Escalate any conflict with protected SOLIDWORKS rules to TD rather than
-silently changing those services/rules. PostgreSQL remains loopback-only for ERP access.
+silently changing those services/rules. Keep pg_hba local-only; current listen_addresses='*' does not authorize LAN access.
+No 5432 firewall opening; API and Keycloak connect locally.
 
 ## 1. Copy and verify the immutable package
 
@@ -212,6 +214,8 @@ New-Item -ItemType Directory -Path "$install\api\wwwroot" -Force | Out-Null
 # Verify the PostgreSQL service identified in preflight is automatic/running; do not
 # change any SQL Server or SOLIDWORKS service. Check sc.exe qc output before start.
 sc.exe qc SESSNexaERP
+# Before starting: certlm.msc -> ERP certificate -> Manage Private Keys ->
+# grant Read to NT SERVICE\SESSNexaERP (the service now exists).
 Start-Service SESSNexaERP
 Get-Service SESSNexaERP
 Invoke-WebRequest 'https://192.168.68.130:8443/health/live' -UseBasicParsing
@@ -248,8 +252,18 @@ Run the agreed frontend walk in DEMO only: identities and permissions, master im
 Stores topology/routing, both opening-stock ceremonies, purchase/GRN/QC, issue/fitment,
 Actual BOM provenance (no payables leakage), commercial dossier under its permission,
 reports and one verified backup/restore. Refer to the detailed fresh-database runbook
-steps5-13. Missing production UI screens stop acceptance; a successful static build
+steps 5-13. Missing production UI screens stop acceptance; a successful static build
 is insufficient. Record TD/frontend developer acceptance and discrepancies.
+
+For the DEMO backup witness, copy the backup example to a separate protected demo.json:
+ExpectedDatabase=sess_nexa_erp_DEMO, the same FIELD system identifier, distinct
+C:\SESS-Backups\DEMO and C:\SESS-Backup-Verification\DEMO roots. Under the backup
+account with its secure connection environment, invoke the published Installer
+`backup run --config <absolute-demo.json>` and check VERIFIED_BACKUP/exit 0; it performs
+a private restore verification. Keep its receipt separate. The production daily plan
+accepts ONLY sess_nexa_erp and sess_keycloak: do not point that task at DEMO or pretend
+its backup is production protection. Witness production daily/off-machine/archive
+operation in step 8 before admitting ordinary users.
 
 Coordinate a reboot with the engineering users (do not stop/disable their services).
 After reboot, with no server login, test ERP from the other PC; later inspect SCM and
@@ -268,12 +282,12 @@ unreviewed variable. Preserve demo witness/backup outside its database.
 
 ## 7. Only now create the fresh go-live database: Option C
 
-On this server, repeat steps2-3 with `$db='sess_nexa_erp'`, only if this exact database
+On this server, repeat steps 2-3 with `$db='sess_nexa_erp'`, only if this exact database
 is absent and after demo acceptance. Do not restore DEMO or the laptop development DB.
-All roles already exist: reconciliation preserves credentials. Verify130/head,
+All roles already exist: reconciliation preserves credentials. Verify 130/head,
 RECONCILED/VERIFIED and zero stock movements. Update BOTH service connection database
 and ExpectedDatabase, perform real identity bootstrap and fresh-database runbook
-steps6-13 (selective attachments, item master, category script, governed workbook
+steps 6-13 (selective attachments, item master, category script, governed workbook
 imports, warehouses/bins, QC/vendor/store rules, BOTH authorised opening-stock ceremonies).
 The package includes installation docs and committed business scripts under
 `installer/database/postgresql`; approved business workbooks/source dump must be
@@ -293,50 +307,14 @@ go-live. The two authorised opening postings are the planned exceptions; no GRN,
 return, adjustment or other test stock transaction is allowed before both are posted. Retain each ceremony receipt and verify both posted before
 releasing ordinary use. This rule includes smoke-test purchase/GRN/issue/adjustment calls.
 
-## 8. Verified backup on D: and weekly off-machine copy
+## 8. SSD verified backups and DAILY off-machine copy
 
-Create protected `C:\SESS-Backup` config/log directories (Administrators/SYSTEM and the
-specific dedicated scheduled account only). Copy backup.example.json there as backup.json.
-Set `ExpectedHost=127.0.0.1`, `ExpectedPort=5432`, `ExpectedDatabase=sess_nexa_erp` and the FIELD
-system identifier captured in step2; never reuse the laptop identifier. Keep
-BackupRoot `D:\SESS-Backups`, WorkingRoot `D:\SESS-Backup-Verification`. Do not clear
-existing unmarked/nonempty roots. Grant the backup account the required paths; it
-needs authority for source dump/globals and its own disposable restore verification.
-As that account ON THIS SERVER, enter the complete approved backup DB connection:
-```powershell
-Read-Host 'Database backup connection string' -AsSecureString | Export-Clixml -LiteralPath 'C:\SESS-Backup\connection.clixml'
-```
-DPAPI is machine/account bound. As setup engineer register using that Windows credential:
-```powershell
-$backupAccount=Get-Credential
-& "$install\installer\tools\Register-VerifiedDatabaseBackup.ps1" -InstallerPath $installer -ConfigPath 'C:\SESS-Backup\backup.json' -CredentialFile 'C:\SESS-Backup\connection.clixml' -LogDirectory 'C:\SESS-Backup\logs' -DailyAt '18:45' -Credential $backupAccount
-Start-ScheduledTask -TaskName SESS-NexaERP-VerifiedBackup
-```
-Check completion, Task Scheduler LastTaskResult=0, protected `logs/last-run.json`, and
-newest bundle manifest's verified restore result. Witness it running signed out.
-One verification cluster at a time; do not overlap manual verification with the task.
-Backup includes matching globals; keep configuration, certificates/keys, external
-attachments and OIDC-provider backups by their separate protected procedures.
+Follow [server-daily-backups.md](server-daily-backups.md) completely. D:/E: are rejected.
+Use C:\SESS-Backups and C:\SESS-Backup-Verification component subdirectories plus the
+accepted off-machine receiver. Check local restore verification, remote SHA256 match,
+receiver-owned archive, capacity and signed-out daily schedule before go-live.
 
-**Weekly**, copy the newest successfully verified COMPLETE bundle (including globals,
-manifest and restore evidence) off this machine, to removable media then disconnect it,
-or an independently protected immutable/offline destination. Copy the source root's `.sess-verified-backups.json` ownership marker into a new
-private destination root alongside the copied `run-<id>` directory; preserve its ID.
-Never overwrite another backup root's marker. Compare SHA256 of the marker and every
-source/destination bundle file. For independent verification, copy backup.json to a
-temporary protected config with BackupRoot set to this off-machine destination root,
-keeping the same database/system identifier and D: WorkingRoot. Run the published
-`Installer backup verify --config <copy-config> --bundle <destination-root>\run-<id>`
-under the backup account with its connection environment available. Check exit 0 and
-restore evidence before disconnecting it; no manual verification may overlap the daily
-task. A copied bundle alone cannot be verified with the original D: BackupRoot config. Record location/date/operator,
-checks and restore result. Assign a named weekly owner before go-live. C:/D: separation
-protects against one disk failing, not ransomware on unpatched Windows encrypting both;
-a permanently writable network share/attached USB is not the required offline copy.
-
-After cutover the laptop returns to development/LabVIEW: no production-hours rule,
-restore NI with `RESTORE-NI-Siemens.ps1`; its nightly development witness task may stay.
-The server's no-new-non-ERP-work rule applies at all hours, preserving the explicitly
-protected existing SOLIDWORKS/SQL/IIS services. Do not execute laptop NI restoration on
-the server. End the field report with RESULT_REPORTED_PENDING_WITNESS until the named
-human acceptance/reboot/backup witnesses have actually completed.
+After cutover the LAPTOP returns to development/LabVIEW; its production-hours rule
+ends, RESTORE-NI-Siemens.ps1 is for that laptop only, and its nightly witness may stay.
+NEVER run NI/Siemens restoration/disablement on this server: all those services stay.
+End the field report RESULT_REPORTED_PENDING_WITNESS until actual acceptance.

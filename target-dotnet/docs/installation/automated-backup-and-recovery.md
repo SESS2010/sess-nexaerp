@@ -1,39 +1,22 @@
 # Automated verified backup and recovery
-## Selected production server: DESKTOP-SPF5420 (21 September 2026)
 
-Windows 10 stays by Technical Director decision. A later Windows 11 upgrade is planned;
-it is not a prerequisite for this package. NEVER a clean Windows install.
-At least weekly copy the newest complete VERIFIED backup, identity/configuration and
-external-file backups OFF this machine, verify the copied hashes, and disconnect the
-media or protect retained versions from this PC's credentials. Ransomware on this
-unpatched OS can encrypt C: and D: together despite their being separate disks.
+> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
+> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
+> Windows install; NEVER install a .NET SDK on this server. All application here is
+> by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
 
-Option C creates the fresh go-live database directly on this server. Production
-PostgreSQL data stays on C: (224 GB WDC SSD, currently 40 GB free). Verified bundles
-go to `D:\SESS-Backups` on the separate 932 GB Seagate HDD (D: 284 GB free, E: 339 GB
-free). Use the existing `D:\SESS-Backup-Verification` for restore working space, separate
-from the existing `D:\SESS-Backups`. Do not clear unmarked nonempty roots. D: and E: share the HDD;
-neither is independent of the other, but both are physically separate from C:.
-Record the actual disk mapping at installation. SSD failure leaves the HDD bundles
-available for recovery. Keep an external/offsite copy for whole-PC loss.
+These rules apply to every linked deployment, identity, certificate and backup procedure. Stop and report a conflict; do not reclaim ports or memory from protected services.
+## Current server storage overrides
 
-Create the configuration and DPAPI file on DESKTOP-SPF5420 under its scheduled account;
-use the new cluster's system identifier, not the laptop's. `backup.example.json`
-shows the selected roots but still requires a verified database name/system identifier.
-The ERP backup schedule is 18:45; give the separate identity job its own roots and a
-non-overlapping window. Verification clusters are permitted ERP backup operations;
-development builds, tests and nightly witnesses never run on this server.
+Follow [server-daily-backups.md](server-daily-backups.md). Server D:/E: are prohibited;
+verified backups/working roots are on C: with 25 GiB reserve and DAILY off-machine
+copy. The site wrapper keeps two copied verified bundles per database; generic
+retention described below is not the server capacity policy. No six-month combined
+capacity guarantee; measure ERP+identity+dumps+restore peaks. Old weekly copy and
+HDD placement instructions are superseded. Windows 10 stays; no SDK or clean install.
 
-At the estimated six-month 5-8 GB PostgreSQL size, 40 GB free on C: is adequate, provided
-installation/OS/other growth leaves at least 25 GB free. Target 40 GB or more after
-installation and the planned colleague-file moves. Keep dump/restore work off C:.
-Reserve roughly twice the restored database size plus margin in WorkingRoot (25 GB
-free for this estimate); if on D:, add that to the retained-bundle budget. Allow at
-least 20 GB free on D: beyond retained bundles. About 30-42 retained full dumps times
-the **measured** bundle size, plus identity/failed-run space, determines backup capacity:
-42 x 3 GB = 126 GB; 42 x 8 GB = 336 GB, more than today's 284 GB free on D:. The earlier
-under-10-GB retention estimate is withdrawn. Monitor sizes and expand/reallocate space
-before the limit; do not silently change retention. See runbook section 15 for cutover.
 
 ## 15 September: identity backup extension
 
@@ -73,8 +56,8 @@ The Installer supports:
 
 ```text
 SESS.NexaERP.Installer.exe backup run --config C:\SESS-Backup\backup.json
-SESS.NexaERP.Installer.exe backup verify --config C:\SESS-Backup\backup.json --bundle D:\SESS-Backups\run-<id>
-SESS.NexaERP.Installer.exe backup recover --config C:\SESS-Backup\backup.json --bundle D:\SESS-Backups\run-<id> --destination C:\SESS-Recovered
+SESS.NexaERP.Installer.exe backup verify --config C:\SESS-Backup\backup.json --bundle C:\SESS-Backups\ERP\run-<id>
+SESS.NexaERP.Installer.exe backup recover --config C:\SESS-Backup\backup.json --bundle C:\SESS-Backups\ERP\run-<id> --destination C:\SESS-Recovered
 ```
 
 Copy backup.example.json and replace every placeholder with the reviewed source
@@ -85,14 +68,12 @@ role definitions and read pg_control_system. The ERP runtime account is
 insufficient. The test source uses a disposable administrator connection;
 a separately restricted backup account has not been witnessed.
 
-Use PostgreSQL 17 tools and a destination on an independent physical disk, external
-media or network storage that supports the required directory permissions. The selected
-server uses D: on its separate HDD plus the required weekly off-machine copy. Use a UNC path for network storage; mapped drive letters may be unavailable to a scheduled account. WorkingRoot is a separate
-local directory used for temporary verification clusters. The backup root
-must initially be empty. The Installer creates a private ownership marker and
-refuses unmarked nonempty directories, overlapping roots and reparse points.
-A same-physical-disk backup does not protect against that disk failing; the selected
-server's C:-to-D: layout avoids that limitation. E: is another partition of the D: HDD.
+Use PostgreSQL 17 tools. On DESKTOP-SPF5420 the local backup and verification roots
+are on C:, with a mandatory DAILY UNC copy and receiver archive on another machine.
+D:/E: are prohibited. This same-SSD local copy does not protect against SSD failure.
+See server-daily-backups.md for capacity, task account and receiver permissions.
+Roots start empty; the Installer creates private ownership markers and refuses
+unmarked nonempty directories, overlap and reparse points.
 
 Every run exports a read-only REPEATABLE READ database snapshot, captures
 table counts and selected schema/security metadata, and creates a custom
@@ -115,7 +96,8 @@ Counts and metadata are not a proof that every data field was independently
 compared. The archive itself has a SHA-256 digest. A failed run retains its
 evidence and does not qualify for successful-backup retention.
 
-Daily bundles are kept 30 days; runs starting on Sunday UTC are weekly bundles
+Generic engine retention (overridden by the site wrapper to two local bundles):
+daily bundles are kept 30 days; runs starting on Sunday UTC are weekly bundles
 kept 84 days. The newest two verified bundles remain protected regardless of
 age. Retention runs only after a new backup is verified. It deletes only
 recognized owned bundles whose hashes still match, refuses unexpected files,
@@ -123,7 +105,11 @@ and keeps matching globals with every retained database dump. A retention
 failure can leave a newly verified backup; inspect its manifest separately
 from the failed command exit code.
 
-## Schedule setup
+## Generic single-database schedule setup (NOT the current server task)
+
+On DESKTOP-SPF5420 use server-daily-backups.md instead. Do not register this generic
+single-database task alongside the serial site task. The following documents the
+reusable wrapper for other installations only.
 
 Use a dedicated Windows account with the required source, PostgreSQL binary,
 backup destination and local working-directory access. Publish the Installer
@@ -196,8 +182,8 @@ Successful restore is separate from successful upgrade: that exact-name
 
 ## If the production SSD or whole PC fails
 
-1. If only the C: SSD failed, preserve the D: HDD backup; if the whole PC is lost,
-   use the external/offsite copy. Select the newest accessible VERIFIED bundle;
+1. For either C: SSD failure or whole-PC loss, use the DAILY off-machine
+   receiver archive; D:/E: on this server are not accepted backup media. Select the newest accessible VERIFIED bundle;
    retain its database.dump, globals.sql and manifest.json together.
 2. On the replacement machine, install the compatible PostgreSQL 17 binaries,
    required extensions and the Installer. Restore the backup root and ownership
