@@ -10,8 +10,8 @@
 These rules apply to every linked deployment, identity, certificate and backup procedure. Stop and report a conflict; do not reclaim ports or memory from protected services.
 
 Use ONE private office certification authority trusted by the server and all eleven
-PCs. Issue TWO server-authentication leaf certificates with separate keys: ERP8443
-and Keycloak8444. Both must contain **IP Address SAN 192.168.68.130** (not a DNS SAN
+PCs. Issue TWO server-authentication leaf certificates with separate keys: ERP 8443
+and Keycloak 8444. Both must contain **IP Address SAN 192.168.68.130** (not a DNS SAN
 containing digits). A port does not belong in a certificate. A public CA will not issue
 this private-IP identity. Do not use browser exceptions or disable .NET validation.
 
@@ -38,8 +38,8 @@ this private-IP identity. Do not use browser exceptions or disable .NET validati
    stores. Import ERP PFX into Local Computer -> Personal, not the logged-in user's
    store. In certlm.msc inspect valid dates, Server Authentication EKU, IP SAN and chain.
    Ensure exactly one currently valid ERP certificate matches the configured subject;
-   review renewal overlap before restarting Kestrel. Manage Private Keys -> grant
-   Read to NT SERVICE\SESSNexaERP, Administrators/SYSTEM retained, no Users grant.
+   review renewal overlap before restarting Kestrel. After registering the ERP service, BEFORE its first start: Manage Private Keys ->
+   grant Read to NT SERVICE\SESSNexaERP, Administrators/SYSTEM retained, no Users grant.
    Do not change certificates/bindings of IIS/NI/Siemens/Rockwell.
 4. Put Keycloak PEM files in C:\SESS-Identity\tls. Administrators/SYSTEM Full and
    SESSKeycloak Read only; no ordinary Users. D2 references those explicit files.
@@ -75,4 +75,4 @@ for ERP readiness and BOTH Keycloak discovery URLs without -SkipCertificateCheck
 custom validation callbacks. No service should depend on a logged-in user's trust store.
 
 Sources: [Keycloak PEM TLS configuration](https://www.keycloak.org/server/enabletls),
-[Windows certificate store import](https://learn.microsoft.com/en-us/windows-server/identity/ad-cs/manage/import-export-certificates).
+[Windows certificate store import](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/certificate-stores).
