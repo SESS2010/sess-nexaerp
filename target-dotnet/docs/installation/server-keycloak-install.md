@@ -160,9 +160,18 @@ This instruction does not execute or change any laptop/server service.
 Use the updated `server-production-state.example.json` with Test-ProductionState:
 it requires ERP readiness on 8443 AND HTTP 200 over trusted TLS on port 8444 for
 both staff and approvers `.well-known/openid-configuration` URLs, plus the service
-checks. This is HTTPS discovery **availability**, not a JSON-content/database-health
-assertion. Keycloak's deeper `/health/ready` remains on its locally restricted
-management listener (9000); do not invent `/health` on 8444 or expose 9000 to office PCs.
+checks. Discovery on 8444 alone is not database readiness: the profile ALSO requires
+HTTP 200 from `http://127.0.0.1:9000/health/ready`, on the already-configured loopback
+management listener. Keep `health-enabled=true` AND `metrics-enabled=true` in the
+Keycloak build so its database health check is included. Confirm UP and the database
+check during commissioning. A 503 or unreachable endpoint makes the monitor fail.
+No 9000 LAN firewall rule; management remains local. This combines actual readiness
+with office-facing TLS/realm availability without exposing management endpoints.
+
+Sources: [Keycloak health checks](https://www.keycloak.org/observability/health)
+and [management interface](https://www.keycloak.org/server/management-interface),
+checked 22 September. The existing D2 config already binds management to loopback
+HTTP; only the monitor profile/read-back instructions change here.
 
 If 8444 fails: record time, affected users and checker output; check SESSKeycloak
 state/recovery and its logs, its PostgreSQL database availability, certificate dates,

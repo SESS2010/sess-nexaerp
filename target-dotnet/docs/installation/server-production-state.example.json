@@ -29,6 +29,14 @@
         200
       ],
       "Required": true
+    },
+    {
+      "Name": "Keycloak local readiness including database health",
+      "Url": "http://127.0.0.1:9000/health/ready",
+      "AcceptStatus": [
+        200
+      ],
+      "Required": true
     }
   ],
   "DevelopmentProcesses": [
