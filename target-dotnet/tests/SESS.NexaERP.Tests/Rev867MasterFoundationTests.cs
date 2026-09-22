@@ -79,12 +79,19 @@ public sealed class Rev867MasterFoundationTests
     }
 
     [Fact]
-    public void Rev867c1_self_approval_detection_blocks_creator_and_submitter_even_for_high_roles()
+    public void Rev867c1_self_approval_detection_blocks_the_maker_of_the_pending_change_even_for_high_roles()
     {
         var item = new Item { CreatedBy = "SESS-001", UpdatedBy = "SESS-001" };
-        var user = new TestCurrentUser("SESS-001", "technical_director", null);
+        var director = new TestCurrentUser("SESS-001", "technical_director", null);
+        var other = new TestCurrentUser("SESS-002", "stores_manager", null);
 
-        Assert.True(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt(item, user));
+        // No maker history: the last editor, then the creator, is the maker.
+        Assert.True(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt(null, item, director));
+        Assert.False(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt(null, item, other));
+        Assert.True(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt(null, new Item { CreatedBy = "SESS-001" }, director));
+        // The maker of the current pending change is refused; the creator is not excluded for life.
+        Assert.True(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt("SESS-002", item, other));
+        Assert.False(SESS.NexaERP.Api.Endpoints.MasterEndpointHelpers.IsSelfApprovalAttempt("SESS-002", item, director));
     }
 
     [Fact]

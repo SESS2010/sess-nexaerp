@@ -19,7 +19,10 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<GoodsReceiptResult> CreateAsync(CreateGoodsReceiptRequest request, string idempotencyKey, CancellationToken ct)
+    public Task<GoodsReceiptResult> CreateAsync(CreateGoodsReceiptRequest request, string idempotencyKey, CancellationToken ct) =>
+        WithReceiptQuantityErrors(()=>CreateCoreAsync(request,idempotencyKey,ct));
+
+    private async Task<GoodsReceiptResult> CreateCoreAsync(CreateGoodsReceiptRequest request, string idempotencyKey, CancellationToken ct)
     {
         var actor=Actor(); await RequireReceiptOperatorAsync(ct); var role=ActorRole(); var key=Required(idempotencyKey,"Idempotency-Key");
         ValidateHeader(request.VendorBillNumber,request.VendorBillDate,request.ReceivedAt,request.IsoReceiptVerificationJson,request.Lines);
@@ -41,7 +44,10 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
         await db.SaveChangesAsync(ct);await audit.WriteAsync("Stores","CreateGoodsReceipt",nameof(GoodsReceipt),receipt.Id.ToString(),null,new{receipt.GrnNumber,gate.GateEntryNumber,receipt.Status,Role=role},ct);await tx.CommitAsync(ct);return await LoadResult(receipt.Id,company.Id,false,ct);
     }
 
-    public async Task<GoodsReceiptResult> UpdateAsync(Guid id,UpdateGoodsReceiptRequest request,CancellationToken ct)
+    public Task<GoodsReceiptResult> UpdateAsync(Guid id,UpdateGoodsReceiptRequest request,CancellationToken ct) =>
+        WithReceiptQuantityErrors(()=>UpdateCoreAsync(id,request,ct));
+
+    private async Task<GoodsReceiptResult> UpdateCoreAsync(Guid id,UpdateGoodsReceiptRequest request,CancellationToken ct)
     {
         var actor=Actor();await RequireReceiptOperatorAsync(ct);var role=ActorRole();ValidateHeader(request.VendorBillNumber,request.VendorBillDate,request.ReceivedAt,request.IsoReceiptVerificationJson,request.Lines);
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);
@@ -54,6 +60,23 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
         await db.SaveChangesAsync(ct);await audit.WriteAsync("Stores","UpdateGoodsReceipt",nameof(GoodsReceipt),receipt.Id.ToString(),new{request.Version},new{receipt.Version,Role=role},ct);await tx.CommitAsync(ct);return await LoadResult(receipt.Id,company.Id,false,ct);
     }
     public async Task<GoodsReceiptResult> FinalizeAsync(Guid id,FinalizeGoodsReceiptRequest request,CancellationToken ct)
+    {
+        try { return await FinalizeCoreAsync(id, request, ct); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            throw new DbUpdateConcurrencyException("GRN finalization conflicted with a concurrent change. Reload the receipt before retrying.", error);
+        }
+        catch (PostgresException error) when (IsReceiptQuantityViolation(error))
+        { db.ChangeTracker.Clear(); throw new StoresConflictException(error.MessageText); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException &&
+            error.MessageText is "A finalized GRN is immutable; correct it by reversal and a new document." or "GRN Version is stale."
+                or "Only one effective finalised GRN is permitted per Gate Entry and company vendor bill.")
+        {
+            throw new StoresConflictException(error.MessageText);
+        }
+    }
+
+    private async Task<GoodsReceiptResult> FinalizeCoreAsync(Guid id,FinalizeGoodsReceiptRequest request,CancellationToken ct)
     {
         var actor=Actor();await RequireReceiptOperatorAsync(ct);var role=ActorRole();var key=Required(request.IdempotencyKey,"IdempotencyKey");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);
         var receipt=await ReceiptQuery().SingleOrDefaultAsync(x=>x.Id==id&&x.CompanyId==company.Id,ct)??throw new KeyNotFoundException("GRN was not found.");await RequireScope(receipt.PurchaseOrder!,ct);
@@ -100,13 +123,47 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
         return ordered.ThenBy(x=>x.Id);
     }
 
+
+    private static bool IsReceiptQuantityViolation(PostgresException error) =>
+        error.SqlState==PostgresErrorCodes.CheckViolation &&
+        error.ConstraintName is "CK_grn_root_quantity" or "CK_grn_po_lineage";
+
+    private async Task<GoodsReceiptResult> WithReceiptQuantityErrors(Func<Task<GoodsReceiptResult>> operation)
+    {
+        try { return await operation(); }
+        catch (StoresConflictException) { db.ChangeTracker.Clear(); throw; }
+        catch (PostgresException error) when (IsReceiptQuantityViolation(error))
+        { db.ChangeTracker.Clear(); throw new StoresConflictException(error.MessageText); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException postgres && IsReceiptQuantityViolation(postgres))
+        { db.ChangeTracker.Clear(); throw new StoresConflictException(((PostgresException)error.InnerException!).MessageText); }
+        catch (PostgresException error) when (error.SqlState==PostgresErrorCodes.SerializationFailure)
+        { db.ChangeTracker.Clear(); throw new DbUpdateConcurrencyException("Receipt quantity changed concurrently. Reload before retrying.",error); }
+        catch (DbUpdateException error) when (error.InnerException is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure })
+        { db.ChangeTracker.Clear(); throw new DbUpdateConcurrencyException("Receipt quantity changed concurrently. Reload before retrying.",error); }
+    }
     private async Task<List<GoodsReceiptLine>> BuildLines(GoodsReceipt receipt,GateEntry gate,IReadOnlyList<GoodsReceiptLineRequest> input,Guid companyId,Guid actor,CancellationToken ct)
     {
         if(input is null||input.Count==0)throw new StoresValidationException("GRN requires every Gate Entry line.");if(input.Select(x=>x.GateEntryLineId).Distinct().Count()!=input.Count)throw new StoresValidationException("A Gate Entry line may appear only once.");if(!gate.Lines.Select(x=>x.Id).Order().SequenceEqual(input.Select(x=>x.GateEntryLineId).Order()))throw new StoresValidationException("Every Gate Entry line must map to exactly one GRN line.");
-        var threshold=await EffectiveRule(companyId,StoresConfigurationRuleKeys.SerialCaptureThreshold,receipt.ReceivedAt,ct);var thresholdValue=JsonScalar<decimal>(threshold.NewValueJson);var poLines=gate.PurchaseOrder!.Lines.ToDictionary(x=>x.Id);var poLineIds=gate.Lines.Select(x=>x.PurchaseOrderLineId).ToArray();
-        var prior=await db.GoodsReceiptLines.Where(x=>poLineIds.Contains(x.PurchaseOrderLineId)&&x.GoodsReceipt!.Status=="FINALIZED"&&x.GoodsReceipt.DocumentKind=="NORMAL"&&!db.GoodsReceipts.Any(r=>r.ReversesGoodsReceiptId==x.GoodsReceiptId&&r.Status=="FINALIZED")).GroupBy(x=>x.PurchaseOrderLineId).Select(x=>new{Id=x.Key,Quantity=x.Sum(y=>y.ReceivedQuantity)}).ToDictionaryAsync(x=>x.Id,x=>x.Quantity,ct);
+        var threshold=await EffectiveRule(companyId,StoresConfigurationRuleKeys.SerialCaptureThreshold,receipt.ReceivedAt,ct);var thresholdValue=JsonScalar<decimal>(threshold.NewValueJson);var poLines=gate.PurchaseOrder!.Lines.ToDictionary(x=>x.Id);
+        var comparisonIds=gate.Lines.Select(x=>poLines[x.PurchaseOrderLineId].CommercialComparisonLineId).Distinct().ToArray();
+        var root=gate.PurchaseOrder!.RootPurchaseOrderId;
+        var lineage=await db.PurchaseOrderLines.AsNoTracking()
+            .Where(x=>x.CompanyId==companyId&&x.PurchaseOrder!.RootPurchaseOrderId==root&&comparisonIds.Contains(x.CommercialComparisonLineId))
+            .Select(x=>new{x.CommercialComparisonLineId,x.PurchaseRequisitionLineId,x.PurchaseRequirementHandoffId,x.ItemId,x.UomSnapshot}).ToListAsync(ct);
+        foreach(var current in poLines.Values.Where(x=>comparisonIds.Contains(x.CommercialComparisonLineId)))
+            if(lineage.Any(x=>x.CommercialComparisonLineId==current.CommercialComparisonLineId&&
+                (x.PurchaseRequisitionLineId!=current.PurchaseRequisitionLineId||x.PurchaseRequirementHandoffId!=current.PurchaseRequirementHandoffId||
+                 x.ItemId!=current.ItemId||x.UomSnapshot!=current.UomSnapshot)))
+                throw new StoresConflictException("PO revision line provenance is inconsistent; administrator action is required.");
+        var prior=await db.GoodsReceiptLines.Where(x=>x.CompanyId==companyId&&
+                x.PurchaseOrderLine!.PurchaseOrder!.CompanyId==companyId&&x.PurchaseOrderLine.PurchaseOrder.RootPurchaseOrderId==root&&
+                comparisonIds.Contains(x.PurchaseOrderLine.CommercialComparisonLineId)&&x.GoodsReceipt!.CompanyId==companyId&&
+                x.GoodsReceipt.Status=="FINALIZED"&&x.GoodsReceipt.DocumentKind=="NORMAL"&&
+                !db.GoodsReceipts.Any(r=>r.CompanyId==companyId&&r.ReversesGoodsReceiptId==x.GoodsReceiptId&&r.Status=="FINALIZED"))
+            .GroupBy(x=>x.PurchaseOrderLine!.CommercialComparisonLineId)
+            .Select(x=>new{Id=x.Key,Quantity=x.Sum(y=>y.ReceivedQuantity)}).ToDictionaryAsync(x=>x.Id,x=>x.Quantity,ct);
         var result=new List<GoodsReceiptLine>();var lineNo=0;
-        foreach(var row in input){var gateLine=gate.Lines.Single(x=>x.Id==row.GateEntryLineId);var poLine=poLines[gateLine.PurchaseOrderLineId];var item=gateLine.Item??throw new StoresConflictException("Gate Entry Item is unavailable.");if(!item.CategoryId.HasValue||item.Category is null||item.Category.Code.Length!=3)throw new StoresConflictException("GRN Item requires one of the exact three-character category codes.");var priorReceived=prior.GetValueOrDefault(poLine.Id);var remaining=poLine.OrderedQuantity-priorReceived;if(gateLine.DeliveredQuantity>remaining)throw new StoresConflictException($"Gate Entry line {gateLine.LineNumber} exceeds the remaining PO quantity; over-receipt is refused.");
+        foreach(var row in input){var gateLine=gate.Lines.Single(x=>x.Id==row.GateEntryLineId);var poLine=poLines[gateLine.PurchaseOrderLineId];var item=gateLine.Item??throw new StoresConflictException("Gate Entry Item is unavailable.");if(!item.CategoryId.HasValue||item.Category is null||item.Category.Code.Length!=3)throw new StoresConflictException("GRN Item requires one of the exact three-character category codes.");var priorReceived=prior.GetValueOrDefault(poLine.CommercialComparisonLineId);var remaining=poLine.OrderedQuantity-priorReceived;if(gateLine.DeliveredQuantity>remaining)throw new StoresConflictException($"Gate Entry line {gateLine.LineNumber} exceeds the remaining PO quantity; over-receipt is refused.");
             var on=DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime);var route=await db.StoreCategoryRoutes.SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.ItemCategoryId==item.CategoryId&&x.IsActive&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on),ct)??throw new StoresConflictException($"No effective Stores category route exists for {item.Category.Code}.");var setting=await db.ItemCompanyInventorySettings.SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.ItemId==item.Id&&x.IsActive,ct);var serialMode=setting?.SerialCaptureMode is "REQUIRED" or "OPTIONAL"?setting.SerialCaptureMode:poLine.UnitRate>thresholdValue?"REQUIRED":"OPTIONAL";var warranty=receipt.VendorBillDate.AddMonths(13);
             var line=new GoodsReceiptLine{CompanyId=companyId,GoodsReceiptId=receipt.Id,GateEntryLineId=gateLine.Id,PurchaseOrderLineId=poLine.Id,LineNumber=++lineNo,ItemId=item.Id,ItemCodeSnapshot=item.ItemCode,ItemNameSnapshot=item.Name,ItemCategoryIdSnapshot=item.CategoryId.Value,ItemCategoryCodeSnapshot=item.Category.Code,HsnSacCodeSnapshot=item.HsnSacCode??string.Empty,GstPercentageSnapshot=item.GstPercentage,ModelSnapshot=item.Model,ManufacturerPartNumberSnapshot=item.PartNumber,ManufacturerMakeSnapshot=item.ManufacturerMake,UomSnapshot=item.Uom,PoOrderedQuantitySnapshot=poLine.OrderedQuantity,PriorEffectiveReceivedQuantitySnapshot=priorReceived,RemainingPoQuantitySnapshot=remaining,DeliveredQuantitySnapshot=gateLine.DeliveredQuantity,ReceivedQuantity=gateLine.DeliveredQuantity,ExcessRejectedQuantity=0,LineValueSnapshot=gateLine.DeliveredQuantity*poLine.UnitRate,UnitRateSnapshot=poLine.UnitRate,SerialThresholdConfigVersionId=threshold.Id,SerialThresholdValueSnapshot=thresholdValue,SerialCaptureModeSnapshot=serialMode,SerialOverrideSettingId=setting?.SerialCaptureMode is "REQUIRED" or "OPTIONAL"?setting.Id:null,QcRouteIdSnapshot=route.Id,QcHoldConditionLocationIdSnapshot=route.QcHoldConditionLocationId,BillWarrantyLimitDate=warranty,InitialWarrantyExpiryDate=warranty,CreatedBy=user.LoginId};line.LotAllocations=await BuildLots(line,receipt.VendorId,row.Lots,companyId,ct);line.Serials=BuildSerials(line,row.Serials,actor);ValidateLineAllocation(line);result.Add(line);}
         return result;

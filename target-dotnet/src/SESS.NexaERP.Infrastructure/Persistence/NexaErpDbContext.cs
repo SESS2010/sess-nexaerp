@@ -67,6 +67,14 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
     public DbSet<DepartmentApprovalMapping> DepartmentApprovalMappings => Set<DepartmentApprovalMapping>();
     public DbSet<PurchaseNumberSequence> PurchaseNumberSequences => Set<PurchaseNumberSequence>();
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        // Migration SQL must not depend on the line endings of the worktree it was compiled in.
+        optionsBuilder.ReplaceService<Microsoft.EntityFrameworkCore.Migrations.IMigrationsSqlGenerator,
+            Migrations.LineEndingNormalizingMigrationsSqlGenerator>();
+        base.OnConfiguring(optionsBuilder);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         RoleGovernanceSeedData.ApplyToKnownRoles();
@@ -91,6 +99,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
         ConfigureJobOrderGovernance(modelBuilder);
         ConfigureFitmentActualBom(modelBuilder);
         ConfigureJobOrderFatReadiness(modelBuilder);
+        ConfigureOpeningStock(modelBuilder);
+        ConfigureStockAdjustments(modelBuilder);
         ConfigureStoresPart3B(modelBuilder);
         ConfigureInventoryOwnershipCustody(modelBuilder);
         ConfigureInventoryProvenanceGenealogy(modelBuilder);

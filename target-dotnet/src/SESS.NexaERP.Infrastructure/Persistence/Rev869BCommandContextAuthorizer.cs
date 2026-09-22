@@ -126,12 +126,46 @@ public static class Rev869BCommandContextAuthorizer
             Convert.FromHexString(envelope.RequestFingerprint), actorRole, actorAssignmentId, ct);
         return new(commandId, commandId, businessFingerprint, Guid.Empty, [], [], true);
     }
-    public static async Task StageCommittedReceiptAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
+
+    public static async Task<CommandAttemptHandle> OpenForCreationAsync(
+        NexaErpDbContext db, ICurrentUser user, string organization,
+        CommandEnvelope envelope, string entityType, CancellationToken ct)
+    {
+        RequirePrincipal(user, organization);
+        var assignment = user.ResolvedRoleAssignmentId ??
+            throw new UnauthorizedAccessException("A resolved role assignment is required for creation.");
+        if (db.Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Creation requires its own business transaction.");
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        var transaction = (NpgsqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
+        if (!await OrdinaryLedgerAvailableAsync(connection, transaction, ct))
+            throw new InvalidOperationException("The ordinary command ledger is not installed.");
+        var commandId = await RegisterOrdinaryCommandAsync(connection, transaction, user, organization, envelope,
+            SHA256.HashData(Encoding.UTF8.GetBytes(envelope.IdempotencyKey)),
+            Convert.FromHexString(envelope.RequestFingerprint), user.RoleCode, assignment, ct);
+        // The newly created entity uses this stable, database-generated ID.
+        var business = SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
+            new { entityType, entityId = commandId, action = "Create", envelope.RequestFingerprint }, JsonOptions)));
+        return new(commandId, commandId, business, Guid.Empty, [], [], true);
+    }
+
+    public static async Task<JsonDocument?> ReadCommittedReceiptAsync(
+        NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        var transaction = (NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction()
+            ?? throw new InvalidOperationException("Receipt replay requires an active transaction.");
+        await using var command = new NpgsqlCommand("SELECT advance.read_command_receipt(@command)::text", connection, transaction);
+        command.Parameters.AddWithValue("command", attempt.CommandId);
+        return await command.ExecuteScalarAsync(ct) is string value ? JsonDocument.Parse(value) : null;
+    }
+
+    public static async Task StageCommittedReceiptAsync(NexaErpDbContext db, CommandAttemptHandle attempt, CancellationToken ct, object? responseEvidence = null)
     {
         if (db.Database.CurrentTransaction is null)
             throw new InvalidOperationException("A committed receipt must be staged in the exact business transaction.");
         await db.Database.ExecuteSqlRawAsync("SET CONSTRAINTS ALL IMMEDIATE", ct);
-        var response = JsonSerializer.Serialize(new { attempt.CommandId, attempt.AttemptId });
+        var response = JsonSerializer.Serialize(responseEvidence ?? new { attempt.CommandId, attempt.AttemptId });
         var connection = (NpgsqlConnection)db.Database.GetDbConnection();
         var transaction = (NpgsqlTransaction)db.Database.CurrentTransaction.GetDbTransaction();
         await using var command = new NpgsqlCommand(CommitOrdinaryReceiptSql, connection, transaction);

@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using SESS.NexaERP.Api.Middleware;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Identity;
@@ -21,8 +21,8 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
     public string? ResolvedRoleAssignmentType => Authority?.AssignmentType;
     public string? OrganizationId => Resolution?.Success == true ? Resolution.OrganizationId : null;
     public bool IsAuthenticated => Context?.User.Identity?.IsAuthenticated == true && Resolution?.Success == true;
-    public string? IdentityIssuer => ClaimValue("iss");
-    public string? IdentitySubject => ClaimValue("sub");
+    public string? IdentityIssuer => (Context?.Items[OidcAccessTokenConfiguration.ValidatedIdentityKey] as ValidatedOidcIdentity)?.Issuer ?? ClaimValue("iss");
+    public string? IdentitySubject => (Context?.Items[OidcAccessTokenConfiguration.ValidatedIdentityKey] as ValidatedOidcIdentity)?.Subject ?? ClaimValue("sub");
     public Guid? EmployeeId => Resolution?.Success == true ? Resolution.EmployeeId : null;
     public Guid? DepartmentId => Resolution?.Success == true ? Resolution.DepartmentId : null;
 

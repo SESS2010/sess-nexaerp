@@ -64,7 +64,8 @@ public static partial class Rev869AConfigurationEndpoints
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.ApprovalStatus==MasterApprovalStatuses.Approved&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
         var total=await query.CountAsync(ct);var rows=await query.OrderBy(x=>x.HsnSacCode).ThenBy(x=>x.SupplierStateCode).ThenBy(x=>x.PlaceOfSupplyStateCode).ThenByDescending(x=>x.EffectiveFrom)
             .Skip(paging.Skip).Take(paging.PageSize).Select(x=>new TaxGstSettingSummary(x.Id,x.OrganizationId,x.JurisdictionCode,x.HsnSacCode,x.SupplyType,x.SupplierStateCode,x.PlaceOfSupplyStateCode,x.VendorRegistrationType,x.GstRate,x.CgstRate,x.SgstRate,x.IgstRate,x.CessRate,x.IsExempt,x.IsReverseCharge,x.CurrencyCode,x.RoundingScale,x.EffectiveFrom,x.EffectiveTo,x.ApprovalStatus,x.CreatorEmployeeId,x.DecisionEmployeeId,x.DecisionRoleCode,x.DecisionAt,x.DecisionRemarks,x.SupersedesTaxGstSettingId,x.IsActive,
-                db.ControlledConfigurationHistories.Where(h=>h.EntityType==nameof(TaxGstSetting)&&h.EntityId==x.Id).OrderByDescending(h=>h.CreatedAt).Select(h=>h.Remarks).FirstOrDefault()??string.Empty,x.Version)).ToListAsync(ct);
+                db.ControlledConfigurationHistories.Where(h=>h.EntityType==nameof(TaxGstSetting)&&h.EntityId==x.Id).OrderByDescending(h=>h.CreatedAt).Select(h=>h.Remarks).FirstOrDefault()??string.Empty,x.Version)
+                { ItcEligibility=x.ItcEligibility, RecoverableTaxPercent=x.RecoverableTaxPercent }).ToListAsync(ct);
         return Results.Ok(new PagedResponse<TaxGstSettingSummary>(total,paging.PageNumber,paging.PageSize,rows));
     }
 

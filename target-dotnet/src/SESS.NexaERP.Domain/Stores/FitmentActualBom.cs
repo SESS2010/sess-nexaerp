@@ -77,15 +77,31 @@ public sealed class ActualBomEntry
     public InventoryLot? InventoryLot { get; set; }
     public Guid? InventorySerialId { get; set; }
     public InventorySerial? InventorySerial { get; set; }
-    public Guid GoodsReceiptLineId { get; set; }
+    public Guid? GoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? GoodsReceiptLine { get; set; }
+    public Guid? OpeningStockLineId { get; set; }
+    public OpeningStockLine? OpeningStockLine { get; set; }
     public string GrnNumberSnapshot { get; set; } = string.Empty;
-    public Guid VendorBillLineId { get; set; }
+    public Guid? VendorBillLineId { get; set; }
     public VendorBillLine? VendorBillLine { get; set; }
     public string VendorBillNumberSnapshot { get; set; } = string.Empty;
     public decimal AcceptedMaterialValue { get; set; }
     public decimal AllocatedChargeValue { get; set; }
     public decimal TotalAcceptedValue { get; set; }
     public DateTimeOffset OccurredAt { get; set; }
+    public string CreatedBy { get; set; } = "system";
+}
+public sealed class ActualBomValuationAdjustment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid CompanyId { get; set; }
+    public Guid ActualBomEntryId { get; set; }
+    public ActualBomEntry? ActualBomEntry { get; set; }
+    public Guid VendorBillLineId { get; set; }
+    public VendorBillLine? VendorBillLine { get; set; }
+    public decimal AcceptedMaterialValue { get; set; }
+    public decimal AllocatedChargeValue { get; set; }
+    public decimal TotalAcceptedValue { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";
 }

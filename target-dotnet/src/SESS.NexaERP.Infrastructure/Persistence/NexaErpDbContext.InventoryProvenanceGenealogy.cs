@@ -267,7 +267,7 @@ public sealed partial class NexaErpDbContext
         {
             entity.ToTable("inventory_concession_allocation_serials"); entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.CompanyId, x.InventoryConcessionAllocationId, x.InventorySerialId }).IsUnique();
-            entity.HasIndex(x => new { x.CompanyId, x.InventorySerialId }).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.InventorySerialId });
             entity.HasIndex(x => x.AcceptedProvenanceLayerId).IsUnique().HasFilter(@"""AcceptedProvenanceLayerId"" IS NOT NULL");
             entity.HasOne(x => x.InventoryConcessionAllocation).WithMany(x => x.Serials).HasForeignKey(x => new { x.CompanyId, x.InventoryConcessionAllocationId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(x => x.InventorySerial).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);

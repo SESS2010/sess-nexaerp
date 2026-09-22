@@ -2,11 +2,11 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 internal static class OrdinaryCommandLedgerSql
 {
-    internal static string Up => UpCore + Environment.NewLine +
-        Rev869BControlledMutationSql.OrdinaryPurchaseAuthority + Environment.NewLine +
-        OrdinaryTaxAuthority + Environment.NewLine + Rev869BControlledMutationSql.OrdinaryQualificationAuthority +
-        Environment.NewLine + StoresGrnSlice2Sql.BuiltInHashGoodsReceiptGuard + Environment.NewLine +
-        Foundation3InventoryProvenanceGenealogySql.BuiltInHashGrnLegPreparation + Environment.NewLine +
+    internal static string Up => UpCore + "\n" +
+        Rev869BControlledMutationSql.OrdinaryPurchaseAuthority + "\n" +
+        OrdinaryTaxAuthority + "\n" + Rev869BControlledMutationSql.OrdinaryQualificationAuthority +
+        "\n" + StoresGrnSlice2Sql.BuiltInHashGoodsReceiptGuard + "\n" +
+        Foundation3InventoryProvenanceGenealogySql.BuiltInHashGrnLegPreparation + "\n" +
         ControlledAuthorityOwnership;
 
     private const string UpCore = """
@@ -276,7 +276,7 @@ internal static class OrdinaryCommandLedgerSql
         END $ordinary_command_acl$;
         """;
 
-    private static string OrdinaryTaxAuthority => ControlledTaxGstWorkflowSql.Down + Environment.NewLine +
+    private static string OrdinaryTaxAuthority => ControlledTaxGstWorkflowSql.Down + "\n" +
         ControlledTaxGstWorkflowSql.Up.Replace("rev869b_", "ordinary_", StringComparison.Ordinal);
 
     private const string ControlledAuthorityOwnership = """
@@ -305,8 +305,8 @@ internal static class OrdinaryCommandLedgerSql
         DROP FUNCTION IF EXISTS advance.ordinary_guard_qualification_lifecycle();
         DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON advance.vendor_qualifications;
         CREATE TRIGGER trg_rev869a_vendor_qualification_version_guard BEFORE UPDATE OR DELETE ON advance.vendor_qualifications FOR EACH ROW EXECUTE FUNCTION advance.rev869a_guard_controlled_version();
-        """ + Environment.NewLine + ControlledTaxGstWorkflowSql.Down + Environment.NewLine + ControlledTaxGstWorkflowSql.Up +
-        Environment.NewLine + Rev869BControlledMutationSql.RestorePurchaseAuthority + Environment.NewLine + """
+        """ + "\n" + ControlledTaxGstWorkflowSql.Down + "\n" + ControlledTaxGstWorkflowSql.Up +
+        "\n" + Rev869BControlledMutationSql.RestorePurchaseAuthority + "\n" + """
         DO $ordinary_command_down$
         BEGIN
           IF EXISTS (SELECT 1 FROM advance.command_requests LIMIT 1)

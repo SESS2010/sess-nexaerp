@@ -132,7 +132,11 @@ public sealed record Rev869BTaxRuleSnapshot(
     string SupplierStateCode, string PlaceOfSupplyStateCode, string VendorRegistrationType,
     decimal GstRate, decimal CgstRate, decimal SgstRate, decimal IgstRate, decimal CessRate,
     bool IsExempt, bool IsReverseCharge, string CurrencyCode, int RoundingScale,
-    DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, bool IsActive);
+    DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, bool IsActive)
+{
+    public string ItcEligibility { get; init; } = InputTaxCreditEligibility.FullyRecoverable;
+    public decimal? RecoverableTaxPercent { get; init; }
+}
 
 public sealed record Rev869BPoCommercialSnapshot(
     Guid VendorQuotationId, Guid VendorQuotationLineId, Guid RequestForQuotationId,
@@ -208,6 +212,7 @@ public static class Rev869BCommercialCalculator
             taxRule.SupplyType == "INTRASTATE" && (taxRule.IgstRate != 0m || taxRule.CgstRate + taxRule.SgstRate != taxRule.GstRate) ||
             taxRule.SupplyType == "INTERSTATE" && (taxRule.CgstRate != 0m || taxRule.SgstRate != 0m || taxRule.IgstRate != taxRule.GstRate))
             throw new InvalidOperationException("The immutable GST component split is invalid.");
+        _ = InputTaxCreditEligibility.RecoveryPercent(taxRule.ItcEligibility, taxRule.RecoverableTaxPercent);
         var calculated = Calculate(input with
         {
             CgstRate = taxRule.CgstRate, SgstRate = taxRule.SgstRate, IgstRate = taxRule.IgstRate,

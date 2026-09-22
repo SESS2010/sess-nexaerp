@@ -1,0 +1,9 @@
+{
+  "ConnectionStrings": {"NexaErp": "Host=127.0.0.1;Port=5432;Database=sess_nexa_erp_DEMO;Username=nexa_erp_runtime;Password=SET_ON_SERVER;Maximum Pool Size=15;Minimum Pool Size=0"},
+  "NexaErp": {"ExpectedDatabase": "sess_nexa_erp_DEMO"},
+  "AllowedHosts": "192.168.68.130;DESKTOP-SPF5420",
+  "Kestrel": {
+    "Endpoints": {"Https": {"Url": "https://0.0.0.0:8443"}},
+    "Certificates": {"Default": {"Subject": "DESKTOP-SPF5420", "Store": "My", "Location": "LocalMachine", "AllowInvalid": false}}
+  }
+}

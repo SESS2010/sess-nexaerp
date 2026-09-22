@@ -5,6 +5,7 @@ return await InstallerCommand.RunAsync(args);
 internal static class InstallerCommand
 {
     internal const string DevelopmentBootstrapSetting = "NexaErp__AllowDevelopmentAuthenticationBootstrap";
+    internal const string DevelopmentWorkflowIdentitiesSetting = "NexaErp__AllowDevelopmentWorkflowIdentities";
 
     internal static Task<int> RunAsync(string[] args)
     {
@@ -14,7 +15,14 @@ internal static class InstallerCommand
             Console.Error.WriteLine($"REFUSED: {DevelopmentBootstrapSetting} must not be present in a Release build, even when set to false.");
             return Task.FromResult(1);
         }
+        if (Environment.GetEnvironmentVariable(DevelopmentWorkflowIdentitiesSetting) is not null)
+        {
+            Console.Error.WriteLine($"REFUSED: {DevelopmentWorkflowIdentitiesSetting} must not be present in a Release build, even when set to false.");
+            return Task.FromResult(1);
+        }
 #endif
+        if (args.Length > 0 && args[0] == "backup")
+            return VerifiedBackupCommand.RunAsync(args[1..]);
         if (args.Length > 0 && args[0] == "authentication-bootstrap")
             return AuthenticationBootstrapCommand.RunAsync(args[1..]);
         if (args.Length > 0 && args[0] == "master-import-retention")
@@ -22,6 +30,8 @@ internal static class InstallerCommand
 #if DEBUG
         if (args.Length > 0 && args[0] == "authentication-bootstrap-development")
             return DevelopmentAuthenticationBootstrapCommand.RunAsync(args[1..]);
+        if (args.Length > 0 && args[0] == "workflow-identities-development")
+            return DevelopmentWorkflowIdentitiesCommand.RunAsync(args[1..]);
 #endif
         return DatabasePrincipalCommand.RunAsync(args);
     }
@@ -212,7 +222,6 @@ internal static class DatabasePrincipalCommand
         Console.Error.WriteLine("Usage: SESS.NexaERP.Installer database-principals <plan|status|provision>\n   or: SESS.NexaERP.Installer authentication-bootstrap --issuer <https-oidc-issuer> --subject <stable-provider-subject>\n   or: SESS.NexaERP.Installer master-import-retention purge"
 #if DEBUG
             + "\n   or: SESS.NexaERP.Installer authentication-bootstrap-development --issuer <https-oidc-issuer> --subject <stable-provider-subject>"
-            + "\n   or: SESS.NexaERP.Installer controlled-command-development-principals <status|provision|remove>"
 #endif
         );
 

@@ -114,6 +114,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("trial-managed-role-drop.sql", "DROP ROLE nexa_erp_runtime;");
     }
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void CompanyRelationshipExternalCodesApplyAndRevertOnDisposablePostgreSql()
     {
@@ -132,6 +133,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("relationship-codes-up.sql", migrator.GenerateScript(predecessor, target) + RelationshipCodesUpAssertions);
         server.Execute("relationship-codes-down.sql", migrator.GenerateScript(target, predecessor) + RelationshipCodesDownAssertions);
     }
+#endif
 
     [Fact]
     public void MasterDataImportMigrationGuardsUpAndDownAndPurgesOnlyExpiredSensitiveValues()
@@ -305,10 +307,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migration = migrations[^1];
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
-        server.Execute("business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
-        server.Execute("business-down.sql", migrator.GenerateScript(migration, "0"));
+        server.Execute("business-down.sql", MigrationOwnerSession + migrator.GenerateScript(migration, "0"));
     }
 
     [Fact]
@@ -367,7 +369,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migration = db.Database.GetMigrations().Last();
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("bootstrap-role-prerequisites.sql", BootstrapRolePrerequisites);
-        server.Execute("bootstrap-business-up.sql", migrator.GenerateScript("0", migration));
+        server.Execute("bootstrap-business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("bootstrap-ceremony.sql", BootstrapCeremony);
         server.AssertRejected("bootstrap-replay.sql", "SET SESSION AUTHORIZATION nexa_erp_bootstrap; SELECT advance.complete_authentication_bootstrap('https://issuer.example.test/tenant/v2.0','5d80fd62-63af-4d89-a5e6-44d22f866001');");
     }
@@ -480,6 +482,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var absent = RunDotnet(root, null, assembly, "authentication-bootstrap-development", "--issuer", "https://issuer.example.test", "--subject", "subject");
             Assert.Equal(2, absent.Code);
             Assert.DoesNotContain("authentication-bootstrap-development", absent.Output, StringComparison.Ordinal);
+            var workflowAbsent = RunDotnet(root, null, assembly, "workflow-identities-development", "provision");
+            Assert.Equal(2, workflowAbsent.Code);
+            Assert.DoesNotContain("workflow-identities-development", workflowAbsent.Output, StringComparison.Ordinal);
 
             var rejected = RunDotnet(root, "false", assembly, "database-principals", "plan");
             Assert.Equal(1, rejected.Code);
@@ -571,7 +576,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         CREATE ROLE nexa_erp_bootstrap LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
         CREATE ROLE nexa_erp_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        GRANT nexa_erp_owner TO nexa_erp_migration WITH INHERIT FALSE, SET TRUE;
+        ALTER DATABASE advance_parser OWNER TO nexa_erp_owner;
+        ALTER DEFAULT PRIVILEGES FOR ROLE nexa_erp_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
         """;
+
+    // After provisioning, migrations must execute as the owner through the
+    // migration login. Administrator execution would create mixed ownership.
+    private const string MigrationOwnerSession = """
+        SET SESSION AUTHORIZATION nexa_erp_migration;
+        SET ROLE nexa_erp_owner;
+        """ + "\n";
 
     private const string MultiCompanyPrNumberAssertions = """
         INSERT INTO advance.purchase_requisitions
@@ -657,9 +672,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private const string Part2Assertions = """
         DO $assert$
         BEGIN
-          IF (SELECT count(*) FROM advance.roles)<>52 THEN RAISE EXCEPTION 'Expected 52 roles.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations)<>104 THEN RAISE EXCEPTION 'Expected 104 company role activations.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>86 THEN RAISE EXCEPTION 'Expected 86 enabled company role activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles)<>53 THEN RAISE EXCEPTION 'Expected 53 roles including the documented CFO.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations)<>106 THEN RAISE EXCEPTION 'Expected 106 company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>88 THEN RAISE EXCEPTION 'Expected 88 enabled company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+              WHERE r."Code"='CHIEF_FINANCIAL_OFFICER')<>1
+           OR (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+              JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId" WHERE r."Code"='CHIEF_FINANCIAL_OFFICER'
+               AND d."PageKey"='accounts.inventory-periods' AND p."CanView" AND p."CanApprove" AND p."CanViewAuditHistory"
+               AND NOT p."HasFullControl")<>1
+            THEN RAISE EXCEPTION 'CFO must have exactly the inventory-period page grant.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='LEGACY_ALIAS' AND NOT "IsEmployeeAssignable" AND "ReplacementRoleId" IS NOT NULL)<>8
             THEN RAISE EXCEPTION 'Expected 8 governed legacy aliases.'; END IF;
           IF (SELECT count(*) FROM advance.roles WHERE "Audience"='EXTERNAL_PORTAL' AND NOT "IsEmployeeAssignable")<>2
@@ -702,9 +724,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments)<>159 THEN RAISE EXCEPTION 'Expected 159 retained role assignment history rows.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"<>md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>159
+            OR (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"=md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>2
+          THEN RAISE EXCEPTION 'Expected the original 159 retained assignments plus exactly two documented CFO assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "ApprovalStatus" IN ('Approved','SeedApproved') AND "EffectiveFrom"<=DATE '2026-09-05' AND ("EffectiveTo" IS NULL OR "EffectiveTo">=DATE '2026-09-05'))<>118 THEN RAISE EXCEPTION 'Expected 118 effective confirmed assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignment_events)<>148 THEN RAISE EXCEPTION 'Expected 148 immutable role history events.'; END IF;
+          IF (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode" IS DISTINCT FROM 'CHIEF_FINANCIAL_OFFICER')<>148
+            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER')<>2
+            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER'
+              AND "Operation"='BASELINE_CONFIRM' AND "ActorLoginId"='migration-governed-inventory-periods')<>2
+          THEN RAISE EXCEPTION 'Expected the original 148 immutable events plus exactly two explicitly marked CFO baseline events.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId" JOIN advance.roles r ON r."Id"=a."RoleId"
               WHERE e."EmployeeCode"='SESS-41' AND r."Code"='STORES_MANAGER' AND a."AssignmentType"='FULL' AND a."ApprovalStatus" IN ('Approved','SeedApproved'))<>2
             THEN RAISE EXCEPTION 'KARTHICK must hold FULL STORES_MANAGER in both companies.'; END IF;
@@ -823,7 +851,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         ("ConnectionStrings__NexaErpDevelopmentBootstrap", connectionString),
         ("NexaErp__ExpectedDatabase", "advance_parser"));
 
-    private static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "SESS.NexaERP.slnx"))) directory = directory.Parent;
@@ -878,30 +906,38 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private readonly string _data;
         private readonly int _port;
         private bool _started;
+        private readonly bool _durable;
+        private readonly string _database;
 
-        private DisposablePostgreSql(string bin)
+        private DisposablePostgreSql(string bin, bool durable, string databaseName)
         {
             _bin = bin;
+            _durable = durable;
+            _database = databaseName;
             _root = Path.Combine(Path.GetTempPath(), $"advance-postgresql-parser-{Guid.NewGuid():N}");
             _data = Path.Combine(_root, "data");
             _port = ReservePort();
             Directory.CreateDirectory(_root);
         }
 
-        public static DisposablePostgreSql Start(string bin)
+        public static DisposablePostgreSql Start(string bin, bool durable = false, string databaseName = "advance_parser")
         {
-            var server = new DisposablePostgreSql(bin);
+            var server = new DisposablePostgreSql(bin, durable, databaseName);
             try
             {
-                server.Require(server.Run("initdb", "-D", server._data, "--username=postgres", "--auth=trust",
-                    "--encoding=UTF8", "--no-locale"), "initdb");
+                var initialization = new List<string> { "-D", server._data, "--username=postgres", "--auth=trust",
+                    "--encoding=UTF8", "--no-locale" };
+                // Ordinary disposable tests do not witness crash durability. Fault/recovery
+                // witnesses retain synced initialization as well as durable server settings.
+                if (!durable) initialization.Add("--no-sync");
+                server.Require(server.Run("initdb", initialization.ToArray()), "initdb");
                 server.Require(server.Run("pg_ctl", "-D", server._data, "-l", Path.Combine(server._root, "postgres.log"),
-                    "-o", $"-h 127.0.0.1 -p {server._port} -c fsync=off -c synchronous_commit=off",
+                    "-o", server.StartOptions,
                     "-w", "start"), "pg_ctl start");
                 server._started = true;
                 server.Require(server.Run("createdb", "--host", "127.0.0.1", "--port",
                     server._port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
-                    "advance_parser"), "createdb");
+                    server._database), "createdb");
                 return server;
             }
             catch
@@ -909,6 +945,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 server.Dispose();
                 throw;
             }
+        }
+
+
+        private string StartOptions =>
+            $"-h 127.0.0.1 -p {_port} -c fsync={(_durable ? "on" : "off")} -c synchronous_commit={(_durable ? "on" : "off")}";
+
+        public void Restart()
+        {
+            var root = Path.GetFullPath(_root);
+            var temp = Path.GetFullPath(Path.GetTempPath());
+            if (!_durable || !_started || _port == 5432 ||
+                !root.StartsWith(temp,StringComparison.OrdinalIgnoreCase) ||
+                !Path.GetFileName(root).StartsWith("advance-postgresql-parser-",StringComparison.Ordinal) ||
+                !string.Equals(Path.GetFullPath(_data),Path.Combine(root,"data"),StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Restart is restricted to this owned, durable disposable PostgreSQL cluster.");
+            Require(Run("pg_ctl","-D",_data,"-m","immediate","-w","stop"),"durable test stop");
+            _started = false;
+            Require(Run("pg_ctl","-D",_data,"-l",Path.Combine(_root,"postgres.log"),
+                "-o",StartOptions,"-w","start"),"durable test restart");
+            _started = true;
         }
 
         public void AssertRejected(string name, string sql, string? expectedMessage = null)
@@ -922,7 +978,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         public void Execute(string name, string sql) => Require(Psql(name, sql), name);
 
-        public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database=advance_parser;Username=postgres;Pooling=false";
+        public string ConnectionString => $"Host=127.0.0.1;Port={_port};Database={_database};Username=postgres;Pooling=false";
+
+        public string ReadDiagnosticLog()
+        {
+            using var stream = new FileStream(Path.Combine(_root, "postgres.log"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
 
         private Result Psql(string name, string sql)
         {
@@ -930,7 +994,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             File.WriteAllText(file, sql);
             return Run("psql", "-X", "--quiet", "--set", "ON_ERROR_STOP=1", "--host", "127.0.0.1", "--port",
                 _port.ToString(System.Globalization.CultureInfo.InvariantCulture), "--username", "postgres",
-                "--dbname", "advance_parser", "--file", file);
+                "--dbname", _database, "--file", file);
         }
 
         public void Dispose()

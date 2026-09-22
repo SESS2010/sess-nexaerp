@@ -52,7 +52,9 @@ public static partial class MasterEndpoints
 
     private static async Task<IResult> VerifyVendorCommercial(string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IPagePermissionService permissions, IAuditWriter audit, CancellationToken cancellationToken)
     {
-        if (!string.Equals(Rev869ARoleCodes.Normalize(currentUser.RoleCode), "ACCOUNTS_HEAD", StringComparison.Ordinal)) return Results.Forbid();
+        // Role governance retired ACCOUNTS_HEAD and names ACCOUNTS_MANAGER as its replacement;
+        // Accounts commercial verification follows that replacement (finding #21).
+        if (Rev869ARoleCodes.Normalize(currentUser.RoleCode) is not ("ACCOUNTS_HEAD" or Rev869ARoleCodes.AccountsManager)) return Results.Forbid();
         if (string.IsNullOrWhiteSpace(request.Remarks)) return Results.BadRequest(new { message = "Accounts verification remarks are required." });
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
         if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
@@ -68,7 +70,9 @@ public static partial class MasterEndpoints
         vendor.UpdatedAt = DateTimeOffset.UtcNow;
         var correlation = $"REV869A_VENDOR_VERIFY_{Guid.NewGuid():N}";
         db.MasterApprovalHistories.Add(new MasterApprovalHistory { MasterType = nameof(Vendor), MasterId = vendor.Id, MasterCode = vendor.VendorCode, Action = "AccountsVerify", FromStatus = MasterApprovalStatuses.PendingApproval, ToStatus = MasterApprovalStatuses.Approved, Remarks = request.Remarks.Trim(), ActorLoginId = currentUser.LoginId, ActorRoleCode = currentUser.RoleCode, CorrelationId = correlation, CreatedBy = currentUser.LoginId });
-        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { OrganizationId = currentUser.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "AccountsVerify", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = currentUser.LoginId, ActorRoleCode = currentUser.RoleCode, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = currentUser.LoginId });
+        var companyId = await db.Companies.AsNoTracking().Where(company => company.Code == currentUser.OrganizationId).Select(company => (Guid?)company.Id).SingleOrDefaultAsync(cancellationToken);
+        if (companyId is null) return Results.BadRequest(new { message = "Company scope could not be resolved for verification evidence." });
+        db.ControlledConfigurationHistories.Add(new ControlledConfigurationHistory { CompanyId = companyId.Value, OrganizationId = currentUser.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = vendor.Id, Action = "AccountsVerify", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(VendorControlledSnapshot(vendor)), ActorLoginId = currentUser.LoginId, ActorRoleCode = currentUser.RoleCode, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = currentUser.LoginId });
         await db.SaveChangesAsync(cancellationToken);
         await audit.WriteAsync("Masters", "VerifyVendorCommercial", nameof(Vendor), vendor.Id.ToString(), before, VendorControlledSnapshot(vendor), cancellationToken);
         var canViewBank = await MasterEndpointHelpers.CanViewCommercialAsync(permissions, currentUser, "masters.vendors", cancellationToken);

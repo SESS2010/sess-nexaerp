@@ -13,6 +13,8 @@ public sealed partial class NexaErpDbContext
             e.HasAlternateKey(x => new { x.CompanyId, x.Id });
             e.HasIndex(x => new { x.ProductionBomRevisionId, x.LineNumber }).IsUnique();
             e.Property(x => x.Quantity).HasPrecision(24, 6);
+            e.Property(x => x.PlannedUnitValue).HasPrecision(20, 6);
+            e.ToTable(t => t.HasCheckConstraint("CK_production_bom_line_value", "\"PlannedUnitValue\" IS NULL OR \"PlannedUnitValue\">=0"));
             e.Property(x => x.Remarks).HasMaxLength(1000);
             e.HasOne(x => x.ProductionBomRevision).WithMany(x => x.Lines)
                 .HasForeignKey(x => new { x.CompanyId, x.ProductionBomRevisionId })

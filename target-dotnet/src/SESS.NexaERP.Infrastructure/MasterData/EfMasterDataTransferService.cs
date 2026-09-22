@@ -28,7 +28,7 @@ public sealed class EfMasterDataTransferService(
     public Task<MasterDataFileResult> CreateTemplateAsync(string masterKey, CancellationToken cancellationToken)
     {
         var definition = registry.GetRequired(masterKey).Definition;
-        var content = workbooks.Create(definition, [], clock.UtcNow);
+        var content = workbooks.Create(definition, definition.TemplateExampleRows, clock.UtcNow);
         return Task.FromResult(new MasterDataFileResult($"{definition.MasterKey}-template.xlsx", MasterDataWorkbookService.ContentType, content));
     }
 
@@ -180,6 +180,20 @@ public sealed class EfMasterDataTransferService(
         }
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        Rev869BCommandContextAuthorizer.CommandAttemptHandle? openingStockAttempt = null;
+        if (adapter.Definition.MasterKey == "opening-stock")
+        {
+            var importBatch = await db.MasterImportBatches.AsNoTracking()
+                .SingleAsync(x => x.Id == batchId, cancellationToken);
+            var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
+                user.OrganizationId!, "OpeningStock.Import", importBatch.IdempotencyKey,
+                new { importBatch.Id, importBatch.RequestFingerprint });
+            openingStockAttempt = await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(
+                db, user, user.OrganizationId!, envelope, "master_import_row_results",
+                nameof(MasterImportBatch), batchId, "STAGE", 0, null, "COMPLETED",
+                importBatch.CorrelationId.ToString(), "Opening Stock workbook staged for three-actor authorization.",
+                cancellationToken);
+        }
         var outcomes = new List<RowOutcome>(prepared.Length);
         foreach (var item in prepared)
         {
@@ -230,6 +244,9 @@ public sealed class EfMasterDataTransferService(
                     ? MasterDataImportStatuses.CompletedWithErrors
                     : MasterDataImportStatuses.Completed,
                 cancellationToken);
+            if (openingStockAttempt.HasValue)
+                await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(
+                    db, openingStockAttempt.Value, cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         return await MapBatchAsync(batchId, includeRows: true, authorizeHistoricalRead: false, cancellationToken)
@@ -409,14 +426,14 @@ public sealed class EfMasterDataTransferService(
             ?? throw new UnauthorizedAccessException("Resolved organization does not identify an active company.");
     }
 
-    private async Task<string> ResolveOperationalRoleAsync(IMasterDataDefinition definition, CancellationToken cancellationToken)
+    internal async Task<string> ResolveOperationalRoleAsync(IMasterDataDefinition definition, CancellationToken cancellationToken)
     {
         foreach (var role in definition.OperationalRolePriority)
         {
-            if (!string.Equals(user.RoleCode, role, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!user.RoleCodes.Contains(role, StringComparer.OrdinalIgnoreCase)) continue;
             if (await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Create, cancellationToken)
                 && await permissions.HasPermissionAsync([role], definition.PageKey, PagePermissionActions.Update, cancellationToken))
-                return role;
+                return user.RequireRole($"{definition.PageKey}:create", role);
         }
         throw new UnauthorizedAccessException("No effective role has both create and update authority for this master-data import.");
     }
@@ -513,7 +530,7 @@ public sealed class EfMasterDataTransferService(
         or DbUpdateException or DbUpdateConcurrencyException;
     private static MasterDataTransferOptions ValidateOptions(MasterDataTransferOptions value)
     {
-        if (value.MaxRows is < 1 or > 1000) throw new InvalidOperationException("MasterDataTransfer:MaxRows must be from 1 through the synchronous ceiling of 1000.");
+        if (value.MaxRows is < 1 or > 10000) throw new InvalidOperationException("MasterDataTransfer:MaxRows must be from 1 through the synchronous ceiling of 10000.");
         if (value.MaxFileBytes is < 1 or > 50 * 1024 * 1024) throw new InvalidOperationException("MasterDataTransfer:MaxFileBytes must be from 1 byte through 50 MiB.");
         if (value.MaxExpandedBytes < value.MaxFileBytes || value.MaxExpandedBytes > 250 * 1024 * 1024) throw new InvalidOperationException("MasterDataTransfer:MaxExpandedBytes must be at least MaxFileBytes and at most 250 MiB.");
         if (value.SensitiveRowRetentionDays != 90) throw new InvalidOperationException("MasterDataTransfer:SensitiveRowRetentionDays is fixed at the approved 90 days.");

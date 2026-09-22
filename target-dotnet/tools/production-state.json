@@ -1,0 +1,26 @@
+{
+  "_note": "Production-day contract for this laptop from 1 October 2026 (runbook section 15). Endpoints: set the API address at go-live close (step 14); the node master server is the current user-facing host.",
+  "Services": [ "postgresql-x64-17" ],
+  "Endpoints": [
+    { "Name": "SESS NexaERP master server (node)", "Url": "http://127.0.0.1:8783/", "AcceptStatus": [ 200, 301, 302, 401, 403 ], "Required": true },
+    { "Name": "SESS NexaERP API readiness", "Url": "http://127.0.0.1:5000/health/ready", "AcceptStatus": [ 200 ], "Required": false }
+  ],
+  "DevelopmentProcesses": [
+    "Code", "claude", "codex", "testhost", "VBCSCompiler", "MSBuild", "dotnet",
+    "Microsoft.CodeAnalysis.LanguageServer", "Microsoft.VisualStudio.Code.ServiceHost",
+    "Microsoft.VisualStudio.Code.Server", "Microsoft.VisualStudio.Code.ServiceController",
+    "Microsoft.ServiceHub.Controller", "ServiceHub.Host.dotnet.x64", "OpenConsole", "pet", "devenv"
+  ],
+  "ProtectedCommandLinePatterns": [ "SESS NexaERP", "SESS.NexaERP.Api", "PostgreSQL\\\\17", "SESS-Backup" ],
+  "DisposableClusterDirectoryPatterns": [ "advance-postgresql-parser-*", "nexa-installer-release-*" ],
+  "PostgreSqlServiceDataDirectory": "C:\\Program Files\\PostgreSQL\\17\\data",
+  "PostgreSqlBin": "C:\\Program Files\\PostgreSQL\\17\\bin",
+  "MinAvailableMemoryMB": 12000,
+  "MaxCpuPercent": 60,
+  "MinFreeSpaceGB": { "C": 15, "D": 20 },
+  "BackupStatusFile": "C:\\SESS-Backup\\logs\\last-run.json",
+  "BackupMaxAgeHours": 26,
+  "WitnessTaskName": "NexaERP nightly witnesses",
+  "NiServiceDisplayNamePattern": "^NI |National Instruments",
+  "EvidenceDirectory": "local-evidence\\production-days"
+}

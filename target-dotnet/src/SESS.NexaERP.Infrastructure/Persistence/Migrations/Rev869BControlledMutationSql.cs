@@ -8,16 +8,16 @@ internal static class Rev869BControlledMutationSql
     internal static string ReconcileHistoryAuthority => AdvanceSchemaSql.Expand(
         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_history_insert()"));
     internal static string OrdinaryPurchaseAuthority =>
-        (ApprovalConfigurationPart2Up + Environment.NewLine + ReconcileHistoryAuthority)
+        (ApprovalConfigurationPart2Up + "\n" + ReconcileHistoryAuthority)
         .Replace("rev869b_command_context_valid", "ordinary_command_context_valid", StringComparison.Ordinal)
         .Replace("rev869b_claim_command_context", "ordinary_claim_command_context", StringComparison.Ordinal)
         .Replace("'advance.rev869b_", "'advance.ordinary_", StringComparison.Ordinal);
     internal static string RestorePurchaseAuthority =>
-        ApprovalConfigurationPart2Up + Environment.NewLine + ReconcileHistoryAuthority;
+        ApprovalConfigurationPart2Up + "\n" + ReconcileHistoryAuthority;
     internal static string OrdinaryQualificationAuthority => AdvanceSchemaSql.Expand(
-        (ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_qualification_lifecycle()") + Environment.NewLine +
-         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_qualification_history_insert()") + Environment.NewLine +
-         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_require_qualification_history()") + Environment.NewLine +
+        (ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_qualification_lifecycle()") + "\n" +
+         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_qualification_history_insert()") + "\n" +
+         ExtractFunction(InstallTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_require_qualification_history()") + "\n" +
          """
          DROP TRIGGER IF EXISTS trg_rev869a_vendor_qualification_version_guard ON __advance_schema__.vendor_qualifications;
          DROP TRIGGER IF EXISTS trg_rev869b_qualification_lifecycle ON __advance_schema__.vendor_qualifications;
@@ -53,7 +53,7 @@ internal static class Rev869BControlledMutationSql
 
     private static string ApprovalAuthorityFunctions(string template) =>
         ExtractFunction(template, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_history_insert()") +
-        Environment.NewLine +
+        "\n" +
         ExtractFunction(template, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_write_policy_history()");
 
     private static string ExtractFunction(string template, string marker)

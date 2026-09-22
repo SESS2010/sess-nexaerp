@@ -1,0 +1,62 @@
+{
+  "_note": "DESKTOP-SPF5420 server profile; protected engineering services remain running.",
+  "Services": [
+    "postgresql-x64-17",
+    "SESSNexaERP",
+    "SESSKeycloak"
+  ],
+  "Endpoints": [
+    {
+      "Name": "ERP readiness",
+      "Url": "https://192.168.68.130:8443/health/ready",
+      "AcceptStatus": [
+        200
+      ],
+      "Required": true
+    }
+  ],
+  "DevelopmentProcesses": [
+    "Code",
+    "claude",
+    "codex",
+    "testhost",
+    "VBCSCompiler",
+    "MSBuild",
+    "dotnet",
+    "Microsoft.CodeAnalysis.LanguageServer",
+    "Microsoft.VisualStudio.Code.ServiceHost",
+    "Microsoft.VisualStudio.Code.Server",
+    "Microsoft.VisualStudio.Code.ServiceController",
+    "Microsoft.ServiceHub.Controller",
+    "ServiceHub.Host.dotnet.x64",
+    "OpenConsole",
+    "pet",
+    "devenv"
+  ],
+  "ProtectedCommandLinePatterns": [
+    "SESS NexaERP",
+    "SESS.NexaERP.Api",
+    "PostgreSQL\\\\17",
+    "SESS-Backup"
+  ],
+  "DisposableClusterDirectoryPatterns": [
+    "advance-postgresql-parser-*",
+    "nexa-installer-release-*"
+  ],
+  "PostgreSqlServiceDataDirectory": "C:\\Program Files\\PostgreSQL\\17\\data",
+  "PostgreSqlBin": "C:\\Program Files\\PostgreSQL\\17\\bin",
+  "MinAvailableMemoryMB": 2048,
+  "MaxCpuPercent": 60,
+  "MinFreeSpaceGB": {
+    "C": 25
+  },
+  "WitnessTaskName": "NexaERP nightly witnesses",
+  "NiServiceDisplayNamePattern": "",
+  "EvidenceDirectory": "C:\\SESS-Backup\\status\\production-days",
+  "ExpectedHost": "DESKTOP-SPF5420",
+  "DailyOffMachineBackup": {
+    "TaskName": "SESS-NexaERP-SiteDailyBackup",
+    "StatusFile": "C:\\SESS-Backup\\status\\daily-last-run.json",
+    "MaxAgeHours": 26
+  }
+}

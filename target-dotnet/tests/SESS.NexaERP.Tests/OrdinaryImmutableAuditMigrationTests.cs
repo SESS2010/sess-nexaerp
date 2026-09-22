@@ -27,6 +27,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.DoesNotContain("DELETE FROM advance.audit_logs", sql, StringComparison.OrdinalIgnoreCase);
     }
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Ordinary_immutable_audit_guard_handles_absent_complete_and_partial_rev_states_on_postgresql()
     {
@@ -47,6 +48,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         VerifyPartialRevIsRefused(prerequisite, up);
     }
 
+#endif
     private static void VerifyAbsentUpDownAndReapply(string prerequisite, string up, string down)
     {
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());

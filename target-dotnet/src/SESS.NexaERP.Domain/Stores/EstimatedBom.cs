@@ -67,6 +67,10 @@ public sealed class EstimatedBomLine
     public Guid UomId { get; set; }
     public Uom? Uom { get; set; }
     public decimal Quantity { get; set; }
+    public decimal? EstimatedUnitValue { get; set; }
+    public bool EstimatedUnitValueOverridden { get; set; }
+    // ENGINEER (typed), LAST_ACCEPTED_BILL or OPENING_STOCK (suggestion accepted); null while unpriced.
+    public string? ValueSource { get; set; }
     public string? Remarks { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";

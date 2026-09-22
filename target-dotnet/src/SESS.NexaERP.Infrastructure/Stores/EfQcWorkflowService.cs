@@ -17,18 +17,61 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId,string? grnNumber,bool overdueOnly,int page,int pageSize,CancellationToken ct)
+    public async Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId, string? grnNumber,
+        bool overdueOnly, int page, int pageSize, CancellationToken ct)
     {
-        RequireQcManager(); if(page<1||pageSize is <1 or >100)throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
-        var company=await Company(ct);var now=DateTimeOffset.UtcNow;var today=DateOnly.FromDateTime(now.UtcDateTime);var query=db.GoodsReceiptLineLotAllocations.AsNoTracking()
-            .Where(a=>a.CompanyId==company.Id&&a.GoodsReceiptLine!.GoodsReceipt!.Status=="FINALIZED"&&!db.QcInspections.Any(i=>i.CompanyId==company.Id&&i.GoodsReceiptLineLotAllocationId==a.Id));
-        if(allocationId.HasValue)query=query.Where(a=>a.Id==allocationId.Value);
-        if(!string.IsNullOrWhiteSpace(grnNumber)){var normalized=grnNumber.Trim().ToUpperInvariant();query=query.Where(a=>a.GoodsReceiptLine!.GoodsReceipt!.GrnNumber==normalized);}
-        if(overdueOnly)query=query.Where(a=>a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt.AddDays(a.GoodsReceiptLine.GoodsReceipt.QcCompletionDaysSnapshot)<now);
-        var total=await query.CountAsync(ct);var rows=await query.Include(a=>a.InventoryLot).Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.GoodsReceipt).Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.Item)
-            .OrderBy(a=>a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt).ThenBy(a=>a.Id).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);var items=new List<QcQueueItem>();
-        foreach(var a in rows){var line=a.GoodsReceiptLine!;var receipt=line.GoodsReceipt!;var has=await EffectivePolicies(company.Id,line.ItemId,line.ItemCategoryIdSnapshot,today).AnyAsync(ct);var serialIds=await db.GoodsReceiptLineSerials.AsNoTracking().Where(x=>x.CompanyId==company.Id&&x.GoodsReceiptLineLotAllocationId==a.Id&&x.InventorySerialId.HasValue).OrderBy(x=>x.SerialOrdinal).Select(x=>x.InventorySerialId!.Value).ToListAsync(ct);var age=Math.Max(0,today.DayNumber-DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime).DayNumber);items.Add(new(a.Id,receipt.GrnNumber,line.Id,line.LineNumber,a.LotOrdinal,line.ItemId,line.ItemCodeSnapshot,line.ItemNameSnapshot,a.InventoryLotId,a.InventoryLot!.SupplierLotNumber,a.Quantity,serialIds,receipt.ReceivedAt,age,receipt.QcCompletionDaysSnapshot,receipt.ReceivedAt.AddDays(receipt.QcCompletionDaysSnapshot)<now,has,has?"EFFECTIVE_POLICY":"MISSING_POLICY_QC_HOLD"));}
-        return new(total,page,pageSize,items);
+        RequireQcManager();
+        if (page < 1 || pageSize is < 1 or > 100)
+            throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
+        var company = await Company(ct);
+        var now = DateTimeOffset.UtcNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var query = db.GoodsReceiptLineLotAllocations.AsNoTracking()
+            .Where(a => a.CompanyId == company.Id && a.GoodsReceiptLine!.GoodsReceipt!.Status == "FINALIZED"
+                && (!db.QcInspections.Any(i => i.CompanyId == company.Id && i.GoodsReceiptLineLotAllocationId == a.Id)
+                    || db.QcInspectionRevisions.Any(r => r.CompanyId == company.Id
+                        && r.QcInspection!.GoodsReceiptLineLotAllocationId == a.Id
+                        && r.DiscrepancyPendingQuantity > 0
+                        && !db.QcInspectionRevisions.Any(next => next.CompanyId == company.Id && next.RevisesRevisionId == r.Id))));
+        if (allocationId.HasValue) query = query.Where(a => a.Id == allocationId.Value);
+        if (!string.IsNullOrWhiteSpace(grnNumber))
+        {
+            var number = grnNumber.Trim().ToUpperInvariant();
+            query = query.Where(a => a.GoodsReceiptLine!.GoodsReceipt!.GrnNumber == number);
+        }
+        if (overdueOnly) query = query.Where(a => a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt
+            .AddDays(a.GoodsReceiptLine.GoodsReceipt.QcCompletionDaysSnapshot) < now);
+        var total = await query.CountAsync(ct);
+        var rows = await query.Include(a => a.InventoryLot).Include(a => a.GoodsReceiptLine)
+            .ThenInclude(l => l!.GoodsReceipt).Include(a => a.GoodsReceiptLine).ThenInclude(l => l!.Item)
+            .OrderBy(a => a.GoodsReceiptLine!.GoodsReceipt!.ReceivedAt).ThenBy(a => a.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var items = new List<QcQueueItem>();
+        foreach (var allocation in rows)
+        {
+            var line = allocation.GoodsReceiptLine!;
+            var receipt = line.GoodsReceipt!;
+            var hasPolicy = await EffectivePolicies(company.Id, line.ItemId, line.ItemCategoryIdSnapshot, today).AnyAsync(ct);
+            var serialIds = await db.GoodsReceiptLineSerials.AsNoTracking().Where(x => x.CompanyId == company.Id
+                && x.GoodsReceiptLineLotAllocationId == allocation.Id && x.InventorySerialId.HasValue)
+                .OrderBy(x => x.SerialOrdinal).Select(x => x.InventorySerialId!.Value).ToListAsync(ct);
+            var current = await db.QcInspectionRevisions.AsNoTracking().Where(x => x.CompanyId == company.Id
+                && x.QcInspection!.GoodsReceiptLineLotAllocationId == allocation.Id)
+                .OrderByDescending(x => x.RevisionNumber)
+                .Select(x => new { x.Id, x.QcInspection!.InspectionNumber, x.DiscrepancyPendingQuantity }).FirstOrDefaultAsync(ct);
+            var age = Math.Max(0, today.DayNumber - DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime).DayNumber);
+            items.Add(new(allocation.Id, receipt.GrnNumber, line.Id, line.LineNumber, allocation.LotOrdinal,
+                line.ItemId, line.ItemCodeSnapshot, line.ItemNameSnapshot, allocation.InventoryLotId,
+                allocation.InventoryLot!.SupplierLotNumber, allocation.Quantity, serialIds, receipt.ReceivedAt,
+                age, receipt.QcCompletionDaysSnapshot, receipt.ReceivedAt.AddDays(receipt.QcCompletionDaysSnapshot) < now,
+                hasPolicy, hasPolicy ? "EFFECTIVE_POLICY" : "MISSING_POLICY_QC_HOLD")
+            {
+                InspectionNumber = current?.InspectionNumber,
+                CurrentRevisionId = current?.Id,
+                DiscrepancyPendingQuantity = current?.DiscrepancyPendingQuantity ?? 0m
+            });
+        }
+        return new(total, page, pageSize, items);
     }
 
     public Task<QcInspectionResult> FinalizeAsync(FinalizeQcInspectionRequest request,string idempotencyKey,CancellationToken ct)
@@ -40,7 +83,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         return await FinalizeCore(inspection.GoodsReceiptLineLotAllocationId!.Value,inspection.Id,(request.RevisesRevisionId,Required(request.CorrectionReason,"CorrectionReason")),request.InspectionStartedAt,request.AcceptedQuantity,request.RejectedQuantity,request.DiscrepancyPendingQuantity,request.AcceptedConditionLocationId,request.ParameterResults,request.SerialDispositions,idempotencyKey,ct);
     }
 
-    private async Task<QcInspectionResult> FinalizeCore(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
+    private Task<QcInspectionResult> FinalizeCore(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => FinalizeTransaction(allocationId,inspectionId,correction,started,accepted,rejected,discrepancy,acceptedLocationId,parameterInput,serialInput,idempotencyKey,ct));
+
+    private async Task<QcInspectionResult> FinalizeTransaction(Guid allocationId,Guid? inspectionId,(Guid Id,string Reason)? correction,DateTimeOffset started,decimal accepted,decimal rejected,decimal discrepancy,Guid? acceptedLocationId,IReadOnlyList<QcParameterResultRequest> parameterInput,IReadOnlyList<QcSerialDispositionRequest> serialInput,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireQcManager();var key=Required(idempotencyKey,"Idempotency-Key");if(started==default)throw new StoresValidationException("InspectionStartedAt is required.");if(accepted<0||rejected<0||discrepancy<0||accepted+rejected+discrepancy<=0)throw new StoresValidationException("QC quantities must be non-negative and total more than zero.");
         var fingerprint=Hash(new{allocationId,inspectionId,correction,started,accepted,rejected,discrepancy,acceptedLocationId,parameterInput,serialInput});
@@ -48,15 +94,21 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         var replay=await db.QcInspectionRevisions.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.IdempotencyKey==key,ct);if(replay is not null){if(replay.RequestFingerprint!=fingerprint)throw new StoresConflictException("Idempotency key was reused with different QC data.");await tx.CommitAsync(ct);return await LoadInspection(replay.QcInspectionId,company.Id,true,ct);}
         var allocation=await db.GoodsReceiptLineLotAllocations.Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.GoodsReceipt).Include(a=>a.GoodsReceiptLine).ThenInclude(l=>l!.Serials).SingleOrDefaultAsync(a=>a.CompanyId==company.Id&&a.Id==allocationId,ct)??throw new KeyNotFoundException("GRN lot allocation was not found.");var line=allocation.GoodsReceiptLine!;if(line.GoodsReceipt!.Status!="FINALIZED")throw new StoresConflictException("QC requires a finalized GRN.");if(accepted+rejected+discrepancy!=allocation.Quantity)throw new StoresValidationException("Accepted, rejected and discrepancy-pending quantities must exactly equal the lot allocation quantity.");
         var on=DateOnly.FromDateTime(DateTime.UtcNow);WarehouseConditionLocation? available=null;if(accepted>0){if(!acceptedLocationId.HasValue)throw new StoresValidationException("AcceptedConditionLocationId is required for accepted quantity.");available=await EffectiveLocation(company.Id,acceptedLocationId.Value,InventoryConditionCodes.Available,on,ct);}
-        var hold=await EffectiveLocation(company.Id,line.QcHoldConditionLocationIdSnapshot,InventoryConditionCodes.QcHold,on,ct);var pending=await db.WarehouseConditionLocations.SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.WarehouseId==hold.WarehouseId&&x.RackBinId==hold.RackBinId&&x.ConditionCode==InventoryConditionCodes.PendingReturnableDc&&x.IsActive&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on),ct)??throw new StoresConflictException("No effective pending-return condition exists on the QC hold rack.");
+        var hold=await EffectiveLocation(company.Id,line.QcHoldConditionLocationIdSnapshot,InventoryConditionCodes.QcHold,on,ct);// Rejected quantity waits at the pending-return location the receipt's Stores route names.
+        // A rack maps exactly one condition, so the hold rack itself can never carry it.
+        var pendingLocationId=await db.StoreCategoryRoutes.AsNoTracking().Where(x=>x.CompanyId==company.Id&&x.Id==line.QcRouteIdSnapshot).Select(x=>(Guid?)x.PendingReturnConditionLocationId).SingleOrDefaultAsync(ct)??throw new StoresConflictException("The receipt's Stores route no longer exists.");
+        var pending=await db.WarehouseConditionLocations.SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.Id==pendingLocationId&&x.WarehouseId==hold.WarehouseId&&x.ConditionCode==InventoryConditionCodes.PendingReturnableDc&&x.IsActive&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on),ct)??throw new StoresConflictException("No effective pending-return condition exists on the receipt's Stores route.");
         QcInspection inspection;if(inspectionId.HasValue){inspection=await db.QcInspections.SingleAsync(x=>x.CompanyId==company.Id&&x.Id==inspectionId.Value,ct);if(correction is null)throw new StoresValidationException("Correction evidence is required.");}else{if(await db.QcInspections.AnyAsync(x=>x.CompanyId==company.Id&&x.GoodsReceiptLineLotAllocationId==allocationId,ct))throw new StoresConflictException("This GRN lot allocation already has a QC inspection.");inspection=new QcInspection{CompanyId=company.Id,InspectionNumber=await NextNumber("QCI",company.Id,ct),GoodsReceiptLineId=line.Id,GoodsReceiptLineLotAllocationId=allocation.Id,CreatedBy=user.LoginId};db.QcInspections.Add(inspection);}
-        QcInspectionRevision? prior=null;if(correction.HasValue){prior=await db.QcInspectionRevisions.SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.Id==correction.Value.Id&&x.QcInspectionId==inspection.Id&&x.Status=="FINALIZED",ct)??throw new StoresConflictException("The revision being corrected is not the finalized inspection revision.");if(await db.QcInspectionRevisions.AnyAsync(x=>x.RevisesRevisionId==prior.Id,ct))throw new StoresConflictException("That QC revision was already corrected.");await ReverseBatch(prior.Id,$"{key}:REVERSAL",Hash(new{prior.Id,correction.Value.Reason}),actor,ct);}
+        QcInspectionRevision? prior=null;if(correction.HasValue){prior=await db.QcInspectionRevisions.SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.Id==correction.Value.Id&&x.QcInspectionId==inspection.Id&&x.Status=="FINALIZED",ct)??throw new StoresConflictException("The revision being corrected is not the finalized inspection revision.");if(await db.QcInspectionRevisions.AnyAsync(x=>x.RevisesRevisionId==prior.Id,ct))throw new StoresConflictException("That QC revision was already corrected.");if(prior.AcceptedQuantity>0||prior.RejectedQuantity>0)await ReverseBatch(prior.Id,$"{key}:REVERSAL",Hash(new{prior.Id,correction.Value.Reason}),actor,ct);}
         var revision=new QcInspectionRevision{CompanyId=company.Id,QcInspectionId=inspection.Id,RevisionNumber=(prior?.RevisionNumber??0)+1,RevisionKind=prior is null?"INITIAL":"CORRECTION",RevisesRevisionId=prior?.Id,CorrectionReason=correction?.Reason,InspectorEmployeeId=actor,InspectorBasis="QC_MANAGER",InspectionStartedAt=started,InspectionCompletedAt=DateTimeOffset.UtcNow,InspectedQuantity=allocation.Quantity,AcceptedQuantity=accepted,RejectedQuantity=rejected,DiscrepancyPendingQuantity=discrepancy,Decision=Decision(accepted,rejected,discrepancy),AcceptedConditionLocationId=available?.Id,QcHoldConditionLocationIdSnapshot=hold.Id,PendingReturnConditionLocationIdSnapshot=pending.Id,PolicyResolvedAt=DateTimeOffset.UtcNow,Status="FINALIZED",FinalizedAt=DateTimeOffset.UtcNow,FinalizedByEmployeeId=actor,IdempotencyKey=key,RequestFingerprint=fingerprint,CreatedBy=user.LoginId};db.QcInspectionRevisions.Add(revision);
         await AddParameterResults(revision,line,parameterInput,actor,on,ct);await AddSerialDispositions(revision,allocation,line,serialInput,accepted,rejected,actor,ct);var disposition=new QcInspectionLotDisposition{CompanyId=company.Id,QcInspectionRevisionId=revision.Id,GoodsReceiptLineLotAllocationId=allocation.Id,InventoryLotId=allocation.InventoryLotId,InspectedQuantity=allocation.Quantity,AcceptedQuantity=accepted,RejectedQuantity=rejected,DiscrepancyPendingQuantity=discrepancy,Disposition=revision.Decision,DestinationConditionLocationId=available?.Id??pending.Id,CreatedBy=user.LoginId};db.QcInspectionLotDispositions.Add(disposition);
         await db.SaveChangesAsync(ct);var legs=await BuildQcLegs(disposition,revision,allocation,line,hold,available,pending,serialInput,ct);if(legs.Count>0)await Post(company.Id,"QC_DISPOSITION",revision.Id,key,fingerprint,Hash($"QC:{revision.Id}:{key}"),actor,legs,ct);await tx.CommitAsync(ct);return await LoadInspection(inspection.Id,company.Id,false,ct);
     }
 
-    public async Task<InventoryConcessionResult> CreateConcessionAsync(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+    public Task<InventoryConcessionResult> CreateConcessionAsync(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => CreateConcessionTransaction(request,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> CreateConcessionTransaction(CreateInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();var key=Required(idempotencyKey,"Idempotency-Key");var fingerprint=Hash(new{request.QcInspectionLotDispositionId,request.FailedParameterResultId,request.Quantity,request.FailedParameter,request.MeasuredValue,request.TechnicalJustification,request.IntendedUse,Serials=request.InventorySerialIds.Order()});if(request.Quantity<=0)throw new StoresValidationException("Concession quantity must be positive.");
         await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);await Advisory($"CONCESSION:{company.Id}:{key}",ct);var replay=await db.InventoryConcessions.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.IdempotencyKey==key,ct);if(replay is not null){if(replay.RequestFingerprint!=fingerprint)throw new StoresConflictException("Idempotency key was reused with different concession data.");await tx.CommitAsync(ct);return await LoadConcession(replay.Id,company.Id,true,ct);}
@@ -71,7 +123,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
     public Task<InventoryConcessionResult> RejectConcessionAsync(string number,RejectInventoryConcessionRequest request,CancellationToken ct)
         => DecideConcession(number,request.Version,"REJECTED",request.DecisionReason,null,$"REJECT:{number}:{request.Version}",ct);
 
-    private async Task<InventoryConcessionResult> DecideConcession(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
+    private Task<InventoryConcessionResult> DecideConcession(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => DecideConcessionTransaction(number,version,status,reason,availableId,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> DecideConcessionTransaction(string number,uint version,string status,string reason,Guid? availableId,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireTechnicalDirector();var key=Required(idempotencyKey,"Idempotency-Key");var rationale=Required(reason,"DecisionReason");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);await Advisory($"CONCESSION:DECIDE:{company.Id}:{number}",ct);var concession=await ConcessionQuery(true).SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.ConcessionNumber==number.Trim().ToUpperInvariant(),ct)??throw new KeyNotFoundException("Inventory concession was not found.");if(concession.Status==status){await tx.CommitAsync(ct);return await LoadConcession(concession.Id,company.Id,true,ct);}if(concession.Status!="DRAFT")throw new StoresConflictException("Only a DRAFT concession can be decided.");if(concession.Version!=version)throw new DbUpdateConcurrencyException("Concession Version is stale.");if(concession.CreatedByEmployeeId==actor)throw new UnauthorizedAccessException("The concession creator cannot decide the same concession.");
         List<Dictionary<string,object?>> legs=[];if(status=="APPROVED"){if(!availableId.HasValue)throw new StoresValidationException("AvailableConditionLocationId is required.");var on=DateOnly.FromDateTime(DateTime.UtcNow);var available=await EffectiveLocation(company.Id,availableId.Value,InventoryConditionCodes.Available,on,ct);var allocation=concession.Allocations.Single();var source=await db.StockMovements.AsNoTracking().Include(m=>m.InventoryProvenanceLayer).Where(m=>m.CompanyId==company.Id&&m.InventoryProvenanceLayerId==allocation.RejectedProvenanceLayerId&&m.ConditionCode==InventoryConditionCodes.PendingReturnableDc&&m.QuantityIn>0).OrderByDescending(m=>m.CreatedAt).FirstAsync(ct);var serials=allocation.Serials.OrderBy(x=>x.InventorySerialId).ToList();var pieces=serials.Count==0?new[]{(Serial:(Guid?)null,Layer:allocation.RejectedProvenanceLayerId,Quantity:allocation.Quantity)}:serials.Select(x=>(Serial:(Guid?)x.InventorySerialId,Layer:x.RejectedProvenanceLayerId,Quantity:1m)).ToArray();var ordinal=0;
@@ -80,7 +135,10 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         }else{concession.Status="REJECTED";concession.DecidedByEmployeeId=actor;concession.DecidedRoleCode="TECHNICAL_DIRECTOR";concession.DecidedAt=DateTimeOffset.UtcNow;concession.DecisionReason=rationale;concession.Version++;concession.UpdatedAt=DateTimeOffset.UtcNow;concession.UpdatedBy=user.LoginId;await db.SaveChangesAsync(ct);}await tx.CommitAsync(ct);return await LoadConcession(concession.Id,company.Id,false,ct);
     }
 
-    public async Task<InventoryConcessionResult> ReverseConcessionAsync(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+    public Task<InventoryConcessionResult> ReverseConcessionAsync(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
+        => ExecuteQcCommand(() => ReverseConcessionTransaction(number,request,idempotencyKey,ct));
+
+    private async Task<InventoryConcessionResult> ReverseConcessionTransaction(string number,ReverseInventoryConcessionRequest request,string idempotencyKey,CancellationToken ct)
     {
         var actor=Actor();RequireTechnicalDirector();var key=Required(idempotencyKey,"Idempotency-Key");var reason=Required(request.Reason,"Reason");await using var tx=await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable,ct);var company=await Company(ct);var original=await ConcessionQuery(true).SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&x.ConcessionNumber==number.Trim().ToUpperInvariant(),ct)??throw new KeyNotFoundException("Inventory concession was not found.");if(original.Status!="APPROVED")throw new StoresConflictException("Only an APPROVED concession can be reversed.");if(original.Version!=request.Version)throw new DbUpdateConcurrencyException("Concession Version is stale.");await ReverseBatch(original.Id,key,Hash(new{original.Id,request.Version,reason}),actor,ct);var reversal=new InventoryConcession{CompanyId=company.Id,ConcessionNumber=await NextNumber("CONR",company.Id,ct),QcInspectionRevisionId=original.QcInspectionRevisionId,QcInspectionLotDispositionId=original.QcInspectionLotDispositionId,QcInspectionParameterResultId=original.QcInspectionParameterResultId,RequestedQuantity=original.RequestedQuantity,FailedParameterSnapshot=original.FailedParameterSnapshot,MeasuredValueSnapshot=original.MeasuredValueSnapshot,TechnicalAcceptanceReason=original.TechnicalAcceptanceReason,IntendedUse=original.IntendedUse,Status="REVERSED",CreatedByEmployeeId=original.CreatedByEmployeeId,DecidedByEmployeeId=actor,DecidedRoleCode="TECHNICAL_DIRECTOR",DecidedAt=DateTimeOffset.UtcNow,DecisionReason=reason,ReversesConcessionId=original.Id,IdempotencyKey=key,RequestFingerprint=Hash(new{original.Id,reason}),CreatedBy=user.LoginId};db.InventoryConcessions.Add(reversal);await db.SaveChangesAsync(ct);await tx.CommitAsync(ct);return await LoadConcession(reversal.Id,company.Id,false,ct);
     }
@@ -101,6 +159,8 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 
     private async Task<List<Dictionary<string,object?>>> BuildQcLegs(QcInspectionLotDisposition disposition,QcInspectionRevision revision,GoodsReceiptLineLotAllocation allocation,GoodsReceiptLine line,WarehouseConditionLocation hold,WarehouseConditionLocation? available,WarehouseConditionLocation pending,IReadOnlyList<QcSerialDispositionRequest> serialInput,CancellationToken ct)
     {
+        // No disposition means no movement: serialized discrepancy units stay in QC_HOLD.
+        if (revision.AcceptedQuantity == 0 && revision.RejectedQuantity == 0) return [];
         var sources=await db.StockMovements.AsNoTracking().Include(m=>m.InventoryProvenanceLayer).Where(m=>m.CompanyId==line.CompanyId&&m.GoodsReceiptLineLotAllocationId==allocation.Id&&m.ConditionCode==InventoryConditionCodes.QcHold&&m.QuantityIn>0&&m.StockPostingBatch!.PostingKind=="GRN_CUSTODY").OrderBy(m=>m.InventorySerialId).ToListAsync(ct);if(sources.Count==0)throw new StoresConflictException("The finalized GRN QC_HOLD provenance stock was not found.");var pieces=new List<(StockMovement Source,decimal Quantity,string Kind,WarehouseConditionLocation Destination)>();if(serialInput.Count>0){foreach(var s in serialInput){var source=sources.SingleOrDefault(x=>x.InventorySerialId==s.InventorySerialId)??throw new StoresConflictException("Serialized GRN provenance stock was not found.");pieces.Add((source,1m,s.Disposition.ToUpperInvariant(),s.Disposition.Equals("ACCEPTED",StringComparison.OrdinalIgnoreCase)?available!:pending));}}else{var source=sources.Single();if(revision.AcceptedQuantity>0)pieces.Add((source,revision.AcceptedQuantity,"ACCEPTED",available!));if(revision.RejectedQuantity>0)pieces.Add((source,revision.RejectedQuantity,"REJECTED",pending));}
         var legs=new List<Dictionary<string,object?>>();var ordinal=0;foreach(var p in pieces){var layer=NewLayer(line.CompanyId,p.Source,p.Quantity,p.Kind=="ACCEPTED"?InventoryProvenanceLayerTypes.QcAccepted:InventoryProvenanceLayerTypes.QcRejected);db.InventoryProvenanceLayers.Add(layer);db.InventoryProvenanceEdges.Add(NewEdge(line.CompanyId,p.Source.InventoryProvenanceLayerId,layer.Id,p.Quantity,p.Kind));db.Set<InventoryProvenanceQcDispositionOrigin>().Add(new InventoryProvenanceQcDispositionOrigin{CompanyId=line.CompanyId,InventoryProvenanceLayerId=layer.Id,QcInspectionLotDispositionId=disposition.Id,CreatedBy=user.LoginId});var custody=await DestinationCustody(line.CompanyId,p.Source.CustodyAssignmentId,p.Destination,p.Quantity,$"QC {revision.Id}",ct);legs.Add(Leg(++ordinal,p.Source,hold.Id,p.Source.InventoryProvenanceLayerId,p.Quantity,0,"TRANSFER_OUT",null,null,disposition.Id));legs.Add(Leg(++ordinal,p.Source,p.Destination.Id,layer.Id,0,p.Quantity,"TRANSFER_IN",custody,null,disposition.Id));}await db.SaveChangesAsync(ct);return legs;
     }
@@ -117,22 +177,71 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
 
     private static Dictionary<string,object?> Leg(int ordinal,StockMovement source,Guid locationId,Guid provenanceId,decimal quantityOut,decimal quantityIn,string movementLeg,Guid? custodyOverride,Guid? concessionAllocationId=null,Guid? qcDispositionId=null)=>new()
     {
-        ["batchLineOrdinal"]=ordinal,["itemId"]=source.ItemId,["warehouseConditionLocationId"]=locationId,["movementLeg"]=movementLeg,["quantityIn"]=quantityIn,["quantityOut"]=quantityOut,["goodsReceiptLineId"]=null,["qcInspectionRevisionId"]=null,["originGoodsReceiptLineId"]=source.OriginGoodsReceiptLineId,["ownershipAccountId"]=source.OwnershipAccountId,["custodyAssignmentId"]=custodyOverride??source.CustodyAssignmentId,["inventoryProvenanceLayerId"]=provenanceId,["custodyCaseLineId"]=source.CustodyCaseLineId,["inventoryLotId"]=source.InventoryLotId,["inventorySerialId"]=source.InventorySerialId,["goodsReceiptLineLotAllocationId"]=source.GoodsReceiptLineLotAllocationId,["qcInspectionLotDispositionId"]=qcDispositionId,["inventoryConcessionAllocationId"]=concessionAllocationId,["postingIdentity"]=$"{movementLeg}:{ordinal}:{provenanceId:N}"};
+        ["batchLineOrdinal"]=ordinal,["itemId"]=source.ItemId,["warehouseConditionLocationId"]=locationId,["movementLeg"]=movementLeg,["quantityIn"]=quantityIn,["quantityOut"]=quantityOut,["goodsReceiptLineId"]=null,["qcInspectionRevisionId"]=null,["originGoodsReceiptLineId"]=source.OriginGoodsReceiptLineId,["ownershipAccountId"]=source.OwnershipAccountId,["custodyAssignmentId"]=custodyOverride??source.CustodyAssignmentId,["inventoryProvenanceLayerId"]=provenanceId,["custodyCaseLineId"]=source.CustodyCaseLineId,["inventoryLotId"]=source.InventoryLotId,["inventorySerialId"]=source.InventorySerialId,["goodsReceiptLineLotAllocationId"]=source.GoodsReceiptLineLotAllocationId,["qcInspectionLotDispositionId"]=qcDispositionId,["inventoryConcessionAllocationId"]=concessionAllocationId,["postingIdentity"]=$"{qcDispositionId ?? concessionAllocationId ?? throw new InvalidOperationException("A QC or concession posting source is required."):N}:{movementLeg}:{ordinal}:{provenanceId:N}"};
     private async Task<(Guid BatchId,bool Replayed)> Post(Guid companyId,string kind,Guid sourceId,string key,string fingerprint,string correlation,Guid actor,List<Dictionary<string,object?>> legs,CancellationToken ct)
     {
         var connection=(NpgsqlConnection)db.Database.GetDbConnection();await using var command=connection.CreateCommand();command.Transaction=(NpgsqlTransaction?)db.Database.CurrentTransaction?.GetDbTransaction();command.CommandText="""SELECT "StockPostingBatchId","Replayed" FROM advance.post_stores_stock_batch(@company,@kind,@source,@key,@fingerprint,@correlation,@date,@actor,@login,@legs)""";command.Parameters.AddWithValue("company",companyId);command.Parameters.AddWithValue("kind",kind);command.Parameters.AddWithValue("source",sourceId);command.Parameters.AddWithValue("key",key);command.Parameters.AddWithValue("fingerprint",fingerprint);command.Parameters.AddWithValue("correlation",correlation);command.Parameters.AddWithValue("date",DateOnly.FromDateTime(DateTime.UtcNow));command.Parameters.AddWithValue("actor",actor);command.Parameters.AddWithValue("login",user.LoginId);command.Parameters.AddWithValue("legs",NpgsqlTypes.NpgsqlDbType.Jsonb,JsonSerializer.Serialize(legs,JsonOptions));await using var reader=await command.ExecuteReaderAsync(ct);if(!await reader.ReadAsync(ct))throw new StoresConflictException("Controlled Stores posting returned no result.");return(reader.GetGuid(0),reader.GetBoolean(1));
     }
 
+    private static async Task<T> ExecuteQcCommand<T>(Func<Task<T>> action)
+    {
+        try { return await action(); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("QC stock or its decision changed; refresh and retry.", error);
+        }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.RaiseException
+            && error.MessageText == "Posting would drive an ownership/custody/provenance stock balance below zero.")
+        {
+            throw new StoresConflictException("The source stock is no longer available for this posting. Refresh the document and review its subsequent movements.");
+        }
+        catch (Exception error) when (IsActiveSerialConflict(error))
+        {
+            throw new StoresConflictException("The serial already belongs to an active concession for this receipt allocation.");
+        }
+    }
+
+    private static bool IsActiveSerialConflict(Exception error)
+    {
+        while (error is DbUpdateException or InvalidOperationException && error.InnerException is not null)
+            error = error.InnerException;
+        return error is PostgresException postgres
+            && postgres.SqlState == PostgresErrorCodes.UniqueViolation
+            && postgres.ConstraintName == "UX_concession_active_serial_allocation";
+    }
+
     private async Task ReverseBatch(Guid sourceId,string key,string fingerprint,Guid actor,CancellationToken ct)
     {
-        var company=await Company(ct);var batch=await db.StockPostingBatches.AsNoTracking().SingleOrDefaultAsync(x=>x.CompanyId==company.Id&&(x.QcInspectionRevisionId==sourceId||x.InventoryConcessionId==sourceId)&&!db.StockPostingBatches.Any(r=>r.ReversesPostingBatchId==x.Id),ct)??throw new StoresConflictException("The source posting batch is missing or already reversed.");var movements=await db.StockMovements.AsNoTracking().Where(x=>x.StockPostingBatchId==batch.Id).OrderBy(x=>x.BatchLineOrdinal).ToListAsync(ct);var ordinal=0;var legs=movements.Select(x=>new Dictionary<string,object?>{{"batchLineOrdinal",++ordinal},{"reversesStockMovementId",x.Id},{"movementLeg","REVERSAL"},{"quantityIn",x.QuantityOut},{"quantityOut",x.QuantityIn},{"postingIdentity",$"REVERSAL:{x.Id:N}"}}).ToList();await Post(company.Id,"REVERSAL",batch.Id,key,fingerprint,Hash($"REVERSAL:{batch.Id}:{key}"),actor,legs,ct);
+        var company = await Company(ct);
+        var batch = await db.StockPostingBatches.AsNoTracking().SingleOrDefaultAsync(x =>
+            x.CompanyId == company.Id && (x.QcInspectionRevisionId == sourceId || x.InventoryConcessionId == sourceId)
+            && !db.StockPostingBatches.Any(r => r.ReversesPostingBatchId == x.Id), ct)
+            ?? throw new StoresConflictException("The source posting batch is missing or already reversed.");
+        var movements = await db.StockMovements.AsNoTracking().Where(x => x.StockPostingBatchId == batch.Id)
+            .OrderBy(x => x.BatchLineOrdinal).ToListAsync(ct);
+        var ordinal = 0;
+        // The posting function restores ownership/provenance fields from the linked
+        // original. It also requires these item, location and source references.
+        var legs = movements.Select(x => new Dictionary<string, object?>
+        {
+            ["batchLineOrdinal"] = ++ordinal, ["reversesStockMovementId"] = x.Id,
+            ["itemId"] = x.ItemId, ["warehouseConditionLocationId"] = x.WarehouseConditionLocationId,
+            ["goodsReceiptLineId"] = x.GoodsReceiptLineId, ["qcInspectionRevisionId"] = x.QcInspectionRevisionId,
+            ["materialIssueRequestLineId"] = x.MaterialIssueRequestLineId,
+            ["deliveryChallanLineId"] = x.DeliveryChallanLineId,
+            ["originGoodsReceiptLineId"] = x.OriginGoodsReceiptLineId,
+            ["movementLeg"] = "REVERSAL", ["quantityIn"] = x.QuantityOut, ["quantityOut"] = x.QuantityIn,
+            ["postingIdentity"] = $"REVERSAL:{x.Id:N}"
+        }).ToList();
+        await Post(company.Id, "REVERSAL", batch.Id, key, fingerprint,
+            Hash($"REVERSAL:{batch.Id}:{key}"), actor, legs, ct);
     }
 
     public async Task<QcInspectionResult?> GetAsync(string inspectionNumber,CancellationToken ct){var company=await Company(ct);var x=await db.QcInspections.AsNoTracking().SingleOrDefaultAsync(i=>i.CompanyId==company.Id&&i.InspectionNumber==inspectionNumber.Trim().ToUpperInvariant(),ct);return x is null?null:await LoadInspection(x.Id,company.Id,false,ct);}
 
     private async Task<QcInspectionResult> LoadInspection(Guid inspectionId,Guid companyId,bool replayed,CancellationToken ct)
     {
-        var inspection=await db.QcInspections.AsNoTracking().Include(x=>x.GoodsReceiptLine).ThenInclude(x=>x!.GoodsReceipt).SingleAsync(x=>x.CompanyId==companyId&&x.Id==inspectionId,ct);var revision=await db.QcInspectionRevisions.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.QcInspectionId==inspectionId).OrderByDescending(x=>x.RevisionNumber).FirstAsync(ct);var lotDispositionId=await db.QcInspectionLotDispositions.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.QcInspectionRevisionId==revision.Id).Select(x=>x.Id).SingleAsync(ct);var allocation=await db.GoodsReceiptLineLotAllocations.AsNoTracking().SingleAsync(x=>x.Id==inspection.GoodsReceiptLineLotAllocationId,ct);var parameters=await db.QcInspectionParameterResults.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id).OrderBy(x=>x.ParameterCodeSnapshot).ThenBy(x=>x.SampleOrdinal).Select(x=>new QcParameterResultView(x.Id,x.ParameterCodeSnapshot,x.ObservedNumericValue.HasValue?x.ObservedNumericValue.Value.ToString():x.ObservedTextValue??string.Empty,x.Result)).ToListAsync(ct);var serials=await db.QcInspectionSerialDispositions.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id).Join(db.InventorySerials,s=>s.InventorySerialId,i=>i.Id,(s,i)=>new QcSerialDispositionView(i.Id,i.StoredSerialNumber,s.Disposition)).ToListAsync(ct);var batch=await db.StockPostingBatches.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id&&x.PostingKind=="QC_DISPOSITION").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);var line=inspection.GoodsReceiptLine!;return new(inspection.Id,inspection.InspectionNumber,revision.Id,lotDispositionId,revision.RevisionNumber,allocation.Id,line.GoodsReceipt!.GrnNumber,line.ItemCodeSnapshot,allocation.LotOrdinal,revision.InspectedQuantity,revision.AcceptedQuantity,revision.RejectedQuantity,revision.DiscrepancyPendingQuantity,revision.Decision,revision.Status,revision.InspectorBasis,revision.InspectorEmployeeId,batch,replayed,parameters,serials);
+        var inspection=await db.QcInspections.AsNoTracking().Include(x=>x.GoodsReceiptLine).ThenInclude(x=>x!.GoodsReceipt).SingleAsync(x=>x.CompanyId==companyId&&x.Id==inspectionId,ct);var revision=await db.QcInspectionRevisions.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.QcInspectionId==inspectionId).OrderByDescending(x=>x.RevisionNumber).FirstAsync(ct);var lotDispositionId=await db.QcInspectionLotDispositions.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.QcInspectionRevisionId==revision.Id).Select(x=>x.Id).SingleAsync(ct);var allocation=await db.GoodsReceiptLineLotAllocations.AsNoTracking().SingleAsync(x=>x.Id==inspection.GoodsReceiptLineLotAllocationId,ct);var parameters=await db.QcInspectionParameterResults.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id).OrderBy(x=>x.ParameterCodeSnapshot).ThenBy(x=>x.SampleOrdinal).Select(x=>new QcParameterResultView(x.Id,x.ParameterCodeSnapshot,x.ObservedNumericValue.HasValue?x.ObservedNumericValue.Value.ToString():x.ObservedTextValue??string.Empty,x.Result)).ToListAsync(ct);var serials=await db.QcInspectionSerialDispositions.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id).Join(db.InventorySerials,s=>s.InventorySerialId,i=>i.Id,(s,i)=>new QcSerialDispositionView(i.Id,i.StoredSerialNumber,s.Disposition)).ToListAsync(ct);var receiptSerials=await db.GoodsReceiptLineSerials.AsNoTracking().Where(x=>x.CompanyId==companyId&&x.GoodsReceiptLineLotAllocationId==allocation.Id&&x.InventorySerialId.HasValue).OrderBy(x=>x.SerialOrdinal).Select(x=>x.InventorySerialId!.Value).ToListAsync(ct);var batch=await db.StockPostingBatches.AsNoTracking().Where(x=>x.QcInspectionRevisionId==revision.Id&&x.PostingKind=="QC_DISPOSITION").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);var line=inspection.GoodsReceiptLine!;return new(inspection.Id,inspection.InspectionNumber,revision.Id,lotDispositionId,revision.RevisionNumber,allocation.Id,line.GoodsReceipt!.GrnNumber,line.ItemCodeSnapshot,allocation.LotOrdinal,revision.InspectedQuantity,revision.AcceptedQuantity,revision.RejectedQuantity,revision.DiscrepancyPendingQuantity,revision.Decision,revision.Status,revision.InspectorBasis,revision.InspectorEmployeeId,batch,replayed,parameters,serials){InventorySerialIds=receiptSerials};
     }
 
     private IQueryable<InventoryConcession> ConcessionQuery(bool tracking=false){var q=db.InventoryConcessions.Include(x=>x.Allocations).ThenInclude(x=>x.Serials);return tracking?q:q.AsNoTracking();}
@@ -142,7 +251,7 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user) 
         var allocation=x.Allocations.SingleOrDefault();var serials=allocation?.Serials.Select(s=>s.InventorySerialId).Order().ToList()??[];var batch=await db.StockPostingBatches.AsNoTracking().Where(b=>b.InventoryConcessionId==x.Id&&b.PostingKind=="CONCESSION_ACCEPTANCE").Select(b=>(Guid?)b.Id).SingleOrDefaultAsync(ct);var annotation=await db.InventoryProvenanceAnnotations.AsNoTracking().Where(a=>a.InventoryConcessionId==x.Id).OrderBy(a=>a.CreatedAt).Select(a=>a.DetailsJson).FirstOrDefaultAsync(ct);return new(x.Id,x.ConcessionNumber,x.Status,x.QcInspectionRevisionId,x.QcInspectionLotDispositionId,x.RequestedQuantity,allocation?.GoodsReceiptLineLotAllocationId??Guid.Empty,serials,x.FailedParameterSnapshot,x.MeasuredValueSnapshot,x.TechnicalAcceptanceReason,x.IntendedUse,x.CreatedByEmployeeId,x.DecidedByEmployeeId,x.DecidedRoleCode,batch,allocation?.AcceptedProvenanceLayerId,annotation,x.Version,replayed);
     }
 
-    private IQueryable<QcInspectionPolicy> EffectivePolicies(Guid companyId,Guid itemId,Guid categoryId,DateOnly on)=>db.QcInspectionPolicies.Where(x=>x.CompanyId==companyId&&x.IsActive&&x.ApprovalStatus=="APPROVED"&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on)&&(x.ItemId==itemId||(x.ItemId==null&&x.ItemCategoryId==categoryId)));
+    private IQueryable<QcInspectionPolicy> EffectivePolicies(Guid companyId,Guid itemId,Guid categoryId,DateOnly on)=>db.QcInspectionPolicies.Where(x=>x.CompanyId==companyId&&x.IsActive&&(x.ApprovalStatus==SESS.NexaERP.Domain.Masters.MasterApprovalStatuses.Approved||x.ApprovalStatus=="APPROVED")&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on)&&(x.ItemId==itemId||(x.ItemId==null&&x.ItemCategoryId==categoryId)));
     private async Task<WarehouseConditionLocation> EffectiveLocation(Guid companyId,Guid id,string condition,DateOnly on,CancellationToken ct)=>await db.WarehouseConditionLocations.SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.Id==id&&x.ConditionCode==condition&&x.IsActive&&x.EffectiveFrom<=on&&(x.EffectiveTo==null||x.EffectiveTo>=on),ct)??throw new StoresConflictException($"No effective {condition} condition location was found.");
     private async Task<string> NextNumber(string prefix,Guid companyId,CancellationToken ct){await Advisory($"NUMBER:{companyId}:{prefix}",ct);var count=prefix=="QCI"?await db.QcInspections.CountAsync(x=>x.CompanyId==companyId,ct):await db.InventoryConcessions.CountAsync(x=>x.CompanyId==companyId,ct);return $"{prefix}-{DateTime.UtcNow:yyyyMMdd}-{count+1:000001}";}
     private Task Advisory(string value,CancellationToken ct)=>db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({value},0))",ct);

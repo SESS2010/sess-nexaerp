@@ -44,12 +44,14 @@ public sealed class StoresSlice3QcTests
     [Fact]
     public void QcReadModelsExposeMandatoryDownstreamIdentifiers()
     {
-        var contract=Read("src","SESS.NexaERP.Application","Stores","QcContracts.cs");
-        var service=Read("src","SESS.NexaERP.Infrastructure","Stores","EfQcWorkflowService.cs");
-        Assert.Contains("IReadOnlyList<Guid> InventorySerialIds",contract);
-        Assert.Contains("Guid QcInspectionLotDispositionId",contract);
-        Assert.Contains("x.GoodsReceiptLineLotAllocationId==a.Id&&x.InventorySerialId.HasValue",service);
-        Assert.Contains("x.QcInspectionRevisionId==revision.Id).Select(x=>x.Id).SingleAsync",service);
+        var queue = typeof(SESS.NexaERP.Application.Stores.QcQueueItem);
+        var inspection = typeof(SESS.NexaERP.Application.Stores.QcInspectionResult);
+        Assert.Equal(typeof(IReadOnlyList<Guid>), queue.GetProperty("InventorySerialIds")!.PropertyType);
+        Assert.Equal(typeof(Guid?), queue.GetProperty("CurrentRevisionId")!.PropertyType);
+        Assert.Equal(typeof(string), queue.GetProperty("InspectionNumber")!.PropertyType);
+        Assert.Equal(typeof(IReadOnlyList<Guid>), inspection.GetProperty("InventorySerialIds")!.PropertyType);
+        Assert.Equal(typeof(Guid), inspection.GetProperty("QcInspectionLotDispositionId")!.PropertyType);
+        // Real identifier values, company scope and serial reconciliation are HTTP-tested.
     }
 
     private static string Read(params string[] parts)=>File.ReadAllText(Path.Combine([Root,..parts]));

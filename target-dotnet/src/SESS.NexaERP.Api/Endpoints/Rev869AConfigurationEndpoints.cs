@@ -21,6 +21,7 @@ public static partial class Rev869AConfigurationEndpoints
         group.MapGet("/policies", async (NexaErpDbContext db, CancellationToken ct) => Results.Ok(await db.OrganizationPolicies.AsNoTracking().OrderBy(x => x.OrganizationId).ThenBy(x => x.PolicyCode).ToListAsync(ct)))
             .RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
         group.MapPost("/employee-identities", CreateIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
+        group.MapPost("/employee-identities/{identityId:guid}/revoke", RevokeIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Deactivate);
         group.MapGet("/employee-identities", ListEmployeeIdentities).RequirePagePermission("security.employee-identities", PagePermissionActions.View);
         group.MapPost("/operational-scopes", CreateScope).RequirePagePermission("security.operational-scopes", PagePermissionActions.Create);
         group.MapGet("/operational-scopes", ListOperationalScopes).RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
@@ -43,12 +44,17 @@ public static partial class Rev869AConfigurationEndpoints
         group.MapPost("/warehouse-condition-locations", CreateWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Create);
         group.MapGet("/warehouse-condition-locations", ListWarehouseConditionLocations).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.View);
         group.MapPost("/warehouse-condition-locations/{locationId:guid}/close", CloseWarehouseConditionLocation).RequirePagePermission("masters.warehouse-condition-locations", PagePermissionActions.Deactivate);
+        group.MapPost("/store-category-routes", CreateStoreCategoryRoute).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.Create);
+        group.MapGet("/store-category-routes", ListStoreCategoryRoutes).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.View);
+        group.MapPost("/store-category-routes/{routeId:guid}/close", CloseStoreCategoryRoute).RequirePagePermission(StoreCategoryRoutesPage, PagePermissionActions.Deactivate);
         group.MapPost("/qc-inspection-policies", CreateQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Create);
         group.MapGet("/qc-inspection-policies", ListQcPolicies).RequirePagePermission("qc.inspection-policies", PagePermissionActions.View);
+        group.MapPost("/qc-inspection-policies/{policyId:guid}/approve", ApproveQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Approve);
+        group.MapPost("/qc-inspection-policies/{policyId:guid}/reject", RejectQcPolicy).RequirePagePermission("qc.inspection-policies", PagePermissionActions.Reject);
         return endpoints;
     }
 
-    private static async Task<IResult> CreateIdentity(CreateEmployeeIdentityMappingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
+    private static async Task<IResult> CreateIdentityCore(CreateEmployeeIdentityMappingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
         if (!string.Equals(request.IdentityType, IdentityTypes.Human, StringComparison.OrdinalIgnoreCase)) return Results.BadRequest(new { message = "REV869A creates employee-linked HUMAN identities only; shared human logins are prohibited." });
         if (string.IsNullOrWhiteSpace(request.Issuer) || string.IsNullOrWhiteSpace(request.Subject) || request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Issuer, subject and a valid effective range are required." });
@@ -65,6 +71,8 @@ public static partial class Rev869AConfigurationEndpoints
         var issuer = EmployeeIdentityMapping.NormalizeIssuer(request.Issuer);
         var subject = EmployeeIdentityMapping.NormalizeSubject(request.Subject);
         if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
+        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.Issuer == issuer && x.Subject == subject && x.EmployeeId != employee.Id, ct))
+            return Results.Conflict(new { message = "This issuer and subject already identify a different employee." });
         var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.EmployeeIdentityMappings.Add(entity);
         AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
@@ -255,7 +263,7 @@ public static partial class Rev869AConfigurationEndpoints
             qualification.VerifiedByEmployeeId.HasValue || qualification.ApprovedByEmployeeId.HasValue)
             return Results.Conflict(new { message = "Only a retained actorless Draft qualification can be normalized." });
         if (await db.EmployeeIdentityMappings.AsNoTracking().AnyAsync(x =>
-            x.OrganizationId == qualification.OrganizationId && x.Subject == qualification.CreatedBy && x.IsActive, ct))
+            x.CompanyId == qualification.CompanyId && x.OrganizationId == qualification.OrganizationId && x.Subject == qualification.CreatedBy, ct))
             return Results.Conflict(new { message = "Only a retained actorless Draft qualification can be normalized." });
 
         var before = new
@@ -339,27 +347,44 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Qualification lifecycle remarks are required." });
 
         if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
+
+        // Scope denial evidence must be committed independently. Opening the business transaction
+        // before this check caused the Denied audit row to be rolled back when the endpoint returned.
+        var scopeCandidate = await db.VendorQualifications.AsNoTracking()
+            .Where(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId)
+            .Select(x => new { x.Id, x.CompanyId, x.OrganizationId, x.CreatedBy, x.Version })
+            .SingleOrDefaultAsync(ct);
+        if (scopeCandidate is null) return Results.NotFound();
+        if (scopeCandidate.Version != request.ExpectedVersion)
+            return Results.Conflict(new { message = "Vendor qualification version is stale." });
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var historicalCreators = await db.EmployeeIdentityMappings.AsNoTracking()
+            .Where(x => x.CompanyId == scopeCandidate.CompanyId &&
+                        x.OrganizationId == scopeCandidate.OrganizationId &&
+                        x.Subject == scopeCandidate.CreatedBy)
+            .Select(x => x.EmployeeId).Distinct().Take(2).ToListAsync(ct);
+        if (historicalCreators.Count != 1)
+            return Results.Conflict(new { message = "Qualification creator history is missing or ambiguous. An administrator must reconcile its retained employee identity." });
+        var creatorEmployeeId = historicalCreators[0];
+        if (creatorEmployeeId == user.EmployeeId)
+            return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
+
+        // Vendor qualification is organization-wide configuration: it has no truthful record
+        // department. Require a currently effective company scope without inventing one.
+        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode,
+            scopeCandidate.OrganizationId, today, ct);
+        if (!scope.Allowed)
+        {
+            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), scopeCandidate.Id.ToString(), null,
+                new { scope.Reason, user.RoleCode }, ct);
+            return Results.Forbid();
+        }
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var qualification = await db.VendorQualifications.SingleOrDefaultAsync(x => x.Id == qualificationId && x.OrganizationId == user.OrganizationId, ct);
         if (qualification is null) return Results.NotFound();
         if (qualification.Version != request.ExpectedVersion)
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
-
-        var creatorEmployeeId = await db.EmployeeIdentityMappings.AsNoTracking()
-            .Where(x => x.OrganizationId == qualification.OrganizationId && x.Subject == qualification.CreatedBy && x.IsActive)
-            .Select(x => (Guid?)x.EmployeeId).SingleOrDefaultAsync(ct);
-        if (!creatorEmployeeId.HasValue || creatorEmployeeId == user.EmployeeId)
-            return Results.Conflict(new { message = "Qualification creator cannot verify or approve the same qualification." });
-        var scope = await scopes.AuthorizeAsync(user.EmployeeId.Value, user.RoleCode,
-            new RecordScopeTarget(qualification.OrganizationId, null, null, null, creatorEmployeeId),
-            DateOnly.FromDateTime(DateTime.UtcNow), ct);
-        if (!scope.Allowed)
-        {
-            await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), qualification.Id.ToString(), null,
-                new { scope.Reason, user.RoleCode }, ct);
-            return Results.Forbid();
-        }
-
         var before = new
         {
             qualification.VerificationStatus,
@@ -505,6 +530,7 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> CreateQcPolicy(CreateQcInspectionPolicyRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
+        _ = user.RequireRole("create", "QC_MANAGER");
         if (string.IsNullOrWhiteSpace(request.ItemCode) == string.IsNullOrWhiteSpace(request.ItemCategoryCode) || request.SampleSize <= 0 || (request.LowerLimit.HasValue && request.UpperLimit.HasValue && request.UpperLimit < request.LowerLimit)) return Results.BadRequest(new { message = "QC policy requires exactly one item/category, valid limits and positive sample size." });
         var organization=request.OrganizationId.Trim().ToUpperInvariant();if(!string.Equals(organization,user.OrganizationId,StringComparison.Ordinal))return Results.Forbid();
         var companyId=await db.Companies.Where(x=>x.Code==organization&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
@@ -517,10 +543,13 @@ public static partial class Rev869AConfigurationEndpoints
         var parameter = MasterEndpointHelpers.NormalizeCode(request.ParameterCode);
         var overlap = await db.QcInspectionPolicies.AnyAsync(x => x.CompanyId==companyId.Value&&x.OrganizationId == organization && x.ItemId == itemId && x.ItemCategoryId == categoryId && x.ParameterCode == parameter && x.IsActive && x.EffectiveFrom <= (request.EffectiveTo ?? DateOnly.MaxValue) && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= request.EffectiveFrom), ct);
         if (overlap) return Results.Conflict(new { message = "An overlapping QC policy exists." });
+        if (string.IsNullOrWhiteSpace(request.Remarks) || string.IsNullOrWhiteSpace(request.InspectionMethod)) return Results.BadRequest(new { message = "QC policy method and preparation remarks are required." });
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var entity = new QcInspectionPolicy { CompanyId=companyId.Value, OrganizationId = organization, ItemId = itemId, ItemCategoryId = categoryId, ParameterCode = parameter, MeasurementUomId = uomId.Value, LowerLimit = request.LowerLimit, UpperLimit = request.UpperLimit, InspectionMethod = request.InspectionMethod.Trim(), SampleSize = request.SampleSize, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatedBy = user.LoginId };
         db.QcInspectionPolicies.Add(entity); AddHistory(db, entity.OrganizationId, nameof(QcInspectionPolicy), entity.Id, "CreateVersion", null, entity, request.Remarks, user,companyId.Value);
         await db.SaveChangesAsync(ct); await audit.WriteAsync("QC", "CreateInspectionPolicy", nameof(QcInspectionPolicy), entity.Id.ToString(), null, entity, ct);
-        return Results.Created($"/api/v1/rev869a/configuration/qc-inspection-policies/{entity.Id}", new { entity.Id });
+        await transaction.CommitAsync(ct);
+        return Results.Created($"/api/v1/rev869a/configuration/qc-inspection-policies/{entity.Id}", new { entity.Id, entity.ApprovalStatus, entity.Version });
     }
 
     private static async Task<IResult> ListQcPolicies(Guid? itemId,Guid? categoryId,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
@@ -529,8 +558,8 @@ public static partial class Rev869AConfigurationEndpoints
         var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(itemId.HasValue)query=query.Where(x=>x.ItemId==itemId.Value);
         if(categoryId.HasValue)query=query.Where(x=>x.ItemCategoryId==categoryId.Value);
-        if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.ApprovalStatus==MasterApprovalStatuses.Approved&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
-        var rows=await query.Include(x=>x.MeasurementUom).OrderBy(x=>x.ParameterCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.ParameterCode,MeasurementUomCode=x.MeasurementUom!.Code,x.LowerLimit,x.UpperLimit,x.InspectionMethod,x.SampleSize}).ToListAsync(ct);return Results.Ok(rows);
+        if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&(x.ApprovalStatus==MasterApprovalStatuses.Approved||x.ApprovalStatus=="APPROVED")&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
+        var rows=await query.Include(x=>x.MeasurementUom).OrderBy(x=>x.ParameterCode).ThenByDescending(x=>x.EffectiveFrom).Select(x=>new{x.Id,x.CompanyId,x.ItemId,ItemCode=x.Item==null?null:x.Item.ItemCode,x.ItemCategoryId,x.ParameterCode,MeasurementUomCode=x.MeasurementUom!.Code,x.LowerLimit,x.UpperLimit,x.InspectionMethod,x.SampleSize,x.ApprovalStatus,x.IsActive,x.EffectiveFrom,x.EffectiveTo,x.Version}).ToListAsync(ct);return Results.Ok(rows);
     }
 
     private static async Task RollbackCommandAttemptAsync(

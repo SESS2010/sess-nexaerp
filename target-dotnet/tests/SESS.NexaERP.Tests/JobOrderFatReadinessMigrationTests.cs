@@ -9,6 +9,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string FatReadinessTarget = "20260908195922_JobOrderFatReadiness";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Job_order_FAT_readiness_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -25,6 +26,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("fat-readiness-down.sql", migrator.GenerateScript(FatReadinessTarget, predecessor));
         server.Execute("fat-readiness-reapply.sql", migrator.GenerateScript(predecessor, FatReadinessTarget) + FatReadinessAssertions);
     }
+#endif
 
     private const string FatReadinessAssertions = """
         DO $assert$

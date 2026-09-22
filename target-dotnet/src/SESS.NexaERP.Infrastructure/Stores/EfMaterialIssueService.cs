@@ -17,6 +17,7 @@ public sealed partial class EfMaterialIssueService(
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly string[] JobSituations =
         ["CHAMBER_MANUFACTURE", "SERVICE_CUSTOMER_PO", "SITE_PROJECT_PO"];
+    private const string SpareSaleSituation = "SPARE_SALE";
 
     private IQueryable<MaterialIssueRequest> RequestQuery(bool tracking = false)
     {

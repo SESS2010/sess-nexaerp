@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using SESS.NexaERP.Api.Middleware;
 using SESS.NexaERP.Api.Serialization;
@@ -115,6 +116,30 @@ public sealed class ApiWireContractTests
             document.RootElement.EnumerateObject().Select(property => property.Name).Order().ToArray());
     }
 
+    [Theory]
+    [InlineData("/estimated-boms", "{\"JobOrderId\":\"not-a-guid\"}", "JobOrderId")]
+    [InlineData("/material-issues/from-request", "{\"MaterialIssueRequestId\":\"not-a-guid\"}", "MaterialIssueRequestId")]
+    [InlineData("/vendor-bills", "{\"GoodsReceiptId\":\"not-a-guid\"}", "GoodsReceiptId")]
+    public async Task Malformed_Guids_are_global_field_named_bad_requests(string path, string json, string field)
+    {
+        await using var host = await ContractHost.StartAsync();
+        using var client = new HttpClient { BaseAddress = host.BaseAddress };
+        using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        using var response = await client.PostAsync(path, content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(responseBody);
+        Assert.Equal("VALIDATION_FAILED", document.RootElement.GetProperty("Code").GetString());
+        Assert.True(document.RootElement.GetProperty("Errors").TryGetProperty(field, out var errors), responseBody);
+        Assert.Contains(field, errors[0].GetString(), StringComparison.Ordinal);
+    }
+
+    private sealed record EstimatedBomBindingProbe(Guid JobOrderId);
+    private sealed record MaterialIssueBindingProbe(Guid MaterialIssueRequestId);
+    private sealed record VendorBillBindingProbe(Guid GoodsReceiptId);
+
     private sealed record ContractProbe(Guid EmployeeId, string EmployeeName);
 
     private sealed class ContractHost(WebApplication app, Uri baseAddress) : IAsyncDisposable
@@ -135,6 +160,7 @@ public sealed class ApiWireContractTests
             });
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
+            builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 
             var app = builder.Build();
             app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
@@ -153,6 +179,9 @@ public sealed class ApiWireContractTests
             app.MapGet("/idempotency", () => Results.Conflict(new { message = "Idempotency key conflicts with a different request." }));
             app.MapGet("/business", () => Results.Conflict(new { message = "Document is already finalized." }));
             app.MapGet("/exception", IResult () => throw new InvalidOperationException("secret database detail"));
+            app.MapPost("/estimated-boms", (EstimatedBomBindingProbe request) => Results.Ok(request));
+            app.MapPost("/material-issues/from-request", (MaterialIssueBindingProbe request) => Results.Ok(request));
+            app.MapPost("/vendor-bills", (VendorBillBindingProbe request) => Results.Ok(request));
 
             await app.StartAsync();
             return new ContractHost(app, new Uri($"http://127.0.0.1:{port}"));

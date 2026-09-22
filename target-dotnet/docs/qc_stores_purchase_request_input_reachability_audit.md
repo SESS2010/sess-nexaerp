@@ -1,5 +1,17 @@
 # QC, Stores, and Purchase request-input reachability audit
 
+> **16 September correction — this is a historical, scoped audit.**
+> Its 42 request records did not include QC policy preparation/approval in the
+> REV869A configuration API. It therefore did not prove that an effective policy
+> could be created through the application. Its correction-input claim also
+> missed all-discrepancy serialized inspections, whose serial dispositions are
+> empty. The QC correction now under verification adds policy decisions,
+> unresolved queue links and receipt serial IDs in inspection detail.
+> See [QC correction evidence](qc-policy-reachability-findings.md).
+> These results must not be treated as proof of ERP-wide actor, state-exit or
+> seeded-master reachability.
+
+
 ## Rule and scope
 
 Audit base: 9792ae4.

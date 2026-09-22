@@ -1,0 +1,20 @@
+{
+  "Kind": "ConditionLocations",
+  "Action": "Create",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": [
+    {
+      "OperationId": "REPLACE-WITH-NEW-GUID",
+      "Body": {
+        "OrganizationId": "SESS_PVT_LTD",
+        "EffectiveFrom": "2026-09-28",
+        "EffectiveTo": null,
+        "Remarks": "REPLACE with approved input/review reference",
+        "WarehouseCode": "MAIN",
+        "RackBinId": "REPLACE-WITH-RACK-READ-BACK-ID",
+        "ConditionCode": "AVAILABLE"
+      }
+    }
+  ]
+}

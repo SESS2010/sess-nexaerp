@@ -2,7 +2,10 @@ using SESS.NexaERP.Application.Common;
 
 namespace SESS.NexaERP.Application.Stores;
 
-public sealed record EstimatedBomLineInput(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks);
+// EstimatedUnitValue typed by the engineer records ENGINEER; UseSuggestedValue accepts the offered
+// value (last accepted bill, else opening-stock carrying value) and records its source; neither
+// leaves the line unpriced, and nothing is ever prefilled silently.
+public sealed record EstimatedBomLineInput(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue = null, bool UseSuggestedValue = false);
 public sealed record CreateEstimatedBomRequest(Guid JobOrderId, string RevisionReason, IReadOnlyList<EstimatedBomLineInput> Lines, string IdempotencyKey);
 public sealed record ReplaceEstimatedBomLinesRequest(uint ExpectedVersion, string RevisionReason, IReadOnlyList<EstimatedBomLineInput> Lines, string IdempotencyKey);
 public sealed record EstimatedBomActionRequest(uint ExpectedVersion, string Remarks, string IdempotencyKey);
@@ -11,7 +14,9 @@ public sealed record MergeItemRequest(Guid SurvivorItemId, string Reason, string
 
 public sealed record EstimatedBomLineView(Guid Id, int LineNumber, Guid OriginalItemId, string OriginalItemCode,
     Guid CanonicalItemId, string CanonicalItemCode, bool CanonicalItemActive, string CanonicalItemApprovalStatus,
-    Guid UomId, string UomCode, decimal Quantity, string? Remarks);
+    Guid UomId, string UomCode, decimal Quantity, string? Remarks, decimal? EstimatedUnitValue,
+    bool EstimatedUnitValueOverridden, string CurrencyCode, string? ValueSource = null,
+    decimal? SuggestedUnitValue = null, string? SuggestedValueSource = null);
 public sealed record EstimatedBomCanonicalLineView(Guid CanonicalItemId, string CanonicalItemCode,
     bool CanonicalItemActive, string CanonicalItemApprovalStatus, Guid BaseUomId, string BaseUomCode,
     decimal BaseQuantity, IReadOnlyList<EstimatedBomLineView> SourceLines);
@@ -37,6 +42,7 @@ public interface IEstimatedBomService
     Task<EstimatedBomView> ReplaceDraftAsync(string bomNumber, ReplaceEstimatedBomLinesRequest request, CancellationToken ct);
     Task<EstimatedBomView> SubmitAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
     Task<EstimatedBomView> ApproveAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
+    Task<EstimatedBomView> ReturnToDraftAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct);
     Task<EstimatedBomView> CreateRevisionAsync(string bomNumber, NewEstimatedBomRevisionRequest request, CancellationToken ct);
     Task<IReadOnlyList<EstimatedBomHistoryView>> HistoryAsync(string bomNumber, CancellationToken ct);
     Task<EstimatedBomWorkbookFile> TemplateAsync(CancellationToken ct);

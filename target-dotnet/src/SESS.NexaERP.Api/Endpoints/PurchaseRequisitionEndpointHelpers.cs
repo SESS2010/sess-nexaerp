@@ -61,11 +61,12 @@ public static partial class PurchaseRequisitionEndpoints
         return null;
     }
 
-    private static async Task<PurchaseRequisition> BuildDraftAsync(CreatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
+    private static async Task<PurchaseRequisition> BuildDraftAsync(CreatePurchaseRequisitionRequest request, NexaErpDbContext db, ICurrentUser user, CancellationToken ct, Guid? creationId = null)
     {
         var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
         var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => x.Id).SingleAsync(ct);
         var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, CustomerPurchaseOrderId = request.CustomerPurchaseOrderId, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
+        if (creationId.HasValue) pr.Id = creationId.Value;
         pr.RequestingDepartmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode)).Select(x => x.Id).SingleAsync(ct);
         pr.RequesterEmployeeId = await db.Employees.Where(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode)).Select(x => x.Id).SingleAsync(ct);
         pr.DeliveryWarehouseId = await db.Warehouses.Where(x => x.WarehouseCode == MasterEndpointHelpers.NormalizeCode(request.DeliveryWarehouseCode) && x.IsActive).Select(x => x.Id).SingleAsync(ct);

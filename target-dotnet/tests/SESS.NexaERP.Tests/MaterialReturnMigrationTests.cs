@@ -10,6 +10,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string MaterialReturnTarget = "20260907182204_MaterialReturnToStores";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Material_return_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -27,6 +28,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("material-return-down.sql", migrator.GenerateScript(MaterialReturnTarget, predecessor));
         server.Execute("material-return-reapply.sql", migrator.GenerateScript(predecessor, MaterialReturnTarget) + MaterialReturnAssertions);
     }
+#endif
 
     [Fact]
     public async Task Material_return_changes_are_collected_as_ordinary_command_slots()

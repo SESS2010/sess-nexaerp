@@ -50,6 +50,7 @@ public sealed class MaterialIssueLine
     public Guid? InventoryLotId { get; set; }
     public Guid? InventorySerialId { get; set; }
     public Guid? OriginGoodsReceiptLineId { get; set; }
+    public Guid? OriginOpeningStockLineId { get; set; }
     public Guid? GoodsReceiptLineLotAllocationId { get; set; }
     public Guid? QcInspectionLotDispositionId { get; set; }
     public Guid WarehouseConditionLocationId { get; set; }

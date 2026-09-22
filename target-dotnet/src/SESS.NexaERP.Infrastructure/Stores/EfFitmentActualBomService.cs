@@ -1,9 +1,11 @@
 using System.Data;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using NpgsqlTypes;
 using SESS.NexaERP.Application.Audit;
@@ -12,10 +14,12 @@ using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Reporting;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
 
-public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit)
+public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser user, IAuditWriter audit,
+    IOptions<ReportCalendarOptions>? calendar = null)
     : IFitmentActualBomService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -142,25 +146,207 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
         var bom = await db.ActualBoms.AsNoTracking().SingleOrDefaultAsync(x =>
             x.CompanyId == company.Id && x.JobOrderId == jobOrderId, ct);
         if (bom is null) return null;
-        var jobNumber = await db.JobOrders.Where(x => x.CompanyId == company.Id && x.Id == jobOrderId)
-            .Select(x => x.JobOrderNumber).SingleAsync(ct);
+        var job = await db.JobOrders.AsNoTracking().Where(x => x.CompanyId == company.Id && x.Id == jobOrderId)
+            .Select(x => new { x.JobOrderNumber, x.PinnedProductionBomRevisionId }).SingleAsync(ct);
+        if (!job.PinnedProductionBomRevisionId.HasValue)
+            throw new StoresConflictException("Actual BOM variance requires the Job Order's pinned Production BOM revision.");
         var entries = await db.ActualBomEntries.AsNoTracking()
             .Where(x => x.CompanyId == company.Id && x.ActualBomId == bom.Id)
-            .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial)
+            .Include(x => x.Item).Include(x => x.Uom).Include(x => x.InventorySerial).Include(x => x.OpeningStockLine)
+                .ThenInclude(x => x!.OpeningStock).ThenInclude(x => x!.AuthorizedByEmployee)
             .OrderBy(x => x.OccurredAt).ThenBy(x => x.Id).ToListAsync(ct);
-        var views = entries.Select(x => new ActualBomEntryView(x.Id, x.EntryKind,
-            x.ComponentFitmentId, x.ComponentFitmentReversalId, x.MaterialIssueLineId,
-            x.ItemId, x.Item!.ItemCode, x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase,
-            x.InventoryProvenanceLayerId, x.InventoryLotId, x.InventorySerialId,
-            x.InventorySerial?.StoredSerialNumber, x.GoodsReceiptLineId,
-            x.GrnNumberSnapshot, x.VendorBillLineId,
-            x.VendorBillNumberSnapshot, x.AcceptedMaterialValue,
-            x.AllocatedChargeValue, x.TotalAcceptedValue, x.OccurredAt)).ToArray();
-        return new(bom.Id, jobOrderId, jobNumber, bom.GeneratedAt,
+        var valuationRows = await LandedValuationsAsync(company.Id, bom.Id, ct);
+        var valuations = valuationRows.GroupBy(x => x.ActualBomEntryId).ToDictionary(x => x.Key,
+            x => new { Material = x.Sum(v => v.AcceptedMaterialValue),
+                Charges = x.Sum(v => v.AllocatedChargeValue), Total = x.Sum(v => v.TotalAcceptedValue),
+                BillLineId = (Guid?)x.OrderByDescending(v => v.CreatedAt).First().VendorBillLineId,
+                BillNumber = x.OrderByDescending(v => v.CreatedAt).First().BillNumber,
+                ValuedAt = (DateTimeOffset?)x.Max(v => v.CreatedAt) });
+        var reversalIds = entries.Where(x => x.ComponentFitmentReversalId.HasValue)
+            .Select(x => x.ComponentFitmentReversalId!.Value).ToArray();
+        var reversalFitmentIds = await db.ComponentFitmentReversals.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && reversalIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.ComponentFitmentId, ct);
+        var fitmentEntries = entries.Where(x => x.ComponentFitmentId.HasValue)
+            .ToDictionary(x => x.ComponentFitmentId!.Value);
+        var provenanceZone = (calendar?.Value ?? new ReportCalendarOptions()).Resolve(company.Code);
+        var views = entries.Select(x =>
+        {
+            var material = x.AcceptedMaterialValue; var charges = x.AllocatedChargeValue;
+            var total = x.TotalAcceptedValue; var billLineId = x.VendorBillLineId;
+            string? billNumber = string.IsNullOrWhiteSpace(x.VendorBillNumberSnapshot) ? null : x.VendorBillNumberSnapshot;
+            DateTimeOffset? valuedAt = billLineId.HasValue ? x.OccurredAt : null;
+            if (valuations.TryGetValue(x.Id, out var valuation))
+            {
+                material += valuation.Material; charges += valuation.Charges; total += valuation.Total;
+                billLineId ??= valuation.BillLineId; valuedAt = valuation.ValuedAt;
+                billNumber = valuation.BillNumber;
+            }
+            if (x.ComponentFitmentReversalId.HasValue &&
+                reversalFitmentIds.TryGetValue(x.ComponentFitmentReversalId.Value, out var reversedFitmentId) &&
+                fitmentEntries.TryGetValue(reversedFitmentId, out var original) &&
+                valuations.TryGetValue(original.Id, out var originalValuation))
+            {
+                material -= originalValuation.Material; charges -= originalValuation.Charges;
+                total -= originalValuation.Total; billLineId ??= originalValuation.BillLineId;
+                valuedAt = originalValuation.ValuedAt;
+                billNumber = originalValuation.BillNumber;
+            }
+            // Valuation resolves by origin: a GRN line is valued from its accepted bill, an opening
+            // stock line from its Accounts-confirmed ex-tax value (never from declared provenance).
+            var status = x.OpeningStockLineId.HasValue ? "OPENING_CONFIRMED" : billLineId.HasValue ? "LANDED_ACCEPTED" : "PROVISIONAL_UNBILLED";
+            return new ActualBomEntryView(x.Id, x.EntryKind, x.ComponentFitmentId,
+                x.ComponentFitmentReversalId, x.MaterialIssueLineId, x.ItemId, x.Item!.ItemCode,
+                x.Item.Name, x.UomId, x.Uom!.Code, x.QuantityBase, x.InventoryProvenanceLayerId,
+                x.InventoryLotId, x.InventorySerialId, x.InventorySerial?.StoredSerialNumber,
+                x.GoodsReceiptLineId, x.GrnNumberSnapshot, billLineId, billNumber, status,
+                material, charges, total, valuedAt, x.OccurredAt, x.OpeningStockLineId, x.OpeningStockLine?.LineReference,
+                EntryProvenance(x, billLineId, billNumber, provenanceZone));
+        }).ToArray();
+        var operational = await OperationalVarianceAsync(company.Id,
+            job.PinnedProductionBomRevisionId.Value, views, ct);
+        var commercial = await CommercialVarianceAsync(company.Id, jobOrderId, views, ct);
+        return new(bom.Id, jobOrderId, job.JobOrderNumber, bom.GeneratedAt,
             views.Sum(x => x.AcceptedMaterialValue), views.Sum(x => x.AllocatedChargeValue),
-            views.Sum(x => x.TotalAcceptedValue), views);
+            views.Sum(x => x.TotalAcceptedValue), views, operational, commercial);
     }
 
+    // Production/Stores provenance deliberately has no payment input or payable lookup.
+    // The commercially permissioned dossier owns the fuller payment sentence.
+    internal static string EntryProvenance(ActualBomEntry entry, Guid? billLineId,
+        string? billNumber, TimeZoneInfo zone)
+    {
+        if (entry.OpeningStockLineId.HasValue)
+        {
+            var line = entry.OpeningStockLine
+                ?? throw new StoresConflictException("Opening stock provenance is unavailable.");
+            if (!string.IsNullOrWhiteSpace(line.VendorBillNumber))
+                return $"Bill {line.VendorBillNumber} - declared at opening stock, not verified in this system";
+            var stock = line.OpeningStock;
+            if (stock?.AuthorizedAt is not { } authorizedAt || stock.AuthorizedByEmployee is null)
+                throw new StoresConflictException("Opening stock authorization provenance is unavailable.");
+            var date = TimeZoneInfo.ConvertTime(authorizedAt, zone).ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+            return $"Opening stock, authorised {date} by {stock.AuthorizedByEmployee.EmployeeCode}";
+        }
+        return billLineId.HasValue
+            ? $"Bill {billNumber} - accepted, matched"
+            : $"GRN {entry.GrnNumberSnapshot} - bill not yet accepted";
+    }
+
+    private async Task<IReadOnlyList<ActualBomValuationProjection>> LandedValuationsAsync(
+        Guid companyId, Guid actualBomId, CancellationToken ct)
+    {
+        var connection = (NpgsqlConnection)db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open) await connection.OpenAsync(ct);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT advance.get_actual_bom_landed_valuations(@company,@bom)::text";
+        command.Parameters.AddWithValue("company", companyId);
+        command.Parameters.AddWithValue("bom", actualBomId);
+        var json = await command.ExecuteScalarAsync(ct) as string ?? "[]";
+        return JsonSerializer.Deserialize<ActualBomValuationProjection[]>(json, JsonOptions) ?? [];
+    }
+    private async Task<ActualBomBaselineVarianceView> OperationalVarianceAsync(Guid companyId,
+        Guid revisionId, IReadOnlyList<ActualBomEntryView> actual, CancellationToken ct)
+    {
+        var revision = await db.ProductionBomRevisions.AsNoTracking().Include(x => x.Lines)
+            .SingleAsync(x => x.CompanyId == companyId && x.Id == revisionId && x.Status == "APPROVED", ct);
+        return await VarianceAsync("OPERATIONAL_PRODUCTION_BOM", revision.Id, revision.RevisionNumber,
+            revision.ApprovedAt ?? revision.CreatedAt,
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.PlannedUnitValue)), actual, ct);
+    }
+
+    private async Task<ActualBomBaselineVarianceView> CommercialVarianceAsync(Guid companyId,
+        Guid jobOrderId, IReadOnlyList<ActualBomEntryView> actual, CancellationToken ct)
+    {
+        var baselineId = await db.EstimatedBoms.AsNoTracking().Where(x => x.CompanyId == companyId &&
+            x.JobOrderId == jobOrderId && x.CommercialBaselineRevisionId != null)
+            .Select(x => x.CommercialBaselineRevisionId!.Value).SingleAsync(ct);
+        var revision = await db.EstimatedBomRevisions.AsNoTracking().Include(x => x.Lines)
+            .SingleAsync(x => x.CompanyId == companyId && x.Id == baselineId && x.Status == "APPROVED", ct);
+        return await VarianceAsync("COMMERCIAL_ESTIMATED_BOM", revision.Id, revision.RevisionNumber,
+            revision.ApprovedAt ?? revision.CreatedAt,
+            revision.Lines.Select(x => new VarianceBaselineLine(x.ItemId, x.UomId, x.Quantity, x.EstimatedUnitValue, x.ValueSource)), actual, ct);
+    }
+
+    private async Task<ActualBomBaselineVarianceView> VarianceAsync(string type, Guid revisionId,
+        int revisionNumber, DateTimeOffset effectiveAt, IEnumerable<VarianceBaselineLine> baselineLines,
+        IReadOnlyList<ActualBomEntryView> actualLines, CancellationToken ct)
+    {
+        var baseline = new Dictionary<Guid, (decimal Quantity, decimal Value, bool Available)>();
+        // A baseline valued from opening stock and one the engineer typed are different claims.
+        var sources = new Dictionary<Guid, string?>();
+        foreach (var line in baselineLines)
+        {
+            var itemId = await TerminalItemIdAsync(line.ItemId, ct);
+            var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == itemId, ct);
+            var quantity = await ToBaseQuantityAsync(line.Quantity, line.UomId, item.BaseUomId,
+                DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
+            var prior = baseline.GetValueOrDefault(itemId);
+            sources[itemId] = !sources.TryGetValue(itemId, out var priorSource) ? line.ValueSource
+                : string.Equals(priorSource, line.ValueSource, StringComparison.Ordinal) ? priorSource : "MIXED";
+            baseline[itemId] = (prior.Quantity + quantity,
+                prior.Value + (line.UnitValue.HasValue ? line.Quantity * line.UnitValue.Value : 0),
+                (prior.Available || prior.Quantity == 0) && line.UnitValue.HasValue);
+        }
+        var actual = new Dictionary<Guid, (decimal Quantity, decimal Value)>();
+        foreach (var line in actualLines)
+        {
+            var itemId = await TerminalItemIdAsync(line.ItemId, ct);
+            var prior = actual.GetValueOrDefault(itemId);
+            actual[itemId] = (prior.Quantity + line.QuantityBase, prior.Value + line.TotalAcceptedValue);
+        }
+        var ids = baseline.Keys.Union(actual.Keys).ToArray();
+        var items = await db.Items.AsNoTracking().Where(x => ids.Contains(x.Id))
+            .Select(x => new { x.Id, x.ItemCode, x.Name, x.BaseUomId }).ToDictionaryAsync(x => x.Id, ct);
+        var uomIds = items.Values.Select(x => x.BaseUomId).Distinct().ToArray();
+        var uoms = await db.Uoms.AsNoTracking().Where(x => uomIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Code, ct);
+        var lines = ids.Select(id =>
+        {
+            var item = items[id]; var actualValue = actual.GetValueOrDefault(id);
+            var baselineValue = baseline.GetValueOrDefault(id);
+            decimal? frozenValue = baselineValue.Available ? baselineValue.Value : null;
+            return new ActualBomVarianceLineView(id, item.ItemCode, item.Name, item.BaseUomId,
+                uoms[item.BaseUomId], baselineValue.Quantity, actualValue.Quantity,
+                actualValue.Quantity - baselineValue.Quantity, frozenValue, actualValue.Value,
+                frozenValue.HasValue ? actualValue.Value - frozenValue.Value : null, sources.GetValueOrDefault(id));
+        }).OrderBy(x => x.ItemCode).ToArray();
+        var available = baseline.Values.All(x => x.Available);
+        var totalBaseline = available ? baseline.Values.Sum(x => x.Value) : (decimal?)null;
+        var totalActual = actualLines.Sum(x => x.TotalAcceptedValue);
+        return new(type, revisionId, revisionNumber, available, totalBaseline,
+            totalActual, totalBaseline.HasValue ? totalActual - totalBaseline.Value : null, lines);
+    }
+    private async Task<Guid> TerminalItemIdAsync(Guid itemId, CancellationToken ct)
+    {
+        var seen = new HashSet<Guid>();
+        while (true)
+        {
+            if (!seen.Add(itemId)) throw new StoresConflictException("Item merge alias cycle detected.");
+            var next = await db.ItemMergeAliases.AsNoTracking().Where(x => x.SourceItemId == itemId)
+                .Select(x => (Guid?)x.SurvivorItemId).SingleOrDefaultAsync(ct);
+            if (!next.HasValue) return itemId;
+            itemId = next.Value;
+        }
+    }
+
+    private async Task<decimal> ToBaseQuantityAsync(decimal quantity, Guid fromUomId,
+        Guid baseUomId, DateOnly effectiveOn, CancellationToken ct)
+    {
+        if (fromUomId == baseUomId) return quantity;
+        var conversion = await db.UomConversions.AsNoTracking().SingleAsync(x => x.IsActive &&
+            x.ApprovalStatus == "APPROVED" && x.EffectiveFrom <= effectiveOn &&
+            (!x.EffectiveTo.HasValue || x.EffectiveTo >= effectiveOn) &&
+            ((x.FromUomId == fromUomId && x.ToUomId == baseUomId) ||
+             (x.FromUomId == baseUomId && x.ToUomId == fromUomId)), ct);
+        return conversion.FromUomId == fromUomId
+            ? quantity * conversion.ConversionFactor : quantity / conversion.ConversionFactor;
+    }
+
+    private sealed record ActualBomValuationProjection(Guid ActualBomEntryId, Guid VendorBillLineId,
+        string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
+        decimal TotalAcceptedValue, DateTimeOffset CreatedAt);
+    private sealed record VarianceBaselineLine(Guid ItemId, Guid UomId, decimal Quantity, decimal? UnitValue, string? ValueSource = null);
     private IQueryable<ComponentFitment> Query() => db.ComponentFitments.AsNoTracking()
         .Include(x => x.JobOrder).Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.Item)
         .Include(x => x.MaterialIssueLine)!.ThenInclude(x => x!.MaterialIssue)

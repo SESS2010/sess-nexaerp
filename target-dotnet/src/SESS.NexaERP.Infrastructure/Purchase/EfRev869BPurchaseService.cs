@@ -53,7 +53,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             currentActorRoleCode = user.RequireRole(operation, requiredRole);
         }
         var scope = new Rev869BTransactionScope(this,
-            await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct));
+            await db.Database.BeginTransactionAsync(
+                operation == "IssuePO" ? IsolationLevel.Serializable : IsolationLevel.ReadCommitted, ct));
         currentCompanyId = await db.Companies.AsNoTracking()
             .Where(x => x.Code == RequireOrganization() && x.IsActive)
             .Select(x => x.Id).SingleAsync(ct);
@@ -83,6 +84,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         public async Task RollbackAsync(CancellationToken ct)
         {
             await owned.RollbackAsync(ct);
+            service.db.ChangeTracker.Clear();
             await service.RecordRolledBackOutcomesAsync("Rejected", "IdempotentReplayOrExplicitRollback", ct);
             service.currentCommandEnvelope = null;
             service.currentActorRoleCode = null;
@@ -95,7 +97,12 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             if (!finalized)
             {
                 try { await owned.RollbackAsync(); }
-                finally { await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None); }
+                finally
+                {
+                    // A later denial audit must not save changes from the rolled-back command.
+                    service.db.ChangeTracker.Clear();
+                    await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None);
+                }
                 service.currentCommandEnvelope = null;
                 service.currentActorRoleCode = null;
                 service.currentCompanyId = Guid.Empty;
@@ -283,7 +290,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         tax.Id, tax.OrganizationId, tax.JurisdictionCode, tax.HsnSacCode, tax.SupplyType, tax.SupplierStateCode,
         tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
         tax.IgstRate, tax.CessRate, tax.IsExempt, tax.IsReverseCharge, tax.CurrencyCode, tax.RoundingScale,
-        tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive);
+        tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive)
+        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent };
 
     private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateOnly quotationReceivedDate)
     {
@@ -313,10 +321,13 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var rfqLine = line.RequestForQuotationLine ?? throw new Rev869BConflictException("Quotation line RFQ provenance is missing.");
         var input = new Rev869BCommercialInput(line.Quantity, line.UnitRate, line.DiscountValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, calculated.Tax.CgstRate, calculated.Tax.SgstRate, calculated.Tax.IgstRate, calculated.Tax.CessRate, line.RoundOff, calculated.Tax.RoundingScale)
         { HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
-        return JsonSerializer.Serialize(new ComparisonCommercialSnapshot(
+        var snapshot = JsonSerializer.SerializeToNode(new ComparisonCommercialSnapshot(
             comparison.OrganizationId, comparison.Id, comparison.RequestForQuotationId, quote.VendorId, quote.Id,
             quote.RevisionNumber, line.Id, rfqLine.ItemId, line.Quantity, rfqLine.UomSnapshot, quote.CurrencyCode,
-            1m, input, calculated.Breakdown, calculated.Tax), JsonOptions);
+            1m, input, calculated.Breakdown, calculated.Tax), JsonOptions)!;
+        // Preserve the agreed evidence, including the shape of legacy snapshots.
+        snapshot["taxRule"] = System.Text.Json.Nodes.JsonNode.Parse(line.TaxRuleSnapshotJson);
+        return snapshot.ToJsonString(JsonOptions);
     }
     private async Task ReconcileComparisonAsync(CommercialComparison comparison, CancellationToken ct)
     {
@@ -355,7 +366,6 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         sequence.LastNumber++; sequence.UpdatedAt = DateTimeOffset.UtcNow; sequence.UpdatedBy = user.LoginId;
         return ($"{prefix}-{year}-{sequence.LastNumber:000001}", year, sequence.LastNumber);
     }
-    private void Transition(CommercialComparison comparison, string next, string action, string remarks, string correlation) { var from = comparison.Status; comparison.Status = next; comparison.TransitionCorrelationId = correlation; comparison.UpdatedAt = DateTimeOffset.UtcNow; comparison.UpdatedBy = user.LoginId; AddStatus("CommercialComparison", comparison.Id, comparison.ComparisonNumber, from, next, action, remarks, correlation); }
     private void AddApproval(CommercialComparison comparison, string action, string from, string to, string remarks, string correlation, PurchaseApprovalDecision? decision = null)
     {
         db.PurchaseTransactionApprovalHistories.Add(new PurchaseTransactionApprovalHistory { CompanyId = comparison.CompanyId, CommercialComparisonId = comparison.Id, Action = action, FromStatus = from, ToStatus = to, ApprovalRoute = comparison.ApprovalRoute, ApprovalCycle = decision?.ApprovalCycle ?? comparison.ApprovalCycle, StepNumber = decision?.StepNumber ?? 0, RequiredApprovalStepCount = decision?.RequiredStepCount ?? comparison.RequiredApprovalStepCount, ResolvedEmployeeId = decision?.ResolvedEmployeeId ?? Guid.Empty, ResolvedRoleCode = decision?.ResolvedRoleCode ?? CurrentActorRole(), SnapshotIdentity = decision?.SnapshotIdentity ?? string.Empty, ActorEmployeeId = RequireActor(), ActorLoginId = user.LoginId, ActorRoleCode = CurrentActorRole(), Remarks = RequiredRemarks(remarks), CorrelationId = correlation.Trim(), CreatedBy = user.LoginId });

@@ -1,0 +1,864 @@
+{
+    "HeadSha":  "bcfee49b148a154388a47428c76824322d21c357",
+    "FrontendSha":  "0c59254f58bd49fc13a8b919387ba0cf5a1d9988",
+    "BuiltAtUtc":  "2026-09-21T17:21:57.8459561Z",
+    "Readiness":  "CANDIDATE_BLOCKED_PRODUCTION_FRONTEND_OIDC_AND_FIELD_WITNESS",
+    "MigrationHead":  "20260920210000_StockAdjustmentPosting",
+    "Files":  [
+                  {
+                      "Path":  "api/ClosedXML.dll",
+                      "Length":  1692160,
+                      "Sha256":  "d20270efad0d3f5a17ed35c6fe512c2071b1ed40a57ce91199897f41760ec1bc"
+                  },
+                  {
+                      "Path":  "api/ClosedXML.Parser.dll",
+                      "Length":  192000,
+                      "Sha256":  "8d36e75b9b238e57ddd4122d0e2f6105acdc873bce2f297277ae0a25ddf610eb"
+                  },
+                  {
+                      "Path":  "api/DocumentFormat.OpenXml.dll",
+                      "Length":  6349424,
+                      "Sha256":  "5a0c237a7467dde85bce402d124b7a07777531607837eb59ee62a9a79905ff43"
+                  },
+                  {
+                      "Path":  "api/DocumentFormat.OpenXml.Framework.dll",
+                      "Length":  471152,
+                      "Sha256":  "ddae1f34e78971a731193e459c3aed54314f93a54d51c2457e12ccc169bf5663"
+                  },
+                  {
+                      "Path":  "api/ExcelNumberFormat.dll",
+                      "Length":  30720,
+                      "Sha256":  "d7c45b8e4e1027831e2fc8cdf941faf51d28a66feacfcaaa737da73262e7b507"
+                  },
+                  {
+                      "Path":  "api/Microsoft.AspNetCore.Authentication.JwtBearer.dll",
+                      "Length":  52008,
+                      "Sha256":  "3f761f1ee42fee554c65f6a67513a2dfa8064247b2f6eaa199df5e8f47ca3717"
+                  },
+                  {
+                      "Path":  "api/Microsoft.AspNetCore.OpenApi.dll",
+                      "Length":  193320,
+                      "Sha256":  "3975ea6c1f843bd227e51775ae2c70b23e30cb031f664f5adf5560b5f7a3da48"
+                  },
+                  {
+                      "Path":  "api/Microsoft.Bcl.Cryptography.dll",
+                      "Length":  19248,
+                      "Sha256":  "91c6bab93638c268569a38bc87770a5e3ef9932676f5b7a6d47aef4208062925"
+                  },
+                  {
+                      "Path":  "api/Microsoft.EntityFrameworkCore.Abstractions.dll",
+                      "Length":  34656,
+                      "Sha256":  "98c8252995283ef0884b904dbab03696ca7f71a05b8dde34dace5eeb9bf4382c"
+                  },
+                  {
+                      "Path":  "api/Microsoft.EntityFrameworkCore.dll",
+                      "Length":  2828600,
+                      "Sha256":  "acb89dff050d681fab6f86d2175929471200b9bed66ac9321cbe6a17eaa26933"
+                  },
+                  {
+                      "Path":  "api/Microsoft.EntityFrameworkCore.Relational.dll",
+                      "Length":  2194784,
+                      "Sha256":  "ac1146e68d53d56b79e9473f68c557999de99674be392bbbbb02ae93a296b93e"
+                  },
+                  {
+                      "Path":  "api/Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore.dll",
+                      "Length":  21840,
+                      "Sha256":  "dfd45036dd5b802c6c1deecbaae0fe5d0b12c4034b49901f7b4064fd6dd74d2c"
+                  },
+                  {
+                      "Path":  "api/Microsoft.Extensions.Hosting.WindowsServices.dll",
+                      "Length":  29008,
+                      "Sha256":  "caa306587f796d0290aada4fdfaec1394f1f206409ea4d5a20f309b61fc59959"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.Abstractions.dll",
+                      "Length":  19256,
+                      "Sha256":  "84a6c307fe84453c9fc3a1af45bf2302b5d2aba4d5b9bfb7d581d6a28787461f"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.JsonWebTokens.dll",
+                      "Length":  172344,
+                      "Sha256":  "4f61fd3d3f5003951a09cdd27ffdc3c4841a158d27a6d7247be3e5939e7dab32"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.Logging.dll",
+                      "Length":  38200,
+                      "Sha256":  "2bc4582ae62236f066901a7dcb2a88d04a181ad1978f2db2f4314df6ae1a50c6"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.Protocols.dll",
+                      "Length":  54112,
+                      "Sha256":  "40ada0b98384788970117cadf63863edd99bd5bd6fb8076f6da68d65f6dbda4f"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
+                      "Length":  137016,
+                      "Sha256":  "7921aef6fa1da2e563a237dda129b12407ac6c56448bb0eb7eebc59bb6c6babb"
+                  },
+                  {
+                      "Path":  "api/Microsoft.IdentityModel.Tokens.dll",
+                      "Length":  407392,
+                      "Sha256":  "106db045348a9b767f3002d4ec3bb582c9141f6d8e9966e1e0ad58a71ba42b8b"
+                  },
+                  {
+                      "Path":  "api/Microsoft.OpenApi.dll",
+                      "Length":  486752,
+                      "Sha256":  "64497b0a954493014d15494bb89f09dbed059b13efe64cdf008d5f0f6bf197e5"
+                  },
+                  {
+                      "Path":  "api/Npgsql.dll",
+                      "Length":  1478656,
+                      "Sha256":  "e2bcafe1660fe4543fe9dfcabed972ec8d32259e5ea8009462ce1de23c7034c2"
+                  },
+                  {
+                      "Path":  "api/Npgsql.EntityFrameworkCore.PostgreSQL.dll",
+                      "Length":  679424,
+                      "Sha256":  "94fcf66e8e953fdb02c40c72ca89821dd5eed5324d4c0f12a7219ea8cd3d5a5e"
+                  },
+                  {
+                      "Path":  "api/RBush.dll",
+                      "Length":  34816,
+                      "Sha256":  "047e48ab058a783a1d0021ede9ac238e158ed43fa2368a15fd4ccd8f920ab6a1"
+                  },
+                  {
+                      "Path":  "api/runtimes/win/lib/net10.0/System.ServiceProcess.ServiceController.dll",
+                      "Length":  91944,
+                      "Sha256":  "ddee6630222a879c6381b7a0317b39801ea99a928f45520b4f9a6921a01c84cc"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.deps.json",
+                      "Length":  21030,
+                      "Sha256":  "2d7670197dbfb2a8fac588ddbaafb805817a9aee3462d2dd713d368d3a493c5f"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.dll",
+                      "Length":  1300480,
+                      "Sha256":  "282c8da42566af4ff6b1dbaf585d503d528a772f725bb6fbf4be1a6e38dc8cbf"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.exe",
+                      "Length":  162304,
+                      "Sha256":  "3b401f7d5cf5b78e4c6bb573c007acd5e686900aba12feff7fc76da77937d3cc"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.pdb",
+                      "Length":  176028,
+                      "Sha256":  "2d6338a28878f2f68cd684e83888c06388145e87155e7fe4ea2d022ce6eef1a5"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.runtimeconfig.json",
+                      "Length":  560,
+                      "Sha256":  "94b92d437d5be753ff0ba94af9064dbd50f8bf1a7459debbedf6cb5699910d50"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Api.staticwebassets.endpoints.json",
+                      "Length":  53,
+                      "Sha256":  "c1686417e8d5c31bba969f12b6f3d2b35e6609adb5ca42f212261a3a02771aac"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Application.dll",
+                      "Length":  1398784,
+                      "Sha256":  "dc98ef7bff6bff77bd7d5d338fbdd642f66464fffcd72cf8f70e05dc61f3590a"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Application.pdb",
+                      "Length":  225404,
+                      "Sha256":  "2c298f53868c72de69f1cd934e86a893d15ab7ce89e9c54cca960672ccaeb009"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Domain.dll",
+                      "Length":  665088,
+                      "Sha256":  "fb9eef599d5860bdf9b6ec559d2c95328bc56c9e09a61d18cf73262b712e7f06"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Domain.pdb",
+                      "Length":  212128,
+                      "Sha256":  "31fc9f6e4563c2816ac9c397384f1b9ad090a316e0bba62b6fb7c7c51acafcc4"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Infrastructure.dll",
+                      "Length":  38612480,
+                      "Sha256":  "d6da5b4037db897341f13a0fcd44f29cebd9c21fbcf24a72e05e876980643955"
+                  },
+                  {
+                      "Path":  "api/SESS.NexaERP.Infrastructure.pdb",
+                      "Length":  2099748,
+                      "Sha256":  "9d1923522c428362998d591a1df5fb0a908deeca8bd8efabc8eb9b00b6c785a1"
+                  },
+                  {
+                      "Path":  "api/SixLabors.Fonts.dll",
+                      "Length":  1135616,
+                      "Sha256":  "e1e2f107e7c78fb859f1b23383107a125acd8b3a7470140850daa6f6f6c45d9f"
+                  },
+                  {
+                      "Path":  "api/System.IdentityModel.Tokens.Jwt.dll",
+                      "Length":  91960,
+                      "Sha256":  "3d55b14eabadaf18aefea2c4eb085428e0485063ae3ea91cac072e3b5f951a83"
+                  },
+                  {
+                      "Path":  "api/System.IO.Packaging.dll",
+                      "Length":  142136,
+                      "Sha256":  "12ddc8bff279fad856551a74894dc52b80fa437d5d2b32722e70ae6899217b7c"
+                  },
+                  {
+                      "Path":  "api/System.ServiceProcess.ServiceController.dll",
+                      "Length":  34640,
+                      "Sha256":  "486a4fbb24ab089926fb05ab6b95af7bb04d2ff35eef55b6858437ebc4d040dc"
+                  },
+                  {
+                      "Path":  "api/web.config",
+                      "Length":  502,
+                      "Sha256":  "03e29e549f9acd88dd5eb5756491e266b907f6c03e76cb469c66432a9f0c902c"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/customer-po-import-2026-08-31.sql",
+                      "Length":  429885,
+                      "Sha256":  "96773fcb67198a399e7649cf2d4a787e19414e8008df80642a397c4f4f731b79"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/legacy-item-import-2026-08-29.sql",
+                      "Length":  1334354,
+                      "Sha256":  "af9b5efc74691155642ddbd79087def7e43892017dd985b0a971018b0a310a31"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/legacy-vendor-import-2026-08-29.sql",
+                      "Length":  101453,
+                      "Sha256":  "6a89f61213cef1f492b7e0c891715bafb52d9ce860df5521d936023ce26716f9"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/README.md",
+                      "Length":  485,
+                      "Sha256":  "999e6d7e8675c953877e12d9aa5962ec6fc4ce6ce2b8db5531bc1a61a7553f3b"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/reconcile-legacy-item-categories.sql",
+                      "Length":  6351,
+                      "Sha256":  "c902e95eeb4b291c4d9186a0810ee8ca0cd0d5b39393e54fcd953e1442f0b4a6"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/rev862_phase1_foundation_idempotent.sql",
+                      "Length":  13041,
+                      "Sha256":  "2a62bc3f274b2f1a5bd02a42e0d03f9e348dab80671fbaa0c5de9c9c26962390"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/rev865_phase1_authorization_seed_idempotent.sql",
+                      "Length":  15000,
+                      "Sha256":  "3ee2bc72c34318f41de33d2d23f892f135005d899b57f9f3e2f5b1e85a01ebbe"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/rev866_employee_permission_matrix_idempotent.sql",
+                      "Length":  419087,
+                      "Sha256":  "ecd652e42c1ebb73c70e95665d899377d5c5e2d2d1598e0befe90ecef29d8e4b"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/trial-master-data-apply.sql",
+                      "Length":  21919,
+                      "Sha256":  "c94d36fd5c143f601b5402d2d78e1962c16a24ef59018a6afc9c7fe562de3073"
+                  },
+                  {
+                      "Path":  "installer/database/postgresql/trial-master-data-remove.sql",
+                      "Length":  4424,
+                      "Sha256":  "95d1ede6d9ed8c1a58792966a2f24dbaa19a5d00f785e70eba8281e2f2271df3"
+                  },
+                  {
+                      "Path":  "installer/docs/authentication.cognito.example.json",
+                      "Length":  1697,
+                      "Sha256":  "cb65ce4b53467ca127fc8da456b47e74255a530972465963fc80784b45fabe1b"
+                  },
+                  {
+                      "Path":  "installer/docs/authentication.keycloak.example.json",
+                      "Length":  1743,
+                      "Sha256":  "05642530dcf036d9fa4e58799129ae5197df4445671d402a6528a3db72850db7"
+                  },
+                  {
+                      "Path":  "installer/docs/authentication.server.keycloak.json",
+                      "Length":  1707,
+                      "Sha256":  "a74f9b8abb9a5200e7354e5db85bbc3814e27cefbf8882a07560189399055999"
+                  },
+                  {
+                      "Path":  "installer/docs/authentication-bootstrap.md",
+                      "Length":  8367,
+                      "Sha256":  "eb2026f4d76e22d3ccfa460ecd21b17d749110eb4ac8a32d147af8dfcf797917"
+                  },
+                  {
+                      "Path":  "installer/docs/automated-backup-and-recovery.md",
+                      "Length":  13426,
+                      "Sha256":  "3c17cd3baf04f62331cf3e2c7587041ae883db09abda429a308c78597b204661"
+                  },
+                  {
+                      "Path":  "installer/docs/backup.example.json",
+                      "Length":  382,
+                      "Sha256":  "9e57c29829d4a954ac7360e41e055fea68e0c11ed142c46a8ca4a81e57fa81cf"
+                  },
+                  {
+                      "Path":  "installer/docs/configuration-export-finding.md",
+                      "Length":  5085,
+                      "Sha256":  "98b207bf7801ec92deb84f068c665ce50325f6f9b02c99304ddfe069fe6d343c"
+                  },
+                  {
+                      "Path":  "installer/docs/developer-runtime-principals.md",
+                      "Length":  8466,
+                      "Sha256":  "eb34248c2d69e376fc6cdcf15adfb0e88d022e995a83e194754029be589b3053"
+                  },
+                  {
+                      "Path":  "installer/docs/exact-name-migration-witness-2026-09-15.md",
+                      "Length":  5840,
+                      "Sha256":  "fed0b1c8243956fe1752cec22adf55cdefa1152da9d7289dff8968de1bedb497"
+                  },
+                  {
+                      "Path":  "installer/docs/fitment-reversal-return-witness.md",
+                      "Length":  2042,
+                      "Sha256":  "68db498bd5132b816e1e27cdc0d5ea7ea800bf2a597c751ff995ff26bbca848d"
+                  },
+                  {
+                      "Path":  "installer/docs/fresh-company-rehearsal-findings.md",
+                      "Length":  28481,
+                      "Sha256":  "a7e38f2ca84fa9e0fb8c74958e78e1ec83fc99be78d094caa6fd39885da96ff6"
+                  },
+                  {
+                      "Path":  "installer/docs/go-live-fresh-database-runbook.md",
+                      "Length":  34091,
+                      "Sha256":  "2174db1da150d9376f3283ef4937c2a844b4d97ceb8fc68c7e3371390ca7a887"
+                  },
+                  {
+                      "Path":  "installer/docs/intercompany-invoice-evidence.md",
+                      "Length":  3795,
+                      "Sha256":  "7aa9c94d5f101caf42bb322bb2b501a5a9b92aa1805c09da9e590bfb1ff4f5cb"
+                  },
+                  {
+                      "Path":  "installer/docs/inventory-period-foundation.md",
+                      "Length":  3379,
+                      "Sha256":  "d332ecfaf713da878b0bcb578434fe6d60f972a1d2dec150a1bbf4296738e71e"
+                  },
+                  {
+                      "Path":  "installer/docs/item-11-import-purchase-progress.md",
+                      "Length":  22713,
+                      "Sha256":  "7a7cf855daed79eb254c6e5c9bd23e8df184060cf1cde3fa7b70d032f81a9b96"
+                  },
+                  {
+                      "Path":  "installer/docs/item-13-company-opening-order.md",
+                      "Length":  1648,
+                      "Sha256":  "cb6ccd71c014fb2b42d1b822b647d96db94eabaab2f3f360ceb56e6dd530b284"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-acceptance-progress.md",
+                      "Length":  6305,
+                      "Sha256":  "fb9c7853794bd1129195fa6d083e370974ba7bfd8141bae49ded52ead8cb5d81"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-billed-not-received.md",
+                      "Length":  7213,
+                      "Sha256":  "f6a126bf3a1d85c33e1d00105b21b31a4c11edc2fea9613cc03a790c3eba55bc"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-delivered-machine-source-findings.md",
+                      "Length":  3482,
+                      "Sha256":  "80e4b9f11729244565cbe17bcdbe1512d8c867b26cf7faaf9d4c17b00baf883a"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-fifo-restoration.md",
+                      "Length":  6628,
+                      "Sha256":  "c968e5440e7695d3e778d25cca08a1c17ea29db49d2e881a14ad820b4517b0dd"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-fifo-reversed-receipts.md",
+                      "Length":  2087,
+                      "Sha256":  "7f0654712b5767eb62ad21dfc7c1e4eedaf67ebcf5aea00bbd9acf634d582514"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-fitment-reversal-cost.md",
+                      "Length":  3423,
+                      "Sha256":  "d4cf7e8d6a9c6ee6fb0c681ba1c5fbcba666d40a51e67f3ed5c177d407880314"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-frontend-contract.md",
+                      "Length":  4292,
+                      "Sha256":  "80e8fc9d5a87352eed9b568177a673e6c2306830732d4a31846f9cdabe6bba4e"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-machine-delivery-dossier.md",
+                      "Length":  8854,
+                      "Sha256":  "42e741b52bfad46bde85aca25c394723c62f950146ba92f551a51a7340a4640d"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-reporting-progress.md",
+                      "Length":  15234,
+                      "Sha256":  "ac056ca283d5065880878dc0390666a0aa0303a550ff7a3ef36b96a0de3ab561"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-scale-witness-2026-09-15.md",
+                      "Length":  4369,
+                      "Sha256":  "ebdf419e3627740dda5ae14984768bf52a50ead967593c8c3df1f7f27ce9f515"
+                  },
+                  {
+                      "Path":  "installer/docs/item-15-source-prerequisites.md",
+                      "Length":  4957,
+                      "Sha256":  "d05dccb31704fc8f82df57f3f6a93f5947653f8c4adcd918c4f7a22864498f66"
+                  },
+                  {
+                      "Path":  "installer/docs/item-16-authentication-plan.md",
+                      "Length":  11403,
+                      "Sha256":  "c78eb4b60a242f9cf7b99ffdcb9388ec470bc481b766f43e455ad3452aa5ff1f"
+                  },
+                  {
+                      "Path":  "installer/docs/item-16-frontend-contract.md",
+                      "Length":  3952,
+                      "Sha256":  "8e588a6afc7ecc674078858dcd375992c421f0407f822bb670a9920139753048"
+                  },
+                  {
+                      "Path":  "installer/docs/item-16-identity-recovery-findings.md",
+                      "Length":  9832,
+                      "Sha256":  "397a310c88ae4cec7b84225b025bedd5ddd5c0cdd72d4aa39c7cf604e1ebf2f0"
+                  },
+                  {
+                      "Path":  "installer/docs/item-16-local-keycloak-operations.md",
+                      "Length":  12684,
+                      "Sha256":  "cfcd023db3fe48e1f604bbb509cced41bf04fd5eab285cbc73c6dbfbcd1af696"
+                  },
+                  {
+                      "Path":  "installer/docs/item-16-verification.md",
+                      "Length":  12056,
+                      "Sha256":  "6d9e0a5c1be7f0fae4dc5d086ed9b175a9ee583293d71a7d1196ff2a15c75420"
+                  },
+                  {
+                      "Path":  "installer/docs/item-19-intercompany-implementation.md",
+                      "Length":  13836,
+                      "Sha256":  "8daa0ea3004a4a55db5ee9d6a654b3f5742540758530316765e5f7f5155be149"
+                  },
+                  {
+                      "Path":  "installer/docs/item-21-po-cancellation-progress.md",
+                      "Length":  3004,
+                      "Sha256":  "8a12ab132a779b799712ca1cd1f585b7d5e6e2fe109a4a8353803d8aceecb3ab"
+                  },
+                  {
+                      "Path":  "installer/docs/item-25-concurrency-progress.md",
+                      "Length":  64436,
+                      "Sha256":  "f591463bd40ea50d038102e55d29bfee589f34b826da9dfd38fdbf354d2dc649"
+                  },
+                  {
+                      "Path":  "installer/docs/item-26-failure-and-backup-progress.md",
+                      "Length":  22273,
+                      "Sha256":  "20c77846b21aa4d4efbd0c6aa0937aea7434026f5764111a6a64eb9694d33b24"
+                  },
+                  {
+                      "Path":  "installer/docs/item-29-open-orders-progress.md",
+                      "Length":  6583,
+                      "Sha256":  "ddaa97fa9a51924e140b85e06ccfa3a226f8fd4b67751811658c618b9fd91d51"
+                  },
+                  {
+                      "Path":  "installer/docs/item-29-purchase-obligations-progress.md",
+                      "Length":  5696,
+                      "Sha256":  "ed55a5d27463906456e47915c94c9855d6abd55d4e58e82194844375c0ac63eb"
+                  },
+                  {
+                      "Path":  "installer/docs/item-29-purchase-spending-progress.md",
+                      "Length":  4465,
+                      "Sha256":  "3e1074d39d65a0d5dc23fa27e720d717b0b75201211317d5b52abe0caae60273"
+                  },
+                  {
+                      "Path":  "installer/docs/item-29-purchase-workload-progress.md",
+                      "Length":  9263,
+                      "Sha256":  "a5604d0b6ccda4152b96502eb9725f1e4285cf1723c579b3e6670663ae894816"
+                  },
+                  {
+                      "Path":  "installer/docs/item-29-receipt-continuity-progress.md",
+                      "Length":  5039,
+                      "Sha256":  "3705b04a9fa1d7343714c07305b2c9bb276bc77c09b3a5812c1020352f29a835"
+                  },
+                  {
+                      "Path":  "installer/docs/item-30-qc-stock-progress.md",
+                      "Length":  5529,
+                      "Sha256":  "1bf8c681a03adf62be32adc65105099dc212b7233be9fb1b877ae54669459c01"
+                  },
+                  {
+                      "Path":  "installer/docs/item-30-stores-workload-progress.md",
+                      "Length":  5840,
+                      "Sha256":  "6851b664f9afb6a99213cf7efb4887a4f2c8933052f161cc78f12e191afadfd1"
+                  },
+                  {
+                      "Path":  "installer/docs/item-category-import-correction.md",
+                      "Length":  5231,
+                      "Sha256":  "a8626d3dd026f5d72c433df21b50177fe88df7fcdc09a56601adfa98c88e1e9d"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/approvers-realm.template.json",
+                      "Length":  6455,
+                      "Sha256":  "6a677f861d9027a4653794898f46d2823ebe93dd21991942d67b692a8f6e67f9"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/backup.identity.example.json",
+                      "Length":  703,
+                      "Sha256":  "e564e83034d3fa2615b8d042379b533d88130ab8cb6f6e910fb39782a1400ec3"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/deployment-version.example.json",
+                      "Length":  418,
+                      "Sha256":  "5b454aaa59a2bc910716075da66bd00e00f54bde92ff2612de2d3168f27facd3"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/keycloak.conf.example",
+                      "Length":  568,
+                      "Sha256":  "353f2a7d9609808246f5f5995eede4faa1bc37a837427557a455bf75caea27fa"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/monitor.example.json",
+                      "Length":  1604,
+                      "Sha256":  "1d2bdc15afc629b423616a086babbe0b90ea319899154bf05b548ec126cde0bf"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/server-keycloak.conf",
+                      "Length":  799,
+                      "Sha256":  "ee06f5f499feea880fa37325f3cfc37ae360b4a9c4f328612fb066b960ac6601"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/server-prerequisites.json",
+                      "Length":  883,
+                      "Sha256":  "557083112e641b531a220c70f9e04743f4694133e8f9913947e97d7c45e042a4"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/server-realms/approvers-realm.json",
+                      "Length":  3207,
+                      "Sha256":  "9172124b3e13c38941fa89e3aa65a05bfbea05d8fa55f7fa3f211807d03512b2"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/server-realms/staff-realm.json",
+                      "Length":  2471,
+                      "Sha256":  "0fc136b2bfc4ec2854314b042c7db3f00a9cfed171056e47a3c3679b04217369"
+                  },
+                  {
+                      "Path":  "installer/docs/keycloak/staff-realm.template.json",
+                      "Length":  4544,
+                      "Sha256":  "0a43a452898c627f1e8dc99179be591c0288893ba3acb40a67f91ebd3a5a4939"
+                  },
+                  {
+                      "Path":  "installer/docs/legacy-rev869b-upgrade-privileges.md",
+                      "Length":  14802,
+                      "Sha256":  "e8de33bc53e8b6e582332b4a35381b5ef65b7af7b70b662475a1a715fda41dae"
+                  },
+                  {
+                      "Path":  "installer/docs/mandatory-mfa-role-promotion.md",
+                      "Length":  6157,
+                      "Sha256":  "45e14f560fd8d8ff861f86e8c52bdd2f1c43e38841adc3adb81cdd49f53e4e33"
+                  },
+                  {
+                      "Path":  "installer/docs/master-data-import.md",
+                      "Length":  3588,
+                      "Sha256":  "811dd8026bdcce07f3374949a8f5e5421044cecdad21e435372aa6d922145289"
+                  },
+                  {
+                      "Path":  "installer/docs/migration-guard-copying-lesson.md",
+                      "Length":  1255,
+                      "Sha256":  "df2db0f7dd89fba2f21564859da1aa8ba9c55b5ad3cbcd920624d9f59d5175a1"
+                  },
+                  {
+                      "Path":  "installer/docs/migration-name-guard-review-2026-09-15.md",
+                      "Length":  8292,
+                      "Sha256":  "81dceb6ee06ce7dfd51760593504d7dbd31a4f8c2ec6cc36970e9aa0a6caa14e"
+                  },
+                  {
+                      "Path":  "installer/docs/migration-sql-line-endings.md",
+                      "Length":  8471,
+                      "Sha256":  "2cb7ad4017ef8925b88b88e6f279953b2dd76098e87001ce7305e22ece3f8c0e"
+                  },
+                  {
+                      "Path":  "installer/docs/migration-witness-environment.md",
+                      "Length":  3370,
+                      "Sha256":  "2ef29cf1c400db03d2591694348bb44c82229a42839e66b988612393f43620c4"
+                  },
+                  {
+                      "Path":  "installer/docs/opening-stock-template-v2.xlsx",
+                      "Length":  10318,
+                      "Sha256":  "fa744022dd76b9015f84112ea46d348a176655c2bed1667326f790f2b62bc128"
+                  },
+                  {
+                      "Path":  "installer/docs/operational-readiness-prerequisites.md",
+                      "Length":  2447,
+                      "Sha256":  "558311c54be742bd16aa296e7fa81ab59d324d9e892ed0275ff651456376f4e4"
+                  },
+                  {
+                      "Path":  "installer/docs/overnight-open-questions-2026-09-14.md",
+                      "Length":  6960,
+                      "Sha256":  "9dc80d8d06e1901f4fc75c4fcb6697b0cc8227f6a8903443eaba5f233d887510"
+                  },
+                  {
+                      "Path":  "installer/docs/post-item15-owner-instruction-20260915.md",
+                      "Length":  7868,
+                      "Sha256":  "cff62975231b13d8d485a09d9d403d7567644f0958f8df57991a509df3bde989"
+                  },
+                  {
+                      "Path":  "installer/docs/provenance-category-handoff-2026-09-21.md",
+                      "Length":  3251,
+                      "Sha256":  "8779e98c502b6b19a16d485d0adc9d82adecee7d9df275d9ae7ebc4a73b66ff1"
+                  },
+                  {
+                      "Path":  "installer/docs/reachability-authority-classification.md",
+                      "Length":  11353,
+                      "Sha256":  "99cd58a47739080bbcb9f4e10bf65c2c6bb950430fb5793ca9f0fc3f66f5f2a9"
+                  },
+                  {
+                      "Path":  "installer/docs/receiver-correction-validation.md",
+                      "Length":  1540,
+                      "Sha256":  "e7e1a7f18323f898ec281048c60d04a4be3b26096b64273d74f4a5375cfcdad1"
+                  },
+                  {
+                      "Path":  "installer/docs/retired-rev869b-project-removal.md",
+                      "Length":  1767,
+                      "Sha256":  "7cdd050286aa2ad96c9890bdee1c18ff7a7b6b7bc6556b8e7876e26f231247c6"
+                  },
+                  {
+                      "Path":  "installer/docs/routine-tests-and-witness-gates.md",
+                      "Length":  6531,
+                      "Sha256":  "8b9352791f8d88e252d6f5d9e7c3558f734eddcc9da0584bf135df764c0db0fd"
+                  },
+                  {
+                      "Path":  "installer/docs/sdk-free-migration-proof.md",
+                      "Length":  4764,
+                      "Sha256":  "b4393c1cb0e399facf51393fcda206fac00088af18f5182696313cf9ef0e2344"
+                  },
+                  {
+                      "Path":  "installer/docs/server-acceptance-receipt.md",
+                      "Length":  3749,
+                      "Sha256":  "44674d6c7a50988672805e74d492a26b8a30a59a3b8ef1dbbb21bdfc20d9de90"
+                  },
+                  {
+                      "Path":  "installer/docs/server-daily-backup-plan.example.json",
+                      "Length":  807,
+                      "Sha256":  "230cd2879614da1ae76c322dcf92ba8d64f2a178e7ce2c98a2ae6241f6648ef9"
+                  },
+                  {
+                      "Path":  "installer/docs/server-daily-backups.md",
+                      "Length":  16982,
+                      "Sha256":  "7d3796760091cb5eca40b089bf590f4b77d5136e98f1f89346ab296c053a4bcb"
+                  },
+                  {
+                      "Path":  "installer/docs/server-deployment.md",
+                      "Length":  22694,
+                      "Sha256":  "e3d5cd114183a7c068c488978c6fed0d5be6ed1ccb2837362d0f2b451391eee3"
+                  },
+                  {
+                      "Path":  "installer/docs/server-facts-20260921.md",
+                      "Length":  4380,
+                      "Sha256":  "3c144d8e4882fbca057140d7476d236e0874221b200cdf1c31c8cb59bc9be706"
+                  },
+                  {
+                      "Path":  "installer/docs/server-frontend-oidc-contract.md",
+                      "Length":  6394,
+                      "Sha256":  "1170cdf9704697190ecec1137d042d551e9a7a4ae528143a5a092a3a21c35a3c"
+                  },
+                  {
+                      "Path":  "installer/docs/server-hosting-decision.md",
+                      "Length":  2244,
+                      "Sha256":  "ab0f84a7d713f6c9ee3eff9b2269ddfd1cb4d78f07d662fc73585c993101255a"
+                  },
+                  {
+                      "Path":  "installer/docs/server-https.md",
+                      "Length":  5832,
+                      "Sha256":  "8962a123131b5e5c0624df7c49435a55baf2f84439d4ee871e0e109772f31f8b"
+                  },
+                  {
+                      "Path":  "installer/docs/server-identity-mapping.md",
+                      "Length":  5712,
+                      "Sha256":  "5e393d2af2a392be870a76fee993141bd59906457c5582b19b5f90ae40a479d7"
+                  },
+                  {
+                      "Path":  "installer/docs/server-keycloak-install.md",
+                      "Length":  9333,
+                      "Sha256":  "82b47db243127381680bfced2dcb96ff294ea6f0f71f93facf773abcae60b862"
+                  },
+                  {
+                      "Path":  "installer/docs/server-keycloak-realms.md",
+                      "Length":  4348,
+                      "Sha256":  "62e66451920bbe184324338dedf31d5ca4d996c50df114cbfd3544cdd95c3e97"
+                  },
+                  {
+                      "Path":  "installer/docs/server-package-regression-report.md",
+                      "Length":  3467,
+                      "Sha256":  "9fcf40f6525337905dbd474d69f1aa2ddff966cddbc9970988c2435da685e8db"
+                  },
+                  {
+                      "Path":  "installer/docs/server-production-state.example.json",
+                      "Length":  1707,
+                      "Sha256":  "9b72cb1861745295579917f86acc46ddf41cd8bce8f63c1ab0927f19f3981bfd"
+                  },
+                  {
+                      "Path":  "installer/docs/server-protection.md",
+                      "Length":  738,
+                      "Sha256":  "7fb5eb714d3209235169f5f4ea965efcf2d4a6b6a774d7e859be25316fbbdbe8"
+                  },
+                  {
+                      "Path":  "installer/docs/server-update-regression-report.md",
+                      "Length":  3052,
+                      "Sha256":  "f57d5dc1ad6354d4f47b708a1fbc01992d332d8fee70e8bbd44dfda05605a316"
+                  },
+                  {
+                      "Path":  "installer/docs/stock-adjustment-approval-foundation.md",
+                      "Length":  2273,
+                      "Sha256":  "f6b851238cb953dd2f05283d1ce0a8366877e5fd0aac04c9885414beec9c212d"
+                  },
+                  {
+                      "Path":  "installer/docs/stock-adjustment-posting-plan.md",
+                      "Length":  6714,
+                      "Sha256":  "86860a77c298168842edae776c8e893e1f2e58049879b6d9a058a52dcb8b548a"
+                  },
+                  {
+                      "Path":  "installer/docs/stock-check-warehouse-and-development-logging.md",
+                      "Length":  2623,
+                      "Sha256":  "f097292b8a43939dabd7c56f76ff851d87f24c1b40bcbb23393fbd65369172b2"
+                  },
+                  {
+                      "Path":  "installer/docs/suranther-local-keycloak-click-list.txt",
+                      "Length":  6668,
+                      "Sha256":  "e0491f5e65989e035276b2470cbce6257f97a4a763116a6a0187848a63d488a5"
+                  },
+                  {
+                      "Path":  "installer/docs/suranther-tuesday-click-list.txt",
+                      "Length":  4038,
+                      "Sha256":  "ac34db171fb5bf5e14e25c046060a5bc10268e67b601ee59f7c3f1abe5086a79"
+                  },
+                  {
+                      "Path":  "installer/docs/tool-custody-foundation.md",
+                      "Length":  2111,
+                      "Sha256":  "6b9b1ea13bf06fddfd0d776fc40f1697a8be0c6dc8cf183a5fca5241d8e85f0f"
+                  },
+                  {
+                      "Path":  "installer/docs/trial-master-data.md",
+                      "Length":  2224,
+                      "Sha256":  "ca900eaf95034d609569d7bfbb2ec178f698ba5eea761beb20fb4a1edc6f6d7f"
+                  },
+                  {
+                      "Path":  "installer/docs/tuesday-migration-chain-witness-2026-09-14.md",
+                      "Length":  5939,
+                      "Sha256":  "0c718f139a76da58da8fa67b1bf58fd5873e6726833852523d9b2e7f5a9c9eea"
+                  },
+                  {
+                      "Path":  "installer/docs/vendor-manual-assessment.md",
+                      "Length":  3293,
+                      "Sha256":  "584ed9bcf3801866568e0bb1ea8bc07d95d6b5836b2de0e9b1ea8b88abc2cd45"
+                  },
+                  {
+                      "Path":  "installer/docs/vendor-rating-calculation-foundation.md",
+                      "Length":  2609,
+                      "Sha256":  "7c3c053f886df15b11861cbbdf6578820709a86d3e02e44fedcbb8f4b471b06d"
+                  },
+                  {
+                      "Path":  "installer/docs/vendor-rating-source-evidence.md",
+                      "Length":  2067,
+                      "Sha256":  "d28fa20e90e83bd2d925ba34d4b3591af3281be8c1fb3bd9183f4de05696bf38"
+                  },
+                  {
+                      "Path":  "installer/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+                      "Length":  66312,
+                      "Sha256":  "7c97c4463fe0fc11d1f22f4d160b2bd2288981adf1de2717a6ff3fb993ddf294"
+                  },
+                  {
+                      "Path":  "installer/Microsoft.Extensions.Logging.Abstractions.dll",
+                      "Length":  67344,
+                      "Sha256":  "a76a735b63e6ef3b0bf41ff92423cbd16103b8952e8306140a9bd650346034dc"
+                  },
+                  {
+                      "Path":  "installer/Npgsql.dll",
+                      "Length":  1478656,
+                      "Sha256":  "e2bcafe1660fe4543fe9dfcabed972ec8d32259e5ea8009462ce1de23c7034c2"
+                  },
+                  {
+                      "Path":  "installer/service-settings.example.json",
+                      "Length":  514,
+                      "Sha256":  "ca3a0ef871edf490b440a6aa07def300de1ef7636e24ccef0046a5635a3fe93f"
+                  },
+                  {
+                      "Path":  "installer/SESS.NexaERP.Installer.deps.json",
+                      "Length":  2627,
+                      "Sha256":  "7c05da6cd2d75e0ab9c736e45d64620e363a6927a65c52fa4e5a3e49d13bf2de"
+                  },
+                  {
+                      "Path":  "installer/SESS.NexaERP.Installer.dll",
+                      "Length":  664064,
+                      "Sha256":  "60ac41ff212a22977c531967ca80ac0f0649ed9124f9dd8f4e1763aab0badda9"
+                  },
+                  {
+                      "Path":  "installer/SESS.NexaERP.Installer.exe",
+                      "Length":  162816,
+                      "Sha256":  "307f3166d93c82ecb5add2e26327202fdab95a714cdeffa72ecb5e0f4088d9f5"
+                  },
+                  {
+                      "Path":  "installer/SESS.NexaERP.Installer.pdb",
+                      "Length":  29700,
+                      "Sha256":  "08517b1a47aebf42c61d68b1e1683e07433f24232d028a74a039573133b0d9d0"
+                  },
+                  {
+                      "Path":  "installer/SESS.NexaERP.Installer.runtimeconfig.json",
+                      "Length":  342,
+                      "Sha256":  "c230a317a54dd960bcbeb5f347f52e18dc665a26f7efda2159fced9a5ac7e097"
+                  },
+                  {
+                      "Path":  "installer/tools/Archive-IncomingBackups.ps1",
+                      "Length":  1975,
+                      "Sha256":  "508e4edf9883ea782ce2a2ce5f361112053f39913266ce215f5c071910697865"
+                  },
+                  {
+                      "Path":  "installer/tools/Invoke-ServerDailyBackup.ps1",
+                      "Length":  5164,
+                      "Sha256":  "b3eba49a9f4b413b653763b94fb1dd039ae9364633893f8311ae905b8f373693"
+                  },
+                  {
+                      "Path":  "installer/tools/Invoke-VerifiedDatabaseBackup.ps1",
+                      "Length":  4499,
+                      "Sha256":  "17a12a6974b17f7e2adac55ef1f6304fc4b8e05003a02f7f021dad83279468c2"
+                  },
+                  {
+                      "Path":  "installer/tools/Register-VerifiedDatabaseBackup.ps1",
+                      "Length":  3435,
+                      "Sha256":  "f9631c29cc15c81efe44004a76b078e56a87b0fc610941d56ea95788bbbe54da"
+                  },
+                  {
+                      "Path":  "installer/tools/Test-DailyBackupState.ps1",
+                      "Length":  1203,
+                      "Sha256":  "2dffe1b7f15d34912c6e6345314073db9338ca1875096519299f5914bab554e7"
+                  },
+                  {
+                      "Path":  "installer/tools/Test-ProductionState.ps1",
+                      "Length":  8827,
+                      "Sha256":  "6ac67c5895b2bcbf4e1683b005060478bf79f65ff9400a93722111844e3d5b72"
+                  },
+                  {
+                      "Path":  "installer/tools/VerifiedBackupTransfer.psm1",
+                      "Length":  6676,
+                      "Sha256":  "63275ee709bb75cf829cf97df4b1e6746c4ab953ee385b34dbd7992f92343884"
+                  },
+                  {
+                      "Path":  "installer/tools/Verify-Package.ps1",
+                      "Length":  2459,
+                      "Sha256":  "7707e4f1dc2aeb847851962d590c9f68265612f4a20e47c8729a63c912f2c306"
+                  },
+                  {
+                      "Path":  "migrate/efbundle.exe",
+                      "Length":  87459248,
+                      "Sha256":  "7623f6f3edc63f42b01861af2e11b97dac9663adcb0f15ce655c14178a74d7b3"
+                  },
+                  {
+                      "Path":  "migrate/proof.json",
+                      "Length":  49432,
+                      "Sha256":  "e10e93d29bd640d8790c09ee7b5c6606551f0b58bd92c184b68c23760dc263c1"
+                  },
+                  {
+                      "Path":  "README.txt",
+                      "Length":  26575,
+                      "Sha256":  "f80498b10425d6ea8c06efc22fd5d20a02260b8fd59ca6ac2bdb909044ed4d50"
+                  },
+                  {
+                      "Path":  "web/assets/index-D1V1MFod.js",
+                      "Length":  757776,
+                      "Sha256":  "40df9580c848eb113ab182a064eeee67ba8479028a78350901e97cad8e053586"
+                  },
+                  {
+                      "Path":  "web/assets/index-SBK0YlG9.css",
+                      "Length":  83138,
+                      "Sha256":  "5cac7cf33f349d234ee6eec4d127360427cc149758dce1dfdf9181d6c008f10a"
+                  },
+                  {
+                      "Path":  "web/index.html",
+                      "Length":  743,
+                      "Sha256":  "ca37ab6491e5b9181c3dd0dc4260e0309372bc30b97790b3952a8af032ccc352"
+                  }
+              ]
+}

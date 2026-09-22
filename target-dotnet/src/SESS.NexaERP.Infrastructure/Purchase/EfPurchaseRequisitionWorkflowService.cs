@@ -31,6 +31,15 @@ public sealed class EfPurchaseRequisitionWorkflowService(
 
     private async Task<PurchaseRequisitionDetail> DecideAsync(string number, PurchaseRequisitionActionRequest request, string action, CancellationToken ct)
     {
+        try { return await DecideCoreAsync(number, request, action, ct); }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("PR changed concurrently. Reload the request before retrying.", error);
+        }
+    }
+
+    private async Task<PurchaseRequisitionDetail> DecideCoreAsync(string number, PurchaseRequisitionActionRequest request, string action, CancellationToken ct)
+    {
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var pr = await Scoped(IncludeDetail(db.PurchaseRequisitions)).SingleOrDefaultAsync(x => x.PrNumber == Normalize(number), ct)
             ?? throw new Rev869BNotFoundException("Purchase requisition not found.");

@@ -10,6 +10,7 @@ public sealed partial class NexaErpDbContext
     public DbSet<ComponentFitmentReversal> ComponentFitmentReversals => Set<ComponentFitmentReversal>();
     public DbSet<ActualBom> ActualBoms => Set<ActualBom>();
     public DbSet<ActualBomEntry> ActualBomEntries => Set<ActualBomEntry>();
+    public DbSet<ActualBomValuationAdjustment> ActualBomValuationAdjustments => Set<ActualBomValuationAdjustment>();
 
     private static void ConfigureFitmentActualBom(ModelBuilder modelBuilder)
     {
@@ -63,6 +64,15 @@ public sealed partial class NexaErpDbContext
             e.HasOne(x => x.InventoryLot).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventoryLotId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.InventorySerial).WithMany().HasForeignKey(x => new { x.CompanyId, x.InventorySerialId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.GoodsReceiptLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.GoodsReceiptLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.OpeningStockLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.OpeningStockLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.VendorBillLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.VendorBillLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        });
+        modelBuilder.Entity<ActualBomValuationAdjustment>(e =>
+        {
+            e.ToTable("actual_bom_valuation_adjustments", t => t.HasCheckConstraint("CK_actual_bom_valuation_adjustment", """ "AcceptedMaterialValue">=0 AND "AllocatedChargeValue">=0 AND "TotalAcceptedValue"="AcceptedMaterialValue"+"AllocatedChargeValue" """));
+            e.HasKey(x => x.Id); e.HasIndex(x => new { x.CompanyId, x.ActualBomEntryId, x.VendorBillLineId }).IsUnique();
+            e.Property(x => x.AcceptedMaterialValue).HasPrecision(24, 6); e.Property(x => x.AllocatedChargeValue).HasPrecision(24, 6); e.Property(x => x.TotalAcceptedValue).HasPrecision(24, 6);
+            e.HasOne(x => x.ActualBomEntry).WithMany().HasForeignKey(x => new { x.CompanyId, x.ActualBomEntryId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
             e.HasOne(x => x.VendorBillLine).WithMany().HasForeignKey(x => new { x.CompanyId, x.VendorBillLineId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict);
         });
         modelBuilder.Entity<StockPostingBatch>(e => e.HasOne(x => x.ComponentFitment).WithMany().HasForeignKey(x => new { x.CompanyId, x.ComponentFitmentId }).HasPrincipalKey(x => new { x.CompanyId, x.Id }).OnDelete(DeleteBehavior.Restrict));

@@ -1,0 +1,21 @@
+{
+  "Kind": "Identities",
+  "Action": "Create",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": [
+    {
+      "OperationId": "REPLACE-WITH-NEW-GUID",
+      "Body": {
+        "OrganizationId": "SESS_PVT_LTD",
+        "EffectiveFrom": "2026-09-28",
+        "EffectiveTo": null,
+        "Remarks": "REPLACE with approved input/review reference",
+        "Issuer": "https://192.168.68.130:8444/realms/staff",
+        "Subject": "REPLACE-WITH-VERIFIED-SUB",
+        "EmployeeCode": "REPLACE",
+        "IdentityType": "HUMAN"
+      }
+    }
+  ]
+}

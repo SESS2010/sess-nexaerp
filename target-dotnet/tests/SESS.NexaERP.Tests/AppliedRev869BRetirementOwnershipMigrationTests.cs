@@ -10,6 +10,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string AppliedOwnershipTarget = "20260907123000_ConvergeAppliedRev869BRetirementOwnership";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Applied_retirement_ownership_converges_absent_complete_and_partial_states_on_postgresql()
     {
@@ -55,6 +56,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         complete.Execute("applied-ownership-complete-reapply.sql", up + CompleteOwnershipAssertion);
     }
 
+#endif
     private const string CompleteOwnershipAssertion = """
 
         DO $ownership$

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using System.Data;
+using System.Text.Json;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Purchase;
@@ -50,12 +51,26 @@ public sealed partial class EfEstimatedBomService
         if (revision.Status != "DRAFT") throw new StoresConflictException("Only a Draft Estimated BOM revision can be edited.");
         if (revision.Version != request.ExpectedVersion) throw new DbUpdateConcurrencyException("Estimated BOM revision Version is stale.");
         var material = await MaterializeLinesAsync(company.Id, request.Lines, ct);
-        db.EstimatedBomLines.RemoveRange(revision.Lines); revision.Lines.Clear(); AddLines(revision, company.Id, material);
         revision.RevisionReason = Required(request.RevisionReason, "RevisionReason"); revision.ContentFingerprint = Fingerprint(request);
+        revision.Version = checked(revision.Version + 1);
         revision.UpdatedAt = DateTimeOffset.UtcNow; revision.UpdatedBy = user.LoginId;
         AddHistory(bom, revision, "Update", "DRAFT", "DRAFT", revision.RevisionReason, key);
-        await CommitCommandAsync(company.Code, "EstimatedBom.Update", key, request, bom, revision, ct);
-        await tx.CommitAsync(ct); return await ViewAsync(bom, ct);
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(company.Code, "EstimatedBom.Update", key, request);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, company.Code, envelope, ct, user.RoleCode)
+            ?? throw new InvalidOperationException("Estimated BOM update produced no immutable operation slot.");
+        var lineNumber = 0;
+        var lineJson = JsonSerializer.Serialize(material.Select(x => new { lineNumber = ++lineNumber, itemId = x.ItemId,
+            uomId = x.UomId, quantity = x.Quantity, remarks = x.Remarks, estimatedUnitValue = x.EstimatedUnitValue,
+            estimatedUnitValueOverridden = x.EstimatedUnitValueOverridden, valueSource = x.ValueSource }));
+        var replaced = await db.Database.SqlQuery<int>($"SELECT advance.replace_estimated_bom_draft_lines({company.Id},{company.Code},{revision.Id},{request.ExpectedVersion},{Actor()},{user.IdentityIssuer!},{user.IdentitySubject!},{user.RoleCode},{user.LoginId},{lineJson}::jsonb) AS \"Value\"").SingleAsync(ct);
+        if (replaced != material.Count) throw new InvalidOperationException("Controlled Estimated BOM draft replacement returned an unexpected line count.");
+        await audit.WriteAsync("Design", "EstimatedBom.Update", nameof(EstimatedBom), bom.Id.ToString(), null,
+            new { bom.BomNumber, revision.RevisionNumber, revision.Status }, ct);
+        await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
+        await tx.CommitAsync(ct);
+        db.ChangeTracker.Clear();
+        var refreshed = await BomQuery().SingleAsync(x => x.Id == bom.Id && x.CompanyId == company.Id, ct);
+        return await ViewAsync(refreshed, ct);
     }
 
     public async Task<EstimatedBomView> SubmitAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct)
@@ -70,19 +85,27 @@ public sealed partial class EfEstimatedBomService
         return await TransitionAsync(bomNumber, request, "APPROVED", "Approve", "EstimatedBom.Approve", true, ct);
     }
 
+    public async Task<EstimatedBomView> ReturnToDraftAsync(string bomNumber, EstimatedBomActionRequest request, CancellationToken ct)
+    {
+        _ = user.RequireRole("reject", "TECHNICAL_DIRECTOR");
+        return await TransitionAsync(bomNumber, request, "DRAFT", "ReturnToDraft", "EstimatedBom.ReturnToDraft", false, ct, "SUBMITTED");
+    }
+
     private async Task<EstimatedBomView> TransitionAsync(string bomNumber, EstimatedBomActionRequest request,
-        string next, string action, string operation, bool approval, CancellationToken ct)
+        string next, string action, string operation, bool approval, CancellationToken ct, string? requiredStatus = null)
     {
         var key = Required(request.IdempotencyKey, "IdempotencyKey");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var company = await CompanyAsync(ct); var bom = await BomQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.BomNumber == Code(bomNumber), ct)
             ?? throw new KeyNotFoundException("Estimated BOM was not found.");
-        var revision = Current(bom); var expected = approval ? "SUBMITTED" : "DRAFT";
+        var revision = Current(bom); var expected = requiredStatus ?? (approval ? "SUBMITTED" : "DRAFT");
         if (revision.Status != expected) throw new StoresConflictException($"Only a {expected} revision can be {action.ToLowerInvariant()}ed.");
         if (revision.Version != request.ExpectedVersion) throw new DbUpdateConcurrencyException("Estimated BOM revision Version is stale.");
         if (approval && revision.PreparedByEmployeeId == Actor()) throw new StoresConflictException("Nobody may approve their own Estimated BOM revision.");
-        await ValidateSubmissionAsync(revision, ct);
+        if (next is "SUBMITTED" or "APPROVED") await ValidateSubmissionAsync(revision, ct);
+        if (approval) await FreezeEstimatedValuesAsync(revision, ct);
         var from = revision.Status; revision.Status = next; bom.Status = next;
+        revision.Version = checked(revision.Version + 1); bom.Version = checked(bom.Version + 1);
         revision.UpdatedAt = bom.UpdatedAt = DateTimeOffset.UtcNow; revision.UpdatedBy = bom.UpdatedBy = user.LoginId;
         if (approval)
         {
@@ -90,7 +113,7 @@ public sealed partial class EfEstimatedBomService
             revision.ApprovalReason = Required(request.Remarks, "Remarks"); bom.ApprovedRevisionId = revision.Id;
             bom.CommercialBaselineRevisionId ??= revision.Id;
         }
-        else revision.SubmittedAt = DateTimeOffset.UtcNow;
+        else if (next == "SUBMITTED") revision.SubmittedAt = DateTimeOffset.UtcNow;
         AddHistory(bom, revision, action, from, next, Required(request.Remarks, "Remarks"), key);
         await CommitCommandAsync(company.Code, operation, key, new { bomNumber = bom.BomNumber, request }, bom, revision, ct);
         await tx.CommitAsync(ct); return await ViewAsync(bom, ct);
@@ -110,10 +133,16 @@ public sealed partial class EfEstimatedBomService
             RevisionReason = Required(request.RevisionReason, "RevisionReason"), PreparedByEmployeeId = actor,
             IdempotencyKey = key, ContentFingerprint = Fingerprint(request), CreatedBy = user.LoginId };
         foreach (var line in source.Lines.OrderBy(x => x.LineNumber))
+        {
+            // The new revision carries the approved values and their sources; the preparer re-prices
+            // by typing or by accepting the current suggestion, never by silent refresh.
             revision.Lines.Add(new EstimatedBomLine { CompanyId = company.Id, EstimatedBomRevisionId = revision.Id,
                 LineNumber = line.LineNumber, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
-                Remarks = line.Remarks, CreatedBy = user.LoginId });
-        bom.Revisions.Add(revision); bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT";
+                Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue, EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden,
+                ValueSource = line.ValueSource, CreatedBy = user.LoginId });
+        }
+        bom.Revisions.Add(revision); db.EstimatedBomRevisions.Add(revision);
+        bom.CurrentRevisionNumber = revision.RevisionNumber; bom.Status = "DRAFT"; bom.Version = checked(bom.Version + 1);
         bom.UpdatedAt = DateTimeOffset.UtcNow; bom.UpdatedBy = user.LoginId;
         AddHistory(bom, revision, "NewRevision", source.Status, "DRAFT", revision.RevisionReason, key);
         await CommitCommandAsync(company.Code, "EstimatedBom.NewRevision", key, new { bomNumber = bom.BomNumber, request }, bom, revision, ct);

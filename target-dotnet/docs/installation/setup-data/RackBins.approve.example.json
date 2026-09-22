@@ -1,0 +1,16 @@
+{
+  "Kind": "RackBins",
+  "Action": "Approve",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": [
+    {
+      "OperationId": "REPLACE-WITH-NEW-GUID",
+      "RecordId": "REPLACE-WITH-READ-BACK-ID",
+      "Body": {
+        "Version": null,
+        "Remarks": "REPLACE with independent decision reference"
+      }
+    }
+  ]
+}

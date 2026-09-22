@@ -207,6 +207,7 @@ public static partial class EmployeeEndpoints
             employee.DepartmentId = masters.Value.Department.Id;
             employee.DesignationId = masters.Value.Designation.Id;
             employee.DateOfJoining = request.DateOfJoining;
+            employee.Version = checked(employee.Version + 1);
             employee.OfficialEmail = NormalizeOptional(request.OfficialEmail);
             employee.MobileNumber = NormalizeOptional(request.MobileNumber);
             employee.UpdatedAt = DateTimeOffset.UtcNow;
@@ -346,6 +347,7 @@ public static partial class EmployeeEndpoints
 
         var before = new { employee.ApprovalStatus };
         var oldStatus = employee.ApprovalStatus;
+        employee.Version = checked(employee.Version + 1);
         employee.ApprovalStatus = newStatus;
         employee.UpdatedAt = DateTimeOffset.UtcNow;
         employee.UpdatedBy = currentUser.LoginId;
@@ -373,6 +375,7 @@ public static partial class EmployeeEndpoints
 
         var before = new { employee.LoginEnabled, employee.Status };
         var oldStatus = employee.Status;
+        employee.Version = checked(employee.Version + 1);
         employee.LoginEnabled = enabled;
         employee.Status = enabled ? "Active" : "Inactive";
         employee.UpdatedAt = DateTimeOffset.UtcNow;

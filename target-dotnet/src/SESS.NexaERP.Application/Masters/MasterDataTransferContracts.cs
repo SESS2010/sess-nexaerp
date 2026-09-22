@@ -61,6 +61,7 @@ public interface IMasterDataDefinition
     MasterDataSensitivePermission? SensitiveResultPermission { get; }
     IReadOnlyList<string> WorkbookGuideNotes { get; }
     IReadOnlyList<MasterDataColumnDefinition> Columns { get; }
+    IReadOnlyList<MasterDataExportRow> TemplateExampleRows => [];
 }
 
 public sealed record MasterDataRawRow(int SourceRowNumber, IReadOnlyDictionary<string, string?> Values);

@@ -10,6 +10,94 @@ namespace SESS.NexaERP.Tests;
 
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
+#if MIGRATION_LIFECYCLE_WITNESS
+    [Fact]
+    public void Item_company_last_purchase_pricing_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909131307_ItemCompanyLastPurchasePricing";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("last-purchase-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("last-purchase-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("last-purchase-assert.sql", """
+            DO $$ BEGIN
+              IF to_regclass('advance.item_company_last_purchases') IS NULL
+                 OR to_regprocedure('advance.refresh_item_company_last_purchase(uuid,uuid,text)') IS NULL
+                 OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vendor_bill_maintain_item_last_purchase')
+                 OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_runtime') AND
+                    (has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','INSERT')
+                     OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','UPDATE')
+                     OR has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','DELETE')
+                     OR NOT has_table_privilege('nexa_erp_runtime','advance.item_company_last_purchases','SELECT')))
+                THEN RAISE EXCEPTION 'controlled item last-purchase cache is incomplete'; END IF;
+            END $$;
+            """);
+        server.Execute("last-purchase-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("last-purchase-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
+    [Fact]
+    public void Frozen_estimated_bom_value_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909114202_FrozenEstimatedBomUnitValue";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("frozen-estimated-value-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("frozen-estimated-value-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("frozen-estimated-value-assert.sql", """
+            DO $$ BEGIN
+              IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='advance' AND table_name='estimated_bom_lines' AND column_name='EstimatedUnitValue')
+                 OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='advance' AND table_name='production_bom_lines' AND column_name='PlannedUnitValue')
+                THEN RAISE EXCEPTION 'frozen BOM value columns missing'; END IF;
+            END $$;
+            """);
+        server.Execute("frozen-estimated-value-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("frozen-estimated-value-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+#endif
+
+#if MIGRATION_LIFECYCLE_WITNESS
+    [Fact]
+    public void Controlled_estimated_bom_draft_replacement_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260909090000_ControlledEstimatedBomDraftReplacement";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("estimated-bom-replace-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("estimated-bom-replace-up.sql", migrator.GenerateScript(predecessor, target));
+        server.Execute("estimated-bom-replace-assert.sql", """
+            DO $$ BEGIN
+              IF to_regprocedure('advance.replace_estimated_bom_draft_lines(uuid,text,uuid,bigint,uuid,text,text,text,text,jsonb)') IS NULL
+                THEN RAISE EXCEPTION 'controlled Estimated BOM replacement function missing'; END IF;
+            END $$;
+            """);
+        server.Execute("estimated-bom-replace-down.sql", migrator.GenerateScript(target, predecessor));
+        server.Execute("estimated-bom-replace-reup.sql", migrator.GenerateScript(predecessor, target));
+    }
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Estimated_bom_lifecycle_applies_reverts_and_reapplies_on_disposable_postgresql()
     {
@@ -45,7 +133,43 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("estimated-bom-lifecycle-down.sql", migrator.GenerateScript(target, predecessor));
         server.Execute("estimated-bom-lifecycle-reup.sql", migrator.GenerateScript(predecessor, target));
     }
-}
+#endif
+#if MIGRATION_LIFECYCLE_WITNESS
+    [Fact]
+    public void Estimated_bom_return_to_draft_authority_applies_reverts_and_reapplies_on_disposable_postgresql()
+    {
+        const string target = "20260910131006_EstimatedBomReturnToDraftAuthority";
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
+        using var db = new NexaErpDbContext(options);
+        var migrator = db.GetService<IMigrator>();
+        var migrations = db.Database.GetMigrations().ToArray();
+        var index = Array.IndexOf(migrations, target);
+        Assert.True(index > 0);
+        var predecessor = migrations[index - 1];
+        using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        server.Execute("estimated-bom-return-pre.sql", migrator.GenerateScript("0", predecessor));
+        server.Execute("estimated-bom-return-up.sql", migrator.GenerateScript(predecessor, target) + AssertReturnAuthority(true));
+        server.Execute("estimated-bom-return-down.sql", migrator.GenerateScript(target, predecessor) + AssertReturnAuthority(false));
+        server.Execute("estimated-bom-return-reup.sql", migrator.GenerateScript(predecessor, target) + AssertReturnAuthority(true));
+    }
+
+#endif
+    private static string AssertReturnAuthority(bool enabled) => $"""
+        DO $assert$
+        DECLARE grant_count integer; definition text;
+        BEGIN
+          SELECT count(*) INTO grant_count FROM advance.role_page_permissions p
+          JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
+          JOIN advance.roles r ON r."Id"=p."RoleId"
+          WHERE d."PageKey"='design.estimated-bom' AND r."Code"='TECHNICAL_DIRECTOR'
+            AND p."CanReject" IS {enabled.ToString().ToUpperInvariant()};
+          SELECT pg_get_functiondef('advance.guard_estimated_bom_governance()'::regprocedure) INTO definition;
+          IF grant_count<>1 OR (position('ReturnToDraft' in definition)>0) IS DISTINCT FROM {enabled.ToString().ToLowerInvariant()} THEN
+            RAISE EXCEPTION 'Estimated BOM return-to-draft authority mismatch.';
+          END IF;
+        END $assert$;
+        """;}
 
 public sealed class EstimatedBomPolicyTests
 {

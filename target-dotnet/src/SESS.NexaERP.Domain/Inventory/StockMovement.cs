@@ -35,12 +35,17 @@ public sealed class StockMovement : CompanyScopedAuditableEntity
     public MaterialIssueLine? MaterialIssueLine { get; set; }
     public Guid? ComponentFitmentId { get; set; }
     public ComponentFitment? ComponentFitment { get; set; }
+    public Guid? OpeningStockLineId { get; set; }
+    public OpeningStockLine? OpeningStockLine { get; set; }
     public Guid? MaterialReturnLineId { get; set; }
     public MaterialReturnLine? MaterialReturnLine { get; set; }
     public Guid? DeliveryChallanLineId { get; set; }
     public DeliveryChallanLine? DeliveryChallanLine { get; set; }
     public Guid? OriginGoodsReceiptLineId { get; set; }
     public GoodsReceiptLine? OriginGoodsReceiptLine { get; set; }
+    public Guid? OriginOpeningStockLineId { get; set; }
+    public Guid? StockAdjustmentLineId { get; set; }
+    public Guid? OriginStockAdjustmentLineId { get; set; }
     public Guid OwnershipAccountId { get; set; }
     public InventoryOwnershipAccount? OwnershipAccount { get; set; }
     public Guid CustodyAssignmentId { get; set; }

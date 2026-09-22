@@ -15,14 +15,21 @@ using SESS.NexaERP.Infrastructure;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddWindowsService(options => options.ServiceName = "SESSNexaERP");
+if (builder.Environment.IsDevelopment())
+{
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+}
 
 builder.Services.AddHttpContextAccessor();
 builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddScoped<ICurrentUser, ClaimsCurrentUser>();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddHostedService<SESS.NexaERP.Api.InAppNotificationWorker>();
 // Development-only authentication follows the same gate pattern as
 // DatabaseSecurity:AllowDevelopmentSuperuser: the setting must be absent in a
 // Release build, and it activates only in Debug + Development + explicit opt-in.
@@ -59,14 +66,7 @@ if (developmentAuthenticationEnabled)
 #endif
 if (!developmentAuthenticationEnabled)
 {
-    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
-        {
-            options.Authority = builder.Configuration["Authentication:Authority"];
-            options.Audience = builder.Configuration["Authentication:Audience"];
-            options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-            options.MapInboundClaims = false;
-        });
+    OidcAccessTokenConfiguration.Register(builder.Services, builder.Configuration);
 }
 builder.Services.AddAuthorization();
 
@@ -79,16 +79,7 @@ await using (var startupScope = app.Services.CreateAsyncScope())
         .ValidateAsync();
 }
 
-// Serve the built React frontend (src/SESS.NexaERP.Web -> wwwroot) from the
-// same host and port as the API, so every workstation on the network opens a
-// single URL (http://<server-ip>:5000) and the browser sees a same-origin
-// backend. No CORS policy is needed. In development the Vite dev server can
-// still be used instead; its proxy forwards /api and /health to this host.
-app.UseDefaultFiles();
-app.UseStaticFiles();
-// Routing must run after the static files middleware; otherwise the SPA
-// fallback endpoint claims /assets/* first and the files are never served.
-app.UseRouting();
+SESS.NexaERP.Api.Hosting.DeploymentFrontend.Configure(app);
 
 app.UseMiddleware<StandardErrorEnvelopeMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
@@ -152,7 +143,15 @@ if (developmentAuthenticationEnabled)
 }
 #endif
 
+app.MapCompanyReportEndpoints();
+app.MapPurchaseWorkloadEndpoints();
+app.MapPurchaseSpendingEndpoints();
+app.MapPurchaseObligationsEndpoints();
+app.MapPurchaseOpenOrdersEndpoints();
+app.MapStoresWorkloadEndpoints();
+app.MapStoresQcStockEndpoints();
 app.MapSessionEndpoints();
+app.MapNotificationEndpoints();
 app.MapIdentityEndpoints();
 app.MapAuthorizationEndpoints();
 app.MapMasterEndpoints();
@@ -163,6 +162,16 @@ app.MapEstimatedBomEndpoints();
 app.MapProductionEngineeringEndpoints();
 app.MapMaterialIssueEndpoints();
 app.MapVendorBillEndpoints();
+app.MapSupplierInvoiceEndpoints();
+app.MapMachineDeliveryEndpoints();
+app.MapIntercompanyEndpoints();
+app.MapIntercompanyInvoiceEndpoints();
+app.MapInventoryPeriodEndpoints();
+app.MapVendorManualAssessmentEndpoints();
+app.MapVendorRatingEvidenceEndpoints();
+app.MapVendorFinancialEvidenceEndpoints();
+app.MapOpeningStockEndpoints();
+app.MapStockAdjustmentEndpoints();
 app.MapJobOrderEndpoints();
 app.MapFitmentActualBomEndpoints();
 app.MapJobOrderFatReadinessEndpoints();
@@ -176,10 +185,6 @@ app.MapStoresGoodsReceiptEndpoints();
 app.MapQcEndpoints();
 app.MapAuditEndpoints();
 app.MapEmployeeEndpoints();
-
-// Client-side routing fallback for the SPA. API and health paths are excluded
-// so an unknown API route still returns a 404 error envelope, not index.html.
-app.MapFallbackToFile("{*path:regex(^(?!api/|health/).*$)}", "index.html");
 
 app.Run();
 

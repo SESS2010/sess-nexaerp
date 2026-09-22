@@ -25,6 +25,7 @@ public sealed partial class EfProductionEngineeringService
             throw new StoresConflictException("Only an Approved Production BOM revision may be pinned.");
         var old = bom.JobOrder.PinnedProductionBomRevisionId;
         bom.JobOrder.PinnedProductionBomRevisionId = revision.Id;
+        bom.JobOrder.Version = checked(bom.JobOrder.Version + 1);
         bom.JobOrder.UpdatedAt = DateTimeOffset.UtcNow; bom.JobOrder.UpdatedBy = user.LoginId;
         var reason = Required(request.Reason, "Reason");
         History(bom, revision, null, null, "PinToMachine",

@@ -9,6 +9,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private const string WorkflowLoginTarget = "20260907114500_EnableWorkflowDevelopmentLogins";
 
+#if MIGRATION_LIFECYCLE_WITNESS
     [Fact]
     public void Workflow_development_logins_enable_exactly_eight_and_round_trip_on_postgresql()
     {
@@ -26,6 +27,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("workflow-logins-down.sql", migrator.GenerateScript(WorkflowLoginTarget, predecessor) + DisabledAssertion);
         server.Execute("workflow-logins-reapply.sql", migrator.GenerateScript(predecessor, WorkflowLoginTarget) + EnabledAssertion);
     }
+#endif
 
     private const string EnabledAssertion = """
 

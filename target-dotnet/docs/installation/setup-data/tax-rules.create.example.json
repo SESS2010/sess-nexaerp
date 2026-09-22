@@ -1,0 +1,34 @@
+{
+  "Kind": "TaxRules",
+  "Action": "Create",
+  "Company": "SESS_PVT_LTD",
+  "TargetDatabase": "sess_nexa_erp_DEMO",
+  "Rows": [
+    {
+      "OperationId": "REPLACE-WITH-NEW-GUID",
+      "Body": {
+        "OrganizationId": "SESS_PVT_LTD",
+        "EffectiveFrom": "2026-09-28",
+        "EffectiveTo": null,
+        "Remarks": "REPLACE with approved input/review reference",
+        "JurisdictionCode": "IN",
+        "HsnSacCode": "REPLACE",
+        "SupplierStateCode": "REPLACE",
+        "PlaceOfSupplyStateCode": "REPLACE",
+        "VendorRegistrationType": "REGULAR",
+        "GstRate": null,
+        "CgstRate": null,
+        "SgstRate": null,
+        "IgstRate": null,
+        "CessRate": null,
+        "IsExempt": false,
+        "IsReverseCharge": false,
+        "CurrencyCode": "INR",
+        "RoundingScale": 2,
+        "SupersedesTaxGstSettingId": null,
+        "ItcEligibility": "FULLY_RECOVERABLE",
+        "RecoverableTaxPercent": null
+      }
+    }
+  ]
+}

@@ -200,7 +200,7 @@ public static partial class MasterEndpoints
 
         MapVendorAction(group, "submit", "Submit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Submit);
         group.MapPost("/vendors/{vendorCode}/verify-commercial", VerifyVendorCommercial)
-            .RequirePagePermission("masters.vendor-qualifications", PagePermissionActions.Verify);
+            .RequirePagePermission("masters.vendors", PagePermissionActions.Verify);
         MapVendorAction(group, "approve", "Approve", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Approve);
         MapVendorAction(group, "reject", "Reject", MasterStatuses.Rejected, MasterApprovalStatuses.Rejected, PagePermissionActions.Reject);
         MapVendorAction(group, "request-clarification", "RequestClarification", MasterStatuses.PendingApproval, MasterApprovalStatuses.ClarificationRequested, PagePermissionActions.RequestClarification);

@@ -24,4 +24,28 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-</Project>
+<ItemGroup>
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260913010000_CompanyReports.sql" LogicalName="CompanyReports.20260913010000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914010000_PurchaseWorkload.sql" LogicalName="PurchaseWorkload.20260914010000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914020000_PurchaseSpending.sql" LogicalName="PurchaseSpending.20260914020000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914040000_PurchaseObligations.sql" LogicalName="PurchaseObligations.20260914040000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914050000_PurchaseOpenOrders.sql" LogicalName="PurchaseOpenOrders.20260914050000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914060000_StoresWorkload.sql" LogicalName="StoresWorkload.20260914060000.sql" />
+    <EmbeddedResource Include="Persistence\Migrations\Sql\20260914070000_StoresQcStock.sql" LogicalName="StoresQcStock.20260914070000.sql" />
+  </ItemGroup>
+
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260914080000_FifoReturnRestorations.sql" LogicalName="FifoReturnRestorations.20260914080000.sql" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260914090000_SupplierInvoiceReceipts.sql" LogicalName="SupplierInvoiceReceipts.20260914090000.sql" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915103000_MachineDeliveryDossier.sql" LogicalName="MachineDeliveryDossier.20260915103000.sql" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915103000_MachineDossierReport.sql" LogicalName="MachineDossierReport.20260915103000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\IntercompanyRoutes20260915AccessSql.cs" Link="Database\IntercompanyRoutes20260915AccessSql.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915180000_IntercompanyRoutes.sql" LogicalName="IntercompanyRoutes.20260915180000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\IntercompanyPurchase20260915AccessSql.cs" Link="Database\IntercompanyPurchase20260915AccessSql.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260915190000_IntercompanyPurchasePublication.sql" LogicalName="IntercompanyPurchasePublication.20260915190000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\IntercompanyInvoice20260919AccessSql.cs" Link="Database\IntercompanyInvoice20260919AccessSql.cs" /></ItemGroup>
+<ItemGroup><EmbeddedResource Include="Persistence\Migrations\Sql\20260919100000_IntercompanyInvoiceEvidence.sql" LogicalName="IntercompanyInvoiceEvidence.20260919100000.sql" /></ItemGroup>
+<ItemGroup><Compile Include="..\Shared\InventoryPeriod20260919AccessSql.cs" Link="Database\InventoryPeriod20260919AccessSql.cs" /></ItemGroup>
+<ItemGroup>
+<EmbeddedResource Include="Persistence/Migrations/Sql/20260919110000_InventoryPeriodCfoBaseline.sql" LogicalName="InventoryPeriodCfoBaseline.20260919110000.sql" />
+<EmbeddedResource Include="Persistence/Migrations/Sql/20260919120000_InventoryPeriods.sql" LogicalName="InventoryPeriods.20260919120000.sql" />
+</ItemGroup><ItemGroup><Compile Include="../Shared/VendorManualAssessment20260919AccessSql.cs" Link="Database/VendorManualAssessment20260919AccessSql.cs"/></ItemGroup><ItemGroup><EmbeddedResource Include="Persistence/Migrations/Sql/20260919130000_VendorManualAssessments.sql" LogicalName="VendorManualAssessments.20260919130000.sql"/></ItemGroup></Project>

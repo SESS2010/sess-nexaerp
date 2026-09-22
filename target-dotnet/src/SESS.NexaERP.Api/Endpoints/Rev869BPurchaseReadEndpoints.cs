@@ -102,7 +102,7 @@ public static partial class Rev869BPurchaseEndpoints
         IPagePermissionService permissions, IAuditWriter audit, CancellationToken ct)
     {
         var normalized = Normalize(number);
-        var row = await ScopeQuotations(db.VendorQuotations.AsNoTracking().Include(x => x.Vendor).Include(x => x.Lines)
+        var row = await ScopeQuotations(db.VendorQuotations.AsNoTracking().Include(x => x.Vendor).Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine)
             .Include(x => x.RfqVendorInvitation)!.ThenInclude(x => x!.RequestForQuotation), db, user)
             .SingleOrDefaultAsync(x => x.QuotationNumber == normalized && x.IsCurrentRevision, ct);
         if (row is null) return await Missing(audit, "purchase.vendor-quotations", number, user, ct);
@@ -111,7 +111,9 @@ public static partial class Rev869BPurchaseEndpoints
                 row.VendorId, VendorCode = row.Vendor!.VendorCode, VendorName = row.Vendor.Name, row.RevisionNumber, row.IsCurrentRevision,
                 row.VendorQuoteReference, row.SubmissionSource, row.ReceivedAt, row.Status, row.SubmittedAt, row.IsLateSubmission,
                 row.PaymentTermsSnapshot, row.DeliveryTermsSnapshot, row.WarrantyTermsSnapshot, row.TotalPayableValue,
-                row.HeaderDiscountValue, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.Quantity,
+                row.HeaderDiscountValue, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.Quantity, x.RequestForQuotationLineId,
+                    ItemId = x.RequestForQuotationLine!.ItemId, ItemCode = x.RequestForQuotationLine.ItemCodeSnapshot,
+                    ItemName = x.RequestForQuotationLine.ItemNameSnapshot, Specification = x.RequestForQuotationLine.SpecificationSnapshot,
                     x.UnitRate, x.DiscountValue, x.HeaderDiscountValue, x.PackingForwarding, x.Freight, x.Insurance,
                     x.OtherCharges, x.TaxableValue, x.CgstValue, x.SgstValue, x.IgstValue, x.CessValue, x.RoundOff,
                     x.TotalPayableValue, x.HsnSacCode, x.PromisedDeliveryDate }) });
@@ -120,7 +122,9 @@ public static partial class Rev869BPurchaseEndpoints
             row.VendorId, VendorCode = row.Vendor!.VendorCode, VendorName = row.Vendor.Name, row.RevisionNumber, row.IsCurrentRevision,
             row.VendorQuoteReference, row.SubmissionSource, row.ReceivedAt, row.Status, row.SubmittedAt, row.IsLateSubmission,
             row.PaymentTermsSnapshot, row.DeliveryTermsSnapshot, row.WarrantyTermsSnapshot, row.Version,
-            Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.Quantity, x.HsnSacCode, x.PromisedDeliveryDate }) });
+            Lines = row.Lines.Select(x => new { x.Id, x.LineNumber, x.Quantity, x.RequestForQuotationLineId,
+                    ItemId = x.RequestForQuotationLine!.ItemId, ItemCode = x.RequestForQuotationLine.ItemCodeSnapshot,
+                    ItemName = x.RequestForQuotationLine.ItemNameSnapshot, Specification = x.RequestForQuotationLine.SpecificationSnapshot, x.HsnSacCode, x.PromisedDeliveryDate }) });
     }
 
     private static IQueryable<RequestForQuotation> ScopeRfqs(IQueryable<RequestForQuotation> query, NexaErpDbContext db, ICurrentUser user)
@@ -141,7 +145,9 @@ public static partial class Rev869BPurchaseEndpoints
         var scopes = EffectiveScopes(db, user);
         if (CrossScope(user, scopes)) return query;
         var employeeId = user.EmployeeId!.Value;
-        return query.Where(x => scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RfqVendorInvitation!.RequestForQuotation!.RequestingDepartmentId) &&
+        var technicalRfqIds = SESS.NexaERP.Infrastructure.Authorization.QuotationTechnicalScope
+            .AccessibleRfqs(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).Select(x => x.Id);
+        return query.Where(x => technicalRfqIds.Contains(x.RfqVendorInvitation!.RequestForQuotationId) || scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RfqVendorInvitation!.RequestForQuotation!.RequestingDepartmentId) &&
             (!s.WarehouseId.HasValue || s.WarehouseId == x.RfqVendorInvitation!.RequestForQuotation!.DeliveryWarehouseId) && !s.RackBinId.HasValue &&
             (!s.OwnRecordsOnly || x.RfqVendorInvitation!.RequestForQuotation!.OwnerEmployeeId == employeeId)));
     }

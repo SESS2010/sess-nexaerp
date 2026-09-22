@@ -51,6 +51,7 @@ public sealed class ProductionBomLine
     public Guid UomId { get; set; }
     public Uom? Uom { get; set; }
     public decimal Quantity { get; set; }
+    public decimal? PlannedUnitValue { get; set; }
     public string? Remarks { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public string CreatedBy { get; set; } = "system";

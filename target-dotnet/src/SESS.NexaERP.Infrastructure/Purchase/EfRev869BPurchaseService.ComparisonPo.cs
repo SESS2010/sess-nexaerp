@@ -1,4 +1,6 @@
 using System.Data;
+using Npgsql;
+using SESS.NexaERP.Infrastructure.Persistence;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Purchase;
@@ -171,7 +173,7 @@ public sealed partial class EfRev869BPurchaseService
                 quote.RfqVendorInvitation!.VendorQualificationSnapshotJson, quote.AttachmentObjectKey, quote.AttachmentSha256,
                 c.ApprovalRoute, comparisonApproval.CreatedAt, quote.ReceivedAt, input, calc)
             { QuotationRevision = quote.RevisionNumber, ItemId = source.ItemId, Quantity = ql.Quantity, Uom = source.UomSnapshot, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
-            po.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = comparisonLine.Id, PurchaseRequisitionLineId = source.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = source.PurchaseRequirementHandoffId, ItemId = source.ItemId, LineNumber = ++lineNo, ItemCodeSnapshot = source.ItemCodeSnapshot, ItemNameSnapshot = source.ItemNameSnapshot, UomSnapshot = source.UomSnapshot, OrderedQuantity = ql.Quantity, ApprovedOutstandingQuantitySnapshot = remaining, UnitRate = ql.UnitRate, CommercialSnapshotJson = JsonSerializer.Serialize(immutable, JsonOptions), TaxRuleSnapshotJson = JsonSerializer.Serialize(recalculated.Tax, JsonOptions), TotalPayableValue = calc.TotalPayableValue, CreatedBy = user.LoginId });
+            po.Lines.Add(new PurchaseOrderLine { CommercialComparisonLineId = comparisonLine.Id, PurchaseRequisitionLineId = source.PurchaseRequisitionLineId, PurchaseRequirementHandoffId = source.PurchaseRequirementHandoffId, ItemId = source.ItemId, LineNumber = ++lineNo, ItemCodeSnapshot = source.ItemCodeSnapshot, ItemNameSnapshot = source.ItemNameSnapshot, UomSnapshot = source.UomSnapshot, OrderedQuantity = ql.Quantity, ApprovedOutstandingQuantitySnapshot = remaining, UnitRate = ql.UnitRate, CommercialSnapshotJson = JsonSerializer.Serialize(immutable, JsonOptions), TaxRuleSnapshotJson = ql.TaxRuleSnapshotJson, TotalPayableValue = calc.TotalPayableValue, CreatedBy = user.LoginId });
             reconciledLines.Add(calc);
         }
         var aggregate = Rev869BCommercialCalculator.Aggregate(reconciledLines);
@@ -215,6 +217,20 @@ public sealed partial class EfRev869BPurchaseService
     }
 
     public async Task<Rev869BDocumentResult> IssuePurchaseOrderAsync(string number, Rev869BIssuePurchaseOrderRequest request, CancellationToken ct)
+    {
+        try { return await IssuePurchaseOrderCoreAsync(number, request, ct); }
+        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.CheckViolation &&
+            error.ConstraintName == "CK_vendor_po_cash_cap")
+        {
+            throw new Rev869BConflictException(error.MessageText);
+        }
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
+        {
+            throw new DbUpdateConcurrencyException("Vendor cash changed concurrently. Refresh and retry PO issuance.", error);
+        }
+    }
+
+    private async Task<Rev869BDocumentResult> IssuePurchaseOrderCoreAsync(string number, Rev869BIssuePurchaseOrderRequest request, CancellationToken ct)
     {
         var actor = RequireActor(); RequireRole(Rev869ARoleCodes.PurchaseManager); await using var tx = await BeginTransactionScopeAsync("IssuePO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request }, ct); var po = await LoadPoAsync(number, ct); await AuthorizePoAsync(actor, po, ct);
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(po.OrganizationId, "IssuePO", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(po.OrganizationId, "IssuePO", request.IdempotencyKey, new { number = number.Trim().ToUpperInvariant(), request });

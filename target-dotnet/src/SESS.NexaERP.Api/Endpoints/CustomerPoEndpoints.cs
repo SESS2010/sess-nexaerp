@@ -23,10 +23,7 @@ public static class CustomerPoEndpoints
 
     public sealed record CustomerPoLineDto(
         int SlNo, Guid ItemId, Guid UomId, string Description, DateOnly? DueDate, decimal? Quantity, string? Uom,
-        decimal? Rate, decimal? DiscountPercent, decimal? Amount,
-        // Read-side only: the line's own id, which Job Order creation needs
-        // (CreateJobOrderRequest.CustomerPurchaseOrderLineId). Ignored on upsert.
-        Guid? Id = null);
+        decimal? Rate, decimal? DiscountPercent, decimal? Amount, Guid? Id = null);
 
     public sealed record CustomerPoRevisionDto(
         int RevisionNumber, string ChangeReason, string CreatedBy, DateTimeOffset CreatedAt);

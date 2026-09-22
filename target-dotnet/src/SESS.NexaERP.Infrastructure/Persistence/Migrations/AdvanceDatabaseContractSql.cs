@@ -56,8 +56,8 @@ internal static class AdvanceDatabaseContractSql
             .Replace("ELSIF TG_TABLE_NAME = 'purchase_orders' AND\n", "ELSIF TG_TABLE_NAME = 'purchase_orders' THEN\n                        IF ", StringComparison.Ordinal)
             .Replace("RAISE EXCEPTION 'Purchase order commercial and provenance snapshot is immutable.';", "RAISE EXCEPTION 'Purchase order commercial and provenance snapshot is immutable.';\n                        END IF;", StringComparison.Ordinal));
     internal static string RestoreRev869BGuards => AdvanceSchemaSql.Expand(
-        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_controlled_snapshot()") + Environment.NewLine +
-        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_enforce_transition()") + Environment.NewLine +
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_guard_controlled_snapshot()") + "\n" +
+        ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_enforce_transition()") + "\n" +
         ExtractFunction(InstallRev869BTemplate, "CREATE OR REPLACE FUNCTION __advance_schema__.rev869b_validate_parent_contract()"));
     internal static string RemoveRev869B => AdvanceSchemaSql.Expand(RemoveRev869BTemplate);
     internal static string RemoveRev869A => AdvanceSchemaSql.Expand(RemoveRev869ATemplate);

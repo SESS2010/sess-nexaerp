@@ -30,7 +30,8 @@ public sealed partial class EfEstimatedBomService
 
     public async Task MergeItemAsync(Guid sourceItemId, MergeItemRequest request, CancellationToken ct)
     {
-        _ = user.RequireRole("approve", "STORES_MANAGER", "PURCHASE_MANAGER");
+        // Duplicate merge is one of the two item master decisions reserved to the Technical Director.
+        _ = user.RequireRole("approve", "TECHNICAL_DIRECTOR");
         if (sourceItemId == Guid.Empty || request.SurvivorItemId == Guid.Empty || sourceItemId == request.SurvivorItemId)
             throw new StoresValidationException("Distinct source and survivor ItemIds are required.");
         var reason = Required(request.Reason, "Reason"); var key = Required(request.IdempotencyKey, "IdempotencyKey");
@@ -53,7 +54,7 @@ public sealed partial class EfEstimatedBomService
         var draftLines = await db.EstimatedBomLines.Where(x => x.ItemId == sourceItemId &&
             x.EstimatedBomRevision!.Status == "DRAFT").ToListAsync(ct);
         foreach (var line in draftLines) line.ItemId = survivor.Id;
-        source.IsActive = false; source.Status = "Merged"; source.UpdatedAt = DateTimeOffset.UtcNow; source.UpdatedBy = user.LoginId;
+        source.IsActive = false; source.Status = "Merged"; source.Version = checked(source.Version + 1); source.UpdatedAt = DateTimeOffset.UtcNow; source.UpdatedBy = user.LoginId;
         var alias = new ItemMergeAlias { CompanyId = company.Id, SourceItemId = source.Id, SurvivorItemId = survivor.Id, ActorEmployeeId = Actor(),
             ActorRoleCode = user.RoleCode, ResolvedRoleAssignmentId = user.ResolvedRoleAssignmentId!.Value,
             ResolvedRoleAssignmentType = user.ResolvedRoleAssignmentType!, Reason = reason, CreatedBy = user.LoginId };

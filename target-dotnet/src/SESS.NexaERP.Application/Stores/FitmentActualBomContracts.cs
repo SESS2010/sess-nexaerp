@@ -19,15 +19,28 @@ public sealed record ActualBomEntryView(Guid Id, string EntryKind, Guid? Compone
     Guid? ComponentFitmentReversalId, Guid MaterialIssueLineId, Guid ItemId, string ItemCode,
     string ItemName, Guid UomId, string UomCode, decimal QuantityBase,
     Guid InventoryProvenanceLayerId, Guid? InventoryLotId, Guid? InventorySerialId,
-    string? SerialNumber, Guid GoodsReceiptLineId, string GrnNumber, Guid VendorBillLineId,
-    string BillNumber, decimal AcceptedMaterialValue, decimal AllocatedChargeValue,
-    decimal TotalAcceptedValue, DateTimeOffset OccurredAt);
+    string? SerialNumber, Guid? GoodsReceiptLineId, string GrnNumber, Guid? VendorBillLineId,
+    string? BillNumber, string ValuationStatus, decimal AcceptedMaterialValue,
+    decimal AllocatedChargeValue, decimal TotalAcceptedValue,
+    DateTimeOffset? ValuedAt, DateTimeOffset OccurredAt,
+    Guid? OpeningStockLineId = null, string? OpeningLineReference = null, string? Provenance = null);
+
+public sealed record ActualBomVarianceLineView(Guid ItemId, string ItemCode, string ItemName,
+    Guid BaseUomId, string BaseUomCode, decimal BaselineQuantity, decimal ActualQuantity,
+    decimal QuantityVariance, decimal? BaselineValue, decimal ActualAcceptedValue, decimal? ValueVariance,
+    string? BaselineValueSource = null);
+
+public sealed record ActualBomBaselineVarianceView(string BaselineType, Guid BaselineRevisionId,
+    int BaselineRevisionNumber, bool BaselineCostAvailable, decimal? BaselineValue,
+    decimal ActualAcceptedValue, decimal? ValueVariance,
+    IReadOnlyList<ActualBomVarianceLineView> Lines);
 
 public sealed record ActualBomView(Guid Id, Guid JobOrderId, string JobOrderNumber,
     DateTimeOffset GeneratedAt, decimal TotalAcceptedMaterialValue,
     decimal TotalAllocatedChargeValue, decimal TotalAcceptedValue,
-    IReadOnlyList<ActualBomEntryView> Entries);
-
+    IReadOnlyList<ActualBomEntryView> Entries,
+    ActualBomBaselineVarianceView OperationalVariance,
+    ActualBomBaselineVarianceView CommercialVariance);
 public interface IFitmentActualBomService
 {
     Task<PagedResponse<ComponentFitmentSummary>> ListAsync(int? page, int? pageSize,

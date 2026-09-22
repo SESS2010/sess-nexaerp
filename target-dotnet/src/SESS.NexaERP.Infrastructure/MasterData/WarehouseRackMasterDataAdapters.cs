@@ -26,6 +26,7 @@ public sealed class WarehouseMasterDataDefinition : IMasterDataDefinition
         C("DepartmentCode","Department Code",MasterDataColumnType.Text,false,true,"Uppercase department code","Active Department master code","Optional department lookup.",80,"departments"),
         R("Status","Status",MasterDataColumnType.Text),R("ApprovalStatus","Approval Status",MasterDataColumnType.Text),R("IsActive","Is Active",MasterDataColumnType.Boolean)
     ];
+    public IReadOnlyList<MasterDataExportRow> TemplateExampleRows { get; }=[ImportFields.Example(("WarehouseCode","MAIN"),("Name","Main Stores"),("WarehouseType","STORES"),("Location","Factory"),("ResponsibleEmployeeCode","SESS-41"),("DepartmentCode","STORES"))];
     private static MasterDataColumnDefinition C(string key,string header,MasterDataColumnType type,bool required,bool editable,string format,string allowed,string description,int? max=null,string? lookup=null)=>new(key,header,type,required,required,editable,format,allowed,lookup,description,max);
     private static MasterDataColumnDefinition R(string key,string header,MasterDataColumnType type)=>new(key,header,type,false,false,false,type==MasterDataColumnType.Boolean?"TRUE or FALSE; blank for new rows":"Text; blank for new rows","Current exported value",null,"Governed lifecycle value.");
 }
@@ -52,6 +53,7 @@ public sealed class RackBinMasterDataDefinition : IMasterDataDefinition
         C("Description","Description",MasterDataColumnType.Text,false,"Text, maximum 240 characters","Text or blank","Optional description.",240),
         R("Status","Status",MasterDataColumnType.Text,"Text; blank for new rows"),R("ApprovalStatus","Approval Status",MasterDataColumnType.Text,"Text; blank for new rows"),R("IsActive","Is Active",MasterDataColumnType.Boolean,"TRUE or FALSE; blank for new rows")
     ];
+    public IReadOnlyList<MasterDataExportRow> TemplateExampleRows { get; }=[ImportFields.Example(("WarehouseCode","MAIN"),("BinCode","RACK-01-A"),("RackName","Rack 01"),("BinNameNumber","A"),("Zone","Stores"),("LocationType","RACK"),("MaterialCondition","AVAILABLE"),("CapacityQuantity",100m),("CapacityUom","NOS"),("Barcode","RACK-01-A"),("Description","Example rack partition"))];
     private static MasterDataColumnDefinition C(string key,string header,MasterDataColumnType type,bool required,string format,string allowed,string description,int? max=null,string? lookup=null)=>new(key,header,type,required,required,true,format,allowed,lookup,description,max);
     private static MasterDataColumnDefinition R(string key,string header,MasterDataColumnType type,string format)=>new(key,header,type,false,false,false,format,"Current exported value",null,"Read-only identity, concurrency or lifecycle value.");
 }

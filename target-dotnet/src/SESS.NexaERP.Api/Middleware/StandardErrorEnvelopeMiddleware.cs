@@ -12,12 +12,17 @@ public sealed record StandardErrorEnvelope(
     string Code,
     string Detail,
     string TraceId,
-    IReadOnlyDictionary<string, string[]> Errors);
+    IReadOnlyDictionary<string, string[]> Errors,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    bool? AdministratorActionRequired = null);
 
 public sealed class StandardErrorEnvelopeMiddleware(
     RequestDelegate next,
     IOptions<JsonOptions> jsonOptions)
 {
+    public sealed record ReportFailure(string Code, bool AdministratorActionRequired);
+    public const string ReportFailureKey = "SESS.Reports.Failure";
+    public const string AuthenticationFailureKey = "SESS.Authentication.AdministratorActionRequired";
     private static readonly IReadOnlyDictionary<string, string[]> NoErrors =
         new Dictionary<string, string[]>(StringComparer.Ordinal);
 
@@ -42,6 +47,26 @@ public sealed class StandardErrorEnvelopeMiddleware(
                 legacy.Detail,
                 legacy.Errors,
                 Activity.Current?.Id ?? context.TraceIdentifier);
+
+            if (context.Response.StatusCode == StatusCodes.Status403Forbidden &&
+                context.Items.ContainsKey(AuthenticationFailureKey))
+                envelope = envelope with
+                {
+                    Type = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED"
+                        ? "https://api.sess.example/problems/mfa-required"
+                        : "https://api.sess.example/problems/employee-access-not-configured",
+                    Title = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED" ? "MFA required" : "Administrator action required",
+                    Code = context.Items[AuthenticationFailureKey] as string == "MFA_REQUIRED" ? "MFA_REQUIRED" : "EMPLOYEE_ACCESS_NOT_CONFIGURED"
+                };
+
+            if (context.Items.TryGetValue(ReportFailureKey,out var reportValue) && reportValue is ReportFailure report)
+                envelope = envelope with
+                {
+                    Code = report.Code,
+                    Type = "https://api.sess.example/problems/" + report.Code.ToLowerInvariant().Replace('_','-'),
+                    Title = report.AdministratorActionRequired ? "Report source needs administrator action" : envelope.Title,
+                    AdministratorActionRequired = report.AdministratorActionRequired ? true : null
+                };
 
             context.Response.Body = originalBody;
             context.Response.ContentLength = null;

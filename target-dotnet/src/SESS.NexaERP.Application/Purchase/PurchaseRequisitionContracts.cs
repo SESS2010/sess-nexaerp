@@ -14,6 +14,10 @@ public sealed record StockCheckLocationRequest(int LineNumber, string WarehouseC
 
 public sealed record StockCheckRequest(string Remarks, uint Version, string? IdempotencyKey = null, IReadOnlyList<StockCheckLocationRequest>? Locations = null);
 
+public sealed record StockCheckPurchaseRequisitionLine(int LineNumber, string ItemCode, string ItemName, string Uom, decimal RequestedQuantity);
+
+public sealed record StockCheckPurchaseRequisitionDetail(string PrNumber, string Status, uint Version, string DeliveryWarehouseCode, IReadOnlyList<StockCheckPurchaseRequisitionLine> Lines);
+
 public sealed record PurchaseRequisitionLineSummary(Guid Id, int LineNumber, string ItemCode, string ItemName, string Uom, decimal RequestedQuantity, decimal EstimatedUnitPrice, decimal EstimatedLineTotal, decimal OnHand, decimal ActiveReserved, decimal Available, decimal ReservedQuantity, decimal ShortageQuantity, decimal HandoffQuantity, string LineStatus);
 
 public sealed record PurchaseRequisitionSummary(Guid Id, string PrNumber, string OrganizationId, string RequestingDepartment, string RequesterEmployeeCode, DateOnly RequestDate, DateOnly RequiredByDate, string Priority, string Status, string ApprovalRoute, decimal EstimatedTotal, uint Version);

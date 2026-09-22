@@ -11,7 +11,9 @@ namespace SESS.NexaERP.Infrastructure.Stores;
 
 public sealed partial class EfEstimatedBomService
 {
-    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks);
+    private sealed record MaterialLine(Guid ItemId, Guid UomId, decimal Quantity, string? Remarks,
+        decimal? EstimatedUnitValue, bool EstimatedUnitValueOverridden, string? ValueSource);
+    internal sealed record SuggestedValue(decimal UnitValue, string Source);
 
     private async Task<IReadOnlyList<MaterialLine>> MaterializeLinesAsync(Guid companyId, IReadOnlyList<EstimatedBomLineInput> lines, CancellationToken ct)
     {
@@ -19,7 +21,7 @@ public sealed partial class EfEstimatedBomService
         var result = new List<MaterialLine>(lines.Count);
         foreach (var line in lines)
         {
-            if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty || line.Quantity <= 0)
+            if (line.ItemId == Guid.Empty || line.UomId == Guid.Empty || line.Quantity <= 0 || line.EstimatedUnitValue < 0)
                 throw new StoresValidationException("Every line requires ItemId, UomId and a positive Quantity.");
             var itemId = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleOrDefaultAsync(x => x.Id == itemId, ct)
@@ -39,7 +41,16 @@ public sealed partial class EfEstimatedBomService
                     ((x.FromUomId == uom.Id && x.ToUomId == baseUom.Id) || (x.FromUomId == baseUom.Id && x.ToUomId == uom.Id)), ct);
                 if (!conversion) throw new StoresValidationException($"No effective approved UOM conversion relates {uom.Code} and {baseUom.Code}.");
             }
-            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim()));
+            // Nothing is priced silently: the engineer types a value (ENGINEER) or accepts the offered one.
+            decimal? value = line.EstimatedUnitValue; string? source = line.EstimatedUnitValue.HasValue ? "ENGINEER" : null;
+            if (!line.EstimatedUnitValue.HasValue && line.UseSuggestedValue)
+            {
+                var suggestion = await SuggestUnitValueAsync(companyId, item.Id, uom.Id, ct)
+                    ?? throw new StoresConflictException($"Item {item.ItemCode} has no accepted-bill rate and no opening-stock carrying value to suggest; state the EstimatedUnitValue.");
+                value = suggestion.UnitValue; source = suggestion.Source;
+            }
+            result.Add(new(item.Id, uom.Id, line.Quantity, string.IsNullOrWhiteSpace(line.Remarks) ? null : line.Remarks.Trim(),
+                value, source == "ENGINEER", source));
         }
         return result;
     }
@@ -62,7 +73,8 @@ public sealed partial class EfEstimatedBomService
         foreach (var line in material)
             revision.Lines.Add(new EstimatedBomLine { CompanyId = companyId, EstimatedBomRevisionId = revision.Id,
                 LineNumber = ++number, ItemId = line.ItemId, UomId = line.UomId, Quantity = line.Quantity,
-                Remarks = line.Remarks, CreatedBy = user.LoginId });
+                Remarks = line.Remarks, EstimatedUnitValue = line.EstimatedUnitValue,
+                EstimatedUnitValueOverridden = line.EstimatedUnitValueOverridden, ValueSource = line.ValueSource, CreatedBy = user.LoginId });
     }
 
     private static EstimatedBomRevision Current(EstimatedBom bom) =>
@@ -76,16 +88,69 @@ public sealed partial class EfEstimatedBomService
             var terminal = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminal, ct);
             if (!item.IsActive) throw new StoresConflictException($"Canonical item {item.ItemCode} is inactive; submission is blocked.");
+            if (!line.EstimatedUnitValue.HasValue)
+                throw new StoresConflictException($"Item {item.ItemCode} is unpriced; state an EstimatedUnitValue or accept the suggested value before submission.");
         }
     }
 
-    private async Task RequirePreparerAsync(CancellationToken ct)
+    // Values are what the preparer typed or accepted at preparation; approval freezes them as they are.
+    private static Task FreezeEstimatedValuesAsync(EstimatedBomRevision revision, CancellationToken ct)
     {
-        var code = await db.Employees.AsNoTracking().Where(x => x.Id == Actor()).Select(x => x.EmployeeCode).SingleAsync(ct);
-        var allowed = code is "SESS-04" or "SESS-05"
-            ? new[] { "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR", "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER" }
-            : new[] { "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR" };
-        _ = user.RequireRole("create", allowed);
+        if (revision.Lines.Any(x => !x.EstimatedUnitValue.HasValue))
+            throw new StoresConflictException("An unpriced Estimated BOM line cannot be approved; return it to Draft.");
+        return Task.CompletedTask;
+    }
+
+    // The offered value: the last accepted bill's landed rate when one exists, else the opening-stock
+    // carrying value Accounts confirmed. Offered, never imposed; the accepted source is recorded.
+    internal async Task<SuggestedValue?> SuggestUnitValueAsync(Guid companyId, Guid itemId, Guid lineUomId, CancellationToken ct)
+    {
+        var bill = await ResolveDefaultEstimatedUnitValueAsync(companyId, itemId, lineUomId, ct);
+        if (bill.HasValue) return new(bill.Value, "LAST_ACCEPTED_BILL");
+        var terminalId = await TerminalItemIdAsync(itemId, ct);
+        var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+        var opening = await db.OpeningStockLines.AsNoTracking()
+            .Where(x => x.CompanyId == companyId && x.ItemId == terminalId && x.OpeningStock!.Status == "POSTED")
+            .OrderByDescending(x => x.OpeningStock!.PeriodEnd).ThenByDescending(x => x.LineNumber)
+            .Select(x => new { x.UnitRate, x.OpeningStock!.PeriodEnd }).FirstOrDefaultAsync(ct);
+        if (opening is null) return null;
+        return new(await ConvertBaseUnitValueAsync(opening.UnitRate, item.BaseUomId, lineUomId, opening.PeriodEnd, item.ItemCode, ct), "OPENING_STOCK");
+    }
+
+    private async Task<decimal?> ResolveDefaultEstimatedUnitValueAsync(Guid companyId, Guid itemId, Guid lineUomId, CancellationToken ct)
+    {
+        var terminalId = await TerminalItemIdAsync(itemId, ct);
+        var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+        var purchase = await db.ItemCompanyLastPurchases.AsNoTracking()
+            .SingleOrDefaultAsync(x => x.CompanyId == companyId && x.ItemId == terminalId, ct);
+        if (purchase?.LastPurchaseRate is null || purchase.LastPurchaseDate is null || purchase.LastPurchaseBillId is null)
+            return null;
+        return await ConvertBaseUnitValueAsync(purchase.LastPurchaseRate.Value,
+            item.BaseUomId, lineUomId, purchase.LastPurchaseDate.Value, item.ItemCode, ct);
+    }
+
+    private async Task<decimal> ConvertBaseUnitValueAsync(decimal baseUnitValue, Guid baseUomId,
+        Guid lineUomId, DateOnly effectiveOn, string itemCode, CancellationToken ct)
+    {
+        if (baseUomId == lineUomId) return decimal.Round(baseUnitValue, 6);
+        var conversion = await db.UomConversions.AsNoTracking().SingleOrDefaultAsync(x => x.IsActive &&
+            x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= effectiveOn &&
+            (!x.EffectiveTo.HasValue || x.EffectiveTo >= effectiveOn) &&
+            ((x.FromUomId == lineUomId && x.ToUomId == baseUomId) ||
+             (x.FromUomId == baseUomId && x.ToUomId == lineUomId)), ct)
+            ?? throw new StoresConflictException($"No approved UOM conversion can price item {itemCode} in the Estimated BOM line UOM.");
+        var baseQuantityPerLineUnit = conversion.FromUomId == lineUomId
+            ? conversion.ConversionFactor : 1m / conversion.ConversionFactor;
+        return decimal.Round(baseUnitValue * baseQuantityPerLineUnit, 6);
+    }
+
+    // Preparers are roles, never employee codes: Design Engineers, the Technical Director and the
+    // Technical Support Manager (the role the two service-side preparers hold; a SUPPORT assignment
+    // of it may prepare). The page grant on design.estimated-bom is the other half of the rule.
+    private Task RequirePreparerAsync(CancellationToken ct)
+    {
+        _ = user.RequireRole("create", "DESIGN_ENGINEER", "TECHNICAL_DIRECTOR", "TECHNICAL_SUPPORT_MANAGER");
+        return Task.CompletedTask;
     }
 
     private void AddHistory(EstimatedBom bom, EstimatedBomRevision revision, string action,
@@ -142,8 +207,10 @@ public sealed partial class EfEstimatedBomService
         {
             var original = items[line.ItemId]; var terminalId = await TerminalItemIdAsync(line.ItemId, ct);
             var terminal = terminalId == original.Id ? original : await db.Items.AsNoTracking().SingleAsync(x => x.Id == terminalId, ct);
+            var suggested = revision.Status == "DRAFT" ? await SuggestUnitValueAsync(bom.CompanyId, terminal.Id, line.UomId, ct) : null;
             lines.Add(new(line.Id, line.LineNumber, original.Id, original.ItemCode, terminal.Id, terminal.ItemCode,
-                terminal.IsActive, terminal.ApprovalStatus, line.UomId, uoms[line.UomId].Code, line.Quantity, line.Remarks));
+                terminal.IsActive, terminal.ApprovalStatus, line.UomId, uoms[line.UomId].Code, line.Quantity, line.Remarks,
+                line.EstimatedUnitValue, line.EstimatedUnitValueOverridden, "INR", line.ValueSource, suggested?.UnitValue, suggested?.Source));
         }
         var canonical = new List<EstimatedBomCanonicalLineView>();
         foreach (var group in lines.GroupBy(x => x.CanonicalItemId))

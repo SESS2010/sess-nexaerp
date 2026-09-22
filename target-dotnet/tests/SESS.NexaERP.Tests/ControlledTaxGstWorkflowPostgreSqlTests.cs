@@ -123,6 +123,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     VendorRegistrationType.REGULAR.ToCanonicalValue(), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1), 100), default);
             Assert.Equal(successorId, resolved.Id);
             Assert.Equal(12, resolved.GstRate);
+            Assert.Equal(InputTaxCreditEligibility.FullyRecoverable, predecessor.ItcEligibility);
+            Assert.Null(predecessor.RecoverableTaxPercent);
+        }
+        foreach (var (hsn, eligibility, percent) in new[]
+        {
+            ("ITC-BLOCK", InputTaxCreditEligibility.Blocked, (decimal?)null),
+            ("ITC-PART", InputTaxCreditEligibility.PartiallyRecoverable, (decimal?)37.5m)
+        })
+        {
+            await using var db = new NexaErpDbContext(runtimeOptions);
+            user.Set(accountsId, "SESS-14", "ACCOUNTS_MANAGER");
+            var service = new EfTaxGstWorkflowService(db, user, new EfAuditWriter(db, user));
+            var created = await service.CreateAsync(Request(hsn) with
+                { ItcEligibility = eligibility, RecoverableTaxPercent = percent }, "itc-create-" + hsn, default);
+            user.Set(tdId, "SESS-01", "TECHNICAL_DIRECTOR");
+            await service.ApproveAsync(created.Id, new(0, "Accounts ITC classification approved", "itc-approve-" + hsn), default);
+            var rule = await db.TaxGstSettings.AsNoTracking().SingleAsync(x => x.Id == created.Id);
+            Assert.Equal(eligibility, rule.ItcEligibility);
+            Assert.Equal(percent, rule.RecoverableTaxPercent);
+            var history = await db.ControlledConfigurationHistories.Where(x => x.EntityId == created.Id && x.Action == "Approve").SingleAsync();
+            Assert.Contains(eligibility, history.AfterJson);
         }
     }
 
@@ -149,7 +170,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         private readonly IReadOnlyDictionary<string, EffectiveRoleAssignment> knownAssignments;
         private IReadOnlyList<EffectiveRoleAssignment> assignments = [];
         private ResolvedRoleAuthority? authority;
-        private string selectedRole = "none";
+        private readonly Dictionary<Guid, string> rotatedSubjects = [];
+        public void RotateSubject(Guid employeeId, string subject)
+        {
+            rotatedSubjects[employeeId] = subject;
+            if (CurrentEmployeeId == employeeId) LoginId = subject;
+        }
         public TaxWorkflowUser(Guid employeeId, string login, string role,
             IReadOnlyDictionary<string, EffectiveRoleAssignment>? assignmentsByEmployeeAndRole = null)
         {
@@ -159,23 +185,36 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public static string AssignmentKey(Guid employeeId, string roleCode) => $"{employeeId:N}|{roleCode.Trim().ToUpperInvariant()}";
         public Guid CurrentEmployeeId { get; private set; }
         public string LoginId { get; private set; } = string.Empty;
-        public string RoleCode => authority?.RoleCode ?? selectedRole;
+        public string RoleCode => authority?.RoleCode ?? "none";
         public IReadOnlyList<string> RoleCodes => assignments.Select(x => x.RoleCode).ToArray();
         public IReadOnlyList<string> FullAuthorityRoleCodes => assignments.Where(x => x.AssignmentType != "SUPPORT").Select(x => x.RoleCode).ToArray();
         public IReadOnlyList<EffectiveRoleAssignment> EffectiveRoleAssignments => assignments;
         public Guid? ResolvedRoleAssignmentId => authority?.AssignmentId;
         public string? ResolvedRoleAssignmentType => authority?.AssignmentType;
-        public string? OrganizationId => "SESS_PVT_LTD";
+        public string? OrganizationId => CurrentOrganizationId;
+        public string CurrentOrganizationId { get; private set; } = "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
         public string? IdentityIssuer => "https://issuer.purchase-flow.test";
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
-        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value) => authority = value;
+        public TaxWorkflowUser ForRequest() => new(CurrentEmployeeId, LoginId, "none", knownAssignments)
+        {
+            assignments = assignments.ToArray(),
+            CurrentOrganizationId = CurrentOrganizationId
+        };
+        public void SetResolvedRoleAuthority(ResolvedRoleAuthority value)
+        {
+            if (value.AssignmentId == Guid.Empty || !assignments.Any(x => x.AssignmentId == value.AssignmentId &&
+                string.Equals(x.RoleCode, value.RoleCode, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(x.AssignmentType, value.AssignmentType, StringComparison.OrdinalIgnoreCase)))
+                throw new UnauthorizedAccessException("Resolved role authority is not an effective assignment for this test employee.");
+            authority = value;
+        }
+        public void SetOrganization(string organizationId) => CurrentOrganizationId = organizationId;
         public void Set(Guid id, string subject, string roleCode, params string[] effectiveRoles)
         {
             CurrentEmployeeId = id;
-            LoginId = subject;
-            selectedRole = roleCode;
+            LoginId = rotatedSubjects.GetValueOrDefault(id, subject);
             authority = null;
             var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
             assignments = roles.Distinct(StringComparer.Ordinal).Select(code =>

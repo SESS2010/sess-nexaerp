@@ -262,7 +262,14 @@ public sealed partial class EfRev869BPurchaseService
             .SingleOrDefaultAsync(x => x.Id == request.VendorQuotationLineId && x.VendorQuotation!.OrganizationId == organization && x.VendorQuotation.QuotationNumber == quotationNumber.Trim().ToUpper(), ct)
             ?? throw new Rev869BNotFoundException("Quotation line was not found in the current organization/quotation.");
         var quote = line.VendorQuotation!; var rfq = quote.RfqVendorInvitation!.RequestForQuotation!;
-        await RequireScopeAsync(actor, organization, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, null, rfq.OwnerEmployeeId, ct);
+        if (!await SESS.NexaERP.Infrastructure.Authorization.QuotationTechnicalScope
+            .AccessibleRfqs(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).AnyAsync(x => x.Id == rfq.Id, ct))
+        {
+            const string reason = "Technical verifier requires active company and department assignments intersecting an active operational scope.";
+            await WriteAuditAsync("Security", "Denied", "QuotationTechnicalScope", quote.QuotationNumber, null,
+                new { reason, actor, organization }, ct);
+            throw new UnauthorizedAccessException(reason);
+        }
         var commandScope = Rev869BIdempotencyFingerprint.CommandScope(organization, "TechnicalVerification", request.IdempotencyKey); var commandFingerprint = Rev869BIdempotencyFingerprint.Create(organization, "TechnicalVerification", request.IdempotencyKey, new { quotationNumber = quotationNumber.Trim().ToUpperInvariant(), request });
         var prior = await db.QuotationTechnicalVerifications.AsNoTracking().SingleOrDefaultAsync(x => x.VendorQuotationLineId == line.Id, ct);
         var compliance = request.IsCompliant ? Rev869BStatuses.TechnicallyCompliant : Rev869BStatuses.TechnicallyRejected;

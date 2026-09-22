@@ -8,7 +8,7 @@ public sealed record ProductionBomActionRequest(long ExpectedVersion, string Rem
 public sealed record NewProductionBomRevisionRequest(long ExpectedBomVersion, string RevisionReason, string IdempotencyKey);
 public sealed record PinProductionBomRevisionRequest(Guid RevisionId, long ExpectedJobOrderVersion, string Reason, string IdempotencyKey);
 public sealed record ProductionBomLineView(Guid Id, int LineNumber, Guid ItemId, string ItemCode,
-    Guid UomId, string UomCode, decimal Quantity, string? Remarks);
+    Guid UomId, string UomCode, decimal Quantity, string? Remarks, decimal? PlannedUnitValue, string CurrencyCode);
 public sealed record ProductionBomRevisionView(Guid Id, int RevisionNumber, Guid SourceEstimatedBomRevisionId,
     Guid? SupersedesRevisionId, string Status, string RevisionReason, Guid PreparedByEmployeeId,
     DateTimeOffset? SubmittedAt, DateTimeOffset? ApprovedAt, Guid? ApprovedByEmployeeId,
@@ -40,6 +40,7 @@ public interface IProductionEngineeringService
     Task<ProductionBomView> CreateProductionBomAsync(CreateProductionBomRequest request, CancellationToken ct);
     Task<ProductionBomView> ReplaceProductionBomAsync(string number, ReplaceProductionBomRequest request, CancellationToken ct);
     Task<ProductionBomView> SubmitProductionBomAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
+    Task<ProductionBomView> ReturnProductionBomToDraftAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
     Task<ProductionBomView> ApproveProductionBomAsync(string number, ProductionBomActionRequest request, CancellationToken ct);
     Task<ProductionBomView> CreateProductionBomRevisionAsync(string number, NewProductionBomRevisionRequest request, CancellationToken ct);
     Task<ProductionBomView> PinProductionBomRevisionAsync(string number, PinProductionBomRevisionRequest request, CancellationToken ct);
@@ -48,5 +49,6 @@ public interface IProductionEngineeringService
     Task<EngineeringDocumentView> CreateEngineeringDocumentAsync(CreateEngineeringDocumentRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> CreateEngineeringDocumentRevisionAsync(string number, NewEngineeringDocumentRevisionRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> SubmitEngineeringDocumentAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
+    Task<EngineeringDocumentView> ReturnEngineeringDocumentToDraftAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
     Task<EngineeringDocumentView> ApproveEngineeringDocumentAsync(string number, EngineeringDocumentActionRequest request, CancellationToken ct);
 }

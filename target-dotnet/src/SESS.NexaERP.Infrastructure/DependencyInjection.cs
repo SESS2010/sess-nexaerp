@@ -46,7 +46,7 @@ public static class DependencyInjection
         services.AddScoped<IRackBinMasterDataService, EfRackBinMasterDataService>();
         services.AddOptions<MasterDataTransferOptions>()
             .Bind(configuration.GetSection(MasterDataTransferOptions.SectionName))
-            .Validate(x => x.MaxRows is >= 1 and <= 1000, "MaxRows must be from 1 through 1000.")
+            .Validate(x => x.MaxRows is >= 1 and <= 10000, "MaxRows must be from 1 through 10000.")
             .Validate(x => x.SensitiveRowRetentionDays == 90, "Sensitive row retention is fixed at 90 days.")
             .ValidateOnStart();
         services.AddScoped<IMasterDataAdapter, UomMasterDataAdapter>();
@@ -54,6 +54,10 @@ public static class DependencyInjection
         services.AddScoped<IMasterDataAdapter, VendorMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, WarehouseMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, RackBinMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, ItemMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, EmployeeMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, ItemVendorMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, OpeningStockMasterDataAdapter>();
         services.AddScoped<IMasterDataRegistry, MasterDataRegistry>();
         services.AddScoped<IMasterDataTransferService, EfMasterDataTransferService>();
         services.AddScoped<ITaxGstResolver, EfTaxGstResolver>();
@@ -69,13 +73,34 @@ public static class DependencyInjection
         services.AddScoped<IProductionEngineeringService, EfProductionEngineeringService>();
         services.AddScoped<IMaterialIssueService, EfMaterialIssueService>();
         services.AddScoped<IVendorBillService, EfVendorBillService>();
+        services.AddScoped<ISupplierInvoiceService, EfSupplierInvoiceService>();
+        services.AddScoped<IMachineDeliveryService, EfMachineDeliveryService>();
+        services.AddScoped<IIntercompanyService, EfIntercompanyService>();
+        services.AddScoped<IIntercompanyInvoiceService, EfIntercompanyInvoiceService>();
+        services.AddScoped<IInventoryPeriodService, EfInventoryPeriodService>();
+        services.AddScoped<IVendorManualAssessmentService, EfVendorManualAssessmentService>();
+        services.AddScoped<IVendorRatingEvidenceService, EfVendorRatingEvidenceService>();
+        services.AddScoped<IVendorFinancialEvidenceService, EfVendorFinancialEvidenceService>();
+        services.AddScoped<IVendorBankAdviceService, EfVendorBankAdviceService>();
+        services.AddScoped<IOpeningStockService, EfOpeningStockService>();
+        services.AddScoped<IStockAdjustmentService, EfStockAdjustmentService>();
         services.AddScoped<IJobOrderService, EfJobOrderService>();
         services.AddScoped<IFitmentActualBomService, EfFitmentActualBomService>();
         services.AddScoped<IJobOrderFatReadinessService, EfJobOrderFatReadinessService>();
+        services.AddScoped<IInAppNotificationService, EfInAppNotificationService>();
+        services.AddScoped<INotificationDueEventProcessor, EfNotificationDueEventProcessor>();
         services.AddSingleton<IPurchaseOperationalRoleResolver, PurchaseOperationalRoleResolver>();
+        services.AddOptions<SESS.NexaERP.Infrastructure.Reporting.ReportCalendarOptions>().Bind(configuration.GetSection("Reporting"))
+            .Validate(options => options.IsValid(),"Reporting timezones must be valid configured timezone identifiers.").ValidateOnStart();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.ICompanyReportService, SESS.NexaERP.Infrastructure.Reporting.EfCompanyReportService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseWorkloadService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseWorkloadService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseSpendingService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseSpendingService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseObligationsService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseObligationsService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IPurchaseOpenOrdersService, SESS.NexaERP.Infrastructure.Reporting.EfPurchaseOpenOrdersService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IStoresWorkloadService, SESS.NexaERP.Infrastructure.Reporting.EfStoresWorkloadService>();
+        services.AddScoped<SESS.NexaERP.Application.Reporting.IStoresQcStockService, SESS.NexaERP.Infrastructure.Reporting.EfStoresQcStockService>();
         services.AddScoped<DatabaseRuntimePrincipalGuard>();
 
         return services;
     }
 }
-

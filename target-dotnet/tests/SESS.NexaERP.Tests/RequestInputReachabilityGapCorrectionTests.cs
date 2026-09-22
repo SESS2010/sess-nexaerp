@@ -56,6 +56,11 @@ public sealed class RequestInputReachabilityGapCorrectionTests
         Assert.Contains("ThenInclude(x => x.VendorQuotationLine)", endpoints);
         Assert.Contains("DateTimeOffset HandoffAt, uint Version", contracts);
         Assert.Contains("x.HandoffAt, x.Version", endpoints);
+        Assert.Contains("RfqDetail ToDetail", endpoints);
+        Assert.Contains("PurchaseOrderCommercialDetail ToCommercialDetail", endpoints);
+        Assert.Contains("record RfqDetail", contracts);
+        Assert.Contains("record PurchaseOrderCommercialDetail", contracts);
+        Assert.DoesNotContain("Results.Ok(row)", endpoints);
     }
 
     [Fact]

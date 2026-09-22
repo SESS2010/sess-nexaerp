@@ -41,7 +41,7 @@ public sealed partial class EfMaterialIssueService
     {
         var company = await CompanyAsync(ct);
         var issue = await IssueQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
-        return issue is null ? null : IssueView(issue, false);
+        return issue is null ? null : await IssueViewAsync(issue, false, ct);
     }
 
     public async Task<IReadOnlyList<OutstandingEngineerCustodyView>> OutstandingCustodyAsync(
@@ -69,6 +69,71 @@ public sealed partial class EfMaterialIssueService
                 x.Issue.JobOrderId, x.Issue.IssuedToEmployeeId,
                 x.Issue.IssuedToEmployee!.EmployeeCode, x.Issue.IssuedAt, x.Issue.ReturnDueAt,
                 x.Issue.ReturnDueAt < now, x.Remaining)).ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<MaterialIssueRecipientView>> ListIssueRecipientsAsync(
+        CancellationToken ct)
+    {
+        var company = await CompanyAsync(ct);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        return await db.Employees.AsNoTracking()
+            .Where(employee => employee.Status == "Active"
+                && db.EmployeeRoleAssignments.Any(x => x.CompanyId == company.Id
+                    && x.EmployeeId == employee.Id
+                    && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
+                    && x.EffectiveFrom <= today
+                    && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today)))
+            .OrderBy(employee => employee.EmployeeCode)
+            .Select(employee => new MaterialIssueRecipientView(employee.Id,
+                employee.EmployeeCode, employee.EmployeeName, employee.Department!.Code))
+            .ToListAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<AvailableMaterialIssueSerialView>> AvailableSerialsAsync(
+        Guid materialIssueRequestLineId, CancellationToken ct)
+    {
+        var company = await CompanyAsync(ct);
+        var line = await db.MaterialIssueRequestLines.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && x.Id == materialIssueRequestLineId
+                && (x.MaterialIssueRequest!.Status == "APPROVED"
+                    || x.MaterialIssueRequest.Status == "PARTIALLY_FULFILLED"))
+            .Select(x => new { x.ItemId }).SingleOrDefaultAsync(ct)
+            ?? throw new KeyNotFoundException(
+                "Approved Material Issue Request line was not found in the selected company.");
+
+        return await db.StockMovements.AsNoTracking()
+            .Where(x => x.CompanyId == company.Id && x.ItemId == line.ItemId
+                && x.InventorySerialId.HasValue && x.ConditionCode == "AVAILABLE"
+                && x.WarehouseConditionLocationId.HasValue
+                && x.CustodyAssignment != null
+                && x.CustodyAssignment.CustodyAccount != null
+                && x.CustodyAssignment.CustodyAccount.CustodyType == "WAREHOUSE")
+            .GroupBy(x => new
+            {
+                InventorySerialId = x.InventorySerialId!.Value,
+                x.InventorySerial!.StoredSerialNumber,
+                x.ItemId,
+                x.Item!.ItemCode,
+                x.InventoryLotId,
+                SupplierLotNumber = x.InventoryLot == null ? null : x.InventoryLot.SupplierLotNumber,
+                WarehouseConditionLocationId = x.WarehouseConditionLocationId!.Value,
+                WarehouseId = x.WarehouseId!.Value,
+                x.Warehouse!.WarehouseCode,
+                RackBinId = x.RackBinId!.Value,
+                x.RackBin!.BinCode
+            })
+            .Select(x => new
+            {
+                x.Key,
+                AvailableQuantity = x.Sum(m => m.QuantityIn - m.QuantityOut)
+            })
+            .Where(x => x.AvailableQuantity > 0)
+            .OrderBy(x => x.Key.StoredSerialNumber)
+            .Select(x => new AvailableMaterialIssueSerialView(x.Key.InventorySerialId,
+                x.Key.StoredSerialNumber, x.Key.ItemId, x.Key.ItemCode, x.Key.InventoryLotId,
+                x.Key.SupplierLotNumber, x.Key.WarehouseConditionLocationId, x.Key.WarehouseId,
+                x.Key.WarehouseCode, x.Key.RackBinId, x.Key.BinCode, x.AvailableQuantity))
+            .ToListAsync(ct);
     }
 
     public async Task<MaterialReturnPage> ListReturnsAsync(Guid? materialIssueId, string? status,
@@ -103,13 +168,18 @@ public sealed partial class EfMaterialIssueService
             .ToDictionaryAsync(i => i.Id, i => new { i.ItemCode, i.Name }, ct);
         var uoms = await db.Uoms.AsNoTracking().Where(u => uomIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.Code, ct);
+        var requester = await db.Employees.AsNoTracking().Where(e => e.Id == x.RequestedByEmployeeId)
+            .Select(e => new { e.EmployeeCode, e.EmployeeName }).SingleAsync(ct);
+        var departmentCode = await db.Departments.AsNoTracking().Where(d => d.Id == x.RequestingDepartmentId)
+            .Select(d => d.Code).SingleAsync(ct);
         var decisionLines = await db.MaterialIssueExcessDecisions.AsNoTracking()
             .Where(d => d.CompanyId == x.CompanyId && x.Lines.Select(l => l.Id).Contains(d.MaterialIssueRequestLineId)
                 && d.Decision == "APPROVED")
             .Select(d => d.MaterialIssueRequestLineId).ToListAsync(ct);
         return new(x.Id, x.RequestNumber, x.Purpose, x.Situation, x.DestinationType,
             x.JobOrderId, x.CustomerId, x.VendorId, x.DestinationDepartmentId,
-            x.DestinationNameSnapshot, x.RequestingDepartmentId, x.RequestedByEmployeeId,
+            x.DestinationNameSnapshot, x.RequestingDepartmentId, departmentCode,
+            x.RequestedByEmployeeId, requester.EmployeeCode, requester.EmployeeName,
             x.RequiredDate, x.Status, x.Version, x.Lines.OrderBy(l => l.LineNumber).Select(l =>
                 new MaterialIssueRequestLineView(l.Id, l.LineNumber, l.ItemId, items[l.ItemId].ItemCode,
                     items[l.ItemId].Name, l.UomId, uoms[l.UomId], l.RequestedQuantity, l.RequestedBaseQuantity,
@@ -119,8 +189,21 @@ public sealed partial class EfMaterialIssueService
                     l.ExcessClassification, decisionLines.Contains(l.Id), l.Remarks)).ToList());
     }
 
-    private static MaterialIssueView IssueView(MaterialIssue x, bool replayed) =>
-        new(x.Id, x.IssueNumber, x.MaterialIssueRequestId, x.JobOrderId, x.IssuedToEmployeeId,
+    private async Task<MaterialIssueView> IssueViewAsync(MaterialIssue x, bool replayed, CancellationToken ct)
+    {
+        var serialIds = x.Lines.Where(l => l.InventorySerialId.HasValue)
+            .Select(l => l.InventorySerialId!.Value).Distinct().ToArray();
+        var serials = await db.InventorySerials.AsNoTracking()
+            .Where(s => s.CompanyId == x.CompanyId && serialIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.StoredSerialNumber, ct);
+        var lineIds = x.Lines.Select(l => l.Id).ToArray();
+        var fitted = await db.ComponentFitments.AsNoTracking()
+            .Where(f => f.CompanyId == x.CompanyId && lineIds.Contains(f.MaterialIssueLineId) &&
+                !db.ComponentFitmentReversals.Any(r => r.CompanyId == f.CompanyId && r.ComponentFitmentId == f.Id))
+            .GroupBy(f => f.MaterialIssueLineId)
+            .Select(g => new { LineId = g.Key, Quantity = g.Sum(f => f.QuantityBase) })
+            .ToDictionaryAsync(g => g.LineId, g => g.Quantity, ct);
+        return new(x.Id, x.IssueNumber, x.MaterialIssueRequestId, x.JobOrderId, x.IssuedToEmployeeId,
             x.IssuedAt, x.ReturnDueAt, x.Status, x.StockPostingBatchId,
             x.ActorRoleCode, x.ResolvedRoleAssignmentId, x.ResolvedRoleAssignmentType,
             x.Version, replayed,
@@ -128,8 +211,10 @@ public sealed partial class EfMaterialIssueService
                 l.Id, l.MaterialIssueRequestLineId, l.LineNumber, l.ItemId, l.QuantityBase,
                 l.OwnershipAccountId, l.FromCustodyAssignmentId, l.ToCustodyAssignmentId,
                 l.InventoryProvenanceLayerId, l.InventoryLotId, l.InventorySerialId,
-                l.WarehouseConditionLocationId)).ToList());
-
+                l.WarehouseConditionLocationId,
+                l.InventorySerialId.HasValue ? serials.GetValueOrDefault(l.InventorySerialId.Value) : null,
+                fitted.GetValueOrDefault(l.Id))).ToList());
+    }
     private static MaterialReturnView ReturnView(MaterialReturn x, bool replayed) =>
         new(x.Id, x.ReturnNumber, x.MaterialIssueId, x.ReturnedByEmployeeId, x.DeclaredAt,
             x.Status, x.AcceptedAt, x.AcceptedByEmployeeId, x.StockPostingBatchId, x.Version,

@@ -116,6 +116,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         var place = r.PlaceOfSupplyStateCode.Trim().ToUpperInvariant();
         if (!VendorRegistrationTypes.TryParseCanonical(r.VendorRegistrationType, out var registrationType))
             throw new InvalidOperationException("Vendor registration type must be one of the exact supported values.");
+        _ = InputTaxCreditEligibility.RecoveryPercent(r.ItcEligibility, r.RecoverableTaxPercent);
         var rule = new TaxGstSetting
         {
             CompanyId = companyId, OrganizationId = r.OrganizationId.Trim(), JurisdictionCode = r.JurisdictionCode.Trim().ToUpperInvariant(),
@@ -123,6 +124,7 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
             SupplyType = TaxGstSetting.ResolveSupplyType(supplier, place), VendorRegistrationType = registrationType.ToCanonicalValue(),
             GstRate = r.GstRate, CgstRate = r.CgstRate, SgstRate = r.SgstRate, IgstRate = r.IgstRate, CessRate = r.CessRate,
             IsExempt = r.IsExempt, IsReverseCharge = r.IsReverseCharge, CurrencyCode = r.CurrencyCode.Trim().ToUpperInvariant(),
+            ItcEligibility = r.ItcEligibility, RecoverableTaxPercent = r.RecoverableTaxPercent,
             RoundingScale = r.RoundingScale, EffectiveFrom = r.EffectiveFrom, EffectiveTo = r.EffectiveTo,
             ApprovalStatus = MasterApprovalStatuses.PendingApproval, CreatorEmployeeId = creator,
             SupersedesTaxGstSettingId = r.SupersedesTaxGstSettingId, CreatedBy = user.LoginId
@@ -146,6 +148,6 @@ public sealed class EfTaxGstWorkflowService(NexaErpDbContext db, ICurrentUser us
         ActorLoginId = user.LoginId, ActorRoleCode = user.RoleCode, Remarks = remarks.Trim(),
         CorrelationId = $"TAX|{rule.Id:N}|{version}|{action.ToUpperInvariant()}", CreatedBy = user.LoginId, Version = version
     });
-    private static object Snapshot(TaxGstSetting x) => new { x.Id, x.OrganizationId, x.JurisdictionCode, x.HsnSacCode, x.SupplierStateCode, x.PlaceOfSupplyStateCode, x.VendorRegistrationType, x.GstRate, x.CgstRate, x.SgstRate, x.IgstRate, x.CessRate, x.IsExempt, x.IsReverseCharge, x.CurrencyCode, x.RoundingScale, x.EffectiveFrom, x.EffectiveTo, x.ApprovalStatus, x.CreatorEmployeeId, x.DecisionEmployeeId, x.DecisionRoleCode, x.DecisionAt, x.DecisionRemarks, x.SupersedesTaxGstSettingId, x.IsActive, x.Version };
+    private static object Snapshot(TaxGstSetting x) => new { x.Id, x.OrganizationId, x.JurisdictionCode, x.HsnSacCode, x.SupplierStateCode, x.PlaceOfSupplyStateCode, x.VendorRegistrationType, x.GstRate, x.CgstRate, x.SgstRate, x.IgstRate, x.CessRate, x.IsExempt, x.IsReverseCharge, x.ItcEligibility, x.RecoverableTaxPercent, x.CurrencyCode, x.RoundingScale, x.EffectiveFrom, x.EffectiveTo, x.ApprovalStatus, x.CreatorEmployeeId, x.DecisionEmployeeId, x.DecisionRoleCode, x.DecisionAt, x.DecisionRemarks, x.SupersedesTaxGstSettingId, x.IsActive, x.Version };
     private static TaxGstWorkflowResult Result(TaxGstSetting x) => new(x.Id, x.ApprovalStatus, x.Version, x.CreatorEmployeeId, x.DecisionEmployeeId, x.DecisionRoleCode);
 }

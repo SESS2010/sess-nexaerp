@@ -20,7 +20,12 @@ public sealed record QcQueueItem(
     int CompletionLimitDays,
     bool IsOverdue,
     bool HasEffectivePolicy,
-    string PolicyResolution);
+    string PolicyResolution)
+{
+    public string? InspectionNumber { get; init; }
+    public Guid? CurrentRevisionId { get; init; }
+    public decimal DiscrepancyPendingQuantity { get; init; }
+}
 
 public sealed record QcParameterResultRequest(
     Guid QcInspectionPolicyId,
@@ -77,7 +82,10 @@ public sealed record QcInspectionResult(
     Guid? StockPostingBatchId,
     bool Replayed,
     IReadOnlyList<QcParameterResultView> ParameterResults,
-    IReadOnlyList<QcSerialDispositionView> SerialDispositions);
+    IReadOnlyList<QcSerialDispositionView> SerialDispositions)
+{
+    public IReadOnlyList<Guid> InventorySerialIds { get; init; } = [];
+}
 
 public sealed record CreateInventoryConcessionRequest(
     Guid QcInspectionLotDispositionId,

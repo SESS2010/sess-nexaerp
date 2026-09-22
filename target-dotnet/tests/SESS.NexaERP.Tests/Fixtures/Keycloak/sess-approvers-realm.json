@@ -1,0 +1,132 @@
+{
+    "realm":  "sess-approvers",
+    "enabled":  true,
+    "sslRequired":  "all",
+    "registrationAllowed":  false,
+    "resetPasswordAllowed":  false,
+    "rememberMe":  false,
+    "accessTokenLifespan":  900,
+    "ssoSessionIdleTimeout":  28800,
+    "ssoSessionMaxLifespan":  28800,
+    "browserFlow":  "witness-mfa-browser",
+    "authenticationFlows":  [
+                                {
+                                    "alias":  "witness-mfa-browser",
+                                    "description":  "Mandatory password and TOTP for isolated witness",
+                                    "providerId":  "basic-flow",
+                                    "topLevel":  true,
+                                    "builtIn":  false,
+                                    "authenticationExecutions":  [
+                                                                     {
+                                                                         "authenticator":  "auth-username-password-form",
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  10,
+                                                                         "authenticatorFlow":  false,
+                                                                         "userSetupAllowed":  false
+                                                                     },
+                                                                     {
+                                                                         "authenticator":  "auth-otp-form",
+                                                                         "requirement":  "REQUIRED",
+                                                                         "priority":  20,
+                                                                         "authenticatorFlow":  false,
+                                                                         "userSetupAllowed":  true
+                                                                     }
+                                                                 ]
+                                }
+                            ],
+    "clients":  [
+                    {
+                        "clientId":  "nexaerp-witness",
+                        "enabled":  true,
+                        "protocol":  "openid-connect",
+                        "publicClient":  true,
+                        "standardFlowEnabled":  true,
+                        "directAccessGrantsEnabled":  false,
+                        "redirectUris":  [
+                                             "https://127.0.0.1:18443/witness/callback"
+                                         ],
+                        "webOrigins":  [
+
+                                       ],
+                        "attributes":  {
+                                           "pkce.code.challenge.method":  "S256"
+                                       },
+                        "defaultClientScopes":  [
+                                                    "nexaerp/access"
+                                                ],
+                        "optionalClientScopes":  [
+
+                                                 ],
+                        "protocolMappers":  [
+                                                {
+                                                    "name":  "erp-audience",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-audience-mapper",
+                                                    "config":  {
+                                                                   "included.custom.audience":  "nexaerp",
+                                                                   "id.token.claim":  "false",
+                                                                   "access.token.claim":  "true"
+                                                               }
+                                                },
+                                                {
+                                                    "name":  "erp-company",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-hardcoded-claim-mapper",
+                                                    "config":  {
+                                                                   "claim.name":  "organization_id",
+                                                                   "claim.value":  "SESS_PVT_LTD",
+                                                                   "jsonType.label":  "String",
+                                                                   "id.token.claim":  "false",
+                                                                   "access.token.claim":  "true"
+                                                               }
+                                                },
+                                                {
+                                                    "name":  "stable-subject",
+                                                    "protocol":  "openid-connect",
+                                                    "protocolMapper":  "oidc-sub-mapper",
+                                                    "consentRequired":  false,
+                                                    "config":  {
+                                                                   "introspection.token.claim":  "true",
+                                                                   "access.token.claim":  "true"
+                                                               }
+                                                }
+                                            ]
+                    }
+                ],
+    "clientScopes":  [
+                         {
+                             "name":  "nexaerp/access",
+                             "protocol":  "openid-connect",
+                             "attributes":  {
+                                                "include.in.token.scope":  "true",
+                                                "display.on.consent.screen":  "false"
+                                            }
+                         }
+                     ],
+    "users":  [
+                  {
+                      "username":  "SESS-01",
+                      "enabled":  true,
+                      "email":  "sess-01@witness.invalid",
+                      "emailVerified":  true,
+                      "firstName":  "Witness",
+                      "lastName":  "SESS-01",
+                      "requiredActions":  [
+
+                                          ],
+                      "credentials":  [
+                                          {
+                                              "type":  "password",
+                                              "value":  "Item16-Witness-Only!26",
+                                              "temporary":  false
+                                          },
+                                          {
+                                              "type":  "otp",
+                                              "userLabel":  "Isolated witness authenticator",
+                                              "secretData":  "{\"value\":\"JBSWY3DPEHPK3PXP\"}",
+                                              "credentialData":  "{\"subType\":\"totp\",\"digits\":6,\"counter\":0,\"period\":30,\"algorithm\":\"HmacSHA1\"}"
+                                          }
+                                      ]
+                  }
+              ]
+}

@@ -1,8 +1,15 @@
-﻿namespace SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
+
+namespace SESS.NexaERP.Application.Authorization;
 
 public interface IPagePermissionService
 {
     Task<bool> HasPermissionAsync(IReadOnlyCollection<string> roleCodes, string pageKey, string permission, CancellationToken cancellationToken);
+    Task<IReadOnlyList<string>> ResolveEffectivePermissionsAsync(
+        IReadOnlyCollection<EffectiveRoleAssignment> assignments,
+        string organizationCode,
+        Guid employeeId,
+        CancellationToken cancellationToken) => throw new NotSupportedException("Effective permission projection is not implemented.");
     Task<bool> HasEmployeePermissionAsync(string organizationCode, Guid employeeId, string pageKey, string permission, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
