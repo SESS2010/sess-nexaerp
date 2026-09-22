@@ -184,6 +184,32 @@ Check: `SELECT count(*) FROM advance.items WHERE "CreatedBy"='EXCEL_IMPORT'` = 1
 needed on a database the corrected import created.
 
 
+### Canonical category prerequisite — BEFORE reconciliation
+
+The reconciler refuses unless **ELE, FAB and REF all exist and are active**.
+First read `GET /api/v1/masters/item-categories?isActive=true&page=1&pageSize=100`;
+page through results and match exact Code, not a substring search. Retain Id, Code,
+Name, IsActive and Version for all three. The corrected import normally supplies
+them, but never assume that a previously imported database does.
+
+If missing, an authenticated named TD (SESS-01 in the witnessed setup), or MD, with
+`masters.item-categories:create` and `:view` permissions, creates only missing codes
+through `POST /api/v1/masters/item-categories`. Use the real employee Keycloak
+session and selected-company header; never a supplied actor name or SQL insert.
+Bodies: `{"Code":"ELE","Name":"Electricals"}`,
+`{"Code":"FAB","Name":"Fabrication"}` and
+`{"Code":"REF","Name":"Refrigeration"}`; TD confirms business names before entry.
+The endpoint creates active rows and audits the authenticated actor. This reference
+master endpoint has **no submit/approve maker-checker workflow**; independent TD/MD
+review by someone other than the creator is an operational check, not a claim of
+enforced dual approval.
+An existing inactive code is a STOP for reviewed remediation, not a duplicate create.
+
+Read each returned ID with `GET /api/v1/masters/item-categories/{id}`; verify exact
+codes and IsActive=true, retain responses and the independent TD/MD review. Then run the command below.
+The number of retired aliases varies with database history: acceptance is **zero
+active legacy codes remaining**, not exactly three retirements. Replay changes zero.
+
 ### Category reconciliation command (Owner)
 
 ```powershell
@@ -208,7 +234,8 @@ if ($LASTEXITCODE -ne 0) { throw 'Category reconciliation failed; retain output 
 # Check afterwards: exit 0 and COMMIT; corrected_items sum = 1,087 for today's
 # guarded database at 130 (go-live: use its own preflight count, possibly zero).
 # Check zero EXCEL_IMPORT items remain on the three legacy codes; ELE/FAB/REF are active;
-# retired_import_aliases matches the active import-owned aliases (normally 3).
+# retired_import_aliases depends on this database history (for example 2); no fixed count.
+# Verify zero active legacy category codes remain, and all intended items use ELE/FAB/REF.
 # Audit deltas: ReconcileImportedCategory = corrected items; RetireImportedCategoryAlias
 # = retired aliases; Scope GLOBAL, UserLoginId nexa_erp_migration, ActorRoleCode INSTALLER.
 # Replay check: zero corrected items/retired aliases and zero additional audit rows.
@@ -460,3 +487,12 @@ nightly development witness can remain. This applies ONLY to the laptop; NEVER r
 that maintenance script on the server. Server NI/Siemens/Rockwell stay running.
 Backup verification uses one private disposable cluster at a time; no laptop tests
 or builds, stock tests or owner-data experiments run on the server.
+
+### Keycloak availability is a daily gate
+
+Use the updated [server monitor profile](server-production-state.example.json):
+Test-ProductionState must pass ERP readiness on 8443 and trusted HTTPS discovery
+on 8444 for both staff and approvers, plus service state. Configure SESSKeycloak
+automatic recovery and follow the [D2 outage procedure](server-keycloak-install.md#keycloak-outage-is-an-erp-outage--22-september-update). A Keycloak outage blocks
+browser reload/login; do not bypass authentication. Commissioning package 662e9a3
+is unchanged; supply this documentation/config update separately, with its hash.
