@@ -1,0 +1,297 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T03:36:46.632766+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "Basis": "Accepted bill material value plus allocated charges, less reversals, by local decision date and native currency. PO and bill counts measure documents with activity.",
+  "Periods": [
+    {
+      "Key": "financial-year",
+      "FromDate": "2026-04-01",
+      "ToDate": "2026-09-14",
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "MaterialValue": 128620.01,
+          "AllocatedCharges": 12.0,
+          "Amount": 128632.01,
+          "PoCount": 3,
+          "BillCount": 4
+        }
+      ]
+    },
+    {
+      "Key": "month",
+      "FromDate": "2026-09-01",
+      "ToDate": "2026-09-14",
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "MaterialValue": 128620.01,
+          "AllocatedCharges": 12.0,
+          "Amount": 128632.01,
+          "PoCount": 3,
+          "BillCount": 4
+        }
+      ]
+    },
+    {
+      "Key": "quarter",
+      "FromDate": "2026-07-01",
+      "ToDate": "2026-09-14",
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "MaterialValue": 128620.01,
+          "AllocatedCharges": 12.0,
+          "Amount": 128632.01,
+          "PoCount": 3,
+          "BillCount": 4
+        }
+      ]
+    }
+  ],
+  "TopVendors": [
+    {
+      "Id": "71000000-0000-0000-0005-000000000001",
+      "Code": "TRIAL-VEN-001",
+      "Name": "TRIAL Alpine Cooling Supplies",
+      "Currency": "INR",
+      "MaterialValue": 128620.01,
+      "AllocatedCharges": 12.0,
+      "Amount": 128632.01,
+      "PoCount": 3,
+      "BillCount": 4
+    }
+  ],
+  "Categories": [
+    {
+      "Id": "71000000-0000-0000-0001-000000000001",
+      "Code": "ELE",
+      "Name": "ELE",
+      "Currency": "INR",
+      "MaterialValue": 128620.01,
+      "AllocatedCharges": 12.0,
+      "Amount": 128632.01,
+      "PoCount": 3,
+      "BillCount": 4
+    }
+  ],
+  "MonthlyTrend": [
+    {
+      "Key": "2025-10",
+      "FromDate": "2025-10-01",
+      "ToDate": "2025-10-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2025-11",
+      "FromDate": "2025-11-01",
+      "ToDate": "2025-11-30",
+      "Amounts": []
+    },
+    {
+      "Key": "2025-12",
+      "FromDate": "2025-12-01",
+      "ToDate": "2025-12-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-01",
+      "FromDate": "2026-01-01",
+      "ToDate": "2026-01-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-02",
+      "FromDate": "2026-02-01",
+      "ToDate": "2026-02-28",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-03",
+      "FromDate": "2026-03-01",
+      "ToDate": "2026-03-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-04",
+      "FromDate": "2026-04-01",
+      "ToDate": "2026-04-30",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-05",
+      "FromDate": "2026-05-01",
+      "ToDate": "2026-05-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-06",
+      "FromDate": "2026-06-01",
+      "ToDate": "2026-06-30",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-07",
+      "FromDate": "2026-07-01",
+      "ToDate": "2026-07-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-08",
+      "FromDate": "2026-08-01",
+      "ToDate": "2026-08-31",
+      "Amounts": []
+    },
+    {
+      "Key": "2026-09",
+      "FromDate": "2026-09-01",
+      "ToDate": "2026-09-14",
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "MaterialValue": 128620.01,
+          "AllocatedCharges": 12.0,
+          "Amount": 128632.01,
+          "PoCount": 3,
+          "BillCount": 4
+        }
+      ]
+    }
+  ],
+  "FromDate": "2026-04-01",
+  "ToDate": "2026-09-14",
+  "Filters": {
+    "Period": "financial-year",
+    "Month": null,
+    "VendorId": null,
+    "CategoryId": null,
+    "Currency": null,
+    "BillId": null,
+    "Page": 1,
+    "PageSize": 100
+  },
+  "TotalRows": 5,
+  "Rows": [
+    {
+      "BillId": "7fa6d5ab-0ef5-4695-a78b-57bae6080f7c",
+      "BillLineId": "dee298cd-8894-4d51-9bcd-effb2fa98d8e",
+      "BillNumber": "TRIAL-BILL-LOW",
+      "Event": "ACCEPTED",
+      "EventDate": "2026-09-14",
+      "PurchaseOrderId": "43230da5-19cc-471b-8b7b-871b5bea1cd6",
+      "RootPurchaseOrderId": "5286c355-25c1-497f-a212-c1a4206db61a",
+      "PoNumber": "PO-26-27-000011",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "CategoryId": "71000000-0000-0000-0001-000000000001",
+      "CategoryCode": "ELE",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "MaterialValue": 4720.0,
+      "AllocatedCharges": 12.0,
+      "Amount": 4732.0
+    },
+    {
+      "BillId": "3355a8d9-9e4f-4e76-977a-b5141297caa1",
+      "BillLineId": "9d38cea6-deb9-4f14-a6ef-e66948262716",
+      "BillNumber": "TRIAL-BILL-MD",
+      "Event": "ACCEPTED",
+      "EventDate": "2026-09-14",
+      "PurchaseOrderId": "2b4e657d-35cd-448c-8bd2-2d658957489b",
+      "RootPurchaseOrderId": "ed40ea57-0faf-46a1-9b5b-62e64552538e",
+      "PoNumber": "PO-26-27-000031",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "CategoryId": "71000000-0000-0000-0001-000000000001",
+      "CategoryCode": "ELE",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "MaterialValue": 118000.01,
+      "AllocatedCharges": 0,
+      "Amount": 118000.01
+    },
+    {
+      "BillId": "ee5c4d74-029b-4fb8-914b-ddac6753281f",
+      "BillLineId": "c793a4a2-d0b6-4534-a5bf-7687d1b3e222",
+      "BillNumber": "TRIAL-BILL-TD",
+      "Event": "ACCEPTED",
+      "EventDate": "2026-09-14",
+      "PurchaseOrderId": "4bc28e17-7eb8-4f9b-825e-fd1a54d2f9d5",
+      "RootPurchaseOrderId": "ba57cc3d-1ac5-480d-af89-7eaddb37e806",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "CategoryId": "71000000-0000-0000-0001-000000000001",
+      "CategoryCode": "ELE",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "MaterialValue": 5900.0,
+      "AllocatedCharges": 0,
+      "Amount": 5900.0
+    },
+    {
+      "BillId": "7f9de969-3264-4f51-9862-cc050bfbe4ba",
+      "BillLineId": "1a085094-32db-4f0d-a679-5160a4c1c5af",
+      "BillNumber": "TRIAL-BILL-TD",
+      "Event": "REVERSED",
+      "EventDate": "2026-09-14",
+      "PurchaseOrderId": "4bc28e17-7eb8-4f9b-825e-fd1a54d2f9d5",
+      "RootPurchaseOrderId": "ba57cc3d-1ac5-480d-af89-7eaddb37e806",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "CategoryId": "71000000-0000-0000-0001-000000000001",
+      "CategoryCode": "ELE",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": -1.0,
+      "Currency": "INR",
+      "MaterialValue": -5900.0,
+      "AllocatedCharges": 0,
+      "Amount": -5900.0
+    },
+    {
+      "BillId": "7f9de969-3264-4f51-9862-cc050bfbe4ba",
+      "BillLineId": "1a085094-32db-4f0d-a679-5160a4c1c5af",
+      "BillNumber": "TRIAL-BILL-TD",
+      "Event": "ACCEPTED",
+      "EventDate": "2026-09-14",
+      "PurchaseOrderId": "4bc28e17-7eb8-4f9b-825e-fd1a54d2f9d5",
+      "RootPurchaseOrderId": "ba57cc3d-1ac5-480d-af89-7eaddb37e806",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "CategoryId": "71000000-0000-0000-0001-000000000001",
+      "CategoryCode": "ELE",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "MaterialValue": 5900.0,
+      "AllocatedCharges": 0,
+      "Amount": 5900.0
+    }
+  ]
+}

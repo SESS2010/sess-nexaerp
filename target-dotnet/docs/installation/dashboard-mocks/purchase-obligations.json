@@ -1,0 +1,192 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T05:25:08.760195+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "Tiles": [
+    {
+      "Key": "grni",
+      "Title": "Goods received not billed",
+      "Basis": "Unbilled receipt quantity at receipt unit rate, by native PO currency; age from receipt date.",
+      "Count": 3,
+      "OldestAgeDays": 3,
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "DocumentCount": 3,
+          "LineCount": 3,
+          "Value": 109000.01,
+          "OldestAgeDays": 3
+        }
+      ]
+    },
+    {
+      "Key": "vendor-advances",
+      "Title": "Vendor advances outstanding",
+      "Basis": "Unreversed advances less adjustments plus restorations, by native currency; age from payment date.",
+      "Count": 2,
+      "OldestAgeDays": 3,
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "DocumentCount": 2,
+          "LineCount": 2,
+          "Value": 250.0,
+          "OldestAgeDays": 3
+        }
+      ]
+    }
+  ],
+  "Vendors": [
+    {
+      "Queue": "grni",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "Currency": "INR",
+      "DocumentCount": 3,
+      "Value": 109000.01,
+      "OldestAgeDays": 3
+    },
+    {
+      "Queue": "vendor-advances",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "Currency": "INR",
+      "DocumentCount": 2,
+      "Value": 250.0,
+      "OldestAgeDays": 3
+    }
+  ],
+  "Filters": {
+    "Queue": null,
+    "VendorId": null,
+    "Currency": null,
+    "DocumentId": null,
+    "Page": 1,
+    "PageSize": 100
+  },
+  "TotalRows": 5,
+  "Rows": [
+    {
+      "Queue": "grni",
+      "DocumentId": "e3d79320-950b-473f-8344-8ee41fef6ba6",
+      "DocumentNumber": "GRN-26-27-000011",
+      "LineId": "0db3491a-8d70-4800-97e6-54bd2bbdadf9",
+      "PurchaseOrderId": "2a99024b-460d-41a2-b556-6501ce07176c",
+      "RootPurchaseOrderId": "1d7c1479-8142-4ebd-a159-04ce3a1a677c",
+      "PoNumber": "PO-26-27-000011",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "SourceDate": "2026-09-11",
+      "AgeDays": 3,
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "Value": 4000.0,
+      "UnitRate": 4000.0,
+      "OriginalAmount": null,
+      "AdjustedAmount": null
+    },
+    {
+      "Queue": "vendor-advances",
+      "DocumentId": "c300bba3-0216-4e7a-9986-7108e246324b",
+      "DocumentNumber": "VADV-2026-000001",
+      "LineId": null,
+      "PurchaseOrderId": "04dea80f-bf95-4d54-b912-e14926aedc4f",
+      "RootPurchaseOrderId": "9657a657-263e-4711-bf75-dae2426be130",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "ItemId": null,
+      "ItemCode": null,
+      "ItemName": null,
+      "Uom": null,
+      "SourceDate": "2026-09-11",
+      "AgeDays": 3,
+      "Quantity": null,
+      "Currency": "INR",
+      "Value": 100.0,
+      "UnitRate": null,
+      "OriginalAmount": 100.0,
+      "AdjustedAmount": 0
+    },
+    {
+      "Queue": "vendor-advances",
+      "DocumentId": "54cc39e4-e53b-44a5-8b91-f4ce1500aaa1",
+      "DocumentNumber": "VADV-2026-000002",
+      "LineId": null,
+      "PurchaseOrderId": "04dea80f-bf95-4d54-b912-e14926aedc4f",
+      "RootPurchaseOrderId": "9657a657-263e-4711-bf75-dae2426be130",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "ItemId": null,
+      "ItemCode": null,
+      "ItemName": null,
+      "Uom": null,
+      "SourceDate": "2026-09-12",
+      "AgeDays": 2,
+      "Quantity": null,
+      "Currency": "INR",
+      "Value": 150.0,
+      "UnitRate": null,
+      "OriginalAmount": 150.0,
+      "AdjustedAmount": 0
+    },
+    {
+      "Queue": "grni",
+      "DocumentId": "890607c1-8614-4cbc-a4ca-5cb2ca135af6",
+      "DocumentNumber": "GRN-26-27-000031",
+      "LineId": "786377ea-8aca-4d65-965d-48553d9ec9f5",
+      "PurchaseOrderId": "bd632fcd-06fe-4f21-9b1f-dbe0f5535106",
+      "RootPurchaseOrderId": "a067bfbb-cc82-44c5-97de-23001abacf79",
+      "PoNumber": "PO-26-27-000031",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "SourceDate": "2026-09-14",
+      "AgeDays": 0,
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "Value": 100000.01,
+      "UnitRate": 100000.01,
+      "OriginalAmount": null,
+      "AdjustedAmount": null
+    },
+    {
+      "Queue": "grni",
+      "DocumentId": "8e85314e-ae7f-4d97-9496-aaca33dc22b1",
+      "DocumentNumber": "GRN-26-27-000021",
+      "LineId": "2374fa31-45bb-4ed8-b88c-4135f6c25378",
+      "PurchaseOrderId": "04dea80f-bf95-4d54-b912-e14926aedc4f",
+      "RootPurchaseOrderId": "9657a657-263e-4711-bf75-dae2426be130",
+      "PoNumber": "PO-26-27-000021",
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "SourceDate": "2026-09-14",
+      "AgeDays": 0,
+      "Quantity": 1.0,
+      "Currency": "INR",
+      "Value": 5000.0,
+      "UnitRate": 5000.0,
+      "OriginalAmount": null,
+      "AdjustedAmount": null
+    }
+  ]
+}

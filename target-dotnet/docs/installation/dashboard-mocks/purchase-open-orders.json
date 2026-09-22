@@ -1,0 +1,62 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T06:35:50.756068+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "Basis": "Remaining quantity at the latest issued PO line payable per unit, by native currency. Age starts at first issue. Unconfirmed delivery dates do not produce overdue totals.",
+  "Complete": true,
+  "OpenPoCount": 1,
+  "OldestAgeDays": 0,
+  "DeliveryComplete": true,
+  "OverduePoCount": 0,
+  "DeliveryDateUnconfirmedPoCount": 0,
+  "SourceIssues": [],
+  "Amounts": [
+    {
+      "Currency": "INR",
+      "PoCount": 1,
+      "Value": 4720.0,
+      "OverduePoCount": 0,
+      "OverdueValue": 0
+    }
+  ],
+  "Filters": {
+    "VendorId": null,
+    "Currency": null,
+    "RootPurchaseOrderId": null,
+    "OverdueOnly": false,
+    "Page": 1,
+    "PageSize": 100
+  },
+  "TotalRows": 1,
+  "Rows": [
+    {
+      "PurchaseOrderId": "d1ad9d2d-ad77-49e4-ac45-308eb164674a",
+      "RootPurchaseOrderId": "29d76093-a450-445e-a415-2ea3362e498f",
+      "PoNumber": "PO-26-27-000011",
+      "RevisionNumber": 1,
+      "CurrentRevisionNumber": 2,
+      "CurrentStatus": "Approved",
+      "FirstIssuedAt": "2026-09-14T06:35:46.704601+05:30",
+      "IssuedAt": "2026-09-14T06:35:46.704601+05:30",
+      "AgeDays": 0,
+      "VendorId": "71000000-0000-0000-0005-000000000001",
+      "VendorCode": "TRIAL-VEN-001",
+      "VendorName": "TRIAL Alpine Cooling Supplies",
+      "LineId": "d2367f86-1587-4bac-b3ae-c3f5539cc240",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "OrderedQuantity": 1.0,
+      "ReceivedQuantity": 0,
+      "RemainingQuantity": 1.0,
+      "Currency": "INR",
+      "Value": 4720.0,
+      "QuotedDeliveryDate": "2026-10-14",
+      "CommittedDeliveryDate": "2026-10-14",
+      "DeliveryTerms": "Delivered to trial warehouse",
+      "DaysLate": 0,
+      "DeliveryState": "WITHIN_COMMITMENT"
+    }
+  ]
+}

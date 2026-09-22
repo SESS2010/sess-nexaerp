@@ -1,0 +1,59 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T08:01:03.955147+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "Tiles": [
+    {
+      "Key": "gate-no-grn",
+      "Title": "Gate entries awaiting GRN",
+      "State": "ACCESS_DENIED",
+      "Count": null,
+      "OldestAgeDays": null,
+      "Coverage": "Finalized normal unreversed gate entries with no normal GRN, including no draft GRN. Age starts at arrival."
+    },
+    {
+      "Key": "mir-approval",
+      "Title": "MIRs awaiting approval",
+      "State": "READY",
+      "Count": 1,
+      "OldestAgeDays": 0,
+      "Coverage": "Submitted requests. Eligible approval roles are Stores Manager or Production Manager; no named approval assignment is currently recorded. Age starts at submission, or creation if submission history is unavailable."
+    },
+    {
+      "Key": "mir-unissued",
+      "Title": "Approved MIRs awaiting issue",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "Coverage": "Approved or partially fulfilled requests with remaining lines. Returns do not reopen a fulfilled request. Age starts at approval."
+    }
+  ],
+  "Filters": {
+    "Queue": null,
+    "DocumentId": null,
+    "Page": 1,
+    "PageSize": 100
+  },
+  "TotalRows": 1,
+  "Rows": [
+    {
+      "Queue": "mir-approval",
+      "DocumentId": "f254a728-fd57-4b9a-bb7c-3a5493ebc532",
+      "DocumentType": "MIR",
+      "DocumentNumber": "MIR-SESS_PVT_LTD-26-27-000011",
+      "Status": "SUBMITTED",
+      "WaitingSince": "2026-09-14T08:01:03.221262+05:30",
+      "AgeDays": 0,
+      "PendingLineCount": 1,
+      "VendorId": null,
+      "VendorName": null,
+      "EligibleApprovalRoles": [
+        "STORES_MANAGER",
+        "PRODUCTION_MANAGER"
+      ],
+      "AssignedApproverEmployeeId": null,
+      "ResponsibilityIssue": "No named approver is assigned by the current MIR workflow.",
+      "DetailPath": "/api/v1/stores/material-issue-requests/f254a728-fd57-4b9a-bb7c-3a5493ebc532"
+    }
+  ]
+}
