@@ -181,78 +181,78 @@ Money: PR uses saved EstimatedTotal in INR; this is not a uniform ex-tax cost me
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string? | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| ApprovalRoute | string? | Stored approval route name, not a newly computed threshold. Null if not applicable. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| Queue | `string?` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| ApprovalRoute | `string?` | Stored approval route name, not a newly computed threshold. Null if not applicable. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### DashboardCurrencyAmount
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| Amount | decimal | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| Amount | `decimal` | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
 
 #### PurchaseWorkloadBand
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| ApprovalRoute | string | Stored approval route name, not a newly computed threshold. Null if not applicable. |
-| Count | long | Distinct documents in this queue. Null on a denied workload card. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
-| Amounts | IReadOnlyList<DashboardCurrencyAmount> | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
+| ApprovalRoute | `string` | Stored approval route name, not a newly computed threshold. Null if not applicable. |
+| Count | `long` | Distinct documents in this queue. Null on a denied workload card. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
+| Amounts | `IReadOnlyList<DashboardCurrencyAmount>` | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
 
 #### PurchaseWorkloadTile
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Key | string | Stable card/period key used for selection; do not match translated titles. |
-| Title | string | Server-provided human-readable card heading. |
-| State | string | READY or ACCESS_DENIED for this card. Denied is not an empty queue. |
-| Count | long? | Distinct documents in this queue. Null on a denied workload card. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
-| CommercialValuesVisible | bool | Whether this workload card may display its monetary values. |
-| Amounts | IReadOnlyList<DashboardCurrencyAmount> | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
-| UnvaluedDocumentCount | long? | Visible documents with no selected value yet; null for hidden commercial values, denied card, or RFQ no-quotation. |
-| ApprovalBands | IReadOnlyList<PurchaseWorkloadBand> | PR-approval counts grouped by stored route; empty for other queues or no matching PRs. |
-| Coverage | string? | Server explanation of what this card includes and excludes. |
+| Key | `string` | Stable card/period key used for selection; do not match translated titles. |
+| Title | `string` | Server-provided human-readable card heading. |
+| State | `string` | READY or ACCESS_DENIED for this card. Denied is not an empty queue. |
+| Count | `long?` | Distinct documents in this queue. Null on a denied workload card. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
+| CommercialValuesVisible | `bool` | Whether this workload card may display its monetary values. |
+| Amounts | `IReadOnlyList<DashboardCurrencyAmount>` | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
+| UnvaluedDocumentCount | `long?` | Visible documents with no selected value yet; null for hidden commercial values, denied card, or RFQ no-quotation. |
+| ApprovalBands | `IReadOnlyList<PurchaseWorkloadBand>` | PR-approval counts grouped by stored route; empty for other queues or no matching PRs. |
+| Coverage | `string?` | Server explanation of what this card includes and excludes. |
 
 #### PurchaseWorkloadRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid | Identifier of this source document; its kind is given by the queue/document type. |
-| DocumentType | string | Source kind: purchase PR/RFQ/QUOTATION/COMPARISON/PO, or Stores GATE_ENTRY/MIR. |
-| DocumentNumber | string | Human-readable number of the source document. |
-| Status | string | Recorded workflow status; preserve the returned spelling/case. |
-| WaitingSince | DateTimeOffset | Timestamp from which the current queue age is measured. |
-| AgeDays | int | Whole company-local calendar days since the row age origin, never negative. |
-| ApprovalRoute | string? | Stored approval route name, not a newly computed threshold. Null if not applicable. |
-| NextApproverEmployeeId | Guid? | Named employee from the saved next approval step, or null. |
-| NextApproverEmployeeCode | string? | Human-readable employee code from that saved step, or null. |
-| NextApproverRole | string? | Role from the saved next approval step; not a frontend guess. |
-| ResponsibilityIssue | string? | Reason a responsible employee cannot be identified; show it rather than inventing an assignee. |
-| Currency | string? | Native three-letter currency; purchase workload can redact it to null. |
-| Value | decimal? | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| Vendors | IReadOnlyList<string> | Workload: vendor names. Obligations page: grouped vendor balances described below. |
-| PendingLineCount | long? | Number of still-pending document lines, not quantity; purchase workload may return null. |
-| DetailPath | string | API resource path, NOT automatically a browser route. Use the mapping below. |
+| Queue | `string` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid` | Identifier of this source document; its kind is given by the queue/document type. |
+| DocumentType | `string` | Source kind: purchase PR/RFQ/QUOTATION/COMPARISON/PO, or Stores GATE_ENTRY/MIR. |
+| DocumentNumber | `string` | Human-readable number of the source document. |
+| Status | `string` | Recorded workflow status; preserve the returned spelling/case. |
+| WaitingSince | `DateTimeOffset` | Timestamp from which the current queue age is measured. |
+| AgeDays | `int` | Whole company-local calendar days since the row age origin, never negative. |
+| ApprovalRoute | `string?` | Stored approval route name, not a newly computed threshold. Null if not applicable. |
+| NextApproverEmployeeId | `Guid?` | Named employee from the saved next approval step, or null. |
+| NextApproverEmployeeCode | `string?` | Human-readable employee code from that saved step, or null. |
+| NextApproverRole | `string?` | Role from the saved next approval step; not a frontend guess. |
+| ResponsibilityIssue | `string?` | Reason a responsible employee cannot be identified; show it rather than inventing an assignee. |
+| Currency | `string?` | Native three-letter currency; purchase workload can redact it to null. |
+| Value | `decimal?` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| Vendors | `IReadOnlyList<string>` | Workload: vendor names. Obligations page: grouped vendor balances described below. |
+| PendingLineCount | `long?` | Number of still-pending document lines, not quantity; purchase workload may return null. |
+| DetailPath | `string` | API resource path, NOT automatically a browser route. Use the mapping below. |
 
 #### PurchaseWorkloadPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| Tiles | IReadOnlyList<PurchaseWorkloadTile> | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
-| Queue | string? | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| ApprovalRoute | string? | Stored approval route name, not a newly computed threshold. Null if not applicable. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<PurchaseWorkloadRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| Tiles | `IReadOnlyList<PurchaseWorkloadTile>` | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
+| Queue | `string?` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| ApprovalRoute | `string?` | Stored approval route name, not a newly computed threshold. Null if not applicable. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<PurchaseWorkloadRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
@@ -355,82 +355,82 @@ A quoted delivery date is confirmed only if the comparison delivery snapshot and
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| VendorId | Guid? | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| Currency | string? | Native three-letter currency; purchase workload can redact it to null. |
-| RootPurchaseOrderId | Guid? | Stable original PO identity shared across amendments, or null request filter. |
-| OverdueOnly | bool | When true, detail rows include only confirmed delivery dates already late. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| VendorId | `Guid?` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| Currency | `string?` | Native three-letter currency; purchase workload can redact it to null. |
+| RootPurchaseOrderId | `Guid?` | Stable original PO identity shared across amendments, or null request filter. |
+| OverdueOnly | `bool` | When true, detail rows include only confirmed delivery dates already late. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### PurchaseOpenOrderAmount
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| PoCount | long | Distinct root PO count represented by this native-currency aggregate. |
-| Value | decimal | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| OverduePoCount | long? | Distinct root PO count late against confirmed dates; null when overdue coverage is incomplete. |
-| OverdueValue | decimal? | Remaining payable value late against confirmed dates; null when delivery coverage is incomplete. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| PoCount | `long` | Distinct root PO count represented by this native-currency aggregate. |
+| Value | `decimal` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| OverduePoCount | `long?` | Distinct root PO count late against confirmed dates; null when overdue coverage is incomplete. |
+| OverdueValue | `decimal?` | Remaining payable value late against confirmed dates; null when delivery coverage is incomplete. |
 
 #### PurchaseOpenOrderIssue
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| RootPurchaseOrderId | Guid | Stable original PO identity shared across amendments, or null request filter. |
-| PoNumber | string | Human-readable PO number used to open the existing PO screen. |
-| Code | string | Source issue code, or group business code (vendor/category), according to the enclosing object. |
+| RootPurchaseOrderId | `Guid` | Stable original PO identity shared across amendments, or null request filter. |
+| PoNumber | `string` | Human-readable PO number used to open the existing PO screen. |
+| Code | `string` | Source issue code, or group business code (vendor/category), according to the enclosing object. |
 
 #### PurchaseOpenOrderRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| PurchaseOrderId | Guid | Specific PO revision identifier supplying this row, not necessarily the current revision. |
-| RootPurchaseOrderId | Guid | Stable original PO identity shared across amendments, or null request filter. |
-| PoNumber | string | Human-readable PO number used to open the existing PO screen. |
-| RevisionNumber | int | Latest ISSUED revision represented by this outstanding line. |
-| CurrentRevisionNumber | int | Current PO revision number, which can be a later unissued amendment. |
-| CurrentStatus | string | Status of the current revision, while outstanding quantity can come from an earlier issued revision. |
-| FirstIssuedAt | DateTimeOffset | First issue time across the root PO; age does not restart on amendment. |
-| IssuedAt | DateTimeOffset | Issue time of the specific issued revision represented by the line. |
-| AgeDays | int | Whole company-local calendar days since the row age origin, never negative. |
-| VendorId | Guid | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| VendorCode | string | Vendor business code. |
-| VendorName | string | Vendor name from the applicable source/snapshot. |
-| LineId | Guid | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
-| ItemId | Guid | Item identifier; null on advance rows. |
-| ItemCode | string | Source item business code; null on advance rows. |
-| ItemName | string | Source item description; null on advance rows. |
-| Uom | string | Source unit of measure; null on advances. Never total unlike UOMs. |
-| OrderedQuantity | decimal | Quantity ordered on the latest issued PO line. |
-| ReceivedQuantity | decimal | Effective finalized, unreversed receipts across the same root PO/comparison-line lineage. |
-| RemainingQuantity | decimal | OrderedQuantity minus ReceivedQuantity; only positive consistent outstanding rows are shown. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| Value | decimal | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| QuotedDeliveryDate | DateOnly | Source quotation promise; not necessarily a confirmed current commitment. |
-| CommittedDeliveryDate | DateOnly? | Commitment date only when quotation/comparison/PO terms reconcile; otherwise null. |
-| DeliveryTerms | string | Delivery terms snapshot on the represented PO. |
-| DaysLate | int? | Whole days after confirmed commitment, zero when not late; null if date is unconfirmed. |
-| DeliveryState | string | CONFIRMATION_REQUIRED, OVERDUE or WITHIN_COMMITMENT. |
+| PurchaseOrderId | `Guid` | Specific PO revision identifier supplying this row, not necessarily the current revision. |
+| RootPurchaseOrderId | `Guid` | Stable original PO identity shared across amendments, or null request filter. |
+| PoNumber | `string` | Human-readable PO number used to open the existing PO screen. |
+| RevisionNumber | `int` | Latest ISSUED revision represented by this outstanding line. |
+| CurrentRevisionNumber | `int` | Current PO revision number, which can be a later unissued amendment. |
+| CurrentStatus | `string` | Status of the current revision, while outstanding quantity can come from an earlier issued revision. |
+| FirstIssuedAt | `DateTimeOffset` | First issue time across the root PO; age does not restart on amendment. |
+| IssuedAt | `DateTimeOffset` | Issue time of the specific issued revision represented by the line. |
+| AgeDays | `int` | Whole company-local calendar days since the row age origin, never negative. |
+| VendorId | `Guid` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| VendorCode | `string` | Vendor business code. |
+| VendorName | `string` | Vendor name from the applicable source/snapshot. |
+| LineId | `Guid` | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
+| ItemId | `Guid` | Item identifier; null on advance rows. |
+| ItemCode | `string` | Source item business code; null on advance rows. |
+| ItemName | `string` | Source item description; null on advance rows. |
+| Uom | `string` | Source unit of measure; null on advances. Never total unlike UOMs. |
+| OrderedQuantity | `decimal` | Quantity ordered on the latest issued PO line. |
+| ReceivedQuantity | `decimal` | Effective finalized, unreversed receipts across the same root PO/comparison-line lineage. |
+| RemainingQuantity | `decimal` | OrderedQuantity minus ReceivedQuantity; only positive consistent outstanding rows are shown. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| Value | `decimal` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| QuotedDeliveryDate | `DateOnly` | Source quotation promise; not necessarily a confirmed current commitment. |
+| CommittedDeliveryDate | `DateOnly?` | Commitment date only when quotation/comparison/PO terms reconcile; otherwise null. |
+| DeliveryTerms | `string` | Delivery terms snapshot on the represented PO. |
+| DaysLate | `int?` | Whole days after confirmed commitment, zero when not late; null if date is unconfirmed. |
+| DeliveryState | `string` | CONFIRMATION_REQUIRED, OVERDUE or WITHIN_COMMITMENT. |
 
 #### PurchaseOpenOrdersPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| Basis | string | Exact server explanation of amount basis; display near monetary summaries. |
-| Complete | bool | Whether source integrity permits full open-order aggregates. False is not zero outstanding. |
-| OpenPoCount | long? | Distinct visible outstanding root POs, or null if source integrity is incomplete. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
-| DeliveryComplete | bool | True only if source integrity is complete and all outstanding lines have confirmed delivery dates. |
-| OverduePoCount | long? | Distinct root PO count late against confirmed dates; null when overdue coverage is incomplete. |
-| DeliveryDateUnconfirmedPoCount | long | Distinct visible outstanding root POs needing delivery-date confirmation. |
-| SourceIssues | IReadOnlyList<PurchaseOpenOrderIssue> | Excluded/inconsistent root PO sources requiring reconciliation; show an actionable warning. |
-| Amounts | IReadOnlyList<PurchaseOpenOrderAmount>? | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
-| Filters | PurchaseOpenOrdersRequest | Normalised query echo. These select detail rows, not overview cards/groups. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<PurchaseOpenOrderRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| Basis | `string` | Exact server explanation of amount basis; display near monetary summaries. |
+| Complete | `bool` | Whether source integrity permits full open-order aggregates. False is not zero outstanding. |
+| OpenPoCount | `long?` | Distinct visible outstanding root POs, or null if source integrity is incomplete. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
+| DeliveryComplete | `bool` | True only if source integrity is complete and all outstanding lines have confirmed delivery dates. |
+| OverduePoCount | `long?` | Distinct root PO count late against confirmed dates; null when overdue coverage is incomplete. |
+| DeliveryDateUnconfirmedPoCount | `long` | Distinct visible outstanding root POs needing delivery-date confirmation. |
+| SourceIssues | `IReadOnlyList<PurchaseOpenOrderIssue>` | Excluded/inconsistent root PO sources requiring reconciliation; show an actionable warning. |
+| Amounts | `IReadOnlyList<PurchaseOpenOrderAmount>?` | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
+| Filters | `PurchaseOpenOrdersRequest` | Normalised query echo. These select detail rows, not overview cards/groups. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<PurchaseOpenOrderRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
@@ -661,86 +661,86 @@ GRNI includes unreversed FINALIZED NORMAL receipts, less quantities on ACCEPTED 
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string? | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| VendorId | Guid? | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| Currency | string? | Native three-letter currency; purchase workload can redact it to null. |
-| DocumentId | Guid? | Identifier of this source document; its kind is given by the queue/document type. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| Queue | `string?` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| VendorId | `Guid?` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| Currency | `string?` | Native three-letter currency; purchase workload can redact it to null. |
+| DocumentId | `Guid?` | Identifier of this source document; its kind is given by the queue/document type. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### PurchaseObligationAmount
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| DocumentCount | long | Distinct source documents represented by this queue/currency/vendor aggregate. |
-| LineCount | long | Obligations: detail source rows. QC: distinct GRN lines, not allocation-row count or units. |
-| Value | decimal | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| DocumentCount | `long` | Distinct source documents represented by this queue/currency/vendor aggregate. |
+| LineCount | `long` | Obligations: detail source rows. QC: distinct GRN lines, not allocation-row count or units. |
+| Value | `decimal` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
 
 #### PurchaseObligationTile
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Key | string | Stable card/period key used for selection; do not match translated titles. |
-| Title | string | Server-provided human-readable card heading. |
-| Basis | string | Exact server explanation of amount basis; display near monetary summaries. |
-| Count | long | Distinct documents in this queue. Null on a denied workload card. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
-| Amounts | IReadOnlyList<PurchaseObligationAmount> | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
+| Key | `string` | Stable card/period key used for selection; do not match translated titles. |
+| Title | `string` | Server-provided human-readable card heading. |
+| Basis | `string` | Exact server explanation of amount basis; display near monetary summaries. |
+| Count | `long` | Distinct documents in this queue. Null on a denied workload card. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
+| Amounts | `IReadOnlyList<PurchaseObligationAmount>` | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
 
 #### PurchaseObligationVendor
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| VendorId | Guid | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| VendorCode | string | Vendor business code. |
-| VendorName | string | Vendor name from the applicable source/snapshot. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| DocumentCount | long | Distinct source documents represented by this queue/currency/vendor aggregate. |
-| Value | decimal | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
+| Queue | `string` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| VendorId | `Guid` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| VendorCode | `string` | Vendor business code. |
+| VendorName | `string` | Vendor name from the applicable source/snapshot. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| DocumentCount | `long` | Distinct source documents represented by this queue/currency/vendor aggregate. |
+| Value | `decimal` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
 
 #### PurchaseObligationRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid | Identifier of this source document; its kind is given by the queue/document type. |
-| DocumentNumber | string | Human-readable number of the source document. |
-| LineId | Guid? | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
-| PurchaseOrderId | Guid | Specific PO revision identifier supplying this row, not necessarily the current revision. |
-| RootPurchaseOrderId | Guid | Stable original PO identity shared across amendments, or null request filter. |
-| PoNumber | string | Human-readable PO number used to open the existing PO screen. |
-| VendorId | Guid | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| VendorCode | string | Vendor business code. |
-| VendorName | string | Vendor name from the applicable source/snapshot. |
-| ItemId | Guid? | Item identifier; null on advance rows. |
-| ItemCode | string? | Source item business code; null on advance rows. |
-| ItemName | string? | Source item description; null on advance rows. |
-| Uom | string? | Source unit of measure; null on advances. Never total unlike UOMs. |
-| SourceDate | DateOnly | GRNI receipt date or advance paid date, in the company reporting calendar. |
-| AgeDays | int | Whole company-local calendar days since the row age origin, never negative. |
-| Quantity | decimal? | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| Value | decimal | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
-| UnitRate | decimal? | GRNI receipt unit rate before GST/added charges; null for advances. |
-| OriginalAmount | decimal? | Original cash advance amount; null for GRNI. |
-| AdjustedAmount | decimal? | Net advance adjustments less restorations; null for GRNI. Outstanding = OriginalAmount - AdjustedAmount. |
+| Queue | `string` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid` | Identifier of this source document; its kind is given by the queue/document type. |
+| DocumentNumber | `string` | Human-readable number of the source document. |
+| LineId | `Guid?` | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
+| PurchaseOrderId | `Guid` | Specific PO revision identifier supplying this row, not necessarily the current revision. |
+| RootPurchaseOrderId | `Guid` | Stable original PO identity shared across amendments, or null request filter. |
+| PoNumber | `string` | Human-readable PO number used to open the existing PO screen. |
+| VendorId | `Guid` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| VendorCode | `string` | Vendor business code. |
+| VendorName | `string` | Vendor name from the applicable source/snapshot. |
+| ItemId | `Guid?` | Item identifier; null on advance rows. |
+| ItemCode | `string?` | Source item business code; null on advance rows. |
+| ItemName | `string?` | Source item description; null on advance rows. |
+| Uom | `string?` | Source unit of measure; null on advances. Never total unlike UOMs. |
+| SourceDate | `DateOnly` | GRNI receipt date or advance paid date, in the company reporting calendar. |
+| AgeDays | `int` | Whole company-local calendar days since the row age origin, never negative. |
+| Quantity | `decimal?` | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| Value | `decimal` | Monetary value on the endpoint/queue basis documented above, in Currency; not necessarily ex-tax cost. |
+| UnitRate | `decimal?` | GRNI receipt unit rate before GST/added charges; null for advances. |
+| OriginalAmount | `decimal?` | Original cash advance amount; null for GRNI. |
+| AdjustedAmount | `decimal?` | Net advance adjustments less restorations; null for GRNI. Outstanding = OriginalAmount - AdjustedAmount. |
 
 #### PurchaseObligationsPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| Tiles | IReadOnlyList<PurchaseObligationTile> | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
-| Vendors | IReadOnlyList<PurchaseObligationVendor> | Workload: vendor names. Obligations page: grouped vendor balances described below. |
-| Filters | PurchaseObligationsRequest | Normalised query echo. These select detail rows, not overview cards/groups. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<PurchaseObligationRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| Tiles | `IReadOnlyList<PurchaseObligationTile>` | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
+| Vendors | `IReadOnlyList<PurchaseObligationVendor>` | Workload: vendor names. Obligations page: grouped vendor balances described below. |
+| Filters | `PurchaseObligationsRequest` | Normalised query echo. These select detail rows, not overview cards/groups. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<PurchaseObligationRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
@@ -1078,93 +1078,93 @@ Periods always contains month, quarter and financial-year summaries. TopVendors 
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Period | string | Detail window: month, quarter, financial-year or twelve-months. |
-| Month | DateOnly? | Optional first-of-month date for period=month, within the current and preceding eleven months. |
-| VendorId | Guid? | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| CategoryId | Guid? | Recorded receipt category identifier, or null request filter; not necessarily current item category. |
-| Currency | string? | Native three-letter currency; purchase workload can redact it to null. |
-| BillId | Guid? | Accepted/reversed bill identifier, or null request filter. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| Period | `string` | Detail window: month, quarter, financial-year or twelve-months. |
+| Month | `DateOnly?` | Optional first-of-month date for period=month, within the current and preceding eleven months. |
+| VendorId | `Guid?` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| CategoryId | `Guid?` | Recorded receipt category identifier, or null request filter; not necessarily current item category. |
+| Currency | `string?` | Native three-letter currency; purchase workload can redact it to null. |
+| BillId | `Guid?` | Accepted/reversed bill identifier, or null request filter. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### PurchaseSpendingAmount
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| MaterialValue | decimal | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
-| AllocatedCharges | decimal | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
-| Amount | decimal | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
-| PoCount | long | Distinct root PO count represented by this native-currency aggregate. |
-| BillCount | long | Distinct bills with acceptance/reversal activity; a fully reversed bill can still count. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| MaterialValue | `decimal` | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
+| AllocatedCharges | `decimal` | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
+| Amount | `decimal` | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
+| PoCount | `long` | Distinct root PO count represented by this native-currency aggregate. |
+| BillCount | `long` | Distinct bills with acceptance/reversal activity; a fully reversed bill can still count. |
 
 #### PurchaseSpendingPeriod
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Key | string | Stable card/period key used for selection; do not match translated titles. |
-| FromDate | DateOnly | Inclusive beginning of this company-local period. |
-| ToDate | DateOnly | Inclusive end, capped at company-local today. |
-| Amounts | IReadOnlyList<PurchaseSpendingAmount> | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
+| Key | `string` | Stable card/period key used for selection; do not match translated titles. |
+| FromDate | `DateOnly` | Inclusive beginning of this company-local period. |
+| ToDate | `DateOnly` | Inclusive end, capped at company-local today. |
+| Amounts | `IReadOnlyList<PurchaseSpendingAmount>` | Separate native-currency aggregates. An empty array is not a fabricated INR zero. |
 
 #### PurchaseSpendingGroup
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Id | Guid | Vendor or category identifier for this breakdown group. |
-| Code | string | Source issue code, or group business code (vendor/category), according to the enclosing object. |
-| Name | string | Vendor name; category grouping currently repeats the recorded category code. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| MaterialValue | decimal | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
-| AllocatedCharges | decimal | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
-| Amount | decimal | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
-| PoCount | long | Distinct root PO count represented by this native-currency aggregate. |
-| BillCount | long | Distinct bills with acceptance/reversal activity; a fully reversed bill can still count. |
+| Id | `Guid` | Vendor or category identifier for this breakdown group. |
+| Code | `string` | Source issue code, or group business code (vendor/category), according to the enclosing object. |
+| Name | `string` | Vendor name; category grouping currently repeats the recorded category code. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| MaterialValue | `decimal` | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
+| AllocatedCharges | `decimal` | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
+| Amount | `decimal` | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
+| PoCount | `long` | Distinct root PO count represented by this native-currency aggregate. |
+| BillCount | `long` | Distinct bills with acceptance/reversal activity; a fully reversed bill can still count. |
 
 #### PurchaseSpendingRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| BillId | Guid | Accepted/reversed bill identifier, or null request filter. |
-| BillLineId | Guid | Bill line supplying this spending event. |
-| BillNumber | string | Human-readable accepted/reversed bill number. |
-| Event | string | ACCEPTED adds value; REVERSED subtracts value. Both can appear for one bill. |
-| EventDate | DateOnly | Company-local acceptance/reversal decision date; not invoice date or payment date. |
-| PurchaseOrderId | Guid | Specific PO revision identifier supplying this row, not necessarily the current revision. |
-| RootPurchaseOrderId | Guid | Stable original PO identity shared across amendments, or null request filter. |
-| PoNumber | string | Human-readable PO number used to open the existing PO screen. |
-| VendorId | Guid | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| VendorCode | string | Vendor business code. |
-| VendorName | string | Vendor name from the applicable source/snapshot. |
-| CategoryId | Guid | Recorded receipt category identifier, or null request filter; not necessarily current item category. |
-| CategoryCode | string | Category code frozen on the GRN line. |
-| ItemId | Guid | Item identifier; null on advance rows. |
-| ItemCode | string | Source item business code; null on advance rows. |
-| ItemName | string | Source item description; null on advance rows. |
-| Uom | string | Source unit of measure; null on advances. Never total unlike UOMs. |
-| Quantity | decimal | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| MaterialValue | decimal | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
-| AllocatedCharges | decimal | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
-| Amount | decimal | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
+| BillId | `Guid` | Accepted/reversed bill identifier, or null request filter. |
+| BillLineId | `Guid` | Bill line supplying this spending event. |
+| BillNumber | `string` | Human-readable accepted/reversed bill number. |
+| Event | `string` | ACCEPTED adds value; REVERSED subtracts value. Both can appear for one bill. |
+| EventDate | `DateOnly` | Company-local acceptance/reversal decision date; not invoice date or payment date. |
+| PurchaseOrderId | `Guid` | Specific PO revision identifier supplying this row, not necessarily the current revision. |
+| RootPurchaseOrderId | `Guid` | Stable original PO identity shared across amendments, or null request filter. |
+| PoNumber | `string` | Human-readable PO number used to open the existing PO screen. |
+| VendorId | `Guid` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| VendorCode | `string` | Vendor business code. |
+| VendorName | `string` | Vendor name from the applicable source/snapshot. |
+| CategoryId | `Guid` | Recorded receipt category identifier, or null request filter; not necessarily current item category. |
+| CategoryCode | `string` | Category code frozen on the GRN line. |
+| ItemId | `Guid` | Item identifier; null on advance rows. |
+| ItemCode | `string` | Source item business code; null on advance rows. |
+| ItemName | `string` | Source item description; null on advance rows. |
+| Uom | `string` | Source unit of measure; null on advances. Never total unlike UOMs. |
+| Quantity | `decimal` | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| MaterialValue | `decimal` | Signed bill-line BilledPayableValue, including embedded tax. This API name does not mean ex-tax material cost. |
+| AllocatedCharges | `decimal` | Signed retained bill-line charge allocations; excludes separately marked recoverable-GST charges. |
+| Amount | `decimal` | Amount in the named currency. Spending: MaterialValue + AllocatedCharges; workload: queue aggregate. |
 
 #### PurchaseSpendingPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| Basis | string | Exact server explanation of amount basis; display near monetary summaries. |
-| Periods | IReadOnlyList<PurchaseSpendingPeriod> | Current month, calendar quarter and April-March financial-year overview buckets. |
-| TopVendors | IReadOnlyList<PurchaseSpendingGroup> | Top ten vendors PER CURRENCY for the financial year; unaffected by detail filters. |
-| Categories | IReadOnlyList<PurchaseSpendingGroup> | Financial-year category totals per currency; unaffected by detail filters. |
-| MonthlyTrend | IReadOnlyList<PurchaseSpendingPeriod> | Twelve monthly buckets, oldest to newest, including empty months. |
-| FromDate | DateOnly | Inclusive beginning of this company-local period. |
-| ToDate | DateOnly | Inclusive end, capped at company-local today. |
-| Filters | PurchaseSpendingRequest | Normalised query echo. These select detail rows, not overview cards/groups. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<PurchaseSpendingRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| Basis | `string` | Exact server explanation of amount basis; display near monetary summaries. |
+| Periods | `IReadOnlyList<PurchaseSpendingPeriod>` | Current month, calendar quarter and April-March financial-year overview buckets. |
+| TopVendors | `IReadOnlyList<PurchaseSpendingGroup>` | Top ten vendors PER CURRENCY for the financial year; unaffected by detail filters. |
+| Categories | `IReadOnlyList<PurchaseSpendingGroup>` | Financial-year category totals per currency; unaffected by detail filters. |
+| MonthlyTrend | `IReadOnlyList<PurchaseSpendingPeriod>` | Twelve monthly buckets, oldest to newest, including empty months. |
+| FromDate | `DateOnly` | Inclusive beginning of this company-local period. |
+| ToDate | `DateOnly` | Inclusive end, capped at company-local today. |
+| Filters | `PurchaseSpendingRequest` | Normalised query echo. These select detail rows, not overview cards/groups. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<PurchaseSpendingRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
@@ -1262,52 +1262,52 @@ Gate card includes finalized normal unreversed entries with no normal GRN at all
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string? | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid? | Identifier of this source document; its kind is given by the queue/document type. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| Queue | `string?` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid?` | Identifier of this source document; its kind is given by the queue/document type. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### StoresWorkloadTile
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Key | string | Stable card/period key used for selection; do not match translated titles. |
-| Title | string | Server-provided human-readable card heading. |
-| State | string | READY or ACCESS_DENIED for this card. Denied is not an empty queue. |
-| Count | long? | Distinct documents in this queue. Null on a denied workload card. |
-| OldestAgeDays | int? | Largest whole local-calendar age among included records; null when none or unavailable. |
-| Coverage | string | Server explanation of what this card includes and excludes. |
+| Key | `string` | Stable card/period key used for selection; do not match translated titles. |
+| Title | `string` | Server-provided human-readable card heading. |
+| State | `string` | READY or ACCESS_DENIED for this card. Denied is not an empty queue. |
+| Count | `long?` | Distinct documents in this queue. Null on a denied workload card. |
+| OldestAgeDays | `int?` | Largest whole local-calendar age among included records; null when none or unavailable. |
+| Coverage | `string` | Server explanation of what this card includes and excludes. |
 
 #### StoresWorkloadRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid | Identifier of this source document; its kind is given by the queue/document type. |
-| DocumentType | string | Source kind: purchase PR/RFQ/QUOTATION/COMPARISON/PO, or Stores GATE_ENTRY/MIR. |
-| DocumentNumber | string | Human-readable number of the source document. |
-| Status | string | Recorded workflow status; preserve the returned spelling/case. |
-| WaitingSince | DateTimeOffset | Timestamp from which the current queue age is measured. |
-| AgeDays | int | Whole company-local calendar days since the row age origin, never negative. |
-| PendingLineCount | long | Number of still-pending document lines, not quantity; purchase workload may return null. |
-| VendorId | Guid? | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
-| VendorName | string? | Vendor name from the applicable source/snapshot. |
-| EligibleApprovalRoles | IReadOnlyList<string> | Roles eligible to approve this MIR; empty outside MIR approval. Not a named assignment. |
-| AssignedApproverEmployeeId | Guid? | Currently null: MIR workflow has no named approver assignment. |
-| ResponsibilityIssue | string? | Reason a responsible employee cannot be identified; show it rather than inventing an assignee. |
-| DetailPath | string | API resource path, NOT automatically a browser route. Use the mapping below. |
+| Queue | `string` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid` | Identifier of this source document; its kind is given by the queue/document type. |
+| DocumentType | `string` | Source kind: purchase PR/RFQ/QUOTATION/COMPARISON/PO, or Stores GATE_ENTRY/MIR. |
+| DocumentNumber | `string` | Human-readable number of the source document. |
+| Status | `string` | Recorded workflow status; preserve the returned spelling/case. |
+| WaitingSince | `DateTimeOffset` | Timestamp from which the current queue age is measured. |
+| AgeDays | `int` | Whole company-local calendar days since the row age origin, never negative. |
+| PendingLineCount | `long` | Number of still-pending document lines, not quantity; purchase workload may return null. |
+| VendorId | `Guid?` | Vendor identifier; null request means all visible vendors; a Stores MIR may have no vendor. |
+| VendorName | `string?` | Vendor name from the applicable source/snapshot. |
+| EligibleApprovalRoles | `IReadOnlyList<string>` | Roles eligible to approve this MIR; empty outside MIR approval. Not a named assignment. |
+| AssignedApproverEmployeeId | `Guid?` | Currently null: MIR workflow has no named approver assignment. |
+| ResponsibilityIssue | `string?` | Reason a responsible employee cannot be identified; show it rather than inventing an assignee. |
+| DetailPath | `string` | API resource path, NOT automatically a browser route. Use the mapping below. |
 
 #### StoresWorkloadPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| Tiles | IReadOnlyList<StoresWorkloadTile> | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
-| Filters | StoresWorkloadRequest | Normalised query echo. These select detail rows, not overview cards/groups. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<StoresWorkloadRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| Tiles | `IReadOnlyList<StoresWorkloadTile>` | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
+| Filters | `StoresWorkloadRequest` | Normalised query echo. These select detail rows, not overview cards/groups. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<StoresWorkloadRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
@@ -1408,69 +1408,69 @@ Tiles count distinct GRN lines, not rows: one line/allocation may split by wareh
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string? | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid? | Identifier of this source document; its kind is given by the queue/document type. |
-| Page | int | One-based requested detail page. |
-| PageSize | int | Requested maximum detail rows per page, 1 to 1000. |
+| Queue | `string?` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid?` | Identifier of this source document; its kind is given by the queue/document type. |
+| Page | `int` | One-based requested detail page. |
+| PageSize | `int` | Requested maximum detail rows per page, 1 to 1000. |
 
 #### StoresQcStockValue
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| ReceiptProvisionalValue | decimal | Current GRN-origin held quantity times receipt unit rate; null/hidden without commercial permission. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| ReceiptProvisionalValue | `decimal` | Current GRN-origin held quantity times receipt unit rate; null/hidden without commercial permission. |
 
 #### StoresQcStockTile
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Key | string | Stable card/period key used for selection; do not match translated titles. |
-| LineCount | long | Obligations: detail source rows. QC: distinct GRN lines, not allocation-row count or units. |
-| OverdueLineCount | long | Distinct QC_HOLD GRN lines past QcDueAt; pending-returnable-DC rows are not QC overdue. |
-| OldestReceiptAgeDays | int? | Largest local-calendar receipt age among held GRN lines; null when empty. |
-| Values | IReadOnlyList<StoresQcStockValue>? | Per-currency provisional receipt values; null if commercial access is withheld, [] if permitted but empty. |
+| Key | `string` | Stable card/period key used for selection; do not match translated titles. |
+| LineCount | `long` | Obligations: detail source rows. QC: distinct GRN lines, not allocation-row count or units. |
+| OverdueLineCount | `long` | Distinct QC_HOLD GRN lines past QcDueAt; pending-returnable-DC rows are not QC overdue. |
+| OldestReceiptAgeDays | `int?` | Largest local-calendar receipt age among held GRN lines; null when empty. |
+| Values | `IReadOnlyList<StoresQcStockValue>?` | Per-currency provisional receipt values; null if commercial access is withheld, [] if permitted but empty. |
 
 #### StoresQcStockRow
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| Queue | string | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
-| DocumentId | Guid | Identifier of this source document; its kind is given by the queue/document type. |
-| DocumentNumber | string | Human-readable number of the source document. |
-| LineId | Guid | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
-| AllocationId | Guid | GRN lot-allocation identity; one GRN line can occupy multiple detail rows. |
-| ItemId | Guid | Item identifier; null on advance rows. |
-| ItemCode | string | Source item business code; null on advance rows. |
-| ItemName | string | Source item description; null on advance rows. |
-| Uom | string | Source unit of measure; null on advances. Never total unlike UOMs. |
-| Quantity | decimal | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
-| WarehouseId | Guid? | Current warehouse dimension of held balance; may be null in the contract. |
-| RackBinId | Guid? | Current rack/bin dimension; may be null. |
-| OwnershipAccountId | Guid | Ownership dimension; do not merge stock merely because the item matches. |
-| CustodyAssignmentId | Guid | Custody dimension of held stock. |
-| ProvenanceLayerId | Guid | Inventory provenance layer linking the balance to retained source evidence. |
-| SerialId | Guid? | Serialized inventory identity, or null for nonserialized stock. |
-| ReceivedAt | DateTimeOffset | Original GRN receipt timestamp. |
-| QcDueAt | DateTimeOffset | Recorded QC deadline for the receipt. |
-| IsOverdue | bool | True only for QC_HOLD past its deadline; do not substitute a browser-clock calculation. |
-| ReceiptAgeDays | int | Whole company-local calendar days since receipt. |
-| Currency | string | Native three-letter currency; purchase workload can redact it to null. |
-| ReceiptProvisionalValue | decimal? | Current GRN-origin held quantity times receipt unit rate; null/hidden without commercial permission. |
-| DetailPath | string | API resource path, NOT automatically a browser route. Use the mapping below. |
+| Queue | `string` | Selected queue, or null for all permitted queues. In a row, identifies its source queue. |
+| DocumentId | `Guid` | Identifier of this source document; its kind is given by the queue/document type. |
+| DocumentNumber | `string` | Human-readable number of the source document. |
+| LineId | `Guid` | Source PO or GRN line identifier. Obligations advance rows have null because they are not item lines. |
+| AllocationId | `Guid` | GRN lot-allocation identity; one GRN line can occupy multiple detail rows. |
+| ItemId | `Guid` | Item identifier; null on advance rows. |
+| ItemCode | `string` | Source item business code; null on advance rows. |
+| ItemName | `string` | Source item description; null on advance rows. |
+| Uom | `string` | Source unit of measure; null on advances. Never total unlike UOMs. |
+| Quantity | `decimal` | GRNI unbilled quantity, signed spending-event quantity, or current QC held quantity; null for advances. |
+| WarehouseId | `Guid?` | Current warehouse dimension of held balance; may be null in the contract. |
+| RackBinId | `Guid?` | Current rack/bin dimension; may be null. |
+| OwnershipAccountId | `Guid` | Ownership dimension; do not merge stock merely because the item matches. |
+| CustodyAssignmentId | `Guid` | Custody dimension of held stock. |
+| ProvenanceLayerId | `Guid` | Inventory provenance layer linking the balance to retained source evidence. |
+| SerialId | `Guid?` | Serialized inventory identity, or null for nonserialized stock. |
+| ReceivedAt | `DateTimeOffset` | Original GRN receipt timestamp. |
+| QcDueAt | `DateTimeOffset` | Recorded QC deadline for the receipt. |
+| IsOverdue | `bool` | True only for QC_HOLD past its deadline; do not substitute a browser-clock calculation. |
+| ReceiptAgeDays | `int` | Whole company-local calendar days since receipt. |
+| Currency | `string` | Native three-letter currency; purchase workload can redact it to null. |
+| ReceiptProvisionalValue | `decimal?` | Current GRN-origin held quantity times receipt unit rate; null/hidden without commercial permission. |
+| DetailPath | `string` | API resource path, NOT automatically a browser route. Use the mapping below. |
 
 #### StoresQcStockPage
 
 | Field | JSON/C# type | Meaning |
 |---|---|---|
-| CompanyCode | string | Selected ERP company code; verify it still matches the active company before rendering. |
-| GeneratedAt | DateTimeOffset | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
-| TimeZone | string | Server-configured company reporting timezone used for calendar dates and ages. |
-| CanViewCommercialValues | bool | Whether BOTH dashboard and GRN commercial permissions permit values. |
-| ValueBasis | string | Server text identifying provisional receipt valuation and exclusions. |
-| Tiles | IReadOnlyList<StoresQcStockTile> | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
-| Filters | StoresQcStockRequest | Normalised query echo. These select detail rows, not overview cards/groups. |
-| TotalRows | long | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
-| Rows | IReadOnlyList<StoresQcStockRow> | This page of matching detail rows. Empty array is a valid result. |
+| CompanyCode | `string` | Selected ERP company code; verify it still matches the active company before rendering. |
+| GeneratedAt | `DateTimeOffset` | Server timestamp for this projection. Show last refreshed time; not a document transaction date. |
+| TimeZone | `string` | Server-configured company reporting timezone used for calendar dates and ages. |
+| CanViewCommercialValues | `bool` | Whether BOTH dashboard and GRN commercial permissions permit values. |
+| ValueBasis | `string` | Server text identifying provisional receipt valuation and exclusions. |
+| Tiles | `IReadOnlyList<StoresQcStockTile>` | All overview cards for this endpoint; scope-filtered but not narrowed by detail filters. |
+| Filters | `StoresQcStockRequest` | Normalised query echo. These select detail rows, not overview cards/groups. |
+| TotalRows | `long` | Number of matching detail rows before pagination; not the number of cards or distinct documents. |
+| Rows | `IReadOnlyList<StoresQcStockRow>` | This page of matching detail rows. Empty array is a valid result. |
 
 ### Exact denied response shape
 
