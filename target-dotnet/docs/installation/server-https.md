@@ -25,8 +25,8 @@ this private-IP identity. Do not use browser exceptions or disable .NET validati
    leaf validity one year, scheduled renewal at least 30 days before expiry. Record
    serials, expiry and SHA256 fingerprints. No root private key goes on this server,
    any user PC, Git or the deployment package. Use only the public root .cer for trust.
-   These are issuance requirements for the maintainer's CA tooling, not a claim a CA
-   or certificate has already been issued.
+   The completed 22 September issuance and remaining offline-custody/field checks
+   are recorded in the issuance receipt section below.
 2. Issue ERP leaf with CN=DESKTOP-SPF5420 and Keycloak leaf with CN=SESS-Keycloak;
    both have the same required IP SAN and separate private keys. Supply ERP as a
    password-protected PFX with its chain; Keycloak as leaf+intermediate PEM chain in
@@ -76,3 +76,39 @@ custom validation callbacks. No service should depend on a logged-in user's trus
 
 Sources: [Keycloak PEM TLS configuration](https://www.keycloak.org/server/enabletls),
 [Windows certificate store import](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/certificate-stores).
+
+## D4 issuance receipt — 22 September 2026
+
+Created on the separate administration laptop DESKTOP-AP, outside the repository.
+Server transfer folder: `C:\SESS-CA\server-output`, exactly four files:
+SESS-Office-Root.cer (public DER root), erp-DESKTOP-SPF5420.pfx (encrypted ERP
+private key and public chain), keycloak.crt (PEM leaf/public chain), keycloak.key
+(separate PKCS#8 private key, service-readable only). All four file hashes were
+verified against `C:\SESS-CA\issuance-receipt.json`. No private keys enter Git or
+the deployment package. The issuance validation checked chain, serverAuth, SANs,
+distinct leaf keys, PFX recovery and exclusion of the root private key from ERP PFX.
+
+Root SHA-256 fingerprint:
+`A95109800BD04600670FAD6E4316996FEB5B153D03EA07493ED8BE691F796913`.
+Compare this complete value on the server before trusting the root.
+
+Both leaves are valid **22 September 2026 15:59:14 UTC through 22 September 2027
+16:04:14 UTC** (21:29:14 IST through 21:34:14 IST respectively).
+**Renew by 23 August 2027**, allowing thirty days for deployment and eleven-PC
+checks. ERP subject CN=DESKTOP-SPF5420; Keycloak CN=SESS-Keycloak. Both include
+DNS DESKTOP-SPF5420 and IP 192.168.68.130 SANs; keys are distinct. Certificates
+identify hosts, not ports: use the ERP leaf on 8443 and Keycloak leaf on 8444.
+The root expires 22 September 2036 16:04:14 UTC.
+
+Root private export: `C:\SESS-CA\offline-root\SESS-Office-Root-PRIVATE.pfx`, encrypted
+with the password entered locally at issuance. The laptop account has no Windows
+password: **offline custody is still PENDING**. Follow `C:\SESS-CA\ROOT-OFFLINE.md`
+to copy onto a different physical external disk, verify its SHA-256 against the
+receipt, confirm the copy, and remove that exact local PFX. No root key was imported
+into a Windows certificate store. Do not transfer the offline-root directory to
+the server. File deletion is not a claim of forensic SSD erasure. Retain the
+external encrypted root under TD-controlled custody and its password separately.
+
+Give each office PC the [one-page trust instruction](office-pc-https-trust.md).
+Certificate creation is complete; external-root custody, server import/service
+ACLs and eleven-client HTTPS witnessing remain field actions.
