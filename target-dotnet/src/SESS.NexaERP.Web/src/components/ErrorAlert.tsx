@@ -29,7 +29,22 @@ interface Conflict {
  * falls through to the generic case, and the server's own text is always kept
  * so nothing specific is lost.
  */
-function classifyConflict(message: string): Conflict {
+function classifyConflict(message: string, code?: string): Conflict {
+  // The envelope's Code is authoritative when present. CONCURRENCY_CONFLICT is
+  // the optimistic-lock loser (two people saved the same record at once, e.g.
+  // two Accounts users recording a payment): its Detail ("The record changed
+  // after it was loaded. Refresh and retry.") contains neither "stale" nor
+  // "version", so it must not fall through to the business-rule wording.
+  if (code === 'CONCURRENCY_CONFLICT') {
+    return {
+      title: 'Someone else changed this record',
+      guidance:
+        'Your copy is out of date, so the save was refused rather than overwriting their work. Reload to get the current version, then reapply your changes.',
+      reloadable: true,
+      technical: false,
+    }
+  }
+
   const text = message.toLowerCase()
 
   if (text.includes('uom conversion')) {
@@ -221,7 +236,7 @@ export function ErrorAlert({ error, onReload, fallback = 'Something went wrong.'
     )
   }
 
-  const conflict = classifyConflict(message)
+  const conflict = classifyConflict(message, error instanceof ApiError ? error.code : undefined)
 
   return (
     <div className={`alert alert-warn ${className}`.trim()} role="alert">
