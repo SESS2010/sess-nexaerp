@@ -55,10 +55,12 @@ import { ProductionBomDetailPage } from './features/production/ProductionBomDeta
 import { EstimatedBomListPage } from './features/design/EstimatedBomListPage'
 import { EstimatedBomDetailPage } from './features/design/EstimatedBomDetailPage'
 import { PurchaseDashboardPage } from './features/dashboards/PurchaseDashboardPage'
-import { PURCHASE_DASHBOARD_KEYS } from './features/dashboards/dashboardAccess'
+import { StoresDashboardPage } from './features/dashboards/StoresDashboardPage'
+import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/dashboards/purchase', 'Purchase Dashboard'],
+  ['/dashboards/stores', 'Stores Dashboard'],
   ['/vendors', 'Vendor Master'],
   ['/customers', 'Customer Master'],
   ['/items', 'Item Master'],
@@ -120,9 +122,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
-          {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && (
+          {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can)) && (
             <NavSection id="dashboards" label="Dashboards" defaultOpen={inDashboards}>
-              <NavLink to="/dashboards/purchase" className={navLinkClass}>Purchase</NavLink>
+              {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && <NavLink to="/dashboards/purchase" className={navLinkClass}>Purchase</NavLink>}
+              {canOpenAnyStoresSection(can) && <NavLink to="/dashboards/stores" className={navLinkClass}>Stores</NavLink>}
             </NavSection>
           )}
           <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores && !inProduction}>
@@ -211,6 +214,7 @@ export default function App() {
                 <Route path="/" element={<HomePage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
                 <Route path="/dashboards/purchase" element={<PurchaseDashboardPage />} />
+                <Route path="/dashboards/stores" element={<StoresDashboardPage />} />
                 <Route path="/employees" element={<EmployeeListPage />} />
                 <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
                 <Route path="/vendors" element={<VendorListPage />} />

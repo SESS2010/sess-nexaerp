@@ -11,7 +11,7 @@
 // - answers GET /api/v1/session/me with a SYNTHETIC session, so the app's own
 //   permission checks run unchanged. Choose the profile with ?session=<name>
 //   on the page URL (read from the Referer): td (default), purchase-exec,
-//   partial;
+//   partial, stores-exec, stores-no-grn, production-manager;
 // - refuses every other /api call with 503. No backend is contacted, ever;
 // - binds to localhost:5180 only, never the LAN and never 5173.
 
@@ -44,8 +44,35 @@ const PROFILES: Record<string, { name: string; code: string; roles: string[]; pe
       'dashboards.purchase-open-orders:view',
       'dashboards.purchase-obligations:view',
       'dashboards.purchase-spending:view',
+      'dashboards.stores-workload:view',
+      'dashboards.stores-qc-stock:view',
+      'stores.material-issue-requests:view',
       ...LINK_TARGET_PERMISSIONS,
     ],
+  },
+  'stores-exec': {
+    name: 'MOCK Stores Executive',
+    code: 'MOCK-SE',
+    roles: ['STORES_EXECUTIVE'],
+    permissions: [
+      'dashboards.stores-workload:view',
+      'dashboards.stores-qc-stock:view',
+      'inventory.grn:view',
+      'stores.material-issue-requests:view',
+      'masters.items:view',
+    ],
+  },
+  'stores-no-grn': {
+    name: 'MOCK Stores Assistant without GRN view',
+    code: 'MOCK-SA',
+    roles: ['STORES_ASSISTANT'],
+    permissions: ['dashboards.stores-workload:view', 'dashboards.stores-qc-stock:view', 'stores.material-issue-requests:view'],
+  },
+  'production-manager': {
+    name: 'MOCK Production Manager',
+    code: 'MOCK-PR',
+    roles: ['PRODUCTION_MANAGER'],
+    permissions: ['stores.material-issue-requests:view', 'production.job-orders:view'],
   },
   'purchase-exec': {
     name: 'MOCK Purchase Executive',
@@ -64,6 +91,7 @@ const PROFILES: Record<string, { name: string; code: string; roles: string[]; pe
 function mockSessionPlugin(): Plugin {
   return {
     name: 'dashboard-mock-session',
+    apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? ''
@@ -111,15 +139,22 @@ function mockSessionPlugin(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [react(), tailwindcss(), mockSessionPlugin()],
-  define: {
-    'import.meta.env.VITE_DASHBOARD_MOCKS': JSON.stringify('true'),
-  },
-  server: {
-    host: 'localhost',
-    port: 5180,
-    strictPort: true,
-    fs: { allow: ['.', docsMocks] },
-  },
+export default defineConfig(({ command, isPreview }) => {
+  // This config must never produce or serve a build: a mock build would ship
+  // synthetic figures. Only the dev server may use it.
+  if (command !== 'serve' || isPreview) {
+    throw new Error('vite.dashboards-mock.config.ts is for the local dev server only; it refuses to build or preview.')
+  }
+  return {
+    plugins: [react(), tailwindcss(), mockSessionPlugin()],
+    define: {
+      'import.meta.env.VITE_DASHBOARD_MOCKS': JSON.stringify('true'),
+    },
+    server: {
+      host: 'localhost',
+      port: 5180,
+      strictPort: true,
+      fs: { allow: ['.', docsMocks] },
+    },
+  }
 })

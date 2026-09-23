@@ -215,6 +215,24 @@ export function Pager({ page, pageSize, totalRows, onPage }: { page: number; pag
   )
 }
 
+/**
+ * A stock dimension the contract supplies only as a GUID (warehouse, rack/bin,
+ * ownership, custody, provenance, serial). No names or codes are available
+ * and there is no warehouse lookup screen, so this shows a short, clearly
+ * labelled ID with the full value on hover. PENDING a decision on how
+ * storekeepers should see these; change only this component.
+ */
+export function DimensionId({ label, id }: { label: string; id: string | null }) {
+  if (!id) {
+    return <span className="field-hint whitespace-nowrap">{label}: <NullValue reason="none" /></span>
+  }
+  return (
+    <span className="field-hint whitespace-nowrap" title={`${label} ID ${id}`}>
+      {label} ID <span className="mono">…{id.slice(-6)}</span>
+    </span>
+  )
+}
+
 /** A link when the target page is permitted; plain text otherwise. */
 export function MaybeLink({ to, children }: { to: string | null; children: ReactNode }) {
   return to ? <Link to={to}>{children}</Link> : <>{children}</>

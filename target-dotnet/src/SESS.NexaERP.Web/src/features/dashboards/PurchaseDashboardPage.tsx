@@ -49,7 +49,7 @@ export function PurchaseDashboardPage() {
 }
 
 /** Shown on every mock build so synthetic figures are never mistaken for real ones. */
-function MockBanner() {
+export function MockBanner() {
   const variant = new URLSearchParams(window.location.search).get('mock') ?? 'reference'
   return (
     <div className="alert alert-warn mb-3" data-dashboard-mock="on">

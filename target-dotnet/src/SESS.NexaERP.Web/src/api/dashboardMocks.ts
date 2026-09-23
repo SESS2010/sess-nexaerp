@@ -19,11 +19,15 @@ import workloadRaw from '../../../../docs/installation/dashboard-mocks/purchase-
 import openOrdersRaw from '../../../../docs/installation/dashboard-mocks/purchase-open-orders.json?raw'
 import obligationsRaw from '../../../../docs/installation/dashboard-mocks/purchase-obligations.json?raw'
 import spendingRaw from '../../../../docs/installation/dashboard-mocks/purchase-spending.json?raw'
+import storesWorkloadRaw from '../../../../docs/installation/dashboard-mocks/stores-workload.json?raw'
+import qcStockRaw from '../../../../docs/installation/dashboard-mocks/stores-qc-stock.json?raw'
 import type {
   PurchaseObligationsPage,
   PurchaseOpenOrdersPage,
   PurchaseSpendingPage,
   PurchaseWorkloadPage,
+  StoresQcStockPage,
+  StoresWorkloadPage,
 } from '../types/dashboard'
 
 type Query = Record<string, string | number | boolean | null | undefined>
@@ -33,6 +37,8 @@ const PATHS = {
   openOrders: '/api/v1/dashboards/purchase/open-orders',
   obligations: '/api/v1/dashboards/purchase/obligations',
   spending: '/api/v1/dashboards/purchase/spending',
+  storesWorkload: '/api/v1/dashboards/stores/workload',
+  qcStock: '/api/v1/dashboards/stores/qc-stock',
 } as const
 
 type Endpoint = keyof typeof PATHS
@@ -42,6 +48,8 @@ interface Bodies {
   openOrders: PurchaseOpenOrdersPage
   obligations: PurchaseObligationsPage
   spending: PurchaseSpendingPage
+  storesWorkload: StoresWorkloadPage
+  qcStock: StoresQcStockPage
 }
 
 /** Fresh deep copies of the contract bodies on every call. */
@@ -51,6 +59,8 @@ function referenceBodies(): Bodies {
     openOrders: JSON.parse(openOrdersRaw) as PurchaseOpenOrdersPage,
     obligations: JSON.parse(obligationsRaw) as PurchaseObligationsPage,
     spending: JSON.parse(spendingRaw) as PurchaseSpendingPage,
+    storesWorkload: JSON.parse(storesWorkloadRaw) as StoresWorkloadPage,
+    qcStock: JSON.parse(qcStockRaw) as StoresQcStockPage,
   }
 }
 
@@ -61,6 +71,8 @@ const DENIED_DETAIL: Record<Endpoint, string> = {
   openOrders: 'Open purchase orders are not permitted for your employee and selected company.',
   obligations: 'Purchase obligations are not permitted for your employee and selected company.',
   spending: 'Purchase spending is not permitted for your employee and selected company.',
+  storesWorkload: 'Stores workload is not permitted for your employee and selected company.',
+  qcStock: 'Stores QC stock is not permitted for your employee and selected company.',
 }
 
 function denied(endpoint: Endpoint): ApiError {
@@ -120,11 +132,25 @@ export const MOCK_VARIANTS: Record<string, { description: string; apply: Variant
       Object.assign(b.obligations, { Vendors: [], Rows: [], TotalRows: 0 })
       for (const period of [...b.spending.Periods, ...b.spending.MonthlyTrend]) period.Amounts = []
       Object.assign(b.spending, { TopVendors: [], Categories: [], Rows: [], TotalRows: 0 })
+      for (const tile of b.storesWorkload.Tiles) {
+        if (tile.State === 'READY') {
+          tile.Count = 0
+          tile.OldestAgeDays = null
+        }
+      }
+      Object.assign(b.storesWorkload, { Rows: [], TotalRows: 0 })
+      for (const tile of b.qcStock.Tiles) {
+        Object.assign(tile, { LineCount: 0, OverdueLineCount: 0, OldestReceiptAgeDays: null, Values: [] })
+      }
+      Object.assign(b.qcStock, { Rows: [], TotalRows: 0 })
     },
   },
   withheld: {
-    description: 'Workload: commercial values withheld on one card, one card ACCESS_DENIED, row values redacted to null.',
+    description: 'Purchase workload: values withheld on one card, one card ACCESS_DENIED, row values null. QC stock: commercial values withheld (Values null, row values null).',
     apply: (b) => {
+      b.qcStock.CanViewCommercialValues = false
+      for (const tile of b.qcStock.Tiles) tile.Values = null
+      for (const row of b.qcStock.Rows) row.ReceiptProvisionalValue = null
       const approval = b.workload.Tiles.find((tile) => tile.Key === 'pr-approval')
       if (approval) {
         approval.CommercialValuesVisible = false
@@ -233,6 +259,86 @@ export const MOCK_VARIANTS: Record<string, { description: string; apply: Variant
         Amount: -first.Amount,
       })
       sp.TotalRows = sp.Rows.length
+      const qc = b.qcStock
+      const hold = qc.Tiles.find((tile) => tile.Key === 'QC_HOLD')
+      if (hold && hold.Values) {
+        hold.Values.push({ Currency: 'USD', ReceiptProvisionalValue: 612.4 })
+        hold.LineCount += 1
+      }
+      qc.Rows.push({
+        ...qc.Rows[0],
+        DocumentId: 'e1f2a3b4-5555-4d6e-8f70-000000000081',
+        DocumentNumber: 'GRN-26-27-000081',
+        LineId: 'e1f2a3b4-5555-4d6e-8f70-000000000082',
+        AllocationId: 'e1f2a3b4-5555-4d6e-8f70-000000000083',
+        Currency: 'USD', ReceiptProvisionalValue: 612.4, IsOverdue: false, ReceiptAgeDays: 1,
+        ReceivedAt: '2026-09-13T10:00:00+05:30', QcDueAt: '2026-09-16T10:00:00+05:30',
+      })
+      qc.TotalRows = qc.Rows.length
+    },
+  },
+  'stores-all-queues': {
+    description: 'Stores workload with every card READY: a gate entry awaiting GRN (with vendor) and an approved MIR awaiting issue, beside the reference MIR.',
+    apply: (b) => {
+      const sw = b.storesWorkload
+      const gate = sw.Tiles.find((tile) => tile.Key === 'gate-no-grn')
+      if (gate) Object.assign(gate, { State: 'READY', Count: 1, OldestAgeDays: 2 })
+      const unissued = sw.Tiles.find((tile) => tile.Key === 'mir-unissued')
+      if (unissued) Object.assign(unissued, { Count: 1, OldestAgeDays: 1 })
+      sw.Rows.unshift(
+        {
+          Queue: 'gate-no-grn', DocumentId: 'a0b1c2d3-6666-4e7f-9a0b-000000000091', DocumentType: 'GATE_ENTRY',
+          DocumentNumber: 'GE-26-27-000091', Status: 'FINALIZED', WaitingSince: '2026-09-12T11:15:00+05:30', AgeDays: 2,
+          PendingLineCount: 2, VendorId: '71000000-0000-0000-0005-000000000001', VendorName: 'TRIAL Alpine Cooling Supplies',
+          EligibleApprovalRoles: [], AssignedApproverEmployeeId: null, ResponsibilityIssue: null,
+          DetailPath: '/api/v1/stores/gate-entries/a0b1c2d3-6666-4e7f-9a0b-000000000091',
+        },
+        {
+          Queue: 'mir-unissued', DocumentId: 'a0b1c2d3-6666-4e7f-9a0b-000000000092', DocumentType: 'MIR',
+          DocumentNumber: 'MIR-26-27-000092', Status: 'PARTIALLY_ISSUED', WaitingSince: '2026-09-13T09:30:00+05:30', AgeDays: 1,
+          PendingLineCount: 3, VendorId: null, VendorName: null,
+          EligibleApprovalRoles: [], AssignedApproverEmployeeId: null, ResponsibilityIssue: null,
+          DetailPath: '/api/v1/stores/material-issue-requests/a0b1c2d3-6666-4e7f-9a0b-000000000092',
+        },
+      )
+      sw.TotalRows = sw.Rows.length
+    },
+  },
+  'qc-split': {
+    description: 'QC stock: one GRN line split across two warehouses (two rows, one line), plus a pending returnable DC line that is not QC-overdue.',
+    apply: (b) => {
+      const qc = b.qcStock
+      const first = qc.Rows[0]
+      qc.Rows.push(
+        {
+          ...first,
+          AllocationId: 'f0e1d2c3-7777-4b8a-9c0d-000000000101',
+          WarehouseId: '71000000-0000-0000-0007-000000000002',
+          RackBinId: '71000000-0000-0000-0008-000000000011',
+          Quantity: 2.5,
+          ReceiptProvisionalValue: 10000,
+        },
+        {
+          ...first,
+          Queue: 'PENDING_RETURNABLE_DC',
+          DocumentId: 'f0e1d2c3-7777-4b8a-9c0d-000000000110',
+          DocumentNumber: 'GRN-26-27-000110',
+          LineId: 'f0e1d2c3-7777-4b8a-9c0d-000000000111',
+          AllocationId: 'f0e1d2c3-7777-4b8a-9c0d-000000000112',
+          SerialId: 'f0e1d2c3-7777-4b8a-9c0d-000000000113',
+          RackBinId: null,
+          IsOverdue: false,
+          ReceiptAgeDays: 6,
+          ReceivedAt: '2026-09-08T12:00:00+05:30',
+          QcDueAt: '2026-09-10T12:00:00+05:30',
+          ReceiptProvisionalValue: 1500,
+        },
+      )
+      qc.TotalRows = qc.Rows.length
+      const hold = qc.Tiles.find((tile) => tile.Key === 'QC_HOLD')
+      if (hold?.Values) hold.Values = [{ Currency: 'INR', ReceiptProvisionalValue: 14000 }]
+      const dc = qc.Tiles.find((tile) => tile.Key === 'PENDING_RETURNABLE_DC')
+      if (dc) Object.assign(dc, { LineCount: 1, OverdueLineCount: 0, OldestReceiptAgeDays: 6, Values: [{ Currency: 'INR', ReceiptProvisionalValue: 1500 }] })
     },
   },
   'denied-403': {
@@ -382,6 +488,25 @@ function filterSpending(body: PurchaseSpendingPage, query: Query): PurchaseSpend
   }
 }
 
+function filterStoresWorkload(body: StoresWorkloadPage, query: Query): StoresWorkloadPage {
+  const { page, pageSize } = paging(query)
+  const queue = text(query.queue)
+  const documentId = text(query.documentId)
+  if (queue && !['gate-no-grn', 'mir-approval', 'mir-unissued'].includes(queue)) throw invalid('queue is not recognised.')
+  const rows = body.Rows.filter((row) => (!queue || row.Queue === queue) && (!documentId || row.DocumentId === documentId))
+  return { ...body, Filters: { Queue: queue, DocumentId: documentId, Page: page, PageSize: pageSize }, TotalRows: rows.length, Rows: pageOf(rows, page, pageSize) }
+}
+
+function filterQcStock(body: StoresQcStockPage, query: Query): StoresQcStockPage {
+  const { page, pageSize } = paging(query)
+  const queue = text(query.queue)
+  const documentId = text(query.documentId)
+  // Case-sensitive, as the contract says: 'qc_hold' is refused.
+  if (queue && queue !== 'QC_HOLD' && queue !== 'PENDING_RETURNABLE_DC') throw invalid('queue must be QC_HOLD or PENDING_RETURNABLE_DC.')
+  const rows = body.Rows.filter((row) => (!queue || row.Queue === queue) && (!documentId || row.DocumentId === documentId))
+  return { ...body, Filters: { Queue: queue, DocumentId: documentId, Page: page, PageSize: pageSize }, TotalRows: rows.length, Rows: pageOf(rows, page, pageSize) }
+}
+
 // ---------- entry point used by dashboards.ts ----------
 
 function endpointFor(path: string): Endpoint {
@@ -404,5 +529,7 @@ export async function mockDashboardGet<T>(path: string, query: Query): Promise<T
     case 'openOrders': return filterOpenOrders(bodies.openOrders, query) as T
     case 'obligations': return filterObligations(bodies.obligations, query) as T
     case 'spending': return filterSpending(bodies.spending, query) as T
+    case 'storesWorkload': return filterStoresWorkload(bodies.storesWorkload, query) as T
+    case 'qcStock': return filterQcStock(bodies.qcStock, query) as T
   }
 }

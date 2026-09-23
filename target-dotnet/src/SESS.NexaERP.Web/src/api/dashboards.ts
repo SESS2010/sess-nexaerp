@@ -25,6 +25,10 @@ import type {
   PurchaseSpendingRequest,
   PurchaseWorkloadPage,
   PurchaseWorkloadRequest,
+  StoresQcStockPage,
+  StoresQcStockRequest,
+  StoresWorkloadPage,
+  StoresWorkloadRequest,
 } from '../types/dashboard'
 
 /**
@@ -77,4 +81,12 @@ export function getPurchaseObligations(request: PurchaseObligationsRequest = {})
 
 export function getPurchaseSpending(request: PurchaseSpendingRequest = {}): Promise<PurchaseSpendingPage> {
   return dashboardGet('/api/v1/dashboards/purchase/spending', { ...request })
+}
+
+export function getStoresWorkload(request: StoresWorkloadRequest = {}): Promise<StoresWorkloadPage> {
+  return dashboardGet('/api/v1/dashboards/stores/workload', { ...request })
+}
+
+export function getStoresQcStock(request: StoresQcStockRequest = {}): Promise<StoresQcStockPage> {
+  return dashboardGet('/api/v1/dashboards/stores/qc-stock', { ...request })
 }

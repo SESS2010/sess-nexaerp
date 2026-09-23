@@ -361,6 +361,141 @@ export interface PurchaseSpendingPage {
   Rows: PurchaseSpendingRow[]
 }
 
+// ---------- GET /api/v1/dashboards/stores/workload ----------
+
+export type StoresWorkloadQueue = 'gate-no-grn' | 'mir-approval' | 'mir-unissued'
+
+export interface StoresWorkloadRequest {
+  queue?: StoresWorkloadQueue | null
+  documentId?: Guid | null
+  page?: number
+  pageSize?: number
+}
+
+export interface StoresWorkloadFilters {
+  Queue: string | null
+  DocumentId: Guid | null
+  Page: number
+  PageSize: number
+}
+
+export interface StoresWorkloadTile {
+  Key: string
+  Title: string
+  /** READY or ACCESS_DENIED. Denied is not an empty queue. */
+  State: 'READY' | 'ACCESS_DENIED' | string
+  Count: number | null
+  OldestAgeDays: number | null
+  Coverage: string
+}
+
+export interface StoresWorkloadRow {
+  Queue: string
+  DocumentId: Guid
+  /** GATE_ENTRY or MIR. */
+  DocumentType: string
+  DocumentNumber: string
+  Status: string
+  WaitingSince: DateTimeOffset
+  AgeDays: number
+  PendingLineCount: number
+  VendorId: Guid | null
+  VendorName: string | null
+  /** Roles eligible to approve; not a named assignment. */
+  EligibleApprovalRoles: string[]
+  /** Currently always null: the MIR workflow has no named approver. */
+  AssignedApproverEmployeeId: Guid | null
+  ResponsibilityIssue: string | null
+  /** API resource path, NOT a browser route. */
+  DetailPath: string
+}
+
+export interface StoresWorkloadPage {
+  CompanyCode: string
+  GeneratedAt: DateTimeOffset
+  TimeZone: string
+  Tiles: StoresWorkloadTile[]
+  Filters: StoresWorkloadFilters
+  TotalRows: number
+  Rows: StoresWorkloadRow[]
+}
+
+// ---------- GET /api/v1/dashboards/stores/qc-stock ----------
+
+/** Case-sensitive on the wire. */
+export type StoresQcStockQueue = 'QC_HOLD' | 'PENDING_RETURNABLE_DC'
+
+export interface StoresQcStockRequest {
+  queue?: StoresQcStockQueue | null
+  /** A GRN id. */
+  documentId?: Guid | null
+  page?: number
+  pageSize?: number
+}
+
+export interface StoresQcStockFilters {
+  Queue: string | null
+  DocumentId: Guid | null
+  Page: number
+  PageSize: number
+}
+
+export interface StoresQcStockValue {
+  Currency: string
+  ReceiptProvisionalValue: number
+}
+
+export interface StoresQcStockTile {
+  Key: string
+  /** Distinct GRN lines, not allocation rows or units. */
+  LineCount: number
+  OverdueLineCount: number
+  OldestReceiptAgeDays: number | null
+  /** null = commercial access withheld; [] = permitted but empty. */
+  Values: StoresQcStockValue[] | null
+}
+
+export interface StoresQcStockRow {
+  Queue: string
+  DocumentId: Guid
+  DocumentNumber: string
+  LineId: Guid
+  /** One GRN line can occupy several rows. */
+  AllocationId: Guid
+  ItemId: Guid
+  ItemCode: string
+  ItemName: string
+  Uom: string
+  Quantity: number
+  WarehouseId: Guid | null
+  RackBinId: Guid | null
+  OwnershipAccountId: Guid
+  CustodyAssignmentId: Guid
+  ProvenanceLayerId: Guid
+  SerialId: Guid | null
+  ReceivedAt: DateTimeOffset
+  QcDueAt: DateTimeOffset
+  /** Server's verdict; never recomputed from the browser clock. */
+  IsOverdue: boolean
+  ReceiptAgeDays: number
+  Currency: string
+  ReceiptProvisionalValue: number | null
+  /** API resource path, NOT a browser route. */
+  DetailPath: string
+}
+
+export interface StoresQcStockPage {
+  CompanyCode: string
+  GeneratedAt: DateTimeOffset
+  TimeZone: string
+  CanViewCommercialValues: boolean
+  ValueBasis: string
+  Tiles: StoresQcStockTile[]
+  Filters: StoresQcStockFilters
+  TotalRows: number
+  Rows: StoresQcStockRow[]
+}
+
 // ---------- Errors ----------
 
 /** Codes the dashboards render as their own states. */

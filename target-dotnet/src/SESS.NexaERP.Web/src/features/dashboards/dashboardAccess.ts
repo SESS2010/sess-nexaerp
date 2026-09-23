@@ -10,6 +10,8 @@ export const DASHBOARD_KEYS = {
   purchaseOpenOrders: 'dashboards.purchase-open-orders',
   purchaseObligations: 'dashboards.purchase-obligations',
   purchaseSpending: 'dashboards.purchase-spending',
+  storesWorkload: 'dashboards.stores-workload',
+  storesQcStock: 'dashboards.stores-qc-stock',
 } as const
 
 export const PURCHASE_DASHBOARD_KEYS = [
@@ -20,6 +22,19 @@ export const PURCHASE_DASHBOARD_KEYS = [
 ]
 
 type Can = (pageKey: string, action?: string) => boolean
+
+/** Stores sections the session may open. QC stock needs its key AND GRN view. */
+export function storesSections(can: Can): { workload: boolean; qcStock: boolean } {
+  return {
+    workload: can(DASHBOARD_KEYS.storesWorkload),
+    qcStock: can(DASHBOARD_KEYS.storesQcStock) && can(PAGE_KEYS.grn),
+  }
+}
+
+export function canOpenAnyStoresSection(can: Can): boolean {
+  const sections = storesSections(can)
+  return sections.workload || sections.qcStock
+}
 
 // Links follow "Links to existing frontend screens" in the contract. DetailPath
 // is an API path and is never turned into a browser link. Every link checks
@@ -64,4 +79,13 @@ export function itemLink(can: Can, itemCode: string | null): string | null {
 
 export function goodsReceiptLink(can: Can, goodsReceiptId: string): string | null {
   return can(PAGE_KEYS.grn) ? `/stores/goods-receipts/${enc(goodsReceiptId)}` : null
+}
+
+/** Stores workload rows open by document id: gate entry or MIR. */
+export function storesWorkloadRowLink(can: Can, queue: string, documentId: string): string | null {
+  if (queue === 'gate-no-grn') return can(PAGE_KEYS.gateEntry) ? `/stores/gate-entries/${enc(documentId)}` : null
+  if (queue === 'mir-approval' || queue === 'mir-unissued') {
+    return can(PAGE_KEYS.materialIssueRequests) ? `/stores/material-issue-requests/${enc(documentId)}` : null
+  }
+  return null
 }

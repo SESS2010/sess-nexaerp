@@ -1,5 +1,34 @@
 # Purchase dashboard — mock acceptance record
 
+## MUST DO AT THE 28 SEPTEMBER REBASE — none of these is optional
+
+These are the open risks; the code below was checked only against mocks.
+
+1. **Company header.** Live calls do not yet send `X-NexaERP-Company`, because `api.get`
+   cannot send headers. Add it with the shared-client rework, value from the login
+   context, and replace the TEMPORARY `getCompanyCode()`.
+2. **Test BOTH companies**, SESS_PVT_LTD and SESS_PROPRIETORSHIP, with real logins. Until
+   the rebase the company is fixed, so Proprietorship data has never been shown.
+3. **Real 401 redirect.** The live client clears the token and sends the user to /login;
+   the mocks only show the section notice. Prove the real redirect with an expired session.
+4. **Company switch with a slow response in flight.** Start a slow dashboard request,
+   switch company before it answers, and prove the late response is discarded rather than
+   shown under the new company. The guard (`useDashboardQuery`: request sequence plus
+   CompanyCode check) is written, and the CompanyCode check was seen working with
+   `company-mismatch`, but it has not been proven against a real delay and a real switch.
+
+## Mock server safety
+
+- `vite.dashboards-mock.config.ts` is used only by an explicit `--config`; `npm run dev`,
+  `build`, `build:api` and `preview` use `vite.config.ts` and never load it.
+- It refuses `build` and `preview` outright (checked: `vite build --config …` fails with
+  "refuses to build or preview" and writes no output; `vite preview --config …` exits).
+  Its session plugin is `apply: 'serve'` only.
+- The live bundle contains none of `__mock-signin`, `dashboard-mock-session`,
+  `MOCK Technical Director`, `MOCK_NO_BACKEND` (checked 23 Sep).
+- It listens on `::1:5180` only; `http://192.168.68.130:5180` is refused from this PC.
+  Stop it at the end of each working day.
+
 Checked on 23 September 2026 against `dashboard-frontend-contract.md` (22 Sep) and its six
 synthetic bodies. There is no frontend test framework, so this record is the evidence.
 Every check was done in a browser on the dashboard mock server, with no backend:
@@ -65,15 +94,9 @@ attributes), not from the source code.
 - "1 docs", "1 POs · 1 bills" → correct singular.
 - Large counts were shrunk by the global `.mono` rule; `.mono` now sits on an inner span.
 
-## Not covered yet — for the 28 September rebase
+## Smaller known limits
 
-- **Company switching** cannot be exercised: the company is fixed by `getCompanyCode()`.
-  The stale-response and CompanyCode guards are in place and the mismatch guard was seen
-  working (`company-mismatch`). Test BOTH companies after the rebase.
-- **Live calls do not send `X-NexaERP-Company`**: `api.get` cannot send headers. Add it with
-  the shared-client rework.
-- **Real 401 behaviour**: the live client clears the token and redirects to /login; the mock
-  only shows the section notice.
+- The four rebase items are at the top of this record.
 - `ApiError` drops Type, Title, Errors and AdministratorActionRequired (see dashboards.ts).
 - In `multi-currency` the workload "POs approved" tile says 1 but the mock body has no
   matching row — a limitation of the synthetic variant, not the page.
