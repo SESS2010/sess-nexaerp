@@ -1,0 +1,134 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T03:03:38.004948+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "Tiles": [
+    {
+      "Key": "comparison-decision",
+      "Title": "Comparisons awaiting recommendation or approval",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [],
+      "Coverage": "Unrecommended comparisons have no selected commercial value."
+    },
+    {
+      "Key": "po-approved-unissued",
+      "Title": "POs approved but not issued",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [],
+      "Coverage": "Current approved, unissued revisions; native-currency amounts."
+    },
+    {
+      "Key": "pr-approval",
+      "Title": "Requisitions awaiting approval",
+      "State": "READY",
+      "Count": 1,
+      "OldestAgeDays": 0,
+      "CommercialValuesVisible": true,
+      "Amounts": [
+        {
+          "Currency": "INR",
+          "Amount": 4999.99
+        }
+      ],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [
+        {
+          "ApprovalRoute": "DEPARTMENT_ONLY",
+          "Count": 1,
+          "OldestAgeDays": 0,
+          "Amounts": [
+            {
+              "Currency": "INR",
+              "Amount": 4999.99
+            }
+          ]
+        }
+      ],
+      "Coverage": "Stored approval route and next snapshot step; estimated amounts are INR."
+    },
+    {
+      "Key": "pr-department-verification",
+      "Title": "Requisitions awaiting department verification",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [],
+      "Coverage": "Requisition estimated amounts are INR."
+    },
+    {
+      "Key": "pr-stock-check",
+      "Title": "Requisitions awaiting stock check",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [],
+      "Coverage": "Final approval has completed; stock check is pending."
+    },
+    {
+      "Key": "quotation-technical-verification",
+      "Title": "Quotations awaiting technical verification",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": 0,
+      "ApprovalBands": [],
+      "Coverage": "One quotation per count; pending lines are separate."
+    },
+    {
+      "Key": "rfq-no-quotation",
+      "Title": "RFQs issued with no quotation",
+      "State": "READY",
+      "Count": 0,
+      "OldestAgeDays": null,
+      "CommercialValuesVisible": true,
+      "Amounts": [],
+      "UnvaluedDocumentCount": null,
+      "ApprovalBands": [],
+      "Coverage": "One RFQ per count, with no current non-draft, non-withdrawn or non-rejected quotation."
+    }
+  ],
+  "Queue": "pr-approval",
+  "ApprovalRoute": null,
+  "Page": 1,
+  "PageSize": 1000,
+  "TotalRows": 1,
+  "Rows": [
+    {
+      "Queue": "pr-approval",
+      "DocumentId": "3cb6ba6f-2660-4ce7-8f4d-978877c45a7f",
+      "DocumentType": "PR",
+      "DocumentNumber": "PR-2026-27-000001",
+      "Status": "PendingApproval",
+      "WaitingSince": "2026-09-14T03:03:37.352682+05:30",
+      "AgeDays": 0,
+      "ApprovalRoute": "DEPARTMENT_ONLY",
+      "NextApproverEmployeeId": "5fdedc5a-1740-164c-04e9-3c6f2db5417c",
+      "NextApproverEmployeeCode": "SESS-14",
+      "NextApproverRole": "ACCOUNTS_MANAGER",
+      "ResponsibilityIssue": null,
+      "Currency": "INR",
+      "Value": 4999.99,
+      "Vendors": [],
+      "PendingLineCount": null,
+      "DetailPath": "/api/v1/purchase/requisitions/PR-2026-27-000001"
+    }
+  ]
+}

@@ -13,6 +13,30 @@
         200
       ],
       "Required": true
+    },
+    {
+      "Name": "Keycloak staff HTTPS discovery availability",
+      "Url": "https://192.168.68.130:8444/realms/staff/.well-known/openid-configuration",
+      "AcceptStatus": [
+        200
+      ],
+      "Required": true
+    },
+    {
+      "Name": "Keycloak approvers HTTPS discovery availability",
+      "Url": "https://192.168.68.130:8444/realms/approvers/.well-known/openid-configuration",
+      "AcceptStatus": [
+        200
+      ],
+      "Required": true
+    },
+    {
+      "Name": "Keycloak local readiness including database health",
+      "Url": "http://127.0.0.1:9000/health/ready",
+      "AcceptStatus": [
+        200
+      ],
+      "Required": true
     }
   ],
   "DevelopmentProcesses": [

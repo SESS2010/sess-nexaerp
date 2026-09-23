@@ -1,0 +1,62 @@
+{
+  "CompanyCode": "SESS_PVT_LTD",
+  "GeneratedAt": "2026-09-14T09:06:53.507562+05:30",
+  "TimeZone": "Asia/Kolkata",
+  "CanViewCommercialValues": true,
+  "ValueBasis": "Current GRN-origin held quantity times receipt unit rate, in native PO currency. Provisional receipt value; excludes later bill and landed-cost adjustments.",
+  "Tiles": [
+    {
+      "Key": "PENDING_RETURNABLE_DC",
+      "LineCount": 0,
+      "OverdueLineCount": 0,
+      "OldestReceiptAgeDays": null,
+      "Values": []
+    },
+    {
+      "Key": "QC_HOLD",
+      "LineCount": 1,
+      "OverdueLineCount": 1,
+      "OldestReceiptAgeDays": 3,
+      "Values": [
+        {
+          "Currency": "INR",
+          "ReceiptProvisionalValue": 4000.0
+        }
+      ]
+    }
+  ],
+  "Filters": {
+    "Queue": null,
+    "DocumentId": null,
+    "Page": 1,
+    "PageSize": 100
+  },
+  "TotalRows": 1,
+  "Rows": [
+    {
+      "Queue": "QC_HOLD",
+      "DocumentId": "6e70435e-de53-499f-b17b-d7f408d26f57",
+      "DocumentNumber": "GRN-26-27-000011",
+      "LineId": "837f8565-8c64-480f-8545-37031601f23f",
+      "AllocationId": "d22cdb99-9a02-4ccb-99ea-7d93426c12bb",
+      "ItemId": "71000000-0000-0000-0006-000000000001",
+      "ItemCode": "TRIAL-ITEM-001",
+      "ItemName": "TRIAL Copper control cable",
+      "Uom": "TRIAL-MTR",
+      "Quantity": 1.0,
+      "WarehouseId": "71000000-0000-0000-0007-000000000001",
+      "RackBinId": "71000000-0000-0000-0008-000000000006",
+      "OwnershipAccountId": "be1df41c-3cfb-4952-a91f-b980bf24301a",
+      "CustodyAssignmentId": "271d8985-bfb1-1ab0-5dac-ec6f30b84345",
+      "ProvenanceLayerId": "fc587586-bd01-4c9a-bc8a-e94fcf1a6929",
+      "SerialId": null,
+      "ReceivedAt": "2026-09-11T09:06:49.688306+05:30",
+      "QcDueAt": "2026-09-13T09:06:49.688306+05:30",
+      "IsOverdue": true,
+      "ReceiptAgeDays": 3,
+      "Currency": "INR",
+      "ReceiptProvisionalValue": 4000.0,
+      "DetailPath": "/api/v1/stores/goods-receipts/6e70435e-de53-499f-b17b-d7f408d26f57"
+    }
+  ]
+}
