@@ -125,12 +125,13 @@ that message as an administration problem, not a form error.
 
 `POST /api/v1/stores/machine-deliveries/{id}/signature`
 
-> **`DeliveredAt` must be sent in UTC**, ending in `Z`. The driver refuses a `DateTimeOffset`
-> with any other offset against a `timestamp with time zone` column — an Asia/Kolkata offset of
-> `+05:30` is rejected with *"only offset 0 (UTC) is supported"*, and the endpoint reports that
-> server fault as a 400 validation failure with an unactionable message. Convert the operator's
-> local time to UTC before sending, and convert back for display. This applies to every
-> `DateTimeOffset` the API takes, not only this one.
+> **Send `DeliveredAt` in UTC, ending in `Z`.** This endpoint carries the timestamp through a
+> JSON payload and casts it in SQL, so an offset would probably survive here — but the driver
+> refuses a `DateTimeOffset` with a non-zero offset wherever the API binds one directly to a
+> `timestamp with time zone` column, and the purchase endpoints do exactly that: `+05:30` is
+> rejected with *"only offset 0 (UTC) is supported"*, surfacing as a 400 with an unactionable
+> message. Convert the operator's local time to UTC before sending and convert back for display,
+> here and for every `DateTimeOffset` the API takes. One rule, no exceptions to remember.
 
 ```json
 { "DeliveredAt": "2026-09-30T10:50:00Z",
