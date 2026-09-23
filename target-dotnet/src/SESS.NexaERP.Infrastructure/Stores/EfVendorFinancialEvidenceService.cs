@@ -286,6 +286,13 @@ public sealed class EfVendorFinancialEvidenceService(
         {
             throw new UnauthorizedAccessException(e.MessageText, e);
         }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.SerializationFailure)
+        {
+            // Preserve SQLSTATE and concurrency semantics before the business-rule mapping.
+            // A failure inside the controlled SQL function must roll back just like one
+            // raised later while writing the audit or command receipt.
+            throw new DbUpdateConcurrencyException("Vendor financial evidence changed concurrently. Refresh and retry.", e);
+        }
         catch (PostgresException e)
         {
             throw new StoresConflictException(e.MessageText);

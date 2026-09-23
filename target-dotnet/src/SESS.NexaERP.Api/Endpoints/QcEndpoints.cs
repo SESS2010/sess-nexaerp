@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Api.Security;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Stores;
@@ -23,5 +22,5 @@ public static class QcEndpoints
         return endpoints;
     }
     private static string HeaderKey(HttpContext h)=>h.Request.Headers.TryGetValue("Idempotency-Key",out var v)&&!string.IsNullOrWhiteSpace(v)?v.ToString():throw new StoresValidationException("Idempotency-Key header is required.");
-    private static async Task<IResult> Run<T>(Func<Task<T>> action,HttpContext h){try{return Results.Ok(await action());}catch(StoresValidationException e){return Results.BadRequest(new{message=e.Message});}catch(KeyNotFoundException e){return Results.NotFound(new{message=e.Message});}catch(UnauthorizedAccessException){return h.User.Identity?.IsAuthenticated==true?Results.Forbid():Results.Unauthorized();}catch(StoresConflictException e){return Results.Conflict(new{message=e.Message});}catch(DbUpdateConcurrencyException e){return Results.Conflict(new{message=e.Message});}}
+    private static async Task<IResult> Run<T>(Func<Task<T>> action,HttpContext h){try{return Results.Ok(await action());}catch(StoresValidationException e){return Results.BadRequest(new{message=e.Message});}catch(KeyNotFoundException e){return Results.NotFound(new{message=e.Message});}catch(UnauthorizedAccessException){return h.User.Identity?.IsAuthenticated==true?Results.Forbid():Results.Unauthorized();}catch(StoresConflictException e){return Results.Conflict(new{message=e.Message});}}
 }

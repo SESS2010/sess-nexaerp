@@ -53,6 +53,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
         {
+            context.Items[StandardErrorEnvelopeMiddleware.ConcurrencyFailureKey] = true;
             context.Response.StatusCode = (int)HttpStatusCode.Conflict;
             await context.Response.WriteAsJsonAsync(new { message = ex.Message });
         }

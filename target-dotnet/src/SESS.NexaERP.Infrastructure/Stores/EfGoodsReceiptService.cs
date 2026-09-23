@@ -62,7 +62,7 @@ public sealed class EfGoodsReceiptService(NexaErpDbContext db, ICurrentUser user
     public async Task<GoodsReceiptResult> FinalizeAsync(Guid id,FinalizeGoodsReceiptRequest request,CancellationToken ct)
     {
         try { return await FinalizeCoreAsync(id, request, ct); }
-        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.SerializationFailure)
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
         {
             throw new DbUpdateConcurrencyException("GRN finalization conflicted with a concurrent change. Reload the receipt before retrying.", error);
         }

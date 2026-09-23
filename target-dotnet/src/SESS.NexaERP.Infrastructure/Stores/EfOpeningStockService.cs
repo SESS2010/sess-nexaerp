@@ -90,7 +90,7 @@ public sealed class EfOpeningStockService(
     private static async Task<OpeningStockView> WithConcurrencyHandlingAsync(Func<Task<OpeningStockView>> command)
     {
         try { return await command(); }
-        catch (PostgresException error) when (error.SqlState == PostgresErrorCodes.SerializationFailure)
+        catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
         {
             throw new DbUpdateConcurrencyException(
                 "Opening Stock changed concurrently. Reload the ceremony before retrying.", error);
