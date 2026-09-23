@@ -125,8 +125,15 @@ that message as an administration problem, not a form error.
 
 `POST /api/v1/stores/machine-deliveries/{id}/signature`
 
+> **`DeliveredAt` must be sent in UTC**, ending in `Z`. The driver refuses a `DateTimeOffset`
+> with any other offset against a `timestamp with time zone` column — an Asia/Kolkata offset of
+> `+05:30` is rejected with *"only offset 0 (UTC) is supported"*, and the endpoint reports that
+> server fault as a 400 validation failure with an unactionable message. Convert the operator's
+> local time to UTC before sending, and convert back for display. This applies to every
+> `DateTimeOffset` the API takes, not only this one.
+
 ```json
-{ "DeliveredAt": "2026-09-30T16:20:00+05:30",
+{ "DeliveredAt": "2026-09-30T10:50:00Z",
   "CustomerSignatory": "…",
   "Evidence": { "FileName": "dc-2026-0002-signed.pdf",
                 "ContentType": "application/pdf",
@@ -136,7 +143,7 @@ that message as an administration problem, not a form error.
 
 | Field | Rule |
 |---|---|
-| `DeliveredAt` | Timestamp. Not in the future; its Asia/Kolkata date must not be before the DC's `DispatchDate`. |
+| `DeliveredAt` | Timestamp **in UTC, ending in `Z`**. Not in the future; its Asia/Kolkata date must not be before the DC's `DispatchDate`. |
 | `CustomerSignatory` | Trimmed, 1–200 characters. |
 | `Evidence.Content` | Base64 of the file bytes. 1 byte to **5 242 880 bytes (5 MB)**. |
 | `Evidence.ContentType` | Exactly `application/pdf`, `image/png` or `image/jpeg`. |
