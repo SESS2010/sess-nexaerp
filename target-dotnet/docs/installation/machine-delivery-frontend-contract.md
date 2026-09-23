@@ -16,6 +16,25 @@ re-dispatch, cancellation and correction do not exist in the backend. Do not ren
 buttons for them, and do not offer a "new DC" action for a job that already has one.
 The signed DC is historical evidence; no finished-machine stock is created.
 
+## Because it cannot be undone, the screen must make the mistake hard to make
+
+Owner decision, 23 September: no backend correction ceremony before go-live, and a delivery
+challan *should* be hard to alter — a signed DC is evidence the customer holds a copy of. A
+correction ceremony goes on the after-go-live list. The screen therefore carries the weight,
+and these four rules are part of this contract, not suggestions.
+
+1. **A confirmation step before dispatch.** Show job order, machine, customer, nature and —
+   where it applies — the expected return date, **in words, not codes**. "Returnable, for
+   demonstration, to be returned by 15 October 2026", never "RETURNABLE / DEMO".
+2. **The confirmation names what cannot be changed afterwards**: the DC number, the nature and
+   the job order. Say so plainly on the confirmation, not in a help link.
+3. **A second confirmation before the signature upload**, showing the chosen file's name, size
+   and type. The signature is what makes the machine DELIVERED; say that on the confirmation.
+4. **No default that could be wrong.** Nature and expected return date are chosen every time and
+   never pre-selected. An empty required field is safer here than a plausible wrong one.
+
+The runbook and the training say the same thing: a machine DC is permanent, check twice.
+
 ## Request and authority
 
 Use the existing authenticated API client, the actual user's Keycloak ACCESS token and the
