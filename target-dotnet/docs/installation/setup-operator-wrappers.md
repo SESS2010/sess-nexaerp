@@ -32,6 +32,34 @@ placeholders, null decision versions or unfilled GST rates. Fill and review them
 run example business values as if approved. Duplicate each example separately per company.
 Every real row/action gets a new GUID OperationId; preserve it, file and evidence for replay.
 
+## Read before entering anything: date rows from the business date, not from today
+
+**Every effective-dated setup row must start on or before the earliest business date it has to
+serve.** The natural mistake is to accept today's date — the day the row is typed, in early
+October — for records that must already have been in force on the opening-stock period start.
+Nothing warns at entry; the refusal arrives later, in the ceremony or at the first GRN, and it
+names the missing record rather than the date that made it miss.
+
+The three chains, each proven in the source, not inferred:
+
+| Row | `EffectiveFrom` must be on or before | Refusal if it is later |
+|---|---|---|
+| **ConditionLocations** | the opening-stock **period end** | Every opening-stock row is rejected: *"Every imported Opening Stock row requires one effective AVAILABLE rack location."* The count joins `warehouse_condition_locations` on `EffectiveFrom <= period end`. |
+| **CategoryRoutes** | the **received date of the earliest GRN** they must route | *"No effective Stores category route exists for `<category>`."* The GRN resolves the route against the receipt's own received date, not against today, so a backdated receipt needs a route dated at least as early. |
+| **ConditionLocations, again** | the **route's** `EffectiveFrom` | Route creation refuses: a route may only cite QC_HOLD, PENDING_RETURNABLE_DC and AVAILABLE locations that are already effective on the route's own start date. |
+
+So the chain is
+`condition location  ≤  category route  ≤  first GRN`, and separately
+`condition location  ≤  opening-stock period end`.
+
+If SESS opens stock for a financial year beginning 1 April 2026, **date the warehouse condition
+locations 1 April 2026**, and the category routes no later than the first receipt they must
+carry. Dating them 2 October 2026 because that is the day of entry is the failure this section
+exists to prevent. Warehouses and rack/bins are not effective-dated and are not affected — only
+approval status matters for them.
+
+A trap found on 5 October costs a day the calendar does not have.
+
 ## Keycloak authentication: real person, not an asserted identity
 
 Run on the named operator's trusted Windows office PC with Windows PowerShell 5.1 and the
