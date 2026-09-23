@@ -84,7 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         int additionalIssuedPoVersions = 0,
         Func<StoresWorkloadWitnessContext,Task>? storesWorkload = null,
         Func<StoresQcStockWitnessContext,Task>? qcStock = null,
-        Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null, bool historicalFifoUpgrade = false,
+        Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null,
         Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
         Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
         Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false)
@@ -99,29 +99,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null || obligations is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
-        var initialMigration=historicalFifoUpgrade?model.Database.GetMigrations()
-            .TakeWhile(x=>x!="20260914080000_FifoReturnRestorations").Last():latest;
-        server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", initialMigration));
-        if (historicalFifoUpgrade)
-        {
-            // This synthetic FIFO predecessor fixture uses the current application.
-            // Install only its new tax-rule columns early; FIFO functions/evidence
-            // remain at the historical predecessor until the actual upgrade below.
-            var migrations = model.Database.GetMigrations().ToArray();
-            var credit = Array.IndexOf(migrations, "20260918085900_GovernedTaxInputCreditEligibility");
-            Assert.True(credit > 0);
-            server.Execute("historical-fifo-current-tax-contract.sql",
-                migrator.GenerateScript(migrations[credit - 1], migrations[credit]));
-        }
         if (returnRace is not null)
         {
+            // Round-trip at this migration's historical baseline, before later function replacements.
             var migrations = model.Database.GetMigrations().ToArray();
             var lockOrder = Array.IndexOf(migrations, "20260913020000_FitmentIssueHeaderLockOrder");
-            server.Execute("fitment-lock-order-down.sql",
-                migrator.GenerateScript(migrations[lockOrder], migrations[lockOrder - 1]));
-            server.Execute("fitment-lock-order-reapply.sql",
-                migrator.GenerateScript(migrations[lockOrder - 1], migrations[lockOrder]));
+            Assert.True(lockOrder > 0);
+            server.Execute("fitment-lock-order-initial.sql", migrator.GenerateScript("0", migrations[lockOrder]));
+            server.Execute("fitment-lock-order-down.sql", migrator.GenerateScript(migrations[lockOrder], migrations[lockOrder - 1]));
+            server.Execute("fitment-lock-order-reapply.sql", migrator.GenerateScript(migrations[lockOrder - 1], migrations[lockOrder]));
+            server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript(migrations[lockOrder], latest));
         }
+        else
+            server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
 
@@ -413,8 +403,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     original, command, qcId, server.ReadDiagnosticLog)),
                 qcRace is null ? null : (original, command, draft, available) => qcRace(new(options, runtimeConnection,
                     original, command, draft, available, qcId, tdId, server.ReadDiagnosticLog)),
-                qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,bands[i].Code)),
-                historicalPolicyFixture: historicalFifoUpgrade);
+                qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,bands[i].Code)));
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
                 Assert.Equal(1, await new EfNotificationDueEventProcessor(notificationDb)
                     .RefreshAsync(DateTimeOffset.UtcNow, CancellationToken.None));
@@ -455,13 +444,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")));
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
-            if(historicalFifoUpgrade)
-            {
-                var originalHistory=await ReadOriginalFifoHistory(options);
-                server.Execute("fifo-historical-return-upgrade.sql",migrator.GenerateScript(initialMigration,latest,MigrationsSqlGenerationOptions.Idempotent));
-                Assert.Equal(0,await DatabasePrincipalCommand.RunAsync(["database-principals","provision"]));
-                await VerifyHistoricalFifoRestoration(options,originalHistory);
-            }
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
             await using var verify = new NexaErpDbContext(options);
             Assert.False(await verify.RolePagePermissions.AnyAsync(x => !x.CanView && !x.HasFullControl &&
@@ -1070,7 +1052,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task RunQcWitness(HttpClient client,DbContextOptions<NexaErpDbContext> options,TaxWorkflowUser user,PurchaseFlowBand band,GoodsReceiptResult grn,Guid qcId,Guid tdId,
         Func<QcInspectionResult, FinalizeQcInspectionRequest, Task<QcInspectionResult>>? correctionWitness = null,
         Func<QcInspectionResult, FinalizeQcInspectionRequest, InventoryConcessionResult, Guid, Task<InventoryConcessionResult>>? concessionWitness = null,
-        Func<string,Guid,Task>? qcStock = null, bool historicalPolicyFixture = false)
+        Func<string,Guid,Task>? qcStock = null)
     {
         var lot=grn.Lines.Single().Lots.Single();var serialId=grn.Lines.Single().Serials.SingleOrDefault()?.InventorySerialId;var available=await Query(options,db=>db.WarehouseConditionLocations.Where(x=>x.CompanyId==Guid.Parse("70000000-0000-0000-0000-000000000001")&&x.ConditionCode=="AVAILABLE"&&x.IsActive).OrderBy(x=>x.Id).Select(x=>x.Id).FirstAsync());
         user.Set(qcId,"SESS-33",Rev869ARoleCodes.QcManager);
@@ -1080,10 +1062,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var missingQueue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");Assert.Contains(missingQueue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&!x.HasEffectivePolicy);
             var deniedBody=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,available,[],serials);using var deniedRequest=new HttpRequestMessage(HttpMethod.Post,"/api/v1/qc/inspections"){Content=JsonContent.Create(deniedBody)};deniedRequest.Headers.Add("Idempotency-Key","LOW-qc-missing-policy");using var denied=await client.SendAsync(deniedRequest);Assert.Equal(HttpStatusCode.Conflict,denied.StatusCode);
             Assert.False(await Query(options,db=>db.QcInspections.AnyAsync(x=>x.GoodsReceiptLineLotAllocationId==lot.Id)));Assert.Equal(1m,await Query(options,db=>db.StockMovements.Where(x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.ConditionCode=="QC_HOLD").SumAsync(x=>x.QuantityIn-x.QuantityOut)));
-            if (historicalPolicyFixture)
-                await CreateHistoricalQcPolicyFixture(options, grn.Lines.Single().ItemId);
-            else
-                await CreateAndDecideQcPolicyThroughApi(client, options, user, grn, qcId, tdId);
+            await CreateAndDecideQcPolicyThroughApi(client, options, user, grn, qcId, tdId);
         }
         var policyId=await Query(options,db=>db.QcInspectionPolicies.Where(x=>x.ItemId==grn.Lines.Single().ItemId&&x.IsActive).Select(x=>x.Id).SingleAsync());var queue=await Get<PagedResponse<QcQueueItem>>(client,"/api/v1/qc/queue?page=1&pageSize=100");var queueItem=Assert.Single(queue.Items,x=>x.GoodsReceiptLineLotAllocationId==lot.Id&&x.IsOverdue==(band.Code=="LOW")&&x.HasEffectivePolicy);if(serialId.HasValue)Assert.Equal(serialId.Value,Assert.Single(queueItem.InventorySerialIds));var request=new FinalizeQcInspectionRequest(lot.Id,DateTimeOffset.UtcNow,accepted,rejected,0,accepted>0?available:null,[new QcParameterResultRequest(policyId,1,observed,null,rejected>0?"FAIL":"PASS",null)],serials);
         var result=await Post<QcInspectionResult>(client,"/api/v1/qc/inspections",request,$"{band.Code}-qc-finalize");Assert.Equal(accepted,result.AcceptedQuantity);Assert.Equal(rejected,result.RejectedQuantity);Assert.NotNull(result.StockPostingBatchId);Assert.False(result.Replayed);

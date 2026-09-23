@@ -41,6 +41,9 @@ public sealed class ApiWireContractTests
     [InlineData("/stale", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
     [InlineData("/idempotency", HttpStatusCode.Conflict, "IDEMPOTENCY_CONFLICT", "idempotency-conflict")]
     [InlineData("/business", HttpStatusCode.Conflict, "BUSINESS_RULE_CONFLICT", "business-rule-conflict")]
+    [InlineData("/typed-concurrency-qc", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
+    [InlineData("/typed-concurrency-idempotency", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
+    [InlineData("/business-qc", HttpStatusCode.Conflict, "BUSINESS_RULE_CONFLICT", "business-rule-conflict")]
     public async Task Every_handled_failure_uses_the_exact_standard_envelope(
         string path,
         HttpStatusCode status,
@@ -178,6 +181,9 @@ public sealed class ApiWireContractTests
             app.MapGet("/stale", () => Results.Conflict(new { message = "Stale record version. Refresh and retry." }));
             app.MapGet("/idempotency", () => Results.Conflict(new { message = "Idempotency key conflicts with a different request." }));
             app.MapGet("/business", () => Results.Conflict(new { message = "Document is already finalized." }));
+            app.MapGet("/typed-concurrency-qc", IResult () => throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("QC stock or its decision changed; refresh and retry."));
+            app.MapGet("/typed-concurrency-idempotency", IResult () => throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("The idempotency receipt changed; refresh and retry."));
+            app.MapGet("/business-qc", IResult () => throw new SESS.NexaERP.Application.Stores.StoresConflictException("QC stock or its decision changed; refresh and retry."));
             app.MapGet("/exception", IResult () => throw new InvalidOperationException("secret database detail"));
             app.MapPost("/estimated-boms", (EstimatedBomBindingProbe request) => Results.Ok(request));
             app.MapPost("/material-issues/from-request", (MaterialIssueBindingProbe request) => Results.Ok(request));
