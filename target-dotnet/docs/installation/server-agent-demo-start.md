@@ -3,9 +3,9 @@
 ## NEVER TOUCH
 
 SQL Server (including SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser and all design
-databases); SOLIDWORKS Electrical / ewserver; ANY NI, Siemens or Rockwell service;
+databases); SOLIDWORKS Electrical / ewserver; ANY Rockwell service;
 IIS Default Web Site and /Updater, ports 80/81; Wampserver (leave stopped/manual).
-**D: and E: are prohibited for ANY use**, including staging, logs, backups and verification.
+**D: and E: stay connected under the TD trial exception, but are prohibited for ANY ERP use**, including staging, logs, backups and verification. Daily Disk/NTFS/WHEA watch required; see the cleanup status document.
 No clean Windows install, SDK, owner database, production ERP database or stock-moving
 command. Never stop protected services to free memory/ports. Only the newly installed
 ERP/Keycloak services may be managed here. Do not reboot the shared engineering PC

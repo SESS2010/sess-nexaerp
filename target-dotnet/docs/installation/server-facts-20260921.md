@@ -1,11 +1,13 @@
 # Server facts accepted at 16:01, 21 September 2026
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
+
+**22 September status update:** NI/Siemens removal is reported complete; the port/service inventory below is historical, not a reinstall instruction. Suspicious Flexnet removal/full scan await the server agent receipt. D:/E: stay connected under the TD trial exception with daily Disk/NTFS/WHEA watch, but never for ERP use. See [current cleanup status](pre-go-live-server-cleanup.md).
 
 This supersedes earlier laptop/VM assumptions and the morning resource measurement.
 Completed preparation is recorded at **C:\SESS-ServerPrep**: time synchronization and

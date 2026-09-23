@@ -1,8 +1,8 @@
 # D5: API trust configuration and employee identity ceremony
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -109,7 +109,7 @@ Use this order in DEMO; repeat mappings/scopes for clean production without rest
    department scope with no warehouse restriction is broader than a warehouse scope:
    approve it explicitly, and if temporary set EffectiveTo=2026-09-30. This enables initial
    warehouse creation before warehouse IDs exist. After warehouses/racks exist, add only
-   the approved operational restrictions/periods for use from 1 October.
+   the approved operational restrictions/periods for use from 8 October.
 6. Each real operator signs in separately and proves session/me plus allowed and refused
    company/department operations. A mapping row alone is not proof of scope. Retain this
    operator-access matrix before either opening ceremony. Repeat it after scope dates or

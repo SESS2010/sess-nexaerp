@@ -1,8 +1,8 @@
 # D4: one HTTPS trust plan for ERP and Keycloak
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -40,7 +40,7 @@ this private-IP identity. Do not use browser exceptions or disable .NET validati
    Ensure exactly one currently valid ERP certificate matches the configured subject;
    review renewal overlap before restarting Kestrel. After registering the ERP service, BEFORE its first start: Manage Private Keys ->
    grant Read to NT SERVICE\SESSNexaERP, Administrators/SYSTEM retained, no Users grant.
-   Do not change certificates/bindings of IIS/NI/Siemens/Rockwell.
+   Do not change certificates/bindings of IIS/Rockwell or other retained products. NI/Siemens were reported removed; do not reinstall.
 4. Put Keycloak PEM files in C:\SESS-Identity\tls. Administrators/SYSTEM Full and
    SESSKeycloak Read only; no ordinary Users. D2 references those explicit files.
    No global Java truststore modification for engineering apps. The public server

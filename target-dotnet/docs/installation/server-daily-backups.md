@@ -1,8 +1,8 @@
 # E: SSD verification plus DAILY off-machine ERP and identity backups
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -216,8 +216,8 @@ References: [encrypted SMB share and permissions](https://learn.microsoft.com/en
 Copy packaged installer/tools/Test-ProductionState.ps1 and Test-DailyBackupState.ps1
 into C:\SESS-Backup\tools. Copy server-production-state.example.json to
 C:\SESS-Backup\production-state.json; confirm service names and endpoints locally.
-This server profile does not require NI/Siemens services to stop and does not apply
-the old laptop production-hours rule. Run every morning on the server:
+NI and Siemens were reported removed from the server; do not reinstall them. This
+profile does not apply the old laptop production-hours rule. Run every morning on the server:
 
 ```powershell
 powershell -NoProfile -File C:\SESS-Backup\tools\Test-ProductionState.ps1 -ConfigPath C:\SESS-Backup\production-state.json
