@@ -1,4 +1,4 @@
-# Assisted setup wrappers for the 1 October launch
+# Assisted setup wrappers for the 8 October launch
 
 TD decision: no new setup screens before launch except Accounts commercial verification,
 which the frontend developer implements after login. SESS prepares/owns its inputs; Stores
@@ -97,7 +97,7 @@ Input plan and workbook hashes bind each operation. The runner writes a PENDING 
 before a POST, saves returned IDs, then rereads the API and verifies fields/status/version
 before marking VERIFIED. It reads all pages. VERIFIED means that operation read back
 correctly; a created Pending Approval rule is not yet Approved, and a future-dated row is
-not yet effective today. Independently check the intended opening/1 October dates.
+not yet effective today. Independently check the intended opening/8 October dates.
 
 The runner uses only REJECT_ENTIRE_FILE for imports and retains the batch read-back;
 any invalid/rejected/not-imported rows stop the workflow. Import is not submission or

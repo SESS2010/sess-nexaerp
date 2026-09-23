@@ -6,7 +6,7 @@ Source commit / API origin / reviewed input hashes:
 
 Operator roster (employee codes, roles, realm, company/department scopes; no passwords/tokens):
 
-| Company | Category | Maker receipt ID/hash | TD Read receipt hash | Three same-warehouse condition locations correct? | Effective for intended use through 1 October? | TD employee, date, signature/reference |
+| Company | Category | Maker receipt ID/hash | TD Read receipt hash | Three same-warehouse condition locations correct? | Effective for intended use through 8 October? | TD employee, date, signature/reference |
 |---|---|---|---|---|---|---|
 | SESS_PROPRIETORSHIP | ELE | | | | | |
 | SESS_PROPRIETORSHIP | FAB | | | | | |

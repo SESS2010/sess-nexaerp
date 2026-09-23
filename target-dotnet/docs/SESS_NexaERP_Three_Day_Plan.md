@@ -1,5 +1,13 @@
 # Three Days Alone — Sunday 13 to Tuesday 15 September
 
+> **Superseded on 23 September 2026.** Go-live moved from 1 October to **8 October 2026**
+> by governed decision: setup 1-3 October, both opening-stock ceremonies 5-6 October,
+> BroPOS frozen 7 October, daily transactions from 8 October. The amended schedule and the
+> reason for it are recorded in
+> [the go-live runbook](installation/go-live-fresh-database-runbook.md#governed-schedule-change-23-september-2026-go-live-moves-to-8-october).
+> This document is kept as the dated record of what was planned and known on 12 September.
+> Its body is deliberately unchanged; its dates are no longer instructions.
+
 Date: 12 September 2026, evening
 For: A. Paramananthan, Technical Director
 

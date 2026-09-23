@@ -1,8 +1,8 @@
-# Go-live runbook: fresh database, 1 October 2026
+# Go-live runbook: fresh database, 8 October 2026
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -20,12 +20,44 @@ Status: decision updated 21 September 2026: **NO DUMP.** Build Option C clean on
 DESKTOP-SPF5420. Nothing is carried from the frontend developer's database: no data,
 attachments, exported masters, identity mappings or earlier opening-stock balances.
 Migrations supply the system baseline; the checked-in legacy item script supplies items.
-SESS's own team enters all other business setup on **28-30 September** through existing
+SESS's own team enters all other business setup on **1-3 October** through existing
 screens and the approved assisted-entry workflows
-as training, and posts **both opening-stock ceremonies using template v2** in that window.
-Daily transactions start **1 October 2026**, only after the release checks below.
+as training, and posts **both opening-stock ceremonies using template v2 on 5-6 October**.
+Daily transactions start **8 October 2026**, only after the release checks below.
 The disposable fresh-company rehearsal is evidence for backend behaviour, not proof that
 all training screens, production login or the selected server installation are accepted.
+
+## Governed schedule change, 23 September 2026: go-live moves to 8 October
+
+**Decided by the Technical Director on 23 September 2026. This supersedes the
+1 October transaction start wherever an earlier document still states it.**
+
+**Reason, recorded as required.** Production login is the critical path. The frontend
+developer's own estimate for it is four to five working days from 23 September, so it
+lands about 28 September. Until the login exists, nobody can sign in; and because SESS's
+team enters setup and posts both opening-stock ceremonies **on screen as named people**,
+neither the setup window nor either ceremony can begin before it. The earlier plan
+compressed deployment, login proof, all setup and both ceremonies into 28-30 September.
+The amended schedule separates them, so each gate is witnessed rather than assumed.
+
+| Window | What happens | Who |
+|---|---|---|
+| 23-27 Sep | Production login built. DEMO acceptance on the server. Laptop gates and the new commissioning package. Certificate trust on the eleven PCs. | Frontend developer; server agent; laptop |
+| 28-30 Sep | New package deployed. The fresh Option C go-live database built **on the server** (steps 2-7). Real login proven end to end by named employees. | Server agent; named employees |
+| 1-3 Oct | SESS's team enters all setup through the screens: warehouses, racks, condition locations, category routes, GST rules, QC policies, vendors with qualifications and certificates, customers (steps 8-11). **This IS their training.** | SESS team, maker/checker per step |
+| 5-6 Oct | Both opening-stock ceremonies, template v2 (steps 12-13). | Stores, Accounts, TD |
+| 7 Oct | Final checks (step 14). **BroPOS frozen for new transactions.** | TD |
+| **8 Oct** | **GO-LIVE — daily transactions begin.** | All eleven users |
+
+**Unchanged by this amendment, and still frozen:** no dump; Option C built clean on the
+server; **no GRN, issue or adjustment on the go-live database before BOTH ceremonies are
+posted**; the never-touch protected-service list; DEMO accepted and dropped before the
+go-live database is built; one disposable cluster at a time for any laptop witness.
+
+The extra days between setup and the ceremonies, and between the ceremonies and go-live,
+are deliberate review gaps, not slack to be reclaimed. Do not start transactions early
+because the database looks ready: the opening-stock rule refuses a company that already
+has movements, and there is no legitimate escape from it.
 
 Actors: **DBA** = the PostgreSQL administrator (superuser session, `postgres`);
 **Owner** = `nexa_erp_migration` acting as `nexa_erp_owner` (psql `SET ROLE`);
@@ -79,7 +111,7 @@ server daily-backup procedure still apply.
 
 ## 1. Prepare SESS training inputs, not a database transfer
 
-TD coordinates the 28-30 September setup roster: Stores, Purchase, Accounts, QC, IT,
+TD coordinates the 1-3 October setup roster: Stores, Purchase, Accounts, QC, IT,
 TD and MD, with separate named maker/checker logins. SESS supplies its own warehouse
 and rack plan, receiving routes, approved GST/QC requirements, supplier certificates
 and customer details. Use the checked-in item script and two freshly prepared template-v2
@@ -249,7 +281,7 @@ import to repair a used database. Keep canonical ELE / FAB / REF active.
 
 ## 8. SETUP-BEFORE-FIRST-GRN: warehouse and receiving topology
 
-Complete steps 8-11 through the accepted screens/imports/API wrappers during **28-30 September**, in the
+Complete steps 8-11 through the accepted screens/imports/API wrappers during **1-3 October**, in the
 order below. Repeat company-scoped setup for **SESS_PROPRIETORSHIP and SESS_PVT_LTD**;
 shared parties need not be duplicated. The named roles below are the training assignment,
 not an exhaustive list of all permission holders. Record IDs/codes, company, versions,
@@ -267,7 +299,7 @@ starts transactions. The two authorised opening postings are the only planned ex
 |---|---|---|
 | 8.1 Warehouse, per company | Stores Manager creates and submits; a different Technical Director approves through the warehouse lifecycle. | Correct selected company/code, Active, Approved, IsActive; inspect approval history and responsible employee assignment. |
 | 8.2 Rack/bin under each warehouse | Stores Manager creates and submits; a different TD approves. Set material condition deliberately before a condition location references it. | Active/Approved bin belongs to the intended company and warehouse; its condition agrees with its planned use. Provide AVAILABLE, QC_HOLD and PENDING_RETURNABLE_DC bins for the receiving route. |
-| 8.3 Condition location for each required bin | Stores Manager creates an effective version. Current API has create/list/close, **no separate approval stage**. TD performs and records an independent operational review; this is not an enforced maker-checker approval. | Effective-location read shows the correct company, warehouse, bin and condition, active on the opening date and 1 October. AVAILABLE location exists for every opening-stock bin; required QC_HOLD and PENDING_RETURNABLE_DC locations exist for receiving. |
+| 8.3 Condition location for each required bin | Stores Manager creates an effective version. Current API has create/list/close, **no separate approval stage**. TD performs and records an independent operational review; this is not an enforced maker-checker approval. | Effective-location read shows the correct company, warehouse, bin and condition, active on the opening date and 8 October. AVAILABLE location exists for every opening-stock bin; required QC_HOLD and PENDING_RETURNABLE_DC locations exist for receiving. |
 | 8.4 Category route, explicitly **ELE**, **FAB**, **REF** in each company | Stores Manager creates after 8.3. Current API has create/list/close, **no separate approval stage**; TD records independent review. | Exactly one effective route per canonical category on the intended receipt date; all three location references are effective, in the same company and one warehouse, with their required conditions. No legacy category aliases or overlapping routes. |
 
 The diagnostic read paths behind the screens are `/api/v1/inventory/warehouses`,
@@ -355,7 +387,7 @@ do not restore an earlier checkpoint over subsequent business activity.
 ## 12. Opening stock, SESS_PROPRIETORSHIP (API, three actors)
 
 Stores Manager: `POST /api/v1/master-data/opening-stock/import` with a freshly prepared template-v2
-workbook during 28-30 September, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
+workbook on 5-6 October, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
 `…/confirm-value`. Technical Director: `…/authorize`.
 
 Check: status POSTED; `stock_movements` count for the company equals the workbook line
@@ -367,8 +399,9 @@ step 13 apply equally to this company.
 
 PVT LTD's opening stock has never been posted anywhere. The PROPRIETORSHIP ceremony was
 done once on the developer's machine, so its shape is known; PVT LTD will be the first
-time with real quantities. Complete both ceremonies on 28-30 September; daily
-transactions start 1 October. Prepare and independently review both workbooks in advance.
+time with real quantities. Complete both ceremonies on 5-6 October; daily
+transactions start 8 October. Prepare and independently review both workbooks in advance,
+during the 1-3 October setup window at the latest.
 
 **Who prepares it.** The Stores Manager (SESS-41) prepares the physical count; Accounts
 (SESS-14) supplies the rate per line from the carrying-value policy; the Technical
@@ -406,7 +439,7 @@ after it, the rule "company already has movements" applies to PVT LTD for good.
 
 Check: status POSTED; movement count equals the workbook line count; FIFO layer value
 equals the confirmed total; `GET /api/v1/reports/…` stock and FIFO valuation agree.
-Only after BOTH ceremonies are POSTED and ordinary use opens on 1 October, the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
+Only after BOTH ceremonies are POSTED and ordinary use opens on 8 October, the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
 opening-stock unit could be issued at all; the rehearsal now issues, returns and fits
 opening stock, values the fitment at the confirmed ex-tax value, and shows it in the
 dossier as opening stock. Opening stock consumes before any later receipt of the same
@@ -421,19 +454,20 @@ item (FIFO dates it from the period end above).
 - **No walk-throughs in either company from this point.** The opening-stock rule refuses a
   company that already has movements; there is no legitimate escape from it.
 
-## Release for daily transactions: 1 October
+## Release for daily transactions: 8 October
 
-TD records completion of training on 28-30 September, setup checklist evidence and both
-POSTED template-v2 ceremony receipts; Accounts confirms values and Stores confirms counts.
-Also require accepted production login, other-PC/reboot checks and verified backup evidence
-from the server deployment procedure. Only then release ordinary users on 1 October.
+TD records completion of training on 1-3 October, setup checklist evidence and both
+POSTED template-v2 ceremony receipts from 5-6 October; Accounts confirms values and Stores
+confirms counts. Also require accepted production login, other-PC/reboot checks and verified
+backup evidence from the server deployment procedure. BroPOS is frozen for new transactions
+on 7 October as part of the final checks. Only then release ordinary users on 8 October.
 No developer-source row counts or dump delivery is a release dependency.
 
 ## 15. DESKTOP-SPF5420: current operating specification
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -484,9 +518,19 @@ until both receipts exist; not even a test GRN beforehand.
 Only AFTER successful cutover does the laptop return to development/LabVIEW: its
 production-hours rule ends, NI services return with RESTORE-NI-Siemens.ps1 and the
 nightly development witness can remain. This applies ONLY to the laptop; NEVER run
-that maintenance script on the server. Server NI/Siemens/Rockwell stay running.
+that maintenance script on the server. Server NI/Siemens were reported removed; do not reinstall. Rockwell stays protected.
 Backup verification uses one private disposable cluster at a time; no laptop tests
 or builds, stock tests or owner-data experiments run on the server.
+
+### 15.3 Pre-go-live cleanup decisions
+
+Follow [the current cleanup status](pre-go-live-server-cleanup.md). NI/Siemens removal
+is reported complete by the server agent; verify the receipt, do not reinstall.
+Suspicious Flexnet service removal and Defender full-scan completion await that
+agent's receipt. All other products await inventory and TD decisions: no removal
+steps are authorized. SQL/SOLIDWORKS, Rockwell and IIS/Updater remain protected.
+D:/E: stay connected under the TD trial exception with daily Disk/NTFS/WHEA watch,
+but nothing ERP-related may ever use either volume.
 
 ### Keycloak availability is a daily gate
 
