@@ -94,21 +94,46 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
 
         public async ValueTask DisposeAsync()
         {
+            // Disposal runs while an exception from the command may already be in flight. A failure
+            // here MUST NOT replace it: the original cause is the only evidence of what went wrong,
+            // and losing it once during an opening-stock ceremony is unrecoverable. Every step is
+            // therefore attempted and its own failure suppressed, so the block's exception survives.
+            // The real cause is still logged centrally by the exception middleware.
             if (!finalized)
             {
+                // A completed transaction or a broken connection cannot be rolled back again; the
+                // database has already discarded the work either way.
                 try { await owned.RollbackAsync(); }
-                finally
+                catch (Exception rollbackFailure) { RecordSuppressed("Rollback", rollbackFailure); }
+                try
                 {
                     // A later denial audit must not save changes from the rolled-back command.
                     service.db.ChangeTracker.Clear();
                     await service.RecordRolledBackOutcomesAsync("RolledBack", "BusinessTransactionRolledBack", CancellationToken.None);
                 }
+                catch (Exception outcomeFailure) { RecordSuppressed("RecordRolledBackOutcomes", outcomeFailure); }
                 service.currentCommandEnvelope = null;
                 service.currentActorRoleCode = null;
                 service.currentCompanyId = Guid.Empty;
                 finalized = true;
             }
-            await owned.DisposeAsync();
+            try { await owned.DisposeAsync(); }
+            catch (Exception disposeFailure) { RecordSuppressed("Dispose", disposeFailure); }
+        }
+
+        // Suppressed so it cannot mask the command's own exception, but never silent: it is attached
+        // to the ambient trace so the disposal failure is still recoverable against the same TraceId
+        // the caller was given.
+        private static void RecordSuppressed(string step, Exception failure)
+        {
+            System.Diagnostics.Activity.Current?.AddEvent(new System.Diagnostics.ActivityEvent(
+                "Rev869BTransactionScope.DisposalFailureSuppressed",
+                tags: new System.Diagnostics.ActivityTagsCollection
+                {
+                    { "step", step },
+                    { "exception.type", failure.GetType().FullName },
+                    { "exception.message", failure.Message }
+                }));
         }
     }
 

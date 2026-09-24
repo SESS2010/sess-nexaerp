@@ -153,6 +153,9 @@ public static partial class Rev869AConfigurationEndpoints
         if (!TryGetIdempotencyKey(http, out var idempotencyKey)) return Results.BadRequest(new { message = "Idempotency-Key header is required." });
         try { var result = await service.CreateAsync(request, idempotencyKey, ct); return Results.Created($"/api/v1/rev869a/configuration/tax-gst/{result.Id}", result); }
         catch (UnauthorizedAccessException) { return Results.Forbid(); }
+        // Infrastructure failures are not business conflicts; rethrow for central 500 handling.
+        catch (ObjectDisposedException) { throw; }
+        catch (Npgsql.NpgsqlOperationInProgressException) { throw; }
         catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
     }
 
@@ -164,6 +167,9 @@ public static partial class Rev869AConfigurationEndpoints
         catch (KeyNotFoundException) { return Results.NotFound(); }
         catch (UnauthorizedAccessException) { return Results.Forbid(); }
         catch (DbUpdateConcurrencyException ex) { return Results.Conflict(new { message = ex.Message }); }
+        // Infrastructure failures are not business conflicts; rethrow for central 500 handling.
+        catch (ObjectDisposedException) { throw; }
+        catch (Npgsql.NpgsqlOperationInProgressException) { throw; }
         catch (InvalidOperationException ex) { return Results.Conflict(new { message = ex.Message }); }
     }
 
