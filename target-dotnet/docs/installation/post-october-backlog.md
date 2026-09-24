@@ -57,6 +57,26 @@ restricted scripts/configuration, NEVER editable from the ERP UI. TD/MD may rece
 read-only verified-backup/off-machine-copy/disk status. A stolen ERP login must not be
 able to redirect backups.
 
+## Mobile access (added 24 September 2026)
+
+**Not for 8 October: everyone uses a PC at launch.** The screens are desktop-only today:
+not responsive, and the grids and multi-column forms are hard to use on a phone.
+
+**Preferred by the Technical Director: option 2.** It covers a handful of screens for the
+people who work away from a desk, not a mobile version of everything.
+
+| Option | Days | What it buys / boundary |
+|---|---:|---|
+| **1. Responsive CSS across the existing screens** | 28-45 frontend; 0 backend | The API serves at least 43 permissioned pages. A responsive shell and navigation take 3-5 days. Plain forms take about half a day each. Every grid-heavy register needs a card or list layout at 1-1.5 days each. Device testing takes 3-5 days. **Even done well, approvals, comparisons and BOM grids stay poor on a phone.** This pays for everything in order to serve the few who need it. |
+| **2. Mobile-first Stores and QC screens** (preferred) | **14-22 total**: 11-17 frontend, 2-4 backend, 1 rollout | Four screens: **scan** (item code, serial or rack label to what it is), **issue** against an approved MIR, **receive**, and **look up a rack**. It adds a phone layout, login and a camera barcode component (3-5 days), then 2-3 days per screen. The same API, the same Keycloak login and the same page permissions apply, so a phone can never do what that person's PC cannot. It ships as a browser page from the same server: no app store, and no second codebase to secure. **Backend:** the issue, receipt, item-by-code and rack-bin reads already exist. A stock-by-rack read ("what is in this rack", "where is this item") does not, and neither does a single scan-resolve read. Each is 1-2 days with its tests. **Boundaries:** GRN *finalize*, QC decisions and every maker-checker step stay where they are unless separately decided; a phone captures, it does not approve. **Rollout:** each phone needs the SESS root certificate trusted (Android as a user certificate, iOS as a profile plus trust setting), and the camera works only over HTTPS, which is already in place. Stores Wi-Fi must reach 192.168.68.130. |
+| **3. Extend the SESS Employee App** | **20-35, low confidence** | **This repository has no record of that app**: not its stack, how its users log in, or who maintains it. The range assumes a separate app with its own login. Its identity has to be tied to the Keycloak realms and the employee mapping (3-6 days), the same four screens get built in that app (12-20), and the backend reads from option 2 are needed anyway (2-4). Add app release and distribution work. **Need before a real estimate:** its owner, stack and login method, and whether it can reach the server on the plant LAN. |
+
+**Recommendation: option 2, built after the first month of live use.** By then, which counter
+transactions are actually painful at a desk is measured rather than guessed. The first
+screen should be the rack lookup: read-only, useful on day one, and it proves the phone
+login and certificate path before any phone writes stock. Rack and bin labels must be
+printed with a scannable code; whether they are today is not recorded here.
+
 ## Measured starting point for suite timing
 
 The 22 September consolidated B round-4 Debug run passed 1,029/1,029 in 61m43s
