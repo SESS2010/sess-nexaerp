@@ -5,6 +5,8 @@
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
   "rememberMe": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 28800,
   "ssoSessionMaxLifespan": 28800,
