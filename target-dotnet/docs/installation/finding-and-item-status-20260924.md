@@ -68,7 +68,7 @@ commit messages, before calling any finding missing.**
 | 28 | **SHIPPED** | Service refuses an unknown MIR purpose with 400 and the allowed list | Previously reached `CK_mir_lifecycle` and returned an internal error. |
 | **29** (alias **rehearsal #12**) | **SHIPPED** | `d36b001`, migration `20260920120000_QcGoodsReceiptRead` | QC could not read the receipt it inspects. **This is the one that stayed on the list.** `QC_MANAGER` *and* `STORES_MANAGER` get `inventory.grn` view only: no create, finalize, reverse or download. Its field workaround is a support grant, tracked below. |
 | **30** | **SHIPPED** `84b8698` (ancestor of origin/main since the push at 494de07) | Setup wrapper, `tools/setup/SetupOperator.psm1`; 44 wrapper checks pass | The wrapper replaced every refusal with "HTTP 409" and hid the server's reason. A go-live blocker for setup on 1-3 October. See below. |
-| **31** | **OPEN, converter approved** | Found 24 Sep, RFQ investigation | A local-offset timestamp on any of **13** request fields (listed below) gives a 500 the user cannot act on. **The frontend must send UTC on all 13 before 1 October, whatever the backend does.** The converter is a safety net, not a substitute. |
+| **31** | **Converter committed `b394e50` (not yet pushed); frontend obligation OPEN** | Found 24 Sep, RFQ investigation | A local-offset timestamp on any of **13** request fields (listed below) gives a 500 the user cannot act on. **The frontend must send UTC on all 13 before 1 October, whatever the backend does.** The converter is a safety net, not a substitute. |
 | **32** | **OPEN** | Found by the developer, 24 Sep | SESS-16's untracked `TECHNICAL_ENGINEER` support grant. See *Support-role grants*. |
 | **33** | **OPEN: repair approved, the Technical Director runs it on the server**; scripts shipped `54b5ba9`; the admin-OTP fix to them, `cea7383`, is committed and not yet pushed | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
 | **34** | **OPEN, backend defect, not built** | [DC contract review](dc-frontend-contract-review-20260925.md) | Machine DC dispatch or signature with an **omitted** `DcNumber`, `Destination` or `CustomerSignatory` hits a NOT NULL constraint the service does not map, so the answer is **500**. Fix about half a day plus a cycle; needs a slot. |
@@ -104,7 +104,7 @@ the change without one; those commits are now found and checked.
 | 28 | SHIPPED | `861c567`, *Refuse an unknown MIR purpose as a request error* |
 | 29 (rehearsal #12) | SHIPPED | `d36b001` |
 | 30 | **SHIPPED** since the 24 Sep push | `84b8698` |
-| 31 | **STILL OPEN**: converter built, acceptance running overnight | commit follows acceptance |
+| 31 | **CONVERTER COMMITTED** `b394e50`, not yet pushed; the frontend obligation stays open until the developer confirms all 13 fields | acceptance 25 Sep 04:28: Debug 1067, Release 1064, gates 1090/1080/1086, all green |
 | 32 | **STILL OPEN**: operational | no code; an owner and a keep-or-end decision |
 | 33 | **STILL OPEN**: operational | tools shipped `54b5ba9`; admin-OTP fix `cea7383` committed, not pushed; server repair and witnessed login pending |
 
