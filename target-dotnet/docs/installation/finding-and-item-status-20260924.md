@@ -67,10 +67,79 @@ commit messages, before calling any finding missing.**
 | 27 | **SHIPPED** | `EfMaterialIssueService.CreateReturnAsync` now subtracts fitted quantity net of reversals | The engineer no longer has to declare a fitted unit "consumed" to return the rest. |
 | 28 | **SHIPPED** | Service refuses an unknown MIR purpose with 400 and the allowed list | Previously reached `CK_mir_lifecycle` and returned an internal error. |
 | **29** (alias **rehearsal #12**) | **SHIPPED** | `d36b001`, migration `20260920120000_QcGoodsReceiptRead` | QC could not read the receipt it inspects. **This is the one that stayed on the list.** `QC_MANAGER` *and* `STORES_MANAGER` get `inventory.grn` view only: no create, finalize, reverse or download. Its field workaround is a support grant, tracked below. |
-| **30** | **COMMITTED `84b8698`, not yet pushed** | Setup wrapper, `tools/setup/SetupOperator.psm1`; 44 wrapper checks pass | The wrapper replaced every refusal with "HTTP 409" and hid the server's reason. A go-live blocker for setup on 1-3 October. See below. |
+| **30** | **SHIPPED** `84b8698` (ancestor of origin/main since the push at 494de07) | Setup wrapper, `tools/setup/SetupOperator.psm1`; 44 wrapper checks pass | The wrapper replaced every refusal with "HTTP 409" and hid the server's reason. A go-live blocker for setup on 1-3 October. See below. |
 | **31** | **OPEN, converter approved** | Found 24 Sep, RFQ investigation | A local-offset timestamp on any of **13** request fields (listed below) gives a 500 the user cannot act on. **The frontend must send UTC on all 13 before 1 October, whatever the backend does.** The converter is a safety net, not a substitute. |
 | **32** | **OPEN** | Found by the developer, 24 Sep | SESS-16's untracked `TECHNICAL_ENGINEER` support grant. See *Support-role grants*. |
-| **33** | **OPEN: repair approved, the Technical Director runs it on the server**; scripts committed `54b5ba9`, not yet pushed | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
+| **33** | **OPEN: repair approved, the Technical Director runs it on the server**; scripts shipped `54b5ba9`; the admin-OTP fix to them, `cea7383`, is committed and not yet pushed | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
+
+## Second sweep, night of 24-25 September
+
+Asked for because four items on the Technical Director's list had shipped days before
+anyone noticed. Every open item was checked again against the code, not against this
+document. **Shipped** means the commit is an ancestor of `origin/main`, checked with
+`git merge-base --is-ancestor` on 24 September at `origin/main = 494de07`.
+
+**Findings: every row now names its commit.** Several said only "migration X" or described
+the change without one; those commits are now found and checked.
+
+| # | Result | Commit(s) |
+|---|---|---|
+| 3, 17 | SHIPPED | `f7f0c24` |
+| 4 | SHIPPED | `5b903eb` |
+| 11 | SHIPPED | `04036dd` |
+| grid #12 | SHIPPED | `c94897c` |
+| 18 | SHIPPED | `f2958cb` (warehouse and rack grants), `654cefc` (category route API and page) |
+| 19 | SHIPPED | `b13cebd` |
+| 20 | SUPERSEDED | no-dump decision, 21 Sep |
+| 21 | SHIPPED | `51f54b8` |
+| 22 | SHIPPED | `61c58d1`, *Record vendor commercial verification with its company* |
+| 23 | SHIPPED | `0096426`, *Resolve QC pending-return from the receipt's Stores route* |
+| 24 | SHIPPED | `403abbb` (carries `20260920140000_ItemMergeDirectorAuthority`) |
+| 25 | **STILL OPEN** | No `company_sites` or `customer_company_relationships` endpoint exists in `src`. Backlog A1. |
+| 26 | SHIPPED | `f6e06cf` (issue origin), `34cf6bb` (provenance), `fa7ec31` (fitment valuation) |
+| 27 | SHIPPED | `24fdc1e`, *Exclude fitted quantity from the material return statement* |
+| 28 | SHIPPED | `861c567`, *Refuse an unknown MIR purpose as a request error* |
+| 29 (rehearsal #12) | SHIPPED | `d36b001` |
+| 30 | **SHIPPED** since the 24 Sep push | `84b8698` |
+| 31 | **STILL OPEN**: converter built, acceptance running overnight | commit follows acceptance |
+| 32 | **STILL OPEN**: operational | no code; an owner and a keep-or-end decision |
+| 33 | **STILL OPEN**: operational | tools shipped `54b5ba9`; admin-OTP fix `cea7383` committed, not pushed; server repair and witnessed login pending |
+
+**The seven setup screen gaps.** The backend path of each is shipped. None of the screens can
+be confirmed from here: the frontend developer's code is not in this repository, and the
+`src/SESS.NexaERP.Web` tree here has no screen for any of them. The screen status below is
+what the developer must confirm; it is not a finding against them.
+
+| Gap | Backend launch path | Screen |
+|---|---|---|
+| 8.1 Warehouse | SHIPPED `f2958cb` (grants) with the governed workbook import | Still open, backlog |
+| 8.2 Rack/bin | SHIPPED `f2958cb` | Still open, backlog |
+| 8.3 Condition location | SHIPPED `654cefc`, `0096426` | Still open, backlog |
+| 8.4 Category route | SHIPPED `654cefc` | Still open, backlog |
+| 9 GST rule | SHIPPED; procedure `9ec0d38` | Still open, backlog |
+| 11.2 Vendor commercial verification | SHIPPED `61c58d1`, `51f54b8`; contract `ff99772` | **Launch deliverable of the frontend developer; not confirmable here** |
+| 11.4 Vendor qualification | SHIPPED (wrapper path) | Still open, backlog |
+
+**Self-audit of 22 September**, the items not already covered above:
+
+| Item | Result |
+|---|---|
+| B: six gated failures and the new concurrency defects | **SHIPPED.** Accepted with real TRX hashes in `85a0134`. The self-audit's "interrupted" note is superseded by that acceptance. |
+| Dashboard handoff: spending excluding recoverable GST | **STILL OPEN.** Not implemented; spending still includes embedded GST, as the audit said. No commit since. |
+| F: DC wrapper proposal | SUPERSEDED as a build item: **DO NOT BUILD** stands. |
+| H: one backlog document | SHIPPED as a document; every feature in it is still open, backlog. |
+| Operational scope revoke | **STILL OPEN.** No revoke endpoint for operational scopes exists (the only `/revoke` routes are identity and intercompany route). Backlog. |
+| Memory guard / harness resilience | **STILL OPEN** except Part 0: the run-in-progress signal was built on 24 Sep (`aed195a`, not yet pushed). |
+| Next commissioning package carries the concurrency fixes, `7003c02` and now #30/#31 | **STILL OPEN.** No package has been built since `bcfee49`. |
+| D4 certificates, E cleanup, G laptop investigation, roster, backups, Keycloak field steps | **STILL OPEN, field witnesses.** No commit can close them. |
+
+**Support-role grants:** both remain **STILL OPEN**. The #29 `STORES_ASSISTANT` cover was
+reported as being ended on 24 Sep, but no ended row has been read back. The SESS-16
+`TECHNICAL_ENGINEER` grant has no owner or reason yet. The developer's query output has not
+reached this document.
+
+**What the sweep found that had quietly changed:** #30 moved from committed to shipped with
+the push. Nothing else on the list had shipped unnoticed this time.
 
 ## Support-role grants
 
@@ -157,7 +226,7 @@ under its own, carrying the envelope's `Detail`, for example *Route requires eff
 same-company QC_HOLD, PENDING_RETURNABLE_DC and AVAILABLE condition locations.* Three cases
 keep the original wording only: 401 and 403, every 5xx, and every identity-provider call.
 Only that one named field is printed, never the body, so a body carrying a token prints
-nothing extra. Commit `84b8698`, not yet pushed.
+nothing extra. Shipped `84b8698`.
 
 ### #33 Approvers MFA flow missing its OTP step
 
@@ -261,7 +330,7 @@ request on a disposable database, on the same route with the same handoff. With 
 source files put back to their state before `7003c02`, it reproduces the developer's response
 exactly: `400 VALIDATION_FAILED, "Detail":"NpgsqlTransaction"`. With `7003c02` in place, no
 RFQ is written and the real cause survives, reaching the server log as `DbUpdateException →
-ArgumentException: … only offset 0 (UTC) is supported`. Tests committed `99e5e5d`, not yet pushed.
+ArgumentException: … only offset 0 (UTC) is supported`. Tests shipped `99e5e5d`.
 
 **Not what was hoped.** The caller does not get the offset message. It gets **500
 INTERNAL_ERROR** with a TraceId, because `Run()` treats `DbUpdateException` as an
