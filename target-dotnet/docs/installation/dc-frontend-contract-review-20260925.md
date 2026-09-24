@@ -92,6 +92,16 @@ reissue it.
 
 ### #36: the signature example sends `DeliveredAt` with `+05:30` (contract against #31)
 
+> **Already corrected by the frontend developer**, after `7a7a030`, on the same branch:
+> `bc0a26d` and then `d6efb79` (23 September). The example now sends
+> `"2026-09-30T10:50:00Z"`, and the rule is stated as one rule for every `DateTimeOffset`. It
+> also says that this endpoint would probably have survived an offset, which matches the
+> reading below. The #34/#35 text (*"400 for the validation rules above"*) is unchanged at
+> the branch head. **One inaccuracy remains in the corrected text:** it says an offset
+> elsewhere surfaces "as a 400 with an unactionable message". That was true before `7003c02`
+> (400 `NpgsqlTransaction`). Since `7003c02` it is a 500, and with the #31 converter the
+> request is accepted as the same instant. The UTC rule stands either way.
+
 The contract's signature example is `"DeliveredAt": "2026-09-30T16:20:00+05:30"`. That goes
 against the frontend obligation of #31: every timestamp is sent in UTC, ending in `Z`. On this
 endpoint it happens to work, which makes it easy to copy elsewhere. `DeliveredAt` reaches
