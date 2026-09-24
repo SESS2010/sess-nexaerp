@@ -5,8 +5,9 @@ This adds the OTP Form as REQUIRED (not conditional, not alternative) to nexaerp
 and prints the flow executions as verification.
 
 .DESCRIPTION
-Run ON THE SERVER by the identity maintainer, in Windows PowerShell 5.1, against the running
-Keycloak. It changes ONLY the nexaerp-approver-browser flow of the approvers realm. It does not
+Run by the identity maintainer, in Windows PowerShell 5.1, against the running Keycloak -
+preferably ON THE SERVER (see docs/installation/server-keycloak-realms.md, 'Running the two
+identity scripts'). It works over HTTPS from any PC that trusts the SESS root CA. It changes ONLY the nexaerp-approver-browser flow of the approvers realm. It does not
 touch the staff realm, the flow binding, clients, users, the ERP database or any protected service.
 
 It refuses to change anything, and reports why, if the flow holds anything other than the
@@ -34,12 +35,15 @@ $passwordForm = 'auth-username-password-form'
 $otpForm = 'auth-otp-form'
 
 $secure = Read-Host "Password for $AdminUser in realm $AdminRealm" -AsSecureString
+# The named master administrator has REQUIRED OTP (server-keycloak-install.md step 9), so the
+# admin-cli sign-in needs the current authenticator code. Leave it blank only if the account has none.
+$adminOtp = Read-Host "Current authenticator code for $AdminUser (blank if none)"
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     $token = (Invoke-RestMethod -Method Post -Uri "$KeycloakBase/realms/$AdminRealm/protocol/openid-connect/token" `
         -ContentType 'application/x-www-form-urlencoded' `
-        -Body @{ grant_type = 'password'; client_id = 'admin-cli'; username = $AdminUser; password = $plain }).access_token
+        -Body $($form = @{ grant_type = 'password'; client_id = 'admin-cli'; username = $AdminUser; password = $plain }; if ($adminOtp) { $form.otp = $adminOtp.Trim() }; $form)).access_token
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     $plain = $null

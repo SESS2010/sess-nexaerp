@@ -38,12 +38,15 @@ $expected = @{
 }
 
 $secure = Read-Host "Password for $AdminUser in realm $AdminRealm" -AsSecureString
+# The named master administrator has REQUIRED OTP (server-keycloak-install.md step 9), so the
+# admin-cli sign-in needs the current authenticator code. Leave it blank only if the account has none.
+$adminOtp = Read-Host "Current authenticator code for $AdminUser (blank if none)"
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 try {
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     $token = (Invoke-RestMethod -Method Post -Uri "$KeycloakBase/realms/$AdminRealm/protocol/openid-connect/token" `
         -ContentType 'application/x-www-form-urlencoded' `
-        -Body @{ grant_type = 'password'; client_id = 'admin-cli'; username = $AdminUser; password = $plain }).access_token
+        -Body $($form = @{ grant_type = 'password'; client_id = 'admin-cli'; username = $AdminUser; password = $plain }; if ($adminOtp) { $form.otp = $adminOtp.Trim() }; $form)).access_token
 } finally {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     $plain = $null
