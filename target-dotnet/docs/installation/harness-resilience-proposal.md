@@ -9,7 +9,13 @@ Estimate: **3 to 4.5 engineering days** for both parts together, including tests
 witnessed proof. They are estimated together because they share the same plumbing; built
 separately they would cost more. Allow the usual ±50% until design.
 
-Build order when the time comes, as directed: **(3) key the run on the manifest digest**
+**Promoted above everything below, 24 September: the run-in-progress signal (Part 0).** Both
+restarts that killed a run were the Technical Director's, made without knowing a run was in
+flight. A signal nobody can miss prevents that cause; resume logic only survives it. It is
+costed on its own, **half a day to one day**, and does not have to wait for go-live: see
+Part 0 for why it is safe to add now.
+
+Build order for the rest when the time comes, as directed: **(3) key the run on the manifest digest**
 and **(4) the orphan sweep with refusal on a live foreign cluster** first. They are the
 parts that prevent wrong evidence and wasted machine time, and they are useful even if
 the rest is never built.
@@ -31,6 +37,17 @@ what that costs:
 | 19:44 start, 21:14 power-off | User-session power-off during the Workflow gate. Windows User32 event 1074, shutdown 21:14:18, boot 21:15:12. | No TRX. Concurrency and Lifecycle never started. Directory retained as `2026-09-22-round4-poweroff-interrupted`. |
 | 21:59 restart | The resume wrapper disabled the scheduled task, started the gates, and the session ended inside its `try` block. | No TRX. The `finally` never ran, so `NexaERP nightly witnesses` was left **Disabled** and went unnoticed until 23 September. |
 
+**It happened again on 24 September 2026, after this proposal was approved:**
+
+| When | What happened | What was left behind |
+|---|---|---|
+| 11:57 start, 12:11 restart | The Technical Director restarted the laptop while working, not knowing an acceptance run was in flight. It was the second restart of that kind. The run had paused the nightly task and was 8 minutes into the Debug suite. Boot 12:11:01. | No TRX. `progress.log` stops at `tests Debug`, and the `finally` never ran, so `NexaERP nightly witnesses` was again left **Disabled**. It was found and re-enabled the same afternoon, and the run was repeated from a clean evidence directory. One orphan cluster was swept by the next run's guard. |
+
+Nothing in the harness could say that this was an interruption, not a failure; the next
+session had to reconstruct it from timestamps. The in-flight marker (A2) would have said so
+at once. Better still is a "run in progress, do not restart" signal that prevents the restart
+in the first place. It is now Part 0, promoted above the resume logic.
+
 Both runs also leaked their disposable clusters. Four orphan directories totalling
 467 MB were found under `%TEMP%\advance-postgresql-parser-*` on 23 September and removed
 under [this receipt](../../local-evidence/consolidated-B-round4/orphan-cluster-cleanup-20260923.json).
@@ -39,6 +56,79 @@ Neither interruption was a test failure, and neither was anyone's mistake — bu
 harness could not say so by itself. The closure report had to **argue in prose** that an
 interrupted run is "not a pass or a test assertion failure". That belongs in a file the
 harness writes, not in a paragraph a reader has to trust.
+
+## Part 0 — run-in-progress signal (promoted; costed separately)
+
+**Aim:** the person at the laptop cannot restart it, or sign out, without being told a run is
+in flight and how far it has got.
+
+**Simplest version: one helper script, `tools/Show-RunInProgress.ps1`, run beside the
+harness. The harness itself does not change.**
+
+1. **A banner that is always on top.** A small borderless window at the top of the screen
+   reads *NexaERP witness run in progress: Debug suite, 38 min in. Do not restart or shut
+   down.* It is refreshed from `progress.log` once a minute.
+2. **A message at the moment of restart.** The same window registers a Windows
+   shutdown-block reason (`ShutdownBlockReasonCreate`). Choosing Restart or Shut down then
+   stops on the Windows screen that lists what is preventing it, showing that sentence, and
+   the person chooses *Cancel* or *Restart anyway*. **This is the signal that cannot be
+   missed, because it appears at the exact moment of the mistake.** It warns and does not
+   forbid: *Restart anyway* still works, and that choice stays with the person.
+3. **It dies with the run.** The helper takes the harness's process id and closes itself
+   when that process ends, however it ends. A crash can never leave a stale banner that
+   teaches people to ignore it.
+
+The acceptance scripts start it with one added line: `Start-Process` with the parent id.
+
+**Cost: half a day to one day.** About half a day to build. A witnessed check follows on this
+laptop: start a short dummy run, choose Restart, and confirm that the Windows screen shows
+the sentence and that *Cancel* leaves the run alive. Record that with a screenshot.
+
+**Why it need not wait for go-live.** The reason for waiting was never to change the
+acceptance harness during acceptance. This does not change it. The gate logic, TRX, freeze
+and evidence paths are untouched, and the helper is a separate process that only reads
+`progress.log`. If it failed outright, the run would behave exactly as it does today.
+Nothing in `src` or `tests` changes, so no suite cycle is needed.
+
+**What it does not cover.** A power cut; a forced Windows Update restart, which bypasses
+shutdown-block reasons; and a restart made from another session. Resume markers (Part A) are
+still the answer for those.
+
+**Active Hours on this laptop were set on 24 September 2026, on the Technical Director's
+instruction, from 08:00-17:00 to 08:00-20:00** (`HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings`,
+read back after writing). **The gap:** the nightly witness task starts at 01:00 and runs about
+four and a half hours, entirely outside Active Hours, so a forced update can still land on
+it. Windows allows at most 18 active hours, so no setting covers both the working day and
+the nightly run.
+
+### Option, not planned: pause Windows Update for the length of a run
+
+**The mechanism.** The harness pauses Windows Update when a run starts. It releases the pause
+in the same `finally` block that restores the nightly task, and records both actions in the
+run's evidence.
+
+**The safer form, if it is ever built: a pause that expires by itself.** Windows Update's
+pause carries an expiry time. The harness would set it to the expected run length plus a
+margin, about eight hours, so if the release in `finally` never runs, the pause ends anyway
+that morning. That turns "drifts unpatched until someone notices" into "unpatched for one
+night at most". Without the expiry this is the disabled-task fault again, and **an
+open-ended pause must never be used.**
+
+**Cost: half a day to one day.** About half a day to build. The witness can only prove that
+the pause is set, released and expires. It cannot prove that a real forced update was held
+off, because one cannot be produced on demand, so the most important claim stays unwitnessed.
+One uncertainty also needs checking before any build: whether Windows 10 limits how many
+times a pause can be renewed before updates must be installed. A nightly pause renewed every
+night may run into such a limit.
+
+**Recommendation: do not build it.** The Technical Director's instinct is right. From
+8 October this laptop is development only, so what an update restart costs is one lost
+overnight run: annoying, not harmful. The fix for a lost run is to run it again. The
+mechanism would add a new way for the machine to stay unpatched, the same class of fault
+already hit twice with the disabled task, to prevent something that costs a rerun. **What
+is worth having is knowing a run was lost, not preventing it.** The in-flight marker (A2)
+does that: the next morning it shows that the run was interrupted, not failed. Build A2,
+and leave this option unbuilt.
 
 ## Part A — resume markers
 
