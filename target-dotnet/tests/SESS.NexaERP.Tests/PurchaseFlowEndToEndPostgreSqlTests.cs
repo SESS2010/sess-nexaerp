@@ -859,6 +859,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseExecutive,
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
+        if (band.Code == "LOW")
+        {
+            // The frontend developer's RFQ failure of 23 September, sent as he sent it: QuoteDueAt
+            // carrying +05:30. Npgsql writes timestamptz at offset 0 only, and EF wraps its refusal in
+            // DbUpdateException. Before 7003c02 the disposal rollback replaced that and the operator
+            // read 400 Detail "NpgsqlTransaction". Now the real cause survives to the server log and
+            // the caller gets 500 with a TraceId: honest, but not yet actionable. Rejecting a non-UTC
+            // offset up front as a 400 is estimated, not built; when it is, this flips to 400.
+            var localDue = DateTimeOffset.UtcNow.AddDays(7).ToOffset(TimeSpan.FromHours(5.5));
+            var rfqsBefore = await Query(options, db => db.RequestForQuotations.CountAsync());
+            using var localOffset = await client.PostAsJsonAsync("/api/v1/purchase/rfqs",
+                new Rev869BCreateRfqRequest(localDue, "INR", false, null,
+                    "LOW-rfq-local-offset", [new(handoff.Id, handoff.HandoffQuantity)]));
+            var refusal = await localOffset.Content.ReadAsStringAsync();
+            Assert.True(localOffset.StatusCode == HttpStatusCode.InternalServerError,
+                $"Local-offset RFQ returned {(int)localOffset.StatusCode}: {refusal}");
+            Assert.Contains("INTERNAL_ERROR", refusal, StringComparison.Ordinal);
+            Assert.DoesNotContain("NpgsqlTransaction", refusal, StringComparison.Ordinal);
+            Assert.Equal(rfqsBefore, await Query(options, db => db.RequestForQuotations.CountAsync()));
+        }
         var rfq = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/rfqs",
             new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", false, null,
                 $"{band.Code}-rfq-create", [new(handoff.Id, handoff.HandoffQuantity)]));
