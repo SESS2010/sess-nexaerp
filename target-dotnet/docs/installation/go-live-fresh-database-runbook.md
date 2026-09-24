@@ -212,7 +212,7 @@ psql --host <host> --port 5432 --username nexa_erp_migration --dbname sess_nexa_
 ```
 
 Check: `SELECT count(*) FROM advance.items WHERE "CreatedBy"='EXCEL_IMPORT'` = 1,368, all
-`Approved`; categories ELE/FAB/REF present; UOMs present. The #11 reconcile script is not
+`Approved`; categories ELE/FAB/REF present; UOMs present. The finding-4 reconcile script is not
 needed on a database the corrected import created.
 
 
