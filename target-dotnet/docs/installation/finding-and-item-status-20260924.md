@@ -71,6 +71,9 @@ commit messages, before calling any finding missing.**
 | **31** | **OPEN, converter approved** | Found 24 Sep, RFQ investigation | A local-offset timestamp on any of **13** request fields (listed below) gives a 500 the user cannot act on. **The frontend must send UTC on all 13 before 1 October, whatever the backend does.** The converter is a safety net, not a substitute. |
 | **32** | **OPEN** | Found by the developer, 24 Sep | SESS-16's untracked `TECHNICAL_ENGINEER` support grant. See *Support-role grants*. |
 | **33** | **OPEN: repair approved, the Technical Director runs it on the server**; scripts shipped `54b5ba9`; the admin-OTP fix to them, `cea7383`, is committed and not yet pushed | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
+| **34** | **OPEN, backend defect, not built** | [DC contract review](dc-frontend-contract-review-20260925.md) | Machine DC dispatch or signature with an **omitted** `DcNumber`, `Destination` or `CustomerSignatory` hits a NOT NULL constraint the service does not map, so the answer is **500**. Fix about half a day plus a cycle; needs a slot. |
+| **35** | **OPEN, contract differs from backend** | same | The DC contract promises 400 for its field rules; the backend answers **409 BUSINESS_RULE_CONFLICT** for nearly all of them, some with raw constraint text. Fixed together with #34 (about one day) or the contract reads 409. |
+| **36** | **OPEN, contract against #31** | same | The DC contract's signature example sends `DeliveredAt` with `+05:30`. It works on that endpoint only by accident; the UTC rule applies to all 13 fields. |
 
 ## Second sweep, night of 24-25 September
 
@@ -372,10 +375,21 @@ search those types for the field type. Never select types by name.
 | 12 | `POST /api/v1/production/component-fitments` | `FittedAt` | Confirm component fitment |
 | 13 | `POST /api/v1/stores/machine-deliveries/{id}/signature` | `DeliveredAt` | Sign machine delivery |
 
-**What a local offset does today.** Row 1 is proven: a 500 INTERNAL_ERROR, no RFQ written,
-and the real cause in the server log only. Rows 2-13 write through the same Npgsql path, and
-the same failure is expected there but not yet witnessed. The converter's tests will send a
-`+05:30` value to every row and pin the result.
+**What a local offset did before the converter** (corrected on the night of 24-25 September
+by reading each write path). Row 1 is proven: a 500 INTERNAL_ERROR, no RFQ written, and the
+real cause in the server log only.
+
+- **Rows 2-12** hand the value to Npgsql as a typed `timestamptz` parameter, through an EF
+  entity or `AddWithValue`, so the same 500 was expected. That was established by reading the
+  code, and not witnessed request by request.
+- **Row 13 (machine delivery `DeliveredAt`) never failed.** It reaches PostgreSQL inside a
+  JSON payload, which PostgreSQL parses itself; see #36.
+- The morning statement that rows 2-13 "write through the same Npgsql path" was wrong for
+  row 13.
+
+The converter's contract test sends `+05:30` to all 13 request types and pins that each
+arrives as the same instant in UTC. **The frontend obligation is unchanged for all 13,
+row 13 included.**
 
 **Backend safety net: approved, built after #30 lands.** Decided by the Technical Director on
 24 September: **convert, don't reject.** +05:30 names one exact instant, and the database
