@@ -34,8 +34,9 @@ Every real row/action gets a new GUID OperationId; preserve it, file and evidenc
 
 ## Read before entering anything: date rows from the business date, not from today
 
-**Every effective-dated setup row must start on or before the earliest business date it has to
-serve.** The natural mistake is to accept today's date — the day the row is typed, in early
+**Every effective-dated setup row must COVER every business date it has to serve: `EffectiveFrom`
+on or before the earliest such date, and `EffectiveTo` either blank or on or after the latest.**
+The natural mistake is to accept today's date — the day the row is typed, in early
 October — for records that must already have been in force on the opening-stock period start.
 Nothing warns at entry; the refusal arrives later, in the ceremony or at the first GRN, and it
 names the missing record rather than the date that made it miss.
@@ -51,6 +52,27 @@ The three chains, each proven in the source, not inferred:
 So the chain is
 `condition location  ≤  category route  ≤  first GRN`, and separately
 `condition location  ≤  opening-stock period end`.
+
+### The other end of the range: `EffectiveTo` too EARLY fails identically
+
+Both guards check the range, not just its start. An `EffectiveTo` set before the date being
+served is refused exactly as a late `EffectiveFrom` is, with the same message:
+
+| Row | The check in the source | What breaks it |
+|---|---|---|
+| **ConditionLocations** | `"EffectiveFrom"<=p_to AND ("EffectiveTo" IS NULL OR "EffectiveTo">=p_to)` | An `EffectiveTo` before the opening-stock period end. Same refusal, same wording. |
+| **CategoryRoutes** | `EffectiveFrom<=on && (EffectiveTo==null \|\| EffectiveTo>=on)` | An `EffectiveTo` before the GRN's received date. Same refusal, same wording. |
+
+The input form offers `EffectiveTo (blank = open)`, and blank is what almost every setup row
+should carry. **Leaving `EffectiveTo` blank is the safe answer.** Closing a row on 30 September
+because it looks tidier is the same failure from the other side: the date range no longer covers
+the period end or the first receipt, and nothing says so until the ceremony refuses. Only fill
+`EffectiveTo` when the row is genuinely meant to stop applying on a known date, and then only
+after checking it still covers the opening-stock period end and every receipt it must route.
+
+*The section above is the frontend agent's work at `846c035`. This subsection and the two-sided
+wording in the opening rule were added on 24 September after verifying all three chains against
+the source; the original table states the lower bound correctly and is unchanged.*
 
 If SESS opens stock for a financial year beginning 1 April 2026, **date the warehouse condition
 locations 1 April 2026**, and the category routes no later than the first receipt they must
