@@ -59,6 +59,23 @@ harness writes, not in a paragraph a reader has to trust.
 
 ## Part 0 — run-in-progress signal (promoted; costed separately)
 
+> **BUILT 24 September 2026:** [tools/Show-RunInProgress.ps1](../../tools/Show-RunInProgress.ps1),
+> with the witness [tools/Test-RunInProgressSignal.ps1](../../tools/Test-RunInProgressSignal.ps1).
+> **Automated witness on this laptop, 21:14, PASS**
+> (`local-evidence/run-in-progress-signal/20260924-211443/receipt.json`):
+>
+> - the banner is visible and top-most (screenshot `banner.png`);
+> - Windows reads back the registered reason, *"NexaERP witness run in progress: DUMMY witness
+>   run - dummy gate running - 0 min. Restarting now loses the run."*;
+> - the window answers WM_QUERYENDSESSION with 0, the answer that makes Windows stop on its
+>   restart screen;
+> - the signal closed itself 27 seconds after the dummy run ended.
+>
+> **Still to witness, by a person:** choosing Start > Power > Restart, seeing the screen name
+> the run, and pressing Cancel. Run `tools\Test-RunInProgressSignal.ps1 -Interactive`, never
+> while a real run is in flight. The UTC converter acceptance of 24-25 September is the first
+> real run carrying the signal.
+
 **Aim:** the person at the laptop cannot restart it, or sign out, without being told a run is
 in flight and how far it has got.
 
