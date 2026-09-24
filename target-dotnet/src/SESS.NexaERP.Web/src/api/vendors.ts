@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { api, authorizedFetch } from './client'
 import type { PagedResponse } from './client'
 import type { UpsertVendorRequest, VendorDetail, VendorSummary } from '../types/vendor'
 
@@ -75,27 +75,12 @@ export async function uploadVendorAttachment(kind: VendorAttachmentKind, file: F
   const body = new FormData()
   body.set('kind', kind)
   body.set('file', file)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  const response = await authorizedFetch(`${BASE}/attachments`, { method: 'POST', body })
   return (await response.json()) as VendorAttachmentInfo
 }
 
 export async function downloadVendorAttachment(attachmentId: string, fileName: string): Promise<void> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments/${attachmentId}`, { headers })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const response = await authorizedFetch(`${BASE}/attachments/${attachmentId}`)
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

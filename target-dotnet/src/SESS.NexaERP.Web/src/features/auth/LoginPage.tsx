@@ -1,88 +1,60 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { api, getLastCompany, setLastCompany, setStoredIdentity, setStoredToken } from '../../api/client'
+import { useState } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 import { SessLogo } from '../../components/SessLogo'
+import { beginSignIn, clearNotice } from '../../auth/authSession'
+import type { AuthNotice } from '../../auth/authSession'
+import { REALMS, safeReturnPath } from '../../auth/oidcConfig'
+import type { RealmKey } from '../../auth/oidcConfig'
+import { useAuth } from '../../auth/useAuth'
 
-interface DevIdentity {
-  EmployeeCode: string
-  EmployeeName: string
-  OrganizationId: string
+function noticeText(notice: AuthNotice): { tone: 'info' | 'warn' | 'error'; text: string } {
+  switch (notice.kind) {
+    case 'expired':
+      return { tone: 'warn', text: 'Your sign-in expired. Sign in again to continue.' }
+    case 'signed-out':
+      return { tone: 'info', text: 'You have signed out.' }
+    case 'logout-incomplete':
+      return { tone: 'warn', text: notice.detail }
+    case 'callback-failed':
+      return { tone: 'error', text: `Sign-in did not complete: ${notice.detail}` }
+  }
 }
 
-interface DevTokenResponse {
-  Token: string
-  EmployeeCode: string
-  OrganizationId: string
-  ExpiresInHours: number
-}
-
-// Sign-in page. Production authentication is OIDC-only (REV866); this page runs
-// on the Debug-only /api/v1/dev pipeline using the employee's real identity
-// mapping. When the production OIDC
-// provider is selected, the submit handler becomes a redirect to the provider
-// and the rest of the app is unchanged.
+// Production sign-in (server-frontend-oidc-contract.md). There is no password
+// box here: the button sends the browser to the chosen Keycloak realm, which
+// asks for the password (and, for Approvers, the authenticator code) itself.
 export function LoginPage() {
-  const navigate = useNavigate()
-  const [identities, setIdentities] = useState<DevIdentity[]>([])
-  const [loginId, setLoginId] = useState('')
-  const [organizationId, setOrganizationId] = useState('')
-  const [busy, setBusy] = useState(false)
+  const auth = useAuth()
+  const location = useLocation()
+  const returnTo = safeReturnPath((location.state as { returnTo?: unknown } | null)?.returnTo)
+  const [busy, setBusy] = useState<RealmKey | null>(null)
   const [error, setError] = useState('')
-  const [apiDown, setApiDown] = useState(false)
 
-  useEffect(() => {
-    api.get<DevIdentity[]>('/api/v1/dev/identities')
-      .then((list) => {
-        setIdentities(list)
-        setApiDown(false)
-      })
-      .catch(() => setApiDown(true))
-  }, [])
+  if (auth.realm) {
+    return <Navigate to={auth.company ? returnTo : '/select-company'} state={{ returnTo }} replace />
+  }
 
-  const companies = useMemo(
-    () => [...new Set(identities.map((identity) => identity.OrganizationId))],
-    [identities],
-  )
-
-  // Every SESS employee holds assignments in both companies, so the company is
-  // a real choice, not a dev convenience. Never default to whichever company
-  // the identities endpoint happens to list first (that was SESS_PROPRIETORSHIP,
-  // which has no items, vendors or stock): reuse the last sign-in's company,
-  // take the only company when there is one, otherwise make the user pick.
-  useEffect(() => {
-    if (companies.length === 0 || companies.includes(organizationId)) return
-    const remembered = getLastCompany()
-    if (companies.includes(remembered)) setOrganizationId(remembered)
-    else if (companies.length === 1) setOrganizationId(companies[0])
-    else setOrganizationId('')
-  }, [companies, organizationId])
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    setBusy(true)
+  const start = async (key: RealmKey) => {
+    setBusy(key)
     setError('')
+    clearNotice()
     try {
-      const result = await api.post<DevTokenResponse>('/api/v1/dev/token', {
-        LoginId: loginId.trim(),
-        OrganizationId: organizationId || null,
-      })
-      setStoredToken(result.Token)
-      setStoredIdentity({ employeeCode: result.EmployeeCode, organizationId: result.OrganizationId })
-      setLastCompany(result.OrganizationId)
-      // Land on the home page, which every role can see; Employee Master is
-      // permission-gated and blanked the first screen for most users.
-      navigate('/', { replace: true })
+      await beginSignIn(key, returnTo)
+      // The browser is leaving for Keycloak; keep the button disabled.
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign-in failed.')
-    } finally {
-      setBusy(false)
+      setBusy(null)
+      const reason = err instanceof Error ? err.message : String(err)
+      setError(
+        `The ${REALMS[key].label} sign-in server at ${REALMS[key].authority} could not be reached (${reason}). Check that it is running, then try again.`,
+      )
     }
   }
 
+  const notice = auth.notice ? noticeText(auth.notice) : null
+
   return (
     <div className="login-shell">
-      <form className="login-card" onSubmit={submit}>
+      <div className="login-card">
         <div className="login-brand">
           <SessLogo />
           <div>
@@ -92,54 +64,33 @@ export function LoginPage() {
         </div>
 
         <h1 className="login-title">Sign in</h1>
+        <p className="login-note" style={{ marginTop: 0 }}>Choose how you sign in. You will enter your password on the next page.</p>
 
-        {apiDown && (
-          <div className="alert alert-error">
-            The API is not reachable, or development sign-in is disabled. Start the backend and reload.
+        {notice && (
+          <div className={`alert ${notice.tone === 'error' ? 'alert-error' : notice.tone === 'warn' ? 'alert-warn' : 'alert-info'}`} role="status">
+            {notice.text}
           </div>
         )}
 
-        <label className="field">
-          <span className="field-label">Employee ID or email</span>
-          <input
-            className="input"
-            required
-            autoFocus
-            autoComplete="username"
-            value={loginId}
-            onChange={(event) => setLoginId(event.target.value)}
-            placeholder="e.g. TEST-01 or test.user@sess.local"
-          />
-        </label>
-
-
-        <label className="field">
-          <span className="field-label">Company</span>
-          <select
-            className="input"
-            required
-            value={organizationId}
-            onChange={(event) => setOrganizationId(event.target.value)}
+        {(Object.keys(REALMS) as RealmKey[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={`btn ${key === 'staff' ? 'btn-primary' : 'btn-ghost'} login-submit login-realm`}
+            disabled={busy !== null}
+            onClick={() => void start(key)}
           >
-            {!organizationId && <option value="">Select company…</option>}
-            {companies.map((company) => (
-              <option key={company} value={company}>
-                {company.replaceAll('_', ' ')}
-              </option>
-            ))}
-          </select>
-        </label>
+            <span className="login-realm-label">{busy === key ? 'Opening sign-in…' : `Sign in as ${REALMS[key].label}`}</span>
+            <span className="login-realm-hint">{REALMS[key].description}</span>
+          </button>
+        ))}
 
-        {error && <div className="alert alert-error">{error}</div>}
-
-        <button type="submit" className="btn btn-primary login-submit" disabled={busy || !organizationId}>
-          {busy ? 'Signing in…' : 'Sign in'}
-        </button>
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
 
         <p className="login-note">
-          Development sign-in uses an existing employee identity mapping. In production this is replaced by the organization's single sign-on (OIDC).
+          SESS-01, SESS-02 and SESS-14, and anyone holding a Technical Director, Managing Director, Accounts Manager or CFO role, must use <strong>Approvers</strong>. The choice does not give you any role: the ERP checks your employee mapping, company and roles on every request.
         </p>
-      </form>
+      </div>
     </div>
   )
 }

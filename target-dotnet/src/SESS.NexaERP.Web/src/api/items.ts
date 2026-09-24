@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { ApiError, api, authorizedFetch } from './client'
 import type { PagedResponse } from './client'
 import type {
   ItemDetail, ItemSummary, ItemVendorLink, ReferenceLookup, SubcategoryLookup,
@@ -65,28 +65,19 @@ export function getVendorItems(vendorCode: string): Promise<VendorSuppliedItem[]
 export async function uploadItemImage(itemCode: string, file: File): Promise<void> {
   const body = new FormData()
   body.set('file', file)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Image upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  await authorizedFetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { method: 'POST', body })
 }
 
 /** Fetches the item image as an object URL (authenticated); null when absent. */
 export async function fetchItemImageUrl(itemCode: string): Promise<string | null> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { headers })
-  if (!response.ok) return null
-  return URL.createObjectURL(await response.blob())
+  try {
+    const response = await authorizedFetch(`${BASE}/${encodeURIComponent(itemCode)}/image`)
+    return URL.createObjectURL(await response.blob())
+  } catch (error) {
+    // No image (404) is the normal case; an expired session is not.
+    if (error instanceof ApiError && error.status === 401) throw error
+    return null
+  }
 }
 
 // Reference lookups for the item form (categories, subcategories, uoms, manufacturers).

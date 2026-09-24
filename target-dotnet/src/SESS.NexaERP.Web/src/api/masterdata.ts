@@ -1,34 +1,13 @@
-import { getStoredToken } from './client'
+import { api, authorizedFetch, saveResponseAsFile } from './client'
 
 const BASE = '/api/v1/master-data'
 
 /** Keys in the API's IMasterDataRegistry that a screen imports through today. */
 export type MasterKey = 'customers' | 'vendors' | 'uoms' | 'opening-stock'
 
-function authHeaders(): Record<string, string> {
-  const token = getStoredToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 async function downloadFile(path: string, fallbackName: string): Promise<void> {
-  const response = await fetch(path, { headers: authHeaders() })
-  if (!response.ok) {
-    let message = `Download failed (${response.status})`
-    try {
-      const body = await response.json()
-      message = body.Detail || body.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
-  const disposition = response.headers.get('content-disposition') ?? ''
-  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition)
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = match?.[1] ? decodeURIComponent(match[1]) : fallbackName
-  anchor.click()
-  URL.revokeObjectURL(url)
+  const response = await authorizedFetch(path)
+  await saveResponseAsFile(response, fallbackName)
 }
 
 export function downloadTemplate(masterKey: MasterKey): Promise<void> {
@@ -75,10 +54,7 @@ export interface ImportResult {
 
 /** GET /api/v1/master-data/imports/{batchId} — the batch as stored, any master. */
 export async function getImportBatch(batchId: string): Promise<ImportResult> {
-  const response = await fetch(`${BASE}/imports/${encodeURIComponent(batchId)}`, { headers: authHeaders() })
-  const payload = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(payload?.Detail || payload?.message || `Import batch lookup failed (${response.status})`)
-  return payload as ImportResult
+  return api.get<ImportResult>(`${BASE}/imports/${encodeURIComponent(batchId)}`)
 }
 
 /**
@@ -94,10 +70,6 @@ export async function importWorkbook(masterKey: MasterKey, file: File): Promise<
   body.set('Mode', 'IMPORT_VALID_ROWS')
   body.set('IdempotencyKey', crypto.randomUUID())
   body.set('file', file)
-  const response = await fetch(`${BASE}/${masterKey}/import`, { method: 'POST', body, headers: authHeaders() })
-  const payload = await response.json()
-  if (!response.ok) {
-    throw new Error(payload.Detail || payload.message || `Import failed (${response.status})`)
-  }
-  return payload as ImportResult
+  const response = await authorizedFetch(`${BASE}/${masterKey}/import`, { method: 'POST', body })
+  return (await response.json()) as ImportResult
 }

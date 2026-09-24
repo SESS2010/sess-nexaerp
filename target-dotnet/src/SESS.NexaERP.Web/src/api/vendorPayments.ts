@@ -1,4 +1,4 @@
-import { api, ApiError, getStoredToken } from './client'
+import { api, authorizedFetch } from './client'
 import type {
   RecordVendorAdvanceRequest, RecordVendorPaymentRequest, ReverseVendorAdvanceRequest,
   VendorAdvancePage, VendorAdvancePurchaseOrderOption, VendorAdvanceView, VendorBankAdviceView,
@@ -57,18 +57,11 @@ export async function uploadBankAdvice(vendorId: string, file: File, idempotency
   const body = new FormData()
   body.set('vendorId', vendorId)
   body.set('file', file)
-  const headers = new Headers({ 'Idempotency-Key': idempotencyKey })
-  const token = getStoredToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(`${BASE}/bank-advices`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`
-    try {
-      const problem = await response.json()
-      message = problem.Detail || problem.message || problem.Title || message
-    } catch { /* keep the status text */ }
-    throw new ApiError(response.status, message)
-  }
+  const response = await authorizedFetch(`${BASE}/bank-advices`, {
+    method: 'POST',
+    body,
+    headers: { 'Idempotency-Key': idempotencyKey },
+  })
   return (await response.json()) as VendorBankAdviceView
 }
 

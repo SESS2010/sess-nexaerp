@@ -7,7 +7,7 @@ import {
   submitQuotation,
   verifyQuotationTechnically,
 } from '../../api/purchase'
-import { getStoredToken } from '../../api/client'
+import { authorizedFetch, saveResponseAsFile } from '../../api/client'
 import type { QuotationLineRequest, RfqDetail, RfqLine } from '../../types/purchase'
 import { QUOTATION_SUBMISSION_SOURCES, VENDOR_REGISTRATION_TYPES } from '../../types/purchase'
 import { formatAmount } from './PurchaseRequisitionListPage'
@@ -245,18 +245,8 @@ export function QuotationPage() {
     const number = verifyQuotationNumber.trim()
     if (!number) return
     try {
-      const token = getStoredToken()
-      const response = await fetch(quotationAttachmentUrl(number), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!response.ok) throw new Error(`Download failed (${response.status})`)
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${number}-quotation`
-      anchor.click()
-      URL.revokeObjectURL(url)
+      const response = await authorizedFetch(quotationAttachmentUrl(number))
+      await saveResponseAsFile(response, `${number}-quotation`)
     } catch (err) {
       setError(err)
     }

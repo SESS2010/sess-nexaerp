@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getStoredIdentity } from '../../api/client'
 import {
   createPurchaseRequisition,
   listDepartments,
@@ -61,8 +60,9 @@ interface Props {
 }
 
 export function PurchaseRequisitionFormModal({ mode, existing, onClose, onSaved }: Props) {
-  const identity = getStoredIdentity()
-  const { can } = useSession()
+  const { me, can } = useSession()
+  // The requester is the signed-in employee as session/me reports them.
+  const identity = me ? { employeeCode: me.EmployeeCode, organizationId: me.OrganizationId } : null
   // POST needs purchase.requisitions:create, PUT needs :update.
   const canSave = can(PAGE_KEYS.requisitions, mode === 'create' ? 'create' : 'update')
   // Required-by is a real commitment from the requester, so it is not

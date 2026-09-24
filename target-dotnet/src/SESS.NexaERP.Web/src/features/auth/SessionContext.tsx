@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { api } from '../../api/client'
+import { ApiError, api } from '../../api/client'
+import { signOut } from '../../auth/authSession'
+import { AccessProblem } from '../../components/ErrorAlert'
 
 /** GET /api/v1/session/me — SessionMe in SESS.NexaERP.Application.Identity. */
 export interface SessionMe {
@@ -72,6 +74,38 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [me, loading, error, reload, can],
   )
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+}
+
+/**
+ * The workspace opens only after session/me returns 200 for the selected
+ * company. A refusal (EMPLOYEE_ACCESS_NOT_CONFIGURED, MFA_REQUIRED, …) is shown
+ * with its Detail and TraceId instead of an empty shell, and never retried in
+ * a loop.
+ */
+export function SessionGate({ children }: { children: React.ReactNode }) {
+  const { me, loading, error, reload } = useSession()
+  if (me) return <>{children}</>
+  if (loading) {
+    return (
+      <div className="session-gate">
+        <div className="card"><p className="page-sub">Loading your session…</p></div>
+      </div>
+    )
+  }
+  return (
+    <div className="session-gate">
+      <div className="card">
+        <h1 className="login-title" style={{ marginTop: 0 }}>The ERP did not open</h1>
+        <AccessProblem error={error} />
+        <div className="action-row mt-2">
+          {!(error instanceof ApiError && error.status === 403) && (
+            <button type="button" className="btn btn-ghost" onClick={reload}>↻ Try again</button>
+          )}
+          <button type="button" className="btn btn-primary" onClick={() => void signOut()}>Sign out</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function useSession(): SessionState {

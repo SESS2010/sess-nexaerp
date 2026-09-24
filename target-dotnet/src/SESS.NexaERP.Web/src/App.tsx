@@ -5,7 +5,10 @@ import { UserMenu } from './components/UserMenu'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { RequireAuth } from './features/auth/RequireAuth'
-import { PAGE_KEYS, SessionProvider, useSession } from './features/auth/SessionContext'
+import { CompanySelectPage } from './features/auth/CompanySelectPage'
+import { OidcCallbackPage, OidcLogoutCallbackPage } from './features/auth/OidcCallbackPage'
+import { PAGE_KEYS, SessionGate, SessionProvider, useSession } from './features/auth/SessionContext'
+import { useAuth } from './auth/useAuth'
 import { QuotationListPage } from './features/purchase/QuotationListPage'
 import { EmployeeListPage } from './features/employees/EmployeeListPage'
 import { EmployeeDetailPage } from './features/employees/EmployeeDetailPage'
@@ -189,14 +192,21 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  // Keyed on the auth epoch: a new sign-in or a company switch remounts the
+  // whole workspace, so no page state or cache from the previous one survives.
+  const { epoch } = useAuth()
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/oidc/callback" element={<OidcCallbackPage />} />
+      <Route path="/oidc/logout-callback" element={<OidcLogoutCallbackPage />} />
+      <Route path="/select-company" element={<CompanySelectPage />} />
       <Route
         path="*"
         element={
           <RequireAuth>
-            <SessionProvider>
+            <SessionProvider key={epoch}>
+            <SessionGate>
             <Shell>
               <Routes>
                 <Route path="/" element={<HomePage />} />
@@ -253,6 +263,7 @@ export default function App() {
                 <Route path="/design/estimated-boms/:bomNumber" element={<EstimatedBomDetailPage />} />
               </Routes>
             </Shell>
+            </SessionGate>
             </SessionProvider>
           </RequireAuth>
         }

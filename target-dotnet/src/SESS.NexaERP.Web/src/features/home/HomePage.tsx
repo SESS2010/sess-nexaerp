@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { getStoredIdentity } from '../../api/client'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
@@ -35,7 +34,6 @@ const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; 
 ]
 
 export function HomePage() {
-  const stored = getStoredIdentity()
   const { me, error, can } = useSession()
   const tiles = SHORTCUTS.filter((item) => can(item.page, item.action))
 
@@ -45,11 +43,11 @@ export function HomePage() {
         <div>
           <h1>Welcome{me ? `, ${me.EmployeeName}` : ''}</h1>
           <p className="page-sub">
-            <span className="mono">{me?.EmployeeCode ?? stored?.employeeCode ?? ''}</span>
+            <span className="mono">{me?.EmployeeCode ?? ''}</span>
             {me?.DepartmentCode ? ` · ${me.DepartmentCode}` : ''}
             {me?.RoleCodes?.length ? ` · ${me.RoleCodes.join(', ')}` : ''}
             {' · '}
-            {(me?.OrganizationId ?? stored?.organizationId ?? '').replaceAll('_', ' ')}
+            {(me?.OrganizationId ?? '').replaceAll('_', ' ')}
           </p>
         </div>
       </div>

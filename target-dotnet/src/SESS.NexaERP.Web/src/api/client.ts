@@ -1,89 +1,18 @@
-// Thin fetch wrapper. The API requires a JWT bearer token (permanent OIDC design);
-// until the identity provider is wired, a development token can be obtained via the
-// header sign-in box and is attached to every request.
+// Thin fetch wrapper. Every call to the API goes through authorizedFetch, which
+// attaches the in-memory OIDC access token and the selected company header,
+// refreshes once on 401, and turns an error response into an ApiError that
+// keeps the whole standard envelope.
 //
 // Wire contract (enforced globally by the API): PascalCase JSON properties, and
 // error responses use the standard envelope
 // { Type, Title, Status, Code, Detail, TraceId, Errors }.
+// Authentication contract: target-dotnet/docs/installation/server-frontend-oidc-contract.md
 
-const TOKEN_STORAGE_KEY = 'nexaerp.dev.bearerToken'
+import { getAccessToken, getCompany, isSignedIn, refreshAccessToken, requestSignal } from '../auth/authSession'
 
-export function getStoredToken(): string {
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
+export const COMPANY_HEADER = 'X-NexaERP-Company'
 
-export function setStoredToken(token: string): void {
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token)
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY)
-    }
-  } catch {
-    // storage unavailable; requests will simply go out unauthenticated
-  }
-}
-
-const IDENTITY_STORAGE_KEY = 'nexaerp.dev.identity'
-
-export function getStoredIdentity(): { employeeCode: string; organizationId: string } | null {
-  try {
-    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-const COMPANY_STORAGE_KEY = 'nexaerp.dev.lastCompany'
-
-/** Company chosen at the last sign-in; survives sign-out so the next sign-in lands in the same company. */
-export function getLastCompany(): string {
-  try {
-    return localStorage.getItem(COMPANY_STORAGE_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-export function setLastCompany(organizationId: string): void {
-  try {
-    localStorage.setItem(COMPANY_STORAGE_KEY, organizationId)
-  } catch {
-    // storage unavailable; the user picks again next time
-  }
-}
-
-export function setStoredIdentity(identity: { employeeCode: string; organizationId: string } | null): void {
-  try {
-    if (identity) {
-      localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity))
-    } else {
-      localStorage.removeItem(IDENTITY_STORAGE_KEY)
-    }
-  } catch {
-    // storage unavailable; the top bar just won't show the name
-  }
-}
-
-export class ApiError extends Error {
-  readonly status: number
-  readonly code?: string
-  readonly traceId?: string
-
-  constructor(status: number, message: string, code?: string, traceId?: string) {
-    super(message)
-    this.status = status
-    this.code = code
-    this.traceId = traceId
-  }
-}
-
-interface StandardErrorEnvelope {
+export interface StandardErrorEnvelope {
   Type?: string
   Title?: string
   Status?: number
@@ -92,65 +21,130 @@ interface StandardErrorEnvelope {
   TraceId?: string
   Errors?: Record<string, string[]>
   message?: string
+  /** Endpoint-specific extras (e.g. AdministratorActionRequired) survive here. */
+  [extra: string]: unknown
+}
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly code?: string
+  readonly traceId?: string
+  readonly title?: string
+  readonly type?: string
+  readonly errors?: Record<string, string[]>
+  /** The error body exactly as the server sent it, when it was JSON. */
+  readonly envelope?: StandardErrorEnvelope
+
+  constructor(status: number, message: string, code?: string, traceId?: string, envelope?: StandardErrorEnvelope) {
+    super(message)
+    this.status = status
+    this.code = code
+    this.traceId = traceId
+    this.envelope = envelope
+    this.title = envelope?.Title
+    this.type = envelope?.Type
+    this.errors = envelope?.Errors
+  }
+}
+
+async function toApiError(response: Response): Promise<ApiError> {
+  let message = `${response.status} ${response.statusText}`
+  let envelope: StandardErrorEnvelope | undefined
+  try {
+    envelope = (await response.json()) as StandardErrorEnvelope
+  } catch {
+    // non-JSON error body; keep the status text
+  }
+  if (envelope) {
+    message = envelope.Detail || envelope.Title || envelope.message || message
+    if (envelope.Errors && Object.keys(envelope.Errors).length > 0) {
+      const details = Object.entries(envelope.Errors)
+        .map(([field, errors]) => `${field}: ${errors.join('; ')}`)
+        .join(' | ')
+      if (details) message = `${message} — ${details}`
+    }
+  }
+  return new ApiError(response.status, message, envelope?.Code, envelope?.TraceId, envelope)
+}
+
+/** Tokens go only to this ERP origin: a relative path, never an absolute or protocol-relative URL. */
+function isErpPath(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//')
+}
+
+function isSafeMethod(method: string): boolean {
+  return method === 'GET' || method === 'HEAD'
+}
+
+function sessionExpired(): never {
+  // The session is already cleared; RequireAuth sends the user to sign-in.
+  throw new ApiError(401, 'Your sign-in has expired. Please sign in again.', 'AUTHENTICATION_REQUIRED')
+}
+
+/**
+ * fetch() for ERP API paths. Adds Authorization (access token only) and
+ * X-NexaERP-Company, and cancels with the session when the user signs out or
+ * switches company. Resolves only for a 2xx response; otherwise throws ApiError.
+ *
+ * On 401 the token is refreshed once. A safe read is then retried once. A
+ * write is never replayed silently: the user is told to check whether it took
+ * effect, and retrying reuses the caller's own idempotency key.
+ */
+export async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!isErpPath(path)) throw new Error(`Refusing to send ERP credentials to ${path}.`)
+  const method = (init?.method ?? 'GET').toUpperCase()
+
+  const send = (): Promise<Response> => {
+    const headers = new Headers(init?.headers)
+    const token = getAccessToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    const company = getCompany()
+    if (company) headers.set(COMPANY_HEADER, company)
+    return fetch(path, { ...init, headers, signal: init?.signal ?? requestSignal() })
+  }
+
+  let response = await send()
+  if (response.status === 401 && isSignedIn()) {
+    const refreshed = await refreshAccessToken()
+    if (!refreshed) sessionExpired()
+    if (isSafeMethod(method)) {
+      response = await send()
+    } else {
+      throw new ApiError(
+        401,
+        'Your sign-in had expired and has now been renewed. This action may not have been carried out: check the record before trying again.',
+        'AUTHENTICATION_REQUIRED',
+      )
+    }
+  }
+  if (!response.ok) throw await toApiError(response)
+  return response
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set('Accept', 'application/json')
-  if (init?.body) {
+  if (typeof init?.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
-  const token = getStoredToken()
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
-  const response = await fetch(path, { ...init, headers })
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`
-    let code: string | undefined
-    let traceId: string | undefined
-    let detailFromServer = false
-    try {
-      const body = (await response.json()) as StandardErrorEnvelope
-      if (body) {
-        detailFromServer = Boolean(body.Detail || body.message)
-        message = body.Detail || body.Title || body.message || message
-        code = body.Code
-        traceId = body.TraceId
-        if (body.Errors && Object.keys(body.Errors).length > 0) {
-          const details = Object.entries(body.Errors)
-            .map(([field, errors]) => `${field}: ${errors.join('; ')}`)
-            .join(' | ')
-          if (details) message = `${message} — ${details}`
-        }
-      }
-    } catch {
-      // non-JSON error body; keep the status text
-    }
-    if (response.status === 401) {
-      message = 'Not signed in, or the session expired. Please sign in again.'
-      // Expired/invalid token (e.g. the API restarted): send the user back to
-      // the login page instead of showing dead screens.
-      setStoredToken('')
-      setStoredIdentity(null)
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login')
-      }
-    }
-    if (response.status === 403 && !detailFromServer) {
-      // Only when the server gave no reason. Since main 9e97fbf a refusal
-      // names the awaited approver ("Creator self-approval is prohibited",
-      // "awaiting SESS-01 (TECHNICAL_DIRECTOR)") and that text must reach the user.
-      message = 'Permission denied for this page action.'
-    }
-    throw new ApiError(response.status, message, code, traceId)
-  }
-
+  const response = await authorizedFetch(path, { ...init, headers })
   if (response.status === 204) {
     return undefined as T
   }
   return (await response.json()) as T
+}
+
+/** Saves a downloaded response as a file, preferring the server's Content-Disposition name. */
+export async function saveResponseAsFile(response: Response, fallbackName: string): Promise<void> {
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition)
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = match?.[1] ? decodeURIComponent(match[1]) : fallbackName
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 /**

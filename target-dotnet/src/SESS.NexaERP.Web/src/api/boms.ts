@@ -1,4 +1,4 @@
-import { ApiError, api, getStoredToken } from './client'
+import { api, authorizedFetch, saveResponseAsFile } from './client'
 import type { PagedResponse } from './client'
 import type {
   CreateEstimatedBomRequest,
@@ -64,33 +64,10 @@ export function createEstimatedBomRevision(bomNumber: string, body: NewEstimated
   return api.post<EstimatedBomView>(`${ESTIMATED}/${encodeURIComponent(bomNumber)}/revisions`, body)
 }
 
-async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
-  const headers = new Headers(init?.headers)
-  const token = getStoredToken()
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-  const response = await fetch(path, { ...init, headers })
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`
-    try {
-      const body = await response.json()
-      message = body.Detail || body.message || body.Title || message
-    } catch { /* keep the status text */ }
-    // ApiError so ErrorAlert renders a 403/409 the same way as api.* calls.
-    throw new ApiError(response.status, message)
-  }
-  return response
-}
-
 /** GET /workbook/template (page action download) — saves the xlsx the import expects. */
 export async function downloadEstimatedBomTemplate(): Promise<void> {
   const response = await authorizedFetch(`${ESTIMATED}/workbook/template`)
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = 'estimated-bom-template.xlsx'
-  anchor.click()
-  URL.revokeObjectURL(url)
+  await saveResponseAsFile(response, 'estimated-bom-template.xlsx')
 }
 
 /** POST /workbook/import — multipart with one `file`; the idempotency key travels as a header here. */

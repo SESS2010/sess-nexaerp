@@ -199,6 +199,51 @@ function classifyConflict(message: string, code?: string): Conflict {
   }
 }
 
+/** Identity refusals from server-frontend-oidc-contract.md, branched on Code. */
+const AUTH_CODES = new Set(['EMPLOYEE_ACCESS_NOT_CONFIGURED', 'MFA_REQUIRED', 'AUTHENTICATION_REQUIRED'])
+
+function accessWording(error: ApiError): { title: string; guidance: string } {
+  switch (error.code) {
+    case 'EMPLOYEE_ACCESS_NOT_CONFIGURED':
+      return {
+        title: 'Your sign-in is not set up for this company',
+        guidance:
+          'You signed in, but the ERP has no active employee mapping for you in the chosen company, or your login is disabled. Try the other company, or ask the ERP administrator to map your login. Quote the trace number below.',
+      }
+    case 'MFA_REQUIRED':
+      return {
+        title: 'This role needs an authenticator code',
+        guidance:
+          'One of your roles may only be used after signing in with password and authenticator code. Sign out and sign in again as Approvers.',
+      }
+    default:
+      return {
+        title: 'You are not signed in',
+        guidance: 'Your sign-in expired or was not accepted. Sign in again to continue.',
+      }
+  }
+}
+
+/** Full explanation of an identity refusal: plain words, then the server's Detail and TraceId. */
+export function AccessProblem({ error, className = '' }: { error: unknown; className?: string }) {
+  if (!(error instanceof ApiError)) {
+    const text = error instanceof Error ? error.message : typeof error === 'string' ? error : 'The ERP could not be reached.'
+    return <div className={`alert alert-error ${className}`.trim()} role="alert">{text}</div>
+  }
+  const wording =
+    error.status === 403 && !AUTH_CODES.has(error.code ?? '')
+      ? { title: 'You are not allowed to do this', guidance: "Your role or department does not have the permission this needs. The server's reason is below." }
+      : accessWording(error)
+  return (
+    <div className={`alert alert-warn ${className}`.trim()} role="alert">
+      <div className="alert-title">{wording.title}</div>
+      <p className="alert-body">{wording.guidance}</p>
+      <p className="alert-detail mono">{error.message}</p>
+      {error.traceId && <p className="alert-detail mono">Trace {error.traceId}</p>}
+    </div>
+  )
+}
+
 /**
  * Shared error banner. A plain failure renders as before; a 409 gets a
  * plain-language heading, a next step, and a reload action instead of raw
@@ -214,6 +259,10 @@ export function ErrorAlert({ error, onReload, fallback = 'Something went wrong.'
   const isConflict = error instanceof ApiError && error.status === 409
   const isForbidden = error instanceof ApiError && error.status === 403
 
+  if (error instanceof ApiError && (error.status === 401 || AUTH_CODES.has(error.code ?? ''))) {
+    return <AccessProblem error={error} className={className} />
+  }
+
   // A 403 must never be silent: the server text names the permission or the
   // approver the document is waiting on, which is exactly what the user needs.
   if (isForbidden) {
@@ -224,6 +273,7 @@ export function ErrorAlert({ error, onReload, fallback = 'Something went wrong.'
           Your role or department does not have the permission this action needs. The server's reason is below; if it names another person, the document is waiting on them, not on you.
         </p>
         <p className="alert-detail mono">{message}</p>
+        {error.traceId && <p className="alert-detail mono">Trace {error.traceId}</p>}
       </div>
     )
   }

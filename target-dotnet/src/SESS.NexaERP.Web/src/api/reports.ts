@@ -5,7 +5,7 @@
 // is the summary with totals. Access is decided per report by the SQL
 // (report_grants), so the catalogue only lists what this session may open.
 
-import { api, getStoredToken } from './client'
+import { api, authorizedFetch, saveResponseAsFile } from './client'
 
 const BASE = '/api/v1/reports'
 
@@ -84,24 +84,6 @@ export function getReport(key: string, query: ReportQuery): Promise<ReportPage> 
 
 /** GET /reports/{key}/excel — summary with totals; the file name is `{key}-{toDate}.xlsx`. */
 export async function downloadReportExcel(key: string, query: Pick<ReportQuery, 'fromDate' | 'toDate' | 'selection'>): Promise<void> {
-  const token = getStoredToken()
-  const response = await fetch(`${BASE}/${encodeURIComponent(key)}/excel?${params(query)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!response.ok) {
-    let message = `Export failed (${response.status})`
-    try {
-      const body = await response.json()
-      message = body.Detail || body.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
-  const disposition = response.headers.get('content-disposition') ?? ''
-  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(disposition)
-  const url = URL.createObjectURL(await response.blob())
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = match?.[1] ? decodeURIComponent(match[1]) : `${key}.xlsx`
-  anchor.click()
-  URL.revokeObjectURL(url)
+  const response = await authorizedFetch(`${BASE}/${encodeURIComponent(key)}/excel?${params(query)}`)
+  await saveResponseAsFile(response, `${key}.xlsx`)
 }
