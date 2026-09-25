@@ -18,8 +18,9 @@ running system proves the state. #33 is the case that made it a rule. The realm 
 flow had no OTP step at all. **Before Step 6, the Staff flow, both clients' redirect URIs
 and grants, and the MFA trust mapping are read back from the running Keycloak and the
 deployed API configuration, not from the exports.**
-[tools/identity/Read-KeycloakLiveConfig.ps1](../../tools/identity/Read-KeycloakLiveConfig.ps1)
-does that, read-only, as PASS/FAIL lines. The same holds beyond identity: a grant, a
+The server agent's `Step4-Verify-RealmFlows.ps1` does that on the server, and is the canonical
+verifier (25 September). `tools/identity/Read-KeycloakLiveConfig.ps1`, which did the same from
+here, is removed so that there is only one. The same holds beyond identity: a grant, a
 scheduled task, a firewall rule or a certificate is checked where it runs.
 
 **Updated the same afternoon.** The RFQ investigation is closed, finding #4 is found, #11
@@ -46,6 +47,100 @@ The same miss put finding 4's evidence on #11. **The next search will have the s
 Search for `#N`, `Finding N` and `finding N`, across `docs/`, `database/`, `tools/` and the
 commit messages, before calling any finding missing.**
 
+## Update, 25 September: corrections and decisions from the Technical Director
+
+**#33 is FIXED on the server.** This corrects the morning report, which still showed it open
+with a repair to run. On 24 September the Technical Director added the **OTP Form, Required,
+after the Username Password Form** to `nexaerp-approver-browser` in the Admin Console, signed in
+as `abidesh-admin`/`sess-setup`, as the server agent advised. The server agent's live-database
+script `Step4-Verify-RealmFlows.ps1` then returned PASS. Step 6 and 6F are done, and the API is
+healthy on 8443, witnessed from the Technical Director's PC.
+
+- **Cause: still undetermined.** `tools/identity/Test-KeycloakRealmImport.ps1` will say whether
+  the importer drops the OTP step. The Technical Director runs it on the laptop.
+- **`Repair-ApproverOtpFlow.ps1` will not be run.** It stays in the repository, unrun, and is
+  kept only in case the import test shows the importer loses the step.
+- **Nothing is run against the server from the laptop.** Server scripts come from the server
+  agent only.
+- **`Step4-Verify-RealmFlows.ps1` (the server agent's) is the canonical R11 verifier.**
+  `Read-KeycloakLiveConfig.ps1` was a second one, so it is **removed** from `tools/identity`. Its
+  text in the #33 section below is kept as written on 24 September.
+- **Question for the server agent:** the removed script's `-ApiAuthConfigPath` also read back
+  the *installed API's* trust settings, including `MfaGuaranteedByProvider` true for Approvers
+  only. If `Step4-Verify-RealmFlows.ps1` does not read that file, that check has no home now.
+  This is not a blocker: Step 6 is done and the API is healthy.
+- **Question for the Technical Director:** the sign-in is recorded as
+  `abidesh-admin`/`sess-setup`. [server-keycloak-install.md](server-keycloak-install.md) step 9
+  deletes `sess-setup` once the named administrator exists. If `sess-setup` still exists on the
+  server, that step is still to do.
+
+**Decisions:**
+
+1. **#34 and #35: fix the DC backend now, before the screen is built on 29 September.** Under
+   way. The Technical Director is told when the contract changes, so the frontend developer
+   (ILAMPARUTHI) can be told.
+2. **Identity scripts go inside the verified package.** `Step4-Verify-RealmFlows.ps1` is the
+   canonical verifier, so no second verifier is packaged. See the
+   [package plan](login-package-rebuild-plan.md).
+3. **Zone-less timestamps:**
+   - accepted as India Standard Time, never the server's zone;
+   - a warning naming the field is logged each time.
+
+   Under way as its own code change with its own cycle.
+4. **Login-enabled employees: none enabled by default on a fresh database.** Only people on
+   the signed scope roster are enabled. How the bootstrap handles this today is below. **It
+   does not yet meet the rule.**
+
+### How a fresh database and the bootstrap handle login-enabled employees today
+
+Read from the migration and endpoint source on 25 September. Nothing was run against any
+database.
+
+1. **Migrations enable 11 employees before anyone touches the database.**
+   - `20260907114500_EnableWorkflowDevelopmentLogins` sets `LoginEnabled = true` on SESS-02,
+     -14, -15, -16, -25, -33, -35 and -41.
+   - `20260907220500_CompleteSeededWorkflowDevelopmentLogins` does the same for SESS-01, -04
+     and -12, where ACTIVE.
+
+   Both run on every fresh database, including Option C's.
+2. **The Installer's `authentication-bootstrap` touches SESS-12 only.** Inside
+   `complete_authentication_bootstrap` it:
+   - sets SESS-12's `LoginEnabled = true`;
+   - creates SESS-12's two company mappings;
+   - adds IT_MANAGER.
+
+   It does not disable anyone, so after it the same 11 are enabled.
+3. **The mapping wrapper checks the flag, not the roster.**
+   `POST /api/v1/rev869a/configuration/employee-identities` refuses an employee who is not
+   active and login-enabled. The other 10 already are, so the API would map any of them
+   without an enable step. Today the roster is enforced only by the operator following it.
+4. **The governed switch cannot be used to undo this cleanly.** `deactivate-login`
+   (`EmployeeEndpoints.ChangeLoginAsync`) also sets the employee's **Status to Inactive**.
+   `activate-login` sets it back to Active. Deactivating a working employee who is simply not
+   on the roster yet would make them an inactive employee. That breaks manager, approver and
+   role-authority checks that require ACTIVE. The development-login review said the switch was
+   this endpoint, and it missed this side effect. That text is kept as written, and this
+   corrects it.
+
+**What still grants nothing.** A login-enabled employee with no mapping cannot sign in: the
+API still needs a Keycloak-signed token and an approved mapping. So this is not an exposure.
+It is a default that contradicts the rule.
+
+**Recommendation: one migration, about half a day plus a full cycle. It needs the Technical
+Director's approval, because it moves the migration head from 130 to 131.**
+
+- **What it does:** it sets `LoginEnabled = false` on exactly the rows those two migrations
+  enabled and nothing has changed since (their own `UpdatedBy` markers).
+- **What it leaves alone:** any employee with an active, non-development identity mapping. So
+  a database where Step 6 has run, such as DEMO, keeps every mapped person enabled.
+- **On a fresh database** it leaves nobody enabled. The bootstrap then enables SESS-12 by
+  itself.
+- **Enabling a roster person** then happens through `activate-login`, with its reason and
+  audit row, before `employee-identities` will map them. The roster becomes an enforced gate,
+  not only a procedure.
+- **The Status coupling in `deactivate-login` is left as it is.** It is correct for a leaver,
+  and changing it would change a screen the frontend reads.
+
 ## Findings
 
 | # | Status | Evidence | Note |
@@ -70,9 +165,9 @@ commit messages, before calling any finding missing.**
 | **30** | **SHIPPED** `84b8698` (ancestor of origin/main since the push at 494de07) | Setup wrapper, `tools/setup/SetupOperator.psm1`; 44 wrapper checks pass | The wrapper replaced every refusal with "HTTP 409" and hid the server's reason. A go-live blocker for setup on 1-3 October. See below. |
 | **31** | **Converter committed `b394e50` (not yet pushed); frontend obligation OPEN** | Found 24 Sep, RFQ investigation | A local-offset timestamp on any of **13** request fields (listed below) gives a 500 the user cannot act on. **The frontend must send UTC on all 13 before 1 October, whatever the backend does.** The converter is a safety net, not a substitute. |
 | **32** | **OPEN** | Found by the developer, 24 Sep | SESS-16's untracked `TECHNICAL_ENGINEER` support grant. See *Support-role grants*. |
-| **33** | **OPEN: repair approved, the Technical Director runs it on the server**; scripts shipped `54b5ba9`; the admin-OTP fix to them, `cea7383`, is committed and not yet pushed | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
-| **34** | **OPEN, backend defect, not built** | [DC contract review](dc-frontend-contract-review-20260925.md) | Machine DC dispatch or signature with an **omitted** `DcNumber`, `Destination` or `CustomerSignatory` hits a NOT NULL constraint the service does not map, so the answer is **500**. Fix about half a day plus a cycle; needs a slot. |
-| **35** | **OPEN, contract differs from backend** | same | The DC contract promises 400 for its field rules; the backend answers **409 BUSINESS_RULE_CONFLICT** for nearly all of them, some with raw constraint text. Fixed together with #34 (about one day) or the contract reads 409. |
+| **33** | **FIXED on the server 24 Sep** in the Admin Console (OTP Form, Required, after the password form); `Step4-Verify-RealmFlows.ps1` PASS; Step 6 and 6F done. Cause undetermined until the import test runs. Repair script not run. See *Update, 25 September*. (Was: OPEN, repair approved; scripts shipped `54b5ba9`, admin-OTP fix `cea7383`) | Server Step 4 Check B, 24 Sep about 17:40 | **Approvers log in with password only.** On the server, `nexaerp-approver-browser` holds one step, the Username Password Form. The OTP Form is missing, although the flow's own description says *Mandatory password and OTP*. See below. **Step 6 stays on hold until it is repaired and a fresh login is witnessed.** |
+| **34** | **OPEN, backend defect; fix decided 25 Sep, under way** (before the screen on 29 Sep) | [DC contract review](dc-frontend-contract-review-20260925.md) | Machine DC dispatch or signature with an **omitted** `DcNumber`, `Destination` or `CustomerSignatory` hits a NOT NULL constraint the service does not map, so the answer is **500**. Fix about half a day plus a cycle; needs a slot. |
+| **35** | **OPEN, contract differs from backend; fixed with #34, under way.** The contract changes: the Technical Director is told when it does | same | The DC contract promises 400 for its field rules; the backend answers **409 BUSINESS_RULE_CONFLICT** for nearly all of them, some with raw constraint text. Fixed together with #34 (about one day) or the contract reads 409. |
 | **36** | **CLOSED by the frontend developer** (`bc0a26d`, `d6efb79` on `feature/frontend`, after `7a7a030`) | same | The DC contract's signature example sent `DeliveredAt` with `+05:30`; it now sends `Z` and states one UTC rule for every field. Remaining nit: it says an offset elsewhere is "a 400"; since `7003c02` it was a 500, and with the converter it is accepted. |
 
 ## Second sweep, night of 24-25 September
@@ -232,6 +327,13 @@ Only that one named field is printed, never the body, so a body carrying a token
 nothing extra. Shipped `84b8698`.
 
 ### #33 Approvers MFA flow missing its OTP step
+
+> **FIXED on the server, 24 September. Superseded as a plan, kept as the record.** The
+> Technical Director added the OTP Form in the Admin Console, and the server agent's
+> `Step4-Verify-RealmFlows.ps1` returned PASS. `Repair-ApproverOtpFlow.ps1` is not run.
+> `Read-KeycloakLiveConfig.ps1` is removed, because Step 4's script is the canonical verifier.
+> Where the text below says to run either script, read it as history. See *Update, 25
+> September* at the top.
 
 **What the server shows (Step 4 Check B).** The Approvers realm is bound to
 `nexaerp-approver-browser`, and the built-in `browser` flow is not in use. That flow holds

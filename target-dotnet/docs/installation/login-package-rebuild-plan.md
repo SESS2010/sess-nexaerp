@@ -4,6 +4,32 @@ Written on the night of 24-25 September 2026 at the Technical Director's request
 build it yet:** the login acceptance is not finished. This says what goes in, what must be
 proven first, how long it takes, and what is needed from the frontend developer.
 
+## Update, 25 September: what changed after the Technical Director's answers
+
+The plan below is kept as written on the night of 24-25 September. These points override it.
+
+- **Prerequisite 1 (#33) is met differently.** #33 was fixed on the server on 24 September in
+  the Admin Console. The server agent's `Step4-Verify-RealmFlows.ps1` returned PASS, and Step 6
+  and 6F are done. `Repair-ApproverOtpFlow.ps1` is not run. `Read-KeycloakLiveConfig.ps1` is
+  removed, because Step 4's script is the canonical verifier and there is to be only one.
+- **Identity tools: inside the package (decided).** The row below now means the tools that are
+  left in `tools/identity`:
+  - `Test-KeycloakRealmImport.ps1`;
+  - `Repair-ApproverOtpFlow.ps1`, packaged with its README line saying **do not run**, kept
+    only in case the import test shows the importer loses the OTP step.
+
+  No read-back verifier is packaged.
+- **Prerequisite 4 moves.** The package HEAD is no longer the #31 converter commit. Two code
+  changes are decided, each with its own full cycle:
+  - zone-less timestamps read as IST with a warning naming the field;
+  - the #34/#35 DC validation.
+
+  A third is proposed: the login-enabled default migration, if approved. The acceptance that
+  counts is the one at the final HEAD. **If the migration is approved, the head moves to 131**
+  and the bundle's content changes; the builder proves it on a disposable cluster as before.
+- **Ask 4 of the frontend developer changes.** After #34/#35 the DC field rules answer 400, not
+  409. The contract change goes to the Technical Director, who tells the developer.
+
 ## Where things stand
 
 - **Last package:** `bcfee49` (21 September), readiness

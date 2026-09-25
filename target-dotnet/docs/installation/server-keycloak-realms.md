@@ -63,6 +63,17 @@ acceptance, not a newly executed production witness.
 
 ## Running the two identity scripts (finding #33)
 
+> **Superseded on 25 September; kept as written.** #33 was fixed on the server on 24 September
+> in the Admin Console: the OTP Form was added, Required, after the password form. The server
+> agent's `Step4-Verify-RealmFlows.ps1` returned PASS.
+>
+> - `Repair-ApproverOtpFlow.ps1` **is not run.** It is kept only in case the Keycloak import
+>   test shows the importer loses the OTP step.
+> - `Read-KeycloakLiveConfig.ps1` **is removed.** `Step4-Verify-RealmFlows.ps1` is the canonical
+>   verifier, and there is to be only one.
+> - **Nothing is run against the server from the laptop.** Server scripts come from the server
+>   agent only.
+
 [tools/identity/Repair-ApproverOtpFlow.ps1](../../tools/identity/Repair-ApproverOtpFlow.ps1) and
 [tools/identity/Read-KeycloakLiveConfig.ps1](../../tools/identity/Read-KeycloakLiveConfig.ps1) talk
 to Keycloak only over HTTPS REST at `https://192.168.68.130:8444`. That is Keycloak's main
