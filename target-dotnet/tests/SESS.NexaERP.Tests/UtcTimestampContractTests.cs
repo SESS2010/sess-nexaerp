@@ -1,4 +1,8 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using SESS.NexaERP.Api.Serialization;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Stores;
@@ -101,5 +105,147 @@ public sealed class UtcTimestampContractTests
     {
         Assert.ThrowsAny<JsonException>(() =>
             JsonSerializer.Deserialize<Rev869BCreateRfqRequest>("{\"QuoteDueAt\":\"not a date\"}", ApiOptions()));
+    }
+
+    // Zone-less values: decided by the Technical Director on 25 September. Read as India Standard
+    // Time, never as the server's zone, and a warning naming the field is logged every time.
+    // This laptop runs in India Standard Time, so these tests pin the arithmetic and the warning;
+    // the converter takes the offset from a constant and never consults TimeZoneInfo.Local.
+    private const string ZoneLess = "2026-09-30T18:00:00";
+
+    private static (JsonSerializerOptions Options, CapturingLogger Log) LoggedApiOptions()
+    {
+        var log = new CapturingLogger();
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        ApiJsonContract.Configure(options, log);
+        return (options, log);
+    }
+
+    [Theory]
+    [MemberData(nameof(ThirteenRequestFields))]
+    public void A_zone_less_value_is_read_as_india_standard_time_and_warned_by_field(Type requestType, string field)
+    {
+        var (options, log) = LoggedApiOptions();
+        var request = JsonSerializer.Deserialize($"{{\"{field}\":\"{ZoneLess}\"}}", requestType, options)!;
+        var value = (DateTimeOffset)requestType.GetProperty(field)!.GetValue(request)!;
+
+        Assert.Equal(TimeSpan.Zero, value.Offset);
+        Assert.Equal(Instant, value);
+        var warning = Assert.Single(log.Entries);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal($"{requestType.Name}.{field}", warning.Field);
+        Assert.Contains(ZoneLess, warning.Message);
+    }
+
+    [Theory]
+    [InlineData(Local)]
+    [InlineData("2026-09-30T12:30:00Z")]
+    public void A_value_with_a_zone_logs_nothing(string text)
+    {
+        var (options, log) = LoggedApiOptions();
+        var request = JsonSerializer.Deserialize<Rev869BCreateRfqRequest>($"{{\"QuoteDueAt\":\"{text}\"}}", options)!;
+
+        Assert.Equal(Instant, request.QuoteDueAt);
+        Assert.Empty(log.Entries);
+    }
+
+    [Fact]
+    public void Each_zone_less_value_is_warned_every_time()
+    {
+        var (options, log) = LoggedApiOptions();
+        for (var i = 0; i < 3; i++)
+            JsonSerializer.Deserialize<Rev869BCreateRfqRequest>($"{{\"QuoteDueAt\":\"{ZoneLess}\"}}", options);
+
+        Assert.Equal(3, log.Entries.Count);
+    }
+
+    [Fact]
+    public void A_zone_less_date_alone_is_midnight_in_india()
+    {
+        var (options, log) = LoggedApiOptions();
+        var request = JsonSerializer.Deserialize<Rev869BCreateRfqRequest>("{\"QuoteDueAt\":\"2026-09-30\"}", options)!;
+
+        Assert.Equal(new DateTimeOffset(2026, 9, 29, 18, 30, 0, TimeSpan.Zero), request.QuoteDueAt);
+        Assert.Equal("Rev869BCreateRfqRequest.QuoteDueAt", Assert.Single(log.Entries).Field);
+    }
+
+    [Fact]
+    public void A_zone_less_nullable_value_is_converted_and_named()
+    {
+        var (options, log) = LoggedApiOptions();
+
+        Assert.Equal(Instant, JsonSerializer.Deserialize<OptionalTimestamp>($"{{\"At\":\"{ZoneLess}\"}}", options)!.At);
+        Assert.Null(JsonSerializer.Deserialize<OptionalTimestamp>("{\"At\":null}", options)!.At);
+        Assert.Equal("OptionalTimestamp.At", Assert.Single(log.Entries).Field);
+    }
+
+    [Fact]
+    public void A_zone_less_value_outside_a_property_is_still_converted_and_warned()
+    {
+        var (options, log) = LoggedApiOptions();
+
+        Assert.Equal(Instant, Assert.Single(JsonSerializer.Deserialize<List<DateTimeOffset>>($"[\"{ZoneLess}\"]", options)!));
+        Assert.Equal("(unnamed value)", Assert.Single(log.Entries).Field);
+    }
+
+    [Fact]
+    public async Task The_api_registration_writes_the_warning_to_the_application_log()
+    {
+        // Proves the registration Program.cs uses, not a copy of it: a real host, a real request.
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+
+        var log = new CapturingLogger();
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], EnvironmentName = "Test" });
+        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        builder.Logging.ClearProviders().AddProvider(new CapturingLoggerProvider(log));
+        builder.Services.AddApiJsonContract();
+        await using var app = builder.Build();
+        app.MapPost("/rfq", (Rev869BCreateRfqRequest request) => Results.Ok(new { request.QuoteDueAt }));
+        await app.StartAsync();
+
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        using var response = await client.PostAsync("/rfq",
+            new StringContent($"{{\"QuoteDueAt\":\"{ZoneLess}\"}}", System.Text.Encoding.UTF8, "application/json"));
+        var body = await response.Content.ReadAsStringAsync();
+        await app.StopAsync();
+
+        Assert.True(response.IsSuccessStatusCode, body);
+        Assert.Equal(Instant, JsonDocument.Parse(body).RootElement.GetProperty("QuoteDueAt").GetDateTimeOffset());
+        var warning = Assert.Single(log.Entries, entry => entry.Category == typeof(ApiJsonContract).FullName);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal("Rev869BCreateRfqRequest.QuoteDueAt", warning.Field);
+    }
+
+    private sealed record LogEntry(string Category, LogLevel Level, string? Field, string Message);
+
+    private sealed class CapturingLogger(string category = "") : ILogger
+    {
+        private readonly List<LogEntry> _entries = [];
+        private readonly CapturingLogger? _root;
+
+        private CapturingLogger(CapturingLogger root, string category) : this(category) => _root = root;
+
+        public IReadOnlyList<LogEntry> Entries { get { lock (Sink._entries) return Sink._entries.ToArray(); } }
+        private CapturingLogger Sink => _root ?? this;
+
+        public ILogger For(string name) => new CapturingLogger(Sink, name);
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var field = (state as IEnumerable<KeyValuePair<string, object?>>)?
+                .FirstOrDefault(pair => pair.Key == "Field").Value as string;
+            lock (Sink._entries) Sink._entries.Add(new LogEntry(category, logLevel, field, formatter(state, exception)));
+        }
+    }
+
+    private sealed class CapturingLoggerProvider(CapturingLogger log) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => log.For(categoryName);
+        public void Dispose() { }
     }
 }

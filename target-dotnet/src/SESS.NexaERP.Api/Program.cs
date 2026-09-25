@@ -22,7 +22,7 @@ if (builder.Environment.IsDevelopment())
 }
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
+builder.Services.AddApiJsonContract();
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddScoped<ICurrentUser, ClaimsCurrentUser>();
 builder.Services.AddOpenApi();
