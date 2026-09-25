@@ -40,9 +40,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
   user.Set(context.AccountsId,"SESS-14",Rev869ARoleCodes.AccountsManager);
   using(var denied=await client.PostAsJsonAsync("/api/v1/stores/machine-deliveries/",dispatch)) Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
   user.Set(context.StoresId,"SESS-35",Rev869ARoleCodes.StoresExecutive);
+  // #34: omitting DcNumber and Destination reached their NOT NULL columns as a 500. #35: a field rule
+  // answered 409. Both are now a 400 naming each field. Nothing is written: the dispatch below would
+  // otherwise meet this job's one-DC rule.
+  using(var omitted=await client.PostAsync("/api/v1/stores/machine-deliveries/",new StringContent(JsonSerializer.Serialize(new {dispatch.JobOrderId,dispatch.Nature,dispatch.Purpose,
+    dispatch.DispatchDate,dispatch.ExpectedReturnDate,IdempotencyKey="machine-dispatch-omitted"}),Encoding.UTF8,"application/json")))
+   await MachineDcFieldRefusal(omitted,"DcNumber","Destination");
+  using(var wrongPurpose=await client.PostAsJsonAsync("/api/v1/stores/machine-deliveries/",dispatch with {Purpose=nature=="RETURNABLE" ? "CUSTOMER_PO_BASED" : "DEMO",IdempotencyKey="machine-dispatch-wrong-purpose"}))
+   await MachineDcFieldRefusal(wrongPurpose,"Purpose");
   var dc=await Post<JsonElement>(client,"/api/v1/stores/machine-deliveries/",dispatch);
   var id=dc.GetProperty("Id").GetGuid(); Assert.Equal("DISPATCHED",dc.GetProperty("MachineState").GetString());
   var replay=await Post<JsonElement>(client,"/api/v1/stores/machine-deliveries/",dispatch); Assert.Equal(id,replay.GetProperty("Id").GetGuid());
+  // A second DC for the same job is a state conflict and stays 409, now in words instead of constraint text.
+  using(var second=await client.PostAsJsonAsync("/api/v1/stores/machine-deliveries/",dispatch with {DcNumber="WITNESS-MACHINE-DC-002",IdempotencyKey="machine-dispatch-second"}))
+   await MachineDcConflict(second,"This job already has a machine DC.");
+  using(var noSignatory=await client.PostAsync($"/api/v1/stores/machine-deliveries/{id}/signature",new StringContent(JsonSerializer.Serialize(new {DeliveredAt=DateTimeOffset.UtcNow,
+    Evidence=new SupplierInvoiceEvidenceInput("signed.pdf","application/pdf",Encoding.ASCII.GetBytes("%PDF-1.7")),IdempotencyKey="machine-sign-omitted"}),Encoding.UTF8,"application/json")))
+   await MachineDcFieldRefusal(noSignatory,"CustomerSignatory");
   using(var bad=await client.PostAsJsonAsync($"/api/v1/stores/machine-deliveries/{id}/signature",
     new SignMachineDeliveryRequest(DateTimeOffset.UtcNow,"Witness customer",new("signature.pdf","application/pdf",[]),"unsigned-refusal"))) Assert.False(bad.IsSuccessStatusCode);
   using(var badName=await client.PostAsJsonAsync($"/api/v1/stores/machine-deliveries/{id}/signature",
@@ -56,6 +70,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
   var delivered=await Post<JsonElement>(client,$"/api/v1/stores/machine-deliveries/{id}/signature",signed);
   Assert.Equal("DELIVERED",delivered.GetProperty("MachineState").GetString()); Assert.Equal(nature=="RETURNABLE" ? "OUTSTANDING" : "CLOSED",delivered.GetProperty("DcState").GetString());
   var signReplay=await Post<JsonElement>(client,$"/api/v1/stores/machine-deliveries/{id}/signature",signed); Assert.Equal(delivered.GetRawText(),signReplay.GetRawText());
+  using(var resign=await client.PostAsJsonAsync($"/api/v1/stores/machine-deliveries/{id}/signature",signed with {IdempotencyKey="machine-sign-second"}))
+   await MachineDcConflict(resign,"This machine DC is already signed.");
   Assert.Equal(movements,await db.StockMovements.CountAsync()); Assert.Equal(consumptions,await db.FifoCostConsumptions.CountAsync()); Assert.Equal(boms,await db.ActualBomEntries.CountAsync());
   user.Set(context.DirectorId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);
   user.Set(context.AccountsId,"SESS-14",Rev869ARoleCodes.AccountsManager);
@@ -82,5 +98,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
   await File.WriteAllBytesAsync(Path.Combine(root,"machine-dossier-"+nature+"-witness.xlsx"),bytes);
   await File.WriteAllTextAsync(Path.Combine(root,"machine-dossier-"+nature+"-witness.json"),JsonSerializer.Serialize(new {Job=job.Id,Machine=job.MachineSerial,Delivery=delivered,Report=report,StockMovementsBefore=movements,StockMovementsAfter=await db.StockMovements.CountAsync(),FifoConsumptions=consumptions},new JsonSerializerOptions{WriteIndented=true}));
  });
+ private static async Task MachineDcFieldRefusal(HttpResponseMessage response,params string[] fields)
+ {
+  var body=await response.Content.ReadAsStringAsync();
+  Assert.True(response.StatusCode==HttpStatusCode.BadRequest,body);
+  using var envelope=JsonDocument.Parse(body);
+  Assert.Equal("VALIDATION_FAILED",envelope.RootElement.GetProperty("Code").GetString());
+  Assert.Equal(fields.Order(StringComparer.Ordinal),envelope.RootElement.GetProperty("Errors").EnumerateObject().Select(e=>e.Name).Order(StringComparer.Ordinal));
+ }
+ private static async Task MachineDcConflict(HttpResponseMessage response,string detail)
+ {
+  var body=await response.Content.ReadAsStringAsync();
+  Assert.True(response.StatusCode==HttpStatusCode.Conflict,body);
+  using var envelope=JsonDocument.Parse(body);
+  Assert.Equal("BUSINESS_RULE_CONFLICT",envelope.RootElement.GetProperty("Code").GetString());
+  Assert.Equal(detail,envelope.RootElement.GetProperty("Detail").GetString());
+ }
 #endif
 }

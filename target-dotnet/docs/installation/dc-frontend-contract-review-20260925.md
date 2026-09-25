@@ -13,6 +13,73 @@ and `20260915103000_MachineDeliveryDossier.sql` (the tables, the checks,
 `record_machine_delivery`, `machine_delivery_json`, `machine_delivery_signature_content`).
 No later migration alters these tables or functions.
 
+## Update, 25 September: #34 and #35 fixed in the backend. The contract changes
+
+> **For the Technical Director to pass to the frontend developer (ILAMPARUTHI).** The review
+> below is kept as written. This section replaces its *Findings* for #34 and #35. The backend
+> fix is the commit that adds this section (*fix: judge a machine DC request on its own fields
+> first*). It passed full suites and three gates on 25-26 September, and reaches the server only
+> with the next package.
+
+**One rule for the screen. 400 means the request itself is wrong, so fix the field. 409 means
+the request is well-formed but the database state refuses it, so show the reason.**
+
+**400 `VALIDATION_FAILED`, with every failing field named in `Errors`.** Each key below
+appears only when that field fails. A request with several faults gets all of them in one
+answer. `Detail` repeats every message, so a client that ignores `Errors` still shows the
+reason.
+
+**Dispatch** (`POST /api/v1/stores/machine-deliveries/`):
+
+| `Errors` key | When |
+|---|---|
+| `JobOrderId` | missing |
+| `DcNumber` | missing, blank, or more than 100 characters after trimming |
+| `Destination` | missing, blank, or more than 500 characters after trimming |
+| `Nature` | missing, or not exactly `RETURNABLE` / `NON_RETURNABLE` (uppercase) |
+| `Purpose` | missing, or not allowed for the nature: `DEMO`, `TRIAL`, `JOB_WORK`, `SITE_WORK` for RETURNABLE; `CUSTOMER_PO_BASED` for NON_RETURNABLE |
+| `DispatchDate` | missing, or after today in India Standard Time |
+| `ExpectedReturnDate` | RETURNABLE: missing, or before `DispatchDate`. NON_RETURNABLE: present |
+| `IdempotencyKey` | missing, or more than 100 characters |
+
+**Signature** (`POST /api/v1/stores/machine-deliveries/{id}/signature`):
+
+| `Errors` key | When |
+|---|---|
+| `DeliveredAt` | missing, or in the future |
+| `CustomerSignatory` | missing, blank, or more than 200 characters after trimming |
+| `Evidence` | no file, an empty file, or more than 5 MB |
+| `Evidence.ContentType` | the file is not a PDF, PNG or JPEG, or it does not match `ContentType` |
+| `Evidence.FileName` | missing, more than 255 characters, or containing control characters |
+| `IdempotencyKey` | missing, or more than 100 characters |
+
+**Still 409 `BUSINESS_RULE_CONFLICT`: the database state refuses the request.** These now
+carry a sentence, never PostgreSQL's constraint text.
+
+| Case | `Detail` |
+|---|---|
+| Job not FAT READY, or unknown | *Machine dispatch requires this company job to be FAT READY.* |
+| No linked customer PO | *Machine dispatch requires its linked customer PO.* |
+| Dispatch before the FAT reconciliation date | *Nature, purpose, dispatch date and required return date must be valid after FAT readiness.* |
+| The job already has a DC | *This job already has a machine DC.* |
+| The DC number is already used in this company | *This DC number is already used in this company.* |
+| Signing an unknown or other-company DC | *Machine DC not found in this company.* |
+| Delivery before the dispatch date, or FAT identity changed since dispatch | *Signed delivery requires unchanged FAT-ready machine identity, a valid delivery date and retained signature.* |
+| The DC is already signed | *This machine DC is already signed.* |
+| NON_RETURNABLE with no Managing Director to notify | *NON_RETURNABLE dispatch requires an active Managing Director notification recipient.* |
+
+**Unchanged:**
+
+- 403 for a missing permission or a non-substantive assignment;
+- `409 CONCURRENCY_CONFLICT` on a race;
+- a same-key retry replays the receipt;
+- 404 only for the DC view and the evidence download;
+- every success response is byte-for-byte as before.
+
+**Timestamps:** `DeliveredAt` still goes in UTC, ending in `Z`, as for all 13 fields. A value
+with no zone is now read as India Standard Time and logged as a warning naming the field. That
+is a safety net, not permission.
+
 ## What matches
 
 Everything not listed as a finding below matches the backend:
