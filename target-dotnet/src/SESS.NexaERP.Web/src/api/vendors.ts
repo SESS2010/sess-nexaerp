@@ -57,6 +57,33 @@ export function runVendorAction(vendorCode: string, action: VendorAction, remark
   })
 }
 
+// Accounts commercial verification (masters.vendors:verify, ACCOUNTS_MANAGER).
+// Returns the VendorDetail with the new Version; the vendor stays Pending Approval
+// until the MD's final approve. Not idempotent: never retry blindly.
+export function verifyVendorCommercial(vendorCode: string, remarks: string, version: number): Promise<VendorDetail> {
+  return api.post<VendorDetail>(`${BASE}/${encodeURIComponent(vendorCode)}/verify-commercial`, {
+    Remarks: remarks,
+    Version: version,
+  })
+}
+
+// MasterHistorySummary from GET /vendors/{code}/approval-history (masters.vendors:view-audit-history).
+export interface VendorApprovalHistoryRow {
+  Id: string
+  Action: string
+  FromStatus: string | null
+  ToStatus: string | null
+  Remarks: string | null
+  ActorLoginId: string
+  ActorRoleCode: string
+  CreatedAt: string
+  CorrelationId: string | null
+}
+
+export function getVendorApprovalHistory(vendorCode: string): Promise<VendorApprovalHistoryRow[]> {
+  return api.get<VendorApprovalHistoryRow[]>(`${BASE}/${encodeURIComponent(vendorCode)}/approval-history`)
+}
+
 export type VendorAttachmentKind = 'BANK_LEAF' | 'GST_CERTIFICATE' | 'PAN_CARD'
 
 export interface VendorAttachmentInfo {

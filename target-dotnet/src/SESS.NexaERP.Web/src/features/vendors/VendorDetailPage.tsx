@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { downloadVendorAttachment, getVendor, parseAttachmentMetadata, parseBankMetadata, runVendorAction } from '../../api/vendors'
-import type { VendorAction } from '../../api/vendors'
+import { downloadVendorAttachment, getVendor, getVendorApprovalHistory, parseAttachmentMetadata, parseBankMetadata, runVendorAction } from '../../api/vendors'
+import type { VendorAction, VendorApprovalHistoryRow } from '../../api/vendors'
 import { getVendorItems } from '../../api/items'
 import type { VendorSuppliedItem } from '../../types/item'
 import type { VendorDetail } from '../../types/vendor'
@@ -9,6 +9,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { VendorFormModal } from './VendorFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { VerifyCommercialModal } from './VerifyCommercialModal'
 
 // Which workflow actions make sense from each approval status. The backend is
 // the authority (permission + state checks); this only trims the button row.
@@ -35,17 +36,22 @@ export function VendorDetailPage() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [verifiedNotice, setVerifiedNotice] = useState(false)
+  const [history, setHistory] = useState<VendorApprovalHistoryRow[] | null>(null)
+  const canSeeHistory = can(PAGE_KEYS.vendors, 'view-audit-history')
 
   const load = useCallback(async () => {
     setError(null)
     try {
       setDetail(await getVendor(vendorCode))
       setSuppliedItems(await getVendorItems(vendorCode).catch(() => []))
+      setHistory(canSeeHistory ? await getVendorApprovalHistory(vendorCode).catch(() => null) : null)
     } catch (err) {
       setDetail(null)
       setError(err)
     }
-  }, [vendorCode])
+  }, [vendorCode, canSeeHistory])
 
   useEffect(() => {
     void load()
@@ -89,6 +95,11 @@ export function VendorDetailPage() {
             {can(PAGE_KEYS.vendors, 'update') && (
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
             )}
+            {detail.ApprovalStatus === 'Pending Approval' && can(PAGE_KEYS.vendors, 'verify') && (
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => { setVerifiedNotice(false); setVerifying(true) }}>
+                Verify commercial details
+              </button>
+            )}
             {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.vendors, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runAction(item.action, item.label)}>
                 {item.label}
@@ -97,6 +108,12 @@ export function VendorDetailPage() {
           </div>
         )}
       </div>
+
+      {verifiedNotice && (
+        <div className="alert alert-success">
+          <div className="alert-title">Commercial details verified; awaiting final MD approval.</div>
+        </div>
+      )}
 
       <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
@@ -155,6 +172,40 @@ export function VendorDetailPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {detail && history && (
+        <div className="table-wrap mt-5">
+          <table className="table">
+            <thead>
+              <tr><th colSpan={5}>Approval history</th></tr>
+              <tr><th>When</th><th>Action</th><th>Status</th><th>By</th><th>Remarks</th></tr>
+            </thead>
+            <tbody>
+              {history.length === 0 && <tr><td colSpan={5} className="table-empty">No approval actions yet.</td></tr>}
+              {history.map((row) => (
+                <tr key={row.Id}>
+                  <td>{new Date(row.CreatedAt).toLocaleString()}</td>
+                  <td>{row.Action === 'AccountsVerify' ? 'Accounts commercial verification' : row.Action}</td>
+                  <td>{row.FromStatus ?? '—'} → {row.ToStatus ?? '—'}</td>
+                  <td><span className="mono">{row.ActorLoginId}</span> · {row.ActorRoleCode}</td>
+                  <td>{row.Remarks ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {verifying && detail && (
+        <VerifyCommercialModal
+          vendorCode={detail.VendorCode}
+          vendorName={detail.LegalVendorName}
+          version={detail.Version}
+          onClose={() => setVerifying(false)}
+          onReload={() => { setVerifying(false); void load() }}
+          onVerified={(updated) => { setVerifying(false); setDetail(updated); setVerifiedNotice(true); void load() }}
+        />
       )}
 
       {editing && detail && (
