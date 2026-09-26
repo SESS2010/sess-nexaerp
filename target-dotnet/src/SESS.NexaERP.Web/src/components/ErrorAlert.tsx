@@ -230,10 +230,18 @@ export function AccessProblem({ error, className = '' }: { error: unknown; class
     const text = error instanceof Error ? error.message : typeof error === 'string' ? error : 'The ERP could not be reached.'
     return <div className={`alert alert-error ${className}`.trim()} role="alert">{text}</div>
   }
+  // A 5xx says nothing about the sign-in: the API is down or failed, so do not
+  // tell the user their sign-in expired and send them round the login again.
   const wording =
-    error.status === 403 && !AUTH_CODES.has(error.code ?? '')
-      ? { title: 'You are not allowed to do this', guidance: "Your role or department does not have the permission this needs. The server's reason is below." }
-      : accessWording(error)
+    error.status >= 500
+      ? {
+          title: 'The ERP server did not answer',
+          guidance:
+            'Your sign-in is still valid; the server could not complete the request. Try again in a minute. If it keeps happening, tell the ERP administrator and quote the trace number if one is shown.',
+        }
+      : error.status === 403 && !AUTH_CODES.has(error.code ?? '')
+        ? { title: 'You are not allowed to do this', guidance: "Your role or department does not have the permission this needs. The server's reason is below." }
+        : accessWording(error)
   return (
     <div className={`alert alert-warn ${className}`.trim()} role="alert">
       <div className="alert-title">{wording.title}</div>
