@@ -32,6 +32,10 @@ body {
   -ms-overflow-style: none;
 }
 .sidebar::-webkit-scrollbar { @apply hidden; }
+/* Hidden menu: slides away so the screen gets the full width. */
+.sidebar { transition: width 150ms ease, opacity 150ms ease; }
+.sidebar-hidden { @apply w-0 overflow-hidden opacity-0; }
+.menu-toggle { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800; }
 
 .brand {
   @apply sticky top-0 z-10 flex shrink-0 items-center gap-3 overflow-hidden px-5 py-5 border-b border-white/[0.06];

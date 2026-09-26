@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSection } from './components/NavSection'
 import { SessLogo } from './components/SessLogo'
@@ -125,10 +127,21 @@ function Shell({ children }: { children: React.ReactNode }) {
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
   const { can, loading } = useSession()
+  // The menu can be hidden to give a screen the full width; the choice is
+  // remembered per browser.
+  const [menuHidden, setMenuHidden] = useState(() => {
+    try { return localStorage.getItem('nexaerp.menuHidden') === '1' } catch { return false }
+  })
+  const toggleMenu = () => {
+    setMenuHidden((hidden) => {
+      try { localStorage.setItem('nexaerp.menuHidden', hidden ? '0' : '1') } catch { /* private window */ }
+      return !hidden
+    })
+  }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className={`sidebar${menuHidden ? ' sidebar-hidden' : ''}`} aria-hidden={menuHidden}>
         <div className="brand">
           <SessLogo />
           <div>
@@ -210,7 +223,19 @@ function Shell({ children }: { children: React.ReactNode }) {
       </aside>
       <div className="main">
         <header className="topbar">
-          <div className="topbar-title">{title}</div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="menu-toggle"
+              onClick={toggleMenu}
+              title={menuHidden ? 'Show menu' : 'Hide menu'}
+              aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
+              aria-expanded={!menuHidden}
+            >
+              {menuHidden ? <PanelLeftOpen size={18} aria-hidden /> : <PanelLeftClose size={18} aria-hidden />}
+            </button>
+            <div className="topbar-title">{title}</div>
+          </div>
           <div className="topbar-actions">
             <NotificationBell />
             <UserMenu />
