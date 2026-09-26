@@ -4,11 +4,10 @@
 
 import { useState, type ReactNode } from 'react'
 import { ClipboardList, Lock, PackageCheck, TrendingUp, Truck } from 'lucide-react'
-import type { PurchaseSpendingPeriodKey } from '../../types/dashboard'
 import { formatAmount, formatDateOnly, formatMonth } from '../../utils/dashboardFormat'
 import { MiniBars, NoAccess, Panel, type Tone } from './DashboardUi'
 import {
-  GST_TIP, OBLIGATION_AGE, OneLine, PERIOD_LONG, PERIOD_SHORT, Segmented, SkeletonRows, WORKLOAD_AGE, ageTone, compactAmounts,
+  GST_TIP, OBLIGATION_AGE, OneLine, Segmented, SkeletonRows, WORKLOAD_AGE, ageTone,
   formatCompactAmount, inrFirst, type OpenSection, type PurchaseReports, type PurchaseSectionId, type SectionReport, type SpendPeriod,
 } from './PurchaseDashboardKit'
 import { QUEUE_SHORT } from './PurchaseWorkloadSection'
@@ -36,9 +35,49 @@ function panelState<T>({ allowed, report, what, section, onOpen }: {
 
 // ---------- spend trend ----------
 
-const PERIOD_OPTIONS = (Object.keys(PERIOD_SHORT) as PurchaseSpendingPeriodKey[]).map((key) => ({
-  value: key, label: PERIOD_SHORT[key], title: PERIOD_LONG[key],
-}))
+// Chart ranges. The server's monthly trend covers the last twelve months, so
+// 1M/3M/6M/FY/12M are windows onto it. A week needs daily figures the API does
+// not return, so 1W is shown disabled rather than faked.
+type SpendRange = '1W' | '1M' | '3M' | '6M' | 'FY' | '12M'
+const RANGES: { value: SpendRange; label: string; title: string; disabled?: boolean }[] = [
+  { value: '1W', label: '1W', title: 'Weekly figures need a backend change: the server reports spend by month only.', disabled: true },
+  { value: '1M', label: '1M', title: 'This month' },
+  { value: '3M', label: '3M', title: 'Last 3 months (this month and the two before)' },
+  { value: '6M', label: '6M', title: 'Last 6 months' },
+  { value: 'FY', label: 'FY', title: 'This financial year, from 1 April' },
+  { value: '12M', label: '12M', title: 'Last 12 months' },
+]
+const RANGE_LONG: Record<SpendRange, string> = {
+  '1W': 'This week', '1M': 'This month', '3M': 'Last 3 months', '6M': 'Last 6 months', FY: 'This financial year', '12M': 'Last 12 months',
+}
+
+/** First day of the Indian financial year (1 April) that contains the given yyyy-mm-dd. */
+function fyStart(isoDate: string): string {
+  const [y, m] = isoDate.split('-').map(Number)
+  return `${m >= 4 ? y : y - 1}-04-01`
+}
+
+function RangeChips({ value, onChange }: { value: SpendRange; onChange: (r: SpendRange) => void }) {
+  return (
+    <div role="group" aria-label="Spend range" className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
+      {RANGES.map((r) => (
+        <button
+          key={r.value}
+          type="button"
+          title={r.title}
+          disabled={r.disabled}
+          aria-pressed={value === r.value}
+          onClick={() => onChange(r.value)}
+          className={`rounded px-2 py-0.5 text-[11px] font-medium ${
+            r.disabled ? 'cursor-not-allowed text-slate-300'
+              : value === r.value ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export function SpendTrendPanel({ report, allowed, period, onPeriod, onOpen }: {
   report: PurchaseReports['spending']
@@ -48,10 +87,19 @@ export function SpendTrendPanel({ report, allowed, period, onPeriod, onOpen }: {
   onOpen: OpenSection
 }) {
   const [pickedCurrency, setPickedCurrency] = useState<string | null>(null)
+  const [range, setRange] = useState<SpendRange>(() =>
+    period.period === 'twelve-months' ? '12M' : period.period === 'month' ? '1M' : 'FY')
   const stateNode = panelState({ allowed, report, what: 'spending', section: 'spending', onOpen })
-  const right = allowed
-    ? <Segmented label="Period" value={period.period} options={PERIOD_OPTIONS} onChange={(key) => onPeriod({ period: key, month: null })} />
-    : undefined
+
+  // Keep Spending details in step where the server has a matching period;
+  // 3M and 6M have none, so the details show the last twelve months.
+  const pickRange = (next: SpendRange) => {
+    setRange(next)
+    if (next === 'FY') onPeriod({ period: 'financial-year', month: null })
+    else if (next === '1M') onPeriod({ period: 'month', month: null })
+    else onPeriod({ period: 'twelve-months', month: null })
+  }
+  const right = allowed ? <RangeChips value={range} onChange={pickRange} /> : undefined
 
   let body: ReactNode = stateNode
   if (!stateNode && report?.status === 'ready') {
@@ -60,13 +108,24 @@ export function SpendTrendPanel({ report, allowed, period, onPeriod, onOpen }: {
       [...new Set(data.MonthlyTrend.flatMap((month) => month.Amounts.map((a) => a.Currency)))].map((Currency) => ({ Currency })),
     ).map((c) => c.Currency)
     const currency = pickedCurrency && currencies.includes(pickedCurrency) ? pickedCurrency : currencies[0] ?? null
-    const selectedMonth = data.Filters.Period === 'month' ? data.FromDate : null
+    const selectedMonth = data.Filters.Period === 'month' && data.Filters.Month ? data.FromDate : null
 
-    // The figure for the chosen period, only when the server gave it as one figure.
-    const periodAmounts = data.Filters.Period === 'month'
-      ? data.MonthlyTrend.find((m) => m.FromDate === data.FromDate)?.Amounts ?? null
-      : data.Periods.find((p) => p.Key === data.Filters.Period)?.Amounts ?? null
-    const label = data.Filters.Period === 'month' ? formatMonth(data.FromDate) : PERIOD_LONG[data.Filters.Period] ?? data.Filters.Period
+    const trend = [...data.MonthlyTrend].sort((a, b) => a.FromDate.localeCompare(b.FromDate))
+    const latest = trend.length ? trend[trend.length - 1].FromDate : null
+    const windowed = range === '1M' ? trend.slice(-1)
+      : range === '3M' ? trend.slice(-3)
+      : range === '6M' ? trend.slice(-6)
+      : range === 'FY' && latest ? trend.filter((m) => m.FromDate >= fyStart(latest))
+      : trend
+    const bars = windowed.map((month) => {
+      const amount = currency ? month.Amounts.find((a) => a.Currency === currency) : undefined
+      return { key: month.Key, fromDate: month.FromDate, value: amount?.Amount ?? 0, bills: amount?.BillCount ?? 0 }
+    })
+    // One currency only: the bars shown, added up.
+    const total = bars.reduce((sum, b) => sum + b.value, 0)
+    const bills = bars.reduce((sum, b) => sum + b.bills, 0)
+    const from = windowed[0]?.FromDate
+    const to = windowed.length ? windowed[windowed.length - 1].ToDate : undefined
 
     body = (
       <>
@@ -75,22 +134,18 @@ export function SpendTrendPanel({ report, allowed, period, onPeriod, onOpen }: {
         ) : (
           <ColumnChart
             currency={currency}
-            months={data.MonthlyTrend.map((month) => {
-              const amount = month.Amounts.find((a) => a.Currency === currency)
-              return { key: month.Key, fromDate: month.FromDate, value: amount?.Amount ?? 0, bills: amount?.BillCount ?? 0 }
-            })}
+            months={bars}
             selected={selectedMonth}
             onPick={(fromDate) => onPeriod({ period: 'month', month: fromDate })}
           />
         )}
         <div className="mt-2 flex flex-wrap items-baseline gap-x-2 text-xs text-slate-500">
-          <span className="font-medium text-slate-700">{label}</span>
-          <span className="tabular-nums text-slate-900">
-            {periodAmounts === null ? '—' : periodAmounts.length === 0 ? 'No spend'
-              : compactAmounts(periodAmounts.map((a) => ({ Currency: a.Currency, value: a.Amount })))}
+          <span className="font-medium text-slate-700">{RANGE_LONG[range]}</span>
+          <span className="text-sm font-semibold tabular-nums text-slate-900">
+            {currency === null || bills === 0 ? 'No spend' : formatAmount(total, currency)}
           </span>
-          <span className="text-amber-700">incl. GST</span>
-          <span className="ml-auto text-[11px] text-slate-400">{formatDateOnly(data.FromDate)} – {formatDateOnly(data.ToDate)}</span>
+          {currency !== null && bills > 0 && <span className="text-amber-700">incl. GST · {bills} bill{bills === 1 ? '' : 's'}</span>}
+          {from && to && <span className="ml-auto text-[11px] text-slate-400">{formatDateOnly(from)} – {formatDateOnly(to)}</span>}
         </div>
         {currencies.length > 1 && (
           <div className="mt-1.5">
@@ -102,7 +157,7 @@ export function SpendTrendPanel({ report, allowed, period, onPeriod, onOpen }: {
   }
 
   return (
-    <Panel icon={TrendingUp} title="Spend trend" info={`${GST_TIP} Click a month to see it; the period also sets Spending details.`} right={right}>
+    <Panel icon={TrendingUp} title="Spend trend" info={`${GST_TIP} Pick a range; click a month's bar to see that month in Spending details. 1W needs weekly figures the server does not provide yet.`} right={right}>
       {body}
     </Panel>
   )
