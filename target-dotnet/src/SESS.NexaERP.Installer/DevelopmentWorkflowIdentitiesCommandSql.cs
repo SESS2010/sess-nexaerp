@@ -56,9 +56,12 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
           IF expected_employees<>11 THEN
             RAISE EXCEPTION 'Development workflow identities expected 11 active employees; found %.',expected_employees;
           END IF;
-          IF EXISTS (SELECT 1 FROM advance.employees WHERE "EmployeeCode"=ANY(expected_codes) AND NOT "LoginEnabled") THEN
-            RAISE EXCEPTION 'Every development workflow employee must be login-enabled before identity provisioning.';
-          END IF;
+          -- Since 20260926090000_DevelopmentLoginsOffByDefault no employee is login-enabled by
+          -- migration, so this Debug-only command enables its own 11, as development, where it runs.
+          UPDATE advance.employees
+             SET "LoginEnabled"=true,"UpdatedAt"=clock_timestamp(),
+                 "UpdatedBy"='DEVELOPMENT_WORKFLOW_IDENTITIES',"Version"="Version"+1
+           WHERE "EmployeeCode"=ANY(expected_codes) AND NOT "LoginEnabled";
 
           SELECT count(*) INTO expected_assignments
           FROM advance.employee_company_assignments assignment

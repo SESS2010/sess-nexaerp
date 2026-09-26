@@ -40,6 +40,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(0, await InstallerCommand.RunAsync(["database-principals", "status"]));
         }
         server.Execute("identity-bootstrap.sql", """
+            -- 20260926090000: on a fresh database nobody is login-enabled, SESS-12 included. The
+            -- bootstrap below must still complete Step 7 and enable SESS-12 by itself.
+            DO $fresh$ BEGIN
+              IF EXISTS (SELECT 1 FROM advance.employees WHERE "LoginEnabled") THEN
+                RAISE EXCEPTION 'Expected no login-enabled employee on a freshly migrated database.';
+              END IF;
+            END $fresh$;
             INSERT INTO advance.employee_identity_mappings
               ("Id","CompanyId","OrganizationId","Issuer","Subject","EmployeeId","IdentityType",
                "EffectiveFrom","IsActive","CreatedAt","CreatedBy","Version")
@@ -82,6 +89,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             .UseNpgsql(server.ConnectionString).Options);
         var employee = await db.Employees.SingleAsync(row => row.EmployeeCode == "SESS-04");
         var admin = await db.Employees.SingleAsync(row => row.EmployeeCode == "SESS-12");
+        Assert.True(admin.LoginEnabled);
         var user = new IdentityWitnessUser(admin.Id);
         var audit = new EfAuditWriter(db, user);
         var today = await db.Database.SqlQueryRaw<DateOnly>("SELECT CURRENT_DATE AS \"Value\"").SingleAsync();
@@ -89,6 +97,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "https://identity.example/realm", "employee-subject", "SESS-04", "HUMAN", today, null, "Witness onboarding");
         var missing = await InvokeIdentity("CreateIdentity", request with { EmployeeCode = "DOES-NOT-EXIST" }, db, user, audit, CancellationToken.None);
         Assert.Equal(409, ((IStatusCodeHttpResult)missing).StatusCode);
+        // The roster gate: an active employee who has not been login-enabled cannot be mapped. The
+        // operator enables a roster person first (activate-login), as done here, then maps them.
+        Assert.False(employee.LoginEnabled);
+        var notEnabled = await InvokeIdentity("CreateIdentity", request, db, user, audit, CancellationToken.None);
+        Assert.Equal(409, ((IStatusCodeHttpResult)notEnabled).StatusCode);
+        employee.LoginEnabled = true;
+        await db.SaveChangesAsync();
         var originalStatus = employee.Status;
         employee.Status = "INACTIVE";
         await db.SaveChangesAsync();
