@@ -90,7 +90,10 @@ distinct leaf keys, PFX recovery and exclusion of the root private key from ERP 
 
 Root SHA-256 fingerprint:
 `A95109800BD04600670FAD6E4316996FEB5B153D03EA07493ED8BE691F796913`.
-Compare this complete value on the server before trusting the root.
+Root SHA-1 thumbprint (what Windows shows as "Thumbprint"):
+`8D7FA818E3E137C27DF075ADB61AC3169E3A6027`.
+Both were checked on the Technical Director's PC on 26 September 2026 to be the same
+certificate. Compare the complete value on the server before trusting the root.
 
 Both leaves are valid **22 September 2026 15:59:14 UTC through 22 September 2027
 16:04:14 UTC** (21:29:14 IST through 21:34:14 IST respectively).
