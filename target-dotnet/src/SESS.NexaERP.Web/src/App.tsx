@@ -67,8 +67,13 @@ import { ProductionBomListPage } from './features/production/ProductionBomListPa
 import { ProductionBomDetailPage } from './features/production/ProductionBomDetailPage'
 import { EstimatedBomListPage } from './features/design/EstimatedBomListPage'
 import { EstimatedBomDetailPage } from './features/design/EstimatedBomDetailPage'
+import { PurchaseDashboardPage } from './features/dashboards/PurchaseDashboardPage'
+import { StoresDashboardPage } from './features/dashboards/StoresDashboardPage'
+import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
 const TITLES: [prefix: string, title: string][] = [
+  ['/dashboards/purchase', 'Purchase Dashboard'],
+  ['/dashboards/stores', 'Stores Dashboard'],
   ['/vendors', 'Vendor Master'],
   ['/customers', 'Customer Master'],
   ['/items', 'Item Master'],
@@ -116,6 +121,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const inProduction = location.pathname.startsWith('/production') || location.pathname.startsWith('/design')
   const inReports = location.pathname.startsWith('/reports')
   const inAccounts = location.pathname.startsWith('/accounts')
+  const inDashboards = location.pathname.startsWith('/dashboards')
   // Session permissions ("page:Action") hide screens the role cannot View.
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
@@ -133,6 +139,12 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
+          {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can)) && (
+            <NavSection id="dashboards" label="Dashboards" defaultOpen={inDashboards}>
+              {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && <NavLink to="/dashboards/purchase" className={navLinkClass}>Purchase</NavLink>}
+              {canOpenAnyStoresSection(can) && <NavLink to="/dashboards/stores" className={navLinkClass}>Stores</NavLink>}
+            </NavSection>
+          )}
           <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores && !inProduction}>
             {can(PAGE_KEYS.employees) && <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>}
             {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
@@ -231,6 +243,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="/dashboards/purchase" element={<PurchaseDashboardPage />} />
+                <Route path="/dashboards/stores" element={<StoresDashboardPage />} />
                 <Route path="/employees" element={<EmployeeListPage />} />
                 <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
                 <Route path="/vendors" element={<VendorListPage />} />
