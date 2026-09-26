@@ -1,0 +1,19 @@
+/* Chrome of the print preview page; none of it prints. */
+.pp-page { min-height: 100vh; padding: 0 16px 48px; background: #e5e7eb; }
+.pp-toolbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  max-width: 210mm; margin: 0 auto 16px; padding: 12px 0;
+  background: #e5e7eb;
+}
+.pp-group { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff; }
+.pp-tab { padding: 6px 12px; font-size: 13px; font-weight: 500; color: #334155; border-right: 1px solid #e2e8f0; cursor: pointer; }
+.pp-tab:last-child { border-right: 0; }
+.pp-tab:hover { background: #f1f5f9; }
+.pp-tab-on, .pp-tab-on:hover { background: #1e40af; color: #fff; }
+.pp-print { margin-left: auto; padding: 6px 14px; border-radius: 8px; background: #0f172a; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
+.pp-note { flex-basis: 100%; margin: 0; font-size: 12px; color: #475569; }
+
+@media print {
+  .pp-page { padding: 0; background: #fff; min-height: 0; }
+}
