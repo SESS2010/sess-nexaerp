@@ -1,8 +1,8 @@
 # DESKTOP-SPF5420: package-to-server deployment
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -35,7 +35,7 @@ stops progression; never call a partially completed demo an accepted deployment.
 - NEVER stop, disable, modify or remove `SESS_SQLEXPRESS`, `TEW_SQLEXPRESS`, their SQL
   services/databases, or SOLIDWORKS Electrical Collaborative Server. About 77 design
   databases are protected. Existing engineering services are the explicit exception
-  to the server's no-new-non-ERP-work rule. No new development or ad-hoc workloads; existing NI/Siemens workloads stay running.
+  to the server's no-new-non-ERP-work rule. No new development or ad-hoc workloads; retained engineering workloads stay protected. NI and Siemens were reported removed on 22 September; do not reinstall them.
 - Leave Wamp Apache/MySQL/MariaDB stopped/manual. Leave IIS ports 80/81 and its sites.
 - Reserve 192.168.68.130, gateway 192.168.68.1. Gigabit adapter currently at 100 Mbps:
   sufficient for eleven ERP users; no go-live gigabit prerequisite. Large copies/restores
@@ -291,7 +291,7 @@ All roles already exist: reconciliation preserves credentials. Verify 130/head,
 RECONCILED/VERIFIED and zero stock movements. Update BOTH service connection database
 and ExpectedDatabase, perform real identity bootstrap and fresh-database runbook
 steps 6-13: checked-in legacy item script, SESS-entered business setup through existing screens and the approved assisted workflows,
-and BOTH authorised template-v2 opening-stock ceremonies on 28-30 September.
+and BOTH authorised template-v2 opening-stock ceremonies on 5-6 October.
 **NO DUMP:** nothing is carried from the frontend developer's database, including
 attachments. SESS uploads its own supplier certificates into this clean database.
 Follow the SETUP-BEFORE-FIRST-GRN checklist in dependency order, with its named roles,
@@ -300,7 +300,7 @@ DEMO before training (setup-operator-wrappers.md). Only vendor commercial verifi
 a small new frontend action after login; the other setup screens follow after go-live.
 Configuration entries do not create stock movements and do not block either ceremony;
 ANY GRN, issue or adjustment before BOTH ceremonies is forbidden. Daily use begins
-1 October only after both POSTED receipts and all deployment gates are accepted.
+8 October only after both POSTED receipts and all deployment gates are accepted.
 The package includes installation docs and committed business scripts under
 `installer/database/postgresql`; SESS supplies its own physical-count template-v2
 workbooks and supporting documents separately. Review these inputs before the ceremonies.
@@ -328,7 +328,7 @@ receiver-owned archive, capacity and signed-out daily schedule before go-live.
 
 After cutover the LAPTOP returns to development/LabVIEW; its production-hours rule
 ends, RESTORE-NI-Siemens.ps1 is for that laptop only, and its nightly witness may stay.
-NEVER run NI/Siemens restoration/disablement on this server: all those services stay.
+NI and Siemens were reported removed from the server on 22 September. Do not restore/reinstall them. Rockwell and the other retained products stay protected.
 End the field report RESULT_REPORTED_PENDING_WITNESS until actual acceptance.
 
 ### Section E receiver correction
@@ -341,3 +341,13 @@ Follow [daily backups](server-daily-backups.md) for the dedicated password accou
 one writable incoming share, hash verification after landing and receiver-owned
 archive. Install the supplied server profile for `Test-ProductionState`: a missed
 or failed daily off-machine copy must return FAIL/nonzero, never silent success.
+
+## Pre-go-live cleanup decisions
+
+Follow [the current cleanup status](pre-go-live-server-cleanup.md). NI/Siemens removal
+is reported complete by the server agent; verify the receipt, do not reinstall.
+Suspicious Flexnet service removal and Defender full-scan completion await that
+agent's receipt. All other products await inventory and TD decisions: no removal
+steps are authorized. SQL/SOLIDWORKS, Rockwell and IIS/Updater remain protected.
+D:/E: stay connected under the TD trial exception with daily Disk/NTFS/WHEA watch,
+but nothing ERP-related may ever use either volume.

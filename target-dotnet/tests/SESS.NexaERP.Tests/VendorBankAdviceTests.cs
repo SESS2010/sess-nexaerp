@@ -10,6 +10,7 @@ using Npgsql;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Persistence.Migrations;
 
 namespace SESS.NexaERP.Tests;
 
@@ -135,15 +136,25 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options))
             {
                 var down = model.GetService<IMigrator>().GenerateScript(
-                    model.Database.GetMigrations().Last(), "20260913080000_ForeignCurrencyFinancialReadModels", MigrationsSqlGenerationOptions.NoTransactions);
+                    "20260913090000_GovernedVendorBankAdvice", "20260913080000_ForeignCurrencyFinancialReadModels", MigrationsSqlGenerationOptions.NoTransactions);
                 await using var guardConnection = new NpgsqlConnection(owner.ConnectionString);
                 await guardConnection.OpenAsync();
                 await using var rollback = await guardConnection.BeginTransactionAsync();
                 await using var guard = new NpgsqlCommand(down, guardConnection, rollback);
                 var error = await Assert.ThrowsAsync<PostgresException>(() => guard.ExecuteNonQueryAsync());
                 Assert.Equal("P0001", error.SqlState);
-                Assert.Contains("refuses retained financial documents", error.MessageText, StringComparison.OrdinalIgnoreCase);
+                // Later migrations legitimately replace the payment/advance function baseline.
+                Assert.Contains("changed function baseline", error.MessageText, StringComparison.OrdinalIgnoreCase);
                 await rollback.RollbackAsync();
+                // Independently exercise the exact retained-evidence guard used by Down.
+                // The routine migration test round-trips the complete Down at its historical baseline.
+                await using var evidenceRollback = await guardConnection.BeginTransactionAsync();
+                await using var evidenceGuard = new NpgsqlCommand(VendorBankAdviceMigrationSql.RefuseEvidenceLoss,
+                    guardConnection, evidenceRollback);
+                var evidenceError = await Assert.ThrowsAsync<PostgresException>(() => evidenceGuard.ExecuteNonQueryAsync());
+                Assert.Equal("P0001", evidenceError.SqlState);
+                Assert.Contains("refuses retained financial documents", evidenceError.MessageText, StringComparison.OrdinalIgnoreCase);
+                await evidenceRollback.RollbackAsync();
             }
             Assert.Equal(finalCounts, await BankAdviceCounts(context.Options));
             Assert.DoesNotContain("40P01", context.ReadPostgresLog(), StringComparison.OrdinalIgnoreCase);

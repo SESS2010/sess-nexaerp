@@ -22,7 +22,27 @@ function New-SetupHttp {
  $client=[Net.Http.HttpClient]::new($handler);$client.Timeout=[TimeSpan]::FromSeconds(60)
  return $client
 }
-function Invoke-SetupHttp($Client,[string]$Method,[string]$Uri,[string]$Token,[string]$Company,$Body,[string]$Key='', $Content=$null) {
+function Get-SetupRefusalDetail($Response) {
+ # Reads ONE named field out of a refusal body. Never returns the body itself, so a response
+ # that happens to carry a token or any other unexpected payload cannot be printed: a token
+ # response has no Detail/message field and this returns nothing.
+ try {
+  $text=$Response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+  if (-not $text -or $text.Length -gt 20000) {return $null}
+  $parsed=$text | ConvertFrom-Json
+ } catch {return $null}
+ if ($null -eq $parsed -or $parsed -isnot [psobject]) {return $null}
+ foreach ($name in 'Detail','message','Title') {
+  $property=$parsed.PSObject.Properties[$name]
+  if ($property -and $property.Value -is [string] -and $property.Value.Trim()) {
+   $value=($property.Value -replace '[\r\n\t]+',' ').Trim()
+   if ($value.Length -gt 400) {$value=$value.Substring(0,400)+'...'}
+   return $value
+  }
+ }
+ return $null
+}
+function Invoke-SetupHttp($Client,[string]$Method,[string]$Uri,[string]$Token,[string]$Company,$Body,[string]$Key='', $Content=$null,[switch]$Provider) {
  $request=[Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::new($Method),$Uri)
  try {
   if ($Token) {$request.Headers.Authorization=[Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer',$Token)}
@@ -32,13 +52,27 @@ function Invoke-SetupHttp($Client,[string]$Method,[string]$Uri,[string]$Token,[s
   $response=$Client.SendAsync($request).GetAwaiter().GetResult()
   try {
    # Never echo provider errors or token-bearing request bodies/URLs.
-   if (-not $response.IsSuccessStatusCode) {throw "HTTP $([int]$response.StatusCode); no automatic retry. Inspect approved server audit/logs and read current state."}
+   if (-not $response.IsSuccessStatusCode) {
+    $status=[int]$response.StatusCode
+    $line="HTTP $status; no automatic retry. Inspect approved server audit/logs and read current state."
+    # A BUSINESS refusal from the ERP API carries the one thing the operator needs and cannot
+    # otherwise get: which of the three condition locations is missing, which date is wrong.
+    # During setup on 1-3 October, "HTTP 409" alone makes every refusal an escalation.
+    # Deliberately excluded and keeping the original wording only: 401 and 403 (an authority
+    # answer is not the operator's to act on), 5xx (server-side, and its detail is suppressed
+    # by design), and every identity-provider call.
+    if (-not $Provider -and @(400,404,409,422) -contains $status) {
+     $detail=Get-SetupRefusalDetail $response
+     if ($detail) {$line=$line+[Environment]::NewLine+'Server said: '+$detail}
+    }
+    throw $line
+   }
    return ,($response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult())
   } finally {$response.Dispose()}
  } finally {$request.Dispose()}
 }
-function Invoke-SetupJson($Client,[string]$Method,[string]$Uri,[string]$Token,[string]$Company,$Body,[string]$Key='') {
- $bytes=Invoke-SetupHttp $Client $Method $Uri $Token $Company $Body $Key
+function Invoke-SetupJson($Client,[string]$Method,[string]$Uri,[string]$Token,[string]$Company,$Body,[string]$Key='',[switch]$Provider) {
+ $bytes=Invoke-SetupHttp $Client $Method $Uri $Token $Company $Body $Key $null -Provider:$Provider
  return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
 }
 function Read-SetupCallback([string]$RequestLine,[string]$ExpectedState,[string]$Issuer) {
@@ -52,7 +86,7 @@ function Read-SetupCallback([string]$RequestLine,[string]$ExpectedState,[string]
 function Connect-SetupEmployee($Client,[ValidateSet('staff','approvers')][string]$Realm) {
  $issuer='https://192.168.68.130:8444/realms/'+$Realm
  $clientId='nexaerp-'+$Realm; $redirect='http://127.0.0.1:8765/callback/'
- $discovery=Invoke-SetupJson $Client GET ($issuer+'/.well-known/openid-configuration') '' '' $null
+ $discovery=Invoke-SetupJson $Client GET ($issuer+'/.well-known/openid-configuration') '' '' $null '' -Provider
  if ($discovery.issuer -cne $issuer -or $discovery.authorization_endpoint -cne ($issuer+'/protocol/openid-connect/auth') -or $discovery.token_endpoint -cne ($issuer+'/protocol/openid-connect/token')) {throw 'Unapproved OIDC discovery endpoints.'}
  $verifier=New-SetupRandom; $state=New-SetupRandom
  $parameters=[ordered]@{client_id=$clientId;redirect_uri=$redirect;response_type='code';scope='openid nexaerp/access';state=$state;code_challenge=(Get-SetupChallenge $verifier);code_challenge_method='S256';prompt='login';max_age='0'}
@@ -73,7 +107,7 @@ function Connect-SetupEmployee($Client,[ValidateSet('staff','approvers')][string
   } finally {$socket.Dispose()}
   $form=[Collections.Generic.Dictionary[string,string]]::new()
   foreach ($p in @{grant_type='authorization_code';client_id=$clientId;redirect_uri=$redirect;code=$code;code_verifier=$verifier}.GetEnumerator()) {$form.Add($p.Key,$p.Value)}
-  $bytes=Invoke-SetupHttp $Client POST $discovery.token_endpoint '' '' $null '' ([Net.Http.FormUrlEncodedContent]::new($form))
+  $bytes=Invoke-SetupHttp $Client POST $discovery.token_endpoint '' '' $null '' ([Net.Http.FormUrlEncodedContent]::new($form)) -Provider
   $tokens=[Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
   if ($tokens.token_type -ine 'Bearer' -or -not $tokens.access_token) {throw 'No bearer access token returned.'}
   return $tokens.access_token

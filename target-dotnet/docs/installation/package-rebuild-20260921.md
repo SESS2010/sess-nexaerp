@@ -33,7 +33,7 @@ it does not change the package's identity or claim to be included inside it.
   Published Installer assembly and bundle match their SDK-free proof hashes. The copied
   `Test-ProductionState.ps1` and `Test-DailyBackupState.ps1` match the committed sources.
 - Verified package ancestry includes both required commits; packaged runbook contains the
-  no-dump decision, setup checklist, 28-30 September training and both ceremony gate, with
+  no-dump decision, setup checklist, the setup/training window and both ceremony gate, with
   no `[dump]` placeholder or attachment restore. No developer data is packaged.
 - `DestinationHost` and both UNC roots use **RECEIVER_NOT_SET**. It fails the existing
   hostname guard. Receiver remains Ilamparuthi's PC; IT TEAM 2 is not treated as a valid

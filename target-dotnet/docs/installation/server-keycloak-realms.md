@@ -1,8 +1,8 @@
 # D3: Staff and Approvers realm import and mandatory MFA
 
-> **Protected server rule (21 September, 16:01):** NEVER stop, disable, modify or remove
+> **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
-> ewserver, ANY NI or Siemens service, ANY Rockwell FactoryTalk service, IIS Default
+> ewserver, ANY Rockwell FactoryTalk service, IIS Default
 > Web Site or /Updater. Leave Wamp stopped/manual. Windows 10 stays; NEVER a clean
 > Windows install; NEVER install a .NET SDK on this server. All application here is
 > by the server agent, not from the laptop. See C:\SESS-ServerPrep for completed preparation.
@@ -60,6 +60,80 @@ witnessed templates; import and login on this Windows 26.7.4 server remain field
 acceptance, not a newly executed production witness.
 
 [Keycloak offline import semantics](https://www.keycloak.org/server/importExport).
+
+## Running the two identity scripts (finding #33)
+
+> **Superseded on 25 September; kept as written.** #33 was fixed on the server on 24 September
+> in the Admin Console: the OTP Form was added, Required, after the password form. The server
+> agent's `Step4-Verify-RealmFlows.ps1` returned PASS.
+>
+> - `Repair-ApproverOtpFlow.ps1` **is not run.** It is kept only in case the Keycloak import
+>   test shows the importer loses the OTP step.
+> - `Read-KeycloakLiveConfig.ps1` **is removed.** `Step4-Verify-RealmFlows.ps1` is the canonical
+>   verifier, and there is to be only one.
+> - **Nothing is run against the server from the laptop.** Server scripts come from the server
+>   agent only.
+
+[tools/identity/Repair-ApproverOtpFlow.ps1](../../tools/identity/Repair-ApproverOtpFlow.ps1) and
+[tools/identity/Read-KeycloakLiveConfig.ps1](../../tools/identity/Read-KeycloakLiveConfig.ps1) talk
+to Keycloak only over HTTPS REST at `https://192.168.68.130:8444`. That is Keycloak's main
+listener: `server-keycloak.conf` sets no separate admin hostname, so `/admin` is served on the
+same port. Neither script uses the management port 9000, which stays on loopback.
+
+**Can they run from this laptop over the network? Technically yes**, given three things you
+have confirmed or can check in one line:
+
+- this laptop trusts the SESS root CA;
+- the `SESS-Keycloak-HTTPS-8444` rule admits `192.168.68.0/24`;
+- Windows PowerShell 5.1, which both scripts force onto TLS 1.2.
+
+Check before anything else. It must print `200`:
+
+```powershell
+(Invoke-WebRequest https://192.168.68.130:8444/realms/approvers/.well-known/openid-configuration -UseBasicParsing).StatusCode
+```
+
+**Sign-in.** Both scripts sign in as the **named master administrator** created in
+[server-keycloak-install.md](server-keycloak-install.md) step 9. Never use `sess-setup`, which
+that step deletes. The scripts prompt for the password and then for that account's **current
+authenticator code**, because step 9 gives the account REQUIRED OTP. Nothing is printed or
+stored. They use Keycloak's own `admin-cli` client in the master realm, whose direct sign-in
+is on by default. If the token call fails with `unauthorized_client`, that has been turned off
+on the server; stop and report, and do not turn it on to make the script work.
+
+**Where to run each one:**
+
+| Script | What it does | Where |
+|---|---|---|
+| `Repair-ApproverOtpFlow.ps1` | **Changes** the live Approvers flow | **On the server**, recommended. It works from the laptop, but the standing rule is that the server is changed on the server, not from the laptop. Copy the one file to `C:\SESS-Identity\scripts\` and check its SHA-256 against the committed file. |
+| `Read-KeycloakLiveConfig.ps1`, Keycloak part | Reads only | **Either.** From the laptop is fine. |
+| `Read-KeycloakLiveConfig.ps1` with `-ApiAuthConfigPath` | Also reads the **deployed** API authentication profiles | **On the server only.** The file is the installed `appsettings.Production.json`, which is ACL-restricted and not shared, so the laptop cannot read it. |
+
+**Exact commands on the server** (elevated Windows PowerShell 5.1; elevation is only for
+reading the ACL-protected API file):
+
+```powershell
+cd C:\SESS-Identity\scripts
+# 1. Read first; changes nothing.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Repair-ApproverOtpFlow.ps1 -AdminUser <named-admin> -VerifyOnly
+# 2. The repair, ending every session opened under the password-only flow.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Repair-ApproverOtpFlow.ps1 -AdminUser <named-admin> -SignOutApproverSessions
+# 3. Full live read-back, including the API's MFA trust.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Read-KeycloakLiveConfig.ps1 -AdminUser <named-admin> -ApiAuthConfigPath 'C:\SESS\<installed-sha>\api\appsettings.Production.json'
+```
+
+**`-ApiAuthConfigPath`** points at the API configuration the running service actually reads:
+`C:\SESS\<installed-sha>\api\appsettings.Production.json`. `<installed-sha>` is the folder of
+the package currently installed for the `SESSNexaERP` service; `sc.exe qc SESSNexaERP` shows
+its path. **Not** the package copy under `C:\SESS-Deploy\...`, and not
+`authentication.server.keycloak.json` from the package. Those are what we meant to deploy, and
+by the rule of 24 September only the installed file proves what the API does.
+
+**From the laptop** (read-only Keycloak part only), in the repository:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\identity\Read-KeycloakLiveConfig.ps1 -AdminUser <named-admin>
+```
 
 ## Initial wrapper callback (22 September handoff)
 

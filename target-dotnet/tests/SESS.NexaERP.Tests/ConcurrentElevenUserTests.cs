@@ -387,10 +387,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(11,commands.Count);
         Assert.Equal(11,commands.Select(x => x.EmployeeCode).Distinct().Count());
 
-        var logStart = context.ReadPostgresLog().Length;
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var started = 0;
-        async Task<RaceHttpResult> Execute(MixedCommand command)
+        async Task<RaceHttpResult> Execute(MixedCommand command, bool synchronize = true)
         {
             using var request = new HttpRequestMessage(new HttpMethod(command.Method),command.Path) { Content = JsonContent.Create(command.Body) };
             request.Headers.Authorization = new("PurchaseFlow");
@@ -398,20 +397,76 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             request.Headers.Add("X-Witness-Role",command.Role);
             request.Headers.Add("X-Witness-Company",command.Organization);
             request.Headers.Add("Idempotency-Key",command.Key);
-            if (Interlocked.Increment(ref started) == 11) ready.SetResult();
-            await ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            if (synchronize)
+            {
+                if (Interlocked.Increment(ref started) == 11) ready.SetResult();
+                await ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
             var watch = Stopwatch.StartNew();
             using var response = await host.Client.SendAsync(request);
             var body = await response.Content.ReadAsStringAsync();
             return new(response.StatusCode,watch.Elapsed.TotalSeconds,body);
         }
-        measuring = true;
-        RaceHttpResult[] results;
-        try { results = await Task.WhenAll(commands.Select(Execute)); }
-        finally { measuring = false; }
-        var log = context.ReadPostgresLog()[logStart..];
         var directory = Path.Combine(FindRepositoryRoot(),"local-evidence","item25");
         Directory.CreateDirectory(directory);
+        // Deterministic EF-wrapped 40001 probes run BEFORE the ungated simultaneous batch.
+        // Rollback leaves the same commands and keys available for that batch's successful retry.
+        var boundaryFailures = new List<(string Operation, RaceHttpResult Response)>();
+        await using (var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(source.ConnectionString)
+            { Database = cloneName }.ConnectionString))
+        {
+            await admin.OpenAsync();
+            async Task<string> Snapshot() => await Query(options,async db => JsonSerializer.Serialize(new {
+                Audits = await db.AuditLogs.CountAsync(), Batches = await db.StockPostingBatches.CountAsync(),
+                Moves = await db.StockMovements.CountAsync(), Fifo = await db.FifoInventoryCostLayers.CountAsync(),
+                Revisions = await db.QcInspectionRevisions.CountAsync(),
+                Grn = await db.GoodsReceipts.Where(x => x.Id == grnPending.Id).Select(x => new { x.Status,x.Version }).SingleAsync(),
+                Opening = await db.OpeningStocks.Where(x => x.Id == opening.Id).Select(x => new { x.Status,x.Version }).SingleAsync()
+            }));
+            foreach (var operation in new[] { "GRN finalize", "Opening authorize", "QC finalize" })
+            {
+                var command = commands.Single(x => x.Operation == operation);
+                var table = operation == "QC finalize" ? "qc_inspection_revisions" : "audit_logs";
+                var before = await Snapshot();
+                await using (var install = new NpgsqlCommand($$"""
+                    CREATE FUNCTION advance.mixed_ef_failure() RETURNS trigger LANGUAGE plpgsql AS $f$
+                    BEGIN RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='Witness EF save serialization failure'; END $f$;
+                    CREATE TRIGGER mixed_ef_failure BEFORE INSERT ON advance.{{table}}
+                    FOR EACH ROW EXECUTE FUNCTION advance.mixed_ef_failure();
+                    """,admin))
+                    await install.ExecuteNonQueryAsync();
+                RaceHttpResult refused;
+                try { refused = await Execute(command,synchronize:false); }
+                finally
+                {
+                    await using var remove = new NpgsqlCommand($$"""
+                        DROP TRIGGER mixed_ef_failure ON advance.{{table}};
+                        DROP FUNCTION advance.mixed_ef_failure();
+                        """,admin);
+                    await remove.ExecuteNonQueryAsync();
+                }
+                boundaryFailures.Add((operation,refused));
+                var after = await Snapshot();
+                Assert.Equal(before,after);
+                await using var requests = new NpgsqlCommand("SELECT count(*) FROM advance.command_requests WHERE \"IdempotencyKeySha256\"=@hash",admin);
+                requests.Parameters.AddWithValue("hash",System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(command.Key)));
+                Assert.Equal(0L,(long)(await requests.ExecuteScalarAsync())!);
+                await File.WriteAllTextAsync(Path.Combine(directory,operation.Replace(' ','-')+"-ef-failure.json"),
+                    JsonSerializer.Serialize(new { Operation=operation,Table=table,Refused=refused,Before=before,After=after,
+                        RolledBackRegistrationCount=0 },new JsonSerializerOptions { WriteIndented=true }));
+            }
+        }
+        Assert.All(boundaryFailures,failure => {
+            Assert.Equal(HttpStatusCode.Conflict,failure.Response.Status);
+            using var envelope = JsonDocument.Parse(failure.Response.Body);
+            Assert.Equal("CONCURRENCY_CONFLICT",envelope.RootElement.GetProperty("Code").GetString());
+        });
+        var logStart = context.ReadPostgresLog().Length;
+        measuring = true;
+        RaceHttpResult[] results;
+        try { results = await Task.WhenAll(commands.Select(command => Execute(command))); }
+        finally { measuring = false; }
+        var log = context.ReadPostgresLog()[logStart..];
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user-postgresql.log"),log);
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user.json"),JsonSerializer.Serialize(new
         {
@@ -688,11 +743,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         paid.Parameters.AddWithValue("bill",bill.Id);
         Assert.Equal(1m,(decimal)(await paid.ExecuteScalarAsync())!);
 
-        async Task AssertPaymentReceiptFailure()
+        async Task AssertPaymentSerializationFailure(string boundary, decimal paidBefore)
         {
             var original = commands.Single(x => x.Operation == "Payment");
             var body = ((RecordVendorPaymentRequest)original.Body) with {
-                PaymentReference = "RECEIPT-FAILURE-WITNESS",IdempotencyKey = "mixed-payment-receipt-failure"
+                PaymentReference = $"{boundary}-FAILURE-WITNESS",IdempotencyKey = $"mixed-payment-{boundary}-failure"
             };
             var command = original with { Body = body,Key = body.IdempotencyKey };
             var auditBefore = await Query(options,db => db.AuditLogs.CountAsync(x => x.Action == "VendorPayment.Record"));
@@ -700,12 +755,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using var admin = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(source.ConnectionString)
                 { Database = cloneName }.ConnectionString);
             await admin.OpenAsync();
-            // Test-only reproduction of the observed 40001 at receipt insertion,
-            // after the controlled payment function and audit have written.
-            await using (var install = new NpgsqlCommand("""
+            // Reproduce 40001 both inside the controlled payment function and later
+            // at receipt insertion, after the payment and audit have written.
+            var failureTable = boundary == "function" ? "vendor_payments" : "command_receipts";
+            await using (var install = new NpgsqlCommand($$"""
                 CREATE FUNCTION advance.mixed_receipt_failure() RETURNS trigger LANGUAGE plpgsql AS $f$
-                BEGIN RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='Witness serialization failure at payment receipt'; END $f$;
-                CREATE TRIGGER mixed_receipt_failure BEFORE INSERT ON advance.command_receipts
+                BEGIN RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='Witness serialization failure at payment {{boundary}}'; END $f$;
+                CREATE TRIGGER mixed_receipt_failure BEFORE INSERT ON advance.{{failureTable}}
                 FOR EACH ROW EXECUTE FUNCTION advance.mixed_receipt_failure();
                 """,admin))
                 await install.ExecuteNonQueryAsync();
@@ -713,8 +769,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             try { refused = await Execute(command); }
             finally
             {
-                await using var remove = new NpgsqlCommand("""
-                    DROP TRIGGER mixed_receipt_failure ON advance.command_receipts;
+                await using var remove = new NpgsqlCommand($$"""
+                    DROP TRIGGER mixed_receipt_failure ON advance.{{failureTable}};
                     DROP FUNCTION advance.mixed_receipt_failure();
                     """,admin);
                 await remove.ExecuteNonQueryAsync();
@@ -735,7 +791,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.True(await rows.ReadAsync());
                 Assert.Equal(0L,rows.GetInt64(0));
                 Assert.Equal(0L,rows.GetInt64(1));
-                Assert.Equal(1m,rows.GetDecimal(2));
+                Assert.Equal(paidBefore,rows.GetDecimal(2));
             }
             Assert.Equal(auditBefore,await Query(options,db => db.AuditLogs.CountAsync(x => x.Action == "VendorPayment.Record")));
             var retry = await Execute(command);
@@ -750,19 +806,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using (var total = new NpgsqlCommand("SELECT sum(\"Amount\") FROM advance.vendor_payment_allocations WHERE \"VendorBillId\"=@bill",admin))
             {
                 total.Parameters.AddWithValue("bill",bill.Id);
-                Assert.Equal(2m,(decimal)(await total.ExecuteScalarAsync())!);
+                Assert.Equal(paidBefore+1m,(decimal)(await total.ExecuteScalarAsync())!);
             }
             Assert.Equal(auditBefore+1,await Query(options,db => db.AuditLogs.CountAsync(x => x.Action == "VendorPayment.Record")));
             var log = context.ReadPostgresLog()[startLog..];
             Assert.Contains("40001",log,StringComparison.Ordinal);
             Assert.DoesNotContain("40P01",log,StringComparison.OrdinalIgnoreCase);
-            await File.WriteAllTextAsync(Path.Combine(directory,"payment-receipt-failure.json"),JsonSerializer.Serialize(new {
-                Refused = refused,Retry = retry,Replay = replay,TotalPaidAfterRollback = 1,TotalPaidAfterRetryAndReplay = 2,
-                Note = "Deterministic test-only receipt trigger reproduces the observed SQLSTATE; separate from the eleven-user workload."
+            await File.WriteAllTextAsync(Path.Combine(directory,$"payment-{boundary}-failure.json"),JsonSerializer.Serialize(new {
+                Boundary = boundary,Refused = refused,Retry = retry,Replay = replay,TotalPaidAfterRollback = paidBefore,TotalPaidAfterRetryAndReplay = paidBefore+1m,
+                Note = "Deterministic test-only trigger reproduces SQLSTATE 40001 at the recorded boundary; separate from the eleven-user workload."
             },new JsonSerializerOptions { WriteIndented = true }));
-            await File.WriteAllTextAsync(Path.Combine(directory,"payment-receipt-failure-postgresql.log"),log);
+            await File.WriteAllTextAsync(Path.Combine(directory,$"payment-{boundary}-failure-postgresql.log"),log);
         }
-        await AssertPaymentReceiptFailure();
+        await AssertPaymentSerializationFailure("function",1m);
+        await AssertPaymentSerializationFailure("receipt",2m);
 
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user-state.json"),JsonSerializer.Serialize(new {
             IssueId = issue.Id, IssueActor = issue.IssuedByEmployeeId, IssueAssignment = issue.ResolvedRoleAssignmentId,

@@ -1,6 +1,6 @@
 # Finding: no installation-configuration export
 
-Status: finding, recorded 20 September 2026. Not scheduled for 1 October. It is for the
+Status: finding, recorded 20 September 2026. Not scheduled for go-live on 8 October. It is for the
 version that is sold.
 
 ## What was found

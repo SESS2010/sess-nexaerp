@@ -1,7 +1,7 @@
-# Setup screens for 28-30 September: source review and launch alternatives
+# Setup screens for the 1-3 October setup window: source review and launch alternatives
 
 Decision record, 21 September 2026. Report/proposals only; no setup UI, fallback tool or
-business data was created. The Configuration Page remains deferred until 1 October.
+business data was created. The Configuration Page remains deferred until after go-live.
 Production login remains the critical path for screens AND the governed API alternatives.
 
 ## Finding

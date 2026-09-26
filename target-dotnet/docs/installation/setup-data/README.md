@@ -1,6 +1,6 @@
 # SESS setup data to prepare now
 
-Approved assisted-entry plan for 28-30 September 2026. One company per workbook or JSON
+Approved assisted-entry plan for the 1-3 October 2026 setup window. One company per workbook or JSON
 plan: SESS_PROPRIETORSHIP or SESS_PVT_LTD. Items come from the checked-in legacy script.
 No developer dump, exported masters or copied attachment IDs. Examples are preparation
 forms, NOT approved business values: replace placeholders and obtain SESS sign-off.
@@ -68,7 +68,7 @@ binding checkable. No business-configuration fields can specify the acting emplo
 | Operation | SESS prepares | Operator binds after dependencies exist |
 |---|---|---|
 | [Condition location, Stores](condition-locations.create.example.json) | OrganizationId, WarehouseCode, **Bin Code**, ConditionCode, EffectiveFrom, EffectiveTo (blank = open), Remarks | RackBinId from RackBins Read. Check exact company/warehouse/bin/condition. The API field is RackBinId, not a typed bin name. |
-| [Category route, Stores](category-routes.create.example.json) | OrganizationId, ItemCategoryCode (ELE/FAB/REF), **Warehouse Code, QC_HOLD Bin Code, PENDING_RETURNABLE_DC Bin Code, AVAILABLE Bin Code**, EffectiveFrom, EffectiveTo, Remarks | QcHoldConditionLocationId, PendingReturnConditionLocationId, DefaultAcceptedConditionLocationId from ConditionLocations Read. All in one warehouse, effective for the route start; verify date coverage through 1 October. |
+| [Category route, Stores](category-routes.create.example.json) | OrganizationId, ItemCategoryCode (ELE/FAB/REF), **Warehouse Code, QC_HOLD Bin Code, PENDING_RETURNABLE_DC Bin Code, AVAILABLE Bin Code**, EffectiveFrom, EffectiveTo, Remarks | QcHoldConditionLocationId, PendingReturnConditionLocationId, DefaultAcceptedConditionLocationId from ConditionLocations Read. All in one warehouse, effective for the route start; verify date coverage through 8 October. |
 | [GST rule, Accounts](tax-rules.create.example.json) | OrganizationId, JurisdictionCode, HsnSacCode, SupplierStateCode, PlaceOfSupplyStateCode, VendorRegistrationType, GstRate, CgstRate, SgstRate, IgstRate, CessRate, IsExempt, IsReverseCharge, CurrencyCode, RoundingScale, EffectiveFrom, EffectiveTo, Remarks, ItcEligibility, RecoverableTaxPercent | SupersedesTaxGstSettingId = null for clean initial rules; only an explicitly reviewed replacement references an existing approved ID. Never infer rates from an item display percentage. |
 | [Vendor qualification, Purchase](vendor-qualifications.create.example.json) | OrganizationId, VendorCode, ItemCategoryCode (canonical category actually supplied), QualificationCode, EffectiveFrom, EffectiveTo, Remarks | No GUID entry for vendor/category on create: service resolves codes. Vendor must complete its independent commercial/final approval path before use. |
 

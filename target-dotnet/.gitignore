@@ -8,6 +8,7 @@ outputs/rev868c3_postrun_readonly_sql_source_verification.md
 [Bb]in/
 [Oo]bj/
 TestResults/
+__pycache__/
 *.user
 .vs/
 

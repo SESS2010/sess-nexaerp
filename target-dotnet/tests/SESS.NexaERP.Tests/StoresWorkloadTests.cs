@@ -81,15 +81,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             };
             foreach(var tile in page.Tiles)
             {
-                if(context.Band=="MIR"&&tile.Key=="gate-no-grn")
-                {
-                    Assert.Equal("ACCESS_DENIED",tile.State); Assert.Null(tile.Count);
-                }
-                else
-                {
-                    Assert.Equal("READY",tile.State);
-                    Assert.Equal(tile.Key==active?1L:0L,tile.Count);
-                }
+                // QcGoodsReceiptRead explicitly grants STORES_MANAGER inventory.grn view.
+                // The separate rollback-only permission probes below still require ACCESS_DENIED
+                // when both role and employee source-page grants are removed.
+                Assert.Equal("READY",tile.State);
+                Assert.Equal(tile.Key==active?1L:0L,tile.Count);
             }
             if(active is not null)
             {

@@ -144,7 +144,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
     private static int Count(string source, string value) => (source.Length - source.Replace(value, "", StringComparison.Ordinal).Length) / value.Length;
     private static string Read(params string[] parts)
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var root = AdvanceMigrationSqlSyntaxTests.FindRepositoryRoot();
         return File.ReadAllText(Path.Combine([root, .. parts]));
     }
 

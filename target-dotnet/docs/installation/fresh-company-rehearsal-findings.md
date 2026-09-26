@@ -340,7 +340,7 @@ that only SQL could ever create; it belongs in the configuration-export requirem
 - No SALES_ENGINEER or SALES_HEAD is seeded; the IT Manager (and TD/MD) hold
   `sales.customer-po`, so the IT Manager creates the customer PO.
 - **Witness-gated tests.** The routine suite compiles without eight gates. What each gate
-  hides, and whether it covers a path that runs on 1 October:
+  hides, and whether it covers a path that runs on 8 October:
   - `WorkflowWitness` (22 files, each re-runs the complete purchase flow): machine
     delivery + dossier, FIFO partial fitment/return and historical return, Actual BOM
     reversal report, QC correction, Stores workload and QC-stock dashboards, purchase
@@ -357,7 +357,17 @@ that only SQL could ever create; it belongs in the configuration-export requirem
     compile-time constant, so each gets its own build), writes TRX and logs under
     `local-evidence/nightly/<date>/`, and exits non-zero if any gate fails; the `schtasks`
     line at the top of the script registers it. All three gates compile at `HEAD`; the first
-    nightly tells whether they are green. The four day-one flows are now in the rehearsal:
+    nightly tells whether they are green. **Superseded, 22-23 September:** the 21 September
+    decision to disable `NexaERP nightly witnesses` on this laptop before go-live assumed the
+    laptop would itself be the production server. It is not — DESKTOP-SPF5420 is. The nightly
+    development witness may therefore REMAIN on this laptop after cutover, and must NEVER be
+    installed or run on the ERP server. Runbook section 15.2 is controlling.
+    Runbook step 0 records the separate-machine requirements and the partial memory guard:
+    normal disposal exists, crash/startup cleanup is incomplete. Two interrupted runs on
+    22 September left four orphan clusters in TEMP, removed on 23 September; the resume and
+    memory-guard fix for that is scheduled after go-live in
+    [the harness resilience proposal](harness-resilience-proposal.md).
+    The four day-one flows are now in the rehearsal:
     the supplier invoice recorded before the goods (with `billed-not-received` showing it
     until the receipt, and the link to the accepted bill afterwards), the PO amendment
     approved and issued before receipt (open-orders dashboard flags the unconfirmed delivery

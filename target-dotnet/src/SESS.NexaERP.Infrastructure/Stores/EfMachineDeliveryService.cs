@@ -50,18 +50,15 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
             .ToListAsync(ct);
         return new(total,number,size,rows);
     }
-    public Task<JsonElement> DispatchAsync(DispatchMachineRequest request, CancellationToken ct) =>
-        Execute(null,"MachineDelivery.Dispatch",request.IdempotencyKey,request,null,ct);
+    public Task<JsonElement> DispatchAsync(DispatchMachineRequest request, CancellationToken ct)
+    {
+        MachineDeliveryRequestValidation.Dispatch(request,DateTimeOffset.UtcNow);
+        return Execute(null,"MachineDelivery.Dispatch",request.IdempotencyKey,request,null,ct);
+    }
     public Task<JsonElement> SignAsync(Guid id, SignMachineDeliveryRequest request, CancellationToken ct)
     {
-        if (request.Evidence?.Content is not { Length: > 0 and <= 5242880 } content)
-            throw new StoresValidationException("A retained customer-signed PDF, PNG or JPEG of at most 5 MB is required.");
-        var type = content.AsSpan().StartsWith("%PDF-"u8) ? "application/pdf" :
-            content.AsSpan().StartsWith(new byte[]{137,80,78,71,13,10,26,10}) ? "image/png" :
-            content.AsSpan().StartsWith(new byte[]{255,216,255}) ? "image/jpeg" : "";
-        var name=Path.GetFileName((request.Evidence.FileName ?? string.Empty).Replace('\\','/'));
-        if(type.Length==0 || type!=request.Evidence.ContentType || string.IsNullOrWhiteSpace(name) || name.Length>255 || name.Any(char.IsControl))
-            throw new StoresValidationException("Signature evidence filename or content type is invalid.");
+        var name=MachineDeliveryRequestValidation.Sign(request,DateTimeOffset.UtcNow,out var type);
+        var content=request.Evidence.Content;
         return Execute(id,"MachineDelivery.Sign",request.IdempotencyKey,
             new {request.DeliveredAt,request.CustomerSignatory,FileName=name,ContentType=type,
                 ContentSha256=Convert.ToHexString(SHA256.HashData(content)).ToLowerInvariant()},content,ct);
@@ -95,8 +92,25 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
         }
         catch(Exception e) when(PostgreSqlConcurrency.IsSerializationFailure(e)) {throw new DbUpdateConcurrencyException("Machine delivery changed concurrently. Refresh and retry.",e);}
         catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.InsufficientPrivilege) {throw new UnauthorizedAccessException(e.MessageText,e);}
-        catch(PostgresException e) when(e.SqlState is PostgresErrorCodes.RaiseException or PostgresErrorCodes.CheckViolation or PostgresErrorCodes.UniqueViolation) {throw new StoresConflictException(e.MessageText);}
+        // #34: validation runs first, so a well-formed request cannot reach these. They stay mapped so
+        // that a client mistake never again answers 500, or carries PostgreSQL's own wording.
+        catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.NotNullViolation) {throw NotNull(e);}
+        catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.UniqueViolation) {throw new StoresConflictException(Duplicate(e));}
+        catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.CheckViolation) {throw new StoresConflictException("The server refused this machine DC: check the nature, purpose, dates and text lengths.");}
+        catch(PostgresException e) when(e.SqlState==PostgresErrorCodes.RaiseException) {throw new StoresConflictException(e.MessageText);}
     }
+    private static StoresValidationException NotNull(PostgresException e)
+    {
+        var field=e.ColumnName ?? "Request";
+        return new($"{field} is required.",new Dictionary<string,string[]>(StringComparer.Ordinal){[field]=[$"{field} is required."]});
+    }
+    private static string Duplicate(PostgresException e) => e.ConstraintName switch
+    {
+        {} c when c.Contains("DcNumber",StringComparison.Ordinal) => "This DC number is already used in this company.",
+        {} c when c.Contains("JobOrderId",StringComparison.Ordinal) => "This job already has a machine DC.",
+        {} c when c.Contains("DeliveryChallanId",StringComparison.Ordinal) => "This machine DC is already signed.",
+        _ => "This machine DC conflicts with one already recorded."
+    };
     private async Task NotifyDirector(Guid company,JsonElement delivery,CancellationToken ct)
     {
         var today=DateOnly.FromDateTime(DateTime.UtcNow); var now=DateTimeOffset.UtcNow;

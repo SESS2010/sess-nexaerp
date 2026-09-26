@@ -1,6 +1,6 @@
 # SESS configuration inventory and proposal — 21 September 2026
 
-**Report only. Do not implement a Configuration page, new setting API, migration or server-setting script before 1 October. Production login remains the critical path.** Previously authorised deployment/receiver work is separate from this proposal.
+**Report only. Do not implement a Configuration page, new setting API, migration or server-setting script before go-live on 8 October. Production login remains the critical path.** Previously authorised deployment/receiver work is separate from this proposal.
 
 There is **no general ERP Settings/Configuration screen** in the inspected frontend. **QC Inspection Policies** exists at `/qc/inspection-policies`, alongside master-data and transaction screens. The backend defines a **Tax/GST Settings** permission/page (`settings.tax-gst`, `/settings/tax-gst`) and configuration APIs, but a permission/page definition is not a delivered frontend screen.
 
@@ -24,9 +24,9 @@ Frontend evidence: `git show 0c59254f58bd49fc13a8b919387ba0cf5a1d9988:target-dot
 
 **UI** = implemented frontend surface; **DB** = persisted table without a general configuration screen (an API may exist); **FILE** = server configuration; **CODE** = C#/SQL/migration rule; **GAP** = proposed facility not found implemented. Rows may span locations. Stock balances, accepted costs, payment status and ordinary transaction amounts are business records, not editable configuration switches.
 
-Effort is **developer-days**, including backend/frontend integration, migrations where needed and focused tests, **after a shared 6–10 day governance foundation**. These are estimates, not commitments; allow approximately ±50% until design. Related rows share work and should not be added blindly. Field acceptance/training and elapsed full-regression time are additional. All implementation below is **post–1 October**. “Baseline needed” means verify/use an existing facility before the relevant launch operation, not build a new screen now.
+Effort is **developer-days**, including backend/frontend integration, migrations where needed and focused tests, **after a shared 6–10 day governance foundation**. These are estimates, not commitments; allow approximately ±50% until design. Related rows share work and should not be added blindly. Field acceptance/training and elapsed full-regression time are additional. All implementation below is **post–go-live (8 October)**. “Baseline needed” means verify/use an existing facility before the relevant launch operation, not build a new screen now.
 
-| ID / business setting | Where it lives and current value/behaviour | Proposed treatment and historical protection | Days | Needed for 1 October? |
+| ID / business setting | Where it lives and current value/behaviour | Proposed treatment and historical protection | Days | Needed for 8 October? |
 |---|---|---|---:|---|
 | B01 Company identity | **DB + CODE** `companies`, company seeds: `SESS_PVT_LTD`, Sri Easwari Scientific Solution Private Limited; `SESS_PROPRIETORSHIP`, Sri Easwari Scientific Solution. Legal name, code, entity type, active/status. No company editor. | Governed profile versions; company IDs/codes not freely renameable. Preserve legal-entity document snapshots. | 3–5 | Correct baseline yes; new UI no. |
 | B02 Sites, addresses, business timezone | **DB** `company_sites`: address lines, city/district, state/code, postal/country code, site type, `TimeZoneId` (model default `Asia/Kolkata`). Schema does not prove rows are populated. Reporting has separate configuration (B30). | Effective-dated site/address changes; unify intended calendar without rewriting documents. | 3–5 | Required addresses/timezone yes; UI no. |
@@ -74,7 +74,7 @@ Important distinctions:
 - PR uses estimated value; PO/comparison uses payable value. The selector accepts a decimal and has no currency argument/FX conversion; its caller passes the document total. This report therefore does **not** certify these numeric purchase limits as INR-equivalent for every foreign-currency document. Define/witness that basis before such use; a future page must display it and preserve conversion evidence.
 - Effective purchase steps, snapshots, tax/QC decisions and append-only Stores versions are useful foundations, not a complete maker-checker settings facility. Stores versions contain changer/reason/time but no separate checker; their current guard recognises TD, MD and IT Manager. The proposed business page must not silently inherit IT Manager control-change authority.
 
-## Proposed Business Configuration page — after 1 October
+## Proposed Business Configuration page — after go-live on 8 October
 
 A TD/MD page with **Current values**, **Proposed changes**, **Awaiting another person's decision**, **Scheduled versions** and **History**. Link existing domain workflows instead of duplicating QC/tax decision engines.
 
@@ -108,9 +108,9 @@ First post-login group: foundation, purchase/A2/item-age controls, and links to 
 
 An optional **TD/MD read-only Operations Status** view is a separate post-launch proposal: **3–5 developer-days**, including a small sanitised feed and permission/failure tests. The API must not acquire write access to backup plans, credentials, receiver vaults, scheduler or certificate keys. Prefer a protected local producer publishing a minimal receipt the API can only read. Missing/stale/unreadable evidence is **Unknown/Failed**, never green by default. Include observation time/source/age/reason; distinguish local verification, off-machine landing and receiver archive. No secrets or commercial information may leak through this side channel.
 
-No new status page is needed for 1 October. Existing operator checks and `Test-ProductionState` remain the witness. A real verified backup/copy and a visible missed-day failure remain requirements whether or not the ERP displays them.
+No new status page is needed for 8 October. Existing operator checks and `Test-ProductionState` remain the witness. A real verified backup/copy and a visible missed-day failure remain requirements whether or not the ERP displays them.
 
-## Before 1 October: acceptance, not configuration development
+## Before 8 October: acceptance, not configuration development
 
 Keep production OIDC login/MFA and employee/company mapping first. Through existing controlled workflows, confirm company/GST data, approvers and purchase boundaries, relevant tax/QC policies, warehouse routes, numbering and inventory periods. Record accepted values/versions for both companies. Source seeds do not prove live state. Honour both opening-stock ceremonies before any stock-moving command on `sess_nexa_erp`. If an existing workflow cannot support a required launch operation, record that specific gap for the launch decision; this report authorises neither shortcuts nor a broad settings build.
 

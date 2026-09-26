@@ -21,5 +21,9 @@ public interface IGateEntryService
     Task<IReadOnlyList<GateEntryPurchaseOrderCandidate>> ListPurchaseOrderCandidatesAsync(CancellationToken cancellationToken);
 }
 
-public sealed class StoresValidationException(string message) : Exception(message);
+public sealed class StoresValidationException(string message, IReadOnlyDictionary<string, string[]>? errors = null) : Exception(message)
+{
+    /// <summary>Field name to messages, returned as the envelope's <c>Errors</c>; null when the refusal names no field.</summary>
+    public IReadOnlyDictionary<string, string[]>? Errors { get; } = errors;
+}
 public sealed class StoresConflictException(string message) : Exception(message);

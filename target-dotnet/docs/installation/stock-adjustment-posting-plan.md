@@ -95,7 +95,17 @@ closed-period refusal, backdating, replay and the reversal.
 - Stores reads open inventory periods through `GET /api/v1/stores/stock-adjustments/inventory-periods`
   (the accounts list is CFO-only), and the rehearsal opens the period as the CFO first.
 
-## Order of work
+## Owner decisions (21 September 2026)
+
+- Removal value stays live. Recompute FIFO value at the completing decision; if the band
+  moved, refuse with 409 and require resubmission. Do not freeze the submission value:
+  the approver must have authority for the value actually removed.
+- Serialized identity change remains in the plan after go-live on 8 October, outside go-live scope.
+  Correct a wrong opening-stock serial with two auditable adjustments: wrong serial out,
+  correct serial in, each through normal approval and posting. This does not mark the
+  identity-transfer path built.
+
+## Original order of work
 
 1. Migration: tables, ledger contract (batch kind, document reference, origin, FIFO
    consumption reference), posting function, page and grants — one migration.

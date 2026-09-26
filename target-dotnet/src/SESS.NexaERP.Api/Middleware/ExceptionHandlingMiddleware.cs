@@ -33,7 +33,10 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         {
             logger.LogWarning(ex, "Stores request validation failed");
             context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-            await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+            if (ex.Errors is { Count: > 0 } errors)
+                await context.Response.WriteAsJsonAsync(new { message = ex.Message, errors });
+            else
+                await context.Response.WriteAsJsonAsync(new { message = ex.Message });
         }
         catch (KeyNotFoundException ex)
         {
@@ -53,6 +56,7 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         }
         catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException ex)
         {
+            context.Items[StandardErrorEnvelopeMiddleware.ConcurrencyFailureKey] = true;
             context.Response.StatusCode = (int)HttpStatusCode.Conflict;
             await context.Response.WriteAsJsonAsync(new { message = ex.Message });
         }

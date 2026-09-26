@@ -41,7 +41,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(context.ProductionId,"SESS-25","PRODUCTION_MANAGER");
         var path=$"/api/v1/production/component-fitments/job-orders/{fitment.JobOrderId}/actual-bom";
         var before=await Get<ActualBomView>(client,path);
-        Assert.Equal(1419.60m,before.TotalAcceptedValue);
+        // LOW fixture: INR 4,000 material + INR 720 FULLY_RECOVERABLE GST + INR 12 freight.
+        // Old gross cost: .30 * (4000 + 720 + 12) = 1419.60.
+        // Recoverable GST is excluded: .30 * (4000 + 12) = 1203.60; difference 216.
+        var taxRule = await db.TaxGstSettings.AsNoTracking().SingleAsync(x => x.HsnSacCode == "9025");
+        Assert.Equal("FULLY_RECOVERABLE", taxRule.ItcEligibility);
+        Assert.Equal(1200m, before.TotalAcceptedMaterialValue);
+        Assert.Equal(3.60m, before.TotalAllocatedChargeValue);
+        Assert.Equal(1203.60m,before.TotalAcceptedValue);
         await Post<ComponentFitmentSummary>(client,$"/api/v1/production/component-fitments/{fitment.Id}/reverse",
             new ReverseComponentFitmentRequest("Undo the original fitment before retaining 0.20 and returning 0.10",
                 "fifo-partial-fitment-reverse"));
@@ -52,9 +59,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "Confirm the retained component quantity after the full reversal",null,"fifo-partial-fitment-retain"));
         var retained=await Get<ActualBomView>(client,path);
         Assert.Equal(.20m,retained.Entries.Sum(x=>x.QuantityBase));
-        Assert.Equal(944m,retained.TotalAcceptedMaterialValue);
+        Assert.Equal(800m,retained.TotalAcceptedMaterialValue);
         Assert.Equal(2.4m,retained.TotalAllocatedChargeValue);
-        Assert.Equal(946.4m,retained.TotalAcceptedValue);
+        Assert.Equal(802.4m,retained.TotalAcceptedValue);
 
         user.Set(engineer.Id,engineer.EmployeeCode,"TECHNICAL_SUPPORT_MANAGER","TECHNICAL_SUPPORT_MANAGER","SERVICE_ENGINEER");
         var declared=await Post<MaterialReturnView>(client,$"/api/v1/stores/material-returns/from-issue/{issue.Id}",
@@ -86,7 +93,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(.20m,after.Entries.Sum(x=>x.QuantityBase));
         Assert.Equal(before.CommercialVariance.BaselineRevisionId,after.CommercialVariance.BaselineRevisionId);
         Assert.Equal(before.CommercialVariance.BaselineValue,after.CommercialVariance.BaselineValue);
-        Assert.Equal(946.4m,after.CommercialVariance.ActualAcceptedValue);
+        Assert.Equal(802.4m,after.CommercialVariance.ActualAcceptedValue);
         var returnLineId=accepted.Lines.Single().Id;
         var restoredQuantity=await db.Database.SqlQuery<decimal>($"""
             SELECT coalesce(sum("Quantity"),0) AS "Value" FROM advance.fifo_cost_restorations
@@ -96,6 +103,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             SELECT coalesce(sum("RestoredValue"),0) AS "Value" FROM advance.fifo_cost_restorations
             WHERE "MaterialReturnLineId"={returnLineId}
             """).SingleAsync();
+        // Restoration retains the original immutable PO-provisional issue cost, not the BOM reader projection.
+        // .10 * 4720 = 472; the original layer/consumption must not be repriced.
         Assert.Equal(.10m,restoredQuantity); Assert.Equal(472m,restoredValue);
         Assert.Equal(originalConsumptions,await db.FifoCostConsumptions.AsNoTracking().OrderBy(x=>x.Id)
             .Select(x=>new{x.Id,x.Quantity,x.UnitCost,x.ConsumedValue,x.ConsumedAt}).ToArrayAsync());
@@ -111,6 +120,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(context.AccountsId,"SESS-14",Rev869ARoleCodes.AccountsManager);
         var fifoAfter=await Get<CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/fifo-valuation"));
         Assert.Equal(2.68m,Assert.Single(fifoAfter.Totals).GetProperty("quantity").GetDecimal());
+        // FIFO report preserves its immutable layer plus freight: .10 * (4720 + 12).
         Assert.Equal(.10m*4732m,fifoAfter.Totals.Single().GetProperty("value").GetDecimal()-
             fifoBefore.Totals.Single().GetProperty("value").GetDecimal());
         var output=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");

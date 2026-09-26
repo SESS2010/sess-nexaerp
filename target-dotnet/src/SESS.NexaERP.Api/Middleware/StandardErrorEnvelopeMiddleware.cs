@@ -20,6 +20,8 @@ public sealed class StandardErrorEnvelopeMiddleware(
     RequestDelegate next,
     IOptions<JsonOptions> jsonOptions)
 {
+    // Server-only marker: classification must survive serialization without relying on message wording.
+    internal static readonly object ConcurrencyFailureKey = new();
     public sealed record ReportFailure(string Code, bool AdministratorActionRequired);
     public const string ReportFailureKey = "SESS.Reports.Failure";
     public const string AuthenticationFailureKey = "SESS.Authentication.AdministratorActionRequired";
@@ -47,6 +49,15 @@ public sealed class StandardErrorEnvelopeMiddleware(
                 legacy.Detail,
                 legacy.Errors,
                 Activity.Current?.Id ?? context.TraceIdentifier);
+
+            if (context.Response.StatusCode == StatusCodes.Status409Conflict &&
+                context.Items.TryGetValue(ConcurrencyFailureKey, out var concurrency) && concurrency is true)
+                envelope = envelope with
+                {
+                    Type = "https://api.sess.example/problems/concurrency-conflict",
+                    Title = "Concurrency conflict",
+                    Code = "CONCURRENCY_CONFLICT"
+                };
 
             if (context.Response.StatusCode == StatusCodes.Status403Forbidden &&
                 context.Items.ContainsKey(AuthenticationFailureKey))

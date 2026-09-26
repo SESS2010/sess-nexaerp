@@ -70,7 +70,7 @@ public sealed class ManagingDirectorDepartmentPriorityMigrationTests
 
     private static string Read(params string[] parts)
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var root = AdvanceMigrationSqlSyntaxTests.FindRepositoryRoot();
         return File.ReadAllText(Path.Combine([root, .. parts]));
     }
 }

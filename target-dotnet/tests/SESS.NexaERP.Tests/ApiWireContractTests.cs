@@ -41,6 +41,9 @@ public sealed class ApiWireContractTests
     [InlineData("/stale", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
     [InlineData("/idempotency", HttpStatusCode.Conflict, "IDEMPOTENCY_CONFLICT", "idempotency-conflict")]
     [InlineData("/business", HttpStatusCode.Conflict, "BUSINESS_RULE_CONFLICT", "business-rule-conflict")]
+    [InlineData("/typed-concurrency-qc", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
+    [InlineData("/typed-concurrency-idempotency", HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT", "concurrency-conflict")]
+    [InlineData("/business-qc", HttpStatusCode.Conflict, "BUSINESS_RULE_CONFLICT", "business-rule-conflict")]
     public async Task Every_handled_failure_uses_the_exact_standard_envelope(
         string path,
         HttpStatusCode status,
@@ -95,6 +98,37 @@ public sealed class ApiWireContractTests
 
         var errors = document.RootElement.GetProperty("Errors");
         Assert.Equal("RequiredByDate is required.", errors.GetProperty("RequiredByDate")[0].GetString());
+    }
+
+    [Fact]
+    public async Task A_stores_refusal_naming_fields_reaches_the_standard_Errors_object()
+    {
+        // #35: the machine DC field rules answer 400 with the field named, which the screen highlights.
+        await using var host = await ContractHost.StartAsync();
+        using var client = new HttpClient { BaseAddress = host.BaseAddress };
+
+        var response = await client.GetAsync("/stores-field-validation");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("VALIDATION_FAILED", document.RootElement.GetProperty("Code").GetString());
+        Assert.Equal("The machine DC dispatch has invalid fields: DcNumber is required.", document.RootElement.GetProperty("Detail").GetString());
+        var errors = document.RootElement.GetProperty("Errors");
+        Assert.Equal("DcNumber is required.", errors.GetProperty("DcNumber")[0].GetString());
+        Assert.Equal("Signature evidence filename is invalid.", errors.GetProperty("Evidence.FileName")[0].GetString());
+    }
+
+    [Fact]
+    public async Task A_stores_refusal_naming_no_field_keeps_an_empty_Errors_object()
+    {
+        await using var host = await ContractHost.StartAsync();
+        using var client = new HttpClient { BaseAddress = host.BaseAddress };
+
+        var response = await client.GetAsync("/stores-validation");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(document.RootElement.GetProperty("Errors").EnumerateObject());
     }
 
     [Fact]
@@ -178,6 +212,17 @@ public sealed class ApiWireContractTests
             app.MapGet("/stale", () => Results.Conflict(new { message = "Stale record version. Refresh and retry." }));
             app.MapGet("/idempotency", () => Results.Conflict(new { message = "Idempotency key conflicts with a different request." }));
             app.MapGet("/business", () => Results.Conflict(new { message = "Document is already finalized." }));
+            app.MapGet("/typed-concurrency-qc", IResult () => throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("QC stock or its decision changed; refresh and retry."));
+            app.MapGet("/typed-concurrency-idempotency", IResult () => throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("The idempotency receipt changed; refresh and retry."));
+            app.MapGet("/business-qc", IResult () => throw new SESS.NexaERP.Application.Stores.StoresConflictException("QC stock or its decision changed; refresh and retry."));
+            app.MapGet("/stores-field-validation", IResult () => throw new SESS.NexaERP.Application.Stores.StoresValidationException(
+                "The machine DC dispatch has invalid fields: DcNumber is required.",
+                new Dictionary<string, string[]>
+                {
+                    ["DcNumber"] = ["DcNumber is required."],
+                    ["Evidence.FileName"] = ["Signature evidence filename is invalid."]
+                }));
+            app.MapGet("/stores-validation", IResult () => throw new SESS.NexaERP.Application.Stores.StoresValidationException("Idempotency-Key header is required."));
             app.MapGet("/exception", IResult () => throw new InvalidOperationException("secret database detail"));
             app.MapPost("/estimated-boms", (EstimatedBomBindingProbe request) => Results.Ok(request));
             app.MapPost("/material-issues/from-request", (MaterialIssueBindingProbe request) => Results.Ok(request));

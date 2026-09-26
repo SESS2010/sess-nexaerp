@@ -201,6 +201,14 @@ public static partial class Rev869BPurchaseEndpoints
         catch (Rev869BNotFoundException ex) { await AuditDenied("Scoped record missing or denied.", "RecordScope"); return Results.NotFound(new { message = ex.Message }); }
         catch (Rev869BValidationException ex) { return Results.BadRequest(new { message = ex.Message }); }
         catch (Rev869BConflictException ex) { await AuditDenied("Business or idempotency conflict rejected.", "Conflict"); return Results.Conflict(new { message = ex.Message }); }
+        // Infrastructure failures must NEVER be reported as user error. Both types below derive from
+        // InvalidOperationException, so they are caught first and rethrown to central handling, which
+        // logs the real cause and returns 500 INTERNAL_ERROR with the caller's TraceId. Telling an
+        // operator they filled the form wrongly when the database failed destroys the only signal
+        // anyone has - and the opening-stock ceremonies on this same shared path happen once.
+        // Every OTHER InvalidOperationException is a deliberate business rejection and stays 400.
+        catch (ObjectDisposedException) { throw; }
+        catch (Npgsql.NpgsqlOperationInProgressException) { throw; }
         catch (InvalidOperationException ex) { return Results.BadRequest(new { message = ex.Message }); }
         catch (OverflowException ex) { return Results.BadRequest(new { message = ex.Message }); }
         catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
