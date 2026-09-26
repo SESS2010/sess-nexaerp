@@ -1,25 +1,37 @@
 import { useMemo, useState } from 'react'
+import { ClipboardList } from 'lucide-react'
 import { getPurchaseWorkload } from '../../api/dashboards'
-import { SortableHeader } from '../../components/SortableHeader'
 import { useSort } from '../../hooks/useSort'
-import type { PurchaseWorkloadPage, PurchaseWorkloadQueue, PurchaseWorkloadRow, PurchaseWorkloadTile } from '../../types/dashboard'
+import type { PurchaseWorkloadPage, PurchaseWorkloadQueue, PurchaseWorkloadRow } from '../../types/dashboard'
 import { PURCHASE_WORKLOAD_QUEUES } from '../../types/dashboard'
-import { formatAge, formatCount, formatTimestamp } from '../../utils/dashboardFormat'
+import { formatCount, formatTimestamp } from '../../utils/dashboardFormat'
 import { useSession } from '../auth/SessionContext'
 import { workloadRowLink } from './dashboardAccess'
+import { Money, NullValue } from './DashboardParts'
+import { AgeChip, InfoTip } from './DashboardUi'
 import {
-  AmountList, DetailFilterNote, MaybeLink, Money, NullValue, Pager, QueryProblem, SectionFrame, StateNotice,
-} from './DashboardParts'
-import { HBarChart, LegendDot, type HBar } from './PurchaseCharts'
-import {
-  AgeText, QuickFilter, RefreshingHint, SERVER_ORDER, SEVERITY, SectionSkeleton, WORKLOAD_AGE, ageSeverity, matchesText,
-  sortRows, thresholdText, useFocusRequest, usePurchaseSectionQuery, useReportToPage,
-  type FocusRequest, type SectionReport,
+  CompactPager, CompactTable, DetailPanel, DocLink, FilterChip, NoRows, OneLine, RefreshDot, SECTION_ANCHOR, SERVER_ORDER, SearchBox,
+  SectionState, SortTh, Th, WORKLOAD_AGE, ageTone, matchesText, sortRows, useFocusRequest, usePurchaseSectionQuery, useReportToPage,
+  type Can, type FocusRequest, type SectionReport,
 } from './PurchaseDashboardKit'
 
 const PAGE_SIZE = 50
 
-type Can = (pageKey: string, action?: string) => boolean
+/** Short queue names for bars and chips; the server's Title is in the tooltip. */
+export const QUEUE_SHORT: Record<string, string> = {
+  'pr-department-verification': 'PR verification',
+  'pr-approval': 'PR approval',
+  'pr-stock-check': 'Stock check',
+  'rfq-no-quotation': 'RFQ, no quote',
+  'quotation-technical-verification': 'Quote tech check',
+  'comparison-decision': 'Comparison',
+  'po-approved-unissued': 'PO to issue',
+}
+
+const MONEY_TIP =
+  'Queues = documents waiting now (documents, not lines). Colour = oldest waiting: amber from 3 days, red from 7. ' +
+  'PR values are the saved estimated INR total; quotation, comparison and PO values are the saved total payable incl. GST. ' +
+  'None is ex-tax or actual cost. Search and sorting work on this page of rows only.'
 
 export function PurchaseWorkloadSection({ refreshTick = 0, onReport, focus }: {
   refreshTick?: number
@@ -27,9 +39,11 @@ export function PurchaseWorkloadSection({ refreshTick = 0, onReport, focus }: {
   focus?: FocusRequest | null
 }) {
   const { can } = useSession()
+  const [open, setOpen] = useState(false)
   const [queue, setQueue] = useState<PurchaseWorkloadQueue | null>(null)
   const [approvalRoute, setApprovalRoute] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
 
   const { state, data, refreshing, reload } = usePurchaseSectionQuery(
     () => getPurchaseWorkload({ queue, approvalRoute, page, pageSize: PAGE_SIZE }),
@@ -38,53 +52,42 @@ export function PurchaseWorkloadSection({ refreshTick = 0, onReport, focus }: {
   )
   useReportToPage(onReport, state, data, queue === null && approvalRoute === null && page === 1)
 
-  const selectQueue = (next: PurchaseWorkloadQueue | null, route: string | null = null) => {
+  const select = (next: PurchaseWorkloadQueue | null, route: string | null = null) => {
     setQueue(next)
     setApprovalRoute(route)
     setPage(1)
   }
 
   useFocusRequest(focus, (target) => {
-    if ((PURCHASE_WORKLOAD_QUEUES as readonly string[]).includes(target)) selectQueue(target as PurchaseWorkloadQueue)
-    else selectQueue(null)
+    setOpen(true)
+    const q = target.queue && (PURCHASE_WORKLOAD_QUEUES as readonly string[]).includes(target.queue) ? (target.queue as PurchaseWorkloadQueue) : null
+    select(q)
   })
 
   return (
-    <SectionFrame
-      id="purchase-workload"
-      title="Workload"
-      subtitle={<>Documents waiting in each purchase queue now. Counts are documents, not lines or vendors. <RefreshingHint on={refreshing} /></>}
-      generatedAt={data?.GeneratedAt}
-      timeZone={data?.TimeZone}
-    >
-      {!data && state.kind === 'loading' && (
-        <>
-          <StateNotice kind="loading" title="Loading the purchase queues…" />
-          <SectionSkeleton tiles={4} />
-        </>
-      )}
-      {(state.kind === 'error' || state.kind === 'company-mismatch') && <QueryProblem state={state} onRetry={reload} />}
-      {data && <WorkloadBody data={data} can={can} onSelect={selectQueue} onPage={setPage} />}
-    </SectionFrame>
+    <DetailPanel id={SECTION_ANCHOR.workload} icon={ClipboardList} title="Workload details" info={MONEY_TIP}
+      open={open} onToggle={() => setOpen(!open)}
+      right={<><RefreshDot on={refreshing} /><SearchBox value={search} onChange={setSearch} onFocus={() => setOpen(true)} placeholder="Document, approver, vendor…" /></>}>
+      <SectionState state={state} data={data} onRetry={reload}>
+        {(d) => <WorkloadBody data={d} can={can} search={search} onSelect={select} onPage={setPage} />}
+      </SectionState>
+    </DetailPanel>
   )
 }
 
-function WorkloadBody({ data, can, onSelect, onPage }: {
+function WorkloadBody({ data, can, search, onSelect, onPage }: {
   data: PurchaseWorkloadPage
   can: Can
+  search: string
   onSelect: (queue: PurchaseWorkloadQueue | null, route?: string | null) => void
   onPage: (page: number) => void
 }) {
-  const [search, setSearch] = useState('')
   const { sort, toggleSort } = useSort(SERVER_ORDER)
   const tilesByKey = useMemo(() => new Map(data.Tiles.map((tile) => [tile.Key, tile])), [data.Tiles])
-  const readyTiles = data.Tiles.filter((tile) => tile.State === 'READY')
-  const deniedTiles = data.Tiles.filter((tile) => tile.State !== 'READY')
-  const nothingWaiting = readyTiles.every((tile) => tile.Count === 0) && data.TotalRows === 0
-
-  const activeFilters: string[] = []
-  if (data.Queue) activeFilters.push(tilesByKey.get(data.Queue)?.Title ?? data.Queue)
-  if (data.ApprovalRoute) activeFilters.push(`approval route ${data.ApprovalRoute}`)
+  const ready = data.Tiles.filter((tile) => tile.State === 'READY')
+  const denied = data.Tiles.filter((tile) => tile.State !== 'READY')
+  const selectedTile = data.Queue ? tilesByKey.get(data.Queue) : undefined
+  const nothingWaiting = ready.every((tile) => !tile.Count) && data.TotalRows === 0
 
   const rows = useMemo(() => {
     const filtered = data.Rows.filter((row) => matchesText(search, [
@@ -93,216 +96,79 @@ function WorkloadBody({ data, can, onSelect, onPage }: {
     ]))
     return sortRows<PurchaseWorkloadRow>(filtered, sort, {
       document: (row) => row.DocumentNumber,
-      queue: (row) => tilesByKey.get(row.Queue)?.Title ?? row.Queue,
+      queue: (row) => QUEUE_SHORT[row.Queue] ?? row.Queue,
       status: (row) => row.Status,
-      waiting: (row) => row.WaitingSince,
       age: (row) => row.AgeDays,
       responsible: (row) => row.ResponsibilityIssue ?? row.NextApproverEmployeeCode ?? row.NextApproverRole,
       value: (row) => row.Value,
-      pending: (row) => row.PendingLineCount,
     })
   }, [data.Rows, search, sort, tilesByKey])
 
-  const bars: HBar[] = data.Tiles.map((tile) => {
-    const denied = tile.State !== 'READY' || tile.Count === null
-    const severity = tile.Count ? ageSeverity(tile.OldestAgeDays, WORKLOAD_AGE) : 'green'
-    return {
-      key: tile.Key,
-      label: tile.Title,
-      labelText: tile.Title,
-      value: denied ? null : tile.Count,
-      display: denied ? <NullValue reason="withheld" /> : <span className="mono font-semibold">{formatCount(tile.Count ?? 0)}</span>,
-      displayText: denied ? 'withheld, not zero' : `${tile.Count} waiting${tile.OldestAgeDays !== null ? `, oldest ${formatAge(tile.OldestAgeDays)}` : ''}`,
-      color: SEVERITY[severity].bar,
-      note: !denied && tile.OldestAgeDays !== null ? <>oldest waiting <AgeText days={tile.OldestAgeDays} thresholds={WORKLOAD_AGE} /></> : undefined,
-      onClick: denied ? undefined : () => onSelect(data.Queue === tile.Key ? null : (tile.Key as PurchaseWorkloadQueue)),
-      clickHint: 'Show only this queue in the detail rows',
-      selected: data.Queue === tile.Key,
-    }
-  })
-
   return (
     <>
-      <p className="field-hint mb-2">
-        <strong>Money on this section:</strong> requisition values are the saved estimated total in INR, not a uniform
-        ex-tax cost. Quotation, comparison and PO values are the saved total payable, including GST and commercial terms.
-        None of these figures is ex-tax or actual component cost.
-      </p>
-
-      {deniedTiles.length > 0 && (
-        <StateNotice kind="denied" title={`${deniedTiles.length} queue${deniedTiles.length === 1 ? ' is' : 's are'} not available to you`}>
-          Their counts are withheld, not zero: {deniedTiles.map((tile) => tile.Title).join('; ')}.
-        </StateNotice>
-      )}
-
-      {nothingWaiting && (
-        <StateNotice kind="empty" title="No purchase documents are waiting">
-          You are permitted to see these queues, and none has a document in it now.
-        </StateNotice>
-      )}
-
-      <div className="grid gap-4 my-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <div className="rounded-lg border border-line p-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-            <h3 className="text-[13px] font-semibold">Documents waiting, by queue</h3>
-            <span className="flex flex-wrap gap-2">
-              <LegendDot color={SEVERITY.green.bar}>fresh</LegendDot>
-              <LegendDot color={SEVERITY.amber.bar}>ageing</LegendDot>
-              <LegendDot color={SEVERITY.red.bar}>old</LegendDot>
-            </span>
-          </div>
-          <HBarChart bars={bars} caption="Documents waiting in each purchase queue, coloured by the oldest waiting age" />
-          <p className="text-[11.5px] text-ink-faint mt-2">Bar colour follows the oldest document in the queue ({thresholdText(WORKLOAD_AGE)}). Click a bar to list that queue below.</p>
-        </div>
-        <div className="grid gap-2 content-start" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-          {data.Tiles.map((tile) => (
-            <WorkloadTile key={tile.Key} tile={tile} selected={data.Queue === tile.Key} selectedRoute={data.ApprovalRoute} onSelect={onSelect} />
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <select aria-label="Queue" value={data.Queue ?? ''} onChange={(e) => onSelect((e.target.value || null) as PurchaseWorkloadQueue | null)}
+          className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700">
+          <option value="">All queues</option>
+          {ready.map((tile) => (
+            <option key={tile.Key} value={tile.Key}>{QUEUE_SHORT[tile.Key] ?? tile.Title} ({formatCount(tile.Count ?? 0)})</option>
           ))}
-        </div>
+        </select>
+        {selectedTile?.ApprovalBands.map((band) => (
+          <button key={band.ApprovalRoute} type="button" onClick={() => onSelect(data.Queue as PurchaseWorkloadQueue, data.ApprovalRoute === band.ApprovalRoute ? null : band.ApprovalRoute)}
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${data.ApprovalRoute === band.ApprovalRoute ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            title="Approval route">
+            {band.ApprovalRoute} · {formatCount(band.Count)}
+          </button>
+        ))}
+        {data.ApprovalRoute && <FilterChip label={`Route ${data.ApprovalRoute}`} onClear={() => onSelect(data.Queue as PurchaseWorkloadQueue)} />}
+        {selectedTile?.Coverage && <InfoTip text={selectedTile.Coverage} />}
+        {denied.length > 0 && (
+          <span className="ml-auto text-[11px] text-slate-400" title={denied.map((tile) => tile.Title).join('; ')}>
+            {denied.length} queue{denied.length === 1 ? '' : 's'} hidden (no access — withheld, not zero)
+          </span>
+        )}
       </div>
 
-      <DetailFilterNote active={activeFilters} onClear={() => onSelect(null)} />
-
-      {data.Rows.length === 0 ? (
-        !nothingWaiting && (
-          <StateNotice kind="empty" title="No detail rows match this selection">
-            {data.Queue ? 'The selected queue has no waiting documents on this page.' : 'There are no detail rows.'}
-          </StateNotice>
-        )
+      {nothingWaiting ? (
+        <OneLine>No purchase documents are waiting.</OneLine>
       ) : (
-        <>
-          <QuickFilter id="workload-search" value={search} onChange={setSearch} shown={rows.length} onPage={data.Rows.length}
-            placeholder="Search document, status, approver, vendor…" />
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <SortableHeader label="Document" sortKey="document" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Queue" sortKey="queue" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Waiting since" sortKey="waiting" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Age" sortKey="age" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Next responsible" sortKey="responsible" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Value" sortKey="value" sort={sort} onSort={toggleSort} />
-                  <th>Vendors</th>
-                  <SortableHeader label="Pending lines" sortKey="pending" sort={sort} onSort={toggleSort} />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 && (
-                  <tr><td colSpan={9} className="table-empty">No rows on this page match "{search}".</td></tr>
-                )}
-                {rows.map((row) => {
-                  const tile = tilesByKey.get(row.Queue)
-                  const valueWithheld = tile ? !tile.CommercialValuesVisible : row.Currency === null
-                  return (
-                    <tr key={`${row.Queue}-${row.DocumentId}`}>
-                      <td className="mono">
-                        <MaybeLink to={workloadRowLink(can, row.Queue, row.DocumentNumber)}>{row.DocumentNumber}</MaybeLink>
-                        <div className="field-hint">{row.DocumentType}</div>
-                      </td>
-                      <td>{tile?.Title ?? row.Queue}</td>
-                      <td><span className="badge badge-muted">{row.Status}</span></td>
-                      <td className="whitespace-nowrap">{formatTimestamp(row.WaitingSince, data.TimeZone)}</td>
-                      <td className="text-right"><AgeText days={row.AgeDays} thresholds={WORKLOAD_AGE} /></td>
-                      <td>
-                        {row.ResponsibilityIssue ? (
-                          <span className="badge badge-warn" title="The saved workflow step does not name a single responsible employee.">
-                            {row.ResponsibilityIssue}
-                          </span>
-                        ) : row.NextApproverEmployeeCode || row.NextApproverRole ? (
-                          <>
-                            <span className="mono">{row.NextApproverEmployeeCode ?? ''}</span>
-                            {row.NextApproverRole && <div className="field-hint">{row.NextApproverRole}</div>}
-                          </>
-                        ) : (
-                          <NullValue reason="none" />
-                        )}
-                      </td>
-                      <td className="text-right">
-                        <Money value={row.Value} currency={row.Currency} nullReason={valueWithheld ? 'withheld' : 'none'} />
-                      </td>
-                      <td>{row.Vendors.length ? row.Vendors.join(', ') : <NullValue reason="none" />}</td>
-                      <td className="text-right">{row.PendingLineCount === null ? <NullValue reason="none" /> : formatCount(row.PendingLineCount)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-      <Pager page={data.Page} pageSize={data.PageSize} totalRows={data.TotalRows} onPage={onPage} />
-    </>
-  )
-}
-
-function WorkloadTile({ tile, selected, selectedRoute, onSelect }: {
-  tile: PurchaseWorkloadTile
-  selected: boolean
-  selectedRoute: string | null
-  onSelect: (queue: PurchaseWorkloadQueue | null, route?: string | null) => void
-}) {
-  const denied = tile.State !== 'READY'
-  const queue = tile.Key as PurchaseWorkloadQueue
-  const severity = !denied && tile.Count ? ageSeverity(tile.OldestAgeDays, WORKLOAD_AGE) : null
-  return (
-    <div
-      className="home-tile"
-      data-tile-state={denied ? 'denied' : 'ready'}
-      style={{
-        outline: selected ? '2px solid var(--color-accent)' : undefined,
-        opacity: denied ? 0.75 : 1,
-        borderLeft: severity ? `4px solid ${SEVERITY[severity].bar}` : undefined,
-      }}
-    >
-      <button type="button" className="text-left w-full cursor-pointer disabled:cursor-default" disabled={denied} onClick={() => onSelect(selected ? null : queue)}
-        title={denied ? 'Not permitted' : selected ? 'Show all queues' : 'Show only this queue in the detail rows'}>
-        <div className="home-tile-title text-[13px]">{tile.Title}</div>
-        {denied ? (
-          <div className="mt-1 flex items-center gap-2">
-            <span className="badge badge-muted">Permission denied</span>
-            <NullValue reason="withheld" />
-          </div>
-        ) : (
-          <>
-            <div className="text-2xl font-semibold">{tile.Count === null ? <NullValue reason="withheld" /> : <span className="mono">{formatCount(tile.Count)}</span>}</div>
-            <div className="text-[12px] text-ink-soft">
-              {tile.OldestAgeDays === null ? 'No waiting age' : <>Oldest waiting <AgeText days={tile.OldestAgeDays} thresholds={WORKLOAD_AGE} /></>}
-            </div>
-            {tile.Key !== 'rfq-no-quotation' && (
-              <div className="mt-1">
-                {tile.CommercialValuesVisible ? (
-                  <AmountList amounts={tile.Amounts.map((amount) => ({ Currency: amount.Currency, value: amount.Amount }))} />
-                ) : (
-                  <NullValue reason="withheld" />
-                )}
-              </div>
-            )}
-            {tile.UnvaluedDocumentCount !== null && tile.UnvaluedDocumentCount > 0 && (
-              <div className="field-hint">{formatCount(tile.UnvaluedDocumentCount)} without a selected value yet</div>
-            )}
-          </>
-        )}
-      </button>
-      {!denied && tile.ApprovalBands.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {tile.ApprovalBands.map((band) => {
-            const active = selected && selectedRoute === band.ApprovalRoute
+        <CompactTable head={<>
+          <SortTh label="Document" sortKey="document" sort={sort} onSort={toggleSort} />
+          <SortTh label="Queue" sortKey="queue" sort={sort} onSort={toggleSort} />
+          <SortTh label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+          <SortTh label="Age" sortKey="age" sort={sort} onSort={toggleSort} />
+          <SortTh label="Next" sortKey="responsible" sort={sort} onSort={toggleSort} />
+          <SortTh label="Value" sortKey="value" sort={sort} onSort={toggleSort} right />
+          <Th>Vendors</Th>
+        </>}>
+          {rows.length === 0 && <NoRows cols={7} text={search ? `No rows on this page match "${search}".` : 'No rows for this selection.'} />}
+          {rows.map((row) => {
+            const tile = tilesByKey.get(row.Queue)
+            const valueWithheld = tile ? !tile.CommercialValuesVisible : row.Currency === null
             return (
-              <button key={band.ApprovalRoute} type="button" className={`badge cursor-pointer ${active ? 'badge-info' : 'badge-muted'}`}
-                onClick={() => onSelect(queue, active ? null : band.ApprovalRoute)}
-                title="Show only this approval route in the detail rows">
-                {band.ApprovalRoute}: {formatCount(band.Count)}
-                {tile.CommercialValuesVisible && band.Amounts.length > 0 && (
-                  <> · {band.Amounts.map((amount, index) => <Money key={index} value={amount.Amount} currency={amount.Currency} nullReason="withheld" />)}</>
-                )}
-              </button>
+              <tr key={`${row.Queue}-${row.DocumentId}`}>
+                <td title={`${row.DocumentType} · waiting since ${formatTimestamp(row.WaitingSince, data.TimeZone)}`}>
+                  <DocLink to={workloadRowLink(can, row.Queue, row.DocumentNumber)}>{row.DocumentNumber}</DocLink>
+                </td>
+                <td className="text-xs text-slate-600" title={tile?.Title}>{QUEUE_SHORT[row.Queue] ?? tile?.Title ?? row.Queue}</td>
+                <td className="text-xs text-slate-600">{row.Status}</td>
+                <td><AgeChip days={row.AgeDays} tone={ageTone(row.AgeDays, WORKLOAD_AGE)} /></td>
+                <td className="text-xs">
+                  {row.ResponsibilityIssue ? (
+                    <span className="text-amber-700" title="The workflow step does not name one responsible employee.">{row.ResponsibilityIssue}</span>
+                  ) : row.NextApproverEmployeeCode || row.NextApproverRole ? (
+                    <span title={row.NextApproverRole ?? undefined}><span className="font-mono">{row.NextApproverEmployeeCode ?? ''}</span> {row.NextApproverRole && <span className="text-slate-400">{row.NextApproverRole}</span>}</span>
+                  ) : <NullValue reason="none" />}
+                </td>
+                <td className="text-right text-xs"><Money value={row.Value} currency={row.Currency} nullReason={valueWithheld ? 'withheld' : 'none'} /></td>
+                <td className="max-w-48 truncate text-xs text-slate-600" title={row.Vendors.join(', ')}>{row.Vendors.length ? row.Vendors.join(', ') : '—'}</td>
+              </tr>
             )
           })}
-        </div>
+        </CompactTable>
       )}
-      {tile.Coverage && <div className="field-hint mt-2">{tile.Coverage}</div>}
-    </div>
+      <CompactPager page={data.Page} pageSize={data.PageSize} totalRows={data.TotalRows} onPage={onPage} />
+    </>
   )
 }

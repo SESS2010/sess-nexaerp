@@ -1,164 +1,119 @@
-import type { ReactNode } from 'react'
-import type { StoresQcStockPage, StoresQcStockTile, StoresWorkloadPage, StoresWorkloadTile } from '../../types/dashboard'
-import { formatAge, formatCount } from '../../utils/dashboardFormat'
-import { Money, NullValue } from './DashboardParts'
-import { AgeChip, SkeletonBar, TONE_BAR, TONE_DOT, TONE_WORD, ageTone } from './StoresDashboardKit'
-import type { SectionReport, Tone } from './StoresDashboardKit'
-import { QC_QUEUE_LABEL } from './StoresQcStockSection'
+import { AlertTriangle, ArrowLeftRight, ClipboardCheck, PackageCheck, ScanLine, Truck, type LucideIcon } from 'lucide-react'
+import type { StoresQcStockPage, StoresQcStockTile, StoresWorkloadPage } from '../../types/dashboard'
+import { formatAmount, formatCount } from '../../utils/dashboardFormat'
+import { StatCard, StatGrid } from './DashboardUi'
+import type { Tone } from './DashboardUi'
+import { QC_HINT, QC_SHORT, WORKLOAD_SHORT, ageTone } from './StoresDashboardKit'
+import type { AgeKind, SectionReport } from './StoresDashboardKit'
+
+const WORKLOAD_ICON: Record<string, LucideIcon> = {
+  'gate-no-grn': Truck,
+  'mir-approval': ClipboardCheck,
+  'mir-unissued': PackageCheck,
+}
+const WORKLOAD_ORDER = ['gate-no-grn', 'mir-approval', 'mir-unissued']
+
+export type QcCardKey = 'QC_HOLD' | 'QC_OVERDUE' | 'PENDING_RETURNABLE_DC'
 
 /**
- * One tile per queue, both endpoints, at the top of the page. Workload tiles
- * count documents; QC tiles count distinct GRN lines. A tile click selects
- * that queue in its detail table (the overview never narrows).
+ * Up to six compact cards: three workload queues (documents) and three QC
+ * figures (distinct GRN lines). Every number is a tile figure from the API;
+ * a click opens that queue's detail below. Money never appears on a card.
  */
-export function StoresKpiTiles({ workload, qc, workloadQueue, qcQueue, onWorkload, onQc }: {
-  /** null = section not permitted: nothing requested, nothing shown. */
+export function StoresKpiTiles({ workload, qc, onWorkload, onQc }: {
+  /** null = section not permitted: nothing requested, card shown locked. */
   workload: SectionReport<StoresWorkloadPage> | null
   qc: SectionReport<StoresQcStockPage> | null
-  workloadQueue: string | null
-  qcQueue: string | null
-  onWorkload: (key: string) => void
-  onQc: (key: string) => void
+  onWorkload: (queue: string) => void
+  onQc: (card: QcCardKey) => void
 }) {
+  const workloadKeys = workload?.data
+    ? [...WORKLOAD_ORDER.filter((key) => workload.data!.Tiles.some((tile) => tile.Key === key)),
+       ...workload.data.Tiles.map((tile) => tile.Key).filter((key) => !WORKLOAD_ORDER.includes(key))]
+    : WORKLOAD_ORDER
+
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }} aria-label="Stores queues at a glance">
-      {workload && (
-        workload.data ? workload.data.Tiles.map((tile) => (
-          <WorkloadTile key={tile.Key} tile={tile} selected={workloadQueue === tile.Key} onSelect={() => onWorkload(tile.Key)} />
-        )) : workload.kind === 'loading' ? [0, 1, 2].map((index) => <TileSkeleton key={`w${index}`} />)
-          : <ProblemTile title="Stores workload" target="stores-workload" />
-      )}
-      {qc && (
-        qc.data ? qc.data.Tiles.map((tile) => (
-          <QcTile key={tile.Key} tile={tile} canViewValues={qc.data!.CanViewCommercialValues} selected={qcQueue === tile.Key} onSelect={() => onQc(tile.Key)} />
-        )) : qc.kind === 'loading' ? [0, 1].map((index) => <TileSkeleton key={`q${index}`} />)
-          : <ProblemTile title="QC and held stock" target="stores-qc-stock" />
-      )}
-    </div>
+    <StatGrid>
+      {workloadKeys.map((key) => {
+        const icon = WORKLOAD_ICON[key] ?? ClipboardCheck
+        const tile = workload?.data?.Tiles.find((candidate) => candidate.Key === key)
+        const label = WORKLOAD_SHORT[key] ?? tile?.Title ?? key
+        if (!workload) return <StatCard key={key} icon={icon} label={label} value="" locked info="Not available to your role." />
+        if (workload.kind === 'loading') return <StatCard key={key} icon={icon} label={label} value="" loading />
+        if (!workload.data) return <ProblemCard key={key} icon={icon} label={label} onClick={() => onWorkload(key)} />
+        if (!tile || tile.State !== 'READY' || tile.Count === null) {
+          return <StatCard key={key} icon={icon} label={label} value="" locked info={`Withheld from your role, not zero. ${tile?.Coverage ?? ''}`} />
+        }
+        return (
+          <StatCard key={key} icon={icon} label={label} value={formatCount(tile.Count)}
+            tone={toneFor('workload', tile.Count, tile.OldestAgeDays)}
+            sub={oldestText(tile.Count, tile.OldestAgeDays, 'waiting')}
+            info={`${tile.Title}. ${tile.Coverage} Counts are documents.`}
+            onClick={() => onWorkload(key)} />
+        )
+      })}
+      <QcCards qc={qc} onQc={onQc} />
+    </StatGrid>
   )
 }
 
-function TileShell({ tone, selected, disabled, onClick, title, children, state }: {
-  tone: Tone
-  selected: boolean
-  disabled?: boolean
-  onClick?: () => void
-  title: string
-  children: ReactNode
-  state?: string
-}) {
+function QcCards({ qc, onQc }: { qc: SectionReport<StoresQcStockPage> | null; onQc: (card: QcCardKey) => void }) {
+  const cards: { key: QcCardKey; icon: LucideIcon; label: string }[] = [
+    { key: 'QC_HOLD', icon: ScanLine, label: QC_SHORT.QC_HOLD },
+    { key: 'QC_OVERDUE', icon: AlertTriangle, label: 'QC overdue' },
+    { key: 'PENDING_RETURNABLE_DC', icon: ArrowLeftRight, label: QC_SHORT.PENDING_RETURNABLE_DC },
+  ]
   return (
-    <button type="button" disabled={disabled} onClick={onClick} title={title} data-tile-state={state}
-      className={`flex min-h-[132px] flex-col gap-1 rounded-xl border border-line border-l-4 ${TONE_BAR[tone]} bg-white px-4 py-3 text-left shadow-xs transition-colors ${disabled ? 'cursor-default opacity-80' : 'cursor-pointer hover:border-slate-400 hover:bg-slate-50'}`}
-      style={{ outline: selected ? '2px solid var(--color-accent)' : undefined, outlineOffset: 1 }}
-      aria-pressed={disabled ? undefined : selected}>
-      {children}
-    </button>
+    <>
+      {cards.map(({ key, icon, label }) => {
+        if (!qc) return <StatCard key={key} icon={icon} label={label} value="" locked info="Needs the QC-stock dashboard and GRN view permissions." />
+        if (qc.kind === 'loading') return <StatCard key={key} icon={icon} label={label} value="" loading />
+        if (!qc.data) return <ProblemCard key={key} icon={icon} label={label} onClick={() => onQc(key)} />
+        const tileKey = key === 'QC_OVERDUE' ? 'QC_HOLD' : key
+        const tile = qc.data.Tiles.find((candidate) => candidate.Key === tileKey)
+        // No tile returned for this kind: nothing to state, so no number is invented.
+        if (!tile) return <StatCard key={key} icon={icon} label={label} value="—" sub="Not reported" />
+        if (key === 'QC_OVERDUE') {
+          const overdue = tile.OverdueLineCount
+          return (
+            <StatCard key={key} icon={icon} label={label} value={formatCount(overdue)} tone={overdue > 0 ? 'bad' : 'ok'}
+              sub={overdue > 0 ? `of ${formatCount(tile.LineCount)} held lines` : 'None past QC due'}
+              info="GRN lines held for QC that are past their recorded QC due time (server verdict)."
+              onClick={() => onQc(key)} />
+          )
+        }
+        const kind: AgeKind = key === 'QC_HOLD' ? 'qc-hold' : 'pending-dc'
+        return (
+          <StatCard key={key} icon={icon} label={label} value={formatCount(tile.LineCount)}
+            tone={toneFor(kind, tile.LineCount, tile.OldestReceiptAgeDays)}
+            sub={oldestText(tile.LineCount, tile.OldestReceiptAgeDays, 'held')}
+            info={`${QC_HINT[tileKey] ?? ''} ${valuesText(tile, qc.data.CanViewCommercialValues)}`}
+            onClick={() => onQc(key)} />
+        )
+      })}
+    </>
   )
 }
 
-function ToneLabel({ tone }: { tone: Tone }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft">
-      <span className={`inline-block size-2 rounded-full ${TONE_DOT[tone]}`} aria-hidden="true" />
-      {TONE_WORD[tone]}
-    </span>
-  )
+function toneFor(kind: AgeKind, count: number, oldest: number | null): Tone {
+  if (count === 0) return 'ok'
+  const tone = ageTone(kind, oldest)
+  // A waiting queue that is not yet ageing is "waiting", not "done".
+  return tone === 'ok' ? 'info' : tone
 }
 
-function WorkloadTile({ tile, selected, onSelect }: { tile: StoresWorkloadTile; selected: boolean; onSelect: () => void }) {
-  const denied = tile.State !== 'READY'
-  if (denied || tile.Count === null) {
-    return (
-      <TileShell tone="grey" selected={false} disabled title={`Not permitted. ${tile.Coverage}`} state="denied">
-        <span className="text-[13px] font-semibold text-ink">{tile.Title}</span>
-        <div className="mt-1 flex items-center gap-2">
-          <span className="badge badge-muted">Permission denied</span>
-          <NullValue reason="withheld" />
-        </div>
-        <span className="field-hint mt-auto">Withheld, not zero</span>
-      </TileShell>
-    )
-  }
-  const tone: Tone = tile.Count === 0 ? 'green' : ageTone('workload', tile.OldestAgeDays)
-  return (
-    <TileShell tone={tone} selected={selected} onClick={onSelect} state="ready"
-      title={`${selected ? 'Show all queues in the detail' : 'Show only this queue in the detail'}. ${tile.Coverage}`}>
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-semibold text-ink">{tile.Title}</span>
-        <ToneLabel tone={tone} />
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-[30px] font-semibold leading-tight tabular-nums">{formatCount(tile.Count)}</span>
-        <span className="text-[12px] text-ink-soft">{tile.Count === 1 ? 'document' : 'documents'}</span>
-      </div>
-      <div className="mt-auto flex items-center gap-1.5 text-[12px] text-ink-soft">
-        {tile.OldestAgeDays === null ? 'No waiting age' : <>Oldest waiting <AgeChip days={tile.OldestAgeDays} tone={tone} /></>}
-      </div>
-    </TileShell>
-  )
+function oldestText(count: number, oldest: number | null, verb: string): string {
+  if (count === 0) return `None ${verb}`
+  return oldest === null ? 'No age recorded' : `Oldest ${formatCount(oldest)} d`
 }
 
-function QcTile({ tile, canViewValues, selected, onSelect }: { tile: StoresQcStockTile; canViewValues: boolean; selected: boolean; onSelect: () => void }) {
-  const label = QC_QUEUE_LABEL[tile.Key] ?? { title: tile.Key, hint: '' }
-  const isHold = tile.Key === 'QC_HOLD'
-  const tone: Tone = tile.LineCount === 0
-    ? 'green'
-    : isHold ? ageTone('qc-hold', tile.OldestReceiptAgeDays, tile.OverdueLineCount > 0) : ageTone('pending-dc', tile.OldestReceiptAgeDays)
-  return (
-    <TileShell tone={tone} selected={selected} onClick={onSelect} state="ready"
-      title={`${selected ? 'Show all held stock in the detail' : 'Show only this kind in the detail'}. ${label.hint}`}>
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-semibold text-ink">{label.title}</span>
-        <ToneLabel tone={tone} />
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-mono text-[30px] font-semibold leading-tight tabular-nums">{formatCount(tile.LineCount)}</span>
-        <span className="text-[12px] text-ink-soft">GRN {tile.LineCount === 1 ? 'line' : 'lines'}</span>
-      </div>
-      {isHold ? (
-        <span className={`text-[12px] ${tile.OverdueLineCount > 0 ? 'font-semibold text-red-700' : 'text-ink-soft'}`}>
-          {formatCount(tile.OverdueLineCount)} {tile.OverdueLineCount === 1 ? 'line' : 'lines'} past QC due
-        </span>
-      ) : (
-        <span className="text-[12px] text-ink-soft">Not subject to QC overdue</span>
-      )}
-      <div className="flex items-center gap-1.5 text-[12px] text-ink-soft">
-        {tile.OldestReceiptAgeDays === null ? 'No age' : <>Oldest received <AgeChip days={tile.OldestReceiptAgeDays} tone={tone} title={`Oldest received ${formatAge(tile.OldestReceiptAgeDays)} ago`} /> ago</>}
-      </div>
-      <div className="mt-auto text-[12px]">
-        {/* null = withheld; [] = permitted but nothing held. Currencies stay on separate lines, never added. */}
-        {tile.Values === null ? (
-          <NullValue reason="withheld" />
-        ) : tile.Values.length === 0 ? (
-          <NullValue reason={canViewValues ? 'none' : 'withheld'} />
-        ) : (
-          tile.Values.map((value) => (
-            <div key={value.Currency}><Money value={value.ReceiptProvisionalValue} currency={value.Currency} /></div>
-          ))
-        )}
-      </div>
-    </TileShell>
-  )
+/** Per-currency provisional values for the tooltip; currencies are never added together. */
+function valuesText(tile: StoresQcStockTile, canView: boolean): string {
+  if (tile.Values === null || !canView) return 'Values withheld from your role (not zero).'
+  if (tile.Values.length === 0) return ''
+  return `Provisional receipt value: ${tile.Values.map((value) => formatAmount(value.ReceiptProvisionalValue, value.Currency)).join(' · ')}.`
 }
 
-function TileSkeleton() {
-  return (
-    <div className="flex min-h-[132px] flex-col gap-2 rounded-xl border border-line border-l-4 border-l-slate-200 bg-white px-4 py-3" aria-hidden="true">
-      <SkeletonBar className="h-4 w-2/3" />
-      <SkeletonBar className="h-8 w-1/3" />
-      <SkeletonBar className="mt-auto h-3 w-1/2" />
-    </div>
-  )
-}
-
-function ProblemTile({ title, target }: { title: string; target: string }) {
-  return (
-    <a href={`#${target}`} className="flex min-h-[132px] flex-col gap-1 rounded-xl border border-line border-l-4 border-l-slate-300 bg-white px-4 py-3 text-ink no-underline"
-      onClick={(event) => { event.preventDefault(); document.getElementById(target)?.scrollIntoView({ behavior: 'smooth' }) }}>
-      <span className="text-[13px] font-semibold">{title}</span>
-      <span className="badge badge-error self-start">Not loaded</span>
-      <span className="field-hint mt-auto">No figures shown. See the reason below.</span>
-    </a>
-  )
+function ProblemCard({ icon, label, onClick }: { icon: LucideIcon; label: string; onClick: () => void }) {
+  return <StatCard icon={icon} label={label} value="—" tone="muted" sub="Not loaded — see details" onClick={onClick} />
 }

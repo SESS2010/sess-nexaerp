@@ -1,29 +1,26 @@
 import { useMemo, useState } from 'react'
+import { Filter, Truck } from 'lucide-react'
 import { getPurchaseOpenOrders } from '../../api/dashboards'
-import { SortableHeader } from '../../components/SortableHeader'
 import { useSort } from '../../hooks/useSort'
-import type { PurchaseOpenOrdersPage, PurchaseOpenOrderRow } from '../../types/dashboard'
-import { formatAge, formatCount, formatDateOnly, formatQuantity } from '../../utils/dashboardFormat'
+import type { PurchaseOpenOrderRow, PurchaseOpenOrdersPage } from '../../types/dashboard'
+import { formatDateOnly, formatQuantity } from '../../utils/dashboardFormat'
 import { useSession } from '../auth/SessionContext'
 import { itemLink, poLink, vendorLink } from './dashboardAccess'
+import { Money } from './DashboardParts'
+import { AgeChip, InfoTip } from './DashboardUi'
 import {
-  BasisNote, DetailFilterNote, MaybeLink, Money, NullValue, Pager, QueryProblem, SectionFrame, StateNotice,
-} from './DashboardParts'
-import { HBarChart, type HBar } from './PurchaseCharts'
-import {
-  AgeText, QuickFilter, RefreshingHint, SERVER_ORDER, SEVERITY, SectionSkeleton, matchesText, sortRows, useFocusRequest,
-  usePurchaseSectionQuery, useReportToPage, type FocusRequest, type SectionReport,
+  CompactPager, CompactTable, DetailPanel, DocLink, FilterChip, NoRows, OneLine, RefreshDot, SECTION_ANCHOR, SERVER_ORDER, SearchBox,
+  SectionState, SortTh, Th, matchesText, sortRows, useFocusRequest, usePurchaseSectionQuery, useReportToPage,
+  type Can, type FocusRequest, type SectionReport,
 } from './PurchaseDashboardKit'
 
 const PAGE_SIZE = 50
 
-type Can = (pageKey: string, action?: string) => boolean
-
-const SOURCE_ISSUE_TEXT: Record<string, string> = {
-  CURRENT_REVISION_UNAVAILABLE: 'the current revision cannot be read',
+export const SOURCE_ISSUE_TEXT: Record<string, string> = {
+  CURRENT_REVISION_UNAVAILABLE: 'current revision cannot be read',
   CANCELLED_UNISSUED_AMENDMENT: 'an unissued amendment was cancelled',
-  LINE_PROVENANCE_INCONSISTENT: 'its lines do not trace back consistently',
-  RECEIPT_QUANTITY_INCONSISTENT: 'its received quantities are inconsistent',
+  LINE_PROVENANCE_INCONSISTENT: 'lines do not trace back consistently',
+  RECEIPT_QUANTITY_INCONSISTENT: 'received quantities are inconsistent',
 }
 
 interface Filters {
@@ -35,8 +32,11 @@ interface Filters {
 
 const NO_FILTERS: Filters = { vendor: null, currency: null, root: null, overdueOnly: false }
 
-/** Focus targets the page may send: `overdue` narrows to overdue lines, anything else clears. */
-export const OPEN_ORDERS_FOCUS_OVERDUE = 'overdue'
+const DELIVERY: Record<string, { label: string; cls: string }> = {
+  OVERDUE: { label: 'Late', cls: 'bg-rose-50 text-rose-700' },
+  WITHIN_COMMITMENT: { label: 'On time', cls: 'bg-emerald-50 text-emerald-700' },
+  CONFIRMATION_REQUIRED: { label: 'Date unconfirmed', cls: 'bg-amber-50 text-amber-700' },
+}
 
 export function PurchaseOpenOrdersSection({ refreshTick = 0, onReport, focus }: {
   refreshTick?: number
@@ -44,8 +44,10 @@ export function PurchaseOpenOrdersSection({ refreshTick = 0, onReport, focus }: 
   focus?: FocusRequest | null
 }) {
   const { can } = useSession()
+  const [open, setOpen] = useState(false)
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
 
   const { state, data, refreshing, reload } = usePurchaseSectionQuery(
     () => getPurchaseOpenOrders({
@@ -68,57 +70,45 @@ export function PurchaseOpenOrdersSection({ refreshTick = 0, onReport, focus }: 
   }
 
   useFocusRequest(focus, (target) => {
-    setFilters(target === OPEN_ORDERS_FOCUS_OVERDUE ? { ...NO_FILTERS, overdueOnly: true } : NO_FILTERS)
+    setOpen(true)
+    setFilters({ ...NO_FILTERS, overdueOnly: Boolean(target.overdue), vendor: target.vendor ?? null, currency: target.currency ?? null })
     setPage(1)
   })
 
+  const tip = (data?.Basis ? `${data.Basis} ` : '') +
+    'Values are the gross payable commitment incl. GST and charges, not ex-tax cost. Each currency stays separate. Search and sorting work on this page of rows only.'
+
   return (
-    <SectionFrame
-      id="purchase-open-orders"
-      title="Open purchase orders"
-      subtitle={<>Issued commitments still waiting for material. <RefreshingHint on={refreshing} /></>}
-      generatedAt={data?.GeneratedAt}
-      timeZone={data?.TimeZone}
-    >
-      {!data && state.kind === 'loading' && (
-        <>
-          <StateNotice kind="loading" title="Loading open purchase orders…" />
-          <SectionSkeleton tiles={4} />
-        </>
-      )}
-      {(state.kind === 'error' || state.kind === 'company-mismatch') && <QueryProblem state={state} onRetry={reload} />}
-      {data && (
-        <OpenOrdersBody data={data} can={can} filters={filters} onFilter={apply} onClear={() => apply(NO_FILTERS)} onPage={setPage} />
-      )}
-    </SectionFrame>
+    <DetailPanel id={SECTION_ANCHOR.openOrders} icon={Truck} title="Open PO lines" info={tip}
+      open={open} onToggle={() => setOpen(!open)}
+      right={<><RefreshDot on={refreshing} /><SearchBox value={search} onChange={setSearch} onFocus={() => setOpen(true)} placeholder="PO, vendor, item…" /></>}>
+      <SectionState state={state} data={data} onRetry={reload}>
+        {(d) => <OpenOrdersBody data={d} can={can} search={search} filters={filters} onFilter={apply} onPage={setPage} />}
+      </SectionState>
+    </DetailPanel>
   )
 }
 
-function OpenOrdersBody({ data, can, filters, onFilter, onClear, onPage }: {
+function OpenOrdersBody({ data, can, search, filters, onFilter, onPage }: {
   data: PurchaseOpenOrdersPage
   can: Can
+  search: string
   filters: Filters
   onFilter: (next: Partial<Filters>) => void
-  onClear: () => void
   onPage: (page: number) => void
 }) {
-  const [search, setSearch] = useState('')
   const { sort, toggleSort } = useSort(SERVER_ORDER)
   const nothingOpen = data.Complete && data.OpenPoCount === 0 && data.TotalRows === 0
-  const activeFilters: string[] = []
-  if (filters.vendor) activeFilters.push(`vendor ${filters.vendor.label}`)
-  if (data.Filters.Currency) activeFilters.push(`currency ${data.Filters.Currency}`)
-  if (filters.root) activeFilters.push(`PO ${filters.root.label}`)
-  if (data.Filters.OverdueOnly) activeFilters.push('overdue against a confirmed date')
+  const currencies = (data.Amounts ?? []).map((amount) => amount.Currency)
 
   const rows = useMemo(() => {
     const filtered = data.Rows.filter((row) => matchesText(search, [
       row.PoNumber, row.VendorCode, row.VendorName, row.ItemCode, row.ItemName, row.DeliveryTerms,
-      DELIVERY_BADGE[row.DeliveryState]?.label ?? row.DeliveryState, row.Currency,
+      DELIVERY[row.DeliveryState]?.label ?? row.DeliveryState, row.Currency,
     ]))
     return sortRows<PurchaseOpenOrderRow>(filtered, sort, {
       po: (row) => row.PoNumber,
-      vendor: (row) => row.VendorCode,
+      vendor: (row) => row.VendorName,
       item: (row) => row.ItemCode,
       remaining: (row) => row.RemainingQuantity,
       value: (row) => row.Value,
@@ -127,197 +117,93 @@ function OpenOrdersBody({ data, can, filters, onFilter, onClear, onPage }: {
     })
   }, [data.Rows, search, sort])
 
-  const statusBars: HBar[] = [
-    {
-      key: 'open', label: 'Open POs', labelText: 'Open POs', value: data.OpenPoCount,
-      display: data.OpenPoCount === null ? <NullValue reason="unknown" /> : <span className="mono font-semibold">{formatCount(data.OpenPoCount)}</span>,
-      displayText: data.OpenPoCount === null ? 'unknown' : String(data.OpenPoCount), color: SEVERITY.info.bar,
-    },
-    {
-      key: 'overdue', label: 'Past a confirmed delivery date', labelText: 'Overdue POs', value: data.OverduePoCount,
-      display: data.OverduePoCount === null ? <NullValue reason="unknown" /> : <span className="mono font-semibold">{formatCount(data.OverduePoCount)}</span>,
-      displayText: data.OverduePoCount === null ? 'unknown' : String(data.OverduePoCount), color: SEVERITY.red.bar,
-      onClick: data.OverduePoCount ? () => onFilter({ overdueOnly: !filters.overdueOnly }) : undefined,
-      clickHint: 'Show only overdue lines below', selected: filters.overdueOnly,
-    },
-    {
-      key: 'unconfirmed', label: 'Delivery date not confirmed', labelText: 'Delivery date not confirmed', value: data.DeliveryDateUnconfirmedPoCount,
-      display: <span className="mono font-semibold">{formatCount(data.DeliveryDateUnconfirmedPoCount)}</span>,
-      displayText: String(data.DeliveryDateUnconfirmedPoCount), color: SEVERITY.amber.bar,
-    },
-  ]
-
   return (
     <>
-      <BasisNote>
-        {data.Basis} This is the <strong>gross payable commitment including embedded GST and charges</strong>, not ex-tax cost.
-      </BasisNote>
-
       {!data.Complete && (
-        <StateNotice kind="incomplete" title="Some purchase orders could not be reconciled, so overall totals are unknown">
-          <p>The overall PO count, amounts and oldest age cannot be stated. They are unknown, not zero. The rows below are reliable, but these POs are excluded from them:</p>
-          <ul className="list-disc ml-5">
-            {data.SourceIssues.map((issue) => (
-              <li key={`${issue.RootPurchaseOrderId}-${issue.Code}`}>
-                <MaybeLink to={poLink(can, issue.PoNumber)}><span className="mono">{issue.PoNumber}</span></MaybeLink>
-                {': '}{SOURCE_ISSUE_TEXT[issue.Code] ?? 'its source records need reconciliation'} <span className="text-[12px] text-ink-faint mono">({issue.Code})</span>
-              </li>
-            ))}
-          </ul>
-          <p>Ask the administrator to reconcile these purchase orders.</p>
-        </StateNotice>
+        <div className="mb-2">
+          <OneLine tone="warn">
+            {data.SourceIssues.length} PO{data.SourceIssues.length === 1 ? '' : 's'} don't reconcile — overall totals unknown (not zero); excluded from rows.
+            <InfoTip text={data.SourceIssues.map((issue) => `${issue.PoNumber}: ${SOURCE_ISSUE_TEXT[issue.Code] ?? issue.Code}`).join('\n') + '\nAsk the administrator to reconcile.'} />
+          </OneLine>
+        </div>
       )}
-
       {data.Complete && !data.DeliveryComplete && (
-        <StateNotice kind="incomplete" title="Overdue totals are unknown: some delivery dates are not confirmed">
-          {formatCount(data.DeliveryDateUnconfirmedPoCount)} open PO{data.DeliveryDateUnconfirmedPoCount === 1 ? ' needs' : 's need'} delivery-date
-          confirmation. Until then the overdue figures cannot be stated. They are unknown, not zero.
-        </StateNotice>
+        <div className="mb-2">
+          <OneLine tone="warn">Late totals unknown until {data.DeliveryDateUnconfirmedPoCount} delivery date{data.DeliveryDateUnconfirmedPoCount === 1 ? ' is' : 's are'} confirmed.</OneLine>
+        </div>
       )}
 
-      {nothingOpen && (
-        <StateNotice kind="empty" title="No open purchase orders">
-          You are permitted to see open purchase orders, and none is outstanding.
-        </StateNotice>
-      )}
-
-      <div className="grid gap-4 my-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-        <div className="rounded-lg border border-line p-3">
-          <h3 className="text-[13px] font-semibold mb-2">Delivery status (POs)</h3>
-          <HBarChart bars={statusBars} caption="Open purchase orders, overdue ones and ones without a confirmed delivery date" />
-          <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3 text-[12.5px] text-ink-soft">
-            <span>Oldest since first issue: <strong className="text-ink">{data.OldestAgeDays === null ? <NullValue reason={data.Complete ? 'none' : 'unknown'} /> : formatAge(data.OldestAgeDays)}</strong></span>
-          </div>
-        </div>
-
-        <div>
-          {data.Amounts === null ? (
-            <p className="mb-3">Outstanding value by currency: <NullValue reason="unknown" /></p>
-          ) : data.Amounts.length === 0 ? (
-            <p className="mb-3">Outstanding value by currency: <NullValue reason="none" /></p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Currency</th>
-                    <th className="text-right">POs</th>
-                    <th className="text-right">Outstanding payable (incl. GST)</th>
-                    <th className="text-right">Overdue POs</th>
-                    <th className="text-right">Overdue payable</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.Amounts.map((amount) => (
-                    <tr key={amount.Currency} className={`row-click ${data.Filters.Currency === amount.Currency ? 'row-selected' : ''}`}
-                      onClick={() => onFilter({ currency: amount.Currency })} title="Show only this currency in the detail rows">
-                      <td className="mono">{amount.Currency}</td>
-                      <td className="text-right">{formatCount(amount.PoCount)}</td>
-                      <td className="text-right font-semibold"><Money value={amount.Value} currency={amount.Currency} /></td>
-                      <td className={`text-right ${amount.OverduePoCount ? 'font-semibold text-red-700' : ''}`}>
-                        {amount.OverduePoCount === null ? <NullValue reason="unknown" /> : formatCount(amount.OverduePoCount)}
-                      </td>
-                      <td className="text-right"><Money value={amount.OverdueValue} currency={amount.Currency} nullReason="unknown" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <p className="text-[11.5px] text-ink-faint mt-2">Click a currency to list only its lines. Each currency is shown on its own line and never added to another.</p>
-        </div>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <button type="button" onClick={() => onFilter({ overdueOnly: !filters.overdueOnly })} aria-pressed={filters.overdueOnly}
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${filters.overdueOnly ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+          Late only
+        </button>
+        {currencies.length > 1 && (
+          <select aria-label="Currency" value={filters.currency ?? ''} onChange={(e) => onFilter({ currency: e.target.value || null })}
+            className="h-6 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-700">
+            <option value="">All currencies</option>
+            {currencies.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+          </select>
+        )}
+        {filters.vendor && <FilterChip label={`Vendor ${filters.vendor.label}`} onClear={() => onFilter({ vendor: null })} />}
+        {filters.root && <FilterChip label={`PO ${filters.root.label}`} onClear={() => onFilter({ root: null })} />}
+        {currencies.length <= 1 && filters.currency && <FilterChip label={filters.currency} onClear={() => onFilter({ currency: null })} />}
       </div>
 
-      <DetailFilterNote active={activeFilters} onClear={onClear} />
-
-      {data.Rows.length === 0 ? (
-        !nothingOpen && <StateNotice kind="empty" title="No detail rows match this selection" />
+      {nothingOpen ? (
+        <OneLine>No open purchase orders.</OneLine>
       ) : (
-        <>
-          <QuickFilter id="open-orders-search" value={search} onChange={setSearch} shown={rows.length} onPage={data.Rows.length}
-            placeholder="Search PO, vendor, item, delivery…">
-            {!filters.overdueOnly && data.OverduePoCount ? (
-              <button type="button" className="btn btn-ghost" onClick={() => onFilter({ overdueOnly: true })}>Only overdue</button>
-            ) : null}
-          </QuickFilter>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <SortableHeader label="PO" sortKey="po" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Vendor" sortKey="vendor" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Item" sortKey="item" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Remaining" sortKey="remaining" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Payable (incl. GST)" sortKey="value" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Delivery · days late" sortKey="late" sort={sort} onSort={toggleSort} />
-                  <SortableHeader label="Age" sortKey="age" sort={sort} onSort={toggleSort} />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 && (
-                  <tr><td colSpan={7} className="table-empty">No rows on this page match "{search}".</td></tr>
-                )}
-                {rows.map((row) => (
-                  <OpenOrderRow key={`${row.PurchaseOrderId}-${row.LineId}`} row={row} can={can} onFilter={onFilter} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <CompactTable head={<>
+          <SortTh label="PO" sortKey="po" sort={sort} onSort={toggleSort} />
+          <SortTh label="Vendor" sortKey="vendor" sort={sort} onSort={toggleSort} />
+          <SortTh label="Item" sortKey="item" sort={sort} onSort={toggleSort} />
+          <SortTh label="Remaining" sortKey="remaining" sort={sort} onSort={toggleSort} right />
+          <SortTh label="Value" sortKey="value" sort={sort} onSort={toggleSort} right />
+          <SortTh label="Delivery" sortKey="late" sort={sort} onSort={toggleSort} />
+          <SortTh label="Age" sortKey="age" sort={sort} onSort={toggleSort} />
+          <Th><span className="sr-only">Filter</span></Th>
+        </>}>
+          {rows.length === 0 && <NoRows cols={8} text={search ? `No rows on this page match "${search}".` : 'No lines for this selection.'} />}
+          {rows.map((row) => <OpenOrderRow key={`${row.PurchaseOrderId}-${row.LineId}`} row={row} can={can} onFilter={onFilter} />)}
+        </CompactTable>
       )}
-      <Pager page={data.Filters.Page} pageSize={data.Filters.PageSize} totalRows={data.TotalRows} onPage={onPage} />
+      <CompactPager page={data.Filters.Page} pageSize={data.Filters.PageSize} totalRows={data.TotalRows} onPage={onPage} />
     </>
   )
 }
 
-const DELIVERY_BADGE: Record<string, { className: string; label: string }> = {
-  OVERDUE: { className: 'badge badge-error', label: 'Overdue' },
-  WITHIN_COMMITMENT: { className: 'badge badge-ok', label: 'Within commitment' },
-  CONFIRMATION_REQUIRED: { className: 'badge badge-warn', label: 'Date not confirmed' },
-}
-
 function OpenOrderRow({ row, can, onFilter }: { row: PurchaseOpenOrderRow; can: Can; onFilter: (next: Partial<Filters>) => void }) {
-  const badge = DELIVERY_BADGE[row.DeliveryState] ?? { className: 'badge badge-muted', label: row.DeliveryState }
-  const late = row.DaysLate !== null && row.DaysLate > 0
+  const delivery = DELIVERY[row.DeliveryState] ?? { label: row.DeliveryState, cls: 'bg-slate-100 text-slate-600' }
+  const dates = `${row.CommittedDeliveryDate ? `Committed ${formatDateOnly(row.CommittedDeliveryDate)}` : 'No confirmed date'} · quoted ${formatDateOnly(row.QuotedDeliveryDate)} · ${row.DeliveryTerms}`
+  const revisionNote = row.CurrentRevisionNumber !== row.RevisionNumber
+    ? `Current r${row.CurrentRevisionNumber} is ${row.CurrentStatus}; quantities are from issued r${row.RevisionNumber}` : `Revision ${row.RevisionNumber}`
+  const iconBtn = 'grid h-5 w-5 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700'
   return (
-    <tr style={row.DeliveryState === 'OVERDUE' ? { background: 'rgba(254, 242, 242, 0.6)' } : undefined}>
-      <td className="mono">
-        <MaybeLink to={poLink(can, row.PoNumber)}>{row.PoNumber}</MaybeLink> r{row.RevisionNumber}
-        {row.CurrentRevisionNumber !== row.RevisionNumber && (
-          <div className="field-hint">Current r{row.CurrentRevisionNumber} is {row.CurrentStatus}; quantities are from issued r{row.RevisionNumber}</div>
-        )}
-        <div>
-          <button type="button" className="link-button text-[12px]" onClick={() => onFilter({ root: { id: row.RootPurchaseOrderId, label: row.PoNumber } })}>
-            only this PO
-          </button>
-        </div>
+    <tr className={row.DeliveryState === 'OVERDUE' ? 'bg-rose-50/40' : undefined}>
+      <td title={revisionNote}><DocLink to={poLink(can, row.PoNumber)}>{row.PoNumber}</DocLink>{row.CurrentRevisionNumber !== row.RevisionNumber && <span className="ml-1 text-[10px] text-amber-600">r{row.RevisionNumber}</span>}</td>
+      <td className="max-w-44 truncate text-xs" title={`${row.VendorCode} · ${row.VendorName}`}>
+        {vendorLink(can, row.VendorCode) ? <DocLink to={vendorLink(can, row.VendorCode)}>{row.VendorName}</DocLink> : row.VendorName}
       </td>
-      <td>
-        <MaybeLink to={vendorLink(can, row.VendorCode)}><span className="mono">{row.VendorCode}</span></MaybeLink>
-        <div className="field-hint">{row.VendorName}</div>
-        <button type="button" className="link-button text-[12px]" onClick={() => onFilter({ vendor: { id: row.VendorId, label: row.VendorCode } })}>only this vendor</button>
+      <td className="max-w-52 truncate text-xs" title={`${row.ItemCode} · ${row.ItemName}`}>
+        <DocLink to={itemLink(can, row.ItemCode)}>{row.ItemCode}</DocLink> <span className="text-slate-500">{row.ItemName}</span>
       </td>
-      <td>
-        <MaybeLink to={itemLink(can, row.ItemCode)}><span className="mono">{row.ItemCode}</span></MaybeLink>
-        <div className="field-hint">{row.ItemName}</div>
+      <td className="whitespace-nowrap text-right text-xs tabular-nums" title={`${formatQuantity(row.OrderedQuantity)} ordered, ${formatQuantity(row.ReceivedQuantity)} received`}>
+        {formatQuantity(row.RemainingQuantity)} {row.Uom}
       </td>
-      <td className="text-right">
-        <span className="mono">{formatQuantity(row.RemainingQuantity)} {row.Uom}</span>
-        <div className="field-hint">of {formatQuantity(row.OrderedQuantity)} ordered, {formatQuantity(row.ReceivedQuantity)} received</div>
-        {row.ReceivedQuantity === 0 && <div className="text-[11.5px] text-amber-700">nothing received yet</div>}
+      <td className="text-right text-xs"><Money value={row.Value} currency={row.Currency} /></td>
+      <td className="whitespace-nowrap text-xs" title={dates}>
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${delivery.cls}`}>{delivery.label}</span>
+        {row.DaysLate !== null && row.DaysLate > 0 && <span className="ml-1 font-medium text-rose-700">{row.DaysLate} d</span>}
       </td>
-      <td className="text-right"><Money value={row.Value} currency={row.Currency} /></td>
-      <td>
-        <span className={badge.className}>{badge.label}</span>
-        {late && <div className="text-[12.5px] font-semibold text-red-700 mt-1">{formatAge(row.DaysLate)} late</div>}
-        <div className="field-hint">
-          {row.CommittedDeliveryDate ? `Committed ${formatDateOnly(row.CommittedDeliveryDate)}` : 'No confirmed commitment'}
-          {' · quoted '}{formatDateOnly(row.QuotedDeliveryDate)}
-        </div>
-        <div className="field-hint">{row.DeliveryTerms}</div>
+      <td><AgeChip days={row.AgeDays} tone="muted" /></td>
+      <td className="whitespace-nowrap">
+        <span className="inline-flex gap-0.5">
+          <button type="button" className={iconBtn} title={`Only vendor ${row.VendorCode}`} aria-label={`Only vendor ${row.VendorCode}`}
+            onClick={() => onFilter({ vendor: { id: row.VendorId, label: row.VendorCode } })}><Filter size={12} aria-hidden /></button>
+          <button type="button" className={`${iconBtn} text-[10px] font-semibold`} title={`Only ${row.PoNumber}`} aria-label={`Only ${row.PoNumber}`}
+            onClick={() => onFilter({ root: { id: row.RootPurchaseOrderId, label: row.PoNumber } })}>PO</button>
+        </span>
       </td>
-      <td className="text-right"><AgeText days={row.AgeDays} /></td>
     </tr>
   )
 }
-

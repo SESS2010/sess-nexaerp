@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, FlaskConical, Lock, RotateCw, Search, TriangleAlert } from 'lucide-react'
+import { ApiError } from '../../api/client'
 import { getCompanyCode } from '../../api/dashboards'
+import { DASHBOARD_ERROR_CODES } from '../../types/dashboard'
+import type { StoresQcStockRow } from '../../types/dashboard'
 import { formatCount } from '../../utils/dashboardFormat'
+import type { Tone } from './DashboardUi'
 import { useDashboardQuery } from './useDashboardQuery'
 import type { DashboardQueryState } from './useDashboardQuery'
 
@@ -60,95 +66,74 @@ export function useStoresSectionQuery<T extends { CompanyCode: string }>(load: (
   return { state: state as DashboardQueryState<T>, reload, data, refreshing, report }
 }
 
-// ---------- ages and colours ----------
+// ---------- queue names (the contract gives QC cards a Key only) ----------
 
-export type Tone = 'red' | 'amber' | 'green' | 'info' | 'grey'
+export const WORKLOAD_SHORT: Record<string, string> = {
+  'gate-no-grn': 'Gate entries → GRN',
+  'mir-approval': 'MIRs to approve',
+  'mir-unissued': 'MIRs to issue',
+}
+
+export const QC_SHORT: Record<string, string> = {
+  QC_HOLD: 'Held for QC',
+  PENDING_RETURNABLE_DC: 'Returnable DC',
+}
+
+export const QC_HINT: Record<string, string> = {
+  QC_HOLD: 'GRN lines received and not yet cleared by QC. Counts are distinct GRN lines, not stock rows or units.',
+  PENDING_RETURNABLE_DC: 'GRN lines awaiting a returnable delivery challan. These are never QC-overdue.',
+}
+
+// ---------- ages and colours ----------
 
 /** Kinds of waiting; each is coloured by its own rule below. */
 export type AgeKind = 'workload' | 'qc-hold' | 'pending-dc'
 
+export const COLOUR_RULES =
+  'Colours are a display aid only; counts, ages and "overdue" are the server\'s. Red = past QC due (server verdict) or waiting 4+ days. ' +
+  'Amber = waiting 2–3 days (held for QC: 2+ days; returnable DC: over 7 days). Blue/green = fresh.'
+
 /**
  * Display thresholds for colour only; they are not a business rule and never
- * change a count. Workload: 0-1 day green, 2-3 amber, 4+ red. QC hold is red
+ * change a count. Workload: 0-1 day ok, 2-3 warn, 4+ bad. QC hold is bad
  * ONLY when the server says a line is past its QC due time. A pending
- * returnable DC is never overdue, so it is never red.
+ * returnable DC is never overdue, so it is never bad.
  */
 export function ageTone(kind: AgeKind, days: number | null, serverOverdue = false): Tone {
   if (kind === 'qc-hold') {
-    if (serverOverdue) return 'red'
-    if (days === null) return 'grey'
-    return days >= 2 ? 'amber' : 'green'
+    if (serverOverdue) return 'bad'
+    if (days === null) return 'muted'
+    return days >= 2 ? 'warn' : 'ok'
   }
-  if (days === null) return 'grey'
-  if (kind === 'pending-dc') return days > 7 ? 'amber' : 'green'
-  if (days >= 4) return 'red'
-  if (days >= 2) return 'amber'
-  return 'green'
+  if (days === null) return 'muted'
+  if (kind === 'pending-dc') return days > 7 ? 'warn' : 'ok'
+  if (days >= 4) return 'bad'
+  if (days >= 2) return 'warn'
+  return 'ok'
 }
 
-export const TONE_CHIP: Record<Tone, string> = {
-  red: 'bg-red-50 text-red-800 border-red-200',
-  amber: 'bg-amber-50 text-amber-800 border-amber-200',
-  green: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  info: 'bg-blue-50 text-blue-800 border-blue-200',
-  grey: 'bg-slate-50 text-slate-600 border-slate-200',
+export function qcRowTone(row: StoresQcStockRow): Tone {
+  // IsOverdue is the server's verdict; never recomputed from the browser clock.
+  return row.Queue === 'QC_HOLD' ? ageTone('qc-hold', row.ReceiptAgeDays, row.IsOverdue) : ageTone('pending-dc', row.ReceiptAgeDays)
 }
 
-export const TONE_BAR: Record<Tone, string> = {
-  red: 'border-l-red-500',
-  amber: 'border-l-amber-400',
-  green: 'border-l-emerald-500',
-  info: 'border-l-blue-500',
-  grey: 'border-l-slate-300',
-}
-
-export const TONE_DOT: Record<Tone, string> = {
-  red: 'bg-red-500',
-  amber: 'bg-amber-400',
-  green: 'bg-emerald-500',
-  info: 'bg-blue-500',
-  grey: 'bg-slate-300',
-}
-
-export const TONE_WORD: Record<Tone, string> = {
-  red: 'Overdue',
-  amber: 'Ageing',
-  green: 'Clear',
-  info: 'Waiting',
-  grey: 'Not available',
-}
-
-/** "0 d", "4 d": the server's whole-day age, short. */
-export function shortAge(days: number | null): string {
-  return days === null ? '—' : `${formatCount(days)} d`
-}
-
-/** "today", "1 day", "4 days" for sentences. */
+/** "less than a day", "1 day", "4 days" for sentences. */
 export function sentenceAge(days: number): string {
   if (days === 0) return 'less than a day'
   return days === 1 ? '1 day' : `${formatCount(days)} days`
-}
-
-export function AgeChip({ days, tone, title }: { days: number | null; tone: Tone; title?: string }) {
-  return (
-    <span className={`inline-block whitespace-nowrap rounded-md border px-1.5 py-0.5 font-mono text-[12px] tabular-nums ${TONE_CHIP[tone]}`}
-      title={title ?? (days === null ? 'No age recorded' : `Waiting ${sentenceAge(days)} (server age)`)}>
-      {shortAge(days)}
-    </span>
-  )
 }
 
 export function plural(count: number, singular: string, many = `${singular}s`): string {
   return `${formatCount(count)} ${count === 1 ? singular : many}`
 }
 
-// ---------- ageing buckets (for the charts) ----------
+// ---------- ageing buckets ----------
 
 export const AGE_BUCKETS = [
-  { key: '0-1', label: '0–1 d', min: 0, max: 1 },
-  { key: '2-3', label: '2–3 d', min: 2, max: 3 },
-  { key: '4-7', label: '4–7 d', min: 4, max: 7 },
-  { key: '8+', label: '> 7 d', min: 8, max: Number.POSITIVE_INFINITY },
+  { key: '0-1', label: '0–1 d', min: 0, max: 1, bar: 'bg-sky-400' },
+  { key: '2-3', label: '2–3 d', min: 2, max: 3, bar: 'bg-amber-400' },
+  { key: '4-7', label: '4–7 d', min: 4, max: 7, bar: 'bg-rose-400' },
+  { key: '8+', label: '> 7 d', min: 8, max: Number.POSITIVE_INFINITY, bar: 'bg-rose-700' },
 ] as const
 
 export function bucketOf(days: number): number {
@@ -177,24 +162,107 @@ export function formatAgo(at: number, now: number): string {
 }
 
 export function scrollToId(id: string) {
-  window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+  window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30)
 }
 
-// ---------- skeletons ----------
+// ---------- "open this panel" requests from cards, attention and charts ----------
 
-export function SkeletonBar({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded bg-slate-200/80 ${className}`} aria-hidden="true" />
+/** Each new request (n increases) opens the detail panel and applies the view. */
+export interface Reveal {
+  n: number
+  search?: string
+  overdueFirst?: boolean
 }
 
-/** A loading placeholder that still carries the loading state and its words for screen readers and checks. */
-export function SectionSkeleton({ label, rows = 4 }: { label: string; rows?: number }) {
+// ---------- compact states ----------
+
+export function SkeletonRows({ rows = 4, label }: { rows?: number; label: string }) {
   return (
-    <div role="status" data-dashboard-state="loading" className="flex flex-col gap-2 py-1">
+    <div role="status" data-dashboard-state="loading" className="space-y-1.5">
       <span className="sr-only">Loading: {label}</span>
-      <SkeletonBar className="h-9 w-full" />
       {Array.from({ length: rows }, (_, index) => (
-        <SkeletonBar key={index} className="h-7" />
+        <div key={index} className="h-6 animate-pulse rounded bg-slate-100" aria-hidden="true" />
       ))}
+    </div>
+  )
+}
+
+export function OneLine({ tone = 'muted', icon, children, title }: { tone?: Tone; icon?: ReactNode; children: ReactNode; title?: string }) {
+  const colour = tone === 'bad' ? 'text-rose-700' : tone === 'warn' ? 'text-amber-700' : tone === 'ok' ? 'text-emerald-700' : 'text-slate-500'
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 py-1 text-xs ${colour}`} title={title}>
+      {icon}
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Error and discard states for one section, one line each, TraceId kept.
+ * The 409 source-inconsistency shows no figures and asks for an administrator.
+ */
+export function CompactProblem({ state, onRetry }: {
+  state: Exclude<DashboardQueryState<unknown>, { kind: 'ready' } | { kind: 'loading' }>
+  onRetry: () => void
+}) {
+  const retry = (
+    <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 font-medium text-blue-600 hover:underline">
+      <RotateCw size={12} aria-hidden /> Retry
+    </button>
+  )
+  if (state.kind === 'company-mismatch') {
+    return (
+      <div role="alert" data-dashboard-state="failed">
+        <OneLine tone="bad" icon={<TriangleAlert size={13} aria-hidden />}
+          title={`The server answered for ${state.received} while ${state.expected} is selected. Nothing from that response is shown.`}>
+          Response was for company <span className="mono">{state.received}</span>, not <span className="mono">{state.expected}</span> — discarded. {retry}
+        </OneLine>
+      </div>
+    )
+  }
+  const apiError = state.error instanceof ApiError ? state.error : null
+  const status = apiError?.status
+  const trace = apiError?.traceId ? <span className="text-slate-400">TraceId <span className="mono">{apiError.traceId}</span></span> : null
+
+  if (status === 409 && apiError?.code === DASHBOARD_ERROR_CODES.sourceInconsistent) {
+    return (
+      <div role="alert" data-dashboard-state="source-inconsistent">
+        <OneLine tone="bad" icon={<TriangleAlert size={13} aria-hidden />} title={apiError.message}>
+          Figures do not reconcile — none shown. Ask an administrator. {trace}
+        </OneLine>
+      </div>
+    )
+  }
+  if (status === 403) {
+    return (
+      <div role="status" data-dashboard-state="denied">
+        <OneLine icon={<Lock size={13} aria-hidden />} title={apiError?.message}>You don't have access to this section. {trace}</OneLine>
+      </div>
+    )
+  }
+  if (status === 401) {
+    return (
+      <div role="alert" data-dashboard-state="failed">
+        <OneLine tone="bad" icon={<Lock size={13} aria-hidden />}>
+          Session ended. <Link to="/login" className="font-medium text-blue-600 hover:underline">Sign in again</Link> {trace}
+        </OneLine>
+      </div>
+    )
+  }
+  const text = status === 400 ? `Filter not accepted: ${apiError?.message ?? ''}` : status === 500 || !apiError ? 'Could not load this section.' : apiError.message
+  return (
+    <div role="alert" data-dashboard-state="failed">
+      <OneLine tone="bad" icon={<TriangleAlert size={13} aria-hidden />}>{text} {trace} {retry}</OneLine>
+    </div>
+  )
+}
+
+export function StoresMockBanner() {
+  const variant = new URLSearchParams(window.location.search).get('mock') ?? 'reference'
+  return (
+    <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-800" data-dashboard-mock="on"
+      title="Every value comes from the contract's example bodies.">
+      <FlaskConical size={14} aria-hidden /> <strong>Synthetic mock data</strong> — not company figures (variant <span className="mono">{variant}</span>).
     </div>
   )
 }
@@ -241,8 +309,11 @@ export function useLocalRows<T, K extends string>(rows: T[], accessors: Record<K
   const toggle = (key: K) =>
     setSort((current) => (!current || current.key !== key ? { key, dir: 'asc' } : current.dir === 'asc' ? { key, dir: 'desc' } : null))
 
-  return { shown, sort, toggle, query, setQuery }
+  return { shown, sort, setSort, toggle, query, setQuery }
 }
+
+export const TH = 'whitespace-nowrap px-2 py-1.5 text-left text-[11px] font-medium uppercase tracking-wide text-slate-500'
+export const TD = 'border-t border-slate-100 px-2 py-1.5 align-top'
 
 export function SortTh<K extends string>({ label, sortKey, sort, onSort, align = 'left' }: {
   label: string
@@ -252,74 +323,70 @@ export function SortTh<K extends string>({ label, sortKey, sort, onSort, align =
   align?: 'left' | 'right'
 }) {
   const active = sort?.key === sortKey
-  const arrow = !active ? '↕' : sort.dir === 'asc' ? '▲' : '▼'
   return (
-    <th className={align === 'right' ? 'text-right' : undefined} aria-sort={!active ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending'}>
-      <button type="button" onClick={() => onSort(sortKey)}
-        className={`inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 uppercase tracking-[0.08em] ${active ? 'text-ink' : 'text-ink-faint'} hover:text-ink`}
-        title="Sort the rows on this page">
+    <th className={`${TH} ${align === 'right' ? 'text-right' : ''}`} aria-sort={!active ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending'}>
+      <button type="button" onClick={() => onSort(sortKey)} title="Sort the rows on this page"
+        className={`inline-flex items-center gap-0.5 uppercase hover:text-slate-800 ${active ? 'text-slate-800' : ''}`}>
         {label}
-        <span className={`text-[9px] ${active ? 'text-accent' : 'opacity-50'}`} aria-hidden="true">{arrow}</span>
+        {active && (sort.dir === 'asc' ? <ArrowUp size={11} aria-hidden /> : <ArrowDown size={11} aria-hidden />)}
       </button>
     </th>
   )
 }
 
-export function TableToolbar({ query, onQuery, placeholder, shown, loaded, total }: {
-  query: string
-  onQuery: (value: string) => void
-  placeholder: string
+/** Small search box for a Panel header. Search applies to the loaded page only. */
+export function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+  return (
+    <label className="relative hidden sm:block" title="Searches the rows on this page">
+      <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+      <input type="search" value={value} placeholder={placeholder} aria-label={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-7 w-48 rounded-md border border-slate-200 bg-white pl-7 pr-2 text-xs text-slate-700 outline-none focus:border-blue-400" />
+    </label>
+  )
+}
+
+/** "1–100 of 240" with previous / next icons; hidden text when one page holds everything. */
+export function CompactPager({ page, pageSize, totalRows, shown, loaded, searching, onPage }: {
+  page: number
+  pageSize: number
+  totalRows: number
   shown: number
   loaded: number
-  total: number
+  searching: boolean
+  onPage: (page: number) => void
 }) {
+  const pages = Math.max(1, Math.ceil(totalRows / pageSize))
+  const from = totalRows === 0 ? 0 : (page - 1) * pageSize + 1
+  const to = Math.min(totalRows, (page - 1) * pageSize + loaded)
+  const btn = 'grid h-6 w-6 place-items-center rounded border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40'
   return (
-    <div className="mb-2 flex flex-wrap items-center gap-2">
-      <input type="search" className="input w-full sm:w-72" value={query} placeholder={placeholder}
-        onChange={(event) => onQuery(event.target.value)} aria-label={placeholder} />
-      <span className="field-hint">
-        {query.trim() ? `${formatCount(shown)} of ${formatCount(loaded)} rows on this page match` : `${formatCount(loaded)} of ${formatCount(total)} rows on this page`}
-        {' · '}search and sorting apply to this page only
+    <div className="mt-2 flex items-center justify-end gap-2 text-[11px] text-slate-500">
+      <span>
+        {searching ? `${formatCount(shown)} match · ` : ''}
+        {formatCount(from)}–{formatCount(to)} of {formatCount(totalRows)}
       </span>
+      {pages > 1 && (
+        <>
+          <button type="button" className={btn} disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeft size={13} aria-hidden /></button>
+          <button type="button" className={btn} disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page"><ChevronRight size={13} aria-hidden /></button>
+        </>
+      )}
     </div>
   )
 }
 
-// ---------- small bits ----------
-
-export function RefreshingBadge({ on }: { on: boolean }) {
-  if (!on) return null
+/** Active detail filter as removable chips; the cards above are never filtered. */
+export function FilterChips({ active, onClear }: { active: string[]; onClear: () => void }) {
+  if (active.length === 0) return null
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-soft" role="status">
-      <span className="inline-block size-2 animate-pulse rounded-full bg-blue-500" aria-hidden="true" />
-      Refreshing…
-    </span>
-  )
-}
-
-export function StoresMockBanner() {
-  const variant = new URLSearchParams(window.location.search).get('mock') ?? 'reference'
-  return (
-    <div className="alert alert-warn mb-3" data-dashboard-mock="on">
-      <div className="alert-body">
-        <strong>SYNTHETIC MOCK DATA — not company figures.</strong> Variant: <span className="mono">{variant}</span>.
-        Every value comes from the contract's example bodies.
-      </div>
+    <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs" data-dashboard-filter="active"
+      title="Filters narrow the rows below only. The cards above always show the whole queue.">
+      <span className="text-slate-500">Showing:</span>
+      {active.map((label) => (
+        <span key={label} className="rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-700">{label}</span>
+      ))}
+      <button type="button" onClick={onClear} className="font-medium text-blue-600 hover:underline">Show all</button>
     </div>
-  )
-}
-
-export function Card({ title, subtitle, right, children, id }: { title: ReactNode; subtitle?: ReactNode; right?: ReactNode; children: ReactNode; id?: string }) {
-  return (
-    <section className="card" id={id}>
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          {subtitle && <p className="page-sub">{subtitle}</p>}
-        </div>
-        {right}
-      </div>
-      {children}
-    </section>
   )
 }

@@ -1,16 +1,14 @@
+import { Clock, ScanLine } from 'lucide-react'
 import type { StoresQcStockPage, StoresWorkloadPage } from '../../types/dashboard'
 import { formatCount } from '../../utils/dashboardFormat'
-import { AGE_BUCKETS, SkeletonBar, bucketOf, plural } from './StoresDashboardKit'
+import { InfoTip, MiniBars, NoAccess, Panel } from './DashboardUi'
+import { AGE_BUCKETS, QC_SHORT, WORKLOAD_SHORT, bucketOf, plural } from './StoresDashboardKit'
 import type { SectionReport } from './StoresDashboardKit'
-import { QC_QUEUE_LABEL } from './StoresQcStockSection'
+import type { QcCardKey } from './StoresKpiTiles'
 
-// Charts are drawn only from the rows the endpoints returned. Each says how
-// much of its queue it covers, because detail rows are one server page and may
-// be narrowed by a detail filter; the tiles above stay the full figures.
-
-/** Sequential blues for age: light = fresh, dark = old. Status colours stay reserved for the verdicts. */
-const BUCKET_FILL = ['#bfdbfe', '#60a5fa', '#2563eb', '#1e3a8a']
-const BUCKET_TEXT = ['#1e3a8a', '#0f172a', '#ffffff', '#ffffff']
+// Charts are drawn only from the rows the endpoints returned (one server page,
+// possibly narrowed by a detail filter). When a chart covers less than the
+// whole queue it says so in a tooltip; the cards stay the full figures.
 
 interface AgeingRow {
   key: string
@@ -19,29 +17,33 @@ interface AgeingRow {
   buckets: number[]
   counted: number
   total: number
+  onClick: () => void
 }
 
-export function StoresCharts({ workload, qc }: {
+const Skeleton = () => (
+  <div className="space-y-2" aria-hidden="true">
+    {[0, 1, 2].map((index) => <div key={index} className="h-4 animate-pulse rounded bg-slate-100" />)}
+  </div>
+)
+
+/** One small stacked bar per queue, by server age bucket. */
+export function StoresAgeingPanel({ workload, qc, onWorkload, onQc }: {
   workload: SectionReport<StoresWorkloadPage> | null
   qc: SectionReport<StoresQcStockPage> | null
+  onWorkload: (queue: string) => void
+  onQc: (card: QcCardKey) => void
 }) {
-  const loading = (!workload || workload.kind === 'loading') && (!qc || qc.kind === 'loading')
-  if (loading) {
-    return (
-      <div className="grid gap-4 lg:grid-cols-2" aria-hidden="true">
-        <div className="card"><SkeletonBar className="mb-3 h-5 w-48" /><SkeletonBar className="mb-2 h-6" /><SkeletonBar className="mb-2 h-6" /><SkeletonBar className="h-6" /></div>
-        <div className="card"><SkeletonBar className="mb-3 h-5 w-48" /><SkeletonBar className="mb-2 h-6" /><SkeletonBar className="h-6" /></div>
-      </div>
-    )
-  }
-
-  const ageing: AgeingRow[] = []
+  const loading = (!workload || workload.kind === 'loading') && (!qc || qc.kind === 'loading') && (workload || qc)
+  const rows: AgeingRow[] = []
   if (workload?.data) {
     for (const tile of workload.data.Tiles) {
       if (tile.State !== 'READY' || tile.Count === null) continue
       const buckets = [0, 0, 0, 0]
       for (const row of workload.data.Rows) if (row.Queue === tile.Key) buckets[bucketOf(row.AgeDays)] += 1
-      ageing.push({ key: tile.Key, label: tile.Title, unit: ['document', 'documents'], buckets, counted: buckets.reduce((a, b) => a + b, 0), total: tile.Count })
+      rows.push({
+        key: tile.Key, label: WORKLOAD_SHORT[tile.Key] ?? tile.Title, unit: ['document', 'documents'], buckets,
+        counted: buckets.reduce((a, b) => a + b, 0), total: tile.Count, onClick: () => onWorkload(tile.Key),
+      })
     }
   }
   if (qc?.data) {
@@ -54,150 +56,87 @@ export function StoresCharts({ workload, qc }: {
       }
       const buckets = [0, 0, 0, 0]
       for (const age of lineAge.values()) buckets[bucketOf(age)] += 1
-      ageing.push({ key: tile.Key, label: QC_QUEUE_LABEL[tile.Key]?.title ?? tile.Key, unit: ['GRN line', 'GRN lines'], buckets, counted: lineAge.size, total: tile.LineCount })
+      rows.push({
+        key: tile.Key, label: QC_SHORT[tile.Key] ?? tile.Key, unit: ['GRN line', 'GRN lines'], buckets,
+        counted: lineAge.size, total: tile.LineCount, onClick: () => onQc(tile.Key as QcCardKey),
+      })
     }
   }
-
-  const hold = qc?.data?.Tiles.find((tile) => tile.Key === 'QC_HOLD')
-  const items = qc?.data ? itemBreakdown(qc.data) : []
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="card" aria-labelledby="stores-ageing-title">
-        <h2 id="stores-ageing-title" className="text-lg font-semibold">How long work has waited</h2>
-        <p className="page-sub mb-3">Items per queue by server age. Bars share one scale.</p>
-        {ageing.length === 0 ? (
-          <p className="field-hint">No queue is available to chart.</p>
-        ) : (
-          <AgeingChart rows={ageing} />
-        )}
-      </section>
-
-      <div className="flex flex-col gap-4">
-        {hold && hold.LineCount > 0 && (
-          <section className="card" aria-labelledby="stores-qcdue-title">
-            <h2 id="stores-qcdue-title" className="text-lg font-semibold">Held for QC: past due or not</h2>
-            <p className="page-sub mb-3">GRN lines, from the card's figures. Past due is the server's verdict.</p>
-            <SplitBar parts={[
-              { label: 'Past QC due', value: hold.OverdueLineCount, fill: '#dc2626', text: '#ffffff' },
-              { label: 'Within QC due', value: hold.LineCount - hold.OverdueLineCount, fill: '#93c5fd', text: '#0f172a' },
-            ]} unit={['line', 'lines']} />
-          </section>
-        )}
-        {qc?.data && (
-          <section className="card" aria-labelledby="stores-items-title">
-            <h2 id="stores-items-title" className="text-lg font-semibold">Held stock by item</h2>
-            <p className="page-sub mb-3">GRN lines per item in the detail rows on this page{items.length > 8 ? '; top 8 shown' : ''}.</p>
-            {items.length === 0 ? <p className="field-hint">No held stock in the rows loaded.</p> : <ItemChart items={items.slice(0, 8)} />}
-          </section>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function AgeingChart({ rows }: { rows: AgeingRow[] }) {
   const max = Math.max(1, ...rows.map((row) => row.counted))
+
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-3 text-[12px] text-ink-soft" aria-hidden="true">
-        {AGE_BUCKETS.map((bucket, index) => (
-          <span key={bucket.key} className="inline-flex items-center gap-1.5">
-            <span className="inline-block size-3 rounded-sm" style={{ background: BUCKET_FILL[index] }} />{bucket.label}
-          </span>
-        ))}
-      </div>
-      {rows.map((row) => (
-        <div key={row.key}>
-          <div className="mb-1 flex items-baseline justify-between gap-2 text-[13px]">
-            <span className="font-medium text-ink">{row.label}</span>
-            <span className="font-mono tabular-nums text-ink-soft">{formatCount(row.total)}</span>
+    <Panel icon={Clock} title="How long work has waited"
+      info="Items per queue by server age, from the detail rows loaded. Bars share one scale. Click a bar to open its details.">
+      {loading ? <Skeleton /> : rows.length === 0 ? (
+        !workload && !qc ? <NoAccess what="these queues" /> : <div className="py-1 text-xs text-slate-400">No queue to chart.</div>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {rows.map((row) => (
+              <li key={row.key}>
+                <button type="button" onClick={row.onClick}
+                  className="grid w-full grid-cols-[7.5rem_1fr_2rem] items-center gap-2 text-left text-xs hover:opacity-80"
+                  title={AGE_BUCKETS.map((bucket, index) => `${bucket.label}: ${row.buckets[index]}`).join(' · ')}>
+                  <span className="truncate text-slate-600">{row.label}</span>
+                  <span className="flex h-2.5 overflow-hidden rounded-full bg-slate-100" role="img"
+                    aria-label={`${row.label}: ${AGE_BUCKETS.map((bucket, index) => `${bucket.label} ${row.buckets[index]}`).join(', ')}`}>
+                    {row.buckets.map((count, index) => count > 0 && (
+                      <span key={index} className={AGE_BUCKETS[index].bar} style={{ width: `${(count / max) * 100}%` }} />
+                    ))}
+                  </span>
+                  <span className="inline-flex items-center justify-end gap-0.5 tabular-nums text-slate-700">
+                    {formatCount(row.total)}
+                    {row.counted < row.total && (
+                      <InfoTip text={`Chart covers ${formatCount(row.counted)} of ${plural(row.total, row.unit[0], row.unit[1])} (one detail page or a filter).`} />
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500" aria-hidden="true">
+            {AGE_BUCKETS.map((bucket) => (
+              <span key={bucket.key} className="inline-flex items-center gap-1">
+                <span className={`inline-block h-2 w-2 rounded-sm ${bucket.bar}`} />{bucket.label}
+              </span>
+            ))}
           </div>
-          <div className="flex h-6 w-full overflow-hidden rounded-md bg-slate-100" role="img"
-            aria-label={`${row.label}: ${AGE_BUCKETS.map((bucket, index) => `${bucket.label} ${row.buckets[index]}`).join(', ')}`}>
-            {row.buckets.map((count, index) => {
-              if (count === 0) return null
-              const width = (count / max) * 100
-              return (
-                <div key={index} title={`${AGE_BUCKETS[index].label}: ${plural(count, row.unit[0], row.unit[1])}`}
-                  className="flex h-full items-center justify-center font-mono text-[11px] font-semibold tabular-nums"
-                  style={{ width: `${width}%`, background: BUCKET_FILL[index], color: BUCKET_TEXT[index] }}>
-                  {width >= 6 ? count : ''}
-                </div>
-              )
-            })}
-          </div>
-          <div className="mt-0.5 text-[11.5px] text-ink-faint">
-            {row.total === 0
-              ? 'Nothing waiting'
-              : row.counted < row.total
-                ? `Chart covers ${formatCount(row.counted)} of ${plural(row.total, row.unit[0], row.unit[1])} (detail page or filter)`
-                : AGE_BUCKETS.map((bucket, index) => `${bucket.label}: ${row.buckets[index]}`).join(' · ')}
-          </div>
-        </div>
-      ))}
-    </div>
+        </>
+      )}
+    </Panel>
   )
 }
 
-function SplitBar({ parts, unit }: { parts: { label: string; value: number; fill: string; text: string }[]; unit: [string, string] }) {
-  const total = Math.max(1, parts.reduce((sum, part) => sum + part.value, 0))
-  return (
-    <div>
-      <div className="flex h-7 w-full overflow-hidden rounded-md bg-slate-100" role="img"
-        aria-label={parts.map((part) => `${part.label} ${part.value}`).join(', ')}>
-        {parts.map((part) => part.value > 0 && (
-          <div key={part.label} className="flex h-full items-center justify-center font-mono text-[12px] font-semibold tabular-nums"
-            style={{ width: `${(part.value / total) * 100}%`, background: part.fill, color: part.text }} title={`${part.label}: ${part.value}`}>
-            {part.value}
-          </div>
-        ))}
-      </div>
-      <div className="mt-1.5 flex flex-wrap gap-3 text-[12px] text-ink-soft">
-        {parts.map((part) => (
-          <span key={part.label} className="inline-flex items-center gap-1.5">
-            <span className="inline-block size-3 rounded-sm" style={{ background: part.fill }} aria-hidden="true" />
-            {part.label}: <span className="font-mono tabular-nums text-ink">{plural(part.value, unit[0], unit[1])}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-interface ItemBar { code: string; name: string; hold: number; dc: number }
-
-/** Distinct GRN lines per item and kind, from the loaded rows. No quantities or values are added up. */
-function itemBreakdown(data: StoresQcStockPage): ItemBar[] {
-  const byItem = new Map<string, { code: string; name: string; hold: Set<string>; dc: Set<string> }>()
-  for (const row of data.Rows) {
-    const entry = byItem.get(row.ItemId) ?? { code: row.ItemCode, name: row.ItemName, hold: new Set<string>(), dc: new Set<string>() }
-    ;(row.Queue === 'QC_HOLD' ? entry.hold : entry.dc).add(row.LineId)
+/** Top 8 items by distinct GRN lines held for QC, from the loaded rows. No quantities or values are added. */
+export function StoresItemsPanel({ qc, onItem }: {
+  qc: SectionReport<StoresQcStockPage> | null
+  onItem: (itemCode: string) => void
+}) {
+  if (!qc) return null
+  const byItem = new Map<string, { code: string; name: string; lines: Set<string> }>()
+  for (const row of qc.data?.Rows ?? []) {
+    if (row.Queue !== 'QC_HOLD') continue
+    const entry = byItem.get(row.ItemId) ?? { code: row.ItemCode, name: row.ItemName, lines: new Set<string>() }
+    entry.lines.add(row.LineId)
     byItem.set(row.ItemId, entry)
   }
-  return [...byItem.values()]
-    .map((entry) => ({ code: entry.code, name: entry.name, hold: entry.hold.size, dc: entry.dc.size }))
-    .sort((a, b) => b.hold + b.dc - (a.hold + a.dc) || a.code.localeCompare(b.code))
-}
+  const items = [...byItem.values()]
+    .map((entry) => ({ code: entry.code, name: entry.name, lines: entry.lines.size }))
+    .sort((a, b) => b.lines - a.lines || a.code.localeCompare(b.code))
 
-function ItemChart({ items }: { items: ItemBar[] }) {
-  const max = Math.max(1, ...items.map((item) => item.hold + item.dc))
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-3 text-[12px] text-ink-soft" aria-hidden="true">
-        <span className="inline-flex items-center gap-1.5"><span className="inline-block size-3 rounded-sm" style={{ background: '#2563eb' }} />Held for QC</span>
-        <span className="inline-flex items-center gap-1.5"><span className="inline-block size-3 rounded-sm" style={{ background: '#94a3b8' }} />Pending returnable DC</span>
-      </div>
-      {items.map((item) => (
-        <div key={item.code} className="grid items-center gap-2" style={{ gridTemplateColumns: 'minmax(90px, 34%) 1fr auto' }}>
-          <span className="truncate font-mono text-[12px] text-ink" title={`${item.code} — ${item.name}`}>{item.code}</span>
-          <div className="flex h-4 overflow-hidden rounded bg-slate-100" role="img" aria-label={`${item.code}: ${item.hold} held for QC, ${item.dc} pending returnable DC`}>
-            {item.hold > 0 && <div style={{ width: `${(item.hold / max) * 100}%`, background: '#2563eb' }} />}
-            {item.dc > 0 && <div style={{ width: `${(item.dc / max) * 100}%`, background: '#94a3b8' }} />}
-          </div>
-          <span className="font-mono text-[12px] tabular-nums text-ink-soft">{item.hold + item.dc}</span>
-        </div>
-      ))}
-    </div>
+    <Panel icon={ScanLine} title="Held for QC by item"
+      info={`GRN lines held for QC per item, from the detail rows loaded${items.length > 8 ? '; top 8 shown' : ''}. Click an item to find it in the details.`}>
+      {qc.kind === 'loading' ? <Skeleton /> : !qc.data ? (
+        <div className="py-1 text-xs text-slate-400">Not loaded — see QC details.</div>
+      ) : (
+        <MiniBars emptyText={qc.data.Filters.DocumentId || (qc.data.Filters.Queue && qc.data.Filters.Queue !== 'QC_HOLD')
+          ? 'QC details are filtered — clear the filter to chart all items.' : 'Nothing held for QC.'}
+          format={(value) => formatCount(value)}
+          rows={items.slice(0, 8).map((item) => ({
+            key: item.code, label: `${item.code} · ${item.name}`, value: item.lines, tone: 'info' as const, onClick: () => onItem(item.code),
+          }))} />
+      )}
+    </Panel>
   )
 }
