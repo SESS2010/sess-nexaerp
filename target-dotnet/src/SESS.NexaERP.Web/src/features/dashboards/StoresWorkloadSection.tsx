@@ -1,57 +1,81 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { getStoresWorkload } from '../../api/dashboards'
-import type { StoresWorkloadPage, StoresWorkloadQueue, StoresWorkloadTile } from '../../types/dashboard'
-import { formatAge, formatCount, formatTimestamp } from '../../utils/dashboardFormat'
+import type { StoresWorkloadPage, StoresWorkloadQueue, StoresWorkloadRow } from '../../types/dashboard'
+import { formatCount, formatTimestamp } from '../../utils/dashboardFormat'
 import { useSession } from '../auth/SessionContext'
 import { storesWorkloadRowLink } from './dashboardAccess'
 import { DetailFilterNote, MaybeLink, NullValue, Pager, QueryProblem, SectionFrame, StateNotice } from './DashboardParts'
-import { useDashboardQuery } from './useDashboardQuery'
+import {
+  AgeChip, RefreshingBadge, SectionSkeleton, SortTh, TableToolbar, ageTone, useLocalRows, useStoresSectionQuery,
+} from './StoresDashboardKit'
+import type { SectionReport } from './StoresDashboardKit'
 
-const PAGE_SIZE = 50
+export const STORES_WORKLOAD_PAGE_SIZE = 100
 
-export function StoresWorkloadSection() {
+export interface WorkloadFilter {
+  queue: StoresWorkloadQueue | null
+  document: { id: string; label: string } | null
+  page: number
+}
+
+export const EMPTY_WORKLOAD_FILTER: WorkloadFilter = { queue: null, document: null, page: 1 }
+
+/** The next step a row's document screen offers. The screen itself checks the action permission. */
+const NEXT_STEP: Record<string, string> = {
+  'gate-no-grn': 'Open gate entry',
+  'mir-approval': 'Open to approve',
+  'mir-unissued': 'Open to issue',
+}
+
+/**
+ * Stores workload detail. The overview cards for this endpoint are drawn at
+ * the top of the page (StoresKpiTiles); filters live on the page so a card
+ * click can select a queue here.
+ */
+export function StoresWorkloadSection({ filter, onFilter, refreshTick, onReport }: {
+  filter: WorkloadFilter
+  onFilter: (next: WorkloadFilter) => void
+  refreshTick: number
+  onReport: (report: SectionReport<StoresWorkloadPage>) => void
+}) {
   const { can } = useSession()
-  const [queue, setQueue] = useState<StoresWorkloadQueue | null>(null)
-  const [document, setDocument] = useState<{ id: string; label: string } | null>(null)
-  const [page, setPage] = useState(1)
-
-  const { state, reload } = useDashboardQuery(
-    () => getStoresWorkload({ queue, documentId: document?.id, page, pageSize: PAGE_SIZE }),
-    `${queue}|${document?.id}|${page}`,
+  const { state, reload, data, refreshing, report } = useStoresSectionQuery(
+    () => getStoresWorkload({ queue: filter.queue, documentId: filter.document?.id, page: filter.page, pageSize: STORES_WORKLOAD_PAGE_SIZE }),
+    `${filter.queue}|${filter.document?.id}|${filter.page}`,
+    refreshTick,
   )
 
-  const select = (next: { queue?: StoresWorkloadQueue | null; document?: { id: string; label: string } | null }) => {
-    if ('queue' in next) setQueue(next.queue ?? null)
-    if ('document' in next) setDocument(next.document ?? null)
-    setPage(1)
-  }
+  useEffect(() => {
+    onReport(report)
+    // report is rebuilt every render; its fields are the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report.kind, report.data, report.refreshing, report.receivedAt, onReport])
 
-  const data = state.kind === 'ready' ? state.data : null
   return (
     <SectionFrame
       id="stores-workload"
-      title="Stores workload"
+      title="Stores workload — detail"
       subtitle="Gate entries waiting for a GRN, and material issue requests waiting for approval or issue. Counts are documents. No money on this section."
       generatedAt={data?.GeneratedAt}
       timeZone={data?.TimeZone}
     >
-      {state.kind === 'loading' && <StateNotice kind="loading" title="Loading the Stores queues…" />}
+      {state.kind === 'loading' && !data && <SectionSkeleton label="Loading the Stores queues…" rows={5} />}
       {(state.kind === 'error' || state.kind === 'company-mismatch') && <QueryProblem state={state} onRetry={reload} />}
       {data && (
-        <StoresWorkloadBody data={data} can={can} document={document} onSelect={select}
-          onClear={() => select({ queue: null, document: null })} onPage={setPage} />
+        <WorkloadBody data={data} can={can} filter={filter} onFilter={onFilter} refreshing={refreshing} />
       )}
     </SectionFrame>
   )
 }
 
-function StoresWorkloadBody({ data, can, document, onSelect, onClear, onPage }: {
+type WorkloadSortKey = 'document' | 'queue' | 'status' | 'since' | 'age' | 'lines' | 'vendor'
+
+function WorkloadBody({ data, can, filter, onFilter, refreshing }: {
   data: StoresWorkloadPage
   can: (pageKey: string, action?: string) => boolean
-  document: { id: string; label: string } | null
-  onSelect: (next: { queue?: StoresWorkloadQueue | null; document?: { id: string; label: string } | null }) => void
-  onClear: () => void
-  onPage: (page: number) => void
+  filter: WorkloadFilter
+  onFilter: (next: WorkloadFilter) => void
+  refreshing: boolean
 }) {
   const titleOf = (key: string) => data.Tiles.find((tile) => tile.Key === key)?.Title ?? key
   const readyTiles = data.Tiles.filter((tile) => tile.State === 'READY')
@@ -60,10 +84,36 @@ function StoresWorkloadBody({ data, can, document, onSelect, onClear, onPage }: 
 
   const activeFilters: string[] = []
   if (data.Filters.Queue) activeFilters.push(titleOf(data.Filters.Queue))
-  if (document) activeFilters.push(`document ${document.label}`)
+  if (filter.document) activeFilters.push(`document ${filter.document.label}`)
+
+  const { shown, sort, toggle, query, setQuery } = useLocalRows<StoresWorkloadRow, WorkloadSortKey>(
+    data.Rows,
+    {
+      document: (row) => row.DocumentNumber,
+      queue: (row) => titleOf(row.Queue),
+      status: (row) => row.Status,
+      since: (row) => row.WaitingSince,
+      age: (row) => row.AgeDays,
+      lines: (row) => row.PendingLineCount,
+      vendor: (row) => row.VendorName,
+    },
+    (row) => [row.DocumentNumber, row.DocumentType, row.Status, row.VendorName ?? '', titleOf(row.Queue), row.EligibleApprovalRoles.join(' ')].join(' '),
+  )
 
   return (
     <>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <details className="text-[13px] text-ink-soft">
+          <summary className="cursor-pointer select-none font-medium text-ink">What each queue counts</summary>
+          <ul className="mt-1 list-disc pl-5">
+            {data.Tiles.map((tile) => (
+              <li key={tile.Key}><strong>{tile.Title}:</strong> {tile.Coverage}</li>
+            ))}
+          </ul>
+        </details>
+        <RefreshingBadge on={refreshing} />
+      </div>
+
       {deniedTiles.length > 0 && (
         <StateNotice kind="denied" title={`${deniedTiles.length} queue${deniedTiles.length === 1 ? ' is' : 's are'} not available to you`}>
           Their counts are withheld, not zero: {deniedTiles.map((tile) => tile.Title).join('; ')}.
@@ -76,87 +126,78 @@ function StoresWorkloadBody({ data, can, document, onSelect, onClear, onPage }: 
         </StateNotice>
       )}
 
-      <div className="grid gap-3 my-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
-        {data.Tiles.map((tile) => (
-          <StoresTile key={tile.Key} tile={tile} selected={data.Filters.Queue === tile.Key}
-            onSelect={() => onSelect({ queue: data.Filters.Queue === tile.Key ? null : (tile.Key as StoresWorkloadQueue) })} />
-        ))}
+      <div className="mt-2">
+        <DetailFilterNote active={activeFilters} onClear={() => onFilter({ queue: null, document: null, page: 1 })} />
       </div>
 
-      <DetailFilterNote active={activeFilters} onClear={onClear} />
-
+      <div id="stores-workload-detail" className="scroll-mt-4" />
       {data.Rows.length === 0 ? (
         !nothingWaiting && <StateNotice kind="empty" title="No detail rows match this selection" />
       ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Document</th>
-                <th>Queue</th>
-                <th>Status</th>
-                <th>Waiting since</th>
-                <th className="text-right">Age</th>
-                <th className="text-right">Pending lines</th>
-                <th>Vendor</th>
-                <th>Who acts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.Rows.map((row) => (
-                <tr key={`${row.Queue}-${row.DocumentId}`}>
-                  <td className="mono whitespace-nowrap">
-                    <MaybeLink to={storesWorkloadRowLink(can, row.Queue, row.DocumentId)}>{row.DocumentNumber}</MaybeLink>
-                    <div className="field-hint">{row.DocumentType}</div>
-                    <button type="button" className="link-button" onClick={() => onSelect({ document: { id: row.DocumentId, label: row.DocumentNumber } })}>
-                      only this document
-                    </button>
-                  </td>
-                  <td>{titleOf(row.Queue)}</td>
-                  <td><span className="badge badge-muted">{row.Status}</span></td>
-                  <td>{formatTimestamp(row.WaitingSince, data.TimeZone)}</td>
-                  <td className="text-right">{formatAge(row.AgeDays)}</td>
-                  <td className="text-right mono">{formatCount(row.PendingLineCount)}</td>
-                  <td>{row.VendorName ?? <NullValue reason="none" />}</td>
-                  <td>
-                    {row.EligibleApprovalRoles.length > 0 && (
-                      <div>Any of: {row.EligibleApprovalRoles.join(', ')}</div>
-                    )}
-                    {/* The MIR workflow names no approver; show the server's reason, never an invented person. */}
-                    {row.ResponsibilityIssue && <span className="badge badge-warn">{row.ResponsibilityIssue}</span>}
-                    {!row.ResponsibilityIssue && row.EligibleApprovalRoles.length === 0 && <NullValue reason="none" />}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <Pager page={data.Filters.Page} pageSize={data.Filters.PageSize} totalRows={data.TotalRows} onPage={onPage} />
-    </>
-  )
-}
-
-function StoresTile({ tile, selected, onSelect }: { tile: StoresWorkloadTile; selected: boolean; onSelect: () => void }) {
-  const denied = tile.State !== 'READY'
-  return (
-    <button type="button" className="home-tile text-left" disabled={denied} onClick={onSelect}
-      data-tile-state={denied ? 'denied' : 'ready'}
-      style={{ outline: selected ? '2px solid var(--color-accent)' : undefined, opacity: denied ? 0.75 : 1 }}
-      title={denied ? 'Not permitted' : selected ? 'Show all queues' : 'Show only this queue in the detail rows'}>
-      <div className="home-tile-title">{tile.Title}</div>
-      {denied ? (
-        <div className="mt-1 flex items-center gap-2">
-          <span className="badge badge-muted">Permission denied</span>
-          <NullValue reason="withheld" />
-        </div>
-      ) : (
         <>
-          <div className="text-2xl font-semibold">{tile.Count === null ? <NullValue reason="withheld" /> : <span className="mono">{formatCount(tile.Count)}</span>}</div>
-          <div className="field-hint">{tile.OldestAgeDays === null ? 'No waiting age' : `Oldest waiting ${formatAge(tile.OldestAgeDays)}`}</div>
+          <TableToolbar query={query} onQuery={setQuery} placeholder="Find document, vendor, status…"
+            shown={shown.length} loaded={data.Rows.length} total={data.TotalRows} />
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <SortTh label="Document" sortKey="document" sort={sort} onSort={toggle} />
+                  <SortTh label="Queue" sortKey="queue" sort={sort} onSort={toggle} />
+                  <SortTh label="Status" sortKey="status" sort={sort} onSort={toggle} />
+                  <SortTh label="Waiting since" sortKey="since" sort={sort} onSort={toggle} />
+                  <SortTh label="Age" sortKey="age" sort={sort} onSort={toggle} align="right" />
+                  <SortTh label="Pending lines" sortKey="lines" sort={sort} onSort={toggle} align="right" />
+                  <SortTh label="Vendor" sortKey="vendor" sort={sort} onSort={toggle} />
+                  <th>Who acts</th>
+                  <th>Next step</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.length === 0 && (
+                  <tr><td colSpan={9} className="field-hint">No row on this page matches “{query}”.</td></tr>
+                )}
+                {shown.map((row) => {
+                  const link = storesWorkloadRowLink(can, row.Queue, row.DocumentId)
+                  return (
+                    <tr key={`${row.Queue}-${row.DocumentId}`}>
+                      <td className="mono whitespace-nowrap">
+                        <MaybeLink to={link}>{row.DocumentNumber}</MaybeLink>
+                        <div className="field-hint">{row.DocumentType}</div>
+                        <button type="button" className="link-button text-[12px]"
+                          onClick={() => onFilter({ ...filter, document: { id: row.DocumentId, label: row.DocumentNumber }, page: 1 })}>
+                          only this document
+                        </button>
+                      </td>
+                      <td>{titleOf(row.Queue)}</td>
+                      <td><span className="badge badge-muted">{row.Status}</span></td>
+                      <td className="whitespace-nowrap">{formatTimestamp(row.WaitingSince, data.TimeZone)}</td>
+                      <td className="text-right"><AgeChip days={row.AgeDays} tone={ageTone('workload', row.AgeDays)} /></td>
+                      <td className="text-right mono">{formatCount(row.PendingLineCount)}</td>
+                      <td>{row.VendorName ?? <NullValue reason="none" />}</td>
+                      <td>
+                        {row.EligibleApprovalRoles.length > 0 && (
+                          <div>Any of: {row.EligibleApprovalRoles.join(', ')}</div>
+                        )}
+                        {/* The MIR workflow names no approver; show the server's reason, never an invented person. */}
+                        {row.ResponsibilityIssue && <span className="badge badge-warn">{row.ResponsibilityIssue}</span>}
+                        {!row.ResponsibilityIssue && row.EligibleApprovalRoles.length === 0 && <NullValue reason="none" />}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        {link ? (
+                          <MaybeLink to={link}><span className="text-[13px] font-medium">{NEXT_STEP[row.Queue] ?? 'Open'} →</span></MaybeLink>
+                        ) : (
+                          <span className="field-hint" title="The document screen is not permitted for your role">No screen access</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
-      <div className="field-hint mt-2">{tile.Coverage}</div>
-    </button>
+      <Pager page={data.Filters.Page} pageSize={data.Filters.PageSize} totalRows={data.TotalRows} onPage={(page) => onFilter({ ...filter, page })} />
+    </>
   )
 }
