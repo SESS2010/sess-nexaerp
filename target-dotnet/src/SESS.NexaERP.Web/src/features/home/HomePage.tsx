@@ -10,6 +10,8 @@ import { MACHINE_DELIVERY_PAGE } from '../../types/machineDelivery'
 // now carries the resolved permissions, so tiles the role cannot open are
 // hidden rather than opening onto a 403.
 const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; action?: string }> = [
+  { to: '/dashboards/purchase', label: 'Purchase Dashboard', hint: 'What needs attention in Purchase: queues, late POs, bills, spend', page: 'dashboards.purchase' },
+  { to: '/dashboards/stores', label: 'Stores Dashboard', hint: 'What needs attention in Stores: GRNs, MIRs, QC-held stock', page: 'dashboards.stores-workload' },
   { to: '/purchase/requisitions', label: 'Purchase Requisition', hint: 'Raise, verify or approve a PR', page: PAGE_KEYS.requisitions },
   { to: '/purchase/rfqs', label: 'RFQ', hint: 'Invite vendors to quote', page: PAGE_KEYS.rfq },
   { to: '/purchase/quotations', label: 'Vendor Quotations', hint: 'Quotations received and verified', page: PAGE_KEYS.quotations },
@@ -22,6 +24,7 @@ const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; 
   { to: '/stores/material-issues', label: 'Material Issues', hint: 'Outstanding engineer custody; issue by scan from a MIR', page: PAGE_KEYS.materialIssues },
   { to: '/stores/material-returns', label: 'Material Returns', hint: 'Declare and accept returns to Stores', page: PAGE_KEYS.materialReturns },
   { to: '/stores/machine-deliveries', label: 'Machine DC', hint: 'Dispatch a FAT-ready machine; record the customer signature', page: MACHINE_DELIVERY_PAGE },
+  { to: '/stores/stock-adjustments', label: 'Stock Adjustment', hint: 'Correct stock after a count; approved by value band', page: 'stores.stock-adjustments' },
   { to: '/qc/inspections', label: 'QC / Inspection', hint: 'Inspect received material', page: PAGE_KEYS.qc },
   { to: '/qc/concessions', label: 'QC Concessions', hint: 'Accept rejected stock under concession', page: PAGE_KEYS.qc },
   { to: '/sales/customer-po', label: 'Customer PO', hint: 'Register customer orders', page: PAGE_KEYS.customerPo },
