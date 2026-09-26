@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { MACHINE_DELIVERY_PAGE } from '../../types/machineDelivery'
 
 // Every module screen is page-permission gated, so an approver, a
 // storekeeper and a requester each see a different subset of the app. This
@@ -20,6 +21,7 @@ const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; 
   { to: '/stores/material-issue-requests', label: 'Material Issue Request', hint: 'Ask Stores for material; approve and issue', page: PAGE_KEYS.materialIssueRequests },
   { to: '/stores/material-issues', label: 'Material Issues', hint: 'Outstanding engineer custody; issue by scan from a MIR', page: PAGE_KEYS.materialIssues },
   { to: '/stores/material-returns', label: 'Material Returns', hint: 'Declare and accept returns to Stores', page: PAGE_KEYS.materialReturns },
+  { to: '/stores/machine-deliveries', label: 'Machine DC', hint: 'Dispatch a FAT-ready machine; record the customer signature', page: MACHINE_DELIVERY_PAGE },
   { to: '/qc/inspections', label: 'QC / Inspection', hint: 'Inspect received material', page: PAGE_KEYS.qc },
   { to: '/qc/concessions', label: 'QC Concessions', hint: 'Accept rejected stock under concession', page: PAGE_KEYS.qc },
   { to: '/sales/customer-po', label: 'Customer PO', hint: 'Register customer orders', page: PAGE_KEYS.customerPo },

@@ -45,6 +45,9 @@ import { MaterialIssueDetailPage } from './features/stores/MaterialIssueDetailPa
 import { MaterialReturnListPage } from './features/stores/MaterialReturnListPage'
 import { OpeningStockListPage } from './features/stores/OpeningStockListPage'
 import { OpeningStockDetailPage } from './features/stores/OpeningStockDetailPage'
+import { MachineDeliveryListPage } from './features/stores/MachineDeliveryListPage'
+import { MachineDeliveryDetailPage } from './features/stores/MachineDeliveryDetailPage'
+import { MACHINE_DELIVERY_PAGE } from './types/machineDelivery'
 import { ReportCataloguePage } from './features/reports/ReportCataloguePage'
 import { VendorBillListPage } from './features/accounts/VendorBillListPage'
 import { VendorBillDetailPage } from './features/accounts/VendorBillDetailPage'
@@ -75,6 +78,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/material-issues', 'Material Issue'],
   ['/stores/material-returns', 'Material Return'],
   ['/stores/opening-stock', 'Opening Stock'],
+  ['/stores/machine-deliveries', 'Machine Delivery Challan'],
   ['/accounts/vendor-bills', 'Vendor Bills'],
   ['/accounts/vendor-payments', 'Vendor Payments'],
   ['/reports', 'Reports'],
@@ -156,6 +160,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.materialIssues) && <NavLink to="/stores/material-issues" className={navLinkClass}>Material Issues</NavLink>}
             {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
             {can(PAGE_KEYS.openingStock) && <NavLink to="/stores/opening-stock" className={navLinkClass}>Opening Stock</NavLink>}
+            {can(MACHINE_DELIVERY_PAGE) && <NavLink to="/stores/machine-deliveries" className={navLinkClass}>Machine DC</NavLink>}
           </NavSection>
 
           <NavSection id="production" label="Production" defaultOpen={inProduction}>
@@ -243,6 +248,8 @@ export default function App() {
                 <Route path="/stores/material-returns" element={<MaterialReturnListPage />} />
                 <Route path="/stores/opening-stock" element={<OpeningStockListPage />} />
                 <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
+                <Route path="/stores/machine-deliveries" element={<MachineDeliveryListPage />} />
+                <Route path="/stores/machine-deliveries/:id" element={<MachineDeliveryDetailPage />} />
                 <Route path="/accounts/vendor-bills" element={<VendorBillListPage />} />
                 <Route path="/accounts/vendor-bills/:id" element={<VendorBillDetailPage />} />
                 <Route path="/accounts/vendor-payments" element={<VendorPaymentsPage />} />

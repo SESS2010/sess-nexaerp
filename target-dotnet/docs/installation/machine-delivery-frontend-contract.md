@@ -128,10 +128,12 @@ that message as an administration problem, not a form error.
 > **Send `DeliveredAt` in UTC, ending in `Z`.** This endpoint carries the timestamp through a
 > JSON payload and casts it in SQL, so an offset would probably survive here — but the driver
 > refuses a `DateTimeOffset` with a non-zero offset wherever the API binds one directly to a
-> `timestamp with time zone` column, and the purchase endpoints do exactly that: `+05:30` is
-> rejected with *"only offset 0 (UTC) is supported"*, surfacing as a 400 with an unactionable
-> message. Convert the operator's local time to UTC before sending and convert back for display,
-> here and for every `DateTimeOffset` the API takes. One rule, no exceptions to remember.
+> `timestamp with time zone` column, and the purchase endpoints do exactly that. Before
+> `7003c02` that refusal surfaced as a 400; from `7003c02` it was a 500; since the #31 converter
+> (`b394e50`) an offset such as `+05:30` is accepted as the same instant in UTC. The converter is
+> a safety net, not permission: convert the operator's local time to UTC before sending and
+> convert back for display, here and for every `DateTimeOffset` the API takes. One rule, no
+> exceptions to remember.
 
 ```json
 { "DeliveredAt": "2026-09-30T10:50:00Z",
@@ -185,16 +187,46 @@ An unknown id, or an id belonging to another company, is 404.
 ## Errors
 
 Application errors use the shared `problem+json` envelope; **branch on `Code`, never on
-`Detail` text**. Expect:
+`Detail` text**. One rule since backend commit `b7f64a9` (*judge a machine DC request on its
+own fields first*, findings #34 and #35 of `dc-frontend-contract-review-20260925.md`): **400
+means the request itself is wrong, so fix the field. 409 means the request is well-formed but
+the database state refuses it, so show the reason.** Expect:
 
 - `401` unauthenticated. `403` for a missing permission, a non-substantive Stores
   assignment, `EMPLOYEE_ACCESS_NOT_CONFIGURED` or `MFA_REQUIRED`.
-- `400` for the validation rules above.
-- `409` for a duplicate `DcNumber`, a job that already has a DC, a second signature, the
-  business-rule refusals raised by the delivery function, and the missing MD recipient.
+- `400 VALIDATION_FAILED` for every fault that can be judged from the request alone, with
+  **every failing field named in `Errors`** in one answer. `Detail` repeats every message, so
+  show it too. Show each `Errors` entry next to its field. Keys:
+  - Dispatch: `JobOrderId` (missing); `DcNumber` (missing, blank, or over 100 characters after
+    trimming); `Destination` (missing, blank, or over 500 after trimming); `Nature` (missing, or
+    not exactly `RETURNABLE` / `NON_RETURNABLE`); `Purpose` (missing, or not allowed for the
+    nature); `DispatchDate` (missing, or after today in India Standard Time);
+    `ExpectedReturnDate` (RETURNABLE: missing or before `DispatchDate`; NON_RETURNABLE:
+    present); `IdempotencyKey` (missing, or over 100 characters).
+  - Signature: `DeliveredAt` (missing, or in the future); `CustomerSignatory` (missing, blank,
+    or over 200 characters after trimming); `Evidence` (no file, an empty file, or over 5 MB);
+    `Evidence.ContentType` (not a PDF, PNG or JPEG, or not matching `ContentType`);
+    `Evidence.FileName` (missing, over 255 characters, or containing control characters);
+    `IdempotencyKey`.
+  - A job search over 200 characters, and malformed JSON, are also 400.
+- `409 BUSINESS_RULE_CONFLICT` when the database state refuses a well-formed request. `Detail`
+  is a sentence, never PostgreSQL's constraint text: the job is not FAT READY or unknown; no
+  linked customer PO; a dispatch before the FAT reconciliation date; the job already has a DC;
+  the DC number is already used in this company; signing an unknown or other-company DC (409,
+  not 404); delivery before the dispatch date, or FAT identity changed since dispatch, or no
+  Actual BOM; the DC is already signed; a NON_RETURNABLE dispatch with no active Managing
+  Director recipient (an administration problem, not a form error). Show `Detail` with a
+  generic line such as *"The server refused this dispatch: check the nature, purpose and
+  dates"* alongside it, not in place of it.
 - `409 CONCURRENCY_CONFLICT` when the serializable transaction loses a race: show the
   existing "Someone else changed this record" banner, reload the DC, and let the user
   retry deliberately.
+- `404` only for the DC view and the evidence download.
+
+DC view timestamps are rendered in the database session's time zone and may carry `+00:00` or
+`+05:30`: parse them as instants, never compare them as strings. The view also carries internal
+columns (`ActorEmployeeId`, `RoleAssignmentId`, `RecordedBy`, `CompanyId`,
+`FatReconciliationId`) that are not part of this contract; do not build on them.
 
 Both writes are idempotent by `IdempotencyKey` and replay the committed receipt, so a
 retry with the **same** key is safe and returns the original DC. A retry with a **new**
