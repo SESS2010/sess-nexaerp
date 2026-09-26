@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { completeSignIn, completeSignOut, reportCallbackFailure, reportLogoutIncomplete } from '../../auth/authSession'
+import { completeSignIn, completeSignOut, getCompany, reportCallbackFailure, reportLogoutIncomplete } from '../../auth/authSession'
 
 // The authorization code is one-use. React StrictMode runs effects twice in
 // development, so the exchange is started once per page load and shared.
@@ -21,7 +21,11 @@ export function OidcCallbackPage() {
     let active = true
     signInOnce
       .then((returnTo) => {
-        if (active) navigate('/select-company', { replace: true, state: { returnTo } })
+        // After a reload the company is already known: go straight back.
+        if (active) {
+          if (getCompany()) navigate(returnTo, { replace: true })
+          else navigate('/select-company', { replace: true, state: { returnTo } })
+        }
       })
       .catch((error: unknown) => {
         reportCallbackFailure(reason(error))

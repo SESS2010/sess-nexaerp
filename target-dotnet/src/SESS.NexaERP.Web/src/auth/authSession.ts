@@ -22,6 +22,7 @@ import type { User } from 'oidc-client-ts'
 import {
   OIDC_SCOPES,
   REALMS,
+  isCompanyCode,
   postLogoutRedirectUri,
   redirectUri,
   safeReturnPath,
@@ -49,6 +50,17 @@ export type AuthNotice =
 
 const PENDING_SIGNIN_KEY = 'nexaerp.oidc.pendingSignIn'
 const PENDING_SIGNOUT_KEY = 'nexaerp.oidc.pendingSignOut'
+
+// Reload resume (contract item 4: "Page reload performs a new authorization
+// redirect; Keycloak's own session can satisfy it"). Tokens stay in memory, so
+// a reload loses them; only the realm and company the user chose survive, per
+// browser tab, so the redirect can start by itself and land back on the same
+// page. Never a token. Forgotten on Sign out and on a failed sign-in.
+const RESUME_REALM_KEY = 'nexaerp.resume.realm'
+const RESUME_COMPANY_KEY = 'nexaerp.resume.company'
+const RESUME_ATTEMPT_KEY = 'nexaerp.resume.attemptedAt'
+// A resume that comes straight back without a session must not loop.
+const RESUME_RETRY_MS = 30_000
 /** Refresh this many seconds before the access token expires. */
 const REFRESH_LEAD_SECONDS = 60
 
@@ -118,6 +130,50 @@ function randomToken(): string {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+}
+
+function readSessionItem(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeSessionItem(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // private window or storage blocked: a reload then asks again, as before
+  }
+}
+
+function forgetResume(): void {
+  removeSessionItem(RESUME_REALM_KEY)
+  removeSessionItem(RESUME_COMPANY_KEY)
+  removeSessionItem(RESUME_ATTEMPT_KEY)
+}
+
+/** The realm this tab was signed in to before a reload, if any. */
+export function resumableRealm(): RealmKey | null {
+  const value = readSessionItem(RESUME_REALM_KEY)
+  return value === 'staff' || value === 'approvers' ? value : null
+}
+
+/**
+ * Called when a page loads with no session. Starts the authorization redirect
+ * for the remembered realm; Keycloak's own session answers it without a
+ * password when it is still alive. Returns false when there is nothing to
+ * resume or a resume was just tried (so the caller shows the sign-in page).
+ */
+export async function resumeSession(returnTo: string): Promise<boolean> {
+  const key = resumableRealm()
+  if (!key || user) return false
+  const last = Number(readSessionItem(RESUME_ATTEMPT_KEY) ?? 0)
+  if (Date.now() - last < RESUME_RETRY_MS) return false
+  writeSessionItem(RESUME_ATTEMPT_KEY, String(Date.now()))
+  await beginSignIn(key, returnTo)
+  return true
 }
 
 function removeSessionItem(key: string): void {
@@ -222,7 +278,12 @@ export async function completeSignIn(): Promise<string> {
 
     user = signedIn
     realm = pending
-    company = null
+    // Restore the company only when this is the realm it was chosen under.
+    const rememberedCompany = readSessionItem(RESUME_COMPANY_KEY)
+    company = resumableRealm() === pending && rememberedCompany && isCompanyCode(rememberedCompany) ? rememberedCompany : null
+    if (!company) removeSessionItem(RESUME_COMPANY_KEY)
+    writeSessionItem(RESUME_REALM_KEY, pending)
+    removeSessionItem(RESUME_ATTEMPT_KEY)
     epoch += 1
     notice = null
     scheduleRefresh()
@@ -233,6 +294,7 @@ export async function completeSignIn(): Promise<string> {
   } catch (error) {
     await manager.removeUser().catch(() => undefined)
     clearLocalSession(null)
+    forgetResume()
     throw error
   } finally {
     await manager.clearStaleState().catch(() => undefined)
@@ -311,6 +373,7 @@ export function selectCompany(next: CompanyCode): void {
   if (!user) return
   abortRequests()
   company = next
+  writeSessionItem(RESUME_COMPANY_KEY, next)
   epoch += 1
   emit()
 }
@@ -339,6 +402,7 @@ async function providerReachable(config: RealmConfig): Promise<boolean> {
  * page says the provider session may still be open.
  */
 export async function signOut(): Promise<void> {
+  forgetResume()
   const key = realm
   const idToken = user?.id_token
   if (key) await managerFor(key).removeUser().catch(() => undefined)

@@ -19,7 +19,7 @@ as approved by the TD on 26 Sep (report item 3.2). No `RequireHttps` exception, 
 | 6 | Both companies | **YES (switch + isolation)** | Company switch from the user menu re-reads `session/me` under the new `X-NexaERP-Company` header: PROPRIETORSHIP refused (#4), back to PVT_LTD 200. A successful sign-in in PROPRIETORSHIP needs a second mapping; not made. |
 | 7 | Refresh | **YES** | `refreshAccessToken()` through the refresh-token grant: new access token (`iat` 05:24:37Z → 05:26:01Z, lifetime 900 s), then `session/me` 200 with it. |
 | 8 | Tokens never stored | **YES** | `localStorage` and `sessionStorage` both empty while signed in. |
-| 9 | Reload | **As designed (TD accepted, 3.9)** | Reload → realm choice again; Keycloak SSO skipped the password; company chosen again. |
+| 9 | Reload | **YES, stays signed in (changed later on 26 Sep)** | Reload starts the authorization redirect by itself (contract item 4) and Keycloak's own session answers it: back on the same page, same realm and company, no password or company prompt. Only the realm and company choice are kept, in the tab's sessionStorage; tokens stay in memory. After Sign out, a reload goes to the sign-in page. A resume that fails is not retried for 30 s, so it cannot loop. |
 | 10 | Logout | **YES** | Sign out → `/login`; the next Staff sign-in asks for the password again, so the Keycloak session ended too. |
 | 11 | Approvers + OTP (sess-14) | **PENDING** | Needs the user's phone to enrol the authenticator on first sign-in. Mapping is in place. |
 
