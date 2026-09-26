@@ -47,6 +47,13 @@ import { OpeningStockListPage } from './features/stores/OpeningStockListPage'
 import { OpeningStockDetailPage } from './features/stores/OpeningStockDetailPage'
 import { MachineDeliveryListPage } from './features/stores/MachineDeliveryListPage'
 import { MachineDeliveryDetailPage } from './features/stores/MachineDeliveryDetailPage'
+import { StockAdjustmentListPage } from './features/stores/StockAdjustmentListPage'
+import { StockAdjustmentDetailPage } from './features/stores/StockAdjustmentDetailPage'
+import { STOCK_ADJUSTMENT_PAGE_KEY } from './api/stockAdjustments'
+import { InventoryPeriodsPage } from './features/accounts/InventoryPeriodsPage'
+import { INVENTORY_PERIODS_PAGE_KEY } from './api/inventoryPeriods'
+import { NotificationsPage } from './features/notifications/NotificationsPage'
+import { NotificationBell } from './components/NotificationBell'
 import { MACHINE_DELIVERY_PAGE } from './types/machineDelivery'
 import { ReportCataloguePage } from './features/reports/ReportCataloguePage'
 import { VendorBillListPage } from './features/accounts/VendorBillListPage'
@@ -81,6 +88,9 @@ const TITLES: [prefix: string, title: string][] = [
   ['/stores/machine-deliveries', 'Machine Delivery Challan'],
   ['/accounts/vendor-bills', 'Vendor Bills'],
   ['/accounts/vendor-payments', 'Vendor Payments'],
+  ['/accounts/inventory-periods', 'Inventory Periods'],
+  ['/stores/stock-adjustments', 'Stock Adjustment'],
+  ['/notifications', 'Notifications'],
   ['/reports', 'Reports'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
@@ -161,6 +171,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
             {can(PAGE_KEYS.openingStock) && <NavLink to="/stores/opening-stock" className={navLinkClass}>Opening Stock</NavLink>}
             {can(MACHINE_DELIVERY_PAGE) && <NavLink to="/stores/machine-deliveries" className={navLinkClass}>Machine DC</NavLink>}
+            {can(STOCK_ADJUSTMENT_PAGE_KEY) && <NavLink to="/stores/stock-adjustments" className={navLinkClass}>Stock Adjustment</NavLink>}
           </NavSection>
 
           <NavSection id="production" label="Production" defaultOpen={inProduction}>
@@ -171,10 +182,11 @@ function Shell({ children }: { children: React.ReactNode }) {
             <span className="nav-link disabled">Engineering Documents</span>
           </NavSection>
 
-          {(can(PAGE_KEYS.vendorBills) || can(PAGE_KEYS.vendorPayments)) && (
+          {(can(PAGE_KEYS.vendorBills) || can(PAGE_KEYS.vendorPayments) || can(INVENTORY_PERIODS_PAGE_KEY)) && (
             <NavSection id="accounts" label="Accounts" defaultOpen={inAccounts}>
               {can(PAGE_KEYS.vendorBills) && <NavLink to="/accounts/vendor-bills" className={navLinkClass}>Vendor Bills</NavLink>}
               {can(PAGE_KEYS.vendorPayments) && <NavLink to="/accounts/vendor-payments" className={navLinkClass}>Vendor Payments</NavLink>}
+              {can(INVENTORY_PERIODS_PAGE_KEY) && <NavLink to="/accounts/inventory-periods" className={navLinkClass}>Inventory Periods</NavLink>}
             </NavSection>
           )}
 
@@ -188,7 +200,10 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="main">
         <header className="topbar">
           <div className="topbar-title">{title}</div>
-          <UserMenu />
+          <div className="topbar-actions">
+            <NotificationBell />
+            <UserMenu />
+          </div>
         </header>
         <main className="content">{children}</main>
       </div>
@@ -253,6 +268,10 @@ export default function App() {
                 <Route path="/accounts/vendor-bills" element={<VendorBillListPage />} />
                 <Route path="/accounts/vendor-bills/:id" element={<VendorBillDetailPage />} />
                 <Route path="/accounts/vendor-payments" element={<VendorPaymentsPage />} />
+                <Route path="/accounts/inventory-periods" element={<InventoryPeriodsPage />} />
+                <Route path="/stores/stock-adjustments" element={<StockAdjustmentListPage />} />
+                <Route path="/stores/stock-adjustments/:id" element={<StockAdjustmentDetailPage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/reports" element={<ReportCataloguePage />} />
                 <Route path="/reports/:key" element={<ReportViewerPage />} />
                 <Route path="/qc/inspections" element={<QcQueuePage />} />

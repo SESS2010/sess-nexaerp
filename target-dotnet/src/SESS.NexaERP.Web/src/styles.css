@@ -82,6 +82,7 @@ body {
          bg-white/85 px-6 backdrop-blur-md;
 }
 .topbar-title { @apply text-[15px] font-semibold tracking-tight; }
+.topbar-actions { @apply flex items-center gap-3; }
 
 .content { @apply min-h-0 flex-1 overflow-auto px-6 py-6 lg:px-8; }
 .page { @apply mx-auto max-w-6xl; }
