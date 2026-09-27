@@ -159,7 +159,9 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (117 at `c69366d`; 130 with the thirteen 20 September migrations, which
+in the built assembly (**139** with R1 DC selection at `20260928100000_MachineDeliverySelection`;
+138 at `4cb906a`, ending at TrackingLite; 137 is EmailOutbox. Earlier: 117 at `c69366d`;
+130 with the thirteen 20 September migrations, which
 apply in timestamp order 090000 → 210000 with no other ordering requirement). Expected
 configuration rows from the 20 September commits: 3 + 1 page + 9 + 1 + 2 + 2 role page
 permissions, 8 audit receipts (the route page copies its 9 grants without receipts; its

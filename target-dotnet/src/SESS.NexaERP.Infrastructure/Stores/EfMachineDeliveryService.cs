@@ -35,8 +35,9 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
         var company=await Company(ct);
         var size=Math.Clamp(pageSize ?? 50,1,200);
         var number=Math.Clamp(page ?? 1,1,int.MaxValue/size);
+        var dispatched=db.Database.SqlQuery<Guid>($"SELECT advance.machine_delivery_job_ids({company}) AS \"Value\"");
         var query=db.JobOrders.AsNoTracking().Where(j=>j.CompanyId==company && j.FatReadinessStatus=="READY"
-            && j.LatestFatReconciliationId!=null && j.CustomerPurchaseOrderId!=null);
+            && j.LatestFatReconciliationId!=null && j.CustomerPurchaseOrderId!=null && !dispatched.Contains(j.Id));
         if(!string.IsNullOrWhiteSpace(search))
         {
             var term=search.Trim().ToUpperInvariant();
