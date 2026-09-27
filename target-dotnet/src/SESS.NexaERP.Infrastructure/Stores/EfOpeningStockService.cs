@@ -87,6 +87,39 @@ public sealed class EfOpeningStockService(
         WithConcurrencyHandlingAsync(() => TransitionAsync(id, request, "OpeningStock.Authorize", "AUTHORIZE",
             OpeningStockStatuses.Valued, OpeningStockStatuses.Posted, "TECHNICAL_DIRECTOR", ct));
 
+    /// <summary>
+    /// Option A (26 Sep): an unposted COUNTED or VALUED record is withdrawn with a reason, by the Stores
+    /// Manager who counted it or by the Technical Director (checked in SQL). The period is then free
+    /// for a recount from a new, corrected import. A POSTED record is corrected only by stock adjustment.
+    /// </summary>
+    public Task<OpeningStockView> WithdrawAsync(
+        Guid id, OpeningStockTransitionRequest request, CancellationToken ct) =>
+        WithConcurrencyHandlingAsync(() => WithdrawCoreAsync(id, request, ct));
+
+    private async Task<OpeningStockView> WithdrawCoreAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct)
+    {
+        var role = user.RequireRole("approve", "STORES_MANAGER", "TECHNICAL_DIRECTOR");
+        var company = await CompanyAsync(ct);
+        var reason = Required(request.Reason, "Reason");
+        var from = await db.OpeningStocks.AsNoTracking().Where(x => x.CompanyId == company.Id && x.Id == id)
+            .Select(x => x.Status).SingleOrDefaultAsync(ct) ?? throw new KeyNotFoundException("Opening Stock was not found.");
+        var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
+            Organization(), "OpeningStock.Withdraw", Required(request.IdempotencyKey, "IdempotencyKey"), new { id, request });
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var attempt = await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(
+            db, user, Organization(), envelope, "opening_stock_events", nameof(OpeningStock),
+            id, "WITHDRAW", request.Version, from, OpeningStockStatuses.Withdrawn, envelope.RequestFingerprint, reason, ct);
+        var result = await Execute(
+            @"SELECT ""OpeningStockId"",""Replayed"" FROM advance.withdraw_opening_stock(@company,@id,@version,@reason,@key,@hash,@actor,@role,@assignment,@type,@login)",
+            id, default, default, request.Version, reason, request.IdempotencyKey, envelope.RequestFingerprint, company.Id, role, ct);
+        if (!result.Replayed)
+            await audit.WriteAsync("Stores", "OpeningStock.Withdraw", nameof(OpeningStock), id.ToString(),
+                new { Status = from, request.Version }, new { Status = OpeningStockStatuses.Withdrawn, Version = request.Version + 1, Reason = reason }, ct);
+        await Rev869BCommandContextAuthorizer.StageCommittedReceiptAsync(db, attempt, ct);
+        await tx.CommitAsync(ct);
+        return await LoadAsync(id, result.Replayed, ct);
+    }
+
     private static async Task<OpeningStockView> WithConcurrencyHandlingAsync(Func<Task<OpeningStockView>> command)
     {
         try { return await command(); }
@@ -176,7 +209,7 @@ public sealed class EfOpeningStockService(
         var x = await db.OpeningStocks.AsNoTracking()
             .Include(o => o.CountedByEmployee).Include(o => o.ValuedByEmployee)
             .Include(o => o.AuthorizedByEmployee)
-            .Include(o => o.Lines).ThenInclude(l => l.Item)
+            .Include(o => o.Lines).ThenInclude(l => l.Item).ThenInclude(i => i!.Category)
             .Include(o => o.Lines).ThenInclude(l => l.Warehouse)
             .Include(o => o.Lines).ThenInclude(l => l.RackBin)
             .SingleAsync(o => o.CompanyId == company.Id && o.Id == id, ct);
@@ -190,6 +223,14 @@ public sealed class EfOpeningStockService(
         var counted = ActorView(x.CountedByEmployeeId, x.CountActorRoleCode,
             x.CountRoleAssignmentId, x.CountRoleAssignmentType, x.CountedAt,
             x.CountReason, x.CountedByEmployee)!;
+        var withdrawal = x.Status == OpeningStockStatuses.Withdrawn
+            ? await db.OpeningStockEvents.AsNoTracking().Include(e => e.ActorEmployee)
+                .Where(e => e.CompanyId == company.Id && e.OpeningStockId == id && e.Action == "WITHDRAW").SingleOrDefaultAsync(ct)
+            : null;
+        var lines = x.Lines.OrderBy(l => l.LineNumber).ToArray();
+        static OpeningStockSubtotal[] Subtotals(IEnumerable<SESS.NexaERP.Domain.Stores.OpeningStockLine> source, Func<SESS.NexaERP.Domain.Stores.OpeningStockLine, string> key) =>
+            source.GroupBy(key).OrderBy(g => g.Key, StringComparer.Ordinal)
+                .Select(g => new OpeningStockSubtotal(g.Key, g.Count(), g.Sum(l => l.Quantity), g.Sum(l => l.LineValue))).ToArray();
         return new(x.Id, x.ImportBatchId, x.PeriodStart, x.PeriodEnd, x.Status,
             x.Version, x.Lines.Sum(l => l.Quantity), x.Lines.Sum(l => l.LineValue),
             counted, ActorView(x.ValuedByEmployeeId, x.ValueActorRoleCode,
@@ -199,13 +240,18 @@ public sealed class EfOpeningStockService(
                 x.AuthorizationRoleAssignmentId, x.AuthorizationRoleAssignmentType,
                 x.AuthorizedAt, x.AuthorizationReason, x.AuthorizedByEmployee),
             x.StockPostingBatchId, replayed,
-            x.Lines.OrderBy(l => l.LineNumber).Select(l => new OpeningStockLineView(
+            lines.Select(l => new OpeningStockLineView(
                 l.Id, l.LineNumber, l.LineReference, l.ItemId, l.Item!.ItemCode,
                 l.Item.Name, l.WarehouseId, l.Warehouse!.WarehouseCode, l.RackBinId,
                 l.RackBin!.BinCode, l.WarehouseConditionLocationId, l.LotNumber,
                 l.SerialNumber, l.Quantity, l.UnitRate, l.LineValue, l.InventoryLotId,
                 l.InventorySerialId, l.FifoInventoryCostLayerId, l.VendorName, l.VendorBillNumber, l.BillDate, l.PurchaseDate,
-                l.Make, l.Model, l.PartNumber, l.Remarks)).ToArray());
+                l.Make, l.Model, l.PartNumber, l.Remarks, l.Item.Category?.Code)).ToArray(),
+            withdrawal is null ? null : new OpeningStockActorView(withdrawal.ActorEmployeeId, withdrawal.ActorEmployee!.EmployeeCode,
+                withdrawal.ActorEmployee.EmployeeName, withdrawal.ActorRoleCode, withdrawal.ResolvedRoleAssignmentId,
+                withdrawal.ResolvedRoleAssignmentType, withdrawal.OccurredAt, withdrawal.Reason),
+            Subtotals(lines, l => l.Item!.Category?.Code ?? "(no category)"),
+            Subtotals(lines, l => l.Warehouse!.WarehouseCode + " / " + l.RackBin!.BinCode));
     }
 
     private static void ValidatePeriod(DateOnly from, DateOnly to)

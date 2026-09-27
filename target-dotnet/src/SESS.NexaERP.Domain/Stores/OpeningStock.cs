@@ -11,6 +11,8 @@ public static class OpeningStockStatuses
     public const string Counted = "COUNTED";
     public const string Valued = "VALUED";
     public const string Posted = "POSTED";
+    /// <summary>Option A (26 Sep): an unposted count taken back with a reason; it frees the period for a recount.</summary>
+    public const string Withdrawn = "WITHDRAWN";
 }
 
 public sealed class OpeningStockImportStagingLine : CompanyScopedAuditableEntity

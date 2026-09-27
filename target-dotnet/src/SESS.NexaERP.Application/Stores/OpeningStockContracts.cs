@@ -13,7 +13,10 @@ public sealed record OpeningStockLineView(
     decimal UnitRate, decimal LineValue, Guid? InventoryLotId,
     Guid? InventorySerialId, Guid? FifoInventoryCostLayerId,
     string? VendorName = null, string? VendorBillNumber = null, DateOnly? BillDate = null, DateOnly? PurchaseDate = null,
-    string? Make = null, string? Model = null, string? PartNumber = null, string? Remarks = null);
+    string? Make = null, string? Model = null, string? PartNumber = null, string? Remarks = null,
+    string? ItemCategoryCode = null);
+/// <summary>Option A review summary: one subtotal per item category, or per warehouse and rack.</summary>
+public sealed record OpeningStockSubtotal(string Key, int Lines, decimal Quantity, decimal Value);
 public sealed record OpeningStockActorView(
     Guid EmployeeId, string EmployeeCode, string EmployeeName,
     string RoleCode, Guid RoleAssignmentId, string AssignmentType,
@@ -23,7 +26,10 @@ public sealed record OpeningStockView(
     string Status, long Version, decimal TotalQuantity, decimal TotalValue,
     OpeningStockActorView CountedBy, OpeningStockActorView? ValuedBy,
     OpeningStockActorView? AuthorizedBy, Guid? StockPostingBatchId,
-    bool Replayed, IReadOnlyList<OpeningStockLineView> Lines);
+    bool Replayed, IReadOnlyList<OpeningStockLineView> Lines,
+    OpeningStockActorView? WithdrawnBy = null,
+    IReadOnlyList<OpeningStockSubtotal>? ByCategory = null,
+    IReadOnlyList<OpeningStockSubtotal>? ByWarehouseRack = null);
 public sealed record OpeningStockPage(
     int Total, int Page, int PageSize, IReadOnlyList<OpeningStockView> Items);
 
@@ -34,4 +40,5 @@ public interface IOpeningStockService
     Task<OpeningStockView> RecordCountAsync(CreateOpeningStockFromImportRequest request, CancellationToken ct);
     Task<OpeningStockView> ConfirmValueAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct);
     Task<OpeningStockView> AuthorizeAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct);
+    Task<OpeningStockView> WithdrawAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct);
 }

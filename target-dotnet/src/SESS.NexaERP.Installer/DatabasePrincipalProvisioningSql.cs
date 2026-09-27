@@ -307,6 +307,11 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.post_stock_adjustment(uuid,uuid,uuid,text,uuid,text,text,text,text),advance.fifo_carrying_value_preview(uuid,uuid,numeric) TO nexa_erp_runtime';
             EXECUTE 'GRANT SELECT,INSERT,UPDATE ON advance.stock_adjustments,advance.stock_adjustment_lines,advance.stock_adjustment_decisions TO nexa_erp_runtime';
           END IF;
+          -- Opening stock Option A (20260926130000): present only from that migration on.
+          IF to_regprocedure('advance.withdraw_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
+            EXECUTE 'REVOKE ALL ON FUNCTION advance.withdraw_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
+            EXECUTE 'GRANT EXECUTE ON FUNCTION advance.withdraw_opening_stock(uuid,uuid,bigint,text,text,text,uuid,text,uuid,text,text) TO nexa_erp_runtime';
+          END IF;
           IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL
              OR to_regprocedure('advance.reverse_component_fitment(uuid,uuid,text,text,text,text,uuid,text,uuid,text,text)') IS NOT NULL THEN
             IF to_regprocedure('advance.confirm_component_fitment(uuid,uuid,uuid,numeric,timestamptz,text,uuid,text,text,text,uuid,text,uuid,text,text)') IS NULL
