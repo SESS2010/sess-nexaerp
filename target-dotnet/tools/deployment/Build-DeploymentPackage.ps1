@@ -67,13 +67,28 @@ CheckExit 'API publish'
 CheckExit 'Installer publish'
 if ((Get-FileHash -LiteralPath (Join-Path $stage 'installer/SESS.NexaERP.Installer.dll') -Algorithm SHA256).Hash -ne $proof.installer_assembly_sha256) { throw 'Published Installer differs from the SDK-free witnessed assembly.' }
 # Build the frontend developer's exact commit in an isolated directory.
-$frontendWork=Join-Path $repo ('local-evidence/server-package/frontend-build-'+[Guid]::NewGuid().ToString('N'))
+# The export mirrors the repository layout (<root>/src/SESS.NexaERP.Web + <root>/docs/installation/
+# dashboard-mocks), because the frontend imports the committed dashboard mocks by a relative path from
+# the repository (27 Sep: the 937ee28 build failed without them). Both come from the same frontend SHA.
+$frontendRoot=Join-Path $repo ('local-evidence/server-package/frontend-build-'+[Guid]::NewGuid().ToString('N'))
+$frontendWork=Join-Path $frontendRoot 'src/SESS.NexaERP.Web'
 New-Item -ItemType Directory -Path $frontendWork -Force | Out-Null
-$frontendArchive=Join-Path $frontendWork 'source.zip'
+$frontendArchive=Join-Path $frontendRoot 'source.zip'
 & git -C $gitRoot archive --format=zip "--output=$frontendArchive" "${frontendSha}:target-dotnet/src/SESS.NexaERP.Web"
 CheckExit 'Frontend source export'
 Expand-Archive -LiteralPath $frontendArchive -DestinationPath $frontendWork
 Remove-Item -LiteralPath $frontendArchive
+$hasMocks=@(& git -C $gitRoot ls-tree --name-only $frontendSha -- target-dotnet/docs/installation/dashboard-mocks)
+CheckExit 'Dashboard mocks lookup'
+if ($hasMocks.Count) {
+ $mocks=Join-Path $frontendRoot 'docs/installation/dashboard-mocks'
+ New-Item -ItemType Directory -Path $mocks -Force | Out-Null
+ $mocksArchive=Join-Path $frontendRoot 'mocks.zip'
+ & git -C $gitRoot archive --format=zip "--output=$mocksArchive" "${frontendSha}:target-dotnet/docs/installation/dashboard-mocks"
+ CheckExit 'Dashboard mocks export'
+ Expand-Archive -LiteralPath $mocksArchive -DestinationPath $mocks
+ Remove-Item -LiteralPath $mocksArchive
+}
 if ($ProductionLogin) {
  if (@(Get-ChildItem -LiteralPath $frontendWork -Recurse -File -Force -Filter '.env*' | Where-Object { $_.Name -like '*.local' }).Count) { throw 'The frontend export carries a .env*.local file.' }
  $package=Get-Content -LiteralPath (Join-Path $frontendWork 'package.json') -Raw | ConvertFrom-Json
