@@ -456,6 +456,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             [new QcParameterResultRequest(policyId, 1, 1, null, "PASS", "Accepted")], []), "go-live-qc");
         Assert.NotNull(inspection.StockPostingBatchId);
         await using var db = new NexaErpDbContext(options);
+        // R4 (26 Sep): the QC decision leaves an audit row, written in the inspection's own transaction.
+        Assert.Equal(1, await db.AuditLogs.AsNoTracking().CountAsync(x => x.Module == "QC" && x.Action == "QcInspectionFinalized" && x.EntityName == "QcInspection"));
         var received = await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ItemId == purchased.Id && x.WarehouseConditionLocationId == availableLocationId).SumAsync(x => x.QuantityIn - x.QuantityOut);
         Assert.Equal(2m + quantity, received);
         Assert.Equal(0m, await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ConditionCode == "QC_HOLD").SumAsync(x => x.QuantityIn - x.QuantityOut));
