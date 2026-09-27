@@ -396,6 +396,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/approve", new Rev869BPoApprovalActionRequest("PO approved", po.Version, null, "go-live-po-approve"));
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        // R7: an approved but unissued PO does not print.
+        using (var early = await client.GetAsync($"/api/v1/purchase/purchase-orders/{po.Number}/print"))
+        {
+            var body = await early.Content.ReadAsStringAsync();
+            Assert.True(early.StatusCode == HttpStatusCode.Conflict, body);
+            Assert.Contains("Only an issued, closed or cancelled purchase order can be printed", body);
+        }
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/issue", new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, "go-live-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         // Day-one flows moved in from the gated witnesses (decision of 20 September, evening):
@@ -429,6 +436,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         amended = await Post<Rev869BDocumentResult>(client, poPath + "/issue", new Rev869BIssuePurchaseOrderRequest("Amendment issued", amended.Version, "go-live-po-amend-issue"));
         Assert.Equal(Rev869BStatuses.Issued, amended.Status);
         Assert.NotEqual(po.Id, amended.Id);
+        // R7: the Purchase Manager prints the issued amendment: company from the profile, figures from the snapshots, audited.
+        var print = await Get<JsonElement>(client, poPath + "/print");
+        Assert.Equal(("Go-live Company Pvt Ltd", "33ABACS5491H1ZA"), (print.GetProperty("Company").GetProperty("LegalName").GetString(), print.GetProperty("Company").GetProperty("Gstin").GetString()));
+        Assert.Equal((po.Number, 2, "GO-LIVE-VEN-001", "INTRASTATE"), (print.GetProperty("PoNumber").GetString(), print.GetProperty("RevisionNumber").GetInt32(),
+            print.GetProperty("Vendor").GetProperty("Code").GetString(), print.GetProperty("SupplyType").GetString()));
+        var printLine = Assert.Single(print.GetProperty("Lines").EnumerateArray());
+        Assert.Equal((hsn, quantity, 100m), (printLine.GetProperty("HsnSacCode").GetString(), printLine.GetProperty("Quantity").GetDecimal(), printLine.GetProperty("UnitRate").GetDecimal()));
+        Assert.Equal(0m, printLine.GetProperty("IgstValue").GetDecimal());
+        Assert.Equal(printLine.GetProperty("CgstValue").GetDecimal(), printLine.GetProperty("SgstValue").GetDecimal());
+        var printedTotal = await Query(options, db => db.PurchaseOrders.Where(x => x.Id == amended.Id).Select(x => x.TotalPayableValue).SingleAsync());
+        Assert.Equal(printedTotal, print.GetProperty("Totals").GetProperty("TotalPayableValue").GetDecimal());
+        Assert.Equal(SESS.NexaERP.Infrastructure.Masters.AmountInWords.Rupees(printedTotal), print.GetProperty("Totals").GetProperty("AmountInWords").GetString());
+        Assert.Contains(print.GetProperty("History").EnumerateArray(), e => e.GetProperty("Action").GetString() == "Issue");
+        Assert.Equal(1, await Query(options, db => db.AuditLogs.CountAsync(x => x.Action == "PrintPurchaseOrder" && x.EntityId == amended.Id.ToString())));
         var openAfter = await Get<PurchaseOpenOrdersPage>(client, "/api/v1/dashboards/purchase/open-orders");
         Assert.Equal(1, openAfter.OpenPoCount);
         Assert.Equal(1, openAfter.DeliveryDateUnconfirmedPoCount);

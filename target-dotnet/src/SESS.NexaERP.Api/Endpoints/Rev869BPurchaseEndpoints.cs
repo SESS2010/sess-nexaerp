@@ -48,6 +48,7 @@ public static partial class Rev869BPurchaseEndpoints
         group.MapGet("/quotations/{number}", GetQuotation).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.View);
         group.MapGet("/comparisons/{number}", GetComparison).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.View);
         group.MapGet("/purchase-orders/{number}", GetPo).RequirePagePermission("purchase.po", PagePermissionActions.View);
+        group.MapGet("/purchase-orders/{number}/print", PrintPo).RequirePagePermission("purchase.po", PagePermissionActions.Print);
         group.MapGet("/quotations/{number}/attachment", GetQuotationAttachment).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Download);
         group.MapGet("/material-followup", GetFollowUp).RequirePagePermission("purchase.material-followup", PagePermissionActions.View);
         return endpoints;
