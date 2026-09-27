@@ -79,6 +79,11 @@ public static class DependencyInjection
         services.AddScoped<IIntercompanyInvoiceService, EfIntercompanyInvoiceService>();
         services.AddScoped<IInventoryPeriodService, EfInventoryPeriodService>();
         services.AddScoped<SESS.NexaERP.Application.Masters.ICompanyProfileService, SESS.NexaERP.Infrastructure.Masters.EfCompanyProfileService>();
+        // R1 email-lite: Claude's outbox store, print query and digest query; the TD's sender/worker via AddEmailLite.
+        services.AddScoped<SESS.NexaERP.Application.Outbox.IEmailOutboxStore, SESS.NexaERP.Infrastructure.Outbox.EfEmailOutboxStore>();
+        services.AddScoped<SESS.NexaERP.Application.Purchase.IPurchaseOrderPrintQuery, SESS.NexaERP.Infrastructure.Purchase.EfPurchaseOrderPrintQuery>();
+        services.AddScoped<SESS.NexaERP.Application.Tracking.ITrackingDigestQuery, SESS.NexaERP.Infrastructure.Tracking.EfTrackingDigestQuery>();
+        SESS.NexaERP.Infrastructure.Email.EmailLiteRegistration.AddEmailLite(services, configuration);
         services.AddScoped<IVendorManualAssessmentService, EfVendorManualAssessmentService>();
         services.AddScoped<IVendorRatingEvidenceService, EfVendorRatingEvidenceService>();
         services.AddScoped<IVendorFinancialEvidenceService, EfVendorFinancialEvidenceService>();

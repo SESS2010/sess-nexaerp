@@ -20,7 +20,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrations = model.Database.GetMigrations().ToArray();
         const string baseline = "20260926090000_DevelopmentLoginsOffByDefault";
         Assert.Contains(baseline, migrations);
-        var batch = migrations.SkipWhile(x => x != baseline).Skip(1).ToArray();
+        var batch = migrations.SkipWhile(x => x != baseline).Skip(1).Take(5).ToArray();
         Assert.Equal(["20260926100000_VendorBillSeparateDecider", "20260926110000_CompanyProfileAndWarehouseState",
             "20260926120000_MachineDeliveryDispatchDetails", "20260926130000_OpeningStockWithdraw", "20260926140000_PrintPermissionGrants"], batch);
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
