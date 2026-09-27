@@ -12,7 +12,7 @@ and nothing in NexaERP depends on it.
 
 ## What is here, and what is not
 
-**Included:** the code and the README. SHA-256 values below are of the **original** files.
+**Included:** the code, the README and (from 27 September 2026) the redacted install guide. SHA-256 values below are of the **original** files.
 
 | File | SHA-256 of the original | Passwords redacted | Personal e-mails redacted |
 |---|---|---|---|
@@ -25,6 +25,7 @@ and nothing in NexaERP depends on it.
 | `Index.html` | `5934205271BA1020CC74401841911BA4C017932CD907E44274FB7BCF4C1D1A9E` | 0 | 0 |
 | `appsscript.json` | `BE0FE63E5BFA065EE94D9645EA730D4BBDB045CAD32569AE6A4606FB529BA40A` | 0 | 0 |
 | `README.md` | `C0D98DD02BF66F06891FD6FA44EFA333BD64E93884F72BA2EC352B14531BBD8A` | 7 | 1 |
+| `INSTALL-GUIDE.html` | `C2F2E7C345F1EF69CFE96CCD138D51D7B03A9C76B4427F70B679F3DB0C287CD8` | 5 | 5 |
 
 **Redaction:**
 - Every default password (the admin password and the seeded users' first password) is replaced by
@@ -39,8 +40,6 @@ No other change was made, so these copies differ from the originals only on thos
 
 - `DC-Tracker-Database-Rev1.xlsx`: customer data (303 DCs, 832 lines, 145 parties).
 - `DC-Tracker-Import-Template.xlsx`: a workbook, not code.
-- `INSTALL-GUIDE.html`: repeats the default passwords and personal inboxes. A redacted copy is
-  added in a later commit.
 
 **Anyone deploying the tracker itself** must set their own passwords. The originals stay with the
 admin team.

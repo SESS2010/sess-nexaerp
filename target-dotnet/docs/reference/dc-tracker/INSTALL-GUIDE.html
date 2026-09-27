@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DC Tracker Install Guide</title>
+<style>
+:root{--ink:#14213d;--ink2:#4a5568;--muted:#7a869a;--line:#e3e8ef;--bg:#f4f6f9;--card:#fff;--brand:#1f3a5f;--accent:#0e8f7e;--warn:#fff4e0;--warnInk:#7a4a00;--info:#e8f0fc;--infoInk:#1b437f;--red:#fdecec;--redInk:#8a1c1c}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ink:#e6ebf2;--ink2:#b8c2d0;--muted:#8d99ab;--line:#2c3544;--bg:#12161d;--card:#1a202a;--brand:#8fb3e0;--accent:#3cc2ae;--warn:#3a2c12;--warnInk:#f3c77d;--info:#16263d;--infoInk:#a9c6f0;--red:#3a1a1a;--redInk:#f2a9a9}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 60px}
+header{background:var(--brand);color:#fff;padding:28px 16px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) header{background:#1f3a5f}}
+header .wrap{padding:0 16px}
+header h1{margin:0;font-size:26px} header p{margin:6px 0 0;opacity:.85}
+h2{font-size:20px;margin:36px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--line)}
+h3{font-size:16px;margin:22px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:0}
+ol.steps>li{counter-increment:s;position:relative;padding:12px 0 12px 46px;border-bottom:1px solid var(--line)}
+ol.steps>li:last-child{border-bottom:0}
+ol.steps>li::before{content:counter(s);position:absolute;left:0;top:10px;width:32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) ol.steps>li::before{background:#2d5a8e}}
+code,kbd{font-family:ui-monospace,Consolas,monospace;font-size:13.5px;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 6px;word-break:break-word}
+.note{border-radius:8px;padding:10px 14px;margin:10px 0;font-size:14px}
+.note.warn{background:var(--warn);color:var(--warnInk)} .note.info{background:var(--info);color:var(--infoInk)} .note.red{background:var(--red);color:var(--redInk)}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{background:var(--bg)}
+.toc a{color:var(--brand);text-decoration:none} .toc li{margin:3px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+.slips{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.slip{border:1px dashed var(--muted);border-radius:6px;padding:8px 10px;font-size:13px;background:var(--card)}
+.slip b{display:block;font-size:14px}
+@media print{header{background:#fff!important;color:#000} body{background:#fff} .card{border-color:#ccc} h2{page-break-after:avoid} .slips{page-break-before:always}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>DC Tracker, Rev 2: install &amp; user guide</h1>
+<p>Delivery Challan follow-up app for Google Drive · SRI EASWARI SCIENTIFIC SOLUTION PVT LTD &amp; SRI EASWARI SCIENTIFIC SOLUTION · Rev 2, 26-Sep-2026</p></div></header>
+<div class="wrap">
+
+<div class="card toc"><b>Contents</b>
+<ol>
+<li><a href="#rev2"><b>Upgrade Rev 1 → Rev 2, and the new features</b></a></li>
+<li><a href="#need">What you need</a></li>
+<li><a href="#install">Install on your Google Drive (admin, one time)</a></li>
+<li><a href="#deploy">Publish the app and get the link</a></li>
+<li><a href="#first">First admin login &amp; settings</a></li>
+<li><a href="#users">User logins: create, share, reset</a></li>
+<li><a href="#mobile">Use on mobile phone</a></li>
+<li><a href="#daily">Daily use by role</a></li>
+<li><a href="#import">Import the old Excel register (optional)</a></li>
+<li><a href="#update">Updating to a new revision</a></li>
+<li><a href="#trouble">Troubleshooting</a></li>
+<li><a href="#slips">Login slips to print</a></li>
+</ol></div>
+
+<h2 id="rev2">Upgrade from Rev 1 to Rev 2 (you already installed Rev 1)</h2>
+<div class="card">
+<p><b>New in Rev 2:</b></p>
+<ul>
+<li><b>Two companies:</b> SRI EASWARI SCIENTIFIC SOLUTION PVT LTD (<b>SPVT</b>, GSTIN 33ABACS5491H1ZA) and SRI EASWARI SCIENTIFIC SOLUTION, proprietorship (<b>SESS</b>, GSTIN 33APRPA5532K1ZU). Each has its own DC numbering, DC print header and filters.</li>
+<li><b>Bulk import / export</b> in one Excel template for opening data.</li>
+<li><b>Editable terms &amp; conditions</b> and <b>Original / Duplicate / Triplicate</b> copies (Rule 55) before printing.</li>
+<li><b>Daily reminders until closing</b>, copied to each employee's reporting manager, plus one daily copy to the company inbox.</li>
+</ul>
+<p>Your data is kept. All existing DCs become <b>SPVT</b> DCs.</p>
+<ol class="steps">
+<li>Open your <b>DC Tracker – Database</b> Google Sheet, then <b>Extensions → Apps Script</b>.</li>
+<li>Replace the <b>full content</b> of each file with the Rev 2 file from the zip. In each file: Ctrl+A, Delete, paste.
+<div class="tw"><table><tr><th>In Apps Script</th><th>Paste from zip file</th></tr>
+<tr><td><code>Code.gs</code></td><td><code>Code.gs</code></td></tr>
+<tr><td><code>Report.gs</code></td><td><code>Reports.gs</code></td></tr>
+<tr><td><code>Job.gs</code></td><td><code>Jobs.gs</code></td></tr>
+<tr><td><code>Print.gs</code></td><td><code>Print.gs</code></td></tr>
+<tr><td><code>Index.html</code></td><td><code>Index.html</code></td></tr>
+<tr><td><code>Css.html</code></td><td><code>Css.html</code></td></tr>
+<tr><td><code>App.html</code></td><td><code>App.html</code></td></tr>
+</table></div>
+<code>appsscript.json</code> is unchanged. Press <b>Ctrl+S</b>.</li>
+<li>Click <b>Code.gs</b>, choose <b>setup</b> in the dropdown and click <b>▶ Run</b>. Allow permissions if asked. This upgrades the database:
+<ul>
+<li>adds the <b>Companies</b> sheet with both GSTINs</li>
+<li>marks existing DCs as SPVT</li>
+<li>creates DC counters per company</li>
+<li>adds the terms and e-mail settings</li>
+</ul>
+Wait for "Setup complete".</li>
+<li><b>Deploy → Manage deployments</b> → click the <b>pencil ✏</b> → Version: <b>New version</b> → Description <code>Rev 2</code> → <b>Deploy</b>. The app link stays the same.</li>
+<li>In the app, go to <b>Settings</b>:
+<ul>
+<li><b>Companies:</b> check both companies' details, and add phone numbers if you want them on the DC.</li>
+<li><b>DC number counters:</b> set <code>RDC|SESS|26-27</code>, <code>NRDC|SESS|26-27</code> and <code>WDC|SESS|26-27</code> to the <b>last number used in Tally</b> for the proprietorship company. Also check the SPVT counters.</li>
+<li><b>TERMS_RDC / TERMS_NRDC / TERMS_WDC:</b> check the default terms, one per line.</li>
+<li><b>COMPANY_COPY_EMAIL</b> (default &lt;REDACTED-EMAIL&gt;): the company inbox that gets the daily copy.</li>
+</ul>
+Click <b>Save settings</b>.</li>
+<li>In <b>Users &amp; Logins</b>, give every employee their <b>E-mail</b> and <b>Reporting manager e-mail</b> (the person handling that employee). The daily reminder goes to the employee with a copy to that manager. If the employee has no e-mail, it goes straight to the manager.</li>
+</ol>
+<div class="note warn"><b>Sending from &lt;REDACTED-EMAIL&gt;:</b> Google sends the app's e-mails from the account that <b>owns and deployed</b> the script.
+<ul>
+<li><b>Check:</b> in Apps Script, the account icon at top right, and in <b>Deploy → Manage deployments</b> "Execute as: Me (…)", must both be <b>&lt;REDACTED-EMAIL&gt;</b>.</li>
+<li><b>If it's another account:</b> sign in as &lt;REDACTED-EMAIL&gt;. Make a copy of the database Google Sheet (<b>File → Make a copy</b>; the script is copied with it). Run <b>setup</b> in the copy, add the <code>SS_ID</code> script property with the copy's ID, and deploy from there.</li>
+<li><b>Replies</b> always go to <code>REPLY_TO_EMAIL</code> (default &lt;REDACTED-EMAIL&gt;).</li>
+</ul></div>
+<div class="note info"><b>Daily e-mail limit:</b> a free Gmail account can send to about <b>100 recipients per day</b> from Apps Script, and each employee reminder uses 2 (employee + manager). About 35 employees plus the store, accounts, manager and company copies fits. With more people, use a Google Workspace account (1,500/day), or set <code>REMIND_ALL_OPEN = NO</code> so only overdue and due-soon DCs are reminded. Settings shows the quota left today.</div>
+
+<h3>Using the Rev 2 features</h3>
+<ul>
+<li><b>Company selector</b> (top bar): "Both companies", SESS PVT LTD or SESS (Proprietorship). The dashboard, register, billing, reports and exports follow it. The dashboard also shows a company-wise table.</li>
+<li><b>New DC:</b> choose the <b>Company</b> first. The number series follows it (<code>RDC/SPVT/220/26-27</code> or <code>RDC/SESS/001/26-27</code>), and the print shows that company's GSTIN, PAN, CIN and address. A proprietorship DC prints "Proprietor: Paramanantham Alagueaswari".</li>
+<li><b>Print DC:</b>
+<ul>
+<li>Tick the copies you want: <i>Original for Consignee</i>, <i>Duplicate for Transporter</i>, <i>Triplicate for Consignor</i>.</li>
+<li>Edit the <b>Terms &amp; Conditions</b> box if needed, then click <b>Update preview</b>, then <b>Print</b>.</li>
+<li>Edited terms are saved on that DC and logged in its history. Only Store, Purchase and Admin can edit them.</li>
+<li>The default terms follow Rule 55 of the CGST Rules 2017 and Section 143 (job work: inputs back within 1 year, capital goods within 3 years). Please have your auditor or CA review the wording once.</li>
+</ul></li>
+<li><b>Bulk Import / Export</b> (menu → Masters &amp; data):
+<ol>
+<li><b>Download template</b>. It's also in the zip as <code>DC-Tracker-Import-Template.xlsx</code>.</li>
+<li>Fill <b>DC_Lines</b> with one row per item; rows with the same Company + DC Type + DC No form one DC. <b>Parties</b> and <b>Items</b> are optional. The <b>Instructions</b> sheet has examples, and <b>Lists</b> has valid company codes, employee login IDs, categories and units.</li>
+<li><b>Upload → Validate.</b> Errors are listed with the Excel row number. Fix them in Excel and validate again.</li>
+<li>Click <b>Import</b> once the file shows "valid". Nothing is saved while any error exists. DC counters move past the imported numbers automatically.</li>
+</ol>
+<b>Export to Excel</b> gives existing DCs in the same format, for backup, or to correct in Excel and re-import into a new setup.</li>
+</ul>
+</div>
+
+<h2 id="need">1. What you need</h2>
+<div class="card">
+<ul>
+<li>One <b>company Google account</b> that will own the app and data (Gmail or Google Workspace). Use a common account such as a store or admin ID, not a personal one, so the app continues if an employee leaves.</li>
+<li>A laptop or desktop with Chrome for the one-time install. After that, everyone can use a phone.</li>
+<li>The files from this zip. You will <b>copy and paste</b> them into Google Apps Script.</li>
+</ul>
+<div class="note warn"><b>Important:</b> Uploading the zip to Google Drive does not install the app. Google Apps Script has no zip import, so each file's content has to be pasted into the script editor (step 2). Keep the zip in Drive as your backup copy of Rev 1.</div>
+<div class="tw"><table>
+<tr><th>File in zip</th><th>Create in Apps Script as</th><th>Type</th></tr>
+<tr><td><code>Code.gs</code></td><td><code>Code</code> (already exists)</td><td>Script</td></tr>
+<tr><td><code>Reports.gs</code></td><td><code>Reports</code></td><td>Script</td></tr>
+<tr><td><code>Jobs.gs</code></td><td><code>Jobs</code></td><td>Script</td></tr>
+<tr><td><code>Print.gs</code></td><td><code>Print</code></td><td>Script</td></tr>
+<tr><td><code>Index.html</code></td><td><code>Index</code></td><td>HTML</td></tr>
+<tr><td><code>Css.html</code></td><td><code>Css</code></td><td>HTML</td></tr>
+<tr><td><code>App.html</code></td><td><code>App</code></td><td>HTML</td></tr>
+<tr><td><code>appsscript.json</code></td><td><code>appsscript.json</code> (manifest)</td><td>Settings</td></tr>
+<tr><td><code>DC-Tracker-Database-Rev1.xlsx</code></td><td>Upload to Drive and save as Google Sheets (step 2). This is your database.</td><td>Data</td></tr>
+</table></div>
+<p><b>DC-Tracker-Database-Rev1.xlsx</b> is also your backup of the old register in the new format. Keep a copy.</p>
+<p>Names are case-sensitive: <code>Css</code> and <code>App</code>, not <code>css</code> or <code>app.html</code>. Apps Script adds the extension itself.</p>
+</div>
+
+<h2 id="install">2. Install on your Google Drive (admin, one time)</h2>
+<div class="card"><ol class="steps">
+<li>On a computer, open <b>drive.google.com</b> and sign in with the company account.</li>
+<li><b>Create the database from the Excel file in the zip</b> (recommended):
+<ol type="a">
+<li>In Drive, click <b>New → File upload</b> and choose <code>DC-Tracker-Database-Rev1.xlsx</code>.</li>
+<li>Double-click the uploaded file, then click <b>File → Save as Google Sheets</b>. A Google Sheet copy opens.</li>
+<li>Rename it <b>DC Tracker – Database</b>.</li>
+</ol>
+It already contains all 303 DCs from your old register (196 RDC and 107 NRDC, 832 item lines) and 145 parties, converted to the app format, so you <b>don't need to run importLegacy</b> (section 8).<br>
+<span class="muted">To start with an empty database instead, create a <b>Blank spreadsheet</b>.</span></li>
+<li>In the sheet menu, click <b>Extensions → Apps Script</b>. The script editor opens in a new tab. Rename the project (top left, "Untitled project") to <b>DC Tracker</b>.</li>
+<li><b>Code.gs:</b> click <code>Code.gs</code> on the left, select all (<kbd>Ctrl</kbd>+<kbd>A</kbd>), delete, then paste the full content of <code>Code.gs</code> from the zip. Open the file from the zip with Notepad and use <kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Ctrl</kbd>+<kbd>C</kbd>.</li>
+<li><b>Other scripts:</b> click <b>+</b> next to "Files" → <b>Script</b>, type <code>Reports</code>, press Enter, delete the sample code and paste <code>Reports.gs</code>. Repeat for <code>Jobs</code> and <code>Print</code>.</li>
+<li><b>HTML files:</b> click <b>+</b> → <b>HTML</b>, type <code>Index</code>, delete the sample and paste <code>Index.html</code>. Repeat for <code>Css</code> and <code>App</code>.</li>
+<li><b>Manifest:</b> click the <b>gear icon (Project Settings)</b> on the left, tick <b>"Show 'appsscript.json' manifest file in editor"</b>. Go back to the editor (&lt;&gt; icon), open <code>appsscript.json</code>, replace its content with the one from the zip.</li>
+<li>Click the <b>Save</b> icon (or <kbd>Ctrl</kbd>+<kbd>S</kbd>). No red error bar should appear.</li>
+<li>In the toolbar function dropdown, select <b><code>setup</code></b> and click <b>Run</b>.</li>
+<li>Google asks for permission. Click <b>Review permissions</b> → choose the company account → you may see <i>"Google hasn't verified this app"</i>. This is normal for your own script. Click <b>Advanced → Go to DC Tracker (unsafe) → Allow</b>.
+<div class="note info">Permissions requested: edit this spreadsheet, create files in your Drive (scan folders and PDFs), send e-mail as you (reminders), and run a daily trigger. Your data stays in your own Drive.</div></li>
+<li>Wait about 30–60 seconds. The <b>Execution log</b> at the bottom shows <i>"Setup complete"</i> with links to the database and the Drive folder <b>DC Tracker – Documents</b>. Your spreadsheet now has tabs such as DC, DCItems, Users and Settings.</li>
+</ol></div>
+
+<h2 id="deploy">3. Publish the app and get the link</h2>
+<div class="card"><ol class="steps">
+<li>In the script editor click <b>Deploy → New deployment</b>.</li>
+<li>Click the gear next to "Select type" → <b>Web app</b>.</li>
+<li>Description: <code>Rev 1</code>. <b>Execute as: Me</b>. <b>Who has access: Anyone</b>.</li>
+<li>Click <b>Deploy</b> and approve again if asked. Copy the <b>Web app URL</b>. It looks like <code>https://script.google.com/macros/s/AKfy…/exec</code>.</li>
+<li>Share this one link with all employees on WhatsApp or e-mail. It works on laptop and mobile.</li>
+</ol>
+<div class="note info"><b>Why "Anyone"?</b> Engineers don't need a Google account. They sign in with the app's own <b>Login ID + password</b>, and each person sees only what their role allows.</div>
+<div class="note warn"><b>Google Workspace accounts:</b> if "Anyone" is not offered, your Workspace admin has restricted it. Choose <b>"Anyone within your company"</b>. Every user then also needs a company Google login on their phone.</div>
+</div>
+
+<h2 id="first">4. First admin login &amp; settings</h2>
+<div class="card"><ol class="steps">
+<li>Open the Web app URL. Login ID <code>admin</code>, password <code>&lt;REDACTED&gt;</code>.</li>
+<li>You are asked to <b>set a new password</b> immediately. Keep it safe.</li>
+<li>Go to <b>Settings</b> and check:
+<ul>
+<li>Company name, address, GSTIN, CIN, PAN (these print on the DC)</li>
+<li><code>STORE_EMAIL</code>, <code>ACCOUNTS_EMAIL</code>, <code>PURCHASE_EMAIL</code>, <code>ADMIN_EMAIL</code>: optional extra addresses for the daily e-mails. Users with an e-mail in their login already receive their role's digest automatically.</li>
+<li><code>RDC_DEFAULT_DUE_DAYS</code> (15), <code>NRDC_BILL_REMIND_DAYS</code> (3), <code>ESCALATE_AFTER_DAYS</code> (7)</li>
+<li><b>DC number counters:</b> <code>RDC|26-27 = 219</code> means the next RDC is <code>RDC/SPVT/220/26-27</code>. Set these to the <b>last number used in Tally</b> before you start.</li>
+</ul>Click <b>Save settings</b>.</li>
+<li>Go to <b>Parties &amp; Items</b> and add your regular customers and frequently sent items. The DC form then fills in address, GSTIN, HSN, unit and category.</li>
+<li>Create a test DC (<b>+ New DC</b>). Check the print preview matches your Tally format, then cancel it (<b>Cancel DC</b> with reason "test").</li>
+</ol></div>
+
+<h2 id="users">5. User logins: create, share, reset</h2>
+<div class="card">
+<h3>Roles</h3>
+<div class="tw"><table>
+<tr><th>Role</th><th>Who</th><th>Can do</th><th>Daily e-mail</th></tr>
+<tr><td><b>Admin</b></td><td>System admin / store head</td><td>Everything: users, settings, cancel / reopen DC, audit log</td><td>–</td></tr>
+<tr><td><b>MD</b></td><td>Managing Director</td><td>See all DCs, dashboard, ISO report, audit log; approve / reject due-date extensions</td><td>Management summary</td></tr>
+<tr><td><b>TD</b></td><td>Technical Director</td><td>Same as MD</td><td>Management summary</td></tr>
+<tr><td><b>Store</b></td><td>E Priya, L Kamali, Sudalai</td><td>Create / edit / print DC, verify returns, confirm hardcopy, approve extensions, close DC, masters, invoice entry</td><td>Store digest</td></tr>
+<tr><td><b>Purchase</b></td><td>Purchase team</td><td>Create DCs to suppliers, job workers and warranty vendors; follow up and record vendor returns on any DC (store verifies); masters; view all</td><td>Overdue warranty / job-work DCs</td></tr>
+<tr><td><b>Accounts</b></td><td>Accounts team</td><td>Enter invoice numbers (closes NRDC and chargeable RDC), view all, reports</td><td>DCs waiting for invoice</td></tr>
+<tr><td><b>Service Manager</b></td><td>Service team manager</td><td>See all DCs, dashboard, reports; approve / reject extensions</td><td>Overdue DCs of <b>their team</b></td></tr>
+<tr><td><b>Production Manager</b></td><td>Production manager</td><td>Same as Service Manager, for the production team</td><td>Overdue DCs of <b>their team</b></td></tr>
+<tr><td><b>Employee</b></td><td>Everyone who takes material (engineers, technicians)</td><td>Only <b>their own</b> DCs: upload signed copy, record return / consumption, hand over hardcopy, request extension</td><td>Own overdue / due-soon DCs</td></tr>
+<tr><td><b>Viewer</b></td><td>QA / ISO auditor</td><td>Dashboard, reports, audit log (read only)</td><td>–</td></tr>
+</table></div>
+<div class="note info"><b>Team link:</b> on each employee, set <b>Reporting manager e-mail</b> to their Service Manager's or Production Manager's e-mail. The manager then gets that team's overdue list every morning, and overdue DCs are escalated to them.</div>
+
+<h3>Logins already created by setup</h3>
+<p><code>setup</code> created a login for every name in your register's MASTER sheet. Login ID = name in small letters with dots. <b>First password for all: <code>&lt;REDACTED&gt;</code></b>. Each person must set their own password at first login.</p>
+<div class="tw"><table>
+<tr><th>Role</th><th>Login IDs</th></tr>
+<tr><td>Admin</td><td><code>admin</code> (password <code>&lt;REDACTED&gt;</code>)</td></tr>
+<tr><td>MD</td><td><code>md</code></td></tr>
+<tr><td>TD</td><td><code>td</code></td></tr>
+<tr><td>Purchase</td><td><code>purchase.team</code></td></tr>
+<tr><td>Accounts</td><td><code>accounts.team</code></td></tr>
+<tr><td>Service Manager</td><td><code>service.manager</code></td></tr>
+<tr><td>Production Manager</td><td><code>production.manager</code></td></tr>
+<tr><td>Store</td><td><code>e.priya</code> · <code>l.kamali</code> · <code>sudalai</code></td></tr>
+<tr><td>Employee</td><td><code>t.dinesh</code> · <code>m.sathish.kumar</code> · <code>c.srinivasan</code> · <code>v.rajesh.kumar</code> · <code>b.prakasam</code> · <code>a.arkati.vinaya.sagar</code> · <code>s.manikandan.sr</code> · <code>s.manikandan.jr</code> · <code>m.mohammed.ashiq</code> · <code>f.lallu</code> · <code>waseem</code> · <code>n.yeshwanth.kumar</code> · <code>m.r.karthikeyan</code> · <code>v.srinivasan</code> · <code>p.vinayagam</code> · <code>blesson.paul</code> · <code>devanand</code> · <code>madhan.kumar</code> · <code>thirunavukarasu</code> · <code>syed.ijazuddin</code> · <code>prasanna</code> · <code>sarath.babu</code> · <code>raneeth.b</code> · <code>ranjith.e</code> · <code>ranjith.r</code> · <code>narren</code> · <code>bhuvanesh</code> · <code>barath.kumar</code> · <code>panbarasu</code> · <code>mohan.sir</code> · <code>parameshwaran</code> · <code>r.srinivasan</code></td></tr>
+</table></div>
+<p>The MD, TD, Purchase, Accounts and Manager logins are <b>common starter logins</b>. Open each in <b>Users &amp; Logins</b> and put in the person's real name and e-mail. For a team of several people, e.g. 3 in purchase, add one login per person with the same role, so the audit log shows who did what. Section 11 has printable login slips to hand out.</p>
+
+<h3>Admin: add or edit a user</h3>
+<ol class="steps">
+<li>Log in as admin → <b>Users &amp; Logins</b> → <b>+ Add user</b>, or click an existing user.</li>
+<li>Enter Full name, Login ID (e.g. <code>k.kumar</code>), Role, <b>E-mail</b> (for reminders), Mobile, <b>Reporting manager e-mail</b> (overdue escalation), and an initial password (min 6 characters).</li>
+<li>Save. Give the user the app link, their Login ID and the initial password. They must change it at first login.</li>
+<li>For employees, set the <b>Reporting manager e-mail</b> to the Service Manager or Production Manager.</li>
+<li>To <b>remove</b> someone who left: set <b>Active = NO</b>. Their DC history is kept for audit.</li>
+</ol>
+
+<h3>Forgot password</h3>
+<p>The user asks the admin. Admin → Users &amp; Logins → click the user → type a new password in <b>"Reset password"</b> → Save. The user must change it again at next login. After 5 wrong passwords the login locks for 15 minutes.</p>
+
+<h3>User: first login</h3>
+<ol class="steps">
+<li>Open the app link → enter <b>Login ID</b> and <b>password</b> (<code>&lt;REDACTED&gt;</code>) → <b>Sign in</b>.</li>
+<li>Screen "Set your own password": enter the current password, then the new password twice → <b>Save password</b>.</li>
+<li>Sessions last 6 hours of inactivity. After that, sign in again.</li>
+</ol>
+</div>
+
+<h2 id="mobile">6. Use on mobile phone</h2>
+<div class="card">
+<p>The app adapts to phone screens. The menu is under the <b>☰</b> button at top left, and your name, <i>Change password</i> and <i>Sign out</i> are at the bottom of that menu.</p>
+<div class="grid2">
+<div><h3>Android (Chrome)</h3><ol>
+<li>Open the app link in <b>Chrome</b>.</li>
+<li>Tap <b>⋮</b> (top right) → <b>Add to Home screen</b> → <b>Add</b>.</li>
+<li>A "DC Tracker" icon appears on the home screen. Open it like an app.</li></ol></div>
+<div><h3>iPhone (Safari)</h3><ol>
+<li>Open the app link in <b>Safari</b>.</li>
+<li>Tap the <b>Share</b> icon → <b>Add to Home Screen</b> → <b>Add</b>.</li>
+<li>Open DC Tracker from the home screen.</li></ol></div>
+</div>
+<h3>Upload a signed DC from the phone camera</h3>
+<ol>
+<li>Open <b>My DCs</b> → tap the DC → <b>Upload signed copy / proof</b>.</li>
+<li>Choose document type (Customer signed DC copy, Gate entry, End-user acknowledgement…).</li>
+<li>Tap the file box → <b>Camera</b> → take a clear photo of the full DC → it is compressed automatically.</li>
+<li>Enter gate entry no, date and end-user name → <b>Upload</b>. The file is saved in that DC's Drive folder.</li>
+</ol>
+<div class="note info">A grey line at the top saying <i>"This application was created by another user, not by Google"</i> is normal for Apps Script apps.</div>
+</div>
+
+<h2 id="daily">7. Daily use by role</h2>
+<div class="card">
+<h3>Store</h3>
+<ol>
+<li><b>+ New DC</b> → choose RDC / NRDC / Warranty → party, <b>material taken by</b> (employee), purpose, <b>due date</b> (compulsory for RDC and Warranty), items with category → <b>Create DC</b> → <b>Print</b>. To use a DC number already made in Tally, type it in the DC No box.</li>
+<li>Every morning open <b>Store Desk</b>:
+<ul>
+<li>accept or reject returns employees submitted (check the material physically)</li>
+<li>confirm hardcopies received</li>
+<li>approve extension requests</li>
+</ul></li>
+<li>When an employee returns material at the counter, store can record it directly with <b>Return / consumption</b> on the DC. It is verified immediately.</li>
+</ol>
+<h3>Engineer (material taken on DC)</h3>
+<ol>
+<li><b>My DCs</b> shows every open DC in your name.</li>
+<li>After delivery: <b>Upload signed copy / proof</b> (customer signature, gate entry, end user).</li>
+<li>When material comes back: <b>Return / consumption</b>. Enter qty returned to store, consumed at site, and lost/damaged → <b>Submit to store</b>. You get an <b>Acknowledgement No</b> (print or screenshot it). This is your proof of submission.</li>
+<li>Give the signed hardcopy to store → tap <b>I handed over hardcopy</b> with the date.</li>
+<li>If the customer needs the material longer: <b>Request extension</b> with the reason, before the due date.</li>
+</ol>
+<h3>Purchase</h3>
+<p><b>+ New DC</b> for material going to suppliers, job workers (RDC, purpose JOB WORK) or warranty vendors (Warranty DC with vendor, RMA and serial no). Follow up with the vendor. When material comes back, record it with <b>Return / consumption</b>, and store verifies it on receipt. The daily e-mail lists overdue warranty and job-work DCs.</p>
+<h3>Service Manager / Production Manager</h3>
+<p><b>Dashboard → Employee accountability</b> shows who in the team is holding material. <b>Approvals</b> is where you approve or reject extension requests. The morning e-mail lists your team's overdue DCs.</p>
+<h3>MD / TD</h3>
+<p>Dashboard for the company-wide position, <b>ISO Audit Report</b>, <b>Audit Log</b>, and <b>Approvals</b> for extension requests. The morning management summary names the employees with the most overdue DCs.</p>
+<h3>Accounts</h3>
+<p><b>Billing (awaiting invoice)</b> → enter invoice no and date → <b>Save</b>. A non-returnable DC closes automatically. Use <b>Not billable</b> with a reason for FOC, warranty replacement or samples.</p>
+<h3>Management / QA</h3>
+<p><b>Dashboard</b> for the live position and the employee accountability table. <b>ISO Audit Report</b> → choose period → <b>Print report</b> for audits.</p>
+<div class="note info"><b>When does a DC close?</b><br>
+<b>RDC / Warranty:</b> all qty returned/consumed/accounted <b>and</b> hardcopy received by store (and invoice, if chargeable).<br>
+<b>NRDC:</b> as soon as the invoice number is entered.</div>
+</div>
+
+<h2 id="import">8. Import the old Excel register (optional)</h2>
+<div class="card">
+<div class="note info"><b>Skip this section</b> if you created the database from <code>DC-Tracker-Database-Rev1.xlsx</code> in step 2. Your register data is already inside. Use the steps below only if you started from a blank sheet.</div>
+<ol class="steps">
+<li>Upload <code>DC REGISTER SPVT 2026-2027 (OR_OP6_5).xlsx</code> to Google Drive.</li>
+<li>Open it → <b>File → Save as Google Sheets</b>. A new Google Sheet copy opens.</li>
+<li>Copy its ID from the address bar: the part between <code>/d/</code> and <code>/edit</code>.</li>
+<li>In the app: <b>Settings</b> → paste into <code>LEGACY_SHEET_ID</code> → Save.</li>
+<li>In the script editor select <b><code>importLegacy</code></b> → <b>Run</b>. The log shows e.g. <i>"RDC: imported 196 DCs (450 item lines)"</i>.</li>
+<li>On the Dashboard, fix the red <b>"Returnable without due date"</b> DCs. In the old register these had <code>=TODAY()</code> as the due date. Also assign DCs listed under <b>"(not assigned)"</b>.</li>
+</ol>
+<div class="note warn">Run the import <b>before</b> you start creating new DCs in the app, and set the counters (section 4) so new numbers continue after the last Tally number. Running the import twice is safe, because already-imported DCs are skipped.</div>
+</div>
+
+<h2 id="update">9. Updating to a new revision</h2>
+<div class="card"><ol class="steps">
+<li>Open the database sheet → <b>Extensions → Apps Script</b>.</li>
+<li>Replace the content of the changed files with the new revision (same names).</li>
+<li>Save → <b>Deploy → Manage deployments</b> → pencil ✏ icon → Version: <b>New version</b> → Description <code>Rev 2</code> → <b>Deploy</b>.</li>
+<li>The link stays the same. Users just refresh. Your data is not touched.</li>
+</ol>
+<div class="note info"><b>Backup:</b> once a month, open the database sheet and use <b>File → Make a copy</b>, or <b>File → Download → Microsoft Excel (.xlsx)</b> to get an offline Excel backup. Scans and PDFs are already in the Drive folder <b>DC Tracker – Documents</b>.</div>
+</div>
+
+<h2 id="trouble">10. Troubleshooting</h2>
+<div class="card tw"><table>
+<tr><th>Problem</th><th>Fix</th></tr>
+<tr><td>"App is not set up yet. Run setup()"</td><td>Run <code>setup</code> from the script editor (section 2, step 9).</td></tr>
+<tr><td>Blank page or old screen after an update</td><td>You saved code but didn't deploy a <b>New version</b> (section 9, step 3).</td></tr>
+<tr><td>"Your session has expired"</td><td>Normal after 6 hours idle. Sign in again.</td></tr>
+<tr><td>"Invalid login ID or password"</td><td>Check the ID spelling (small letters with dots). Admin can reset the password. It locks for 15 minutes after 5 wrong tries.</td></tr>
+<tr><td>"Run this from the Apps Script editor as the script owner"</td><td><code>setup</code> and <code>importLegacy</code> only run from the editor, signed in as the owner account.</td></tr>
+<tr><td>No reminder e-mails</td><td>Check e-mails in Settings and on each user; <code>SEND_EMAILS = YES</code>. A Gmail account sends ~100 e-mails/day. Admin → Settings → <b>Send reminders now</b> to test.</td></tr>
+<tr><td>Upload fails</td><td>Only photo or PDF files, max 10 MB. Photos are compressed automatically. Large PDFs: scan at lower resolution.</td></tr>
+<tr><td>Engineer can't open their uploaded file</td><td>Settings → <code>FILE_LINK_SHARING = YES</code> (anyone with the link can view). Set it to NO to keep files private to the owner account.</td></tr>
+<tr><td>An engineer sees no DCs</td><td>The DC's "Material taken by" must be that user. Store: edit the DC and select the correct employee.</td></tr>
+</table></div>
+
+<h2 id="slips">11. Login slips to print</h2>
+<p>Print this page (Ctrl+P). Cut the slips and hand one to each person along with the app link.</p>
+<div class="slips" id="slips"></div>
+<script>
+(function(){
+  var heads=[['MD','MD'],['TD','TD'],['Purchase Team','PURCHASE'],['Accounts Team','ACCOUNTS'],['Service Manager','SERVICE MANAGER'],['Production Manager','PRODUCTION MANAGER']];
+  var store=['E Priya','L Kamali','Sudalai'];
+  var eng=['T Dinesh','M Sathish Kumar','C Srinivasan','V Rajesh Kumar','B Prakasam','A Arkati Vinaya Sagar','S Manikandan Sr','S Manikandan Jr','M Mohammed Ashiq','F Lallu','Waseem','N Yeshwanth Kumar','M R Karthikeyan','V Srinivasan','P Vinayagam','Blesson Paul','Devanand','Madhan Kumar','Thirunavukarasu','Syed Ijazuddin','Prasanna','Sarath Babu','Raneeth B','Ranjith E','Ranjith R','Narren','Bhuvanesh','Barath Kumar','Panbarasu','Mohan Sir','Parameshwaran','R Srinivasan'];
+  var id=function(n){return n.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.+|\.+$/g,'');};
+  var html='';
+  heads.concat(store.map(function(n){return [n,'STORE'];})).concat(eng.map(function(n){return [n,'EMPLOYEE'];})).forEach(function(p){
+    html+='<div class="slip"><b>DC Tracker, '+p[0]+'</b>Role: '+p[1]+'<br>Login ID: <code>'+id(p[0])+'</code><br>First password: <code>&lt;REDACTED&gt;</code><br>Link: ______________________________<br><i>Change your password at first login.</i></div>';
+  });
+  document.getElementById('slips').innerHTML=html;
+})();
+</script>
+</div>
+</body>
+</html>
