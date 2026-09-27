@@ -159,6 +159,9 @@ public sealed partial class EfRev869BPurchaseService
         if (NormalizeCurrency(request.CurrencyCode) != rfq.CurrencyCode) throw new InvalidOperationException("Currency conversion is not configured; quote must match RFQ currency.");
         if (request.Lines.Count != rfq.Lines.Count || request.Lines.Select(x => x.RequestForQuotationLineId).Distinct().Count() != rfq.Lines.Count) throw new InvalidOperationException("Quotation must contain every RFQ line exactly once.");
         foreach (var category in rfq.Lines.Select(x => x.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(invitation.VendorId, rfq.OrganizationId, category, DateOnly.FromDateTime(invitation.InvitedAt.UtcDateTime), ct)) throw new InvalidOperationException("Vendor qualification was not valid at the controlled invitation event.");
+        // R2: the GST state codes are derived from the vendor and the delivery location, never trusted as typed.
+        var states = await QuotationStateRule.DeriveAsync(db, rfq.CompanyId, invitation.VendorId, rfq.DeliveryWarehouseId, ct);
+        QuotationStateRule.RequireMatches(request.Lines.Select(x => (rfq.Lines.Single(y => y.Id == x.RequestForQuotationLineId).LineNumber, (string?)x.SupplierStateCode, (string?)x.PlaceOfSupplyStateCode)).ToArray(), states);
         var source = Required(request.SubmissionSource, "Submission source").ToUpperInvariant();
         if (source is not ("EMAIL_RECEIVED" or "PHYSICAL_RECEIVED")) throw new Rev869BValidationException("Internal entry must identify an approved received-on-behalf-of-vendor source.");
         if (request.ReceivedAt > DateTimeOffset.UtcNow || request.ReceivedAt == default || Required(request.AttachmentSha256, "Attachment SHA-256").Length != 64) throw new Rev869BValidationException("Received timestamp and 64-character attachment SHA-256 are required.");

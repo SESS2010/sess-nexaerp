@@ -334,12 +334,30 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs.Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
         var quantity = handoff.HandoffQuantity;
         Assert.Equal(3m, quantity);
+        // R10: the Technical Director enters the company's legal identity; R2 derives the place of supply from it.
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        using (var profile = await client.PutAsJsonAsync("/api/v1/company/profile", new SESS.NexaERP.Application.Masters.SaveCompanyProfileRequest(
+            "Go-live Company Pvt Ltd", null, "33ABACS5491H1ZA", "ABACS5491H", "33", "Tamil Nadu", "No. 1, Example Street", null, "Chennai", "600001", null, null, 0, "Legal details from the GST certificate")))
+            Assert.True(profile.IsSuccessStatusCode, await profile.Content.ReadAsStringAsync());
         // RFQ, single-source invitation, quotation entered on the vendor's behalf.
         Actor("SESS-15", "PURCHASE_EXECUTIVE", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         var rfq = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/rfqs", new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", true, "Only qualified vendor at go-live", "go-live-rfq", [new(handoff.Id, handoff.HandoffQuantity)]));
         var rfqVersion = await Query(options, db => db.RequestForQuotations.Where(x => x.Id == rfq.Id).Select(x => x.Version).SingleAsync());
         var invitation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfqs/{rfq.Number}/vendors", new Rev869BInviteVendorRequest(vendorId, "Qualified vendor invited", rfqVersion, "go-live-invite"));
         var rfqLineId = await Query(options, db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
+        // R2: the form reads the derived states; a typed state that differs is refused with the line's field named.
+        var taxContext = await Get<JsonElement>(client, $"/api/v1/purchase/rfq-invitations/{invitation.Id}/tax-context");
+        Assert.Equal(("33", "VENDOR_GSTIN", "33", "COMPANY", "INTRASTATE"), (taxContext.GetProperty("SupplierStateCode").GetString(), taxContext.GetProperty("SupplierStateSource").GetString(),
+            taxContext.GetProperty("PlaceOfSupplyStateCode").GetString(), taxContext.GetProperty("PlaceOfSupplySource").GetString(), taxContext.GetProperty("SupplyType").GetString()));
+        using (var wrongState = await client.PostAsJsonAsync($"/api/v1/purchase/rfq-invitations/{invitation.Id}/quotations", new Rev869BSubmitQuotationRequest("GO-LIVE-Q0", "INR", "30 days", "Delivered to MAIN", "12 months", false, null, "EMAIL_RECEIVED",
+            DateTimeOffset.UtcNow.AddMinutes(-1), "go-live/vendor-0.pdf", new string('B', 64), "Entered from vendor quotation", 0, null, "go-live-quote-wrong-state",
+            [new(rfqLineId, handoff.HandoffQuantity, 100m, 0, 0, 0, 0, 0, required, hsn, "29", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)])))
+        {
+            var body = await wrongState.Content.ReadAsStringAsync();
+            Assert.True(wrongState.StatusCode == HttpStatusCode.BadRequest, body);
+            Assert.Contains("Lines[1].SupplierStateCode", body);
+            Assert.Contains("SupplierStateCode must be 33 (from the vendor's GSTIN)", body);
+        }
         var quotation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfq-invitations/{invitation.Id}/quotations", new Rev869BSubmitQuotationRequest("GO-LIVE-Q1", "INR", "30 days", "Delivered to MAIN", "12 months", false, null, "EMAIL_RECEIVED",
             DateTimeOffset.UtcNow.AddMinutes(-1), "go-live/vendor-1.pdf", new string('A', 64), "Entered from vendor quotation", 0, null, "go-live-quote",
             [new(rfqLineId, handoff.HandoffQuantity, 100m, 0, 0, 0, 0, 0, required, hsn, "33", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)]));

@@ -114,7 +114,6 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
-
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         Guid creatorId;
         Guid managerId;
@@ -224,6 +223,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "payment-function-permissions.json"),
                 JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
         }
+        // R2 (26 Sep): quotations must carry the derived GST states. This witness's tax rule and amounts are
+        // intrastate (33/33), so the company gets a Tamil Nadu profile and trial vendor 001 (Karnataka in
+        // the trial data) is moved to Tamil Nadu here; the refusal and the interstate case are witnessed in
+        // QuotationStateRuleTests and the fresh-company rehearsal. It runs after the payment-lock round
+        // trip above, which rolls the schema down past the profile table (whose Down refuses retained rows).
+        server.Execute("purchase-flow-gst-states.sql", """
+            INSERT INTO advance.company_profiles("CompanyId","LegalName","Gstin","Pan","StateCode","State","AddressLine1","City","PinCode","UpdatedBy")
+            VALUES ('70000000-0000-0000-0000-000000000001','SESS witness company','33ABACS5491H1ZA','ABACS5491H','33','Tamil Nadu','Witness address','Chennai','600001','PURCHASE_FLOW_TEST');
+            UPDATE advance.vendors SET "State"='Tamil Nadu',"StateCode"='33' WHERE "VendorCode"='TRIAL-VEN-001';
+            """);
         if (qcRace is not null)
         {
             var migrations = model.Database.GetMigrations().ToArray();

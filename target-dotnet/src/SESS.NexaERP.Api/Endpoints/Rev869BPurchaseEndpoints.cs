@@ -38,6 +38,7 @@ public static partial class Rev869BPurchaseEndpoints
         group.MapPost("/material-followup/{id:guid}/transition", (Guid id, Rev869BMaterialFollowUpTransitionRequest r, IRev869BPurchaseService s, HttpContext h, CancellationToken ct) => Run(() => s.TransitionMaterialFollowUpAsync(id, r, ct), h, ct)).RequirePagePermission("purchase.material-followup", PagePermissionActions.Update);
         group.MapGet("/rfqs/{number}/vendor-candidates", GetRfqVendorCandidates).RequirePagePermission("purchase.rfq", PagePermissionActions.Submit);
         group.MapGet("/rfq-invitations", GetRfqInvitationCandidates).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Create);
+        group.MapGet("/rfq-invitations/{id:guid}/tax-context", GetQuotationTaxContext).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.Create);
         group.MapGet("/comparisons/rfq-candidates", GetComparisonRfqCandidates).RequirePagePermission("purchase.commercial-comparisons", PagePermissionActions.Create);
         group.MapGet("/rfqs", ListRfqs).RequirePagePermission("purchase.rfq", PagePermissionActions.View);
         group.MapGet("/quotations", ListQuotations).RequirePagePermission("purchase.vendor-quotations", PagePermissionActions.View);
@@ -77,6 +78,28 @@ public static partial class Rev869BPurchaseEndpoints
         }
         return Results.Ok(candidates);
     }
+    /// <summary>
+    /// R2: the two GST state codes the quotation must carry, derived from the vendor (GSTIN, else state
+    /// code) and the delivery location (warehouse state, else company profile). The quotation form shows
+    /// them read-only and sends them back; submit refuses any other values. 409 names what is missing.
+    /// </summary>
+    private static async Task<IResult> GetQuotationTaxContext(Guid id, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IAuditWriter audit, CancellationToken ct)
+    {
+        // The same record scope as the quotation submit this read serves (RequireScopeAsync on the RFQ).
+        var invitation = await db.RfqVendorInvitations.AsNoTracking().Include(x => x.Vendor).Include(x => x.RequestForQuotation)
+            .SingleOrDefaultAsync(x => x.Id == id && x.RequestForQuotation!.OrganizationId == user.OrganizationId, ct);
+        if (invitation is null) return await Missing(audit, "purchase.vendor-quotations", id.ToString(), user, ct);
+        var rfq = invitation.RequestForQuotation!;
+        if (!await Allowed(user, scopes, rfq.OrganizationId, rfq.RequestingDepartmentId, rfq.DeliveryWarehouseId, rfq.OwnerEmployeeId, ct))
+            return await Denied(audit, "purchase.vendor-quotations", id.ToString(), user, ct);
+        var states = await SESS.NexaERP.Infrastructure.Purchase.QuotationStateRule.DeriveAsync(db, rfq.CompanyId, invitation.VendorId, rfq.DeliveryWarehouseId, ct);
+        return Results.Ok(new QuotationTaxContext(invitation.Id, rfq.RfqNumber, invitation.Vendor!.VendorCode,
+            states.SupplierStateCode, states.SupplierStateSource, states.PlaceOfSupplyStateCode, states.PlaceOfSupplySource, states.SupplyType));
+    }
+
+    public sealed record QuotationTaxContext(Guid InvitationId, string RfqNumber, string VendorCode,
+        string SupplierStateCode, string SupplierStateSource, string PlaceOfSupplyStateCode, string PlaceOfSupplySource, string SupplyType);
+
     private static async Task<IResult> GetRfqInvitationCandidates(NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
         var rfqIds = ScopeRfqs(db.RequestForQuotations.AsNoTracking(), db, user).Select(x => x.Id);

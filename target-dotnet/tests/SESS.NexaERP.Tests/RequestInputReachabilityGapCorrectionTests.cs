@@ -31,7 +31,11 @@ public sealed class RequestInputReachabilityGapCorrectionTests
         var contracts = Read("src", "SESS.NexaERP.Application", "Purchase", "Rev869BPurchaseReadContracts.cs");
 
         var vendorRoute = endpoints.Split(Environment.NewLine).Single(x => x.Contains("/rfqs/{number}/vendor-candidates"));
-        var invitationRoute = endpoints.Split(Environment.NewLine).Single(x => x.Contains("/rfq-invitations") && x.Contains("MapGet"));
+        var invitationRoute = endpoints.Split(Environment.NewLine).Single(x => x.Contains("\"/rfq-invitations\"") && x.Contains("MapGet"));
+        // R2 (26 Sep): the derived GST states are read with the same permission as entering the quotation.
+        var taxContextRoute = endpoints.Split(Environment.NewLine).Single(x => x.Contains("/rfq-invitations/{id:guid}/tax-context") && x.Contains("MapGet"));
+        Assert.Contains("purchase.vendor-quotations", taxContextRoute);
+        Assert.Contains("PagePermissionActions.Create", taxContextRoute);
         var comparisonRoute = endpoints.Split(Environment.NewLine).Single(x => x.Contains("/comparisons/rfq-candidates"));
         Assert.Contains("purchase.rfq", vendorRoute);
         Assert.Contains("PagePermissionActions.Submit", vendorRoute);
