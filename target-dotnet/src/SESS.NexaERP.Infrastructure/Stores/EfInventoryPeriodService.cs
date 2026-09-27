@@ -1,3 +1,4 @@
+using SESS.NexaERP.Domain.Stores;
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -59,10 +60,10 @@ public sealed class EfInventoryPeriodService(NexaErpDbContext db, ICurrentUser u
             "SELECT advance.close_inventory_period(@company,@command,@period,@version,@reason,@actor,@role,@assignment,@type,@login)",
             command => {
                 command.Parameters.AddWithValue("period", id); command.Parameters.AddWithValue("version", request.Version);
-            }, reason, ct);
+            }, reason, ct, company => RefuseUnpostedAdjustments(company, id, ct));
     }
     private async Task<InventoryPeriodView> Decide(string operation, string key, object fingerprintPayload,
-        string sql, Action<NpgsqlCommand> parameters, string reason, CancellationToken ct)
+        string sql, Action<NpgsqlCommand> parameters, string reason, CancellationToken ct, Func<Guid, Task>? guard = null)
     {
         try
         {
@@ -77,6 +78,7 @@ public sealed class EfInventoryPeriodService(NexaErpDbContext db, ICurrentUser u
                 await tx.CommitAsync(ct);
                 return retained with { Replayed = true };
             }
+            if (guard is not null) await guard(company);
             await using var command = await Command(sql, ct);
             command.Parameters.AddWithValue("company", company); command.Parameters.AddWithValue("command", attempt.CommandId);
             command.Parameters.AddWithValue("reason", reason);
@@ -100,6 +102,17 @@ public sealed class EfInventoryPeriodService(NexaErpDbContext db, ICurrentUser u
         { throw new UnauthorizedAccessException(error.MessageText, error); }
         catch (PostgresException error) when (error.SqlState is PostgresErrorCodes.RaiseException or PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.CheckViolation or PostgresErrorCodes.ForeignKeyViolation)
         { throw new StoresConflictException(error.MessageText); }
+    }
+    // G2 (26 Sep): a period cannot close while a stock adjustment dated in it is still open. It runs inside
+    // the serializable transaction, so an adjustment created concurrently makes one of the two retry.
+    // A database before the stock-adjustment migration has no adjustments to wait for.
+    private async Task RefuseUnpostedAdjustments(Guid company, Guid period, CancellationToken ct)
+    {
+        await using (var installed = await Command("SELECT to_regclass('advance.stock_adjustments') IS NOT NULL", ct))
+            if (!(bool)(await installed.ExecuteScalarAsync(ct))!) return;
+        var open = await db.StockAdjustments.AsNoTracking().CountAsync(x => x.CompanyId == company && x.InventoryPeriodId == period
+            && x.Status != StockAdjustmentStatuses.Posted && x.Status != StockAdjustmentStatuses.Rejected, ct);
+        if (open > 0) throw new StoresConflictException($"This inventory period cannot be closed: {open} stock adjustment(s) dated in it are not yet posted or rejected. Post or reject them first.");
     }
     public async Task<IReadOnlyList<InventoryPeriodView>> ListAsync(CancellationToken ct)
     {

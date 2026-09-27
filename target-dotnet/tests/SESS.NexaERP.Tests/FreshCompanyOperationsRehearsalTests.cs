@@ -435,6 +435,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         writeOff = await Post<StockAdjustmentView>(client, $"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Write-off accepted", "go-live-adj-writeoff-td"));
         Assert.Equal("SUBMITTED", writeOff.Status);
         Assert.Equal(new[] { "ACCOUNTS_MANAGER" }, writeOff.OutstandingRoleCodes);
+        // G2 (26 Sep): the period cannot be closed while this write-off, dated in it, is still unposted.
+        Actor("SESS-02", "CHIEF_FINANCIAL_OFFICER");
+        var openPeriod = await Get<InventoryPeriodView>(client, $"/api/v1/accounts/inventory-periods/{period.Id}");
+        using (var closeRefused = await client.PostAsJsonAsync($"/api/v1/accounts/inventory-periods/{period.Id}/close",
+                   new CloseInventoryPeriodRequest(openPeriod.Version, "Year end close attempted too early", "go-live-period-close-refused")))
+        {
+            var refusal = await closeRefused.Content.ReadAsStringAsync();
+            Assert.True(closeRefused.StatusCode == HttpStatusCode.Conflict, refusal);
+            Assert.Contains("1 stock adjustment(s) dated in it are not yet posted or rejected", refusal);
+        }
+        Assert.Equal("OPEN", (await Get<InventoryPeriodView>(client, $"/api/v1/accounts/inventory-periods/{period.Id}")).Status);
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
         using (var twice = await client.PostAsJsonAsync($"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Again", "go-live-adj-writeoff-td-2")))
             Assert.Equal(HttpStatusCode.Forbidden, twice.StatusCode);
         Actor("SESS-14", "ACCOUNTS_MANAGER");
