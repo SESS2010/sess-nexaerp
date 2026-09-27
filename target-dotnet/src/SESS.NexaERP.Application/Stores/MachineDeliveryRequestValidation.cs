@@ -55,6 +55,17 @@ public static class MachineDeliveryRequestValidation
         else if (nature == "NON_RETURNABLE" && request.ExpectedReturnDate is not null)
             errors.Add(nameof(request.ExpectedReturnDate), "ExpectedReturnDate must be empty for a NON_RETURNABLE dispatch.");
 
+        // Optional dispatch details for the printed DC (26 Sep addendum): checked only when sent.
+        errors.OptionalText(nameof(request.VehicleNo), request.VehicleNo, 30);
+        errors.OptionalText(nameof(request.Transporter), request.Transporter, 200);
+        var eway = request.EwayBillNo?.Trim();
+        if (!string.IsNullOrEmpty(eway) && (eway.Length != 12 || !eway.All(char.IsAsciiDigit)))
+            errors.Add(nameof(request.EwayBillNo), "EwayBillNo must be the 12-digit e-way bill number.");
+        if (string.IsNullOrEmpty(eway) != (request.EwayBillDate is null))
+            errors.Add(nameof(request.EwayBillDate), "EwayBillNo and EwayBillDate are given together or not at all.");
+        else if (request.EwayBillDate is { } ewayDate && request.DispatchDate != default && ewayDate > request.DispatchDate)
+            errors.Add(nameof(request.EwayBillDate), "EwayBillDate cannot be after DispatchDate: the e-way bill is generated before the machine moves.");
+
         errors.ThrowIfAny("The machine DC dispatch has invalid fields");
     }
 
@@ -98,6 +109,11 @@ public static class MachineDeliveryRequestValidation
         {
             if (string.IsNullOrWhiteSpace(value)) Add(field, $"{field} is required.");
             else if (value.Trim().Length > maxLength) Add(field, $"{field} must be at most {maxLength} characters.");
+        }
+
+        public void OptionalText(string field, string? value, int maxLength)
+        {
+            if (value is not null && value.Trim().Length > maxLength) Add(field, $"{field} must be at most {maxLength} characters.");
         }
 
         public void Key(string? key)
