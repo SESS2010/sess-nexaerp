@@ -1,4 +1,4 @@
-# Go-live runbook: fresh database, 8 October 2026
+# Go-live runbook: fresh database, R1 on 15 October 2026
 
 > **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
@@ -16,48 +16,121 @@ bundle runs as migration login with `Options=-c role=nexa_erp_owner`, followed b
 RECONCILED/VERIFIED. The checked-in frontend's production authentication is still a gate.
 
 
-Status: decision updated 21 September 2026: **NO DUMP.** Build Option C clean on
-DESKTOP-SPF5420. Nothing is carried from the frontend developer's database: no data,
-attachments, exported masters, identity mappings or earlier opening-stock balances.
-Migrations supply the system baseline; the checked-in legacy item script supplies items.
-SESS's own team enters all other business setup on **1-3 October** through existing
-screens and the approved assisted-entry workflows
-as training, and posts **both opening-stock ceremonies using template v2 on 5-6 October**.
-Daily transactions start **8 October 2026**, only after the release checks below.
-The disposable fresh-company rehearsal is evidence for backend behaviour, not proof that
-all training screens, production login or the selected server installation are accepted.
+## Release 1: governing schedule and commissioning (TD decision, 27 September)
 
-## Governed schedule change, 23 September 2026: go-live moves to 8 October
+**R1 (Track A, Stores and Purchase) starts 15 October 2026 at 09:00 IST.** This section
+supersedes the earlier 8 October schedule. Sources: the TD's R1 plan, branch/merge rules
+and decisions in the audit folder. Both companies (SPVT and SESS) follow the same gates.
 
-**Decided by the Technical Director on 23 September 2026. This supersedes the
-1 October transaction start wherever an earlier document still states it.**
+**NO DUMP / Option C remains frozen.** The server agent builds the production database
+fresh; nothing is copied from the frontend developer's database. Migrations provide the
+system baseline and the checked-in legacy-item script provides 1,368 items. The team
+enters the other masters/configuration through accepted screens. No GRN, issue or
+adjustment may run in production before **both** opening-stock ceremonies are posted.
+The disposable fresh-company rehearsal proves backend behavior; it does not prove the
+server installation, training screens or production login.
 
-**Reason, recorded as required.** Production login is the critical path. The frontend
-developer's own estimate for it is four to five working days from 23 September, so it
-lands about 28 September. Until the login exists, nobody can sign in; and because SESS's
-team enters setup and posts both opening-stock ceremonies **on screen as named people**,
-neither the setup window nor either ceremony can begin before it. The earlier plan
-compressed deployment, login proof, all setup and both ceremonies into 28-30 September.
-The amended schedule separates them, so each gate is witnessed rather than assumed.
+| Date/time (IST) | Gate and owner |
+|---|---|
+| 29 Sep-2 Oct | Team rehearses masters on DEMO; QC policy for every received category, GST and approval settings. Root CA trust and user roster completed by the assigned owners. |
+| 2 Oct | Integrator merges the TD's email-lite branch only after focused tests and the fast suite. SMTP commissioning starts in TEST mode. |
+| 5-7 Oct | Purchase/approver, Stores/QC and Accounts training respectively; approver OTP and template-v2 preparation. |
+| 7 Oct, 18:00 | Code freeze: named backend and frontend SHAs, including the print layouts. Blocking changes thereafter need TD approval by name. That night's nightly tests the RC. |
+| 8 Oct | Green RC: TD alone advances main. Integrator proves migrations at the exact RC SHA, packages with ProductionLogin and the named full frontend SHA, then runs the laptop dry run. |
+| 9-10 Oct | Server agent installs the RC on DEMO. Department UAT, real login/OTP, prints, tracking and e-mail test evidence; TD signs off. |
+| 11-12 Oct | Physical stock count. On 12 Oct the server agent builds fresh production, loads masters, reconciles principals and verifies backup. |
+| 13 Oct | TD enters company profiles and opens the inventory period; roster/logins and effective roles are read back. BroPOS freezes at 18:00. |
+| 14 Oct | Template-v2 ceremonies: SPVT 10:00, SESS 14:00; different Stores counter, Accounts valuer and TD authorizer. Verified backup after both. Go/no-go at 18:00. |
+| 15 Oct, 09:00 | Daily transactions begin only after go/no-go. TD authorizes the vendor-mail LIVE switch; first working-day digest at 09:00. |
 
-| Window | What happens | Who |
-|---|---|---|
-| 23-27 Sep | Production login built. DEMO acceptance on the server. Laptop gates and the new commissioning package. Certificate trust on the eleven PCs. | Frontend developer; server agent; laptop |
-| 28-30 Sep | New package deployed. The fresh Option C go-live database built **on the server** (steps 2-7). Real login proven end to end by named employees. | Server agent; named employees |
-| 1-3 Oct | SESS's team enters all setup through the screens: warehouses, racks, condition locations, category routes, GST rules, QC policies, vendors with qualifications and certificates, customers (steps 8-11). **This IS their training.** | SESS team, maker/checker per step |
-| 5-6 Oct | Both opening-stock ceremonies, template v2 (steps 12-13). | Stores, Accounts, TD |
-| 7 Oct | Final checks (step 14). **BroPOS frozen for new transactions.** | TD |
-| **8 Oct** | **GO-LIVE — daily transactions begin.** | All eleven users |
+### R1 migrations, package and nightly evidence
 
-**Unchanged by this amendment, and still frozen:** no dump; Option C built clean on the
-server; **no GRN, issue or adjustment on the go-live database before BOTH ceremonies are
-posted**; the never-touch protected-service list; DEMO accepted and dropped before the
-go-live database is built; one disposable cluster at a time for any laptop witness.
+Source baseline `4cb906a` contains **138** migrations: 137 `20260927100000_EmailOutbox`
+and 138 `20260928090000_TrackingLite`. The DC decision-14 feature adds **139**
+`20260928100000_MachineDeliverySelection`, after focused validation and integration.
+Use the packaged assembly/manifest's exact count and head at the RC, not an old fixed count.
+Migration 139 changes read projections only; it adds the job number to the DC view and
+excludes dispatched jobs from the new-DC picker. See [DC frontend contract](r1-machine-dc-selection-contract.md).
 
-The extra days between setup and the ceremonies, and between the ceremonies and go-live,
-are deliberate review gaps, not slack to be reclaimed. Do not start transactions early
-because the database looks ready: the opening-stock rule refuses a company that already
-has movements, and there is no legitimate escape from it.
+The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138
+or 139.** At the exact committed RC SHA, re-run the disposable two-database migration
+proof, require RECONCILED/VERIFIED, and package that bundle/installer with its manifest.
+On the server, the server agent reads back applied migration count/head and principal
+status after migration and provisioning. Include execute grants for all new SECURITY
+DEFINER functions; migration 139's `machine_delivery_job_ids(uuid)` is in provisioning.
+
+The integrator runs one nightly at 21:00 on integration/r1, with Debug and Release TRX
+and WorkflowWitness, ConcurrencyWitness and MigrationLifecycleWitness. Report the exact
+SHA and all five passed/total counts; GREEN requires completed runs, zero failures and
+successful gate exit. Nothing reaches main before that SHA has a green nightly; only
+the TD pushes main. Preserve the 27 September candidate `4cb906a`. While its nightly
+runs, start no PostgreSQL/disposable-cluster tests, acceptance run or witness gate, and
+never stop/pause it. Push no integration update during the run. Feature work and
+non-database compilation/tests use the separate main checkout.
+
+### SMTP and email-lite commissioning (server agent and TD)
+
+At `4cb906a` the outbox, PO issue hook, print/digest queries and empty registration/API
+hooks exist. The SMTP sender, worker, digest scheduler and admin endpoints belong to
+the TD's email-lite delivery. Do not count placeholders as commissioned functionality.
+
+1. TD confirms provider, host/port, TLS, dedicated sender, display names for both
+   companies and the purchase CC mailbox. The server agent sets the SMTP secret using
+   its reviewed local procedure; never put the password in chat, source, package or logs.
+2. Start with email mode **TEST**, with **TD and SURANTHER only** on the allow-list for
+   the first commissioning week. Vendor-mail LIVE is disabled. Read back effective
+   settings from the running RC with the password masked; inspect the actual worker and
+   schedule, not just configuration files. If the sender/admin routes are missing, stop
+   commissioning and report the missing delivery.
+3. Through the TD-authorized test endpoint, prove allowed delivery to a test mailbox and
+   refusal/blocking of recipients outside the allow-list, including CC. On DEMO, issue
+   a PO and confirm one PO_ISSUED outbox record per PO revision. Repeating the same
+   command must not produce a second mail. PO rollback must not enqueue a mail.
+4. Verify HTML/text PO content against print data (no PDF in R1), correct company header,
+   missing-recipient SKIPPED behavior, failed-send retries and DEAD after five attempts.
+   Retry uses the TD action and preserves the retained mail log. Test failure scenarios
+   with a fake sender or reviewed local test facility, never real vendor mail.
+5. Verify the 09:00 IST Purchase, Stores and Management digests: Monday-Saturday, no
+   Sundays/company holidays; active company-role recipients with official addresses.
+   Compare digest counts/links with the pending page and prove same-day deduplication.
+6. Read back `admin.email`: TECHNICAL_DIRECTOR View + Update; IT_MANAGER View only.
+   Verify both allowed and denied actions with effective identities. Email bodies and
+   the secret must not appear in the log-list response. Retain status/provider receipt
+   evidence without copying addresses or message bodies into the repository.
+7. The TD alone authorizes LIVE on 15 October at 09:00 after the TEST evidence and
+   commissioning week are complete. Record that decision and the effective mode read-back;
+   no automatic mode switch based only on the calendar. If commissioning is late, keep
+   TEST and report the release decision needed.
+
+### Tracking-lite commissioning
+
+Read back `tracking.pending` access through effective role/page permissions and exercise
+`GET /api/v1/tracking/pending`, `/summary` and `/{docType}/{documentId}/history` on DEMO.
+Verify filters, paging, mine, counts, timeline and document links using permitted and
+forbidden identities in both companies. A summary count must match its filtered list.
+
+| Queue | Overdue after days |
+|---|---:|
+| PR department verification / approval / stock check | 1 / 2 / 1 |
+| RFQ without quotation | 5 |
+| Quotation technical verification / comparison decision | 2 / 2 |
+| PO pending approval / approved-unissued / past promise date | 1 / 1 / 0 |
+| Gate entry without GRN / GRN not finalized | 1 / 1 |
+| QC pending | 2 |
+| MIR approval / unissued | 1 / 1 |
+| Bill awaiting decision / GRN without bill | 3 / 7 |
+
+These are the sixteen decision-10 source defaults. Read the installed `tracking_queues`
+values and record any TD-approved effective changes. Operational scopes follow the
+existing queues. The accepted decision-11 exception is **company-wide** visibility for
+`qc-pending`, `bill-awaiting-decision` and `grn-without-bill`, still requiring the source
+page permission. Confirm that a QC Manager outside the PO department sees company QC
+work while another company remains isolated.
+
+R1 includes the existing machine DC, prints and approved gaps (a)/(c). Material DCs,
+DC list/find gap (b), extended bills/payments/PDC, full notifications, vendor portal and
+PO PDF remain outside R1. DC Tracker, Service Hub, Expense and CRM continue until their
+own ERP cutovers. No R2 migration is part of this commissioning sequence.
 
 Actors: **DBA** = the PostgreSQL administrator (superuser session, `postgres`);
 **Owner** = `nexa_erp_migration` acting as `nexa_erp_owner` (psql `SET ROLE`);
@@ -111,7 +184,7 @@ server daily-backup procedure still apply.
 
 ## 1. Prepare SESS training inputs, not a database transfer
 
-TD coordinates the 1-3 October setup roster: Stores, Purchase, Accounts, QC, IT,
+TD coordinates the 29 September-2 October DEMO setup roster and 12-13 October production setup: Stores, Purchase, Accounts, QC, IT,
 TD and MD, with separate named maker/checker logins. SESS supplies its own warehouse
 and rack plan, receiving routes, approved GST/QC requirements, supplier certificates
 and customer details. Use the checked-in item script and two freshly prepared template-v2
@@ -283,7 +356,7 @@ import to repair a used database. Keep canonical ELE / FAB / REF active.
 
 ## 8. SETUP-BEFORE-FIRST-GRN: warehouse and receiving topology
 
-Complete steps 8-11 through the accepted screens/imports/API wrappers during **1-3 October**, in the
+Complete steps 8-11 through the accepted screens/imports/API wrappers during DEMO rehearsal on **29 September-2 October**, then repeat and read back production setup on **12-13 October**, in the
 order below. Repeat company-scoped setup for **SESS_PROPRIETORSHIP and SESS_PVT_LTD**;
 shared parties need not be duplicated. The named roles below are the training assignment,
 not an exhaustive list of all permission holders. Record IDs/codes, company, versions,
@@ -301,7 +374,7 @@ starts transactions. The two authorised opening postings are the only planned ex
 |---|---|---|
 | 8.1 Warehouse, per company | Stores Manager creates and submits; a different Technical Director approves through the warehouse lifecycle. | Correct selected company/code, Active, Approved, IsActive; inspect approval history and responsible employee assignment. |
 | 8.2 Rack/bin under each warehouse | Stores Manager creates and submits; a different TD approves. Set material condition deliberately before a condition location references it. | Active/Approved bin belongs to the intended company and warehouse; its condition agrees with its planned use. Provide AVAILABLE, QC_HOLD and PENDING_RETURNABLE_DC bins for the receiving route. |
-| 8.3 Condition location for each required bin | Stores Manager creates an effective version. Current API has create/list/close, **no separate approval stage**. TD performs and records an independent operational review; this is not an enforced maker-checker approval. | Effective-location read shows the correct company, warehouse, bin and condition, active on the opening date and 8 October. AVAILABLE location exists for every opening-stock bin; required QC_HOLD and PENDING_RETURNABLE_DC locations exist for receiving. |
+| 8.3 Condition location for each required bin | Stores Manager creates an effective version. Current API has create/list/close, **no separate approval stage**. TD performs and records an independent operational review; this is not an enforced maker-checker approval. | Effective-location read shows the correct company, warehouse, bin and condition, active on the opening date and 15 October. AVAILABLE location exists for every opening-stock bin; required QC_HOLD and PENDING_RETURNABLE_DC locations exist for receiving. |
 | 8.4 Category route, explicitly **ELE**, **FAB**, **REF** in each company | Stores Manager creates after 8.3. Current API has create/list/close, **no separate approval stage**; TD records independent review. | Exactly one effective route per canonical category on the intended receipt date; all three location references are effective, in the same company and one warehouse, with their required conditions. No legacy category aliases or overlapping routes. |
 
 The diagnostic read paths behind the screens are `/api/v1/inventory/warehouses`,
@@ -386,10 +459,10 @@ from the frontend developer. A restore/restart needs a separately reviewed recov
 After authorisation may have succeeded, inspect the posted receipt before any retry;
 do not restore an earlier checkpoint over subsequent business activity.
 
-## 12. Opening stock, SESS_PROPRIETORSHIP (API, three actors)
+## 12. Opening stock, SESS_PROPRIETORSHIP (14 October 14:00, after SPVT; API, three actors)
 
 Stores Manager: `POST /api/v1/master-data/opening-stock/import` with a freshly prepared template-v2
-workbook on 5-6 October, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
+workbook on 14 October, then `POST /api/v1/stores/opening-stock/from-import`. Accounts Manager:
 `…/confirm-value`. Technical Director: `…/authorize`.
 
 Check: status POSTED; `stock_movements` count for the company equals the workbook line
@@ -397,13 +470,13 @@ count; FIFO layer value equals the Accounts-confirmed physical-count workbook to
 Do not copy the developer ceremony or its balances. Template and preparation rules in
 step 13 apply equally to this company.
 
-## 13. Opening stock, SESS_PVT_LTD (API, three actors) — the one step with no rehearsal
+## 13. Opening stock, SESS_PVT_LTD (14 October 10:00, first; API, three actors) — the one step with no rehearsal
 
 PVT LTD's opening stock has never been posted anywhere. The PROPRIETORSHIP ceremony was
 done once on the developer's machine, so its shape is known; PVT LTD will be the first
-time with real quantities. Complete both ceremonies on 5-6 October; daily
-transactions start 8 October. Prepare and independently review both workbooks in advance,
-during the 1-3 October setup window at the latest.
+time with real quantities. Complete both ceremonies on 14 October; daily
+transactions start 15 October. Prepare and independently review both workbooks in advance,
+after the 11-12 October physical count and before the 14 October ceremonies.
 
 **Who prepares it.** The Stores Manager (SESS-41) prepares the physical count; Accounts
 (SESS-14) supplies the rate per line from the carrying-value policy; the Technical
@@ -441,7 +514,7 @@ after it, the rule "company already has movements" applies to PVT LTD for good.
 
 Check: status POSTED; movement count equals the workbook line count; FIFO layer value
 equals the confirmed total; `GET /api/v1/reports/…` stock and FIFO valuation agree.
-Only after BOTH ceremonies are POSTED and ordinary use opens on 8 October, the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
+Only after BOTH ceremonies are POSTED and ordinary use opens on 15 October, the first MIR: until `20260920150000_OpeningStockIssueOrigin` (finding #26) no
 opening-stock unit could be issued at all; the rehearsal now issues, returns and fits
 opening stock, values the fitment at the confirmed ex-tax value, and shows it in the
 dossier as opening stock. Opening stock consumes before any later receipt of the same
@@ -456,13 +529,13 @@ item (FIFO dates it from the period end above).
 - **No walk-throughs in either company from this point.** The opening-stock rule refuses a
   company that already has movements; there is no legitimate escape from it.
 
-## Release for daily transactions: 8 October
+## Release for daily transactions: 15 October
 
-TD records completion of training on 1-3 October, setup checklist evidence and both
-POSTED template-v2 ceremony receipts from 5-6 October; Accounts confirms values and Stores
+TD records completion of training on 5-7 October, setup checklist evidence and both
+POSTED template-v2 ceremony receipts from 14 October; Accounts confirms values and Stores
 confirms counts. Also require accepted production login, other-PC/reboot checks and verified
 backup evidence from the server deployment procedure. BroPOS is frozen for new transactions
-on 7 October as part of the final checks. Only then release ordinary users on 8 October.
+from 13 October at 18:00. TD records go/no-go on 14 October at 18:00; only then release ordinary users on 15 October at 09:00.
 No developer-source row counts or dump delivery is a release dependency.
 
 ## 15. DESKTOP-SPF5420: current operating specification
