@@ -2063,11 +2063,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         var mismatchRate = expected[0].UnitRate + 1m;
         var mismatchValue = expected[0].Payable + 1m;
+        user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT"); // R3: the bill is entered by one employee and decided by another
         var mismatched = await Post<VendorBillView>(client,
             $"/api/v1/accounts/vendor-bills/from-grn/{grns[0].Id}",
             new CreateVendorBillRequest(grns[0].VendorBillNumber, grns[0].VendorBillDate,
                 [new(grns[0].Lines.Single().Id, 1m, mismatchRate, mismatchValue)],
                 "vendor-bill-price-mismatch"));
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         Assert.Equal("PRICE_MISMATCH", mismatched.MatchStatus);
         await AssertPostStatusContains(client,
             "/api/v1/accounts/vendor-financial-evidence/payments",
@@ -2096,12 +2098,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/accounts/vendor-bills/{mismatched.Id}/reject",
             new VendorBillDecisionRequest(mismatched.Version, "Rejected: PO must be revised", "vendor-bill-reject"));
         Assert.Equal("REJECTED", rejected.Status);
+        user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT"); // R3: the bill is entered by one employee and decided by another
         var correctedFirst = await Post<VendorBillView>(client,
             $"/api/v1/accounts/vendor-bills/from-grn/{grns[0].Id}",
             new CreateVendorBillRequest(grns[0].VendorBillNumber, grns[0].VendorBillDate,
                 [new(grns[0].Lines.Single().Id, grns[0].Lines.Single().ReceivedQuantity,
                     expected[0].UnitRate, expected[0].Payable, 2m)], "vendor-bill-corrected-0",
                 [new VendorBillChargeInput("FREIGHT", 12m)]));
+        user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         Assert.Equal("DRAFT", correctedFirst.Status);
         Assert.Equal(12m, correctedFirst.TotalChargeValue);
         Assert.Equal(expected[0].Payable + 12m, correctedFirst.TotalLandedValue);
@@ -2110,11 +2114,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         for (var index = 1; index < grns.Count; index++)
         {
             var grn = grns[index];
+            user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT"); // R3: the bill is entered by one employee and decided by another
             var bill = await Post<VendorBillView>(client,
                 $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
                 new CreateVendorBillRequest(grn.VendorBillNumber, grn.VendorBillDate,
                     [new(grn.Lines.Single().Id, grn.Lines.Single().ReceivedQuantity,
                         expected[index].UnitRate, expected[index].Payable)], $"vendor-bill-create-{index}"));
+            user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
             Assert.Equal("MATCHED", bill.MatchStatus);
             var decision = new VendorBillDecisionRequest(bill.Version,
                 "Three-way match accepted", $"vendor-bill-accept-{index}");
@@ -2149,11 +2155,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.Equal(250m, restoredAdvances.Items.Sum(x => x.OutstandingAmount));
                 if(obligations is not null) await obligations("BILL_REVERSED_1");
 
+                user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT"); // R3: the bill is entered by one employee and decided by another
                 var replacement = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/from-grn/{grn.Id}",
                     new CreateVendorBillRequest(grn.VendorBillNumber, grn.VendorBillDate,
                         [new(grn.Lines.Single().Id, grn.Lines.Single().ReceivedQuantity,
                             expected[index].UnitRate, expected[index].Payable)], "vendor-bill-reentry-1"));
+                user.Set(accountsManagerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
                 replacement = await Post<VendorBillView>(client,
                     $"/api/v1/accounts/vendor-bills/{replacement.Id}/accept",
                     new VendorBillDecisionRequest(replacement.Version,

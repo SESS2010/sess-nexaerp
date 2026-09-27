@@ -324,11 +324,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Add(actor.Item1,actor.Item2,"MIR approve",$"/api/v1/stores/material-issue-requests/{mir.Id}/approve",
                 new MaterialIssueTransitionRequest(mir.Version,"Approve","mixed-mir-final-"+actor.Item1),"mixed-mir-final-"+actor.Item1,mir.Id);
         }
-        Select("SESS-14","ACCOUNTS_MANAGER");
+        // R3: the bill is entered by the Accounts Assistant and decided by the Accounts Manager.
+        Select("SESS-41","ACCOUNTS_ASSISTANT");
         var stockGrn = stock.Grn!;
         var bill = await Post<VendorBillView>(client,$"/api/v1/accounts/vendor-bills/from-grn/{stockGrn.Id}",
             new CreateVendorBillRequest(stockGrn.VendorBillNumber,stockGrn.VendorBillDate,
                 [new(stockGrn.Lines.Single().Id,1,4000,4720)],"mixed-bill"));
+        Select("SESS-14","ACCOUNTS_MANAGER");
         bill = await Post<VendorBillView>(client,$"/api/v1/accounts/vendor-bills/{bill.Id}/accept",
             new VendorBillDecisionRequest(bill.Version,"Accept","mixed-bill-accept"));
         Add("SESS-14","ACCOUNTS_MANAGER","Payment","/api/v1/accounts/vendor-financial-evidence/payments",
