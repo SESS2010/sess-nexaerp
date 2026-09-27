@@ -259,7 +259,14 @@ public sealed partial class EfRev869BPurchaseService
         await OpenPendingAuthorizationAsync(ct);
         var affected = await db.PurchaseOrders.Where(x => x.Id == po.Id && x.OrganizationId == po.OrganizationId && x.Version == request.Version).ExecuteUpdateAsync(s => s.SetProperty(x => x.Version, version).SetProperty(x => x.Status, Rev869BStatuses.Issued).SetProperty(x => x.TransitionCorrelationId, commandFingerprint).SetProperty(x => x.IssuedAt, issuedAt).SetProperty(x => x.UpdatedAt, issuedAt).SetProperty(x => x.UpdatedBy, user.LoginId), ct);
         RequireCas(affected, request.Version, "purchase order");
-        await SavePreauthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "IssuePO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status }, new { Status = Rev869BStatuses.Issued, IssuedAt = issuedAt }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, Rev869BStatuses.Issued, version);
+        await SavePreauthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "IssuePO", nameof(PurchaseOrder), po.Id.ToString(), new { status = po.Status }, new { Status = Rev869BStatuses.Issued, IssuedAt = issuedAt }, ct);
+        // Email-lite (R1): the vendor e-mail is queued in the same transaction; the worker composes and sends it.
+        await SESS.NexaERP.Infrastructure.Outbox.EfEmailOutboxStore.EnqueueCoreAsync(db, new SESS.NexaERP.Application.Outbox.EmailOutboxRequest(
+            po.CompanyId, SESS.NexaERP.Application.Outbox.EmailEventTypes.PoIssued, nameof(PurchaseOrder), po.Id,
+            $"{SESS.NexaERP.Application.Outbox.EmailEventTypes.PoIssued}:{po.Id:N}:{po.RevisionNumber}",
+            System.Text.Json.JsonSerializer.Serialize(new { purchaseOrderId = po.Id, poNumber = po.PoNumber, revisionNumber = po.RevisionNumber }),
+            user.LoginId), ct);
+        await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, Rev869BStatuses.Issued, version);
     }
 
     public async Task<Rev869BDocumentResult> AmendPurchaseOrderAsync(string number, Rev869BAmendPurchaseOrderRequest request, CancellationToken ct)

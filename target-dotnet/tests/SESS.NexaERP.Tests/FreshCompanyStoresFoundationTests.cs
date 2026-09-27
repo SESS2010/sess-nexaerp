@@ -436,6 +436,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         amended = await Post<Rev869BDocumentResult>(client, poPath + "/issue", new Rev869BIssuePurchaseOrderRequest("Amendment issued", amended.Version, "go-live-po-amend-issue"));
         Assert.Equal(Rev869BStatuses.Issued, amended.Status);
         Assert.NotEqual(po.Id, amended.Id);
+        // Email-lite (R1): each issue queued exactly one vendor e-mail for its own PO revision, awaiting the composer.
+        var queued = await Query(options, db => db.Database.SqlQueryRaw<string>(
+            """SELECT "IdempotencyKey"||'|'||"Status" AS "Value" FROM advance.email_outbox WHERE "EventType"='PO_ISSUED' ORDER BY "CreatedAt" """).ToListAsync());
+        Assert.Equal([$"PO_ISSUED:{po.Id:N}:1|PENDING_COMPOSE", $"PO_ISSUED:{amended.Id:N}:2|PENDING_COMPOSE"], queued);
         // R7: the Purchase Manager prints the issued amendment: company from the profile, figures from the snapshots, audited.
         var print = await Get<JsonElement>(client, poPath + "/print");
         Assert.Equal(("Go-live Company Pvt Ltd", "33ABACS5491H1ZA"), (print.GetProperty("Company").GetProperty("LegalName").GetString(), print.GetProperty("Company").GetProperty("Gstin").GetString()));
