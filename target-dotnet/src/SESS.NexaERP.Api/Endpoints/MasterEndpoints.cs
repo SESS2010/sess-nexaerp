@@ -208,7 +208,9 @@ public static partial class MasterEndpoints
         MapVendorAction(group, "resubmit", "Resubmit", MasterStatuses.PendingApproval, MasterApprovalStatuses.PendingApproval, PagePermissionActions.Resubmit);
         MapVendorAction(group, "hold", "Hold", MasterStatuses.OnHold, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
         MapVendorAction(group, "blacklist", "Blacklist", MasterStatuses.Blacklisted, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
-        MapVendorAction(group, "reactivate", "Reactivate", MasterStatuses.Approved, MasterApprovalStatuses.Approved, PagePermissionActions.Update);
+        // R1 (26 Sep): reactivate returns the vendor to Active, the only status RFQ and PO eligibility accept.
+        // It used to set "Approved", which left a held-then-reactivated vendor unusable for good.
+        MapVendorAction(group, "reactivate", "Reactivate", MasterStatuses.Active, MasterApprovalStatuses.Approved, PagePermissionActions.Update);
         MapVendorAction(group, "deactivate", "Deactivate", MasterStatuses.Inactive, MasterApprovalStatuses.Approved, PagePermissionActions.Deactivate);
 
         group.MapGet("/vendors/{vendorCode}/status-history", (string vendorCode, NexaErpDbContext db, CancellationToken cancellationToken) => MasterEndpointHelpers.GetStatusHistoryAsync(db, nameof(Vendor), MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken)).RequirePagePermission("masters.vendors", PagePermissionActions.ViewAuditHistory);
@@ -232,19 +234,62 @@ public static partial class MasterEndpoints
         }).RequirePagePermission("masters.customers", permission);
     }
 
+    // R1 (26 Sep): the vendor lifecycle had no from-state check, so for example a blacklisted vendor
+    // could be approved. "Approved" as a VendorStatus is only the legacy result of the old reactivate;
+    // it may be reactivated, deactivated or blacklisted, which repairs it.
+    private static readonly IReadOnlyDictionary<string, string[]> VendorActionFrom = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["Submit"] = [MasterStatuses.Draft],
+        ["Resubmit"] = [MasterStatuses.Draft, MasterStatuses.Rejected, MasterStatuses.PendingApproval],
+        ["Approve"] = [MasterStatuses.PendingApproval],
+        ["Reject"] = [MasterStatuses.PendingApproval],
+        ["RequestClarification"] = [MasterStatuses.PendingApproval],
+        ["RequestRevision"] = [MasterStatuses.PendingApproval],
+        ["Hold"] = [MasterStatuses.Active],
+        ["Blacklist"] = [MasterStatuses.Active, MasterStatuses.OnHold, MasterStatuses.Inactive, MasterStatuses.Approved],
+        ["Reactivate"] = [MasterStatuses.OnHold, MasterStatuses.Inactive, MasterStatuses.Approved],
+        ["Deactivate"] = [MasterStatuses.Active, MasterStatuses.OnHold, MasterStatuses.Approved],
+    };
+
+    public static bool VendorActionAllowedFrom(string action, string status) =>
+        VendorActionFrom.TryGetValue(action, out var from) && from.Contains(status, StringComparer.OrdinalIgnoreCase);
+
+    private static string VendorActionWords(string action) => action switch
+    {
+        "RequestClarification" => "sent back for clarification",
+        "RequestRevision" => "sent back for revision",
+        "Hold" => "put on hold",
+        "Submit" => "submitted",
+        "Resubmit" => "resubmitted",
+        "Approve" => "approved",
+        "Reject" => "rejected",
+        "Blacklist" => "blacklisted",
+        "Reactivate" => "reactivated",
+        "Deactivate" => "deactivated",
+        _ => action.ToLowerInvariant()
+    };
+
     private static void MapVendorAction(RouteGroupBuilder group, string route, string action, string status, string approvalStatus, string permission)
     {
-        group.MapPost($"/vendors/{{vendorCode}}/{route}", async (string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+        group.MapPost($"/vendors/{{vendorCode}}/{route}", (string vendorCode, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken) =>
+            ApplyVendorActionAsync(vendorCode, action, status, approvalStatus, request, db, currentUser, audit, cancellationToken))
+            .RequirePagePermission("masters.vendors", permission);
+    }
+
+    public static async Task<IResult> ApplyVendorActionAsync(string vendorCode, string action, string status, string approvalStatus, MasterActionRequest request, NexaErpDbContext db, ICurrentUser currentUser, IAuditWriter audit, CancellationToken cancellationToken)
+    {
+        var vendor = await db.Vendors.SingleOrDefaultAsync(existing => existing.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
+        if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
+        if (!VendorActionAllowedFrom(action, vendor.VendorStatus))
+            return Results.Conflict(new { message = $"Vendor {vendor.VendorCode} cannot be {VendorActionWords(action)} while its status is {vendor.VendorStatus}." });
+        if (action == "Approve")
         {
-            var vendor = await db.Vendors.SingleOrDefaultAsync(existing => existing.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
-            if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
-            if (action == "Approve")
-            {
-                var gate = await ValidateVendorFinalApproval(vendor, db, currentUser, audit, cancellationToken);
-                if (gate is not null) return gate;
-            }
-            return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, currentUser, vendor, nameof(Vendor), vendor.VendorCode, action, status, approvalStatus, request.Remarks, request.Version, (entity, next, actor) => { entity.VendorStatus = next; entity.IsActive = next is not MasterStatuses.Inactive and not MasterStatuses.Blacklisted; if (next == MasterStatuses.Active) { entity.IsVendorCodeLocked = true; entity.ApprovedBy = actor; entity.ApprovedAt = DateTimeOffset.UtcNow; entity.RequiresReverification = false; } }, entity => entity.VendorStatus, entity => entity.ApprovalStatus, (entity, next) => entity.ApprovalStatus = next, cancellationToken);
-        }).RequirePagePermission("masters.vendors", permission);
+            var gate = await ValidateVendorFinalApproval(vendor, db, currentUser, audit, cancellationToken);
+            if (gate is not null) return gate;
+        }
+        // Only an approval records an approver and clears reverification; reactivating a held vendor
+        // restores Active without rewriting who approved it.
+        return await MasterEndpointHelpers.ChangeLifecycleAsync(db, audit, currentUser, vendor, nameof(Vendor), vendor.VendorCode, action, status, approvalStatus, request.Remarks, request.Version, (entity, next, actor) => { entity.VendorStatus = next; entity.IsActive = next is not MasterStatuses.Inactive and not MasterStatuses.Blacklisted; if (action == "Approve") { entity.IsVendorCodeLocked = true; entity.ApprovedBy = actor; entity.ApprovedAt = DateTimeOffset.UtcNow; entity.RequiresReverification = false; } }, entity => entity.VendorStatus, entity => entity.ApprovalStatus, (entity, next) => entity.ApprovalStatus = next, cancellationToken);
     }
 
     private static async Task<IResult?> ValidateCustomerAsync(UpsertCustomerRequest request, NexaErpDbContext db, Guid? currentId, CancellationToken cancellationToken)
