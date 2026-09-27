@@ -169,6 +169,7 @@ app.MapIntercompanyInvoiceEndpoints();
 app.MapInventoryPeriodEndpoints();
 app.MapCompanyProfileEndpoints();
 app.MapEmailLiteEndpoints();
+app.MapTrackingEndpoints();
 app.MapVendorManualAssessmentEndpoints();
 app.MapVendorRatingEvidenceEndpoints();
 app.MapVendorFinancialEvidenceEndpoints();

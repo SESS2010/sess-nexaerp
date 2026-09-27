@@ -83,6 +83,7 @@ public static class DependencyInjection
         services.AddScoped<SESS.NexaERP.Application.Outbox.IEmailOutboxStore, SESS.NexaERP.Infrastructure.Outbox.EfEmailOutboxStore>();
         services.AddScoped<SESS.NexaERP.Application.Purchase.IPurchaseOrderPrintQuery, SESS.NexaERP.Infrastructure.Purchase.EfPurchaseOrderPrintQuery>();
         services.AddScoped<SESS.NexaERP.Application.Tracking.ITrackingDigestQuery, SESS.NexaERP.Infrastructure.Tracking.EfTrackingDigestQuery>();
+        services.AddScoped<SESS.NexaERP.Application.Tracking.ITrackingService, SESS.NexaERP.Infrastructure.Tracking.EfTrackingService>();
         SESS.NexaERP.Infrastructure.Email.EmailLiteRegistration.AddEmailLite(services, configuration);
         services.AddScoped<IVendorManualAssessmentService, EfVendorManualAssessmentService>();
         services.AddScoped<IVendorRatingEvidenceService, EfVendorRatingEvidenceService>();

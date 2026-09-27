@@ -12,6 +12,7 @@ using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Application.Reporting;
 using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Application.Stores;
+using SESS.NexaERP.Application.Tracking;
 using SESS.NexaERP.Domain.Masters;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.MasterData;
@@ -393,7 +394,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         var po = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/purchase-orders", new Rev869BCreatePurchaseOrderRequest(comparison.Number, comparison.Version, "go-live-po"));
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/submit", new Rev869BSubmitPurchaseOrderRequest("PO submitted", po.Version, "go-live-po-submit"));
+        // Tracking-lite (R1): the submitted PO waits for its approver; the buyer sees it, the approver finds it under "mine".
+        var waiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=po-pending-approval")).Items);
+        Assert.Equal(("PO", po.Id, po.Number, 0, 1, false), (waiting.DocType, waiting.DocumentId, waiting.Number, waiting.AgeDays, waiting.OverdueAfterDays, waiting.IsOverdue));
+        Assert.Empty((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=po-pending-approval&mine=true")).Items);
         Actor("SESS-14", "ACCOUNTS_MANAGER");
+        var mine = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?mine=true&docType=PO")).Items);
+        Assert.Equal((po.Number, "SESS-14"), (mine.Number, mine.PendingWithEmployeeCode));
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/approve", new Rev869BPoApprovalActionRequest("PO approved", po.Version, null, "go-live-po-approve"));
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         // R7: an approved but unissued PO does not print.
@@ -468,6 +475,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var workload = await Get<StoresWorkloadPage>(client, "/api/v1/dashboards/stores/workload?queue=gate-no-grn");
         Assert.Contains(workload.Rows, x => x.DocumentNumber == gate.GateEntryNumber);
         Assert.Equal(1, Assert.Single(workload.Tiles, x => x.Key == "gate-no-grn").Count);
+        var gateWaiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?mine=true&docType=GATE_ENTRY")).Items);
+        Assert.Equal((gate.GateEntryNumber, "STORES_EXECUTIVE"), (gateWaiting.Number, gateWaiting.PendingWithRole));
+        var tiles = await Get<List<TrackingSummaryTile>>(client, "/api/v1/tracking/summary");
+        Assert.Equal((1, 0), (Assert.Single(tiles, x => x.Queue == "gate-no-grn").Count, Assert.Single(tiles, x => x.Queue == "gate-no-grn").OverdueCount));
         var grn = await Post<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/", new CreateGoodsReceiptRequest(gate.GateEntryNumber, "GO-LIVE-BILL-1", today, DateTimeOffset.UtcNow, """{"billChecked":true}""",
             [new(gate.Lines.Single().Id, [new(1, quantity, "GO-LIVE-LOT-1", null, today.AddMonths(-1), today.AddYears(2))], [])]), "go-live-grn");
         // inventory.grn create/submit belongs to the Stores Executive; the Stores Manager holds no GRN grant (see #12).
@@ -491,6 +502,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(grn.GrnNumber, qcRead.GrnNumber);
         using (var qcCannotFinalize = await client.PostAsJsonAsync($"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(qcRead.Version, "qc-read-does-not-grant-submit")))
             Assert.Equal(HttpStatusCode.Forbidden, qcCannotFinalize.StatusCode);
+        var qcWaiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=qc-pending&mine=true")).Items);
+        Assert.Equal((grn.Id, grn.GrnNumber, "QC_MANAGER"), (qcWaiting.DocumentId, qcWaiting.Number, qcWaiting.PendingWithRole));
         var queue = await Get<PagedResponse<QcQueueItem>>(client, "/api/v1/qc/queue?pageSize=100");
         var lot = Assert.Single(queue.Items, x => x.GrnNumber == grn.GrnNumber);
         var policies = await Get<JsonElement>(client, $"{configuration}/qc-inspection-policies?effectiveOnly=true&itemId={lot.ItemId}");
@@ -498,6 +511,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var inspection = await Post<QcInspectionResult>(client, "/api/v1/qc/inspections", new FinalizeQcInspectionRequest(lot.GoodsReceiptLineLotAllocationId, DateTimeOffset.UtcNow, quantity, 0m, 0m, availableLocationId,
             [new QcParameterResultRequest(policyId, 1, 1, null, "PASS", "Accepted")], []), "go-live-qc");
         Assert.NotNull(inspection.StockPostingBatchId);
+        // Tracking-lite: QC done, nothing waits for QC; the QC timeline shows the gate entry, the GRN and the QC decision.
+        Assert.Empty((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=qc-pending")).Items);
+        var timeline = await Get<TrackingHistory>(client, $"/api/v1/tracking/QC/{grn.Id}/history");
+        Assert.Equal((grn.GrnNumber, "FINALIZED", null), (timeline.Number, timeline.CurrentStatus, timeline.PendingWithRole));
+        Assert.Contains(timeline.Events, e => e.Stage == "GATE_ENTRY" && e.Action == "FINALIZED");
+        Assert.Contains(timeline.Events, e => e.Stage == "GRN" && e.Action == "FINALIZED" && e.EmployeeCode == "SESS-35");
+        Assert.Contains(timeline.Events, e => e.Stage == "QC" && e.Action == "QC_FINALIZED" && e.ToStatus == "ACCEPTED" && e.EmployeeCode == "SESS-33");
+        Assert.Equal(timeline.Events.OrderByDescending(e => e.At).Select(e => e.At), timeline.Events.Select(e => e.At));
+        using (var unknown = await client.GetAsync($"/api/v1/tracking/GRN/{Guid.NewGuid()}/history"))
+            Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         await using var db = new NexaErpDbContext(options);
         // R4 (26 Sep): the QC decision leaves an audit row, written in the inspection's own transaction.
         Assert.Equal(1, await db.AuditLogs.AsNoTracking().CountAsync(x => x.Module == "QC" && x.Action == "QcInspectionFinalized" && x.EntityName == "QcInspection"));
