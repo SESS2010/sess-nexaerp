@@ -29,7 +29,7 @@ public sealed class EfTrackingDigestQuery(NexaErpDbContext db, IOptions<ReportCa
         if (connection.State != ConnectionState.Open) await connection.OpenAsync(ct);
         await using var command = new NpgsqlCommand("""
             SELECT s.doc_type,s.queue,s.document_id,s.number,s.status,s.pending_role,r."Name",e."EmployeeCode",e."EmployeeName",
-              s.waiting_since,s.age_days,s.overdue_after_days,s.is_overdue,s.link
+              s.waiting_since,s.age_days,s.overdue_after_days,s.is_overdue
             FROM advance.tracking_source(@company,@report_timezone) s
             LEFT JOIN advance.roles r ON r."Code"=s.pending_role
             LEFT JOIN advance.employees e ON e."Id"=s.pending_employee_id
@@ -45,7 +45,8 @@ public sealed class EfTrackingDigestQuery(NexaErpDbContext db, IOptions<ReportCa
             rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetGuid(2), reader.GetString(3), reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetString(8),
-                reader.GetFieldValue<DateTimeOffset>(9), reader.GetInt32(10), reader.GetInt32(11), reader.GetBoolean(12), reader.GetString(13)));
+                reader.GetFieldValue<DateTimeOffset>(9), reader.GetInt32(10), reader.GetInt32(11), reader.GetBoolean(12),
+                TrackingDocumentLinks.Document(reader.GetString(0), reader.GetGuid(2), reader.GetString(3))));
         return rows;
     }
 

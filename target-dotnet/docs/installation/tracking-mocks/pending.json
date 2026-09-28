@@ -1,26 +1,10 @@
 {
-  "Total": 5,
+  "Total": 11,
   "Page": 1,
   "PageSize": 50,
   "GeneratedAt": "2026-10-15T09:00:02.114+05:30",
   "TimeZone": "Asia/Kolkata",
   "Items": [
-    {
-      "DocType": "PO",
-      "Queue": "po-pending-approval",
-      "DocumentId": "6f1c2a9e-2b1d-4c3e-9a51-0d6c1b7e4a10",
-      "Number": "PO/SPVT/26-27/000012",
-      "Status": "PendingApproval",
-      "PendingWithRole": "TECHNICAL_DIRECTOR",
-      "PendingWithRoleName": "Technical Director",
-      "PendingWithEmployeeCode": "SESS-01",
-      "PendingWithEmployeeName": "Trial Approver",
-      "WaitingSince": "2026-10-13T11:20:00+05:30",
-      "AgeDays": 2,
-      "OverdueAfterDays": 1,
-      "IsOverdue": true,
-      "Link": "/purchase/purchase-orders/PO/SPVT/26-27/000012"
-    },
     {
       "DocType": "PO",
       "Queue": "po-delivery-overdue",
@@ -35,7 +19,119 @@
       "AgeDays": 5,
       "OverdueAfterDays": 0,
       "IsOverdue": true,
-      "Link": "/purchase/purchase-orders/PO/SPVT/26-27/000007"
+      "Link": "/purchase/purchase-orders/PO%2FSPVT%2F26-27%2F000007"
+    },
+    {
+      "DocType": "COMPARISON",
+      "Queue": "comparison-decision",
+      "DocumentId": "5a364a45-9e33-51d2-88b2-d004b2393ceb",
+      "Number": "COMPARISON/TRIAL/26-27/000001",
+      "Status": "PendingApproval",
+      "PendingWithRole": "TECHNICAL_DIRECTOR",
+      "PendingWithRoleName": "Technical Director",
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 2,
+      "IsOverdue": true,
+      "Link": "/purchase/comparisons/COMPARISON%2FTRIAL%2F26-27%2F000001"
+    },
+    {
+      "DocType": "GRN",
+      "Queue": "grn-not-finalised",
+      "DocumentId": "ea1da996-565f-51b5-86a6-afea92f79661",
+      "Number": "GRN/TRIAL/26-27/000001",
+      "Status": "DRAFT",
+      "PendingWithRole": "STORES_EXECUTIVE",
+      "PendingWithRoleName": "Stores Executive",
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 1,
+      "IsOverdue": true,
+      "Link": "/stores/goods-receipts/ea1da996-565f-51b5-86a6-afea92f79661"
+    },
+    {
+      "DocType": "MIR",
+      "Queue": "mir-approval",
+      "DocumentId": "b8d9c1db-893f-56f7-96a1-7512f793e339",
+      "Number": "MIR/TRIAL/26-27/000001",
+      "Status": "SUBMITTED",
+      "PendingWithRole": "PRODUCTION_MANAGER",
+      "PendingWithRoleName": "Production Manager",
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 1,
+      "IsOverdue": true,
+      "Link": "/stores/material-issue-requests/b8d9c1db-893f-56f7-96a1-7512f793e339"
+    },
+    {
+      "DocType": "QUOTATION",
+      "Queue": "quotation-technical-verification",
+      "DocumentId": "6a0ffa35-aa10-56a9-9576-0f676688b484",
+      "Number": "QUOTATION/TRIAL/26-27/000001",
+      "Status": "Submitted",
+      "PendingWithRole": null,
+      "PendingWithRoleName": null,
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 2,
+      "IsOverdue": true,
+      "Link": "/purchase/quotations"
+    },
+    {
+      "DocType": "PO",
+      "Queue": "po-pending-approval",
+      "DocumentId": "6f1c2a9e-2b1d-4c3e-9a51-0d6c1b7e4a10",
+      "Number": "PO/SPVT/26-27/000012",
+      "Status": "PendingApproval",
+      "PendingWithRole": "TECHNICAL_DIRECTOR",
+      "PendingWithRoleName": "Technical Director",
+      "PendingWithEmployeeCode": "SESS-01",
+      "PendingWithEmployeeName": "Trial Approver",
+      "WaitingSince": "2026-10-13T11:20:00+05:30",
+      "AgeDays": 2,
+      "OverdueAfterDays": 1,
+      "IsOverdue": true,
+      "Link": "/purchase/purchase-orders/PO%2FSPVT%2F26-27%2F000012"
+    },
+    {
+      "DocType": "VENDOR_BILL",
+      "Queue": "bill-awaiting-decision",
+      "DocumentId": "8b925a1f-35ad-5f0a-8d9e-6130c463ce2f",
+      "Number": "VENDOR_BILL/TRIAL/26-27/000001",
+      "Status": "RECORDED",
+      "PendingWithRole": "ACCOUNTS_MANAGER",
+      "PendingWithRoleName": "Accounts Manager",
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 3,
+      "IsOverdue": false,
+      "Link": "/accounts/vendor-bills/8b925a1f-35ad-5f0a-8d9e-6130c463ce2f"
+    },
+    {
+      "DocType": "RFQ",
+      "Queue": "rfq-no-quotation",
+      "DocumentId": "ac668a21-a338-576c-bb8a-d8e1eb11fb31",
+      "Number": "RFQ/TRIAL/26-27/000001",
+      "Status": "Issued",
+      "PendingWithRole": "PURCHASE_EXECUTIVE",
+      "PendingWithRoleName": "Purchase Executive",
+      "PendingWithEmployeeCode": null,
+      "PendingWithEmployeeName": null,
+      "WaitingSince": "2026-10-12T11:20:00+05:30",
+      "AgeDays": 3,
+      "OverdueAfterDays": 5,
+      "IsOverdue": false,
+      "Link": "/purchase/rfqs/RFQ%2FTRIAL%2F26-27%2F000001"
     },
     {
       "DocType": "QC",
@@ -51,7 +147,7 @@
       "AgeDays": 1,
       "OverdueAfterDays": 2,
       "IsOverdue": false,
-      "Link": "/stores/qc?grn=GRN/SPVT/26-27/000031"
+      "Link": "/qc/inspections"
     },
     {
       "DocType": "GATE_ENTRY",
@@ -83,7 +179,7 @@
       "AgeDays": 0,
       "OverdueAfterDays": 1,
       "IsOverdue": false,
-      "Link": "/purchase/requisitions/PR/SPVT/26-27/000103"
+      "Link": "/purchase/requisitions/PR%2FSPVT%2F26-27%2F000103"
     }
   ]
 }
