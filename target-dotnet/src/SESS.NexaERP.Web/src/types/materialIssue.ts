@@ -9,17 +9,24 @@
 
 /**
  * EfMaterialIssueService.RequestCommands.cs: a job order is mandatory for the
- * three customer-facing situations and forbidden for CONSUMABLE_OFFICE.
- * Customer-facing situations also require DestinationType = JOB_ORDER;
+ * three job-backed customer-facing situations and forbidden for the others.
+ * Job-backed situations also require DestinationType = JOB_ORDER;
  * CONSUMABLE_OFFICE must target DEPARTMENT or OTHER.
+ * SPARE_SALE (spares sold to a customer without a Job Order) requires
+ * DestinationType = CUSTOMER, a CustomerId, no JobOrderId, and on every line
+ * the current spare Customer PO line (SalesType Spares / Spares & Service) of
+ * that customer for the same item; excess is measured against that PO line.
  */
 export const MIR_SITUATIONS = [
   'CONSUMABLE_OFFICE',
   'CHAMBER_MANUFACTURE',
   'SERVICE_CUSTOMER_PO',
   'SITE_PROJECT_PO',
+  'SPARE_SALE',
 ] as const
 export type MirSituation = (typeof MIR_SITUATIONS)[number]
+
+export const MIR_SPARE_SALE_SITUATION: MirSituation = 'SPARE_SALE'
 
 export const MIR_JOB_SITUATIONS: readonly MirSituation[] = [
   'CHAMBER_MANUFACTURE',
@@ -37,7 +44,7 @@ export const MIR_PURPOSES = [
   'FREE_OF_COST',
 ] as const
 
-export const MIR_DESTINATION_TYPES = ['DEPARTMENT', 'OTHER', 'JOB_ORDER'] as const
+export const MIR_DESTINATION_TYPES = ['DEPARTMENT', 'OTHER', 'JOB_ORDER', 'CUSTOMER'] as const
 export type MirDestinationType = (typeof MIR_DESTINATION_TYPES)[number]
 
 /** Status values the request service writes (TransitionAsync / IssueAsync). */
@@ -109,7 +116,48 @@ export interface MaterialIssueRequestLineView {
   /** e.g. NONE, INTERNAL (notify only) or CUSTOMER_FACING (blocks issue until TD decides). */
   ExcessClassification: string
   TdDecisionPresent: boolean
+  /**
+   * The TD's excess decision when one exists (APPROVED / REJECTED). Requested
+   * from the backend; absent from APIs that only carry TdDecisionPresent, so
+   * the UI must cope with undefined.
+   */
+  TdDecision?: 'APPROVED' | 'REJECTED' | null
+  /**
+   * Base quantity already issued against this line (sum of
+   * MaterialIssueLines.QuantityBase). Requested from the backend; when absent
+   * the server still enforces previouslyIssued + now <= RequestedBaseQuantity.
+   */
+  IssuedBaseQuantity?: number
   Remarks: string | null
+}
+
+/** True when the TD has rejected this line's customer-facing excess (blocks issue). */
+export function mirLineTdRejected(line: Pick<MaterialIssueRequestLineView, 'TdDecision'>): boolean {
+  return line.TdDecision === 'REJECTED'
+}
+
+/**
+ * Quantity already issued, in the line's own UOM, or null when the API does
+ * not carry IssuedBaseQuantity. Base → line UOM uses the line's own ratio.
+ */
+export function mirLineIssuedQuantity(
+  line: Pick<MaterialIssueRequestLineView, 'RequestedQuantity' | 'RequestedBaseQuantity' | 'IssuedBaseQuantity'>,
+): number | null {
+  if (typeof line.IssuedBaseQuantity !== 'number' || !Number.isFinite(line.IssuedBaseQuantity)) return null
+  if (!(line.RequestedBaseQuantity > 0)) return line.IssuedBaseQuantity
+  return line.IssuedBaseQuantity * (line.RequestedQuantity / line.RequestedBaseQuantity)
+}
+
+/**
+ * What may still be issued in the line's UOM: RequestedQuantity minus what was
+ * already issued, or null when the API does not say (the server then enforces it).
+ */
+export function mirLineBalanceQuantity(
+  line: Pick<MaterialIssueRequestLineView, 'RequestedQuantity' | 'RequestedBaseQuantity' | 'IssuedBaseQuantity'>,
+): number | null {
+  const issued = mirLineIssuedQuantity(line)
+  if (issued === null) return null
+  return Math.max(0, Math.round((line.RequestedQuantity - issued) * 1e6) / 1e6)
 }
 
 export interface MaterialIssueRequestView {

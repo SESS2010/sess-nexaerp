@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   decideMaterialIssueExcess,
@@ -8,6 +8,7 @@ import {
 import type { MaterialIssueRequestTransition } from '../../api/materialIssues'
 import { newIdempotencyKey } from '../../api/stores'
 import type { MaterialIssueRequestView } from '../../types/materialIssue'
+import { mirLineIssuedQuantity, mirLineTdRejected } from '../../types/materialIssue'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
@@ -25,7 +26,25 @@ export function MaterialIssueRequestDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { me, can } = useSession()
-  const [mir, setMir] = useState<MaterialIssueRequestView | null>(null)
+  const [serverMir, setServerMir] = useState<MaterialIssueRequestView | null>(null)
+  // Decisions taken on this page in this session, by line id. The line view's
+  // TdDecision field is newer than TdDecisionPresent and may not be served yet;
+  // merging what the TD just clicked over the server result keeps the badge
+  // and the issue block right immediately either way.
+  const [localDecisions, setLocalDecisions] = useState<Map<string, 'APPROVED' | 'REJECTED'>>(() => new Map())
+  const mir = useMemo<MaterialIssueRequestView | null>(() => {
+    if (!serverMir) return null
+    if (localDecisions.size === 0) return serverMir
+    return {
+      ...serverMir,
+      Lines: serverMir.Lines.map((line) => {
+        const local = localDecisions.get(line.Id)
+        if (!local || line.TdDecision) return line
+        return { ...line, TdDecisionPresent: true, TdDecision: local }
+      }),
+    }
+  }, [serverMir, localDecisions])
+  const setMir = setServerMir
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
@@ -93,6 +112,7 @@ export function MaterialIssueRequestDetailPage() {
         Reason: reason.trim(),
         IdempotencyKey: newIdempotencyKey('mir-excess'),
       })
+      setLocalDecisions((current) => new Map(current).set(lineId, decision))
       setMir(result)
       setReason('')
       setNotice(`Excess ${decision.toLowerCase()} recorded.`)
@@ -132,7 +152,14 @@ export function MaterialIssueRequestDetailPage() {
   const canDecideExcess = can(PAGE_KEYS.materialIssueExcess, 'approve') && !isMine
   const needsReason = canSubmit || canApprove || canReject || canCancel
   const customerFacingExcess = mir.Lines.filter((line) => line.ExcessBaseQuantity > 0 && line.ExcessClassification !== 'INTERNAL')
-  const pendingDecision = customerFacingExcess.filter((line) => !line.TdDecisionPresent)
+  const pendingDecision = customerFacingExcess.filter((line) => !line.TdDecisionPresent && !line.TdDecision)
+  const rejectedDecision = customerFacingExcess.filter(mirLineTdRejected)
+  const issueBlockTitle = pendingDecision.length > 0
+    ? 'Customer-facing excess awaits the TD decision.'
+    : rejectedDecision.length > 0
+      ? `The TD rejected the excess on line ${rejectedDecision.map((line) => line.LineNumber).join(', ')}; edit the MIR quantity or raise a new MIR.`
+      : undefined
+  const showIssued = mir.Lines.some((line) => typeof line.IssuedBaseQuantity === 'number')
 
   return (
     <div className="page">
@@ -163,7 +190,7 @@ export function MaterialIssueRequestDetailPage() {
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => run('cancel')}>{TRANSITION_LABEL.cancel}</button>
           )}
           {canIssue && (
-            <button type="button" className="btn btn-primary" disabled={busy || pendingDecision.length > 0} title={pendingDecision.length > 0 ? 'Customer-facing excess awaits the TD decision.' : undefined} onClick={() => setIssuing(true)}>Issue by scan</button>
+            <button type="button" className="btn btn-primary" disabled={busy || issueBlockTitle !== undefined} title={issueBlockTitle} onClick={() => setIssuing(true)}>Issue by scan</button>
           )}
         </div>
       </div>
@@ -197,10 +224,20 @@ export function MaterialIssueRequestDetailPage() {
         </div>
       )}
 
+      {rejectedDecision.length > 0 && (
+        <div className="alert alert-warn" role="alert">
+          <div className="alert-title">The TD rejected the excess on line {rejectedDecision.map((line) => line.LineNumber).join(', ')}</div>
+          <p className="alert-body">
+            Stores cannot issue against this MIR while a rejected customer-facing excess stands. Bring the quantity back within the allowed limit by editing the MIR, or raise a new MIR for the reduced quantity.
+          </p>
+        </div>
+      )}
+
       <div className="detail-grid">
         <div><span className="field-label">Required date</span> {mir.RequiredDate}</div>
         <div><span className="field-label">Destination</span> {mir.DestinationType.replaceAll('_', ' ')} · {mir.DestinationName}</div>
         <div><span className="field-label">Job order</span> <span className="mono">{mir.JobOrderId ?? '— (not applicable)'}</span></div>
+        {mir.CustomerId && <div><span className="field-label">Customer</span> {mir.DestinationName} <span className="mono">({mir.CustomerId})</span></div>}
         <div><span className="field-label">Requested by</span> <span className="mono">{isMine ? `${me?.EmployeeCode} (you)` : mir.RequestedByEmployeeId}</span></div>
         <div><span className="field-label">Requesting department</span> <span className="mono">{mir.RequestingDepartmentId === me?.DepartmentId ? me?.DepartmentCode : mir.RequestingDepartmentId}</span></div>
         <div><span className="field-label">Version</span> <span className="mono">{mir.Version}</span></div>
@@ -215,6 +252,7 @@ export function MaterialIssueRequestDetailPage() {
               <th>Item</th>
               <th className="text-right">Requested</th>
               <th className="text-right">Base qty</th>
+              <th className="text-right" title={showIssued ? 'Already issued against this line' : 'This API does not report what was already issued; the server enforces the balance at issue time.'}>Issued</th>
               <th className="text-right">Est. BOM</th>
               <th className="text-right">Prod. BOM</th>
               <th className="text-right">Excess</th>
@@ -224,19 +262,25 @@ export function MaterialIssueRequestDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {mir.Lines.length === 0 && <tr><td colSpan={10} className="table-empty">No lines. Edit the draft to add items.</td></tr>}
+            {mir.Lines.length === 0 && <tr><td colSpan={11} className="table-empty">No lines. Edit the draft to add items.</td></tr>}
             {mir.Lines.map((line) => (
               <tr key={line.Id}>
                 <td className="mono">{line.LineNumber}</td>
                 <td><span className="mono">{line.ItemCode}</span> — {line.ItemName}</td>
                 <td className="text-right mono">{line.RequestedQuantity} {line.UomCode}</td>
                 <td className="text-right mono">{line.RequestedBaseQuantity}</td>
+                <td className="text-right mono">{(() => {
+                  const issued = mirLineIssuedQuantity(line)
+                  return issued === null ? <span title="Not reported by this API; the server enforces the balance.">—</span> : `${issued} ${line.UomCode}`
+                })()}</td>
                 <td className="text-right mono">{line.EstimatedBomBaseQuantity || '—'}</td>
                 <td className="text-right mono">{line.ProductionBomBaseQuantity || '—'}</td>
                 <td className="text-right mono">{line.ExcessBaseQuantity > 0 ? line.ExcessBaseQuantity : '—'}</td>
                 <td>{line.ExcessBaseQuantity > 0 ? <StatusBadge value={line.ExcessClassification} /> : '—'}</td>
                 <td>
                   {line.ExcessBaseQuantity <= 0 || line.ExcessClassification === 'INTERNAL' ? '—'
+                    : line.TdDecision === 'APPROVED' ? <StatusBadge value="Approved" />
+                    : line.TdDecision === 'REJECTED' ? <StatusBadge value="Rejected" />
                     : line.TdDecisionPresent ? <StatusBadge value="Decided" />
                     : canDecideExcess ? (
                       <span className="action-row">

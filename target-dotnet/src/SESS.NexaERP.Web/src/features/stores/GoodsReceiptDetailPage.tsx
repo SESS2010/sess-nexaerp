@@ -19,6 +19,8 @@ export function GoodsReceiptDetailPage() {
   const [reverseReason, setReverseReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  // Finalize and reverse both post stock; each asks in plain words first.
+  const [confirming, setConfirming] = useState<'finalize' | 'reverse' | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -39,6 +41,7 @@ export function GoodsReceiptDetailPage() {
 
   const finalize = async () => {
     if (!grn) return
+    setConfirming(null)
     setError(null)
     setNotice('')
     setBusy(true)
@@ -56,12 +59,22 @@ export function GoodsReceiptDetailPage() {
     }
   }
 
+  const askReverse = () => {
+    if (!reverseReason.trim()) {
+      setError('A reversal must state its reason — it is the audit record for undoing a stock posting.')
+      return
+    }
+    setError(null)
+    setConfirming('reverse')
+  }
+
   const reverse = async () => {
     if (!grn) return
     if (!reverseReason.trim()) {
       setError('A reversal must state its reason — it is the audit record for undoing a stock posting.')
       return
     }
+    setConfirming(null)
     setError(null)
     setNotice('')
     setBusy(true)
@@ -123,7 +136,7 @@ export function GoodsReceiptDetailPage() {
                   className="btn btn-primary"
                   disabled={busy || hasWarnings}
                   title={hasWarnings ? 'Resolve the duplicate serial warnings first.' : 'Finalize — the GRN becomes immutable and stock posts to QC hold.'}
-                  onClick={finalize}
+                  onClick={() => { setError(null); setConfirming('finalize') }}
                 >
                   Finalize
                 </button>
@@ -135,6 +148,32 @@ export function GoodsReceiptDetailPage() {
 
       {notice && <div className="alert">{notice}</div>}
       <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
+
+      {confirming === 'finalize' && (
+        <div className="alert alert-warn" role="alertdialog" aria-live="assertive">
+          <div className="alert-title">Finalize {grn.GrnNumber}?</div>
+          <p className="alert-body">
+            After this the GRN cannot be edited. Stock for {grn.Lines.length} line{grn.Lines.length === 1 ? '' : 's'} moves to QC hold. Only a reversal can undo it.
+          </p>
+          <div className="action-row mt-2">
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={finalize}>Yes, finalize {grn.GrnNumber}</button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirming(null)}>No, go back</button>
+          </div>
+        </div>
+      )}
+
+      {confirming === 'reverse' && (
+        <div className="alert alert-warn" role="alertdialog" aria-live="assertive">
+          <div className="alert-title">Reverse {grn.GrnNumber}?</div>
+          <p className="alert-body">
+            A counter-document is created and the stock posting is undone. Reason: “{reverseReason.trim()}”. This cannot be undone.
+          </p>
+          <div className="action-row mt-2">
+            <button type="button" className="btn btn-warn" disabled={busy} onClick={reverse}>Yes, reverse {grn.GrnNumber}</button>
+            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setConfirming(null)}>No, go back</button>
+          </div>
+        </div>
+      )}
 
       {hasWarnings && (
         <div className="alert alert-warn" role="alert">
@@ -256,9 +295,9 @@ export function GoodsReceiptDetailPage() {
               className="input search"
               placeholder="Reason for reversal (mandatory)"
               value={reverseReason}
-              onChange={(event) => setReverseReason(event.target.value)}
+              onChange={(event) => { setReverseReason(event.target.value); if (confirming === 'reverse') setConfirming(null) }}
             />
-            <button type="button" className="btn btn-warn" disabled={busy} onClick={reverse}>Reverse GRN</button>
+            <button type="button" className="btn btn-warn" disabled={busy || confirming === 'reverse'} onClick={askReverse}>Reverse GRN</button>
           </div>
         </div>
       )}

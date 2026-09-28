@@ -67,12 +67,61 @@ function classifyConflict(message: string, code?: string): Conflict {
     }
   }
 
+  // GRN QC: "The employee who recorded or finalised this GRN cannot inspect
+  // it. Another QC inspector must." Must sit before the 'finalised' rule, which
+  // would otherwise title it as an immutable-document refusal.
+  if (text.includes('cannot inspect it')) {
+    return {
+      title: 'Wrong person for this step',
+      guidance:
+        'You recorded or finalised this GRN, so you cannot be its QC inspector. Another QC inspector must inspect it.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
   if (text.includes('only the named issue custodian') || text.includes('own material return') || text.includes('accept their own')) {
     return {
       title: 'Wrong person for this step',
       guidance:
         'The engineer who holds the material declares the return, and someone else in Stores accepts it. Ask the right person to take this step.',
       reloadable: false,
+      technical: false,
+    }
+  }
+
+  // Inventory period close: "This inventory period cannot be closed: N stock
+  // adjustment(s) dated in it are not yet posted or rejected. Post or reject them first."
+  if (text.includes('cannot be closed')) {
+    return {
+      title: 'Open stock adjustments block this period',
+      guidance: 'Post or reject every stock adjustment dated in this period, then close it again.',
+      reloadable: false,
+      technical: false,
+    }
+  }
+
+  // Material issue (EfMaterialIssueService.Issue.cs): a customer-facing excess
+  // line with no decision, or a REJECTED one, refuses the issue.
+  if (text.includes('customer-facing excess requires an approved technical director decision')) {
+    return {
+      title: 'The TD has not approved the excess',
+      guidance:
+        'At least one line on this MIR asks for more than the BOM or customer PO allows, and the Technical Director has not approved it — the decision is either still pending or was a rejection. A rejected excess means the MIR quantity must be edited back within the limit, or a new MIR raised. Check the TD decision column on the MIR.',
+      reloadable: true,
+      technical: false,
+    }
+  }
+
+  // "Issue quantity exceeds MIR line N." — earlier partial issues count
+  // towards the line, so the number entered can be over even when it is at or
+  // below the requested quantity.
+  if (text.includes('issue quantity exceeds mir line')) {
+    return {
+      title: 'More than the MIR line allows',
+      guidance:
+        'What was issued earlier against this line counts too: the total of every issue on the line cannot go above the quantity requested. Reduce the quantity to what is still open on the line (earlier partial issues are shown on the MIR), or raise a new MIR for the extra.',
+      reloadable: true,
       technical: false,
     }
   }
