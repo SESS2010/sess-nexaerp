@@ -310,6 +310,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
+        // Each rejected transaction rolls back when its psql connection exits: prove the
+        // updated contract still rejects write escalation and unrelated page grants.
+        server.AssertRejected("business-part2-tracking-escalation.sql", """
+            BEGIN;
+            UPDATE advance.role_page_permissions p SET "CanApprove"=true
+            FROM advance.roles r, advance.page_definitions d
+            WHERE p."RoleId"=r."Id" AND p."PageDefinitionId"=d."Id"
+              AND r."Code"='PROJECT_MANAGER' AND d."PageKey"='tracking.pending';
+            """ + Part2Assertions, "Catalogue roles must hold exactly");
+        server.AssertRejected("business-part2-unrelated-page.sql", """
+            BEGIN;
+            UPDATE advance.role_page_permissions p
+            SET "PageDefinitionId"=(SELECT "Id" FROM advance.page_definitions WHERE "PageKey"='accounts.inventory-periods')
+            FROM advance.roles r, advance.page_definitions d
+            WHERE p."RoleId"=r."Id" AND p."PageDefinitionId"=d."Id"
+              AND r."Code"='PROJECT_MANAGER' AND d."PageKey"='tracking.pending';
+            """ + Part2Assertions, "Catalogue roles must hold exactly");
+        server.Execute("business-part2-after-rejected-grants.sql", Part2Assertions);
         server.Execute("business-down.sql", MigrationOwnerSession + migrator.GenerateScript(migration, "0"));
     }
 
@@ -692,9 +710,17 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             LEFT JOIN advance.page_definitions d ON d."Id"=p."PageDefinitionId"
             WHERE r."Code" IN ('PROJECT_MANAGER','SITE_ENGINEER','DISPATCH_COORDINATOR','MAINTENANCE_ENGINEER')
             GROUP BY r."Id"
-            HAVING count(p."Id")<>2
-              OR count(p."Id") FILTER (WHERE d."PageKey" IN ('stores.material-issue-requests','stores.material-returns'))<>2)
-            THEN RAISE EXCEPTION 'New catalogue roles must hold only MIR request and Material Return permissions.'; END IF;
+            -- TrackingLite (138) adds Pending to roles that can view a source page (decision 11).
+            -- Require the exact three-page contract, not an exception that hides additional grants.
+            HAVING count(p."Id")<>3
+              OR count(p."Id") FILTER (WHERE d."PageKey" IN ('stores.material-issue-requests','stores.material-returns'))<>2
+              OR count(p."Id") FILTER (WHERE d."PageKey"='tracking.pending'
+                AND p."CanView" AND p."CanViewAuditHistory"
+                AND NOT EXISTS (SELECT 1 FROM jsonb_each(to_jsonb(p)) permission
+                  WHERE (permission.key LIKE 'Can%' OR permission.key='HasFullControl')
+                    AND permission.key NOT IN ('CanView','CanViewAuditHistory')
+                    AND permission.value<>'false'::jsonb))<>1)
+            THEN RAISE EXCEPTION 'Catalogue roles must hold exactly MIR request, Material Return and read-only Pending permissions.'; END IF;
           IF EXISTS (
             SELECT expected."RoleCode",expected."PageKey"
             FROM (VALUES
