@@ -73,11 +73,13 @@ import { EstimatedBomListPage } from './features/design/EstimatedBomListPage'
 import { EstimatedBomDetailPage } from './features/design/EstimatedBomDetailPage'
 import { PurchaseDashboardPage } from './features/dashboards/PurchaseDashboardPage'
 import { StoresDashboardPage } from './features/dashboards/StoresDashboardPage'
+import { PendingPage } from './features/tracking/PendingPage'
 import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
 const TITLES: [prefix: string, title: string][] = [
   ['/dashboards/purchase', 'Purchase Dashboard'],
   ['/dashboards/stores', 'Stores Dashboard'],
+  ['/tracking/pending', 'Pending Documents'],
   ['/vendors', 'Vendor Master'],
   ['/customers', 'Customer Master'],
   ['/items', 'Item Master'],
@@ -154,8 +156,9 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
-          {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can)) && (
+          {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can) || can('tracking.pending')) && (
             <NavSection id="dashboards" label="Dashboards" defaultOpen>
+              {can('tracking.pending') && <NavLink to="/tracking/pending" className={navLinkClass}>Pending</NavLink>}
               {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && <NavLink to="/dashboards/purchase" className={navLinkClass}>Purchase</NavLink>}
               {canOpenAnyStoresSection(can) && <NavLink to="/dashboards/stores" className={navLinkClass}>Stores</NavLink>}
             </NavSection>
@@ -273,6 +276,7 @@ export default function App() {
                 <Route path="*" element={<Navigate to="/" replace />} />
                 <Route path="/dashboards/purchase" element={<PurchaseDashboardPage />} />
                 <Route path="/dashboards/stores" element={<StoresDashboardPage />} />
+                <Route path="/tracking/pending" element={<PendingPage />} />
                 <Route path="/employees" element={<EmployeeListPage />} />
                 <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
                 <Route path="/vendors" element={<VendorListPage />} />
