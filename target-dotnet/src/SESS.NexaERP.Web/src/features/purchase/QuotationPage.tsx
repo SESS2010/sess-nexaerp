@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  getQuotationTaxContext,
   getRfq,
   newIdempotencyKey,
   quotationAttachmentUrl,
@@ -8,8 +9,13 @@ import {
   verifyQuotationTechnically,
 } from '../../api/purchase'
 import { authorizedFetch, saveResponseAsFile } from '../../api/client'
-import type { QuotationLineRequest, RfqDetail, RfqLine } from '../../types/purchase'
-import { QUOTATION_SUBMISSION_SOURCES, VENDOR_REGISTRATION_TYPES } from '../../types/purchase'
+import type { QuotationLineRequest, QuotationTaxContext, RfqDetail, RfqLine } from '../../types/purchase'
+import {
+  QUOTATION_SUBMISSION_SOURCES,
+  VENDOR_REGISTRATION_TYPES,
+  quotationStateSourceWords,
+  supplyTypeWords,
+} from '../../types/purchase'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
@@ -43,6 +49,8 @@ function lineTotal(line: DraftQuoteLine): number {
     num(line.roundOff)
   )
 }
+
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function todayLocal(): string {
   const now = new Date()
@@ -82,8 +90,13 @@ export function QuotationPage() {
   const [attachmentObjectKey, setAttachmentObjectKey] = useState('')
   const [attachmentSha256, setAttachmentSha256] = useState('')
   const [vendorAttestation, setVendorAttestation] = useState('')
-  const [supplierStateCode, setSupplierStateCode] = useState('33')
-  const [placeOfSupplyStateCode, setPlaceOfSupplyStateCode] = useState('33')
+  // R2: both GST state codes come from the server for the selected invitation
+  // (vendor GSTIN / state, delivery warehouse / company profile). They are shown
+  // read-only and sent back exactly as derived; submit is refused until they load.
+  const [taxContext, setTaxContext] = useState<QuotationTaxContext | null>(null)
+  const [taxContextError, setTaxContextError] = useState<unknown>(null)
+  const [loadingTaxContext, setLoadingTaxContext] = useState(false)
+  const [taxContextTick, setTaxContextTick] = useState(0)
   const [vendorRegistrationType, setVendorRegistrationType] = useState<string>(VENDOR_REGISTRATION_TYPES[0])
   const [headerDiscountValue, setHeaderDiscountValue] = useState('0')
   const [requestLateAuthorization, setRequestLateAuthorization] = useState(false)
@@ -140,6 +153,31 @@ export function QuotationPage() {
     }
   }
 
+  const invitationLooksValid = GUID_PATTERN.test(invitationId.trim())
+
+  useEffect(() => {
+    const id = invitationId.trim()
+    setTaxContext(null)
+    setTaxContextError(null)
+    if (!GUID_PATTERN.test(id) || !canRecordQuotation) {
+      setLoadingTaxContext(false)
+      return
+    }
+    let cancelled = false
+    setLoadingTaxContext(true)
+    // A short pause so a GUID being pasted or typed is looked up once, not per keystroke.
+    const timer = window.setTimeout(() => {
+      getQuotationTaxContext(id)
+        .then((context) => { if (!cancelled) setTaxContext(context) })
+        .catch((err) => { if (!cancelled) setTaxContextError(err) })
+        .finally(() => { if (!cancelled) setLoadingTaxContext(false) })
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [invitationId, canRecordQuotation, taxContextTick])
+
   const setLine = (index: number, patch: Partial<DraftQuoteLine>) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
   }
@@ -155,6 +193,14 @@ export function QuotationPage() {
     }
     if (lines.length === 0) {
       setError('Load an RFQ first so the quotation has lines.')
+      return
+    }
+    if (!taxContext) {
+      setError(
+        loadingTaxContext
+          ? 'The GST state codes for this invitation are still being looked up. Wait a moment and try again.'
+          : 'The GST state codes for this invitation could not be derived, so the quotation cannot be recorded. See the Tax identity section.',
+      )
       return
     }
     if (lines.some((line) => !line.hsnSacCode.trim())) {
@@ -177,8 +223,8 @@ export function QuotationPage() {
       OtherCharges: num(line.otherCharges),
       PromisedDeliveryDate: line.promisedDeliveryDate,
       HsnSacCode: line.hsnSacCode.trim(),
-      SupplierStateCode: supplierStateCode.trim(),
-      PlaceOfSupplyStateCode: placeOfSupplyStateCode.trim(),
+      SupplierStateCode: taxContext.SupplierStateCode,
+      PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
       VendorRegistrationType: vendorRegistrationType,
       RoundOff: num(line.roundOff),
     }))
@@ -371,13 +417,64 @@ export function QuotationPage() {
             </label>
             <label className="field">
               <span className="field-label">Supplier state code *</span>
-              <input className="input mono" value={supplierStateCode} onChange={(e) => setSupplierStateCode(e.target.value)} />
+              <input
+                className="input mono"
+                value={taxContext?.SupplierStateCode ?? ''}
+                readOnly
+                placeholder={loadingTaxContext ? 'Looking up…' : '—'}
+                title="Derived by the server from the vendor; cannot be typed."
+              />
+              {taxContext && (
+                <span className="field-hint">
+                  Supplier state {taxContext.SupplierStateCode} {quotationStateSourceWords(taxContext.SupplierStateSource)} (vendor {taxContext.VendorCode}).
+                </span>
+              )}
             </label>
             <label className="field">
               <span className="field-label">Place of supply state code *</span>
-              <input className="input mono" value={placeOfSupplyStateCode} onChange={(e) => setPlaceOfSupplyStateCode(e.target.value)} />
-              <span className="field-hint">Same code as supplier means CGST + SGST; different means IGST.</span>
+              <input
+                className="input mono"
+                value={taxContext?.PlaceOfSupplyStateCode ?? ''}
+                readOnly
+                placeholder={loadingTaxContext ? 'Looking up…' : '—'}
+                title="Derived by the server from the delivery location; cannot be typed."
+              />
+              {taxContext && (
+                <span className="field-hint">
+                  Place of supply {taxContext.PlaceOfSupplyStateCode} {quotationStateSourceWords(taxContext.PlaceOfSupplySource)}.
+                </span>
+              )}
             </label>
+            <div className="field-wide">
+              {taxContext ? (
+                <div className="alert" style={{ marginBottom: 0 }}>
+                  <strong>{supplyTypeWords(taxContext.SupplyType)}</strong> — supplier state {taxContext.SupplierStateCode}{' '}
+                  {quotationStateSourceWords(taxContext.SupplierStateSource)} · place of supply {taxContext.PlaceOfSupplyStateCode}{' '}
+                  {quotationStateSourceWords(taxContext.PlaceOfSupplySource)} · RFQ {taxContext.RfqNumber}, vendor {taxContext.VendorCode}.
+                  These codes are decided by the server and sent as shown; the quotation is refused if they differ.
+                </div>
+              ) : loadingTaxContext ? (
+                <p className="field-hint">Looking up the GST state codes for invitation {invitationId.trim()}…</p>
+              ) : taxContextError ? (
+                <>
+                  <ErrorAlert
+                    error={taxContextError}
+                    onReload={() => setTaxContextTick((value) => value + 1)}
+                    fallback="The GST state codes for this invitation could not be derived."
+                  />
+                  <p className="field-hint">
+                    The quotation cannot be recorded until this is fixed: a vendor needs a GSTIN or a two-digit state code in the Vendor Master,
+                    and the company profile needs its state code (Technical Director).
+                  </p>
+                </>
+              ) : (
+                <p className="field-hint">
+                  {invitationLooksValid
+                    ? 'The GST state codes will be derived once the invitation is checked.'
+                    : 'Enter the invitation id above; the supplier state and place of supply are then derived from the vendor and the delivery location.'}
+                </p>
+              )}
+            </div>
 
             <div className="field-wide form-section-title">Evidence</div>
             <label className="field">
@@ -474,7 +571,12 @@ export function QuotationPage() {
 
           <div className="action-row" style={{ marginTop: 16 }}>
             {canRecordQuotation && (
-              <button type="submit" className="btn btn-primary" disabled={saving || lines.length === 0}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={saving || lines.length === 0 || !taxContext}
+                title={!taxContext ? 'Waiting for the GST state codes of the selected invitation.' : undefined}
+              >
                 {saving ? 'Recording…' : 'Record quotation'}
               </button>
             )}

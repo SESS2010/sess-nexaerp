@@ -9,7 +9,12 @@ import { MACHINE_DELIVERY_PAGE } from '../../types/machineDelivery'
 // /api/v1/session/me, which any authenticated employee may call. The session
 // now carries the resolved permissions, so tiles the role cannot open are
 // hidden rather than opening onto a 403.
+/** A tile every signed-in employee may open: its endpoint has no page-permission gate. */
+const ALWAYS_VISIBLE = '*'
 const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; action?: string }> = [
+  // GET /api/v1/company/profile has no page key: any signed-in employee of the
+  // company reads it (only the Technical Director saves). ALWAYS_VISIBLE marks it.
+  { to: '/company/profile', label: 'Company Profile', hint: 'Legal name, GSTIN and state printed on POs and DCs; warehouse GST states', page: ALWAYS_VISIBLE },
   { to: '/dashboards/purchase', label: 'Purchase Dashboard', hint: 'What needs attention in Purchase: queues, late POs, bills, spend', page: 'dashboards.purchase' },
   { to: '/dashboards/stores', label: 'Stores Dashboard', hint: 'What needs attention in Stores: GRNs, MIRs, QC-held stock', page: 'dashboards.stores-workload' },
   { to: '/purchase/requisitions', label: 'Purchase Requisition', hint: 'Raise, verify or approve a PR', page: PAGE_KEYS.requisitions },
@@ -40,7 +45,7 @@ const SHORTCUTS: Array<{ to: string; label: string; hint: string; page: string; 
 
 export function HomePage() {
   const { me, error, can } = useSession()
-  const tiles = SHORTCUTS.filter((item) => can(item.page, item.action))
+  const tiles = SHORTCUTS.filter((item) => item.page === ALWAYS_VISIBLE ? me !== null : can(item.page, item.action))
 
   return (
     <div className="page">

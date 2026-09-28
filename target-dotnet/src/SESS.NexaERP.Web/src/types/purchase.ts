@@ -253,6 +253,45 @@ export interface QuotationLineRequest {
   RoundOff: number
 }
 
+/**
+ * GET /purchase/rfq-invitations/{id}/tax-context (Rev869BPurchaseEndpoints.cs).
+ * R2: the two GST state codes the quotation must carry, derived by the server
+ * from the vendor (GSTIN, else state code) and the delivery location (warehouse
+ * state, else the company profile). Submit refuses any other values.
+ */
+export interface QuotationTaxContext {
+  InvitationId: string
+  RfqNumber: string
+  VendorCode: string
+  SupplierStateCode: string
+  /** VENDOR_GSTIN | VENDOR_STATE_CODE (QuotationStateRule). */
+  SupplierStateSource: string
+  PlaceOfSupplyStateCode: string
+  /** DELIVERY_WAREHOUSE | COMPANY (QuotationStateRule). */
+  PlaceOfSupplySource: string
+  /** INTRASTATE (CGST+SGST) | INTERSTATE (IGST). */
+  SupplyType: string
+}
+
+/** The source codes of QuotationTaxContext, in words, matching QuotationStateRule.Words. */
+export function quotationStateSourceWords(source: string): string {
+  switch (source) {
+    case 'VENDOR_GSTIN': return "from the vendor's GSTIN"
+    case 'VENDOR_STATE_CODE': return "from the vendor's state code"
+    case 'DELIVERY_WAREHOUSE': return 'from the delivery warehouse'
+    case 'COMPANY': return 'from the company profile'
+    default: return `from ${source}`
+  }
+}
+
+export function supplyTypeWords(supplyType: string): string {
+  switch (supplyType) {
+    case 'INTRASTATE': return 'Intra-state (CGST + SGST)'
+    case 'INTERSTATE': return 'Inter-state (IGST)'
+    default: return supplyType
+  }
+}
+
 export interface SubmitQuotationRequest {
   VendorQuoteReference: string
   CurrencyCode: string

@@ -27,6 +27,7 @@ import type {
   RecentDocKind,
   RecommendComparisonRequest,
   SubmitQuotationRequest,
+  QuotationTaxContext,
   TechnicalVerificationRequest,
   RfqListItem,
   QuotationListItem,
@@ -270,6 +271,17 @@ export function forgetDoc(kind: RecentDocKind, number: string): void {
 }
 
 // --- Vendor quotation --------------------------------------------------
+
+/**
+ * GET /rfq-invitations/{id}/tax-context → purchase.vendor-quotations:create.
+ * 409 when the vendor has neither GSTIN nor state code, or the company profile
+ * has no state; 404 when the invitation is not in scope.
+ */
+export function getQuotationTaxContext(invitationId: string): Promise<QuotationTaxContext> {
+  return api.get<QuotationTaxContext>(
+    `/api/v1/purchase/rfq-invitations/${encodeURIComponent(invitationId)}/tax-context`,
+  )
+}
 
 export function submitQuotation(
   invitationId: string,

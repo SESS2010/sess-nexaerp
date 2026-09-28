@@ -53,6 +53,8 @@ import { StockAdjustmentListPage } from './features/stores/StockAdjustmentListPa
 import { StockAdjustmentDetailPage } from './features/stores/StockAdjustmentDetailPage'
 import { STOCK_ADJUSTMENT_PAGE_KEY } from './api/stockAdjustments'
 import { InventoryPeriodsPage } from './features/accounts/InventoryPeriodsPage'
+import { CompanyProfilePage } from './features/company/CompanyProfilePage'
+import { PrintDocumentPage } from './print/PrintDocumentPage'
 import { INVENTORY_PERIODS_PAGE_KEY } from './api/inventoryPeriods'
 import { NotificationsPage } from './features/notifications/NotificationsPage'
 import { NotificationBell } from './components/NotificationBell'
@@ -96,6 +98,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/accounts/vendor-bills', 'Vendor Bills'],
   ['/accounts/vendor-payments', 'Vendor Payments'],
   ['/accounts/inventory-periods', 'Inventory Periods'],
+  ['/company/profile', 'Company Profile'],
   ['/stores/stock-adjustments', 'Stock Adjustment'],
   ['/notifications', 'Notifications'],
   ['/reports', 'Reports'],
@@ -162,6 +165,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
             {can(PAGE_KEYS.customers) && <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>}
             {can(PAGE_KEYS.items) && <NavLink to="/items" className={navLinkClass}>Item Master</NavLink>}
+            <NavLink to="/company/profile" className={navLinkClass}>Company Profile</NavLink>
             <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           </NavSection>
 
@@ -288,6 +292,7 @@ export default function App() {
                 <Route path="/purchase/comparisons/:comparisonNumber" element={<ComparisonDetailPage />} />
                 <Route path="/purchase/purchase-orders" element={<PurchaseOrderListPage />} />
                 <Route path="/purchase/purchase-orders/:poNumber" element={<PurchaseOrderDetailPage />} />
+                <Route path="/purchase/purchase-orders/:poNumber/print" element={<PrintDocumentPage kind="po" />} />
                 <Route path="/stores/stock-check" element={<StockCheckPage />} />
                 <Route path="/stores/stock-check/:prNumber" element={<StockCheckPage />} />
                 <Route path="/stores/gate-entries" element={<GateEntryListPage />} />
@@ -303,10 +308,12 @@ export default function App() {
                 <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
                 <Route path="/stores/machine-deliveries" element={<MachineDeliveryListPage />} />
                 <Route path="/stores/machine-deliveries/:id" element={<MachineDeliveryDetailPage />} />
+                <Route path="/stores/machine-deliveries/:id/print" element={<PrintDocumentPage kind="dc" />} />
                 <Route path="/accounts/vendor-bills" element={<VendorBillListPage />} />
                 <Route path="/accounts/vendor-bills/:id" element={<VendorBillDetailPage />} />
                 <Route path="/accounts/vendor-payments" element={<VendorPaymentsPage />} />
                 <Route path="/accounts/inventory-periods" element={<InventoryPeriodsPage />} />
+                <Route path="/company/profile" element={<CompanyProfilePage />} />
                 <Route path="/stores/stock-adjustments" element={<StockAdjustmentListPage />} />
                 <Route path="/stores/stock-adjustments/:id" element={<StockAdjustmentDetailPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
