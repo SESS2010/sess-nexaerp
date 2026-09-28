@@ -16,7 +16,8 @@ public sealed record MaterialIssueRequestLineView(Guid Id, int LineNumber, Guid 
     string ItemName, Guid UomId, string UomCode, decimal RequestedQuantity, decimal RequestedBaseQuantity,
     Guid? CustomerPurchaseOrderLineId, decimal EstimatedBomBaseQuantity, decimal ProductionBomBaseQuantity,
     decimal CustomerPoBaseQuantity,
-    decimal ExcessBaseQuantity, string ExcessClassification, bool TdDecisionPresent, string? Remarks);
+    decimal ExcessBaseQuantity, string ExcessClassification, bool TdDecisionPresent, string? Remarks,
+    string? TdDecision, decimal IssuedBaseQuantity);
 public sealed record MaterialIssueRequestView(Guid Id, string RequestNumber, string Purpose,
     string Situation, string DestinationType, Guid? JobOrderId, Guid? CustomerId, Guid? VendorId,
     Guid? DestinationDepartmentId, string DestinationName, Guid RequestingDepartmentId,

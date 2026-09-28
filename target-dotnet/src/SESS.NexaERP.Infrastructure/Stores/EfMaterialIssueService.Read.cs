@@ -172,10 +172,17 @@ public sealed partial class EfMaterialIssueService
             .Select(e => new { e.EmployeeCode, e.EmployeeName }).SingleAsync(ct);
         var departmentCode = await db.Departments.AsNoTracking().Where(d => d.Id == x.RequestingDepartmentId)
             .Select(d => d.Code).SingleAsync(ct);
-        var decisionLines = await db.MaterialIssueExcessDecisions.AsNoTracking()
-            .Where(d => d.CompanyId == x.CompanyId && x.Lines.Select(l => l.Id).Contains(d.MaterialIssueRequestLineId)
-                && d.Decision == "APPROVED")
-            .Select(d => d.MaterialIssueRequestLineId).ToListAsync(ct);
+        var lineIds = x.Lines.Select(l => l.Id).ToArray();
+        var decisions = await db.MaterialIssueExcessDecisions.AsNoTracking()
+            .Where(d => d.CompanyId == x.CompanyId && lineIds.Contains(d.MaterialIssueRequestLineId))
+            .ToDictionaryAsync(d => d.MaterialIssueRequestLineId, d => d.Decision, ct);
+        // Match the issue command's cumulative base-quantity limit; returned material
+        // does not authorize issuing the same MIR quantity again.
+        var issued = await db.MaterialIssueLines.AsNoTracking()
+            .Where(l => l.CompanyId == x.CompanyId && lineIds.Contains(l.MaterialIssueRequestLineId))
+            .GroupBy(l => l.MaterialIssueRequestLineId)
+            .Select(g => new { LineId = g.Key, Quantity = g.Sum(l => l.QuantityBase) })
+            .ToDictionaryAsync(g => g.LineId, g => g.Quantity, ct);
         return new(x.Id, x.RequestNumber, x.Purpose, x.Situation, x.DestinationType,
             x.JobOrderId, x.CustomerId, x.VendorId, x.DestinationDepartmentId,
             x.DestinationNameSnapshot, x.RequestingDepartmentId, departmentCode,
@@ -186,7 +193,8 @@ public sealed partial class EfMaterialIssueService
                     l.CustomerPurchaseOrderLineId, l.EstimatedBomBaseQuantitySnapshot,
                     l.ProductionBomBaseQuantitySnapshot,
                     l.CustomerPoBaseQuantitySnapshot, l.ExcessBaseQuantitySnapshot,
-                    l.ExcessClassification, decisionLines.Contains(l.Id), l.Remarks)).ToList());
+                    l.ExcessClassification, decisions.GetValueOrDefault(l.Id) == "APPROVED", l.Remarks,
+                    decisions.GetValueOrDefault(l.Id), issued.GetValueOrDefault(l.Id))).ToList());
     }
 
     private async Task<MaterialIssueView> IssueViewAsync(MaterialIssue x, bool replayed, CancellationToken ct)

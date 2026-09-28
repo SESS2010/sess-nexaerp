@@ -1338,6 +1338,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(fixture.MachineLineId, Assert.Single(mir.Lines).CustomerPurchaseOrderLineId);
         Assert.Equal(0m, Assert.Single(mir.Lines).CustomerPoBaseQuantity);
         Assert.Equal(.05m, Assert.Single(mir.Lines).ExcessBaseQuantity);
+        Assert.Null(Assert.Single(mir.Lines).TdDecision);
+        Assert.Equal(0m, Assert.Single(mir.Lines).IssuedBaseQuantity);
         var spareMir = await Post<MaterialIssueRequestView>(client, "/api/v1/stores/material-issue-requests",
             new CreateMaterialIssueRequest("SALE", "SPARE_SALE", "CUSTOMER",
                 null, fixture.CustomerId, null, null, "Spare customer", fixture.DepartmentId,
@@ -1379,6 +1381,14 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new MaterialIssueExcessDecisionRequest("APPROVED", "Controlled 0.05 base-unit excess",
                 "mir-excess-approve"));
         Assert.True(Assert.Single(mir.Lines).TdDecisionPresent);
+        Assert.Equal("APPROVED", Assert.Single(mir.Lines).TdDecision);
+        Assert.Equal(0m, Assert.Single(mir.Lines).IssuedBaseQuantity);
+        spareMir = await Post<MaterialIssueRequestView>(client,
+            $"/api/v1/stores/material-issue-excess/{spareMir.Lines.Single().Id}/decision",
+            new MaterialIssueExcessDecisionRequest("REJECTED", "Excess not authorized", "mir-spare-excess-reject"));
+        Assert.Equal("REJECTED", Assert.Single(spareMir.Lines).TdDecision);
+        Assert.False(Assert.Single(spareMir.Lines).TdDecisionPresent);
+        Assert.Equal(0m, Assert.Single(spareMir.Lines).IssuedBaseQuantity);
         user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var issue = await Post<MaterialIssueView>(client,
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
@@ -1386,6 +1396,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issues/from-request/{mir.Id}", issueCommand);
         Assert.False(issue.Replayed); Assert.True(replay.Replayed); Assert.Equal(issue.Id, replay.Id);
         Assert.Equal(job.Id, issue.JobOrderId); Assert.Equal(engineerId, issue.IssuedToEmployeeId);
+        var issuedMir = await Get<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{mir.Id}");
+        Assert.Equal("APPROVED", Assert.Single(issuedMir.Lines).TdDecision);
+        Assert.Equal(.95m, Assert.Single(issuedMir.Lines).IssuedBaseQuantity);
+        Assert.Equal(issue.Lines.Sum(l => l.QuantityBase), Assert.Single(issuedMir.Lines).IssuedBaseQuantity);
+        var untouchedSpare = await Get<MaterialIssueRequestView>(client, $"/api/v1/stores/material-issue-requests/{spareMir.Id}");
+        Assert.Equal("REJECTED", Assert.Single(untouchedSpare.Lines).TdDecision);
+        Assert.Equal(0m, Assert.Single(untouchedSpare.Lines).IssuedBaseQuantity);
         if(storesWorkload is not null)await storesWorkload("MIR_ISSUED",mir.Id);
         await AssertEngineerCustodyReport(client,.95m);
 
