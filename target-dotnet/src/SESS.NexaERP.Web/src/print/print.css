@@ -1,0 +1,186 @@
+/* Printable A4 documents (src/print). Plain CSS so the layout does not depend
+   on utility classes; every class is prefixed pd- (print document). */
+
+.print-root {
+  --pd-ink: #111827;
+  --pd-soft: #4b5563;
+  --pd-rule: #9ca3af;
+  --pd-rule-soft: #d1d5db;
+  --pd-fill: #f3f4f6;
+  --pd-accent: #1e3a8a;
+  color: var(--pd-ink);
+}
+
+/* ---------- Screen: the sheet as a sheet of paper ---------- */
+.pd-sheet {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 10mm 10mm 14mm;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 8px 24px rgb(15 23 42 / 0.10);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 8.4pt;
+  line-height: 1.35;
+  font-feature-settings: "tnum";
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.pd-sheet * { box-sizing: border-box; }
+.pd-sheet h3 { margin: 0; }
+.pd-sheet p { margin: 0; }
+
+/* ---------- Letterhead ---------- */
+.pd-letterhead { margin-bottom: 3mm; }
+.pd-lh-main { display: flex; align-items: flex-start; gap: 4mm; padding-bottom: 2.5mm; border-bottom: 1.6pt solid var(--pd-accent); }
+.pd-logo {
+  display: grid; place-items: center; flex: none;
+  width: 16mm; height: 16mm; border-radius: 2.5mm;
+  background: var(--pd-accent); color: #fff;
+}
+.pd-logo svg { width: 100%; height: 100%; }
+.pd-lh-text { flex: 1; min-width: 0; }
+.pd-lh-name { font-size: 15pt; font-weight: 700; letter-spacing: -0.01em; color: var(--pd-accent); line-height: 1.15; }
+.pd-lh-tagline { font-size: 7.6pt; text-transform: uppercase; letter-spacing: 0.08em; color: var(--pd-soft); margin-top: 0.5mm; }
+.pd-lh-address { margin-top: 1mm; }
+.pd-lh-ids, .pd-lh-contact { display: flex; flex-wrap: wrap; column-gap: 4mm; margin-top: 0.6mm; }
+.pd-lh-ids b { font-weight: 600; color: var(--pd-soft); margin-right: 0.8mm; }
+.pd-lh-contact { color: var(--pd-soft); }
+
+.pd-title {
+  display: flex; align-items: baseline; justify-content: center; gap: 3mm;
+  margin-top: 2.5mm; padding: 1.4mm 0;
+  border-top: 0.6pt solid var(--pd-rule); border-bottom: 0.6pt solid var(--pd-rule);
+  background: var(--pd-fill);
+}
+.pd-title-text { font-size: 12pt; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.pd-title-sub { font-size: 8.4pt; font-weight: 600; color: var(--pd-soft); }
+
+/* ---------- Boxes and facts ---------- */
+.pd-box { border: 0.6pt solid var(--pd-rule); padding: 2mm 2.5mm; margin-bottom: 2.5mm; break-inside: avoid; }
+.pd-box-head {
+  font-size: 7pt !important; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--pd-soft); margin-bottom: 1mm !important;
+}
+.pd-band { padding: 1.6mm 2.5mm; }
+.pd-band .pd-facts { grid-template-columns: repeat(3, 1fr); }
+.pd-two { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5mm; }
+.pd-two > .pd-box { margin-bottom: 2.5mm; }
+
+.pd-facts { display: grid; grid-template-columns: 1fr; row-gap: 0.6mm; column-gap: 4mm; margin: 0; }
+.pd-fact { display: grid; grid-template-columns: 27mm 1fr; gap: 1.5mm; }
+.pd-fact dt { color: var(--pd-soft); }
+.pd-fact dd { margin: 0; }
+
+.pd-party-name { font-weight: 700; font-size: 9.2pt; margin-bottom: 0.4mm; }
+.pd-party b { font-weight: 600; color: var(--pd-soft); }
+
+.pd-strong { font-weight: 700; }
+.pd-muted { color: var(--pd-soft); font-size: 7.6pt; }
+.pd-gap { margin-top: 1.5mm !important; }
+.pd-blank { display: inline-block; width: 45mm; border-bottom: 0.6pt dotted var(--pd-rule); height: 1em; }
+
+/* ---------- Tables ---------- */
+.pd-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 2.5mm; }
+.pd-table th, .pd-table td { border: 0.6pt solid var(--pd-rule); padding: 1mm 1.2mm; vertical-align: top; overflow-wrap: anywhere; }
+.pd-table thead th {
+  background: var(--pd-fill); font-size: 7pt; font-weight: 700; text-align: left;
+  text-transform: uppercase; letter-spacing: 0.03em; vertical-align: bottom;
+}
+.pd-table thead { display: table-header-group; }
+.pd-table tr { break-inside: avoid; }
+.pd-num { text-align: right !important; white-space: nowrap; }
+.pd-table thead th.pd-num { white-space: normal; }
+.pd-center { text-align: center !important; }
+.pd-code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 7.4pt; }
+.pd-tax { line-height: 1.2; }
+.pd-tax > span { display: block; }
+.pd-tax-rate { color: var(--pd-soft); font-size: 7pt; }
+.pd-sum-row td { font-weight: 700; background: var(--pd-fill); }
+.pd-mini { margin: 0.8mm 0 0; }
+.pd-mini th, .pd-mini td { padding: 0.6mm 1.2mm; }
+
+/* ---------- Totals ---------- */
+.pd-totals { display: grid; grid-template-columns: 1fr 68mm; gap: 2.5mm; margin-bottom: 2.5mm; }
+.pd-totals > .pd-box { margin-bottom: 0; }
+.pd-words-text { font-weight: 700; font-size: 9pt; margin-bottom: 1.2mm; }
+.pd-sum { border-collapse: collapse; padding: 0; }
+.pd-sum th, .pd-sum td { padding: 0.8mm 2.5mm; border-bottom: 0.6pt solid var(--pd-rule-soft); }
+.pd-sum th { text-align: left; font-weight: 500; color: var(--pd-soft); }
+.pd-sum td { text-align: right; white-space: nowrap; }
+.pd-sum .pd-grand th, .pd-sum .pd-grand td {
+  border-bottom: 0; border-top: 1pt solid var(--pd-ink); font-weight: 700; font-size: 10pt; color: var(--pd-ink); background: var(--pd-fill);
+}
+
+/* ---------- Terms ---------- */
+.pd-terms { break-inside: auto; }
+.pd-term { display: grid; grid-template-columns: 30mm 1fr; gap: 2mm; padding: 1mm 0; border-top: 0.6pt solid var(--pd-rule-soft); }
+.pd-term:first-of-type { border-top: 0; }
+.pd-term-label { font-weight: 600; }
+.pd-list { margin: 0; padding-left: 4.5mm; list-style: decimal; }
+.pd-list li { margin-bottom: 0.4mm; break-inside: avoid; }
+
+/* ---------- Signatures ---------- */
+.pd-signs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm; margin: 3mm 0 2mm; }
+.pd-signs-2 { grid-template-columns: repeat(2, 1fr); margin-top: 1mm; }
+.pd-sign { display: flex; flex-direction: column; }
+.pd-sign-space { height: 14mm; display: flex; align-items: flex-end; }
+.pd-sign-line { border-top: 0.6pt solid var(--pd-ink); padding-top: 0.8mm; font-weight: 600; }
+.pd-sign-name { color: var(--pd-soft); }
+.pd-receipt .pd-sign-space { height: 12mm; }
+.pd-keep { break-inside: avoid; }
+.pd-foot-note { margin-top: 2mm !important; color: var(--pd-soft); font-size: 7pt; text-align: center; }
+
+/* ---------- "Signed" watermark ---------- */
+.pd-watermark {
+  position: absolute; left: 50%; top: 50%; z-index: -1;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  display: flex; flex-direction: column; align-items: center;
+  border: 2.2mm solid rgb(21 128 61 / 0.16); border-radius: 4mm; padding: 2mm 9mm;
+  color: rgb(21 128 61 / 0.16); pointer-events: none; white-space: nowrap;
+}
+.pd-watermark span { font-size: 64pt; font-weight: 800; letter-spacing: 0.12em; line-height: 1.05; }
+.pd-watermark small { font-size: 13pt; font-weight: 700; }
+
+/* ---------- Print ---------- */
+@page {
+  size: A4 portrait;
+  margin: 10mm 10mm 13mm;
+  @bottom-left { font: 7pt Inter, "Segoe UI", Arial, sans-serif; color: #6b7280; }
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7pt Inter, "Segoe UI", Arial, sans-serif; color: #6b7280; }
+}
+
+@media print {
+  html, body { background: #fff !important; }
+  .no-print { display: none !important; }
+
+  /* Inside the application: drop the menu and top bar, and let the shell grow
+     so the document is not clipped to one screen. */
+  body:has(.print-root) .sidebar,
+  body:has(.print-root) .topbar { display: none !important; }
+  body:has(.print-root) .app-shell,
+  body:has(.print-root) .main,
+  body:has(.print-root) .content {
+    display: block !important; height: auto !important; overflow: visible !important; padding: 0 !important;
+  }
+
+  .pd-sheet { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; }
+  /* Fixed elements repeat on every printed page. */
+  .pd-watermark { position: fixed; }
+}
+
+/* ---------- Density (A4 fit) ---------- */
+.pd-table { font-size: 7.6pt; }
+.pd-table thead th { font-size: 6.4pt; letter-spacing: 0.02em; }
+.pd-table th, .pd-table td { padding: 0.9mm 1mm; }
+.pd-sum-row td { font-size: 7.2pt; }
+.pd-band .pd-fact { grid-template-columns: 25mm 1fr; }
+.pd-lh-main { padding-bottom: 2mm; }
+.pd-title { margin-top: 2mm; padding: 1.1mm 0; }
+.pd-sign-space { height: 11mm; }
+.pd-signs { margin-top: 2mm; }
+/* Signatures never start a page on their own. */
+.pd-signs, .pd-foot-note { break-before: avoid; }
