@@ -250,6 +250,13 @@ internal static class DatabasePrincipalProvisioningSql
             GRANT EXECUTE ON FUNCTION advance.stores_qc_stock(text,uuid,uuid[],text,text,uuid,bigint,integer) TO nexa_erp_runtime;
           END IF;
         END $stores_qc_stock_acl$;
+        DO $machine_delivery_selection_acl$
+        BEGIN
+          IF to_regprocedure('advance.machine_delivery_job_ids(uuid)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.machine_delivery_job_ids(uuid) FROM PUBLIC,nexa_erp_runtime,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.machine_delivery_job_ids(uuid) TO nexa_erp_runtime;
+          END IF;
+        END $machine_delivery_selection_acl$;
         DO $tracking_lite_acl$
         BEGIN
           IF to_regprocedure('advance.tracking_source(uuid,text)') IS NOT NULL THEN
