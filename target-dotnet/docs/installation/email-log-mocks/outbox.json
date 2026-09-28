@@ -1,0 +1,163 @@
+{
+  "Total": 8,
+  "Page": 1,
+  "PageSize": 50,
+  "Items": [
+    {
+      "Id": "86df8699-1a54-542a-9057-7eae2c8b4bf2",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "8dc516fc-4d30-57ed-a7b3-f4c01f59bd7f",
+      "IdempotencyKey": "PO_ISSUED:8dc516fc4d3057eda7b3f4c01f59bd7f:1",
+      "PayloadJson": "{\"purchaseOrderId\":\"8dc516fc-4d30-57ed-a7b3-f4c01f59bd7f\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":1}",
+      "To": [],
+      "Cc": [],
+      "Subject": null,
+      "Status": "PENDING_COMPOSE",
+      "Attempts": 0,
+      "NextAttemptAt": null,
+      "LastError": null,
+      "CreatedAt": "2026-10-15T08:50:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "8340a7e1-67e2-5a9f-8dd4-6d3d546c35e5",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "2ef7a8db-8628-5cff-a3f4-83812f3fc9cd",
+      "IdempotencyKey": "PO_ISSUED:2ef7a8db86285cffa3f483812f3fc9cd:2",
+      "PayloadJson": "{\"purchaseOrderId\":\"2ef7a8db-8628-5cff-a3f4-83812f3fc9cd\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":2}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 2",
+      "Status": "QUEUED",
+      "Attempts": 0,
+      "NextAttemptAt": null,
+      "LastError": null,
+      "CreatedAt": "2026-10-15T08:49:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "6f9f5097-a0df-598b-b1a5-365f6d8f049e",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "953cd5f4-de76-51bd-8a4a-48f5d860e9e1",
+      "IdempotencyKey": "PO_ISSUED:953cd5f4de7651bd8a4a48f5d860e9e1:3",
+      "PayloadJson": "{\"purchaseOrderId\":\"953cd5f4-de76-51bd-8a4a-48f5d860e9e1\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":3}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 3",
+      "Status": "SENDING",
+      "Attempts": 1,
+      "NextAttemptAt": null,
+      "LastError": null,
+      "CreatedAt": "2026-10-15T08:48:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "c4018924-ed61-58b1-81c9-d367a75fc56a",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "21551abe-3aaa-51a8-a944-97026d828562",
+      "IdempotencyKey": "PO_ISSUED:21551abe3aaa51a8a94497026d828562:4",
+      "PayloadJson": "{\"purchaseOrderId\":\"21551abe-3aaa-51a8-a944-97026d828562\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":4}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 4",
+      "Status": "SENT",
+      "Attempts": 1,
+      "NextAttemptAt": null,
+      "LastError": null,
+      "CreatedAt": "2026-10-15T08:47:00+05:30",
+      "SentAt": "2026-10-15T08:59:00+05:30"
+    },
+    {
+      "Id": "d1364b05-981b-5a9a-b47d-680f1157aa31",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "0cfb773d-4c15-5d16-a666-ef381785ab31",
+      "IdempotencyKey": "PO_ISSUED:0cfb773d4c155d16a666ef381785ab31:5",
+      "PayloadJson": "{\"purchaseOrderId\":\"0cfb773d-4c15-5d16-a666-ef381785ab31\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":5}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 5",
+      "Status": "FAILED",
+      "Attempts": 2,
+      "NextAttemptAt": "2026-10-15T09:05:00+05:30",
+      "LastError": "Temporary delivery failure; retry scheduled.",
+      "CreatedAt": "2026-10-15T08:46:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "9bf15451-4ec4-515a-a63e-36b78994e4e3",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "bdaee0c3-39e6-55da-be8c-cf2b4abadce2",
+      "IdempotencyKey": "PO_ISSUED:bdaee0c339e655dabe8ccf2b4abadce2:6",
+      "PayloadJson": "{\"purchaseOrderId\":\"bdaee0c3-39e6-55da-be8c-cf2b4abadce2\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":6}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 6",
+      "Status": "DEAD",
+      "Attempts": 5,
+      "NextAttemptAt": null,
+      "LastError": "Delivery failed after five attempts.",
+      "CreatedAt": "2026-10-15T08:45:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "dc2b4d9c-ade8-5715-be46-5815348f6ecd",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "655c8d5b-be7b-5cd6-ab59-6212fa7f9320",
+      "IdempotencyKey": "PO_ISSUED:655c8d5bbe7b5cd6ab596212fa7f9320:7",
+      "PayloadJson": "{\"purchaseOrderId\":\"655c8d5b-be7b-5cd6-ab59-6212fa7f9320\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":7}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 7",
+      "Status": "BLOCKED_ALLOWLIST",
+      "Attempts": 1,
+      "NextAttemptAt": null,
+      "LastError": "Recipient is outside the TEST allow-list.",
+      "CreatedAt": "2026-10-15T08:44:00+05:30",
+      "SentAt": null
+    },
+    {
+      "Id": "5091ba41-4a2b-5a30-96b3-b385c1e5a228",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "a4fad6d9-f2a2-5295-a693-172a912e630e",
+      "IdempotencyKey": "PO_ISSUED:a4fad6d9f2a25295a693172a912e630e:8",
+      "PayloadJson": "{\"purchaseOrderId\":\"a4fad6d9-f2a2-5295-a693-172a912e630e\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":8}",
+      "To": [],
+      "Cc": [],
+      "Subject": null,
+      "Status": "SKIPPED",
+      "Attempts": 0,
+      "NextAttemptAt": null,
+      "LastError": "Vendor has no e-mail address.",
+      "CreatedAt": "2026-10-15T08:43:00+05:30",
+      "SentAt": null
+    }
+  ]
+}
