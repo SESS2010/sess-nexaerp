@@ -38,6 +38,16 @@ export function LoginPage() {
     setBusy(key)
     setError('')
     clearNotice()
+    // PKCE needs crypto.subtle, which browsers give only to a secure address:
+    // HTTPS, or localhost. An IP address over plain HTTP is refused, so say
+    // so in words instead of surfacing "Crypto.subtle is available only…".
+    if (!window.isSecureContext) {
+      setBusy(null)
+      setError(
+        `Sign-in is not possible from ${window.location.origin}: browsers allow it only over HTTPS or from localhost. Open the ERP as http://localhost:${window.location.port || '80'} on this PC, or through its HTTPS address.`,
+      )
+      return
+    }
     try {
       await beginSignIn(key, returnTo)
       // The browser is leaving for Keycloak; keep the button disabled.
