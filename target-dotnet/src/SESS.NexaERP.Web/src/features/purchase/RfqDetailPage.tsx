@@ -13,6 +13,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 /**
  * Vendors invited from this browser. GET /api/v1/purchase/rfqs/{number} includes
@@ -315,6 +316,8 @@ export function RfqDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <HistoryPanel docType="RFQ" documentId={rfq.Id} />
     </div>
   )
 }

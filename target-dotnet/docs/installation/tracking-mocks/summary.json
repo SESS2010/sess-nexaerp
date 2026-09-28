@@ -1,0 +1,18 @@
+[
+  { "DocType": "PR", "Queue": "pr-department-verification", "Title": "Requisitions awaiting department verification", "State": "READY", "Count": 1, "OverdueCount": 0, "OldestAgeDays": 0 },
+  { "DocType": "PR", "Queue": "pr-approval", "Title": "Requisitions awaiting approval", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "PR", "Queue": "pr-stock-check", "Title": "Requisitions awaiting stock check", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "RFQ", "Queue": "rfq-no-quotation", "Title": "RFQs issued with no quotation", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "QUOTATION", "Queue": "quotation-technical-verification", "Title": "Quotations awaiting technical verification", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "COMPARISON", "Queue": "comparison-decision", "Title": "Comparisons awaiting recommendation or approval", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "PO", "Queue": "po-pending-approval", "Title": "POs waiting for approval", "State": "READY", "Count": 1, "OverdueCount": 1, "OldestAgeDays": 2 },
+  { "DocType": "PO", "Queue": "po-approved-unissued", "Title": "POs approved but not issued", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "PO", "Queue": "po-delivery-overdue", "Title": "POs past the promised delivery date", "State": "READY", "Count": 1, "OverdueCount": 1, "OldestAgeDays": 5 },
+  { "DocType": "GATE_ENTRY", "Queue": "gate-no-grn", "Title": "Gate entries awaiting GRN", "State": "READY", "Count": 1, "OverdueCount": 0, "OldestAgeDays": 0 },
+  { "DocType": "GRN", "Queue": "grn-not-finalised", "Title": "GRNs not finalised", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "QC", "Queue": "qc-pending", "Title": "Receipts awaiting QC", "State": "READY", "Count": 1, "OverdueCount": 0, "OldestAgeDays": 1 },
+  { "DocType": "MIR", "Queue": "mir-approval", "Title": "MIRs awaiting approval", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "MIR", "Queue": "mir-unissued", "Title": "Approved MIRs awaiting issue", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null },
+  { "DocType": "VENDOR_BILL", "Queue": "bill-awaiting-decision", "Title": "Vendor bills awaiting accept or reject", "State": "ACCESS_DENIED", "Count": null, "OverdueCount": null, "OldestAgeDays": null },
+  { "DocType": "GRN", "Queue": "grn-without-bill", "Title": "Receipts with no vendor bill", "State": "ACCESS_DENIED", "Count": null, "OverdueCount": null, "OldestAgeDays": null }
+]

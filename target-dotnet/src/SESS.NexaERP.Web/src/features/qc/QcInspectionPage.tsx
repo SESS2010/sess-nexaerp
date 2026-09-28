@@ -6,6 +6,7 @@ import { getItem } from '../../api/items'
 import type { QcInspectionPolicy, QcInspectionResult } from '../../types/qc'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 import { QcDispositionForm, type QcDispositionValues, type QcSerialSource } from './QcDispositionForm'
 
@@ -21,6 +22,8 @@ export function QcInspectionPage() {
   const { can } = useSession()
   const [inspection, setInspection] = useState<QcInspectionResult | null>(null)
   const [serials, setSerials] = useState<QcSerialSource[]>([])
+  // The inspection view carries the GRN number, not its id; the GRN read below supplies the id for the QC history panel.
+  const [grnId, setGrnId] = useState<string | null>(null)
   const [hasPolicy, setHasPolicy] = useState(false)
   const [policies, setPolicies] = useState<QcInspectionPolicy[]>([])
   const [loading, setLoading] = useState(true)
@@ -51,6 +54,7 @@ export function QcInspectionPage() {
       try {
         const receipts = await listGoodsReceipts({ page: 1, pageSize: 1, grnNumber: loaded.GrnNumber })
         const grn = receipts.Items?.[0]
+        setGrnId(grn?.Id ?? null)
         const line = grn?.Lines.find((candidate) => candidate.Lots.some((lot) => lot.Id === loaded.GoodsReceiptLineLotAllocationId))
         setSerials(
           (line?.Serials ?? [])
@@ -237,6 +241,8 @@ export function QcInspectionPage() {
           <button type="button" className="btn btn-ghost mt-2" disabled={busy} onClick={() => setCorrecting(false)}>Cancel</button>
         </>
       ))}
+
+      {grnId && <HistoryPanel docType="QC" documentId={grnId} title="QC history" />}
     </div>
   )
 }

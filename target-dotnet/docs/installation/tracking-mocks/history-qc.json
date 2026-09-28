@@ -1,0 +1,17 @@
+{
+  "DocType": "QC",
+  "DocumentId": "a4e3b2c1-9d8f-4e7a-b6c5-d4e3f2a1b0c9",
+  "Number": "GRN/SPVT/26-27/000031",
+  "CurrentStatus": "FINALIZED",
+  "PendingWithRole": null,
+  "WaitingSince": null,
+  "AgeDays": null,
+  "IsOverdue": null,
+  "Events": [
+    { "At": "2026-10-15T10:31:18+05:30", "Stage": "QC", "Action": "QC_FINALIZED", "FromStatus": null, "ToStatus": "ACCEPTED", "EmployeeCode": "SESS-33", "EmployeeName": "Trial QC Manager", "LoginId": null, "RoleCode": null, "Remarks": "QCI/SPVT/26-27/000019 line 1" },
+    { "At": "2026-10-15T10:05:00+05:30", "Stage": "QC", "Action": "QC_STARTED", "FromStatus": null, "ToStatus": null, "EmployeeCode": "SESS-33", "EmployeeName": "Trial QC Manager", "LoginId": null, "RoleCode": null, "Remarks": "QCI/SPVT/26-27/000019 line 1" },
+    { "At": "2026-10-14T16:05:12+05:30", "Stage": "GRN", "Action": "FINALIZED", "FromStatus": "DRAFT", "ToStatus": "FINALIZED", "EmployeeCode": "SESS-35", "EmployeeName": "Trial Stores Executive", "LoginId": null, "RoleCode": "STORES_EXECUTIVE", "Remarks": null },
+    { "At": "2026-10-14T15:58:40+05:30", "Stage": "GRN", "Action": "CREATED", "FromStatus": null, "ToStatus": "DRAFT", "EmployeeCode": "SESS-35", "EmployeeName": "Trial Stores Executive", "LoginId": null, "RoleCode": "STORES_EXECUTIVE", "Remarks": null },
+    { "At": "2026-10-14T12:10:03+05:30", "Stage": "GATE_ENTRY", "Action": "FINALIZED", "FromStatus": "DRAFT", "ToStatus": "FINALIZED", "EmployeeCode": "SESS-35", "EmployeeName": "Trial Stores Executive", "LoginId": null, "RoleCode": "STORES_EXECUTIVE", "Remarks": null }
+  ]
+}

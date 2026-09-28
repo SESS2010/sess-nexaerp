@@ -7,6 +7,7 @@ import type { VendorBillView } from '../../types/vendorBill'
 import type { GoodsReceiptResult } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 
@@ -185,6 +186,8 @@ export function VendorBillDetailPage() {
           </div>
         </div>
       )}
+
+      <HistoryPanel docType="VENDOR_BILL" documentId={bill.Id} />
 
       <p><Link to="/accounts/vendor-bills">← Back to Vendor Bills</Link></p>
     </div>

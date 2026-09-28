@@ -14,6 +14,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 type Pane = 'workflow' | 'amend' | 'cancel'
 
@@ -391,6 +392,8 @@ export function PurchaseOrderDetailPage() {
           </div>
         </div>
       )}
+
+      <HistoryPanel docType="PO" documentId={po.Id} />
     </div>
   )
 }

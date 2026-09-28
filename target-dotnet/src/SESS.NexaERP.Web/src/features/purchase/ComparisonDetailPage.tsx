@@ -13,6 +13,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 interface ActionDefinition {
   action: ComparisonAction
@@ -325,6 +326,8 @@ export function ComparisonDetailPage() {
         </p>
       </div>
       )}
+
+      <HistoryPanel docType="COMPARISON" documentId={comparison.Id} />
     </div>
   )
 }

@@ -247,6 +247,38 @@ body {
   @apply mt-3 border-b border-line pb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-accent;
 }
 
+/* ---------- History panel (tracking-lite R1) ---------- */
+.history-panel { @apply mt-6 rounded-xl border border-line bg-white p-5 shadow-xs; }
+.history-heading { @apply flex items-center justify-between gap-3; }
+.history-toggle { @apply inline-flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-ink; }
+.history-toggle .history-title { @apply mb-0; }
+.history-chevron { @apply w-3 text-[12px] text-ink-faint; }
+.history-refresh { @apply cursor-pointer text-[12.5px] text-blue-700 hover:underline aria-disabled:cursor-default aria-disabled:text-ink-faint aria-disabled:no-underline; }
+.history-body { @apply mt-3; }
+.history-unavailable { @apply mt-0; }
+.history-summary { @apply mb-4 flex flex-wrap items-center gap-2.5 text-[13px]; }
+.history-number { @apply font-semibold text-ink; }
+.history-waiting { @apply inline-flex flex-wrap items-center gap-1.5 text-ink-soft; }
+.history-overdue { @apply ml-1; }
+.history-timeline { @apply m-0 list-none p-0; }
+.history-stage { @apply relative mb-4 last:mb-0; }
+.history-stage-label { @apply mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint; }
+.history-events { @apply m-0 list-none border-l-2 border-line p-0 pl-4; }
+.history-event { @apply relative pb-3 last:pb-0; }
+.history-event::before {
+  content: "";
+  @apply absolute -left-[21px] top-[7px] size-2 rounded-full bg-slate-400 ring-2 ring-white;
+}
+.history-event:first-child::before { @apply bg-blue-600; }
+.history-event-head { @apply flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13.5px]; }
+.history-action { @apply font-semibold text-ink; }
+.history-transition { @apply inline-flex items-center gap-1.5; }
+.history-arrow { @apply text-ink-faint; }
+.history-none { @apply text-ink-faint; }
+.history-time { @apply text-[12px] text-ink-soft; }
+.history-who { @apply mt-0.5 text-[12.5px] text-ink-soft; }
+.history-remarks { @apply mt-0.5 text-[12.5px] italic text-ink-faint; }
+
 /* ---------- Login ---------- */
 .login-shell {
   @apply grid min-h-screen place-items-center p-6;

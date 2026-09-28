@@ -11,6 +11,7 @@ import type { MaterialIssueRequestView } from '../../types/materialIssue'
 import { mirLineIssuedQuantity, mirLineTdRejected } from '../../types/materialIssue'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { MaterialIssueRequestFormModal } from './MaterialIssueRequestFormModal'
 import { MaterialIssueFormModal } from './MaterialIssueFormModal'
@@ -319,6 +320,8 @@ export function MaterialIssueRequestDetailPage() {
           }}
         />
       )}
+
+      <HistoryPanel docType="MIR" documentId={mir.Id} />
 
       <p className="field-hint" style={{ marginTop: 16 }}>
         <a className="row-click" onClick={() => navigate('/stores/material-issue-requests')}>← Back to Material Issue Requests</a>

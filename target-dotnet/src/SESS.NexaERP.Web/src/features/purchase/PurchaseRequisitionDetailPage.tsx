@@ -16,6 +16,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { PurchaseRequisitionFormModal } from './PurchaseRequisitionFormModal'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ApiError } from '../../api/client'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 /**
  * Who has the PR next, in words a requester or approver understands. The API
@@ -366,6 +367,8 @@ export function PurchaseRequisitionDetailPage() {
 
       <h2>Status history</h2>
       <HistoryTable rows={statusHistory} empty="No status events, or you lack the audit-history permission." />
+
+      <HistoryPanel docType="PR" documentId={detail.Id} />
 
       {editing && (
         <PurchaseRequisitionFormModal

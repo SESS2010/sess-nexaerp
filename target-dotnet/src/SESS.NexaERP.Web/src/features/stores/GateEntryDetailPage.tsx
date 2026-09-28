@@ -6,6 +6,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 function yesNo(value: boolean | null | undefined): string {
@@ -235,6 +236,8 @@ export function GateEntryDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <HistoryPanel docType="GATE_ENTRY" documentId={gate.Id} />
 
       {editing && (
         <GateEntryFormModal

@@ -6,6 +6,7 @@ import type { GoodsReceiptResult } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { GoodsReceiptFormModal } from './GoodsReceiptFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 export function GoodsReceiptDetailPage() {
@@ -322,6 +323,9 @@ export function GoodsReceiptDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <HistoryPanel docType="GRN" documentId={grn.Id} />
+      {grn.Status === 'FINALIZED' && <HistoryPanel docType="QC" documentId={grn.Id} title="QC history" />}
 
       {editing && grn && (
         <GoodsReceiptFormModal
