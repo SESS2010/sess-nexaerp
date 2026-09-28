@@ -244,10 +244,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-35", "STORES_EXECUTIVE");
         var candidates = await Get<PagedResponse<MachineDeliveryJobOrderCandidate>>(client, "/api/v1/stores/machine-deliveries/job-orders?search=" + Uri.EscapeDataString(job.MachineSerial));
         Assert.Equal(job.Id, Assert.Single(candidates.Items).JobOrderId);
+        var dispatchDay = DateOnly.FromDateTime(DateTime.Now);
         var dispatch = await Post<JsonElement>(client, "/api/v1/stores/machine-deliveries/", new DispatchMachineRequest(job.Id, "GO-LIVE-MDC-001", "NON_RETURNABLE", "CUSTOMER_PO_BASED",
-            DateOnly.FromDateTime(DateTime.Now), null, "Customer site, Bengaluru", "go-live-machine-dispatch"));
+            dispatchDay, null, "Customer site, Bengaluru", "go-live-machine-dispatch", " TN 01 AB 1234 ", "SESS own vehicle", "123456789012", dispatchDay));
         var deliveryId = dispatch.GetProperty("Id").GetGuid();
         Assert.Equal("DISPATCHED", dispatch.GetProperty("MachineState").GetString());
+        Assert.Equal(("TN 01 AB 1234", "123456789012"), (dispatch.GetProperty("VehicleNo").GetString(), dispatch.GetProperty("EwayBillNo").GetString()));
+        // R6: the printed DC. The company profile comes first (the Technical Director enters it if this company has none yet).
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        var companyProfile = await Get<JsonElement>(client, "/api/v1/company/profile");
+        if (!companyProfile.GetProperty("IsComplete").GetBoolean())
+            using (var saved = await client.PutAsJsonAsync("/api/v1/company/profile", new SESS.NexaERP.Application.Masters.SaveCompanyProfileRequest(
+                "Go-live Company Pvt Ltd", null, "33ABACS5491H1ZA", "ABACS5491H", "33", "Tamil Nadu", "No. 1, Example Street", null, "Chennai", "600001", null, null, 0, "Legal details from the GST certificate")))
+                Assert.True(saved.IsSuccessStatusCode, await saved.Content.ReadAsStringAsync());
+        Actor("SESS-35", "STORES_EXECUTIVE");
+        var dcPrint = await Get<MachineDeliveryPrintView>(client, $"/api/v1/stores/machine-deliveries/{deliveryId}/print");
+        Assert.Equal(("GO-LIVE-MDC-001", "DISPATCHED", "SESS own vehicle", dispatchDay), (dcPrint.DcNumber, dcPrint.DcState, dcPrint.Transporter, dcPrint.EwayBillDate));
+        Assert.Equal(job.JobOrderNumber, dcPrint.JobOrderNumber);
+        var dcItem = Assert.Single(dcPrint.Items);
+        Assert.Equal((job.MachineSerial, 1m), (dcItem.MachineSerial, dcItem.Quantity));
+        Assert.Equal("33ABACS5491H1ZA", dcPrint.Company.Gstin);
+        Assert.Equal(1, await Query(options, db => db.AuditLogs.CountAsync(x => x.Action == "PrintMachineDelivery" && x.EntityId == deliveryId.ToString())));
         var delivered = await Post<JsonElement>(client, $"/api/v1/stores/machine-deliveries/{deliveryId}/signature", new SignMachineDeliveryRequest(DateTimeOffset.UtcNow, "Customer representative",
             new SupplierInvoiceEvidenceInput("signed-go-live-dc.pdf", "application/pdf", Encoding.ASCII.GetBytes("%PDF-1.7\nGo-live customer signed machine DC\n%%EOF")), "go-live-machine-sign"));
         Assert.Equal("DELIVERED", delivered.GetProperty("MachineState").GetString());
@@ -435,6 +452,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         writeOff = await Post<StockAdjustmentView>(client, $"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Write-off accepted", "go-live-adj-writeoff-td"));
         Assert.Equal("SUBMITTED", writeOff.Status);
         Assert.Equal(new[] { "ACCOUNTS_MANAGER" }, writeOff.OutstandingRoleCodes);
+        // G2 (26 Sep): the period cannot be closed while this write-off, dated in it, is still unposted.
+        Actor("SESS-02", "CHIEF_FINANCIAL_OFFICER");
+        var openPeriod = await Get<InventoryPeriodView>(client, $"/api/v1/accounts/inventory-periods/{period.Id}");
+        using (var closeRefused = await client.PostAsJsonAsync($"/api/v1/accounts/inventory-periods/{period.Id}/close",
+                   new CloseInventoryPeriodRequest(openPeriod.Version, "Year end close attempted too early", "go-live-period-close-refused")))
+        {
+            var refusal = await closeRefused.Content.ReadAsStringAsync();
+            Assert.True(closeRefused.StatusCode == HttpStatusCode.Conflict, refusal);
+            Assert.Contains("1 stock adjustment(s) dated in it are not yet posted or rejected", refusal);
+        }
+        Assert.Equal("OPEN", (await Get<InventoryPeriodView>(client, $"/api/v1/accounts/inventory-periods/{period.Id}")).Status);
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
         using (var twice = await client.PostAsJsonAsync($"{path}/{writeOff.Id}/approve", new StockAdjustmentDecisionRequest(writeOff.Version, "Again", "go-live-adj-writeoff-td-2")))
             Assert.Equal(HttpStatusCode.Forbidden, twice.StatusCode);
         Actor("SESS-14", "ACCOUNTS_MANAGER");

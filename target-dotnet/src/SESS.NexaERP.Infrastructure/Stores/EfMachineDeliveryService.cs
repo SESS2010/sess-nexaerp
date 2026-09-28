@@ -135,6 +135,31 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
         await using var reader=await command.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct) ? new(reader.GetString(0),reader.GetString(1),reader.GetFieldValue<byte[]>(2)) : null;
     }
+    /// <summary>R6: the printed machine DC, from the stored DC row; the machine is the single item line (option A). Each print is audited.</summary>
+    public async Task<MachineDeliveryPrintView?> PrintAsync(Guid id,CancellationToken ct)
+    {
+        if(await GetAsync(id,ct) is not {} dc) return null;
+        var company=await Company(ct);
+        var header=await SESS.NexaERP.Infrastructure.Masters.CompanyPrintBlock.ReadAsync(db,company,ct);
+        string? Text(string name)=>dc.TryGetProperty(name,out var v) && v.ValueKind==JsonValueKind.String ? v.GetString() : null;
+        DateOnly? Date(string name)=>Text(name) is {} s ? DateOnly.Parse(s,System.Globalization.CultureInfo.InvariantCulture) : null;
+        var jobId=dc.GetProperty("JobOrderId").GetGuid(); var customerId=dc.GetProperty("CustomerId").GetGuid();
+        var poId=dc.GetProperty("CustomerPurchaseOrderId").GetGuid(); var actorId=dc.GetProperty("ActorEmployeeId").GetGuid();
+        var jobNumber=await db.JobOrders.AsNoTracking().Where(j=>j.CompanyId==company && j.Id==jobId).Select(j=>j.JobOrderNumber).SingleAsync(ct);
+        var customer=await db.Customers.AsNoTracking().Where(c=>c.Id==customerId).Select(c=>new MachineDeliveryPrintParty(c.CustomerCode,c.Name,c.LegalCustomerName,
+            c.GstNumber,c.ShippingAddress ?? c.BillingAddress,c.State,c.StateCode,c.ContactPerson,c.Phone)).SingleAsync(ct);
+        var poDate=await db.CustomerPurchaseOrders.AsNoTracking().Where(p=>p.Id==poId).Select(p=>p.CustomerPoDate).SingleAsync(ct);
+        var actor=await db.Employees.AsNoTracking().Where(e=>e.Id==actorId).Select(e=>new {e.EmployeeCode,e.EmployeeName}).SingleAsync(ct);
+        var model=Text("MachineModel")!; var serial=Text("MachineSerial")!;
+        var signature=dc.TryGetProperty("Signature",out var s) && s.ValueKind==JsonValueKind.Object ? s : (JsonElement?)null;
+        var view=new MachineDeliveryPrintView(header,id,Text("DcNumber")!,Date("DispatchDate")!.Value,Text("Nature")!,Text("Purpose")!,Date("ExpectedReturnDate"),
+            Text("Destination")!,Text("VehicleNo"),Text("Transporter"),Text("EwayBillNo"),Date("EwayBillDate"),Text("DcState")!,customer,Text("CustomerPoNumber")!,poDate,jobNumber,
+            [new MachineDeliveryPrintLine(1,$"Machine {model}, serial {serial}",model,serial,1m,"NOS")],actor.EmployeeCode,actor.EmployeeName,
+            dc.GetProperty("RecordedAt").GetDateTimeOffset(),signature?.GetProperty("DeliveredAt").GetDateTimeOffset(),
+            signature?.GetProperty("CustomerSignatory").GetString(),DateTimeOffset.UtcNow,user.LoginId);
+        await audit.WriteAsync("Stores","PrintMachineDelivery","MachineDelivery",id.ToString(),null,new {view.DcNumber,view.DcState},ct);
+        return view;
+    }
     public async Task<JsonElement?> GetAsync(Guid id,CancellationToken ct)
     {
         var company=await Company(ct);

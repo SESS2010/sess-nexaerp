@@ -18,6 +18,9 @@ public static class MachineDeliveryEndpoints
   group.MapGet("/{id:guid}",async(Guid id,IMachineDeliveryService service,CancellationToken ct)=>
     await service.GetAsync(id,ct) is {} value ? Results.Ok(value):Results.NotFound())
    .RequirePagePermission("stores.machine-deliveries",PagePermissionActions.View);
+  group.MapGet("/{id:guid}/print",async(Guid id,IMachineDeliveryService service,CancellationToken ct)=>
+    await service.PrintAsync(id,ct) is {} print ? Results.Ok(print):Results.NotFound())
+   .RequirePagePermission("stores.machine-deliveries",PagePermissionActions.Print);
   group.MapGet("/{id:guid}/signature-evidence",async(Guid id,IMachineDeliveryService service,CancellationToken ct)=>
     await service.SignatureAsync(id,ct) is {} file ? Results.File(file.Content,file.ContentType,file.FileName):Results.NotFound())
    .RequirePagePermission("reports.machine-dossier",PagePermissionActions.View);

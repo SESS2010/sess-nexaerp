@@ -34,6 +34,12 @@ public static class OpeningStockEndpoints
             HttpContext h, CancellationToken ct) =>
             Run(() => service.AuthorizeAsync(id, request, ct), h, false))
             .RequirePagePermission("stores.opening-stock", PagePermissionActions.Approve);
+        // Option A (26 Sep): the Stores Manager who counted, or the Technical Director; the SQL decides which.
+        group.MapPost("/{id:guid}/withdraw", (Guid id,
+            OpeningStockTransitionRequest request, IOpeningStockService service,
+            HttpContext h, CancellationToken ct) =>
+            Run(() => service.WithdrawAsync(id, request, ct), h, false))
+            .RequirePagePermission("stores.opening-stock", PagePermissionActions.Create);
         return endpoints;
     }
 

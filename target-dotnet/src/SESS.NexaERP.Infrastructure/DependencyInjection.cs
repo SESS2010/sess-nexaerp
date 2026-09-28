@@ -78,6 +78,7 @@ public static class DependencyInjection
         services.AddScoped<IIntercompanyService, EfIntercompanyService>();
         services.AddScoped<IIntercompanyInvoiceService, EfIntercompanyInvoiceService>();
         services.AddScoped<IInventoryPeriodService, EfInventoryPeriodService>();
+        services.AddScoped<SESS.NexaERP.Application.Masters.ICompanyProfileService, SESS.NexaERP.Infrastructure.Masters.EfCompanyProfileService>();
         services.AddScoped<IVendorManualAssessmentService, EfVendorManualAssessmentService>();
         services.AddScoped<IVendorRatingEvidenceService, EfVendorRatingEvidenceService>();
         services.AddScoped<IVendorFinancialEvidenceService, EfVendorFinancialEvidenceService>();

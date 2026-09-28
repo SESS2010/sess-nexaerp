@@ -10,6 +10,14 @@ ERP PFX, Keycloak private key or root private PFX to an office PC.
    **A95109800BD04600670FAD6E4316996FEB5B153D03EA07493ED8BE691F796913**
 
    Stop if any character differs. The approved subject is CN=SESS Office Root CA.
+
+   Windows shows the SHA-1 **thumbprint** of the same certificate (certificate
+   Details, "Thumbprint", or `certutil -hashfile .\SESS-Office-Root.cer SHA1`):
+
+   **8D7FA818E3E137C27DF075ADB61AC3169E3A6027**
+
+   Both values were checked on the Technical Director's PC on 26 September 2026 to
+   be the same certificate. Either one must match in full; stop if it does not.
 2. Double-click the .cer, choose **Install Certificate**, **Local Machine**,
    approve the administrator prompt. Choose **Place all certificates in the
    following store**, then **Trusted Root Certification Authorities**. Finish.

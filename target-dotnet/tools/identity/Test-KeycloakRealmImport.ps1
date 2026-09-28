@@ -55,7 +55,11 @@ function Note([string]$Text) { "$(Get-Date -Format o) $Text" | Add-Content (Join
 function Get-FreePort { $l = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0); $l.Start(); $p = $l.LocalEndpoint.Port; $l.Stop(); return $p }
 function Invoke-Logged([string]$File, [string]$Arguments, [string]$LogName) {
     $out = Join-Path $EvidenceDirectory "$LogName.out.log"; $err = Join-Path $EvidenceDirectory "$LogName.err.log"
-    $p = Start-Process -FilePath $File -ArgumentList $Arguments -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+    # Not -Wait: in Windows PowerShell 5.1 it waits for the whole process tree, and `pg_ctl start`
+    # leaves PostgreSQL running as a child, so the first run of this script hung there (27 Sep).
+    $p = Start-Process -FilePath $File -ArgumentList $Arguments -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $p.Handle   # keeps the exit code readable after the process ends
+    $p.WaitForExit()
     return $p.ExitCode
 }
 
@@ -184,12 +188,85 @@ try {
         return $result
     }
 
+    # D9 (26 September): the realm files must also reproduce the state the TD exported from the server
+    # (RealmFixState-20260926-1545.json, SHA-256 02E9A4D5A73D5BA28005CA2D32AA26E5FB810F595A04CF5A6E59F514B5819FC2):
+    # account-console with its three mappers and account role scope, UPDATE_PASSWORD enabled and not
+    # default, CONFIGURE_TOTP default only in approvers, delete_account disabled, the ERP client keeping
+    # only nexaerp/access, and no realm-level default client scopes.
+    function Read-RealmFix([string]$Label) {
+        $token = (Invoke-RestMethod -Method Post -Uri "$base/realms/master/protocol/openid-connect/token" -ContentType 'application/x-www-form-urlencoded' `
+            -Body @{ grant_type = 'password'; client_id = 'admin-cli'; username = 'throwaway-reader'; password = $env:KC_TEST_ADMIN_PASSWORD }).access_token
+        $h = @{ Authorization = "Bearer $token" }
+        $failures = [Collections.Generic.List[string]]::new()
+        function Check([bool]$Condition, [string]$What) { if (-not $Condition) { $failures.Add($What) } }
+        # Windows PowerShell 5.1 returns a JSON array from Invoke-RestMethod as ONE object; unroll it, or an
+        # empty list counts as 1 (the first D9 run on 27 Sep read back false failures that way).
+        function Get-List([string]$Uri) { @(Invoke-RestMethod -Headers $h -Uri $Uri | ForEach-Object { $_ }) }
+        $expectedMappers = [ordered]@{
+            'audience resolve' = @{ Type = 'oidc-audience-resolve-mapper'; Config = [ordered]@{} }
+            'sess-account-roles' = @{ Type = 'oidc-usermodel-client-role-mapper'; Config = [ordered]@{ 'access.token.claim' = 'true'; 'claim.name' = 'resource_access.${client_id}.roles';
+                'id.token.claim' = 'false'; 'introspection.token.claim' = 'true'; 'jsonType.label' = 'String'; 'lightweight.claim' = 'false'; 'multivalued' = 'true';
+                'userinfo.token.claim' = 'false'; 'usermodel.clientRoleMapping.clientId' = 'account' } }
+            'sess-sub' = @{ Type = 'oidc-sub-mapper'; Config = [ordered]@{ 'access.token.claim' = 'true'; 'introspection.token.claim' = 'true'; 'lightweight.claim' = 'false' } }
+        }
+        $realms = [ordered]@{}
+        foreach ($realmName in 'staff', 'approvers') {
+            $r = "$base/admin/realms/$realmName"
+            $console = @(Get-List "$r/clients?clientId=account-console")
+            Check ($console.Count -eq 1) "$realmName account-console missing"
+            $c = $console[0]
+            Check ($c.publicClient -and -not $c.fullScopeAllowed -and $c.standardFlowEnabled -and -not $c.directAccessGrantsEnabled -and -not $c.implicitFlowEnabled -and -not $c.serviceAccountsEnabled) "$realmName account-console flags"
+            Check ((@($c.redirectUris) -join ',') -eq "/realms/$realmName/account/*") "$realmName account-console redirect URIs $(@($c.redirectUris) -join ',')"
+            Check (@($c.webOrigins | Where-Object { $_ }).Count -eq 0) "$realmName account-console web origins"
+            Check ($c.baseUrl -eq "/realms/$realmName/account/" -and $c.rootUrl -eq '${authBaseUrl}') "$realmName account-console base/root URL"
+            Check ($c.attributes.'pkce.code.challenge.method' -eq 'S256' -and $c.attributes.'post.logout.redirect.uris' -eq '+') "$realmName account-console PKCE / logout attributes"
+            $mappers = @($c.protocolMappers | Where-Object { $_ })
+            Check ($mappers.Count -eq 3) "$realmName account-console has $($mappers.Count) mappers, expected 3"
+            foreach ($name in $expectedMappers.Keys) {
+                $m = @($mappers | Where-Object name -eq $name)
+                $want = $expectedMappers[$name]
+                Check ($m.Count -eq 1 -and $m[0].protocolMapper -eq $want.Type) "$realmName mapper $name missing or wrong type"
+                if ($m.Count -eq 1) {
+                    $have = @($m[0].config.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object) -join ';'
+                    $need = @($want.Config.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Sort-Object) -join ';'
+                    Check ($have -eq $need) "$realmName mapper $name config [$have] expected [$need]"
+                }
+            }
+            Check ((@(Get-List "$r/clients/$($c.id)/default-client-scopes")).Count -eq 0) "$realmName account-console has default client scopes"
+            Check ((@(Get-List "$r/clients/$($c.id)/optional-client-scopes")).Count -eq 0) "$realmName account-console has optional client scopes"
+            $account = (@(Get-List "$r/clients?clientId=account"))[0]
+            $scope = @(Invoke-RestMethod -Headers $h -Uri "$r/clients/$($c.id)/scope-mappings/clients/$($account.id)" | ForEach-Object { $_.name } | Sort-Object) -join ','
+            Check ($scope -eq 'manage-account,view-groups') "$realmName account-console role scope [$scope]"
+            $actions = @(Get-List "$r/authentication/required-actions")
+            $totp = @($actions | Where-Object alias -eq 'CONFIGURE_TOTP')[0]; $update = @($actions | Where-Object alias -eq 'UPDATE_PASSWORD')[0]; $delete = @($actions | Where-Object alias -eq 'delete_account')[0]
+            Check ($totp -and $totp.enabled -and ($totp.defaultAction -eq ($realmName -eq 'approvers'))) "$realmName CONFIGURE_TOTP enabled/default"
+            Check ($update -and $update.enabled -and -not $update.defaultAction) "$realmName UPDATE_PASSWORD enabled, not default"
+            Check ($delete -and -not $delete.enabled -and -not $delete.defaultAction) "$realmName delete_account disabled"
+            $erp = (@(Get-List "$r/clients?clientId=nexaerp-$realmName"))[0]
+            $erpScopes = @(Invoke-RestMethod -Headers $h -Uri "$r/clients/$($erp.id)/default-client-scopes" | ForEach-Object { $_.name } | Sort-Object) -join ','
+            Check ($erpScopes -eq 'nexaerp/access' -and @($erp.protocolMappers | Where-Object { $_ }).Count -eq 2 -and -not $erp.fullScopeAllowed) "$realmName ERP client changed (scopes [$erpScopes])"
+            Check ((@(Get-List "$r/default-default-client-scopes")).Count -eq 0) "$realmName has realm-level default client scopes"
+            $optional = @(Get-List "$r/default-optional-client-scopes" | ForEach-Object { $_.name }) -join ','
+            # Keycloak always creates offline_access as a realm optional scope; nothing else may be there.
+            Check ($optional -eq 'offline_access' -or $optional -eq '') "$realmName has realm-level optional client scopes [$optional]"
+            $realms[$realmName] = [ordered]@{ Mappers = @($mappers | ForEach-Object { $_.name }); RoleScope = $scope; ErpScopes = $erpScopes
+                RequiredActions = @($actions | ForEach-Object { "$($_.alias) enabled=$($_.enabled) default=$($_.defaultAction)" }) }
+        }
+        $result = [ordered]@{ Result = $(if ($failures.Count -eq 0) { 'PASS' } else { 'FAIL' }); Failures = @($failures); Realms = $realms }
+        Write-Output ''
+        Write-Output "==== D9 $Label : $($result.Result) ===="
+        $failures | ForEach-Object { Write-Output "  FAIL: $_" }
+        return $result
+    }
+
     # --- 5. Read back straight after import, then again after a restart. ---
     $kcProcess = Start-ThrowawayKeycloak 'first-start'
     $receipt.AfterImport = Read-ApproverFlow 'AFTER IMPORT'
+    $receipt.D9AfterImport = Read-RealmFix 'AFTER IMPORT'
     Stop-ThrowawayKeycloak
     $kcProcess = Start-ThrowawayKeycloak 'restart'
     $receipt.AfterRestart = Read-ApproverFlow 'AFTER RESTART'
+    $receipt.D9AfterRestart = Read-RealmFix 'AFTER RESTART'
     Stop-ThrowawayKeycloak
     $kcProcess = $null
 }
@@ -213,5 +290,8 @@ if ($receipt.AfterImport.Result -eq 'FAIL') {
 } else {
     Write-Output 'The importer keeps the OTP step through import and restart: the server flow lost it some other way (by hand or by another script).'
 }
+Write-Output "D9 AFTER IMPORT : $($receipt.D9AfterImport.Result)"
+Write-Output "D9 AFTER RESTART: $($receipt.D9AfterRestart.Result)"
 Write-Output "Receipt: $(Join-Path $EvidenceDirectory 'receipt.json')"
-if ($receipt.AfterImport.Result -ne 'PASS' -or $receipt.AfterRestart.Result -ne 'PASS') { exit 1 }
+if ($receipt.AfterImport.Result -ne 'PASS' -or $receipt.AfterRestart.Result -ne 'PASS' -or
+    $receipt.D9AfterImport.Result -ne 'PASS' -or $receipt.D9AfterRestart.Result -ne 'PASS') { exit 1 }

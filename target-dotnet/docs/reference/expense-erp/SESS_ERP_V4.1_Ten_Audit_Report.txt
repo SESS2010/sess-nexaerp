@@ -1,0 +1,35 @@
+SESS COMBINED EXPENSE ERP V4.1 - TEN AUDIT REPORT
+Audit date: 20 September 2026
+
+1 SOURCE SYNTAX
+Checked every Apps Script file and browser JavaScript. Result PASS.
+
+2 CLIENT SERVER INTEGRATION
+Checked V4.1 Places, route, save, report, approval and cash-flow methods. Earlier V4 endpoint references were corrected. Result PASS.
+
+3 DATA SCHEMA AND SAFE UPGRADE
+Checked 12 travel fields, 10 expense-policy fields, Employee Grade, Expense Policy, Daily Policy Usage, Cash Flow Obligations and Archive Index. setupSystemV41 adds missing columns without deleting transaction rows. Result PASS.
+
+4 GOOGLE ROUTE AND KM CALCULATION
+Checked Place-ID selection, ordered route legs, server recalculation, employee KM, odometer KM, ±10% boundary and final KM × rate. 90/100 and 110/100 pass; 110.1/100 requires reason; 123.45 × 3.5 = 432.08. Result PASS.
+
+5 EXPENSE ALLOWANCE AND PETTY CASH
+Checked Food Standard ₹250, Senior ₹300, Superior ₹350 per employee/day; single lodging ₹800; double lodging ₹1500 for two people; mandatory food/hotel/ticket/purchase evidence; non-GST daily cap ₹500; GST invoice control above ₹500; ₹5000+ blocked from petty cash. A fast Daily Policy Usage summary was added so each new claim does not scan the full expense table. Result PASS.
+
+6 ROLES SECURITY AND PRIVACY
+Checked employee server-side identity, live Role Master recheck, OTP, API-key secrecy, Accounts-only verification and MD final approval after Accounts. Removed open iframe policy and corrected MD-stage clarification/rejection. Result PASS offline; live OTP and mailbox tests remain mandatory.
+
+7 DASHBOARD AND CASH FLOW
+Checked existing date/employee/company filters plus Google KM, claimed KM, MD KM, exceptions, saved KM, petty cash, policy exception, missing evidence, planned cash, paid cash, funding gap and unpaid obligation KPIs. Added monthly cash-flow chart and planner for GST, PF, ESI, rent, EB, insurance, salary, loan, TDS and vendor payments. Result PASS.
+
+8 PERFORMANCE AND FORMULA LOAD
+Checked 2,000-row browser ledger cap, server-side values, Daily Policy Usage aggregate and absence of new whole-column transaction formulas. Important limit: at 60 employees × 20 entries/day, the theoretical load is about 438,000 rows/year. One Google Sheet cannot safely store three peak-volume years with all evidence/audit columns. Result PASS only with the required active-period archive policy.
+
+9 BACKUP AND THREE-YEAR RETENTION
+Checked Full XLSX Backup, Archive Index, read-only archive instructions and separate active-period operation. Keep one active month/quarter depending actual volume, archive closed periods, retain at least three financial years as separate files, and use date/employee filters. This is intentionally safer than dumping all detailed rows into one Sheet. Result PASS.
+
+10 PACKAGE AND DOCUMENT QUALITY
+Checked Code.gs, Auth.gs, MapsV41.gs, PolicyV41.gs, Index.html, manifest, README, base workbook, register, DOCX/PDF guide and ZIP integrity. Guide was rendered page by page. Result PASS.
+
+FINAL STATUS
+APPROVED FOR CONTROLLED V4.1 DEPLOYMENT subject to live Google Cloud billing/API key, Google route response, OTP delivery, and Employee → Accounts → MD acceptance tests. No offline audit can certify external APIs, mailbox delivery or the live deployed URL.

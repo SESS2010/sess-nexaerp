@@ -1,0 +1,25 @@
+SESS CRM MIGRATION AUDIT
+
+{
+  "input_rows": 2475,
+  "kept_rows": 2470,
+  "duplicate_rows_removed": 5,
+  "by_year": {
+    "": 6,
+    "2020-21": 370,
+    "2021-22": 261,
+    "2022-23": 404,
+    "2023-24": 277,
+    "2024-25": 402,
+    "2025-26": 516,
+    "2026-27": 239
+  },
+  "sources": {
+    "Offer ref. No  YR  20-21 & 21-22 & 22 23 & 23,24-25 (F_OP1_02) .xlsx": 1318,
+    "OFFER 2024-2025 (ISO 2025) .xlsx": 402,
+    "OFFER 2025-2026 _ (F_OP1_03) CUSTOMER .xlsx": 516,
+    "Current Drive CRM snapshot": 239
+  }
+}
+
+Control note: 5 exact repeated records were removed. Empty placeholder rows without a customer were not migrated because they are unused pre-numbered slots, not offers.

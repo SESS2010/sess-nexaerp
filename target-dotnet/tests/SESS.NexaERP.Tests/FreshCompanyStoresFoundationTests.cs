@@ -334,12 +334,30 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs.Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
         var quantity = handoff.HandoffQuantity;
         Assert.Equal(3m, quantity);
+        // R10: the Technical Director enters the company's legal identity; R2 derives the place of supply from it.
+        Actor("SESS-01", "TECHNICAL_DIRECTOR");
+        using (var profile = await client.PutAsJsonAsync("/api/v1/company/profile", new SESS.NexaERP.Application.Masters.SaveCompanyProfileRequest(
+            "Go-live Company Pvt Ltd", null, "33ABACS5491H1ZA", "ABACS5491H", "33", "Tamil Nadu", "No. 1, Example Street", null, "Chennai", "600001", null, null, 0, "Legal details from the GST certificate")))
+            Assert.True(profile.IsSuccessStatusCode, await profile.Content.ReadAsStringAsync());
         // RFQ, single-source invitation, quotation entered on the vendor's behalf.
         Actor("SESS-15", "PURCHASE_EXECUTIVE", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
         var rfq = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/rfqs", new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", true, "Only qualified vendor at go-live", "go-live-rfq", [new(handoff.Id, handoff.HandoffQuantity)]));
         var rfqVersion = await Query(options, db => db.RequestForQuotations.Where(x => x.Id == rfq.Id).Select(x => x.Version).SingleAsync());
         var invitation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfqs/{rfq.Number}/vendors", new Rev869BInviteVendorRequest(vendorId, "Qualified vendor invited", rfqVersion, "go-live-invite"));
         var rfqLineId = await Query(options, db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
+        // R2: the form reads the derived states; a typed state that differs is refused with the line's field named.
+        var taxContext = await Get<JsonElement>(client, $"/api/v1/purchase/rfq-invitations/{invitation.Id}/tax-context");
+        Assert.Equal(("33", "VENDOR_GSTIN", "33", "COMPANY", "INTRASTATE"), (taxContext.GetProperty("SupplierStateCode").GetString(), taxContext.GetProperty("SupplierStateSource").GetString(),
+            taxContext.GetProperty("PlaceOfSupplyStateCode").GetString(), taxContext.GetProperty("PlaceOfSupplySource").GetString(), taxContext.GetProperty("SupplyType").GetString()));
+        using (var wrongState = await client.PostAsJsonAsync($"/api/v1/purchase/rfq-invitations/{invitation.Id}/quotations", new Rev869BSubmitQuotationRequest("GO-LIVE-Q0", "INR", "30 days", "Delivered to MAIN", "12 months", false, null, "EMAIL_RECEIVED",
+            DateTimeOffset.UtcNow.AddMinutes(-1), "go-live/vendor-0.pdf", new string('B', 64), "Entered from vendor quotation", 0, null, "go-live-quote-wrong-state",
+            [new(rfqLineId, handoff.HandoffQuantity, 100m, 0, 0, 0, 0, 0, required, hsn, "29", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)])))
+        {
+            var body = await wrongState.Content.ReadAsStringAsync();
+            Assert.True(wrongState.StatusCode == HttpStatusCode.BadRequest, body);
+            Assert.Contains("Lines[1].SupplierStateCode", body);
+            Assert.Contains("SupplierStateCode must be 33 (from the vendor's GSTIN)", body);
+        }
         var quotation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfq-invitations/{invitation.Id}/quotations", new Rev869BSubmitQuotationRequest("GO-LIVE-Q1", "INR", "30 days", "Delivered to MAIN", "12 months", false, null, "EMAIL_RECEIVED",
             DateTimeOffset.UtcNow.AddMinutes(-1), "go-live/vendor-1.pdf", new string('A', 64), "Entered from vendor quotation", 0, null, "go-live-quote",
             [new(rfqLineId, handoff.HandoffQuantity, 100m, 0, 0, 0, 0, 0, required, hsn, "33", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)]));
@@ -378,6 +396,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/approve", new Rev869BPoApprovalActionRequest("PO approved", po.Version, null, "go-live-po-approve"));
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        // R7: an approved but unissued PO does not print.
+        using (var early = await client.GetAsync($"/api/v1/purchase/purchase-orders/{po.Number}/print"))
+        {
+            var body = await early.Content.ReadAsStringAsync();
+            Assert.True(early.StatusCode == HttpStatusCode.Conflict, body);
+            Assert.Contains("Only an issued, closed or cancelled purchase order can be printed", body);
+        }
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/issue", new Rev869BIssuePurchaseOrderRequest("PO issued", po.Version, "go-live-po-issue"));
         Assert.Equal(Rev869BStatuses.Issued, po.Status);
         // Day-one flows moved in from the gated witnesses (decision of 20 September, evening):
@@ -411,6 +436,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         amended = await Post<Rev869BDocumentResult>(client, poPath + "/issue", new Rev869BIssuePurchaseOrderRequest("Amendment issued", amended.Version, "go-live-po-amend-issue"));
         Assert.Equal(Rev869BStatuses.Issued, amended.Status);
         Assert.NotEqual(po.Id, amended.Id);
+        // R7: the Purchase Manager prints the issued amendment: company from the profile, figures from the snapshots, audited.
+        var print = await Get<JsonElement>(client, poPath + "/print");
+        Assert.Equal(("Go-live Company Pvt Ltd", "33ABACS5491H1ZA"), (print.GetProperty("Company").GetProperty("LegalName").GetString(), print.GetProperty("Company").GetProperty("Gstin").GetString()));
+        Assert.Equal((po.Number, 2, "GO-LIVE-VEN-001", "INTRASTATE"), (print.GetProperty("PoNumber").GetString(), print.GetProperty("RevisionNumber").GetInt32(),
+            print.GetProperty("Vendor").GetProperty("Code").GetString(), print.GetProperty("SupplyType").GetString()));
+        var printLine = Assert.Single(print.GetProperty("Lines").EnumerateArray());
+        Assert.Equal((hsn, quantity, 100m), (printLine.GetProperty("HsnSacCode").GetString(), printLine.GetProperty("Quantity").GetDecimal(), printLine.GetProperty("UnitRate").GetDecimal()));
+        Assert.Equal(0m, printLine.GetProperty("IgstValue").GetDecimal());
+        Assert.Equal(printLine.GetProperty("CgstValue").GetDecimal(), printLine.GetProperty("SgstValue").GetDecimal());
+        var printedTotal = await Query(options, db => db.PurchaseOrders.Where(x => x.Id == amended.Id).Select(x => x.TotalPayableValue).SingleAsync());
+        Assert.Equal(printedTotal, print.GetProperty("Totals").GetProperty("TotalPayableValue").GetDecimal());
+        Assert.Equal(SESS.NexaERP.Infrastructure.Masters.AmountInWords.Rupees(printedTotal), print.GetProperty("Totals").GetProperty("AmountInWords").GetString());
+        Assert.Contains(print.GetProperty("History").EnumerateArray(), e => e.GetProperty("Action").GetString() == "Issue");
+        Assert.Equal(1, await Query(options, db => db.AuditLogs.CountAsync(x => x.Action == "PrintPurchaseOrder" && x.EntityId == amended.Id.ToString())));
         var openAfter = await Get<PurchaseOpenOrdersPage>(client, "/api/v1/dashboards/purchase/open-orders");
         Assert.Equal(1, openAfter.OpenPoCount);
         Assert.Equal(1, openAfter.DeliveryDateUnconfirmedPoCount);
@@ -456,6 +495,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             [new QcParameterResultRequest(policyId, 1, 1, null, "PASS", "Accepted")], []), "go-live-qc");
         Assert.NotNull(inspection.StockPostingBatchId);
         await using var db = new NexaErpDbContext(options);
+        // R4 (26 Sep): the QC decision leaves an audit row, written in the inspection's own transaction.
+        Assert.Equal(1, await db.AuditLogs.AsNoTracking().CountAsync(x => x.Module == "QC" && x.Action == "QcInspectionFinalized" && x.EntityName == "QcInspection"));
         var received = await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ItemId == purchased.Id && x.WarehouseConditionLocationId == availableLocationId).SumAsync(x => x.QuantityIn - x.QuantityOut);
         Assert.Equal(2m + quantity, received);
         Assert.Equal(0m, await db.StockMovements.AsNoTracking().Where(x => x.CompanyId == companyId && x.ConditionCode == "QC_HOLD").SumAsync(x => x.QuantityIn - x.QuantityOut));

@@ -86,6 +86,11 @@ internal static class RequestInputReachabilityManifest
         // CFO GET /api/v1/accounts/inventory-periods/{id} returns the current close Version.
         // InventoryPeriodUsesResolvedCfoAndRetainsCommandReplay exercises that actual read.
         "SESS.NexaERP.Application.Stores.CloseInventoryPeriodRequest.Version",
+        // R10 (26 Sep): GET /api/v1/company/profile and GET /api/v1/company/warehouse-state-codes return the
+        // Version each save sends back; any signed-in employee reads them and only the TD saves.
+        // CompanyProfileTests and the fresh-company rehearsals exercise the reads.
+        "SESS.NexaERP.Application.Masters.SaveCompanyProfileRequest.Version",
+        "SESS.NexaERP.Application.Masters.SaveWarehouseStateCodeRequest.Version",
         // Stock adjustments (A2): Stores reads warehouses and rack-bin condition locations from the masters,
         // open inventory periods from GET /api/v1/stores/stock-adjustments/inventory-periods (the accounts
         // list is CFO-only), and GET /api/v1/stores/stock-adjustments/{id} returns the Version and the

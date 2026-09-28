@@ -1,0 +1,1588 @@
+<script>
+(function () {
+'use strict';
+
+// ================================================================ STATE & UTILITIES
+const ST = { token: null, boot: null, view: null, params: {}, charts: [], hist: [], counts: {}, rows: [] };
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const n = v => Number(v) || 0;
+function fd(s) {
+  if (!s) return '';
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+  return m ? (+m[3]) + '-' + MON[+m[2] - 1] + '-' + m[1].slice(2) + (m[4] || '') : esc(s);
+}
+const todayStr = () => (ST.boot && ST.boot.today) || new Date().toISOString().slice(0, 10);
+function addDays(s, d) {
+  const p = String(s || todayStr()).split('-').map(Number);
+  const x = new Date(p[0], p[1] - 1, p[2] + d);
+  return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+}
+function fyStart() { const t = todayStr(); const y = +t.slice(0, 4), m = +t.slice(5, 7); return (m >= 4 ? y : y - 1) + '-04-01'; }
+const pct = v => v == null ? '–' : v + '%';
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } }
+};
+const goAttr = (view, p) => `data-go="${view}" data-p="${esc(JSON.stringify(p || {}))}"`;
+
+const role = () => ST.boot.user.Role;
+const isAdmin = () => role() === 'ADMIN';
+const isStaff = () => role() === 'ADMIN' || role() === 'STORE';
+const isEng = () => role() === 'EMPLOYEE';
+const canBill = () => ['ADMIN', 'STORE', 'ACCOUNTS'].indexOf(role()) >= 0;
+const canReport = () => role() !== 'EMPLOYEE';
+const canCreate = () => ['ADMIN', 'STORE', 'PURCHASE'].indexOf(role()) >= 0;
+const canApprove = () => ['ADMIN', 'STORE', 'MD', 'TD', 'SERVICE_MGR', 'PRODUCTION_MGR'].indexOf(role()) >= 0;
+const canAudit = () => ['ADMIN', 'MD', 'TD', 'VIEWER'].indexOf(role()) >= 0;
+const ROLE_NAME = { ADMIN: 'Admin', MD: 'MD', TD: 'TD', STORE: 'Store', PURCHASE: 'Purchase', ACCOUNTS: 'Accounts', SERVICE_MGR: 'Service Manager', PRODUCTION_MGR: 'Production Manager', EMPLOYEE: 'Employee', VIEWER: 'Viewer' };
+const roleName = r => ROLE_NAME[r] || r;
+const canImport = () => ['ADMIN', 'STORE'].indexOf(role()) >= 0;
+const coName = c => { const x = ((ST.boot && ST.boot.companies) || []).find(k => k.CompanyCode === c); return x ? (x.ShortName || x.CompanyName) : (c || ''); };
+const coChip = c => c ? `<span class="chip" title="${esc(coName(c))}">${esc(c)}</span>` : '';
+
+// ================================================================ SERVER CALLS
+let busy = 0;
+function setBusy(d) { busy = Math.max(0, busy + d); $('#bar').className = busy ? 'on' : ''; }
+function call(action, payload) {
+  setBusy(1);
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(txt => {
+        setBusy(-1);
+        let r;
+        try { r = JSON.parse(txt); } catch (e) { return reject(new Error('Unexpected server response')); }
+        if (r.ok) return resolve(r.data);
+        if (r.error === 'SESSION_EXPIRED') sessionExpired();
+        reject(new Error(r.error));
+      })
+      .withFailureHandler(err => { setBusy(-1); reject(new Error((err && err.message) || String(err))); })
+      .api(action, ST.token, payload || {});
+  });
+}
+
+function toast(msg, type) {
+  const d = document.createElement('div');
+  d.className = type || '';
+  d.textContent = msg;
+  $('#toast').appendChild(d);
+  setTimeout(() => d.remove(), type === 'err' ? 7000 : 3500);
+}
+function fail(e) { if (e && e.message !== 'SESSION_EXPIRED') toast(e.message || String(e), 'err'); }
+
+// ================================================================ UI HELPERS
+function modal(o) {
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal ${o.size || ''}" role="dialog" aria-modal="true"><div class="mh"><h2>${esc(o.title)}</h2>${o.locked ? '' : '<button class="x" aria-label="Close">×</button>'}</div><div class="mb">${o.body}</div><div class="mf"></div></div>`;
+  const close = () => bg.remove();
+  if (!o.locked) {
+    $('.x', bg).onclick = close;
+    bg.addEventListener('mousedown', e => { if (e.target === bg) close(); });
+  }
+  const mf = $('.mf', bg);
+  const buttons = o.buttons || [{ label: 'Close' }];
+  if (!buttons.length) mf.remove();
+  buttons.forEach(b => {
+    const btn = document.createElement('button');
+    btn.className = 'btn ' + (b.cls || '');
+    btn.textContent = b.label;
+    btn.onclick = async () => {
+      if (!b.onClick) return close();
+      btn.disabled = true;
+      try { const r = await b.onClick(bg); if (r !== false) close(); } catch (e) { fail(e); } finally { btn.disabled = false; }
+    };
+    mf.appendChild(btn);
+  });
+  $('#modalRoot').appendChild(bg);
+  if (o.onOpen) o.onOpen(bg);
+  const first = $('input:not([type=hidden]),select,textarea', $('.mb', bg));
+  if (first && !o.noFocus) setTimeout(() => first.focus(), 30);
+  return { el: bg, close: close };
+}
+
+function vals(root) {
+  const o = {};
+  $$('[name]', root).forEach(i => {
+    if (i.type === 'checkbox') o[i.name] = i.checked;
+    else if (i.type === 'radio') { if (i.checked) o[i.name] = i.value; }
+    else if (i.type !== 'file') o[i.name] = typeof i.value === 'string' ? i.value.trim() : i.value;
+  });
+  return o;
+}
+
+function opt(list, val, blank) {
+  return (blank === false ? '' : `<option value="">${esc(blank || '— select —')}</option>`) + list.map(o => {
+    const v = typeof o === 'object' ? o.v : o, l = typeof o === 'object' ? o.l : o;
+    return `<option value="${esc(v)}" ${String(v) === String(val == null ? '' : val) ? 'selected' : ''}>${esc(l)}</option>`;
+  }).join('');
+}
+
+function fi(name, label, val, o) {
+  o = o || {};
+  const req = o.req ? ' <span class="req">*</span>' : '';
+  let ctl;
+  if (o.type === 'select') ctl = `<select class="i" name="${name}" ${o.attrs || ''}>${opt(o.options, val, o.blank)}</select>`;
+  else if (o.type === 'textarea') ctl = `<textarea class="i" name="${name}" ${o.attrs || ''}>${esc(val)}</textarea>`;
+  else ctl = `<input class="i" name="${name}" type="${o.type || 'text'}" value="${esc(val)}" ${o.attrs || ''}>`;
+  return `<label class="f ${o.cls || ''}">${`<span>${esc(label)}${req}</span>`}${ctl}${o.hint ? `<span class="muted small" style="font-weight:400">${esc(o.hint)}</span>` : ''}</label>`;
+}
+
+const STATUS_CLS = { OVERDUE: 'red', 'BILL PENDING': 'violet', 'HARDCOPY PENDING': 'amber', PARTIAL: 'blue', OPEN: 'blue', CLOSED: 'green', CANCELLED: 'gray' };
+const TYPE_CLS = { RDC: 'blue', NRDC: 'violet', WDC: 'teal' };
+const TYPE_NAME = { RDC: 'Returnable', NRDC: 'Non-returnable', WDC: 'Warranty' };
+const sb = s => `<span class="b ${STATUS_CLS[s] || 'gray'}">${esc(s)}</span>`;
+const tb = t => `<span class="b ${TYPE_CLS[t] || 'gray'}" title="${esc(TYPE_NAME[t])}">${esc(t)}</span>`;
+const FLAG = {
+  DUE_SOON: ['Due soon', 'amber'], NO_DUE_DATE: ['No due date', 'red'], HC_TO_CONFIRM: ['Hardcopy to confirm', 'amber'],
+  BILL_PENDING: ['Bill pending', 'violet'], BILL_OVERDUE: ['Bill overdue', 'red'], VERIFY_PENDING: ['Return to verify', 'amber'],
+  NO_SIGNED_COPY: ['No signed copy', ''], GST_JOBWORK: ['GST job-work limit', 'red']
+};
+function chips(flags) {
+  const f = (flags || []).filter(x => FLAG[x]);
+  return f.length ? `<div class="chips">${f.map(x => `<span class="chip ${FLAG[x][1]}">${FLAG[x][0]}</span>`).join('')}</div>` : '';
+}
+const HC_LABEL = { PENDING: 'Not submitted', SUBMITTED: 'Handed over – store to confirm', RECEIVED: 'Received by store', NA: 'Not applicable' };
+const BILL_LABEL = { PENDING: 'Awaiting invoice', BILLED: 'Billed', NOT_BILLABLE: 'Not billable', NA: 'Not applicable' };
+
+function printHtml(html) {
+  $('#printArea').innerHTML = html;
+  document.body.classList.add('printing');
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => { document.body.classList.remove('printing'); $('#printArea').innerHTML = ''; }, 400);
+  }, 60);
+}
+
+function downloadCsv(rows, cols, name) {
+  const q = v => { v = v == null ? '' : Array.isArray(v) ? v.join(' ') : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const csv = '﻿' + [cols.map(c => q(c[0])).join(',')].concat(rows.map(r => cols.map(c => q(r[c[1]])).join(','))).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = name + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+function fileToPayload(file) {
+  return new Promise((res, rej) => {
+    if (!file) return rej(new Error('Choose a file to upload.'));
+    if (/^image\/(jpeg|png|webp|heic|heif|bmp)/.test(file.type)) {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+        const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        res({ base64: c.toDataURL('image/jpeg', 0.82).split(',')[1], mimeType: 'image/jpeg', fileName: file.name.replace(/\.[^.]+$/, '') + '.jpg' });
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Cannot read this image. Try JPG or PDF.')); };
+      img.src = url;
+    } else {
+      if (file.size > 10 * 1024 * 1024) return rej(new Error('File is larger than 10 MB.'));
+      const fr = new FileReader();
+      fr.onload = () => res({ base64: String(fr.result).split(',')[1], mimeType: file.type || 'application/pdf', fileName: file.name });
+      fr.onerror = () => rej(new Error('Cannot read file.'));
+      fr.readAsDataURL(file);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- charts
+const COL = { blue: '#2d5a8e', red: '#c62828', green: '#1b7f3b', amber: '#d08a00', violet: '#6b3fb5', teal: '#0e8f7e', gray: '#98a2b3', sky: '#7aa7d9' };
+function chart(id, cfg) {
+  const c = document.getElementById(id);
+  if (!c || !window.Chart) return;
+  cfg.options = Object.assign({ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } } }, cfg.options || {});
+  ST.charts.push(new Chart(c, cfg));
+}
+function destroyCharts() { ST.charts.forEach(c => { try { c.destroy(); } catch (e) { /* ignore */ } }); ST.charts = []; }
+
+// ================================================================ AUTH
+function renderLogin(msg) {
+  destroyCharts();
+  $('#app').innerHTML = `
+  <div class="login"><form class="card" id="lf" autocomplete="on">
+    <div class="logo">DC</div>
+    <h1>DC Tracker</h1>
+    <p class="muted" style="margin:4px 0 18px">Delivery Challan follow-up. Sign in with your employee login.</p>
+    ${msg ? `<div class="alert red">${esc(msg)}</div>` : ''}
+    <div class="grid">
+      ${fi('loginId', 'Login ID', store.get('dct_last') || '', { attrs: 'autocomplete="username" required autocapitalize="none"' })}
+      ${fi('password', 'Password', '', { type: 'password', attrs: 'autocomplete="current-password" required' })}
+      <button class="btn primary" style="justify-content:center;padding:10px">Sign in</button>
+    </div>
+    <p class="muted small" style="margin-top:14px">Forgot your password? Ask the store admin to reset it.</p>
+  </form></div>`;
+  const f = $('#lf');
+  (f.loginId.value ? f.password : f.loginId).focus();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const v = vals(f);
+    const btn = $('button', f);
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const r = await call('login', { loginId: v.loginId, password: v.password });
+      ST.token = r.token;
+      store.set('dct_token', r.token);
+      store.set('dct_last', v.loginId);
+      await start();
+    } catch (err) { renderLogin(err.message); }
+  };
+}
+
+let expiredShown = false;
+function sessionExpired() {
+  if (expiredShown) return;
+  expiredShown = true;
+  ST.token = null;
+  store.set('dct_token', null);
+  $('#modalRoot').innerHTML = '';
+  renderLogin('Your session has expired. Please sign in again.');
+}
+
+async function start() {
+  expiredShown = false;
+  try { ST.boot = await call('bootstrap'); } catch (e) { if (e.message !== 'SESSION_EXPIRED') renderLogin(e.message); return; }
+  ST.company = store.get('dct_co') || '';
+  if (ST.company && !(ST.boot.companies || []).some(c => c.CompanyCode === ST.company)) ST.company = '';
+  renderShell();
+  go('dashboard');
+  if (ST.boot.user.MustChange) changePassword(true);
+}
+
+function logout() {
+  call('logout').catch(() => {});
+  ST.token = null; ST.boot = null;
+  store.set('dct_token', null);
+  renderLogin();
+}
+
+function changePassword(forced) {
+  modal({
+    title: forced ? 'Set your own password' : 'Change password', locked: forced,
+    body: `${forced ? '<div class="alert amber">You are using a temporary password. Set a new one to continue.</div>' : ''}
+      <div class="grid">${fi('oldPassword', 'Current password', '', { type: 'password', req: true })}
+      ${fi('newPassword', 'New password (min 6 characters)', '', { type: 'password', req: true })}
+      ${fi('confirm', 'Confirm new password', '', { type: 'password', req: true })}</div>`,
+    buttons: (forced ? [] : [{ label: 'Cancel' }]).concat([{
+      label: 'Save password', cls: 'primary', onClick: async el => {
+        const v = vals(el);
+        if (v.newPassword !== v.confirm) throw new Error('Passwords do not match.');
+        await call('changePassword', v);
+        ST.boot.user.MustChange = false;
+        toast('Password changed', 'ok');
+      }
+    }])
+  });
+}
+
+// ================================================================ SHELL & ROUTING
+function navItems() {
+  const L = [['dashboard', 'Dashboard'], ['mine', 'My DCs'], ['register', isEng() ? 'All my DCs' : 'DC Register'], ['warranty', 'Warranty DCs']];
+  if (canCreate()) L.splice(1, 0, ['new', '+ New DC']);
+  if (canApprove() || canBill()) L.push(['sep', 'Follow-up']);
+  if (canApprove()) L.push(['desk', isStaff() ? 'Store Desk' : 'Approvals', 'desk']);
+  if (canBill()) L.push(['billing', 'Billing (awaiting invoice)', 'bill']);
+  if (canReport()) { L.push(['sep', 'Analysis']); L.push(['reports', 'ISO Audit Report']); }
+  if (canCreate() || canReport()) L.push(['sep', 'Masters & data']);
+  if (canCreate()) L.push(['masters', 'Parties & Items']);
+  if (canReport()) L.push(['bulk', canImport() ? 'Bulk Import / Export' : 'Export (Excel)']);
+  if (isAdmin()) { L.push(['users', 'Users & Logins']); L.push(['settings', 'Settings']); }
+  if (canAudit()) L.push(['audit', 'Audit Log']);
+  return L;
+}
+
+function renderShell() {
+  const u = ST.boot.user;
+  $('#app').innerHTML = `
+  <div class="shell">
+    <aside class="side" id="side">
+      <div class="brand"><div class="mark">DC</div><div><b>DC Tracker</b><small>${esc(ST.boot.settings.COMPANY_NAME)}</small></div></div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidefoot"><b>${esc(u.Name)}</b><br><small>${esc(roleName(u.Role))} · ${esc(u.LoginId)}</small>
+        <div class="row" style="margin-top:8px"><a id="pwBtn2">Change password</a><a id="outBtn2">Sign out</a></div></div>
+    </aside>
+    <div class="main">
+      <header class="top">
+        <button class="burger" id="burger" aria-label="Menu">☰</button>
+        <h1 id="title" style="font-size:16px"></h1>
+        ${(ST.boot.companies || []).length > 1 ? `<select class="i" id="coSel" style="width:auto;max-width:200px" aria-label="Company">
+          ${opt(ST.boot.companies.map(c => ({ v: c.CompanyCode, l: c.ShortName || c.CompanyName })), ST.company, 'Both companies')}</select>` : ''}
+        <div class="who"><b>${esc(u.Name)}</b><br><small>${esc(roleName(u.Role))} · ${esc(u.LoginId)}</small></div>
+        <button class="btn sm" id="pwBtn">Password</button>
+        <button class="btn sm" id="outBtn">Sign out</button>
+      </header>
+      <section class="content" id="view"></section>
+    </div>
+  </div>`;
+  renderNav();
+  $('#burger').onclick = () => $('#side').classList.toggle('open');
+  $('#pwBtn').onclick = $('#pwBtn2').onclick = () => changePassword(false);
+  $('#outBtn').onclick = $('#outBtn2').onclick = logout;
+  if ($('#coSel')) $('#coSel').onchange = e => { ST.company = e.target.value; store.set('dct_co', ST.company); reload(); };
+}
+
+function renderNav() {
+  const nav = $('#nav');
+  if (!nav) return;
+  nav.innerHTML = navItems().map(i => i[0] === 'sep'
+    ? `<div class="sep">${esc(i[1])}</div>`
+    : `<a data-go="${i[0]}" class="${ST.view === i[0] ? 'on' : ''}">${esc(i[1])}${i[2] && ST.counts[i[2]] ? `<span class="cnt">${ST.counts[i[2]]}</span>` : ''}</a>`).join('');
+}
+
+const TITLES = {
+  dashboard: 'Dashboard', mine: 'My DCs', register: 'DC Register', warranty: 'Warranty DCs', new: 'New Delivery Challan',
+  edit: 'Edit Delivery Challan', dc: 'DC details', desk: 'Store Desk', billing: 'Billing – awaiting invoice', reports: 'ISO Audit Report',
+  masters: 'Parties & Items', users: 'Users & Logins', settings: 'Settings', audit: 'Audit Log', bulk: 'Bulk Import / Export'
+};
+const VIEWS = {
+  dashboard: vDashboard, register: vRegister,
+  mine: (p, el) => vRegister(Object.assign({ mine: true, status: 'OPEN' }, p), el),
+  warranty: (p, el) => vRegister(Object.assign({ type: 'WDC' }, p), el),
+  new: vForm, edit: vForm, dc: vDC, desk: vDesk, billing: vBilling, reports: vReports,
+  masters: vMasters, users: vUsers, settings: vSettings, audit: vAudit, bulk: vBulk
+};
+
+function go(view, p, noHist) {
+  if (!VIEWS[view]) view = 'dashboard';
+  if (!noHist && ST.view) ST.hist.push([ST.view, ST.params]);
+  if (ST.hist.length > 30) ST.hist.shift();
+  ST.view = view; ST.params = p || {};
+  $('#modalRoot').innerHTML = '';
+  const side = $('#side'); if (side) side.classList.remove('open');
+  destroyCharts();
+  renderNav();
+  $('#title').textContent = TITLES[view] || '';
+  const el = $('#view');
+  el.innerHTML = '<div class="empty">Loading…</div>';
+  window.scrollTo(0, 0);
+  Promise.resolve().then(() => VIEWS[view](ST.params, el)).catch(e => {
+    if (e.message !== 'SESSION_EXPIRED') el.innerHTML = `<div class="alert red">${esc(e.message)}</div>`;
+  });
+}
+function back() { const h = ST.hist.pop(); if (h) go(h[0], h[1], true); else go('dashboard', {}, true); }
+function reload() { go(ST.view, ST.params, true); }
+
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-go]');
+  if (g) {
+    e.preventDefault();
+    let p = {};
+    try { p = g.dataset.p ? JSON.parse(g.dataset.p) : {}; } catch (x) { p = {}; }
+    go(g.dataset.go, p);
+    return;
+  }
+  const d = e.target.closest('[data-dc]');
+  if (!d) return;
+  const ctl = e.target.closest('button,input,select,textarea,a[target]');
+  if (ctl && ctl !== d && d.contains(ctl)) return;
+  e.preventDefault();
+  go('dc', { id: d.dataset.dc });
+});
+
+// ================================================================ DASHBOARD
+async function vDashboard(p, el) {
+  const f = Object.assign({ from: fyStart(), to: todayStr(), type: '' }, ST.dashF || {}, p);
+  ST.dashF = { from: f.from, to: f.to, type: f.type };
+  const d = await call('dashboard', Object.assign({ company: ST.company }, f));
+  const k = d.kpi, S = ST.boot.settings;
+  if (!isEng()) { ST.counts = { desk: isStaff() ? k.verifyPending + k.hcToConfirm + k.extPending : k.extPending, bill: k.billOverdue }; renderNav(); }
+  const reg = isEng() ? 'register' : 'register';
+  const K = (v, l, s, cls, view, pp) => `<div class="kpi ${cls || ''}" ${view ? goAttr(view, pp) : ''} ${view ? '' : 'style="cursor:default"'}><div class="v">${v == null ? '–' : v}</div><div class="l">${l}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
+  const range = { from: f.from, to: f.to };
+
+  let alerts = '';
+  if (isEng()) {
+    if (k.overdue) alerts += `<div class="alert red"><b>You have ${k.overdue} overdue DC(s).</b> Return the material and update the app, or request a due-date extension. Overdue DCs are escalated to your manager after ${esc(S.ESCALATE_AFTER_DAYS)} days.</div>`;
+    if (k.hcNotHandedOver) alerts += `<div class="alert amber"><b>${k.hcNotHandedOver} DC(s)</b> have all material accounted but the signed hardcopy is not with store. Hand it over and tap “I handed over hardcopy” so it is recorded.</div>`;
+    if (k.noSigned) alerts += `<div class="alert blue">${k.noSigned} DC(s) have no customer-signed copy uploaded. Upload a photo of the signed DC / gate entry from the DC page.</div>`;
+  } else {
+    if (k.overdue) alerts += `<div class="alert red"><b>${k.overdue} returnable / warranty DC(s) are overdue</b> across ${d.engineers.filter(e => e.overdue).length} employee(s). See the accountability table below.</div>`;
+    if (k.noDueDate) alerts += `<div class="alert amber">${k.noDueDate} open returnable DC(s) have <b>no due date</b> (mostly from the old register). Edit them and set a due date so they are monitored.</div>`;
+  }
+
+  el.innerHTML = `
+  <div class="pagehead">
+    <div><h1>${isEng() ? 'My DC position' : 'DC control dashboard'}</h1>
+    <div class="muted small">Live position at ${esc(d.generatedAt)} · period figures ${fd(f.from)} to ${fd(f.to)}</div></div>
+    <div class="actions">
+      <input type="date" class="i" id="dFrom" value="${esc(f.from)}" style="width:auto" aria-label="From">
+      <input type="date" class="i" id="dTo" value="${esc(f.to)}" style="width:auto" aria-label="To">
+      <select class="i" id="dType" style="width:auto" aria-label="Type">${opt(Object.keys(TYPE_NAME).map(t => ({ v: t, l: TYPE_NAME[t] })), f.type, 'All types')}</select>
+      <button class="btn" id="dGo">Apply</button>
+      ${canCreate() ? '<button class="btn primary" data-go="new">+ New DC</button>' : ''}
+    </div>
+  </div>
+  ${alerts}
+  <h3 class="muted mb" style="font-weight:600">Open now</h3>
+  <div class="kpis">
+    ${K(k.openRDC, 'Open returnable DC', `${k.openTotal} open in total`, '', reg, { type: 'RDC', status: 'OPEN' })}
+    ${K(k.overdue, 'Overdue returns', 'past return due date', 'red', reg, { status: 'OVERDUE' })}
+    ${K(k.dueSoon, 'Due within ' + esc(S.DUE_SOON_DAYS) + ' days', 'follow up now', 'amber', reg, { status: 'DUE_SOON' })}
+    ${K(k.openWDC, 'Open warranty DC', 'sent for warranty', 'teal', 'warranty', { status: 'OPEN' })}
+    ${K(k.billPending, 'Awaiting invoice', `${k.billOverdue} beyond ${esc(S.NRDC_BILL_REMIND_DAYS)} days`, 'violet', canBill() ? 'billing' : reg, { status: 'BILL_PENDING' })}
+    ${K(k.hcBlocking, 'Material back, hardcopy pending', 'blocks DC closure', 'amber', reg, { status: 'HC_BLOCKING' })}
+    ${K(k.hcPending, 'Hardcopy not with store', 'all open returnable', '', reg, { status: 'HC_PENDING' })}
+    ${K(k.verifyPending, 'Returns to verify', 'submitted by employees', 'amber', isStaff() ? 'desk' : reg, isStaff() ? {} : { status: 'VERIFY_PENDING' })}
+    ${K(k.hcToConfirm, 'Hardcopy to confirm', 'employee says handed over', 'amber', isStaff() ? 'desk' : reg, isStaff() ? {} : { status: 'HC_TO_CONFIRM' })}
+    ${K(k.noSigned, 'Signed copy not uploaded', 'customer / gate proof', '', reg, { status: 'NO_SIGNED_COPY' })}
+    ${k.noDueDate ? K(k.noDueDate, 'Returnable without due date', 'fix for ISO', 'red', reg, { status: 'NO_DUE_DATE' }) : ''}
+    ${k.gstJobwork ? K(k.gstJobwork, 'Job-work near GST limit', 'Sec. 143 return period', 'red', reg, { status: 'GST_JOBWORK' }) : ''}
+    ${k.extPending ? K(k.extPending, 'Extension requests', 'awaiting approval', 'amber', canApprove() ? 'desk' : null, {}) : ''}
+  </div>
+  <h3 class="muted mb mt" style="font-weight:600">Selected period</h3>
+  <div class="kpis">
+    ${K(k.issued, 'DCs issued', 'in period', '', reg, range)}
+    ${K(k.closed, 'DCs closed', 'of those issued', 'green', reg, Object.assign({ status: 'CLOSED' }, range))}
+    ${K(pct(k.closurePct), 'Closure rate', 'closed / issued', 'green')}
+    ${K(pct(k.onTimePct), 'On-time return', 'closed on or before due date', 'green')}
+  </div>
+
+  ${!ST.company && d.byCompany && d.byCompany.length > 1 ? `<div class="card mt"><h3>Company-wise position</h3><div class="tw"><table class="t"><thead><tr><th>Company</th>
+    <th class="num">Issued (period)</th><th class="num">Open</th><th class="num">Overdue</th><th class="num">Hardcopy not with store</th><th class="num">Awaiting invoice</th></tr></thead><tbody>
+    ${d.byCompany.map(c => `<tr class="click" data-coswitch="${esc(c.code)}"><td><b>${esc(c.name)}</b> ${coChip(c.code)}</td><td class="num">${c.issued}</td><td class="num">${c.open}</td>
+      <td class="num">${c.overdue ? `<span class="b red">${c.overdue}</span>` : 0}</td><td class="num">${c.hcPending}</td><td class="num">${c.billPending}</td></tr>`).join('')}
+    </tbody></table></div><p class="muted small">Click a company to switch the whole app to it (or use the selector at the top).</p></div>` : ''}
+  <div class="grid g2 mt">
+    <div class="card"><h3>DC status by type <span class="muted small">(issued in period)</span></h3><div class="chartbox"><canvas id="cType"></canvas></div></div>
+    <div class="card"><h3>Overdue ageing <span class="muted small">(days past due, open)</span></h3><div class="chartbox"><canvas id="cAge"></canvas></div></div>
+    <div class="card"><h3>Monthly trend – issued vs closed</h3><div class="chartbox"><canvas id="cTrend"></canvas></div></div>
+    <div class="card"><h3>Consumable / non-consumable movement <span class="muted small">(qty, period)</span></h3>
+      ${d.categories.length ? '<div class="chartbox"><canvas id="cCat"></canvas></div>' : '<div class="empty">No item data in this period.</div>'}</div>
+  </div>
+
+  ${!isEng() ? `<div class="card mt"><div class="row mb"><h3>Employee accountability – DCs not closed</h3><span class="muted small">Sorted by overdue. Click a name to see their DCs.</span></div>
+    ${d.engineers.length ? `<div class="tw"><table class="t"><thead><tr><th>Employee</th><th class="num">Open</th><th class="num">Overdue</th><th class="num">Max days overdue</th>
+    <th class="num">Hardcopy not with store</th><th class="num">Material back, no hardcopy</th><th class="num">Returns to verify</th><th class="num">Signed copy missing</th><th class="num">Awaiting bill</th></tr></thead><tbody>
+    ${d.engineers.map(e => `<tr class="click" ${goAttr('register', { responsible: e.name, status: 'OPEN' })}><td><b>${esc(e.name)}</b></td><td class="num">${e.open}</td>
+      <td class="num">${e.overdue ? `<span class="b red">${e.overdue}</span>` : 0}</td><td class="num">${e.maxOverdue || ''}</td><td class="num">${e.hcPending}</td>
+      <td class="num">${e.hcBlocking ? `<span class="b amber">${e.hcBlocking}</span>` : 0}</td><td class="num">${e.verifyPending}</td><td class="num">${e.noSigned}</td><td class="num">${e.billPending}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">No open DCs.</div>'}</div>` : ''}
+
+  <div class="grid ${isEng() ? '' : 'g2'} mt">
+    <div class="card"><div class="tabs" id="lTabs">
+      <button data-l="overdue" class="on">Overdue (${d.lists.overdue.length})</button><button data-l="dueSoon">Due soon (${d.lists.dueSoon.length})</button>
+      <button data-l="hcBlocking">Hardcopy pending (${d.lists.hcBlocking.length})</button><button data-l="billPending">Awaiting invoice (${d.lists.billPending.length})</button></div>
+      <div id="lBody"></div></div>
+    ${!isEng() ? `<div class="card"><h3>Customers / parties with open DCs</h3>${d.parties.length ? `<div class="tw"><table class="t"><thead><tr><th>Party</th><th class="num">Open</th><th class="num">Overdue</th></tr></thead><tbody>
+      ${d.parties.map(x => `<tr class="click" ${goAttr('register', { party: x.name, status: 'OPEN' })}><td>${esc(x.name)}</td><td class="num">${x.open}</td><td class="num">${x.overdue ? `<span class="b red">${x.overdue}</span>` : 0}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">None</div>'}</div>` : ''}
+  </div>
+  ${d.categories.length ? `<div class="card mt"><h3>Item category summary <span class="muted small">(period)</span></h3><div class="tw"><table class="t"><thead><tr><th>Category</th><th class="num">DCs</th><th class="num">Issued</th><th class="num">Returned to store</th><th class="num">Consumed at site</th><th class="num">Lost / damaged</th><th class="num">Still outside (open)</th></tr></thead><tbody>
+    ${d.categories.map(c => `<tr class="click" ${goAttr('register', Object.assign({ category: c.category }, range))}><td>${esc(c.category)}</td><td class="num">${c.dcs}</td><td class="num">${c.issued}</td><td class="num">${c.returned}</td><td class="num">${c.consumed}</td><td class="num">${c.lost ? `<span class="b red">${c.lost}</span>` : 0}</td><td class="num">${c.outstanding}</td></tr>`).join('')}
+    </tbody></table></div></div>` : ''}`;
+
+  $('#dGo').onclick = () => go('dashboard', { from: $('#dFrom').value, to: $('#dTo').value, type: $('#dType').value }, true);
+  $$('[data-coswitch]', el).forEach(tr => {
+    tr.onclick = () => { ST.company = tr.dataset.coswitch; store.set('dct_co', ST.company); if ($('#coSel')) $('#coSel').value = ST.company; reload(); };
+  });
+
+  const lists = d.lists;
+  const listCols = {
+    overdue: ['Due', x => `${fd(x.DueDate)} <span class="b red">${x.OverdueDays} d</span>`],
+    dueSoon: ['Due', x => `${fd(x.DueDate)} <span class="b amber">${x.DueInDays === 0 ? 'today' : 'in ' + x.DueInDays + ' d'}</span>`],
+    hcBlocking: ['Age', x => x.AgeDays + ' d'], billPending: ['Days unbilled', x => `<span class="b ${x.AgeDays > n(S.NRDC_BILL_REMIND_DAYS) ? 'red' : 'violet'}">${x.AgeDays}</span>`]
+  };
+  const showList = key => {
+    $$('#lTabs button').forEach(b => b.classList.toggle('on', b.dataset.l === key));
+    const L = lists[key];
+    $('#lBody').innerHTML = L.length ? `<div class="tw"><table class="t"><thead><tr><th>DC No</th><th>Party</th><th>Employee</th><th>${listCols[key][0]}</th></tr></thead><tbody>
+      ${L.map(x => `<tr class="click" data-dc="${esc(x.DCID)}"><td class="nowrap">${tb(x.DCType)} <b>${esc(x.DCNo)}</b><div class="muted small ellip">${esc(x.ItemsText)}</div></td><td><div class="ellip" style="max-width:200px">${esc(x.PartyName)}</div></td><td class="nowrap">${esc(x.ResponsibleName)}</td><td class="nowrap">${listCols[key][1](x)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">Nothing here – good.</div>';
+  };
+  $$('#lTabs button').forEach(b => { b.onclick = () => showList(b.dataset.l); });
+  showList('overdue');
+
+  // charts
+  const types = ['RDC', 'NRDC', 'WDC'];
+  chart('cType', {
+    type: 'bar',
+    data: {
+      labels: types.map(t => TYPE_NAME[t]),
+      datasets: [
+        { label: 'Open', data: types.map(t => d.byType[t].open), backgroundColor: COL.blue },
+        { label: 'Overdue', data: types.map(t => d.byType[t].overdue), backgroundColor: COL.red },
+        { label: 'Closed', data: types.map(t => d.byType[t].closed), backgroundColor: COL.green }
+      ]
+    },
+    options: { indexAxis: 'y', scales: { x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }, y: { stacked: true } } }
+  });
+  chart('cAge', {
+    type: 'bar',
+    data: { labels: d.overdueAging.map(b => b.label + ' d'), datasets: [{ label: 'Overdue DCs', data: d.overdueAging.map(b => b.count), backgroundColor: [COL.amber, COL.amber, '#e0662b', COL.red, COL.red, '#8e1b1b'] }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+  chart('cTrend', {
+    type: 'bar',
+    data: {
+      labels: d.months.map(m => m.label),
+      datasets: [
+        { label: 'Returnable issued', data: d.months.map(m => m.RDC), backgroundColor: COL.blue, stack: 'i' },
+        { label: 'Non-returnable issued', data: d.months.map(m => m.NRDC), backgroundColor: COL.violet, stack: 'i' },
+        { label: 'Warranty issued', data: d.months.map(m => m.WDC), backgroundColor: COL.teal, stack: 'i' },
+        { label: 'Closed', data: d.months.map(m => m.closed), type: 'line', borderColor: COL.green, backgroundColor: COL.green, tension: .3, pointRadius: 3 }
+      ]
+    },
+    options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+  if (d.categories.length) chart('cCat', {
+    type: 'bar',
+    data: {
+      labels: d.categories.map(c => c.category),
+      datasets: [
+        { label: 'Issued', data: d.categories.map(c => c.issued), backgroundColor: COL.blue },
+        { label: 'Returned', data: d.categories.map(c => c.returned), backgroundColor: COL.green },
+        { label: 'Consumed', data: d.categories.map(c => c.consumed), backgroundColor: COL.sky },
+        { label: 'Lost / damaged', data: d.categories.map(c => c.lost), backgroundColor: COL.red },
+        { label: 'Still outside', data: d.categories.map(c => c.outstanding), backgroundColor: COL.amber }
+      ]
+    },
+    options: { scales: { y: { beginAtZero: true } } }
+  });
+}
+
+// ================================================================ REGISTER
+const STATUS_FILTERS = [
+  ['OPEN', 'Open (all)'], ['OVERDUE', 'Overdue'], ['DUE_SOON', 'Due soon'], ['HC_PENDING', 'Hardcopy not with store'],
+  ['HC_BLOCKING', 'Material back – hardcopy pending'], ['HC_TO_CONFIRM', 'Hardcopy to confirm'], ['VERIFY_PENDING', 'Returns to verify'],
+  ['BILL_PENDING', 'Awaiting invoice'], ['BILL_OVERDUE', 'Invoice overdue'], ['NO_SIGNED_COPY', 'Signed copy missing'],
+  ['NO_DUE_DATE', 'No due date'], ['GST_JOBWORK', 'GST job-work limit'], ['CLOSED', 'Closed'], ['CANCELLED', 'Cancelled']
+].map(x => ({ v: x[0], l: x[1] }));
+
+const CSV_COLS = [['Company', 'CompanyCode'], ['DC No', 'DCNo'], ['Type', 'DCType'], ['Date', 'DCDate'], ['Party', 'PartyName'], ['Items', 'ItemsText'], ['Category', 'Categories'],
+  ['Qty', 'TotalQty'], ['Returned', 'TotalReturned'], ['Consumed', 'TotalConsumed'], ['Lost', 'TotalLost'], ['Balance', 'Balance'], ['Purpose', 'Purpose'],
+  ['Employee', 'ResponsibleName'], ['Prepared by', 'PreparedBy'], ['Due date', 'DueDate'], ['Overdue days', 'OverdueDays'], ['Age days', 'AgeDays'],
+  ['Status', 'DisplayStatus'], ['Flags', 'Flags'], ['Hardcopy', 'HardcopyStatus'], ['Hardcopy received', 'HardcopyReceivedOn'], ['Signed copy', 'SignedCopy'],
+  ['Gate entry', 'GateEntryNo'], ['Chargeable', 'Chargeable'], ['Billing', 'BillingStatus'], ['Invoice', 'InvoiceNo'], ['Invoice date', 'InvoiceDate'],
+  ['Warranty vendor', 'WarrantyVendor'], ['Claim no', 'WarrantyClaimNo'], ['Serial no', 'SerialNo'], ['Closed on', 'ClosedOn'], ['Close remarks', 'CloseRemarks'], ['Remarks', 'Remarks']];
+
+async function vRegister(p, el) {
+  const f = Object.assign({ type: '', status: '', q: '', from: '', to: '', responsible: '', party: '', category: '', mine: false }, p);
+  const title = f.mine ? 'My DCs' : f.type === 'WDC' && ST.view === 'warranty' ? 'Warranty DCs' : isEng() ? 'All DCs issued to me' : 'DC Register';
+  const engineers = ST.boot.users.map(u => ({ v: u.Name, l: u.Name }));
+  el.innerHTML = `
+  <div class="pagehead">
+    <div><h1>${esc(title)}</h1><div class="muted small" id="rCount">Loading…</div></div>
+    <div class="actions">
+      ${canReport() ? '<button class="btn" id="rSheet">Export to Google Sheet</button>' : ''}
+      <button class="btn" id="rCsv">Download CSV</button>
+      ${canCreate() ? `<button class="btn primary" ${goAttr('new', { type: f.type || 'RDC' })}>+ New DC</button>` : ''}
+    </div>
+  </div>
+  ${f.mine ? `<div class="alert blue">These are DCs where you took the material. For each DC: upload the customer-signed copy / gate entry, record material returned or consumed, and hand the hardcopy to store. Every submission is time-stamped with an acknowledgement number as your proof.</div>` : ''}
+  <div class="tabs" id="rTabs">${[['', 'All'], ['RDC', 'Returnable'], ['NRDC', 'Non-returnable'], ['WDC', 'Warranty']].map(t => `<button data-t="${t[0]}" class="${f.type === t[0] ? 'on' : ''}">${t[1]}</button>`).join('')}</div>
+  <div class="filters" id="rF">
+    ${fi('q', 'Search', f.q, { attrs: 'placeholder="DC no, party, item, invoice…"' })}
+    ${fi('status', 'Status', f.status, { type: 'select', options: STATUS_FILTERS, blank: 'All statuses' })}
+    ${!isEng() && !f.mine ? fi('responsible', 'Employee', f.responsible, { type: 'select', options: engineers, blank: 'All employees' }) : ''}
+    ${fi('category', 'Item category', f.category, { type: 'select', options: ST.boot.categories, blank: 'All categories' })}
+    ${fi('from', 'DC date from', f.from, { type: 'date' })}
+    ${fi('to', 'DC date to', f.to, { type: 'date' })}
+  </div>
+  ${f.party ? `<div class="alert blue">Party: <b>${esc(f.party)}</b> <a href="#" id="rClrParty">clear</a></div>` : ''}
+  <div class="tw"><table class="t"><thead><tr><th>DC No / Date</th><th>Type</th><th>Party / Purpose</th><th>Items</th><th class="num">Qty</th><th>Employee</th><th>Due / Invoice</th><th>Status</th><th class="num">Age</th></tr></thead>
+  <tbody id="rBody"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody></table></div>
+  <div class="center mt"><button class="btn hidden" id="rMore">Show more</button></div>`;
+
+  let shown = 0;
+  const PAGE = 100;
+  const rowHtml = d => `<tr class="click" data-dc="${esc(d.DCID)}">
+    <td class="nowrap"><b>${esc(d.DCNo)}</b><div class="muted small">${fd(d.DCDate)} ${ST.company ? '' : coChip(d.CompanyCode)}</div></td>
+    <td>${tb(d.DCType)}</td>
+    <td><div class="ellip" style="max-width:230px">${esc(d.PartyName)}</div><div class="muted small ellip" style="max-width:230px">${esc(d.Purpose)}</div></td>
+    <td><div class="ellip">${esc(d.ItemsText)}</div><div class="muted small">${esc(d.Categories)}</div></td>
+    <td class="num nowrap">${d.TotalQty}${d.DCType !== 'NRDC' ? `<div class="muted small">bal ${d.Balance}</div>` : ''}</td>
+    <td class="nowrap">${esc(d.ResponsibleName)}</td>
+    <td class="nowrap">${d.DCType === 'NRDC' ? (d.InvoiceNo ? 'Inv ' + esc(d.InvoiceNo) : '<span class="muted">—</span>') : (d.DueDate ? fd(d.DueDate) : '<span class="b red">no date</span>')}
+      ${d.OverdueDays ? `<div class="small" style="color:var(--red);font-weight:600">${d.OverdueDays} d overdue</div>` : ''}</td>
+    <td>${sb(d.DisplayStatus)}${chips(d.Flags)}</td>
+    <td class="num">${d.AgeDays}</td></tr>`;
+  const more = () => {
+    const next = ST.rows.slice(shown, shown + PAGE);
+    $('#rBody').insertAdjacentHTML('beforeend', next.map(rowHtml).join(''));
+    shown += next.length;
+    $('#rMore').classList.toggle('hidden', shown >= ST.rows.length);
+  };
+  const query = () => Object.assign({ type: f.type, mine: f.mine, party: f.party, company: ST.company }, vals($('#rF')));
+  let seq = 0;
+  const load = async () => {
+    const my = ++seq;
+    const r = await call('listDCs', query());
+    if (my !== seq) return;
+    ST.rows = r.rows; shown = 0;
+    $('#rCount').textContent = r.total + ' DC(s)' + (r.total > r.rows.length ? ' – showing first ' + r.rows.length : '');
+    $('#rBody').innerHTML = r.rows.length ? '' : '<tr><td colspan="9" class="empty">No DCs match these filters.</td></tr>';
+    more();
+  };
+  let t;
+  $('#rF').addEventListener('input', e => { if (e.target.name === 'q') { clearTimeout(t); t = setTimeout(() => load().catch(fail), 350); } });
+  $('#rF').addEventListener('change', e => { if (e.target.name !== 'q') load().catch(fail); });
+  $$('#rTabs button').forEach(b => { b.onclick = () => { f.type = b.dataset.t; $$('#rTabs button').forEach(x => x.classList.toggle('on', x === b)); load().catch(fail); }; });
+  $('#rMore').onclick = more;
+  if ($('#rClrParty')) $('#rClrParty').onclick = e => { e.preventDefault(); go(ST.view, Object.assign({}, p, { party: '' }), true); };
+  $('#rCsv').onclick = () => downloadCsv(ST.rows, CSV_COLS, 'DC_Register_' + todayStr());
+  if ($('#rSheet')) $('#rSheet').onclick = async () => {
+    try { const r = await call('exportSheet', query()); toast(r.count + ' DCs exported', 'ok'); window.open(r.url, '_blank'); } catch (e) { fail(e); }
+  };
+  await load();
+}
+
+// ================================================================ DC FORM (create / edit)
+const WARRANTY_DIR = ['Sent to vendor / OEM for warranty repair', 'Sent to vendor / OEM for warranty replacement', 'Replacement sent to customer under warranty', 'Customer material returned after warranty repair', 'Other'];
+
+async function vForm(p, el) {
+  const B = ST.boot, S = B.settings;
+  let dc = null, items = [];
+  if (p.id) { const r = await call('getDC', { id: p.id }); dc = r.dc; items = r.items; }
+  let type = dc ? dc.DCType : (p.type || 'RDC');
+  const v = dc || {};
+  const due = dc ? dc.DueDate : addDays(todayStr(), n(type === 'WDC' ? S.WDC_DEFAULT_DUE_DAYS : S.RDC_DEFAULT_DUE_DAYS));
+  const sameBuyer = !dc || !dc.BuyerName || dc.BuyerName === dc.PartyName;
+  const employees = B.users.map(u => ({ v: u.UserId, l: u.Name + (u.Role === 'EMPLOYEE' ? '' : ' (' + roleName(u.Role) + ')') }));
+
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>${dc ? 'Edit ' + esc(dc.DCNo) : 'New Delivery Challan'}</h1>
+    <div class="muted small">Fields marked * are required. Layout prints in the same format as the Tally delivery note.</div></div>
+    <div class="actions"><button class="btn" id="fBack">Cancel</button><button class="btn primary" id="fSave">${dc ? 'Save changes' : 'Create DC'}</button></div></div>
+  <form id="dcf" onsubmit="return false">
+  <fieldset><legend>Company, DC type & responsibility</legend>
+    <div class="fgrid mb">${fi('CompanyCode', 'Company (issuing the DC)', v.CompanyCode || ST.company || B.defaultCompany, {
+      type: 'select', blank: false, req: true, cls: 'span2', attrs: dc ? 'disabled' : '',
+      options: (B.companies || []).map(c => ({ v: c.CompanyCode, l: c.CompanyName + ' – GSTIN ' + c.GSTIN })),
+      hint: dc ? 'Company cannot be changed after the DC is created' : 'Decides the DC number series, GSTIN and address on the print' })}</div>
+    <div class="row mb"><div class="seg" id="fType">${['RDC', 'NRDC', 'WDC'].map(t => `<button type="button" data-t="${t}" class="${type === t ? 'on' : ''}" ${dc ? 'disabled' : ''}>${B.dcTypes[t]}</button>`).join('')}</div>
+      <span class="muted small" id="fTypeHint"></span></div>
+    <div class="fgrid">
+      ${fi('DCNo', 'DC No', v.DCNo || '', { hint: dc ? '' : 'Leave blank for auto number, or type the Tally number', attrs: 'placeholder="Auto"' })}
+      ${fi('DCDate', 'DC date', v.DCDate || todayStr(), { type: 'date', req: true })}
+      <span id="dueWrap">${fi('DueDate', 'Return due date', due, { type: 'date', req: true, hint: 'Compulsory for returnable & warranty DC' })}</span>
+      ${fi('ResponsibleId', 'Material taken by (employee)', v.ResponsibleId, { type: 'select', options: employees, req: true, hint: 'This employee is accountable until the DC is closed' })}
+      ${fi('PurposeCategory', 'Purpose', v.PurposeCategory, { type: 'select', options: B.purposes, req: true })}
+      ${fi('Purpose', 'Purpose details / project', v.Purpose, { attrs: 'placeholder="e.g. EMR project site work"' })}
+      ${fi('Chargeable', 'Chargeable', v.Chargeable || (type === 'NRDC' ? 'CHARGEABLE' : 'NON-CHARGEABLE'), { type: 'select', options: ['CHARGEABLE', 'NON-CHARGEABLE'], blank: false, hint: 'Chargeable DCs stay open until invoice is entered' })}
+    </div>
+  </fieldset>
+
+  <fieldset id="wSec"><legend>Warranty details</legend><div class="fgrid">
+    ${fi('WarrantyDirection', 'Warranty movement', v.WarrantyDirection, { type: 'select', options: WARRANTY_DIR, req: true })}
+    ${fi('WarrantyVendor', 'Vendor / OEM', v.WarrantyVendor, { req: true })}
+    ${fi('WarrantyClaimNo', 'Warranty claim / RMA no', v.WarrantyClaimNo)}
+    ${fi('SerialNo', 'Serial no', v.SerialNo)}
+    ${fi('FaultDescription', 'Fault / complaint', v.FaultDescription, { type: 'textarea', cls: 'span2' })}
+  </div></fieldset>
+
+  <fieldset><legend>Consignee (ship to)</legend><div class="fgrid">
+    ${fi('PartyName', 'Party name', v.PartyName, { req: true, cls: 'span2', attrs: 'list="partyList" autocomplete="off"' })}
+    ${fi('PartyGSTIN', 'GSTIN/UIN', v.PartyGSTIN)}
+    ${fi('PartyState', 'State name & code', v.PartyState, { attrs: 'placeholder="Tamil Nadu, Code : 33"' })}
+    ${fi('PartyAddress', 'Address', v.PartyAddress, { type: 'textarea', cls: 'span2' })}
+    <label class="f span2" id="newPartyWrap" style="flex-direction:row;align-items:center;gap:8px;display:none"><input type="checkbox" name="saveParty" checked> Add this party to the party master</label>
+  </div>
+  <datalist id="partyList">${B.parties.map(x => `<option value="${esc(x.Name)}">`).join('')}</datalist>
+  <label class="f mt" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="sameBuyer" ${sameBuyer ? 'checked' : ''}> Buyer (bill to) is same as consignee</label>
+  <div class="fgrid mt" id="buyerSec">
+    ${fi('BuyerName', 'Buyer name', sameBuyer ? '' : v.BuyerName, { cls: 'span2', attrs: 'list="partyList" autocomplete="off"' })}
+    ${fi('BuyerGSTIN', 'Buyer GSTIN', sameBuyer ? '' : v.BuyerGSTIN)}
+    ${fi('BuyerState', 'Buyer state', sameBuyer ? '' : v.BuyerState)}
+    ${fi('BuyerAddress', 'Buyer address', sameBuyer ? '' : v.BuyerAddress, { type: 'textarea', cls: 'span2' })}
+  </div></fieldset>
+
+  <fieldset><legend>Items</legend>
+    <div class="tw"><table class="t"><thead><tr><th style="width:26px">#</th><th style="min-width:210px">Description of goods *</th><th style="min-width:150px">Sub description</th><th style="width:110px">HSN/SAC</th>
+      <th style="width:80px">Qty *</th><th style="width:90px">Unit</th><th style="width:170px">Category *</th><th style="width:120px">Serial no</th><th style="width:36px"></th></tr></thead>
+      <tbody id="itemsBody"></tbody></table></div>
+    <datalist id="itemList">${B.items.map(x => `<option value="${esc(x.Description)}">`).join('')}</datalist>
+    <div class="row mt"><button type="button" class="btn sm" id="addItem">+ Add item</button>
+      <span class="muted small">Category drives the consumable / non-consumable analysis. Tools and equipment must come back; consumables may be consumed at site.</span></div>
+  </fieldset>
+
+  <fieldset><legend>Dispatch & references (Tally fields)</legend><div class="fgrid">
+    ${fi('DispatchedThrough', 'Dispatched through', v.DispatchedThrough, { hint: 'Defaults to the employee name' })}
+    ${fi('VehicleNo', 'Vehicle no', v.VehicleNo)}
+    ${fi('EWayBillNo', 'E-way bill no', v.EWayBillNo, { hint: 'Needed when value > ₹50,000' })}
+    ${fi('Destination', 'Destination', v.Destination)}
+    ${fi('ModeOfPayment', 'Mode/Terms of payment', v.ModeOfPayment)}
+    ${fi('RefNo', 'Reference no & date', v.RefNo)}
+    ${fi('OtherRef', 'Other references', v.OtherRef)}
+    ${fi('BuyerOrderNo', "Buyer's order no", v.BuyerOrderNo)}
+    ${fi('BuyerOrderDate', "Buyer's order date", v.BuyerOrderDate, { type: 'date' })}
+    ${fi('DispatchDocNo', 'Dispatch doc no', v.DispatchDocNo)}
+    ${fi('ApproxValue', 'Approx. value (₹)', v.ApproxValue, { type: 'number', attrs: 'min="0" step="any"' })}
+    ${fi('TermsOfDelivery', 'Terms of delivery', v.TermsOfDelivery, { type: 'textarea', cls: 'span2' })}
+    ${fi('Remarks', 'Remarks', v.Remarks, { type: 'textarea', cls: 'span2' })}
+  </div></fieldset>
+  </form>
+  <div class="row" style="justify-content:flex-end"><button class="btn" id="fBack2">Cancel</button><button class="btn primary" id="fSave2">${dc ? 'Save changes' : 'Create DC'}</button></div>`;
+
+  const form = $('#dcf');
+  const units = B.units;
+  const addRow = it => {
+    it = it || {};
+    const tr = document.createElement('tr');
+    tr.dataset.line = it.LineNo || '';
+    tr.innerHTML = `<td class="muted"></td>
+      <td><input class="i" data-k="Description" list="itemList" value="${esc(it.Description)}" autocomplete="off"></td>
+      <td><input class="i" data-k="SubDescription" value="${esc(it.SubDescription)}"></td>
+      <td><input class="i" data-k="HSN" value="${esc(it.HSN)}"></td>
+      <td><input class="i" data-k="Qty" type="number" min="0" step="any" value="${esc(it.Qty)}"></td>
+      <td><select class="i" data-k="Unit">${opt(units, it.Unit || 'NOS', false)}</select></td>
+      <td><select class="i" data-k="Category">${opt(B.categories, it.Category, '— category —')}</select></td>
+      <td><input class="i" data-k="SerialNo" value="${esc(it.SerialNo)}"></td>
+      <td><button type="button" class="btn sm danger" title="Remove">×</button></td>`;
+    $('button', tr).onclick = () => { tr.remove(); renumber(); };
+    $('[data-k=Description]', tr).addEventListener('change', e => {
+      const m = B.items.find(x => x.Description.toLowerCase() === e.target.value.trim().toLowerCase());
+      if (!m) return;
+      if (!$('[data-k=HSN]', tr).value) $('[data-k=HSN]', tr).value = m.HSN || '';
+      if (m.Unit) $('[data-k=Unit]', tr).value = m.Unit;
+      if (m.Category && !$('[data-k=Category]', tr).value) $('[data-k=Category]', tr).value = m.Category;
+    });
+    $('#itemsBody').appendChild(tr);
+    renumber();
+  };
+  const renumber = () => $$('#itemsBody tr').forEach((tr, i) => { tr.firstElementChild.textContent = i + 1; });
+  (items.length ? items : [{}]).forEach(addRow);
+  $('#addItem').onclick = () => addRow({});
+
+  const applyType = () => {
+    $$('#fType button').forEach(b => b.classList.toggle('on', b.dataset.t === type));
+    $('#wSec').style.display = type === 'WDC' ? '' : 'none';
+    $('#dueWrap').style.display = type === 'NRDC' ? 'none' : '';
+    $('#fTypeHint').textContent = {
+      RDC: 'Returnable – closes when all qty is returned/consumed and the signed hardcopy is received by store.',
+      NRDC: 'Non-returnable – stays open until accounts enters the invoice number (or marks it not billable).',
+      WDC: 'Warranty – returnable, tracked separately with vendor / claim details.'
+    }[type];
+  };
+  $$('#fType button').forEach(b => {
+    b.onclick = () => {
+      type = b.dataset.t;
+      if (!dc) {
+        form.Chargeable.value = type === 'NRDC' ? 'CHARGEABLE' : 'NON-CHARGEABLE';
+        form.DueDate.value = addDays(form.DCDate.value, n(type === 'WDC' ? S.WDC_DEFAULT_DUE_DAYS : S.RDC_DEFAULT_DUE_DAYS));
+        if (type === 'WDC' && !form.PurposeCategory.value) form.PurposeCategory.value = 'WARRANTY';
+      }
+      applyType();
+    };
+  });
+  applyType();
+
+  const fillParty = (name, pre) => {
+    const m = B.parties.find(x => x.Name.toLowerCase() === name.trim().toLowerCase());
+    if (pre === 'Party') $('#newPartyWrap').style.display = name.trim() && !m ? 'flex' : 'none';
+    if (!m) return;
+    form[pre + 'Address'].value = [m.Address1, m.Address2, m.Address3].filter(Boolean).join('\n');
+    form[pre + 'GSTIN'].value = m.GSTIN || '';
+    form[pre + 'State'].value = m.StateName ? m.StateName + (m.StateCode ? ', Code : ' + m.StateCode : '') : '';
+  };
+  form.PartyName.addEventListener('change', () => fillParty(form.PartyName.value, 'Party'));
+  form.BuyerName.addEventListener('change', () => fillParty(form.BuyerName.value, 'Buyer'));
+  const toggleBuyer = () => { $('#buyerSec').style.display = form.sameBuyer.checked ? 'none' : ''; };
+  form.sameBuyer.addEventListener('change', toggleBuyer);
+  toggleBuyer();
+  form.DCDate.addEventListener('change', () => {
+    if (!dc && type !== 'NRDC') form.DueDate.value = addDays(form.DCDate.value, n(type === 'WDC' ? S.WDC_DEFAULT_DUE_DAYS : S.RDC_DEFAULT_DUE_DAYS));
+  });
+
+  const save = async () => {
+    const x = vals(form);
+    x.DCType = type;
+    x.items = $$('#itemsBody tr').map(tr => {
+      const o = { LineNo: tr.dataset.line };
+      $$('[data-k]', tr).forEach(i => { o[i.dataset.k] = i.value.trim(); });
+      return o;
+    }).filter(o => o.Description || o.Qty);
+    if (x.items.some(o => !o.Category)) throw new Error('Select a category for every item (consumable, tool, etc.).');
+    if (!x.PurposeCategory) throw new Error('Select the purpose.');
+    if (x.sameBuyer) { x.BuyerName = ''; x.BuyerAddress = ''; x.BuyerGSTIN = ''; x.BuyerState = ''; }
+    if (dc) x.DCID = dc.DCID;
+    if (x.saveParty && $('#newPartyWrap').style.display !== 'none') {
+      const lines = String(x.PartyAddress || '').split('\n');
+      const st = String(x.PartyState || '').match(/^(.*?)(?:,\s*Code\s*:\s*(\d+))?$/) || [];
+      await call('saveParty', { Name: x.PartyName, Address1: lines[0] || '', Address2: lines[1] || '', Address3: lines.slice(2).join(', '), GSTIN: x.PartyGSTIN, StateName: (st[1] || '').trim(), StateCode: st[2] || '' })
+        .then(() => call('listParties')).then(r => { ST.boot.parties = r; }).catch(() => {});
+    }
+    const r = await call('saveDC', x);
+    toast((dc ? 'Saved ' : 'Created ') + r.DCNo, 'ok');
+    go('dc', { id: r.DCID, printNow: !dc }, true);
+  };
+  const guard = async btn => { btn.disabled = true; try { await save(); } catch (e) { fail(e); } finally { btn.disabled = false; } };
+  $('#fSave').onclick = e => guard(e.currentTarget);
+  $('#fSave2').onclick = e => guard(e.currentTarget);
+  $('#fBack').onclick = back;
+  $('#fBack2').onclick = back;
+}
+
+// ================================================================ DC DETAIL
+async function vDC(p, el) {
+  const r = await call('getDC', { id: p.id });
+  const d = r.dc, can = r.can, S = ST.boot.settings;
+  const ret = d.DCType !== 'NRDC';
+  const mine = d.ResponsibleId === ST.boot.user.UserId || (!d.ResponsibleId && d.ResponsibleName === ST.boot.user.Name);
+  const pendingMoves = r.movements.filter(m => m.VerifyStatus === 'PENDING');
+
+  const btns = [];
+  btns.push('<button class="btn" id="aPrint">Print DC</button>');
+  if (can.pdf) btns.push('<button class="btn" id="aPdf">Save PDF to Drive</button>');
+  if (can.act && d.Balance > 0) btns.push('<button class="btn accent" id="aReturn">Return / consumption</button>');
+  if (can.act || isStaff()) btns.push('<button class="btn" id="aUpload">Upload signed copy / proof</button>');
+  if (ret && d.IsOpen) {
+    if (isStaff() && d.HardcopyStatus !== 'RECEIVED') btns.push('<button class="btn" id="aHcRecv">Hardcopy received</button>');
+    else if (!isStaff() && (mine || role() === 'PURCHASE') && d.HardcopyStatus === 'PENDING') btns.push('<button class="btn" id="aHcSubmit">I handed over hardcopy</button>');
+  }
+  if (can.act && ret) btns.push(`<button class="btn" id="aExt">${isStaff() ? 'Extend due date' : 'Request extension'}</button>`);
+  if (can.bill && (d.DCType === 'NRDC' || d.Chargeable === 'CHARGEABLE' || isStaff())) btns.push('<button class="btn" id="aBill">Invoice / billing</button>');
+  if (can.edit) btns.push(`<button class="btn" ${goAttr('edit', { id: d.DCID })}>Edit</button>`);
+  if (can.close) btns.push('<button class="btn" id="aClose">Close DC</button>');
+  if (can.reopen) btns.push('<button class="btn" id="aReopen">Reopen</button>');
+  if (can.cancel) btns.push('<button class="btn danger" id="aCancel">Cancel DC</button>');
+
+  const al = [];
+  if (d.Status === 'CLOSED') al.push(`<div class="alert green"><b>Closed</b> on ${fd(d.ClosedOn)} by ${esc(d.ClosedBy)}. ${esc(d.CloseRemarks)}</div>`);
+  if (d.Status === 'CANCELLED') al.push(`<div class="alert red"><b>Cancelled</b> on ${fd(d.ClosedOn)} by ${esc(d.ClosedBy)}. ${esc(d.CloseRemarks)}</div>`);
+  if (d.OverdueDays) al.push(`<div class="alert red"><b>Overdue by ${d.OverdueDays} day(s)</b> – return was due on ${fd(d.DueDate)}. ${mine ? 'Return the material and record it here, or request an extension with reason.' : 'Follow up with ' + esc(d.ResponsibleName) + '.'}</div>`);
+  if (d.IsOpen && ret && !d.DueDate) al.push('<div class="alert red">No return due date. Edit the DC and set one – it is compulsory for returnable DCs.</div>');
+  if (pendingMoves.length) al.push(`<div class="alert amber">${d.PendingAcks} submission(s) from the employee are waiting for store verification.</div>`);
+  if (d.IsOpen && ret && d.HardcopyStatus === 'SUBMITTED') al.push(`<div class="alert amber">Hardcopy handed over by ${esc(d.HardcopySubmittedBy)} on ${fd(d.HardcopySubmittedOn)} – store to confirm receipt.</div>`);
+  if (d.IsOpen && ret && d.TotalQty > 0 && d.Balance === 0 && d.HardcopyStatus !== 'RECEIVED') al.push('<div class="alert amber">All material is accounted. This DC closes automatically once store receives the signed hardcopy.</div>');
+  if (d.IsOpen && d.BillingStatus === 'PENDING') al.push(`<div class="alert blue">Open until the invoice number is entered${d.DCType === 'NRDC' ? '' : ' (chargeable DC)'}. Unbilled for ${d.AgeDays} day(s).</div>`);
+  if ((d.Flags || []).indexOf('GST_JOBWORK') >= 0) al.push(`<div class="alert red">Job-work material out for ${d.AgeDays} days – under GST Sec. 143, inputs not returned within 1 year (capital goods 3 years) are treated as supply.</div>`);
+
+  const q = d.TotalQty || 1;
+  const bar = (v, c) => v ? `<i style="width:${(v / q) * 100}%;background:${c}"></i>` : '';
+  const row = (l, v) => `<div><span>${l}</span><b>${v || '<span class="muted">—</span>'}</b></div>`;
+  const link = u => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">Open</a>` : '';
+
+  el.innerHTML = `
+  <div class="pagehead">
+    <div><button class="btn sm" id="aBack">← Back</button></div>
+    <div><h1>${esc(d.DCNo)} ${tb(d.DCType)} ${sb(d.DisplayStatus)}</h1><div class="muted small"><b>${esc(coName(d.CompanyCode))}</b> · ${esc(ST.boot.dcTypes[d.DCType])} · ${fd(d.DCDate)} · ${esc(d.PartyName)}</div>${chips(d.Flags)}</div>
+  </div>
+  <div class="row mb">${btns.join('')}</div>
+  ${al.join('')}
+  <div class="grid g2">
+    <div class="card"><h3>Details</h3><div class="dl">
+      ${row('Company', esc(coName(d.CompanyCode)))}${row('Party (consignee)', esc(d.PartyName))}${row('GSTIN', esc(d.PartyGSTIN))}
+      ${row('Purpose', esc([d.PurposeCategory, d.Purpose].filter(Boolean).join(' – ')))}
+      ${row('Material taken by', esc(d.ResponsibleName))}${row('Prepared by', esc(d.PreparedBy))}
+      ${ret ? row('Return due date', d.DueDate ? fd(d.DueDate) + (d.OriginalDueDate && d.OriginalDueDate !== d.DueDate ? ` <span class="muted small">(orig. ${fd(d.OriginalDueDate)})</span>` : '') : '') : ''}
+      ${row('Dispatched through', esc([d.DispatchedThrough, d.VehicleNo].filter(Boolean).join(' / ')))}
+      ${row('Chargeable', esc(d.Chargeable))}${row('Billing', esc(BILL_LABEL[d.BillingStatus] || d.BillingStatus) + (d.InvoiceNo ? ' – ' + esc(d.InvoiceNo) + ' dt ' + fd(d.InvoiceDate) : ''))}
+      ${d.DCType === 'WDC' ? row('Warranty', esc(d.WarrantyDirection)) + row('Vendor / OEM', esc(d.WarrantyVendor)) + row('Claim / RMA', esc(d.WarrantyClaimNo)) + row('Serial no', esc(d.SerialNo)) + row('Fault', esc(d.FaultDescription)) + row('Outcome', esc(d.WarrantyOutcome)) : ''}
+      ${d.Remarks ? row('Remarks', esc(d.Remarks)) : ''}
+    </div></div>
+    <div class="card"><h3>Proof & closure checklist</h3><div class="dl">
+      ${row('Customer signed copy', d.SignedCopy === 'YES' ? '<span class="b green">Uploaded</span>' : '<span class="b gray">Not uploaded</span>')}
+      ${row('Gate entry', esc([d.GateEntryNo, fd(d.GateEntryDate)].filter(Boolean).join(' dt ')))}
+      ${row('End user', esc(d.EndUserName))}
+      ${ret ? row('Hardcopy', `<span class="b ${d.HardcopyStatus === 'RECEIVED' ? 'green' : d.HardcopyStatus === 'SUBMITTED' ? 'amber' : 'gray'}">${esc(HC_LABEL[d.HardcopyStatus] || d.HardcopyStatus)}</span>`) : ''}
+      ${ret && d.HardcopySubmittedOn ? row('Handed over', fd(d.HardcopySubmittedOn) + ' by ' + esc(d.HardcopySubmittedBy)) : ''}
+      ${ret && d.HardcopyReceivedOn ? row('Received by store', fd(d.HardcopyReceivedOn) + ' by ' + esc(d.HardcopyReceivedBy)) : ''}
+      ${row('Drive folder', link(d.FolderUrl))}${row('DC PDF', link(d.PdfUrl))}
+    </div>
+    <div class="mt"><div class="row small"><b>Quantity accounted</b><span class="muted">${d.TotalReturned + d.TotalConsumed + d.TotalLost} of ${d.TotalQty}</span></div>
+      <div class="progress mt" style="margin-top:6px">${bar(d.TotalReturned, COL.green)}${bar(d.TotalConsumed, COL.sky)}${bar(d.TotalLost, COL.red)}</div>
+      <div class="legend"><span><i style="background:${COL.green}"></i>Returned ${d.TotalReturned}</span><span><i style="background:${COL.sky}"></i>Consumed ${d.TotalConsumed}</span><span><i style="background:${COL.red}"></i>Lost/damaged ${d.TotalLost}</span><span><i style="background:#eef0f3"></i>Balance ${d.Balance}</span></div></div>
+    </div>
+  </div>
+  <div class="card mt">
+    <div class="tabs" id="dTabs">
+      <button data-t="items" class="on">Items (${r.items.length})</button><button data-t="moves">Returns & consumption (${r.movements.length})</button>
+      <button data-t="docs">Documents (${r.documents.length})</button><button data-t="ext">Extensions (${r.extensions.length})</button><button data-t="hist">History (${r.history.length})</button>
+    </div><div id="dBody"></div>
+  </div>`;
+
+  const tabs = {
+    items: () => `<div class="tw"><table class="t"><thead><tr><th>#</th><th>Description</th><th>Category</th><th>HSN</th><th class="num">Issued</th><th class="num">Returned</th><th class="num">Consumed</th><th class="num">Lost</th><th class="num">Balance</th></tr></thead><tbody>
+      ${r.items.map((i, k) => `<tr><td>${k + 1}</td><td><b>${esc(i.Description)}</b>${i.SubDescription ? `<div class="muted small">${esc(i.SubDescription)}</div>` : ''}${i.SerialNo ? `<div class="muted small">S/N ${esc(i.SerialNo)}</div>` : ''}</td>
+      <td>${esc(i.Category)}</td><td>${esc(i.HSN)}</td><td class="num">${n(i.Qty)} ${esc(i.Unit)}</td><td class="num">${n(i.ReturnedQty)}</td><td class="num">${n(i.ConsumedQty)}</td><td class="num">${n(i.LostQty) ? `<span class="b red">${n(i.LostQty)}</span>` : 0}</td>
+      <td class="num"><b>${i.Balance}</b></td></tr>`).join('')}</tbody></table></div>`,
+    moves: () => {
+      if (!r.movements.length) return '<div class="empty">No returns or consumption recorded yet.</div>';
+      const groups = {};
+      r.movements.forEach(m => { (groups[m.AckNo] = groups[m.AckNo] || []).push(m); });
+      return Object.keys(groups).reverse().map(a => {
+        const L = groups[a], m0 = L[0];
+        const st = m0.VerifyStatus;
+        return `<div class="card mb" style="box-shadow:none"><div class="row"><b>${esc(a)}</b><span class="b ${st === 'ACCEPTED' ? 'green' : st === 'REJECTED' ? 'red' : 'amber'}">${esc(st === 'PENDING' ? 'AWAITING STORE' : st)}</span>
+          <span class="muted small">Return date ${fd(m0.MoveDate)} · submitted ${fd(m0.SubmittedAt)} by ${esc(m0.SubmittedByName)}</span>
+          <span class="grow"></span><button class="btn sm" data-ackprint="${esc(a)}">Print acknowledgement</button>
+          ${st === 'PENDING' && isStaff() ? `<button class="btn sm accent" data-verify="${esc(a)}" data-dec="ACCEPTED">Accept</button><button class="btn sm danger" data-verify="${esc(a)}" data-dec="REJECTED">Reject</button>` : ''}</div>
+          <div class="tw mt"><table class="t"><thead><tr><th>Item</th><th class="num">Returned</th><th class="num">Consumed</th><th class="num">Lost/damaged</th><th>Condition</th></tr></thead><tbody>
+          ${L.map(m => `<tr><td>${esc(m.Description)}</td><td class="num">${n(m.ReturnedQty)}</td><td class="num">${n(m.ConsumedQty)}</td><td class="num">${n(m.LostQty)}</td><td>${esc(m.Condition)}</td></tr>`).join('')}</tbody></table></div>
+          ${m0.Remarks ? `<div class="small mt">Remarks: ${esc(m0.Remarks)}</div>` : ''}
+          ${m0.VerifiedBy ? `<div class="small muted">Verified by ${esc(m0.VerifiedBy)} on ${fd(m0.VerifiedAt)}${m0.VerifyRemarks ? ' – ' + esc(m0.VerifyRemarks) : ''}</div>` : ''}</div>`;
+      }).join('');
+    },
+    docs: () => r.documents.length ? `<div class="tw"><table class="t"><thead><tr><th>Document</th><th>File</th><th>Uploaded by</th><th>On</th><th>Remarks</th></tr></thead><tbody>
+      ${r.documents.slice().reverse().map(x => `<tr><td>${esc(ST.boot.docTypes[x.DocType] || x.DocType)}</td><td><a href="${esc(x.FileUrl)}" target="_blank" rel="noopener">${esc(x.FileName)}</a></td><td>${esc(x.UploadedByName)}</td><td class="nowrap">${fd(x.UploadedAt)}</td><td>${esc(x.Remarks)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">No documents yet. Upload the customer-signed DC, gate entry or return proof.</div>',
+    ext: () => r.extensions.length ? `<div class="tw"><table class="t"><thead><tr><th>Requested</th><th>By</th><th>From</th><th>To</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>
+      ${r.extensions.slice().reverse().map(x => `<tr><td class="nowrap">${fd(x.RequestedAt)}</td><td>${esc(x.RequestedByName)}</td><td>${fd(x.OldDueDate)}</td><td>${fd(x.NewDueDate)}</td><td>${esc(x.Reason)}</td>
+      <td><span class="b ${x.Status === 'APPROVED' ? 'green' : x.Status === 'REJECTED' ? 'red' : 'amber'}">${esc(x.Status)}</span>${x.DecidedBy ? `<div class="muted small">${esc(x.DecidedBy)}${x.DecisionRemarks ? ' – ' + esc(x.DecisionRemarks) : ''}</div>` : ''}</td>
+      <td class="nowrap">${x.Status === 'PENDING' && can.decideExt ? `<button class="btn sm accent" data-ext="${esc(x.ExtId)}" data-dec="APPROVED">Approve</button> <button class="btn sm danger" data-ext="${esc(x.ExtId)}" data-dec="REJECTED">Reject</button>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">No due-date extensions.</div>',
+    hist: () => r.history.length ? `<div class="tw"><table class="t"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead><tbody>
+      ${r.history.map(h => `<tr><td class="nowrap">${fd(h.Timestamp)}</td><td>${esc(h.UserName)}</td><td><span class="b gray">${esc(h.Action)}</span></td><td>${esc(h.Details)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">No history.</div>'
+  };
+  const showTab = t => {
+    $$('#dTabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+    $('#dBody').innerHTML = tabs[t]();
+    $$('[data-verify]', $('#dBody')).forEach(b => { b.onclick = () => verifyModal(b.dataset.verify, b.dataset.dec, reload); });
+    $$('[data-ext]', $('#dBody')).forEach(b => { b.onclick = () => extDecisionModal(b.dataset.ext, b.dataset.dec, reload); });
+    $$('[data-ackprint]', $('#dBody')).forEach(b => {
+      b.onclick = () => {
+        const L = r.movements.filter(m => m.AckNo === b.dataset.ackprint);
+        printHtml(ackHtml({ ackNo: b.dataset.ackprint, submittedAt: fd(L[0].SubmittedAt), dcNo: d.DCNo, party: d.PartyName, by: L[0].SubmittedByName, status: L[0].VerifyStatus, lines: L, verifiedBy: L[0].VerifiedBy, verifiedAt: fd(L[0].VerifiedAt) }));
+      };
+    });
+  };
+  $$('#dTabs button').forEach(b => { b.onclick = () => showTab(b.dataset.t); });
+  showTab(pendingMoves.length && isStaff() ? 'moves' : 'items');
+
+  const on = (id, fn) => { const b = $('#' + id); if (b) b.onclick = fn; };
+  on('aBack', back);
+  on('aPrint', () => printModal(d.DCID));
+  on('aPdf', async () => { try { const x = await call('savePdf', { dcId: d.DCID }); toast('PDF saved to Drive', 'ok'); window.open(x.url, '_blank'); reload(); } catch (e) { fail(e); } });
+  on('aReturn', () => returnModal(r));
+  on('aUpload', () => uploadModal(d));
+  on('aHcRecv', () => hardcopyModal(d, 'RECEIVE'));
+  on('aHcSubmit', () => hardcopyModal(d, 'SUBMIT'));
+  on('aExt', () => extensionModal(d));
+  on('aBill', () => billingModal(d));
+  on('aClose', () => closeModal(d));
+  on('aReopen', () => reasonModal('Reopen ' + d.DCNo, 'Reason for reopening', 'Reopen', x => call('reopenDC', { dcId: d.DCID, remarks: x })));
+  on('aCancel', () => reasonModal('Cancel ' + d.DCNo, 'Reason for cancellation (kept for audit – DCs are never deleted)', 'Cancel DC', x => call('cancelDC', { dcId: d.DCID, remarks: x })));
+  if (p.printNow) { ST.params.printNow = false; printModal(d.DCID); }
+}
+
+// ---------------------------------------------------------------- action modals
+/** Print: choose copies (Original / Duplicate / Triplicate – Rule 55), edit Terms & Conditions, preview, print. */
+async function printModal(id) {
+  try {
+    const first = String(ST.boot.settings.PRINT_COPIES || '').split(',').map(s => s.trim()).filter(String).slice(0, 1);
+    const r0 = await call('printDC', { dcId: id, copies: first });
+    const labels = r0.copyLabels || [];
+    modal({
+      title: 'Print ' + r0.dcNo, size: 'xwide', noFocus: true,
+      body: `<div class="grid g2" style="align-items:start">
+        <div><div class="small" style="font-weight:600;margin-bottom:6px">Copies to print</div>
+          ${labels.map((l, i) => `<label class="row small" style="gap:6px;margin-bottom:4px"><input type="checkbox" data-copy="${esc(l)}" checked> ${esc(l)}</label>`).join('')}
+          <p class="muted small">Rule 55(2), CGST Rules: the delivery challan is prepared in triplicate. Each copy prints on its own page.</p></div>
+        <div><label class="f"><span>Terms &amp; Conditions (one per line)${r0.canEditTerms ? '' : ' – view only'}</span>
+          <textarea class="i" id="pTerms" style="min-height:150px;font-size:12.5px" ${r0.canEditTerms ? '' : 'readonly'}>${esc(r0.terms)}</textarea></label>
+          ${r0.canEditTerms ? '<div class="row mt" style="margin-top:6px"><button type="button" class="btn sm" id="pReset">Reset to default</button><button type="button" class="btn sm" id="pPrev">Update preview</button><span class="muted small">Edited terms are saved on this DC when you print.</span></div>' : ''}</div>
+      </div>
+      <div class="dcpreview mt" id="pPreview">${r0.html}</div>`,
+      onOpen: el => {
+        const copies = () => $$('[data-copy]', el).filter(c => c.checked).map(c => c.dataset.copy);
+        const preview = async () => {
+          const r = await call('printDC', { dcId: id, copies: copies().slice(0, 1), terms: r0.canEditTerms ? $('#pTerms', el).value : undefined });
+          $('#pPreview', el).innerHTML = r.html;
+        };
+        el._copies = copies;
+        if ($('#pReset', el)) $('#pReset', el).onclick = () => { $('#pTerms', el).value = r0.defaultTerms; };
+        if ($('#pPrev', el)) $('#pPrev', el).onclick = () => preview().catch(fail);
+      },
+      buttons: [{ label: 'Close' }, {
+        label: 'Print', cls: 'primary', onClick: async el => {
+          const c = el._copies();
+          if (!c.length && labels.length) throw new Error('Tick at least one copy to print.');
+          const r = await call('printDC', { dcId: id, copies: c, terms: r0.canEditTerms ? $('#pTerms', el).value : undefined });
+          printHtml(r.html);
+          return false;
+        }
+      }]
+    });
+  } catch (e) { fail(e); }
+}
+
+function returnModal(r) {
+  const d = r.dc;
+  const pend = {};
+  r.movements.filter(m => m.VerifyStatus === 'PENDING').forEach(m => { pend[m.LineNo] = (pend[m.LineNo] || 0) + n(m.ReturnedQty) + n(m.ConsumedQty) + n(m.LostQty); });
+  const lines = r.items.map(i => Object.assign({}, i, { pending: pend[i.LineNo] || 0, open: Math.max(0, i.Balance - (pend[i.LineNo] || 0)) })).filter(i => i.open > 0);
+  if (!lines.length) return toast('Nothing open – all quantity is returned or awaiting verification.', 'err');
+  modal({
+    title: 'Return / consumption – ' + d.DCNo, size: 'wide',
+    body: `<div class="alert ${isStaff() ? 'blue' : 'green'}">${isStaff() ? 'Recorded by store – quantities are verified immediately.' : 'Your submission gets a time-stamped acknowledgement number – keep it as proof that you submitted. Store will verify and accept.'}</div>
+      <div class="fgrid mb">${fi('moveDate', 'Date material returned / consumed', todayStr(), { type: 'date', req: true, attrs: `max="${todayStr()}"` })}</div>
+      <div class="tw"><table class="t"><thead><tr><th>Item</th><th class="num">Open</th><th style="width:100px">Returned to store</th><th style="width:100px">Consumed at site</th><th style="width:100px">Lost / damaged</th><th style="width:130px">Condition</th></tr></thead><tbody>
+      ${lines.map(i => `<tr data-line="${i.LineNo}"><td><b>${esc(i.Description)}</b><div class="muted small">${esc(i.Category)}${i.pending ? ` · ${i.pending} awaiting verification` : ''}</div></td>
+        <td class="num">${i.open} ${esc(i.Unit)}</td>
+        <td><input class="i" type="number" min="0" max="${i.open}" step="any" data-k="returnedQty" placeholder="0"></td>
+        <td><input class="i" type="number" min="0" max="${i.open}" step="any" data-k="consumedQty" placeholder="0"></td>
+        <td><input class="i" type="number" min="0" max="${i.open}" step="any" data-k="lostQty" placeholder="0"></td>
+        <td><select class="i" data-k="condition">${opt(['GOOD', 'USED – OK', 'DAMAGED', 'NOT TESTED'], 'GOOD', false)}</select></td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="row mt"><button type="button" class="btn sm" id="allBack">Everything returned</button><span class="muted small">Consumables used at the customer site go in “Consumed”.</span></div>
+      <div class="mt">${fi('remarks', 'Remarks (required if lost / damaged)', '', { type: 'textarea' })}</div>`,
+    onOpen: el => {
+      $('#allBack', el).onclick = () => $$('tr[data-line]', el).forEach(tr => {
+        const inp = $('[data-k=returnedQty]', tr); inp.value = inp.max;
+        $('[data-k=consumedQty]', tr).value = ''; $('[data-k=lostQty]', tr).value = '';
+      });
+    },
+    buttons: [{ label: 'Cancel' }, {
+      label: isStaff() ? 'Record return' : 'Submit to store', cls: 'primary', onClick: async el => {
+        const v = vals(el);
+        const L = $$('tr[data-line]', el).map(tr => {
+          const o = { lineNo: tr.dataset.line };
+          $$('[data-k]', tr).forEach(i => { o[i.dataset.k] = i.value; });
+          return o;
+        });
+        const res = await call('submitMovement', { dcId: d.DCID, moveDate: v.moveDate, remarks: v.remarks, lines: L });
+        setTimeout(() => { reload(); ackModal(res); }, 50);
+      }
+    }]
+  });
+}
+
+function ackHtml(a) {
+  const S = ST.boot.settings;
+  const td = 'border:1px solid #000;padding:5px 7px';
+  return `<div style="font-family:Arial,sans-serif;font-size:12px;max-width:720px;margin:0 auto;border:1px solid #000;padding:18px">
+    <div style="text-align:center;font-weight:bold;font-size:14px">${esc(S.COMPANY_NAME)}</div>
+    <div style="text-align:center;font-weight:bold;margin:6px 0 14px">MATERIAL RETURN / CONSUMPTION ACKNOWLEDGEMENT</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <tr><td style="${td}">Acknowledgement No</td><td style="${td}"><b>${esc(a.ackNo)}</b></td><td style="${td}">Submitted on</td><td style="${td}">${esc(a.submittedAt)}</td></tr>
+      <tr><td style="${td}">DC No</td><td style="${td}"><b>${esc(a.dcNo)}</b></td><td style="${td}">Party</td><td style="${td}">${esc(a.party)}</td></tr>
+      <tr><td style="${td}">Submitted by</td><td style="${td}">${esc(a.by)}</td><td style="${td}">Store status</td><td style="${td}">${esc(a.status === 'PENDING' ? 'Awaiting verification' : a.status)}${a.verifiedBy ? ' – ' + esc(a.verifiedBy) + ' ' + esc(a.verifiedAt || '') : ''}</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse"><tr><th style="${td}">#</th><th style="${td};text-align:left">Item</th><th style="${td}">Returned</th><th style="${td}">Consumed</th><th style="${td}">Lost / damaged</th><th style="${td}">Condition</th></tr>
+    ${a.lines.map((l, k) => `<tr><td style="${td};text-align:center">${k + 1}</td><td style="${td}">${esc(l.Description)}</td><td style="${td};text-align:right">${n(l.ReturnedQty)}</td><td style="${td};text-align:right">${n(l.ConsumedQty)}</td><td style="${td};text-align:right">${n(l.LostQty)}</td><td style="${td}">${esc(l.Condition)}</td></tr>`).join('')}</table>
+    <table style="width:100%;margin-top:50px"><tr><td>Submitted by: ${esc(a.by)}<br><br>Signature</td><td style="text-align:right">Received &amp; verified by (Store)<br><br>Signature</td></tr></table>
+    <div style="text-align:center;font-size:10px;margin-top:14px">Generated by DC Tracker – system time-stamped record</div></div>`;
+}
+
+function ackModal(a) {
+  modal({
+    title: 'Submission recorded', noFocus: true,
+    body: `<div class="ack"><div class="muted small">Acknowledgement No</div><div style="font-size:22px;font-weight:700">${esc(a.ackNo)}</div>
+      <div class="mt">DC <b>${esc(a.dcNo)}</b> · ${esc(a.party)}<br>Submitted by ${esc(a.by)} on ${esc(a.submittedAt)}<br>
+      Status: <b>${a.status === 'PENDING' ? 'Awaiting store verification' : 'Accepted'}</b></div></div>
+      <p class="muted small">This record is time-stamped in the system. ${a.status === 'PENDING' ? 'You will get an e-mail when store verifies it (if your e-mail is registered).' : ''}</p>`,
+    buttons: [{ label: 'Close' }, { label: 'Print acknowledgement', cls: 'primary', onClick: () => { printHtml(ackHtml(a)); return false; } }]
+  });
+}
+
+function uploadModal(d) {
+  const types = Object.keys(ST.boot.docTypes).map(k => ({ v: k, l: ST.boot.docTypes[k] }));
+  modal({
+    title: 'Upload document – ' + d.DCNo,
+    body: `<div class="grid">
+      ${fi('docType', 'Document type', 'SIGNED_DC', { type: 'select', options: types, blank: false, req: true })}
+      <label class="f"><span>Scanned copy / photo (image or PDF, max 10 MB) <span class="req">*</span></span><input class="i" type="file" id="upFile" accept="image/*,application/pdf"></label>
+      <div class="fgrid" id="gateF">${fi('gateEntryNo', 'Customer gate entry no', d.GateEntryNo)}${fi('gateEntryDate', 'Gate entry date', d.GateEntryDate, { type: 'date' })}${fi('endUserName', 'End user (who signed)', d.EndUserName)}</div>
+      ${fi('remarks', 'Remarks', '', { type: 'textarea' })}
+      <div class="muted small">Photos are compressed before upload. Files are saved in the DC's own Google Drive folder.</div></div>`,
+    onOpen: el => {
+      const t = () => { $('#gateF', el).style.display = /SIGNED_DC|GATE_ENTRY|ENDUSER_ACK/.test(el.querySelector('[name=docType]').value) ? '' : 'none'; };
+      el.querySelector('[name=docType]').addEventListener('change', t); t();
+    },
+    buttons: [{ label: 'Cancel' }, {
+      label: 'Upload', cls: 'primary', onClick: async el => {
+        const f = $('#upFile', el).files[0];
+        const v = vals(el);
+        const payload = await fileToPayload(f);
+        await call('uploadDoc', Object.assign({ dcId: d.DCID }, v, payload));
+        toast('Document uploaded', 'ok');
+        reload();
+      }
+    }]
+  });
+}
+
+function hardcopyModal(d, action) {
+  const staff = action === 'RECEIVE';
+  modal({
+    title: staff ? 'Confirm hardcopy received – ' + d.DCNo : 'Hardcopy handed over – ' + d.DCNo,
+    body: `${staff ? (d.HardcopyStatus === 'SUBMITTED' ? `<div class="alert amber">${esc(d.HardcopySubmittedBy)} reports handing it over on ${fd(d.HardcopySubmittedOn)}.</div>` : '') : '<div class="alert green">Your handover date is recorded as proof. Store will confirm receipt.</div>'}
+      <div class="grid">${fi('date', staff ? 'Received on' : 'Handed over to store on', todayStr(), { type: 'date', req: true, attrs: `max="${todayStr()}"` })}${fi('remarks', 'Remarks', '', { type: 'textarea' })}</div>`,
+    buttons: [{ label: 'Cancel' }].concat(staff && d.HardcopyStatus === 'SUBMITTED' ? [{
+      label: 'Not received', cls: 'danger', onClick: async el => { const v = vals(el); await call('hardcopy', Object.assign({ dcId: d.DCID, action: 'REJECT' }, v)); toast('Marked as not received'); reload(); }
+    }] : []).concat([{
+      label: staff ? 'Confirm received' : 'Record handover', cls: 'primary',
+      onClick: async el => { const v = vals(el); await call('hardcopy', Object.assign({ dcId: d.DCID, action: action }, v)); toast('Hardcopy updated', 'ok'); reload(); }
+    }])
+  });
+}
+
+function extensionModal(d) {
+  modal({
+    title: (isStaff() ? 'Extend due date – ' : 'Request extension – ') + d.DCNo,
+    body: `<div class="grid">${fi('newDueDate', 'New due date', addDays(d.DueDate || todayStr(), 7), { type: 'date', req: true })}${fi('reason', 'Reason', '', { type: 'textarea', req: true, attrs: 'placeholder="e.g. customer trial extended till …"' })}</div>
+      <p class="muted small">Current due date: ${fd(d.DueDate) || 'not set'}. ${isStaff() ? 'Change is applied immediately and logged.' : 'Store approves or rejects the request.'}</p>`,
+    buttons: [{ label: 'Cancel' }, { label: isStaff() ? 'Extend' : 'Send request', cls: 'primary', onClick: async el => { await call('requestExtension', Object.assign({ dcId: d.DCID }, vals(el))); toast('Done', 'ok'); reload(); } }]
+  });
+}
+
+function billingModal(d) {
+  const nr = d.DCType === 'NRDC';
+  modal({
+    title: 'Invoice / billing – ' + d.DCNo,
+    body: `<div class="grid">
+      ${!nr ? fi('chargeable', 'Chargeable', d.Chargeable, { type: 'select', options: ['CHARGEABLE', 'NON-CHARGEABLE'], blank: false }) : ''}
+      ${fi('status', 'Billing action', d.BillingStatus === 'PENDING' ? 'BILLED' : '', { type: 'select', options: [{ v: 'BILLED', l: 'Invoice raised – enter invoice no' }, { v: 'NOT_BILLABLE', l: 'Not billable (FOC / replacement / sample)' }], blank: nr ? '— select —' : 'No billing change' })}
+      <div class="fgrid">${fi('invoiceNo', 'Invoice no', d.InvoiceNo)}${fi('invoiceDate', 'Invoice date', d.InvoiceDate || todayStr(), { type: 'date' })}</div>
+      ${fi('remarks', 'Remarks / reason', '', { type: 'textarea' })}</div>
+      <p class="muted small">${nr ? 'Entering the invoice closes this non-returnable DC.' : 'A chargeable returnable DC closes after material + hardcopy + invoice are all complete.'}</p>`,
+    buttons: [{ label: 'Cancel' }, { label: 'Save', cls: 'primary', onClick: async el => { await call('billing', Object.assign({ dcId: d.DCID }, vals(el))); toast('Billing updated', 'ok'); reload(); } }]
+  });
+}
+
+function closeModal(d) {
+  const warn = [];
+  if (d.Balance > 0 && d.DCType !== 'NRDC') warn.push(`Balance qty <b>${d.Balance}</b> not accounted – it will be written off.`);
+  if (d.DCType !== 'NRDC' && d.HardcopyStatus !== 'RECEIVED') warn.push('Signed hardcopy is not received by store.');
+  if (d.BillingStatus === 'PENDING') warn.push('Invoice not entered.');
+  modal({
+    title: 'Close ' + d.DCNo,
+    body: `${warn.length ? `<div class="alert amber">${warn.join('<br>')}</div>` : ''}<div class="grid">
+      ${fi('date', 'Closing date', todayStr(), { type: 'date', req: true })}
+      ${d.DCType === 'WDC' ? fi('warrantyOutcome', 'Warranty outcome', d.WarrantyOutcome, { type: 'select', options: ['REPAIRED & RETURNED', 'REPLACED', 'CREDIT NOTE', 'REJECTED BY VENDOR', 'RETURNED AS IS'] }) : ''}
+      ${fi('remarks', 'Closing remarks (required)', '', { type: 'textarea', req: true })}</div>`,
+    buttons: [{ label: 'Cancel' }, { label: 'Close DC', cls: 'primary', onClick: async el => { await call('closeDC', Object.assign({ dcId: d.DCID }, vals(el))); toast('DC closed', 'ok'); reload(); } }]
+  });
+}
+
+function reasonModal(title, label, btn, fn) {
+  modal({
+    title: title, body: fi('remarks', label, '', { type: 'textarea', req: true }),
+    buttons: [{ label: 'Back' }, { label: btn, cls: 'primary', onClick: async el => { const v = vals(el); if (!v.remarks) throw new Error('Reason is required.'); await fn(v.remarks); toast('Done', 'ok'); reload(); } }]
+  });
+}
+
+function verifyModal(ack, dec, after) {
+  modal({
+    title: (dec === 'ACCEPTED' ? 'Accept ' : 'Reject ') + ack,
+    body: `${dec === 'ACCEPTED' ? '<div class="alert green">Quantities will be added to the DC. Physically check the material before accepting.</div>' : '<div class="alert red">The employee will be informed with your reason and can resubmit.</div>'}
+      ${fi('remarks', dec === 'ACCEPTED' ? 'Remarks (optional)' : 'Reason (required)', '', { type: 'textarea', req: dec !== 'ACCEPTED' })}`,
+    buttons: [{ label: 'Back' }, { label: dec === 'ACCEPTED' ? 'Accept' : 'Reject', cls: dec === 'ACCEPTED' ? 'accent' : 'danger', onClick: async el => { await call('verifyMovement', { ackNo: ack, decision: dec, remarks: vals(el).remarks }); toast(ack + ' ' + dec.toLowerCase(), 'ok'); after(); } }]
+  });
+}
+
+function extDecisionModal(id, dec, after) {
+  modal({
+    title: dec === 'APPROVED' ? 'Approve extension' : 'Reject extension',
+    body: fi('remarks', 'Remarks', '', { type: 'textarea' }),
+    buttons: [{ label: 'Back' }, { label: dec === 'APPROVED' ? 'Approve' : 'Reject', cls: dec === 'APPROVED' ? 'accent' : 'danger', onClick: async el => { await call('decideExtension', { extId: id, decision: dec, remarks: vals(el).remarks }); toast('Extension ' + dec.toLowerCase(), 'ok'); after(); } }]
+  });
+}
+
+// ================================================================ STORE DESK
+async function vDesk(p, el) {
+  const staff = isStaff();
+  const [ver, ext, hc, blk] = await Promise.all([staff ? call('pendingVerifications') : [], call('pendingExtensions'),
+    staff ? call('listDCs', { status: 'HC_TO_CONFIRM', company: ST.company }) : { rows: [] }, call('listDCs', { status: 'HC_BLOCKING', company: ST.company })]);
+  ST.counts.desk = ver.length + ext.length + hc.rows.length; renderNav();
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>${staff ? 'Store Desk' : 'Approvals'}</h1><div class="muted small">${staff ? 'Everything employees have submitted that needs store action.' : 'Due-date extension requests waiting for your decision, and DCs stuck for want of the hardcopy.'}</div></div></div>
+  ${staff ? `<div class="card mb"><h3>1. Returns & consumption awaiting verification <span class="b amber">${ver.length}</span></h3>
+    ${ver.length ? ver.map(g => `<div class="card mb" style="box-shadow:none"><div class="row"><b>${esc(g.AckNo)}</b> ${tb(g.DCType)} <a data-dc="${esc(g.DCID)}" href="#">${esc(g.DCNo)}</a>
+      <span class="muted small">${esc(g.PartyName)} · by <b>${esc(g.SubmittedByName)}</b> · submitted ${fd(g.SubmittedAt)} · returned ${fd(g.MoveDate)}</span>
+      ${g.WaitingDays > 1 ? `<span class="b red">waiting ${g.WaitingDays} d</span>` : ''}<span class="grow"></span>
+      <button class="btn sm accent" data-verify="${esc(g.AckNo)}" data-dec="ACCEPTED">Accept</button><button class="btn sm danger" data-verify="${esc(g.AckNo)}" data-dec="REJECTED">Reject</button></div>
+      <div class="tw mt"><table class="t"><thead><tr><th>Item</th><th class="num">Returned</th><th class="num">Consumed</th><th class="num">Lost/damaged</th><th>Condition</th></tr></thead><tbody>
+      ${g.lines.map(m => `<tr><td>${esc(m.Description)}</td><td class="num">${n(m.ReturnedQty)}</td><td class="num">${n(m.ConsumedQty)}</td><td class="num">${n(m.LostQty)}</td><td>${esc(m.Condition)}</td></tr>`).join('')}</tbody></table></div>
+      ${g.Remarks ? `<div class="small mt">Remarks: ${esc(g.Remarks)}</div>` : ''}</div>`).join('') : '<div class="empty">Nothing to verify.</div>'}
+  </div>
+  <div class="card mb"><h3>2. Hardcopies reported handed over – confirm receipt <span class="b amber">${hc.rows.length}</span></h3>
+    ${hc.rows.length ? `<div class="tw"><table class="t"><thead><tr><th>DC</th><th>Party</th><th>Employee</th><th>Handed over on</th><th></th></tr></thead><tbody>
+    ${hc.rows.map(d => `<tr><td><a data-dc="${esc(d.DCID)}" href="#">${esc(d.DCNo)}</a></td><td>${esc(d.PartyName)}</td><td>${esc(d.HardcopySubmittedBy || d.ResponsibleName)}</td><td>${fd(d.HardcopySubmittedOn)}</td>
+      <td class="nowrap"><button class="btn sm accent" data-hc="${esc(d.DCID)}">Confirm / not received</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No hardcopies waiting.</div>'}
+  </div>` : ''}
+  <div class="card mb"><h3>${staff ? '3. ' : ''}Due-date extension requests <span class="b amber">${ext.length}</span></h3>
+    ${ext.length ? `<div class="tw"><table class="t"><thead><tr><th>DC</th><th>By</th><th>Current due</th><th>Requested</th><th>Reason</th><th></th></tr></thead><tbody>
+    ${ext.map(x => `<tr><td><a data-dc="${esc(x.DCID)}" href="#">${esc(x.DCNo)}</a></td><td>${esc(x.RequestedByName)}</td><td>${fd(x.OldDueDate)}</td><td><b>${fd(x.NewDueDate)}</b></td><td>${esc(x.Reason)}</td>
+      <td class="nowrap"><button class="btn sm accent" data-ext="${esc(x.ExtId)}" data-dec="APPROVED">Approve</button> <button class="btn sm danger" data-ext="${esc(x.ExtId)}" data-dec="REJECTED">Reject</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No requests.</div>'}
+  </div>
+  <div class="card"><h3>${staff ? '4. ' : ''}Material back but hardcopy not submitted <span class="b gray">${blk.rows.length}</span></h3>
+    <p class="muted small" style="margin-top:0">These DCs cannot close. Chase the employee for the signed hardcopy.</p>
+    ${blk.rows.length ? `<div class="tw"><table class="t"><thead><tr><th>DC</th><th>Party</th><th>Employee</th><th class="num">Age</th></tr></thead><tbody>
+    ${blk.rows.map(d => `<tr class="click" data-dc="${esc(d.DCID)}"><td>${esc(d.DCNo)}</td><td>${esc(d.PartyName)}</td><td>${esc(d.ResponsibleName)}</td><td class="num">${d.AgeDays} d</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">None.</div>'}
+  </div>`;
+  $$('[data-verify]', el).forEach(b => { b.onclick = () => verifyModal(b.dataset.verify, b.dataset.dec, reload); });
+  $$('[data-ext]', el).forEach(b => { b.onclick = () => extDecisionModal(b.dataset.ext, b.dataset.dec, reload); });
+  $$('[data-hc]', el).forEach(b => { b.onclick = () => { const d = hc.rows.find(x => x.DCID === b.dataset.hc); hardcopyModal(d, 'RECEIVE'); }; });
+}
+
+// ================================================================ BILLING
+async function vBilling(p, el) {
+  const r = await call('listDCs', { status: 'BILL_PENDING', company: ST.company });
+  const S = ST.boot.settings;
+  const rows = r.rows.sort((a, b) => b.AgeDays - a.AgeDays);
+  ST.counts.bill = rows.filter(d => (d.Flags || []).indexOf('BILL_OVERDUE') >= 0).length; renderNav();
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>DCs awaiting invoice</h1><div class="muted small">${rows.length} DC(s). Non-returnable DCs and chargeable returnable DCs stay open until the invoice number is entered. Reminder after ${esc(S.NRDC_BILL_REMIND_DAYS)} days.</div></div>
+    <div class="actions"><button class="btn" id="bCsv">Download CSV</button></div></div>
+  ${rows.length ? `<div class="tw"><table class="t"><thead><tr><th>DC</th><th>Party</th><th>Items</th><th>Employee</th><th class="num">Days</th><th style="width:150px">Invoice no</th><th style="width:150px">Invoice date</th><th></th></tr></thead><tbody>
+  ${rows.map(d => `<tr data-id="${esc(d.DCID)}"><td class="nowrap">${tb(d.DCType)} <a data-dc="${esc(d.DCID)}" href="#">${esc(d.DCNo)}</a><div class="muted small">${fd(d.DCDate)}</div></td>
+    <td><div class="ellip" style="max-width:220px">${esc(d.PartyName)}</div></td><td><div class="ellip" style="max-width:220px">${esc(d.ItemsText)}</div></td><td>${esc(d.ResponsibleName)}</td>
+    <td class="num"><span class="b ${d.AgeDays > n(S.NRDC_BILL_REMIND_DAYS) ? 'red' : 'violet'}">${d.AgeDays}</span></td>
+    <td><input class="i" data-k="invoiceNo" placeholder="Invoice no"></td><td><input class="i" type="date" data-k="invoiceDate" value="${todayStr()}"></td>
+    <td class="nowrap"><button class="btn sm accent" data-bill="1">Save</button> <button class="btn sm" data-nb="1">Not billable</button></td></tr>`).join('')}
+  </tbody></table></div>` : '<div class="card empty">No DCs are waiting for an invoice.</div>'}`;
+  if ($('#bCsv')) $('#bCsv').onclick = () => downloadCsv(rows, CSV_COLS, 'DC_Awaiting_Invoice_' + todayStr());
+  $$('[data-bill]', el).forEach(b => {
+    b.onclick = async () => {
+      const tr = b.closest('tr');
+      b.disabled = true;
+      try {
+        await call('billing', { dcId: tr.dataset.id, status: 'BILLED', invoiceNo: $('[data-k=invoiceNo]', tr).value.trim(), invoiceDate: $('[data-k=invoiceDate]', tr).value });
+        toast('Invoice saved – DC updated', 'ok'); tr.remove();
+      } catch (e) { fail(e); b.disabled = false; }
+    };
+  });
+  $$('[data-nb]', el).forEach(b => {
+    b.onclick = () => {
+      const tr = b.closest('tr');
+      reasonModal('Mark not billable', 'Reason (FOC / warranty replacement / sample / internal)', 'Mark not billable', x => call('billing', { dcId: tr.dataset.id, status: 'NOT_BILLABLE', remarks: x }));
+    };
+  });
+}
+
+// ================================================================ ISO REPORT
+async function vReports(p, el) {
+  const f = Object.assign({ from: fyStart(), to: todayStr(), type: '' }, p);
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>ISO audit report – DC control</h1><div class="muted small">Evidence for ISO 9001 §7.5 (documented information), §8.5.3 (property belonging to customers / external providers) and §8.5.2 (traceability).</div></div>
+    <div class="actions"><input type="date" class="i" id="rpFrom" value="${esc(f.from)}" style="width:auto"><input type="date" class="i" id="rpTo" value="${esc(f.to)}" style="width:auto">
+    <select class="i" id="rpType" style="width:auto">${opt(Object.keys(TYPE_NAME).map(t => ({ v: t, l: TYPE_NAME[t] })), f.type, 'All types')}</select>
+    <button class="btn" id="rpGo">Generate</button><button class="btn" id="rpNcCsv">Non-conformities CSV</button><button class="btn primary" id="rpPrint">Print report</button></div></div>
+  <div id="rep"><div class="empty">Loading…</div></div>`;
+  const r = await call('report', Object.assign({ company: ST.company }, f));
+  const S = ST.boot.settings;
+  const P = v => v == null ? '–' : v + '%';
+  const cls = v => v == null ? '' : v >= 90 ? 'green' : v >= 70 ? 'amber' : 'red';
+  $('#rep').innerHTML = `<div class="report-print">
+  <div class="card mb"><div class="row"><div><h2>${esc(ST.company ? (ST.boot.companies.find(c => c.CompanyCode === ST.company) || {}).CompanyName || S.COMPANY_NAME : S.COMPANY_NAME)}</h2><div class="muted">Delivery Challan control – audit report · ${esc(r.period.company)}</div></div><span class="grow"></span>
+    <div class="small right">Period: <b>${fd(r.period.from) || 'start'} to ${fd(r.period.to) || 'today'}</b> · ${esc(r.period.type)}<br>Generated ${esc(r.generatedAt)} by ${esc(r.generatedBy)}</div></div></div>
+  <div class="card mb"><h3>1. Summary by DC type</h3><div class="tw"><table class="t"><thead><tr><th>Type</th><th class="num">Issued</th><th class="num">Closed</th><th class="num">Open</th><th class="num">Overdue</th>
+    <th class="num">Closure %</th><th class="num">On-time return %</th><th class="num">Avg days to close</th><th class="num">Hardcopy received %</th><th class="num">Signed copy %</th><th class="num">Billed %</th><th class="num">Avg days to bill</th><th class="num">Extensions</th></tr></thead><tbody>
+    ${r.summary.map(s => `<tr><td><b>${esc(s.label)}</b></td><td class="num">${s.issued}</td><td class="num">${s.closed}</td><td class="num">${s.open}</td><td class="num">${s.overdue ? `<span class="b red">${s.overdue}</span>` : 0}</td>
+    <td class="num"><span class="b ${cls(s.closurePct)}">${P(s.closurePct)}</span></td><td class="num">${s.onTimePct == null ? '–' : `<span class="b ${cls(s.onTimePct)}">${P(s.onTimePct)}</span>`}</td><td class="num">${s.avgCloseDays == null ? '–' : s.avgCloseDays}</td>
+    <td class="num">${P(s.hardcopyPct)}</td><td class="num">${P(s.signedCopyPct)}</td><td class="num">${P(s.billedPct)}</td><td class="num">${s.avgBillDays == null ? '–' : s.avgBillDays}</td><td class="num">${s.extensions}</td></tr>`).join('')}
+  </tbody></table></div><p class="muted small">Signed copy % counts DCs created in this app (imported legacy records excluded).</p></div>
+  <div class="card mb"><h3>2. Employee-wise compliance</h3><div class="tw"><table class="t"><thead><tr><th>Employee</th><th class="num">DCs</th><th class="num">Closed</th><th class="num">Open</th><th class="num">Overdue now</th><th class="num">Returned on time</th><th class="num">Returned late</th><th class="num">Hardcopy pending</th><th class="num">Lost / damaged qty</th><th class="num">Extensions</th><th class="num">Compliance %</th></tr></thead><tbody>
+    ${r.engineers.map(e => `<tr><td>${esc(e.name)}</td><td class="num">${e.issued}</td><td class="num">${e.closed}</td><td class="num">${e.open}</td><td class="num">${e.overdue ? `<span class="b red">${e.overdue}</span>` : 0}</td><td class="num">${e.onTime}</td><td class="num">${e.late}</td><td class="num">${e.hcPending}</td><td class="num">${e.lost}</td><td class="num">${e.extensions}</td><td class="num"><span class="b ${cls(e.compliancePct)}">${P(e.compliancePct)}</span></td></tr>`).join('')}
+  </tbody></table></div><p class="muted small">Compliance % = returned on time ÷ (on time + late + currently overdue), returnable &amp; warranty DCs.</p></div>
+  <div class="card mb"><h3>3. Material category movement</h3><div class="tw"><table class="t"><thead><tr><th>Category</th><th class="num">Lines</th><th class="num">Issued</th><th class="num">Returned</th><th class="num">Consumed</th><th class="num">Lost / damaged</th><th class="num">Balance outside</th></tr></thead><tbody>
+    ${r.categories.map(c => `<tr><td>${esc(c.category)}</td><td class="num">${c.lines}</td><td class="num">${c.issued}</td><td class="num">${c.returned}</td><td class="num">${c.consumed}</td><td class="num">${c.lost}</td><td class="num">${c.balance}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No data</td></tr>'}
+  </tbody></table></div></div>
+  <div class="card mb"><h3>4. Non-conformities / observations for CAPA <span class="b ${r.nonConformities.length ? 'red' : 'green'}">${r.nonConformities.length}</span></h3>
+    ${r.nonConformities.length ? `<div class="tw"><table class="t"><thead><tr><th>#</th><th>DC</th><th>Date</th><th>Party</th><th>Employee</th><th>Observation</th><th class="num">Days</th></tr></thead><tbody>
+    ${r.nonConformities.map((x, i) => `<tr class="click" data-dc="${esc(x.DCID)}"><td>${i + 1}</td><td class="nowrap">${tb(x.DCType)} ${esc(x.DCNo)}</td><td class="nowrap">${fd(x.DCDate)}</td><td>${esc(x.PartyName)}</td><td>${esc(x.ResponsibleName)}</td><td>${esc(x.issue)}</td><td class="num">${esc(x.days)}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="empty">No non-conformities in this period.</div>'}</div>
+  <div class="card"><table style="width:100%"><tr><td style="padding-top:40px">Prepared by (Store)</td><td style="padding-top:40px;text-align:center">Reviewed by (QA / MR)</td><td style="padding-top:40px;text-align:right">Approved by (Management)</td></tr></table></div>
+  </div>`;
+  $('#rpGo').onclick = () => go('reports', { from: $('#rpFrom').value, to: $('#rpTo').value, type: $('#rpType').value }, true);
+  $('#rpPrint').onclick = () => printHtml($('#rep').innerHTML);
+  $('#rpNcCsv').onclick = () => downloadCsv(r.nonConformities, [['DC No', 'DCNo'], ['Type', 'DCType'], ['Date', 'DCDate'], ['Party', 'PartyName'], ['Employee', 'ResponsibleName'], ['Observation', 'issue'], ['Days', 'days']], 'DC_NonConformities_' + todayStr());
+}
+
+// ================================================================ MASTERS
+async function vMasters(p, el) {
+  const tab = p.tab || 'parties';
+  const [parties, items] = await Promise.all([call('listParties'), call('listItems')]);
+  ST.boot.parties = parties.filter(x => x.Active !== 'NO');
+  ST.boot.items = items.filter(x => x.Active !== 'NO');
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>Parties & items</h1><div class="muted small">Masters fill the DC form automatically.</div></div>
+    <div class="actions"><button class="btn primary" id="mAdd">${tab === 'parties' ? '+ Add party' : '+ Add item'}</button></div></div>
+  <div class="tabs"><button ${goAttr('masters', { tab: 'parties' })} class="${tab === 'parties' ? 'on' : ''}">Parties (${parties.length})</button><button ${goAttr('masters', { tab: 'items' })} class="${tab === 'items' ? 'on' : ''}">Items (${items.length})</button></div>
+  <div class="filters"><label class="f"><span>Search</span><input class="i" id="mQ"></label></div>
+  <div class="tw"><table class="t"><thead>${tab === 'parties' ? '<tr><th>Name</th><th>Type</th><th>GSTIN</th><th>State</th><th>Contact</th><th>Active</th></tr>' : '<tr><th>Description</th><th>HSN</th><th>Unit</th><th>Category</th><th>Active</th></tr>'}</thead><tbody id="mBody"></tbody></table></div>`;
+  const list = tab === 'parties' ? parties : items;
+  const draw = () => {
+    const q = $('#mQ').value.trim().toLowerCase();
+    const L = list.filter(x => !q || JSON.stringify(x).toLowerCase().indexOf(q) >= 0);
+    $('#mBody').innerHTML = L.map((x, i) => tab === 'parties'
+      ? `<tr class="click" data-i="${list.indexOf(x)}"><td><b>${esc(x.Name)}</b><div class="muted small">${esc([x.Address1, x.Address2, x.Address3].filter(Boolean).join(', '))}</div></td><td>${esc(x.PartyType)}</td><td>${esc(x.GSTIN)}</td><td>${esc(x.StateName)}</td><td>${esc([x.Contact, x.Phone].filter(Boolean).join(' · '))}</td><td>${x.Active === 'NO' ? '<span class="b gray">No</span>' : 'Yes'}</td></tr>`
+      : `<tr class="click" data-i="${list.indexOf(x)}"><td><b>${esc(x.Description)}</b></td><td>${esc(x.HSN)}</td><td>${esc(x.Unit)}</td><td>${esc(x.Category)}</td><td>${x.Active === 'NO' ? '<span class="b gray">No</span>' : 'Yes'}</td></tr>`).join('') || `<tr><td colspan="6" class="empty">Nothing yet.</td></tr>`;
+    $$('#mBody tr[data-i]').forEach(tr => { tr.onclick = () => (tab === 'parties' ? partyModal : itemModal)(list[+tr.dataset.i]); });
+  };
+  $('#mQ').oninput = draw;
+  draw();
+  $('#mAdd').onclick = () => (tab === 'parties' ? partyModal : itemModal)({});
+}
+
+function partyModal(x) {
+  modal({
+    title: x.PartyId ? 'Edit party' : 'Add party', size: 'wide',
+    body: `<div class="fgrid">${fi('Name', 'Party name', x.Name, { req: true, cls: 'span2' })}${fi('PartyType', 'Type', x.PartyType || 'CUSTOMER', { type: 'select', options: ['CUSTOMER', 'SUPPLIER', 'JOB WORKER', 'OEM / VENDOR', 'OTHER'], blank: false })}
+      ${fi('GSTIN', 'GSTIN/UIN', x.GSTIN)}${fi('Address1', 'Address line 1', x.Address1, { cls: 'span2' })}${fi('Address2', 'Address line 2', x.Address2, { cls: 'span2' })}${fi('Address3', 'Address line 3 / city - PIN', x.Address3, { cls: 'span2' })}
+      ${fi('StateName', 'State name', x.StateName || 'Tamil Nadu')}${fi('StateCode', 'State code', x.StateCode || '33')}${fi('Contact', 'Contact person', x.Contact)}${fi('Phone', 'Phone', x.Phone)}${fi('Email', 'E-mail', x.Email)}
+      ${fi('Active', 'Active', x.Active || 'YES', { type: 'select', options: ['YES', 'NO'], blank: false })}</div>`,
+    buttons: [{ label: 'Cancel' }, { label: 'Save', cls: 'primary', onClick: async el => { await call('saveParty', Object.assign({ PartyId: x.PartyId }, vals(el))); toast('Party saved', 'ok'); reload(); } }]
+  });
+}
+
+function itemModal(x) {
+  modal({
+    title: x.ItemId ? 'Edit item' : 'Add item',
+    body: `<div class="grid">${fi('Description', 'Description', x.Description, { req: true })}<div class="fgrid">${fi('HSN', 'HSN/SAC', x.HSN)}${fi('Unit', 'Unit', x.Unit || 'NOS', { type: 'select', options: ST.boot.units, blank: false })}</div>
+      ${fi('Category', 'Category', x.Category, { type: 'select', options: ST.boot.categories, req: true })}${fi('Active', 'Active', x.Active || 'YES', { type: 'select', options: ['YES', 'NO'], blank: false })}</div>`,
+    buttons: [{ label: 'Cancel' }, { label: 'Save', cls: 'primary', onClick: async el => { await call('saveItem', Object.assign({ ItemId: x.ItemId }, vals(el))); toast('Item saved', 'ok'); reload(); } }]
+  });
+}
+
+// ================================================================ USERS
+async function vUsers(p, el) {
+  const users = await call('listUsers');
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>Users & logins</h1><div class="muted small">Every employee who takes material on a DC needs a login so they can see and update their own DCs. Add an e-mail to get reminders.</div></div>
+    <div class="actions"><button class="btn primary" id="uAdd">+ Add user</button></div></div>
+  <div class="tw"><table class="t"><thead><tr><th>Name</th><th>Login ID</th><th>Role</th><th>E-mail</th><th>Mobile</th><th>Manager e-mail</th><th>Active</th><th>Last login</th></tr></thead><tbody>
+  ${users.map((u, i) => `<tr class="click" data-i="${i}"><td><b>${esc(u.Name)}</b>${u.MustChange === 'YES' ? ' <span class="chip amber">temp password</span>' : ''}</td><td>${esc(u.LoginId)}</td><td><span class="b ${({ ADMIN: 'red', MD: 'red', TD: 'red', STORE: 'blue', PURCHASE: 'teal', ACCOUNTS: 'violet', SERVICE_MGR: 'amber', PRODUCTION_MGR: 'amber' })[u.Role] || 'gray'}">${esc(roleName(u.Role))}</span></td>
+    <td>${esc(u.Email) || '<span class="muted">—</span>'}</td><td>${esc(u.Mobile)}</td><td>${esc(u.ManagerEmail)}</td><td>${u.Active === 'NO' ? '<span class="b gray">No</span>' : 'Yes'}</td><td class="nowrap">${fd(u.LastLoginAt)}</td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="card mt"><h3>What each role can do</h3><div class="tw"><table class="t"><tbody>
+    ${ST.boot.roles.map(r => `<tr><td class="nowrap"><b>${esc(roleName(r))}</b></td><td>${esc((ST.boot.roleLabels || {})[r] || '')}</td></tr>`).join('')}</tbody></table></div>
+    <p class="muted small">Set <b>Reporting manager e-mail</b> on each employee to their Service / Production Manager. Managers then get a daily digest of their team's overdue DCs, and overdue DCs are escalated to them.</p></div>`;
+  const edit = u => modal({
+    title: u.UserId ? 'Edit ' + u.Name : 'Add user', size: 'wide',
+    body: `<div class="fgrid">${fi('Name', 'Full name', u.Name, { req: true })}${fi('LoginId', 'Login ID', u.LoginId, { req: true, hint: 'e.g. t.dinesh' })}
+      ${fi('Role', 'Role', u.Role || 'EMPLOYEE', { type: 'select', options: ST.boot.roles.map(r => ({ v: r, l: roleName(r) })), blank: false })}${fi('Department', 'Department', u.Department)}
+      ${fi('Email', 'E-mail (for reminders)', u.Email, { type: 'email' })}${fi('Mobile', 'Mobile', u.Mobile)}
+      ${fi('ManagerEmail', 'Reporting manager e-mail (escalation)', u.ManagerEmail, { type: 'email' })}${fi('Active', 'Active', u.Active || 'YES', { type: 'select', options: ['YES', 'NO'], blank: false })}
+      ${fi('NewPassword', u.UserId ? 'Reset password (leave blank to keep)' : 'Initial password', '', { type: 'text', req: !u.UserId, hint: 'User must change it at first login' })}</div>`,
+    buttons: [{ label: 'Cancel' }, { label: 'Save', cls: 'primary', onClick: async el => { await call('saveUser', Object.assign({ UserId: u.UserId }, vals(el))); toast('User saved', 'ok'); ST.boot = await call('bootstrap'); reload(); } }]
+  });
+  $$('tr[data-i]', el).forEach(tr => { tr.onclick = () => edit(users[+tr.dataset.i]); });
+  $('#uAdd').onclick = () => edit({});
+}
+
+// ================================================================ SETTINGS
+async function vSettings(p, el) {
+  const r = await call('getSettings');
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>Settings</h1><div class="muted small">Company details print on the DC. Numbers continue from the counters below.</div></div>
+    <div class="actions"><button class="btn" id="sRem">Send reminders now</button><button class="btn primary" id="sSave">Save settings</button></div></div>
+  <div class="card mb"><div class="fgrid" id="sF">
+    ${r.settings.map(s => { const big = String(s.Value).length > 60 || /\n/.test(String(s.Value)); return `<label class="f ${String(s.Value).length > 40 || big ? 'span2' : ''}"><span>${esc(s.Key)}</span>${big ? `<textarea class="i" name="${esc(s.Key)}" style="min-height:${/^TERMS_/.test(s.Key) ? 130 : 64}px">${esc(s.Value)}</textarea>` : `<input class="i" name="${esc(s.Key)}" value="${esc(s.Value)}">`}<span class="muted small" style="font-weight:400">${esc(s.Description)}</span></label>`; }).join('')}
+  </div></div>
+  <div class="card mb"><div class="row mb"><h3>Companies (printed on the DC)</h3><span class="grow"></span><button class="btn sm" id="coAdd">+ Add company</button></div>
+    <p class="muted small" style="margin-top:0">From the GST registration certificates. "DC number code" is used in the number series, e.g. RDC/<b>SPVT</b>/220/26-27.</p>
+    <div id="coForms">${r.companies.map(companyForm).join('')}</div></div>
+  <div class="card"><h3>DC number counters</h3><p class="muted small" style="margin-top:0">Last number used per type, company code and financial year. Next DC = counter + 1. Example: RDC|SPVT|26-27 = 219 → next is RDC/SPVT/220/26-27. Set these to the last number used in Tally before you start.</p>
+    <div class="fgrid" id="sC">${r.counters.map(c => fi(c.Key, c.Key, c.Value, { type: 'number', attrs: 'min="0" step="1"' })).join('')}</div>
+    ${r.quota != null ? `<p class="muted small">E-mail quota left today for this Google account: <b>${r.quota}</b> recipients.</p>` : ''}</div>`;
+  const bindCo = () => $$('[data-cosave]', el).forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await call('saveCompany', vals(b.closest('fieldset'))); ST.boot = await call('bootstrap'); toast('Company saved', 'ok'); reload(); } catch (e) { fail(e); b.disabled = false; }
+    };
+  });
+  bindCo();
+  $('#coAdd').onclick = () => { $('#coForms').insertAdjacentHTML('beforeend', companyForm({})); bindCo(); };
+  $('#sSave').onclick = async () => {
+    try {
+      await call('saveSettings', { settings: vals($('#sF')), counters: vals($('#sC')) });
+      ST.boot = await call('bootstrap');
+      toast('Settings saved', 'ok');
+    } catch (e) { fail(e); }
+  };
+  $('#sRem').onclick = async () => { try { toast(await call('runReminders'), 'ok'); } catch (e) { fail(e); } };
+}
+
+function companyForm(c) {
+  return `<fieldset><legend>${esc(c.CompanyCode ? c.CompanyCode + ' – ' + (c.ShortName || c.CompanyName) : 'New company')}</legend><div class="fgrid">
+    ${fi('CompanyCode', 'Company code', c.CompanyCode, { req: true, attrs: c.CompanyCode ? 'readonly' : 'placeholder="e.g. SESS"' })}
+    ${fi('BranchCode', 'DC number code', c.BranchCode, { hint: 'RDC/<code>/001/26-27' })}
+    ${fi('ShortName', 'Short name (menus)', c.ShortName)}
+    ${fi('CompanyName', 'Name printed on DC', c.CompanyName, { req: true, cls: 'span2' })}
+    ${fi('LegalName', 'Legal name (GST)', c.LegalName)}
+    ${fi('Constitution', 'Constitution', c.Constitution, { type: 'select', options: ['Private Limited Company', 'Proprietorship', 'Partnership', 'LLP', 'Public Limited Company', 'Other'] })}
+    ${fi('Address1', 'Address line 1', c.Address1, { cls: 'span2' })}${fi('Address2', 'Address line 2', c.Address2)}${fi('Address3', 'Address line 3 / city - PIN', c.Address3)}
+    ${fi('GSTIN', 'GSTIN', c.GSTIN)}${fi('PAN', 'PAN', c.PAN)}${fi('CIN', 'CIN (companies only)', c.CIN)}
+    ${fi('StateName', 'State', c.StateName || 'Tamil Nadu')}${fi('StateCode', 'State code', c.StateCode || '33')}
+    ${fi('Email', 'E-mail on DC', c.Email)}${fi('Phone', 'Phone on DC', c.Phone)}
+    ${fi('Active', 'Active', c.Active || 'YES', { type: 'select', options: ['YES', 'NO'], blank: false })}
+  </div><div class="row mt"><button type="button" class="btn sm primary" data-cosave="1">Save company</button></div></fieldset>`;
+}
+
+// ================================================================ BULK IMPORT / EXPORT (Excel template)
+const xNorm = s => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
+const isoToDmy = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? m[3] + '-' + m[2] + '-' + m[1] : (s || ''); };
+const DATE_KEYS = ['DCDate', 'DueDate', 'InvoiceDate', 'ClosedOn'];
+
+function templateWorkbook(data) {
+  const spec = ST.boot.importSpec, B = ST.boot;
+  const wb = XLSX.utils.book_new();
+  const ins = [['DC TRACKER – BULK IMPORT TEMPLATE (opening data / ledger opening)'], [''],
+    ['HOW TO USE'],
+    ['1. Fill the DC_Lines sheet: one row per ITEM. Several rows with the same Company Code + DC Type + DC No become one DC with several items.'],
+    ['2. Parties and Items sheets are optional masters (existing names are skipped).'],
+    ['3. Dates as dd-mm-yyyy (e.g. 24-09-2026). Do not rename sheets or header cells; extra columns are ignored.'],
+    ['4. In the app: Bulk Import / Export → choose this file → Validate. Fix the rows listed, then Import. Nothing is saved while any error exists.'],
+    ['5. Employee = Login ID (e.g. t.dinesh) or exact name from Users & Logins. Open RDC / WDC need a Return Due Date.'],
+    ['6. Status blank = automatic: RDC closes when all qty returned/consumed and Hardcopy Received = YES; NRDC closes when Invoice No is filled.'],
+    [''], ['EXAMPLE (DC_Lines)'],
+    spec.DC_Lines.map(c => c[1]),
+    ['SPVT', 'RDC', 'RDC/SPVT/150/26-27', '10-09-2026', 'EMR TAP CHANGERS PRIVATE LIMITED', '33AAACE1681L1ZP', 'NO 612, C.T.H. ROAD, THIRUNINRAVUR - 602024', 'Tamil Nadu, Code : 33', 'SERVICE', 'Site work', 't.dinesh', '30-09-2026', 'VACUUM PUMP', '', '8414', 1, 'NOS', 'TOOL / EQUIPMENT'],
+    ['SPVT', 'RDC', 'RDC/SPVT/150/26-27', '10-09-2026', 'EMR TAP CHANGERS PRIVATE LIMITED', '', '', '', '', '', 't.dinesh', '', 'BRAZING ROD', '', '8311', 10, 'NOS', 'CONSUMABLE', '', '', 0, 6],
+    ['SESS', 'NRDC', 'NRDC/SESS/012/26-27', '15-09-2026', 'DANFOSS INDUSTRIES PVT LTD', '', '', '', 'SALES', '', 'b.prakasam', '', 'PRESSURE SWITCH', '', '9032', 1, 'NOS', 'SPARE PART'],
+    [''], ['COLUMNS'], ['Sheet', 'Column', 'Notes']]
+    .concat(Object.keys(spec).reduce((a, s) => a.concat(spec[s].map(c => [s, c[1], c[2]])), []));
+  const wsI = XLSX.utils.aoa_to_sheet(ins);
+  wsI['!cols'] = [{ wch: 28 }, { wch: 30 }, { wch: 80 }];
+  XLSX.utils.book_append_sheet(wb, wsI, 'Instructions');
+  ['DC_Lines', 'Parties', 'Items'].forEach(s => {
+    const cols = spec[s];
+    const rows = ((data && data[s === 'DC_Lines' ? 'dcRows' : s.toLowerCase()]) || []).map(r => cols.map(c => {
+      const v = r[c[0]]; return v == null ? '' : DATE_KEYS.indexOf(c[0]) >= 0 ? isoToDmy(v) : v;
+    }));
+    const ws = XLSX.utils.aoa_to_sheet([cols.map(c => c[1])].concat(rows));
+    ws['!cols'] = cols.map(c => ({ wch: Math.max(12, Math.min(40, c[1].length + 4)) }));
+    XLSX.utils.book_append_sheet(wb, ws, s);
+  });
+  const L = [['Company Code', 'Company', 'GSTIN', '', 'DC Type', '', 'Item Category', '', 'Unit', '', 'Purpose', '', 'Employee Login ID', 'Employee Name', 'Role']];
+  const cols = [
+    (B.companies || []).map(c => [c.CompanyCode, c.CompanyName, c.GSTIN]), [['RDC'], ['NRDC'], ['WDC']], B.categories.map(x => [x]),
+    B.units.map(x => [x]), B.purposes.map(x => [x]), B.users.map(u => [u.LoginId, u.Name, roleName(u.Role)])
+  ];
+  const max = Math.max.apply(null, cols.map(c => c.length));
+  for (let i = 0; i < max; i++) {
+    const c0 = cols[0][i] || ['', '', ''], u = cols[5][i] || ['', '', ''];
+    L.push([c0[0], c0[1], c0[2], '', (cols[1][i] || [''])[0], '', (cols[2][i] || [''])[0], '', (cols[3][i] || [''])[0], '', (cols[4][i] || [''])[0], '', u[0], u[1], u[2]]);
+  }
+  const wsL = XLSX.utils.aoa_to_sheet(L);
+  wsL['!cols'] = [{ wch: 13 }, { wch: 40 }, { wch: 17 }, { wch: 2 }, { wch: 9 }, { wch: 2 }, { wch: 20 }, { wch: 2 }, { wch: 7 }, { wch: 2 }, { wch: 14 }, { wch: 2 }, { wch: 22 }, { wch: 26 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, wsL, 'Lists');
+  return wb;
+}
+
+function saveWorkbook(wb, name) {
+  try { XLSX.writeFile(wb, name); return true; } catch (e) { toast('Download blocked by the browser: ' + e.message, 'err'); return false; }
+}
+
+function readTemplate(buf) {
+  // Dates are read as Excel serial numbers and decoded exactly (JS Date objects shift by the time-zone offset).
+  const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+  const spec = ST.boot.importSpec;
+  const find = name => { const k = wb.SheetNames.find(n => xNorm(n) === xNorm(name)); return k ? wb.Sheets[k] : null; };
+  const toVal = (v, key) => {
+    if (typeof v === 'number' && DATE_KEYS.indexOf(key) >= 0 && v > 20000 && v < 80000) {
+      const d = XLSX.SSF.parse_date_code(v);
+      return d.y + '-' + String(d.m).padStart(2, '0') + '-' + String(d.d).padStart(2, '0');
+    }
+    return typeof v === 'string' ? v.trim() : v;
+  };
+  const rowsOf = (ws, cols) => {
+    if (!ws) return [];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    const want = cols.map(c => [xNorm(c[1]), xNorm(c[0])]);
+    const hIdx = aoa.findIndex(r => r.filter(h => want.some(w => w.indexOf(xNorm(h)) >= 0 && xNorm(h))).length >= 2);
+    if (hIdx < 0) return [];
+    const map = aoa[hIdx].map(h => { const i = want.findIndex(w => w.indexOf(xNorm(h)) >= 0 && xNorm(h)); return i >= 0 ? cols[i][0] : null; });
+    return aoa.slice(hIdx + 1).map((r, i) => {
+      const o = { _r: hIdx + i + 2 };
+      map.forEach((k, j) => { if (k) o[k] = toVal(r[j], k); });
+      return o;
+    }).filter(o => Object.keys(o).some(k => k !== '_r' && String(o[k] == null ? '' : o[k]).trim() !== ''));
+  };
+  const dcWs = find('DC_Lines') || (wb.SheetNames.length === 1 ? wb.Sheets[wb.SheetNames[0]] : null);
+  return { dcRows: rowsOf(dcWs, spec.DC_Lines), parties: rowsOf(find('Parties'), spec.Parties), items: rowsOf(find('Items'), spec.Items) };
+}
+
+async function vBulk(p, el) {
+  const S = ST.boot.settings;
+  if (!window.XLSX) { el.innerHTML = '<div class="alert red">The Excel library did not load. Check the internet connection and reload.</div>'; return; }
+  el.innerHTML = `
+  <div class="pagehead"><div><h1>Bulk import / export</h1><div class="muted small">Opening data (ledger opening) and backups use one Excel format: download it, align your data to it, upload it.</div></div></div>
+  <div class="grid g2">
+    <div class="card"><h3>1. Download the Excel template</h3>
+      <p class="small">Sheets: <b>DC_Lines</b> (one row per item), <b>Parties</b>, <b>Items</b>, plus <b>Instructions</b> with examples and <b>Lists</b> of valid company codes, employees, categories and units.</p>
+      <button class="btn primary" id="bTpl">Download template (.xlsx)</button></div>
+    <div class="card"><h3>2. Export existing data in the same format</h3>
+      <div class="fgrid" id="bF">
+        ${fi('type', 'DC type', '', { type: 'select', options: Object.keys(TYPE_NAME).map(t => ({ v: t, l: TYPE_NAME[t] })), blank: 'All types' })}
+        ${fi('status', 'Status', 'OPEN', { type: 'select', options: [{ v: 'OPEN', l: 'Open only' }, { v: 'CLOSED', l: 'Closed only' }], blank: 'All' })}
+        ${fi('from', 'DC date from', '', { type: 'date' })}${fi('to', 'DC date to', '', { type: 'date' })}
+      </div>
+      <p class="muted small">Company: <b>${esc(ST.company ? coName(ST.company) : 'both companies')}</b> (change with the selector at the top).</p>
+      <button class="btn" id="bExp">Export to Excel</button></div>
+  </div>
+  ${canImport() ? `<div class="card mt"><h3>3. Upload the filled template</h3>
+    <div class="row"><input type="file" class="i" id="bFile" accept=".xlsx,.xls,.csv" style="max-width:420px">
+      <label class="row small" style="gap:6px"><input type="checkbox" id="bSkip" checked> Skip DCs that already exist in the app</label></div>
+    <div class="row mt"><button class="btn" id="bVal">Validate</button><button class="btn primary" id="bImp" disabled>Import</button>
+      <span class="muted small">Validate first: nothing is saved until the file has zero errors.</span></div>
+    <div id="bRes" class="mt"></div></div>` : '<div class="alert blue mt">Import is available to Admin and Store.</div>'}`;
+
+  $('#bTpl').onclick = () => { if (saveWorkbook(templateWorkbook(null), 'DC_Tracker_Import_Template.xlsx')) toast('Template downloaded', 'ok'); };
+  $('#bExp').onclick = async e => {
+    e.currentTarget.disabled = true;
+    try {
+      const r = await call('exportTemplate', Object.assign({ company: ST.company }, vals($('#bF'))));
+      if (saveWorkbook(templateWorkbook(r), 'DC_Tracker_Export_' + (ST.company || 'ALL') + '_' + todayStr() + '.xlsx')) toast(r.count + ' DCs exported', 'ok');
+    } catch (err) { fail(err); } finally { $('#bExp').disabled = false; }
+  };
+  if (!canImport()) return;
+
+  let parsed = null;
+  const show = (res, committed) => {
+    const s = res.summary;
+    $('#bRes').innerHTML = `<div class="alert ${res.errorCount ? 'red' : committed ? 'green' : 'blue'}">
+      ${committed ? '<b>Imported.</b> ' : res.errorCount ? `<b>${res.errorCount} error(s) – nothing imported.</b> Fix the rows below in Excel and validate again. ` : '<b>File is valid.</b> Click Import to save. '}
+      DCs: <b>${s.dcs}</b> (${s.lines} item lines; ${s.open} open, ${s.closed} closed) · ${esc(s.byCompany)} · new parties ${s.parties} (existing ${s.partiesSkipped}) · new items ${s.items} (existing ${s.itemsSkipped})${s.dcSkipped ? ' · DCs already in app skipped: ' + s.dcSkipped : ''}</div>
+      ${res.errors.length ? `<div class="row mb"><button class="btn sm" id="bErrCsv">Download error list</button></div><div class="tw" style="max-height:420px;overflow:auto"><table class="t"><thead><tr><th>Sheet</th><th class="num">Excel row</th><th>Problem</th></tr></thead><tbody>
+      ${res.errors.map(x => `<tr><td>${esc(x.sheet)}</td><td class="num">${x.row}</td><td>${esc(x.msg)}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+    if ($('#bErrCsv')) $('#bErrCsv').onclick = () => downloadCsv(res.errors, [['Sheet', 'sheet'], ['Excel row', 'row'], ['Problem', 'msg']], 'DC_Import_Errors_' + todayStr());
+  };
+  $('#bFile').onchange = () => { parsed = null; $('#bImp').disabled = true; $('#bRes').innerHTML = ''; };
+  $('#bVal').onclick = async e => {
+    const f = $('#bFile').files[0];
+    if (!f) return toast('Choose the filled template first.', 'err');
+    e.currentTarget.disabled = true;
+    try {
+      parsed = readTemplate(await f.arrayBuffer());
+      if (!parsed.dcRows.length && !parsed.parties.length && !parsed.items.length) throw new Error('No data found. Keep the template sheet names (DC_Lines, Parties, Items) and header row.');
+      const res = await call('bulkImport', Object.assign({ commit: false, skipExisting: $('#bSkip').checked }, parsed));
+      show(res, false);
+      $('#bImp').disabled = !res.ok;
+    } catch (err) { fail(err); } finally { $('#bVal').disabled = false; }
+  };
+  $('#bImp').onclick = async e => {
+    if (!parsed) return;
+    e.currentTarget.disabled = true;
+    try {
+      const res = await call('bulkImport', Object.assign({ commit: true, skipExisting: $('#bSkip').checked }, parsed));
+      show(res, res.committed);
+      if (res.committed) { ST.boot = await call('bootstrap'); toast('Import complete', 'ok'); parsed = null; }
+      else $('#bImp').disabled = !res.ok;
+    } catch (err) { fail(err); $('#bImp').disabled = false; }
+  };
+}
+
+// ================================================================ AUDIT LOG
+async function vAudit(p, el) {
+  el.innerHTML = `<div class="pagehead"><div><h1>Audit log</h1><div class="muted small">Every create, change, upload, verification and closure – who and when. Records cannot be edited from the app.</div></div></div>
+    <div class="filters"><label class="f"><span>Search</span><input class="i" id="aQ" placeholder="user, DC no, action…"></label></div><div id="aBody"><div class="empty">Loading…</div></div>`;
+  const load = async () => {
+    const rows = await call('auditLog', { q: $('#aQ').value, limit: 500 });
+    $('#aBody').innerHTML = `<div class="tw"><table class="t"><thead><tr><th>When</th><th>User</th><th>Action</th><th>DC</th><th>Details</th></tr></thead><tbody>
+      ${rows.map(h => `<tr><td class="nowrap">${fd(h.Timestamp)}</td><td>${esc(h.UserName)}</td><td><span class="b gray">${esc(h.Action)}</span></td><td>${h.DCID ? `<a data-dc="${esc(h.DCID)}" href="#">${esc(h.DCNo)}</a>` : ''}</td><td>${esc(h.Details)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">No entries</td></tr>'}</tbody></table></div>`;
+  };
+  let t;
+  $('#aQ').oninput = () => { clearTimeout(t); t = setTimeout(() => load().catch(fail), 350); };
+  await load();
+}
+
+// ================================================================ START
+if (window.Chart) { Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; Chart.defaults.color = '#4a5568'; }
+ST.token = store.get('dct_token');
+if (ST.token) start(); else renderLogin();
+
+})();
+</script>
