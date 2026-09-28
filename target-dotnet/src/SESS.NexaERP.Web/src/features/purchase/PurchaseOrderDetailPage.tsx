@@ -17,6 +17,9 @@ import { ErrorAlert } from '../../components/ErrorAlert'
 
 type Pane = 'workflow' | 'amend' | 'cancel'
 
+/** Rev869BPurchaseEndpoints.Print.cs: PrintablePoStatuses. */
+const PRINTABLE_PO_STATUSES = new Set(['Issued', 'Closed', 'Cancelled'])
+
 export function PurchaseOrderDetailPage() {
   const { poNumber = '' } = useParams()
   const navigate = useNavigate()
@@ -31,6 +34,7 @@ export function PurchaseOrderDetailPage() {
   const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue')
   const canAmend = can(PAGE_KEYS.purchaseOrders, 'update')
   const canCancel = can(PAGE_KEYS.purchaseOrders, 'cancel')
+  const canPrint = can(PAGE_KEYS.purchaseOrders, 'print')
   const canWorkflow = canSubmit || canApprove || canReject || canIssue
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)
@@ -208,7 +212,19 @@ export function PurchaseOrderDetailPage() {
               : ''}
           </p>
         </div>
-        <div className="action-row"><StatusBadge value={po.Status} /></div>
+        <div className="action-row">
+          <StatusBadge value={po.Status} />
+          {/* The server prints only an Issued, Closed or Cancelled PO (409 otherwise), and each print is audited. */}
+          {canPrint && PRINTABLE_PO_STATUSES.has(po.Status) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => navigate(`/purchase/purchase-orders/${encodeURIComponent(po.PoNumber)}/print`)}
+            >
+              Print
+            </button>
+          )}
+        </div>
       </div>
 
       <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />

@@ -43,6 +43,24 @@ export interface PrintParty {
   phone?: string
 }
 
+/**
+ * Line amounts as the API computed them at approval. When present the layout
+ * prints these as they are; when absent (mock data) gst.ts derives them.
+ */
+export interface PurchaseOrderLineAmounts {
+  discount: number
+  taxable: number
+  cgstRate: number
+  cgst: number
+  sgstRate: number
+  sgst: number
+  igstRate: number
+  igst: number
+  cessRate: number
+  cess: number
+  total: number
+}
+
 export interface PurchaseOrderPrintLine {
   itemCode: string
   description: string
@@ -50,10 +68,27 @@ export interface PurchaseOrderPrintLine {
   quantity: number
   uom: string
   rate: number
-  /** Discount on the line as a percentage of qty × rate. */
+  /** Discount on the line as a percentage of qty × rate; unset when only the value is known. */
   discountPercent?: number
   /** GST rate in percent (the full rate; it is split for CGST/SGST). */
   gstRate: number
+  amounts?: PurchaseOrderLineAmounts
+}
+
+/** Document totals as the API computed them; see PurchaseOrderLineAmounts. */
+export interface PurchaseOrderAmounts {
+  split: 'CGST_SGST' | 'IGST'
+  discount: number
+  taxable: number
+  cgst: number
+  sgst: number
+  igst: number
+  cess: number
+  /** Packing, freight, insurance and other charges (already inside the line totals). */
+  charges: number
+  roundOff: number
+  grandTotal: number
+  amountInWords: string
 }
 
 export interface DeliveryScheduleRow {
@@ -84,6 +119,12 @@ export interface PurchaseOrderPrint {
   preparedBy: string
   approvedBy: string
   currencyCode: 'INR'
+  /** Set by the API wiring; absent for mock data, which is computed by gst.ts. */
+  amounts?: PurchaseOrderAmounts
+  /** Server status word (Issued, Closed, Cancelled); shown only when set. */
+  status?: string
+  /** A cancelled order prints with a CANCELLED watermark. */
+  isCancelled?: boolean
 }
 
 export interface DeliveryChallanItem {

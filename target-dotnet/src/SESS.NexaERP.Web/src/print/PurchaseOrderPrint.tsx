@@ -1,5 +1,5 @@
-import { amountInWords, formatDate, formatMoney, formatPercent, formatQuantity } from './format'
-import { computePurchaseOrder, type ComputedPoLine } from './gst'
+import { formatDate, formatMoney, formatPercent, formatQuantity } from './format'
+import { resolvePurchaseOrder, type ComputedPoLine } from './gst'
 import { Facts, Letterhead, PartyBlock, PrintSheet, SignatureBox, stateLabel } from './PrintParts'
 import type { PurchaseOrderPrint } from './types'
 
@@ -26,7 +26,8 @@ function LineRow({ index, computed, intraState }: { index: number; computed: Com
       <td className="pd-num pd-tax">
         {computed.discount > 0 ? (
           <>
-            <span className="pd-tax-rate">{formatPercent(line.discountPercent ?? 0)}</span>
+            {/* The API gives the discount as a value only; the percent line appears just when it is known. */}
+            {line.discountPercent !== undefined && <span className="pd-tax-rate">{formatPercent(line.discountPercent)}</span>}
             <span>{formatMoney(computed.discount)}</span>
           </>
         ) : '—'}
@@ -34,11 +35,11 @@ function LineRow({ index, computed, intraState }: { index: number; computed: Com
       <td className="pd-num">{formatMoney(computed.taxable)}</td>
       {intraState ? (
         <>
-          <TaxCell rate={line.gstRate / 2} amount={computed.cgst} />
-          <TaxCell rate={line.gstRate / 2} amount={computed.sgst} />
+          <TaxCell rate={computed.cgstRate} amount={computed.cgst} />
+          <TaxCell rate={computed.sgstRate} amount={computed.sgst} />
         </>
       ) : (
-        <TaxCell rate={line.gstRate} amount={computed.igst} />
+        <TaxCell rate={computed.igstRate} amount={computed.igst} />
       )}
       <td className="pd-num pd-strong">{formatMoney(computed.total)}</td>
     </tr>
@@ -46,15 +47,23 @@ function LineRow({ index, computed, intraState }: { index: number; computed: Com
 }
 
 export function PurchaseOrderPrintView({ po }: { po: PurchaseOrderPrint }) {
-  const totals = computePurchaseOrder(po)
+  // API figures when the document carries them, gst.ts for the mock preview.
+  const totals = resolvePurchaseOrder(po)
   const intraState = totals.split === 'CGST_SGST'
   const revision = po.revisionNumber > 0
     ? `Rev ${po.revisionNumber}${po.revisionDate ? ` dated ${formatDate(po.revisionDate)}` : ''}`
     : 'Original (Rev 0)'
+  const subtitle = [po.revisionNumber > 0 ? `Revision ${po.revisionNumber}` : '', po.isCancelled ? 'Cancelled' : ''].filter(Boolean).join(' · ')
 
   return (
     <PrintSheet footerLabel={`${po.company.legalName} · PO ${po.poNumber} · Rev ${po.revisionNumber}`}>
-      <Letterhead company={po.company} title="Purchase Order" subtitle={po.revisionNumber > 0 ? `Revision ${po.revisionNumber}` : undefined} />
+      {po.isCancelled && (
+        <div className="pd-watermark pd-watermark-cancel" aria-hidden="true">
+          <span>CANCELLED</span>
+        </div>
+      )}
+
+      <Letterhead company={po.company} title="Purchase Order" subtitle={subtitle || undefined} />
 
       <section className="pd-box pd-band">
         <Facts
@@ -126,7 +135,8 @@ export function PurchaseOrderPrintView({ po }: { po: PurchaseOrderPrint }) {
             ) : (
               <td className="pd-num">{formatMoney(totals.igst)}</td>
             )}
-            <td className="pd-num">{formatMoney(totals.taxable + totals.cgst + totals.sgst + totals.igst)}</td>
+            {/* Sum of the line totals as printed (the API's LineTotal includes charges and cess). */}
+            <td className="pd-num">{formatMoney(totals.lines.reduce((sum, l) => sum + l.total, 0))}</td>
           </tr>
         </tbody>
       </table>
@@ -134,7 +144,7 @@ export function PurchaseOrderPrintView({ po }: { po: PurchaseOrderPrint }) {
       <section className="pd-totals pd-keep">
         <div className="pd-box pd-words">
           <h3 className="pd-box-head">Amount in words</h3>
-          <div className="pd-words-text">{amountInWords(totals.grandTotal)}</div>
+          <div className="pd-words-text">{totals.amountInWords}</div>
           <div className="pd-muted">
             {intraState
               ? 'Intra-state supply: CGST and SGST apply.'
@@ -145,6 +155,8 @@ export function PurchaseOrderPrintView({ po }: { po: PurchaseOrderPrint }) {
           <tbody>
             <tr><th>Gross value</th><td>{formatMoney(totals.gross)}</td></tr>
             <tr><th>Less: discount</th><td>{formatMoney(totals.discount)}</td></tr>
+            {/* Charges and cess rows only when the API reports them; mock data has neither. */}
+            {totals.charges !== 0 && <tr><th>Add: charges</th><td>{formatMoney(totals.charges)}</td></tr>}
             <tr><th>Taxable value</th><td>{formatMoney(totals.taxable)}</td></tr>
             {intraState ? (
               <>
@@ -154,6 +166,7 @@ export function PurchaseOrderPrintView({ po }: { po: PurchaseOrderPrint }) {
             ) : (
               <tr><th>IGST</th><td>{formatMoney(totals.igst)}</td></tr>
             )}
+            {totals.cess !== 0 && <tr><th>Cess</th><td>{formatMoney(totals.cess)}</td></tr>}
             <tr><th>Round off</th><td>{formatMoney(totals.roundOff)}</td></tr>
             <tr className="pd-grand"><th>Grand total (₹)</th><td>{formatMoney(totals.grandTotal)}</td></tr>
           </tbody>

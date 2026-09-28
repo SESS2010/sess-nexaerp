@@ -22,12 +22,22 @@ export function PrintSheet({ footerLabel, children }: { footerLabel: string; chi
   )
 }
 
+/** Address lines; the "city – pin" line only when either is known (API masters give one free-text address). */
 export function addressLines(address: PrintAddress): string[] {
-  return [...address.lines, `${address.city} – ${address.pin}`]
+  const cityPin = [address.city, address.pin].filter(Boolean).join(' – ')
+  return cityPin ? [...address.lines, cityPin] : [...address.lines]
 }
 
+/** 'Tamil Nadu, Code 33'; tolerates a missing name or code, empty when neither is known. */
 export function stateLabel(address: PrintAddress): string {
-  return `${address.state.name}, Code ${address.state.code}`
+  const { name, code } = address.state
+  if (name && code) return `${name}, Code ${code}`
+  if (code) return `Code ${code}`
+  return name || '—'
+}
+
+function hasState(address: PrintAddress): boolean {
+  return Boolean(address.state.name || address.state.code)
 }
 
 export function Letterhead({ company, title, subtitle }: { company: PrintCompany; title: string; subtitle?: string }) {
@@ -81,7 +91,7 @@ export function PartyBlock({ heading, party, showState = true }: { heading: stri
       <h3 className="pd-box-head">{heading}</h3>
       <div className="pd-party-name">{party.name}</div>
       {addressLines(party.address).map((line) => <div key={line}>{line}</div>)}
-      {showState && <div><b>State:</b> {stateLabel(party.address)}</div>}
+      {showState && hasState(party.address) && <div><b>State:</b> {stateLabel(party.address)}</div>}
       {party.gstin && <div><b>GSTIN:</b> {party.gstin}</div>}
       {(party.contactPerson || party.phone) && (
         <div><b>Contact:</b> {[party.contactPerson, party.phone].filter(Boolean).join(', ')}</div>

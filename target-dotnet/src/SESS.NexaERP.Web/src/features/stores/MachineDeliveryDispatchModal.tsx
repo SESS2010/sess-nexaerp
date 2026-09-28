@@ -29,6 +29,8 @@ type FieldErrors = Record<string, string[]>
 
 const MAX_DC_NUMBER = 100
 const MAX_DESTINATION = 500
+const MAX_VEHICLE = 30
+const MAX_TRANSPORTER = 200
 
 /** Client-side mirror of MachineDeliveryRequestValidation.Dispatch, keyed the same way. */
 function validate(draft: {
@@ -38,6 +40,10 @@ function validate(draft: {
   dispatchDate: string
   expectedReturnDate: string
   destination: string
+  vehicleNo: string
+  transporter: string
+  ewayBillNo: string
+  ewayBillDate: string
 }): FieldErrors {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => { errors[field] = [...(errors[field] ?? []), message] }
@@ -57,6 +63,13 @@ function validate(draft: {
     if (!draft.expectedReturnDate) add('ExpectedReturnDate', 'A returnable machine needs the date it is expected back.')
     else if (draft.dispatchDate && draft.expectedReturnDate < draft.dispatchDate) add('ExpectedReturnDate', 'The return date cannot be before the dispatch date.')
   }
+  // R6 dispatch details (MachineDeliveryRequestValidation.cs lines 59-67): all optional.
+  if (draft.vehicleNo.trim().length > MAX_VEHICLE) add('VehicleNo', `At most ${MAX_VEHICLE} characters.`)
+  if (draft.transporter.trim().length > MAX_TRANSPORTER) add('Transporter', `At most ${MAX_TRANSPORTER} characters.`)
+  const eway = draft.ewayBillNo.trim()
+  if (eway && !/^\d{12}$/.test(eway)) add('EwayBillNo', 'The e-way bill number is 12 digits.')
+  if ((eway === '') !== (draft.ewayBillDate === '')) add('EwayBillDate', 'Give the e-way bill number and its date together, or leave both empty.')
+  else if (draft.ewayBillDate && draft.dispatchDate && draft.ewayBillDate > draft.dispatchDate) add('EwayBillDate', 'The e-way bill is generated before the machine moves, so its date cannot be after the dispatch date.')
   return errors
 }
 
@@ -75,6 +88,10 @@ export function MachineDeliveryDispatchModal({ job, onClose, onDispatched }: Pro
   const [dispatchDate, setDispatchDate] = useState('')
   const [expectedReturnDate, setExpectedReturnDate] = useState('')
   const [destination, setDestination] = useState('')
+  const [vehicleNo, setVehicleNo] = useState('')
+  const [transporter, setTransporter] = useState('')
+  const [ewayBillNo, setEwayBillNo] = useState('')
+  const [ewayBillDate, setEwayBillDate] = useState('')
 
   const [step, setStep] = useState<'form' | 'confirm'>('form')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -94,7 +111,7 @@ export function MachineDeliveryDispatchModal({ job, onClose, onDispatched }: Pro
     if (value !== 'RETURNABLE') setExpectedReturnDate('')
   }
 
-  const draft = { dcNumber, nature, purpose, dispatchDate, expectedReturnDate, destination }
+  const draft = { dcNumber, nature, purpose, dispatchDate, expectedReturnDate, destination, vehicleNo, transporter, ewayBillNo, ewayBillDate }
 
   const review = (event: React.FormEvent) => {
     event.preventDefault()
@@ -121,6 +138,10 @@ export function MachineDeliveryDispatchModal({ job, onClose, onDispatched }: Pro
       ExpectedReturnDate: nature === 'RETURNABLE' ? expectedReturnDate : null,
       Destination: destination.trim(),
       IdempotencyKey: keyRef.current,
+      VehicleNo: vehicleNo.trim() || null,
+      Transporter: transporter.trim() || null,
+      EwayBillNo: ewayBillNo.trim() || null,
+      EwayBillDate: ewayBillDate || null,
     }
     try {
       onDispatched(await dispatchMachine(body))
@@ -265,6 +286,30 @@ export function MachineDeliveryDispatchModal({ job, onClose, onDispatched }: Pro
               <FieldError errors={fieldErrors} field="Destination" />
             </label>
 
+            <label className="field">
+              <span className="field-label">Vehicle number</span>
+              <input className="input mono" value={vehicleNo} onChange={(event) => setVehicleNo(event.target.value)} placeholder="e.g. TN 09 AB 1234" />
+              <span className="field-hint">Optional; printed on the challan.</span>
+              <FieldError errors={fieldErrors} field="VehicleNo" />
+            </label>
+            <label className="field">
+              <span className="field-label">Transporter</span>
+              <input className="input" value={transporter} onChange={(event) => setTransporter(event.target.value)} />
+              <span className="field-hint">Optional; printed on the challan.</span>
+              <FieldError errors={fieldErrors} field="Transporter" />
+            </label>
+            <label className="field">
+              <span className="field-label">E-way bill number</span>
+              <input className="input mono" inputMode="numeric" value={ewayBillNo} onChange={(event) => setEwayBillNo(event.target.value)} placeholder="12 digits" />
+              <FieldError errors={fieldErrors} field="EwayBillNo" />
+            </label>
+            <label className="field">
+              <span className="field-label">E-way bill date</span>
+              <input className="input" type="date" value={ewayBillDate} max={dispatchDate || undefined} onChange={(event) => setEwayBillDate(event.target.value)} />
+              <span className="field-hint">Both e-way bill fields together, or neither. Not after the dispatch date.</span>
+              <FieldError errors={fieldErrors} field="EwayBillDate" />
+            </label>
+
             <FieldError errors={fieldErrors} field="JobOrderId" />
             <FieldError errors={fieldErrors} field="IdempotencyKey" />
 
@@ -309,6 +354,13 @@ export function MachineDeliveryDispatchModal({ job, onClose, onDispatched }: Pro
                 ,
               </p>
               <p>to: <strong>{destination.trim()}</strong></p>
+              {(vehicleNo.trim() || transporter.trim() || ewayBillNo.trim()) && (
+                <p>
+                  {vehicleNo.trim() && <>by vehicle <strong className="mono">{vehicleNo.trim()}</strong> </>}
+                  {transporter.trim() && <>through <strong>{transporter.trim()}</strong> </>}
+                  {ewayBillNo.trim() && <>under e-way bill <strong className="mono">{ewayBillNo.trim()}</strong> dated <strong>{formatDateWords(ewayBillDate)}</strong></>}
+                </p>
+              )}
               {nature === 'NON_RETURNABLE' && (
                 <p className="field-hint">The Managing Director is notified of a non-returnable dispatch.</p>
               )}

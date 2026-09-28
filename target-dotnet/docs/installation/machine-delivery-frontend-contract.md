@@ -109,6 +109,13 @@ job.
 | `ExpectedReturnDate` | **Required for `RETURNABLE`, on or after `DispatchDate`. Must be null for `NON_RETURNABLE`.** |
 | `Destination` | Trimmed, 1–500 characters. |
 | `IdempotencyKey` | Required, at most 100 characters. |
+| `VehicleNo` | Optional (R6, `b996bb5`), at most 30 characters. Printed on the challan. |
+| `Transporter` | Optional (R6), at most 200 characters. Printed on the challan. |
+| `EwayBillNo` | Optional (R6), exactly 12 digits. Given together with `EwayBillDate` or not at all. |
+| `EwayBillDate` | Optional (R6), date only, **not after `DispatchDate`**. |
+
+The four R6 fields are stored on the DC and returned by the print view. They cannot be added
+later: a DC with no e-way bill at dispatch prints without one.
 
 **DEMO is a purpose, never a nature.** Bind the purpose list to the selected nature and
 clear the return date when the user switches to `NON_RETURNABLE`. The server rejects the
@@ -183,6 +190,18 @@ Signature bytes are never in this response. Fetch them from
 content type. Show the retained `ContentSha256` beside the download.
 
 An unknown id, or an id belonging to another company, is 404.
+
+## Print (R6, `b996bb5`, permission migration 136)
+
+`GET /api/v1/stores/machine-deliveries/{id}/print` needs page action `print` on
+`stores.machine-deliveries` (Stores roles and the TD). It returns `MachineDeliveryPrintView`
+(`MachineDeliveryContracts.cs`): the company block from the company profile (R10), the DC
+fields including the four dispatch details above, the customer as a party, the customer PO
+number and date, the job order number, `Items` with the machine as the single line, who
+recorded it and when, `DeliveredAt` / `CustomerSignatory` once signed, and `PrintedAt` /
+`PrintedBy`. Every print is audited. It answers **409** while the Technical Director has
+not saved the company profile ("The company profile is not entered..."). The frontend renders
+it with `src/print/MachineDeliveryChallanPrint.tsx` on `/stores/machine-deliveries/{id}/print`.
 
 ## Errors
 

@@ -124,6 +124,16 @@ export function MachineDeliveryDetailPage() {
         <div className="action-row">
           <Badge {...machine} />
           <Badge {...dcState} />
+          {/* stores.machine-deliveries:Print; each print is audited on the server. */}
+          {can(MACHINE_DELIVERY_PAGE, 'print') && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => navigate(`/stores/machine-deliveries/${encodeURIComponent(dc.Id)}/print`)}
+            >
+              Print
+            </button>
+          )}
         </div>
       </div>
 

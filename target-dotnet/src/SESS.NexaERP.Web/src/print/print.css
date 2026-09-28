@@ -144,6 +144,17 @@
 }
 .pd-watermark span { font-size: 64pt; font-weight: 800; letter-spacing: 0.12em; line-height: 1.05; }
 .pd-watermark small { font-size: 13pt; font-weight: 700; }
+/* A cancelled purchase order: same stamp, in red. */
+.pd-watermark-cancel { border-color: rgb(185 28 28 / 0.18); color: rgb(185 28 28 / 0.18); }
+
+/* ---------- In-app print page (PrintDocumentPage) ---------- */
+.print-page { max-width: 210mm; margin: 0 auto; }
+.print-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin-bottom: 16px;
+}
+.print-toolbar-note { margin: 0; flex-basis: 100%; font-size: 12px; color: #475569; }
+.print-toolbar-spacer { flex: 1; }
 
 /* ---------- Print ---------- */
 @page {

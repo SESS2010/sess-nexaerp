@@ -52,6 +52,13 @@ export interface DispatchMachineRequest {
   ExpectedReturnDate: string | null
   Destination: string
   IdempotencyKey: string
+  /** R6 (26 Sep addendum): optional dispatch details printed on the challan. */
+  VehicleNo?: string | null
+  Transporter?: string | null
+  /** 12 digits; given together with EwayBillDate or not at all. */
+  EwayBillNo?: string | null
+  /** Date only, yyyy-MM-dd; not after DispatchDate. */
+  EwayBillDate?: string | null
 }
 
 export type SignatureContentType = 'application/pdf' | 'image/png' | 'image/jpeg'

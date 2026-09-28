@@ -1,11 +1,11 @@
 # Printable documents (A4)
 
-Two print layouts, built against mock data; not yet wired to the API.
+Two print layouts, wired to the print endpoints; the preview still runs on mock data.
 
 | Component | Print model (`types.ts`) | Status |
 |---|---|---|
-| `PurchaseOrderPrintView` (`PurchaseOrderPrint.tsx`) | `PurchaseOrderPrint` | layout done, mock data |
-| `MachineDeliveryChallanPrintView` (`MachineDeliveryChallanPrint.tsx`) | `MachineDeliveryChallanPrint` | layout done, mock data |
+| `PurchaseOrderPrintView` (`PurchaseOrderPrint.tsx`) | `PurchaseOrderPrint` | wired |
+| `MachineDeliveryChallanPrintView` (`MachineDeliveryChallanPrint.tsx`) | `MachineDeliveryChallanPrint` | wired |
 
 ## Preview
 
@@ -17,19 +17,19 @@ The preview is a separate HTML entry: no login, no API calls, and it is not in
 `npm run build` output, so the mock documents cannot ship. Ctrl+P prints only
 the document (A4 portrait, footer with document number and "Page X of Y").
 
-## Wiring (to do)
+## Wiring
 
-- Map the API and masters onto the print models; the layouts take no API types.
-  `PurchaseOrderDetail` does not yet carry vendor address/GSTIN, HSN, UOM or
-  per-line GST rate — those come from the vendor and item masters or need
-  adding to the contract.
-- `gst.ts` computes line amounts (CGST+SGST when the vendor state equals the
-  delivery state, else IGST; per-line rounding to paise; grand total rounded to
-  the rupee). Once the API returns computed amounts, print those instead.
-- `MachineDeliveryView` maps directly for DC number, dates, nature, purpose,
-  job order, machine serial/model and `Signature` (`DeliveredAt` → printed in IST).
-  Transport / e-way bill fields and the items list are not in the contract yet.
-- Inside the app, render the view on a route or detail page and call
-  `window.print()`. `print.css` hides `.sidebar`, `.topbar` and `.no-print`
-  when a `.print-root` is on the page and un-clips the app shell.
+- `PrintDocumentPage.tsx` is the in-app route page (`/purchase/purchase-orders/:poNumber/print`,
+  `/stores/machine-deliveries/:id/print`). It fetches the server's print view
+  (`src/api/print.ts`, types in `src/types/print.ts`), maps it in `mapPrint.ts`
+  onto the models in `types.ts`, and renders the layout with a `.no-print`
+  toolbar. Every successful fetch is one audited print on the server.
+- A live PO carries `amounts` (the API's snapshot figures, incl. cess and
+  charges) and the layout prints them as they are; `gst.ts` is only the
+  fallback for the mock preview (`resolvePurchaseOrder`).
+- Addresses from the masters are one free-text string: it becomes `lines[0]`,
+  city/pin stay empty and the layout drops that line.
+- `print.css` hides `.sidebar`, `.topbar` and `.no-print` when a `.print-root`
+  is on the page and un-clips `.app-shell` / `.main` / `.content` (the class
+  names in `src/App.tsx`).
 - `mockData.ts` is placeholder only (company names, GSTIN, PAN are invented).
