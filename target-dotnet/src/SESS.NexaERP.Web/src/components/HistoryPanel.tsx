@@ -2,12 +2,9 @@
 // GET /api/v1/tracking/{docType}/{documentId}/history, rendered as a timeline
 // newest first and grouped by Stage. The panel degrades quietly: a document
 // outside the user's scope, a user without the Pending page, or a server that
-// predates R1 each get one muted line instead of a red alert.
-//
-// Dev preview: with `?historyMock=po` or `?historyMock=qc` on the URL in a
-// `vite` dev build the panel renders the mock payload instead of calling the
-// API. The branch is behind import.meta.env.DEV, so a production build carries
-// neither the check nor the mock module.
+// predates R1 each get one muted line instead of a red alert. The mock
+// payloads live on integration/r1 (docs/installation/tracking-mocks) and are
+// not committed here.
 
 import { useCallback, useEffect, useState } from 'react'
 import { getTrackingHistory, historyAvailability } from '../api/tracking'
@@ -128,15 +125,6 @@ const UNAVAILABLE_TEXT: Record<Exclude<HistoryAvailability, 'error'>, string> = 
   'not-deployed': 'History is not available on this server yet.',
 }
 
-function devMockKey(): string | null {
-  if (!import.meta.env.DEV) return null
-  try {
-    return new URLSearchParams(window.location.search).get('historyMock')
-  } catch {
-    return null
-  }
-}
-
 export function HistoryPanel({ docType, documentId, title = 'History' }: Props) {
   const [history, setHistory] = useState<TrackingHistory | null>(null)
   const [loading, setLoading] = useState(true)
@@ -147,15 +135,6 @@ export function HistoryPanel({ docType, documentId, title = 'History' }: Props) 
     setLoading(true)
     setError(null)
     try {
-      const mockKey = devMockKey()
-      if (import.meta.env.DEV && mockKey) {
-        const { HISTORY_MOCKS } = await import('../api/trackingMocks')
-        const mock = HISTORY_MOCKS[mockKey.toLowerCase()]
-        if (mock) {
-          setHistory(mock)
-          return
-        }
-      }
       setHistory(await getTrackingHistory(docType, documentId))
     } catch (err) {
       setHistory(null)
