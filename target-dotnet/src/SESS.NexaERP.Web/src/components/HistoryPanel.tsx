@@ -88,15 +88,21 @@ export function titleWords(code: string): string {
     .join(' ')
 }
 
+/** A tracking DocType (or history Stage) in words: GRN → "Goods receipt". Shared with the Pending page and home tiles. */
+export function docTypeWords(docType: string): string {
+  return STAGE_WORDS[docType] ?? titleWords(docType)
+}
+
 function stageWords(stage: string): string {
-  return STAGE_WORDS[stage] ?? titleWords(stage)
+  return docTypeWords(stage)
 }
 
 function actionWords(action: string): string {
   return ACTION_WORDS[action] ?? titleWords(action)
 }
 
-function roleWords(role: string): string {
+/** A role code in words: QC_MANAGER → "QC Manager". Shared with the Pending page. */
+export function roleWords(role: string): string {
   return ROLE_WORDS[role] ?? titleWords(role)
 }
 

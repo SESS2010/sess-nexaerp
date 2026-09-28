@@ -327,3 +327,37 @@ body {
   .main { @apply h-auto overflow-visible; }
   .content { @apply overflow-x-auto; }
 }
+
+/* ---------- Tracking-lite (R1): home "Pending work" tiles ---------- */
+.tracking-strip { @apply mb-5 rounded-xl border border-line bg-white p-5 shadow-xs; }
+.tracking-strip-alert { @apply mb-0; }
+.tracking-strip-head { @apply mb-3 flex flex-wrap items-baseline justify-between gap-2; }
+.tracking-strip-title { @apply m-0 text-[15px] font-semibold text-ink; }
+.tracking-strip-link { @apply text-[13px] font-medium text-accent no-underline hover:underline; }
+.tracking-group { @apply mb-4 last:mb-0; }
+.tracking-group-label { @apply mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint; }
+.tracking-tiles { @apply grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3; }
+.tracking-tile {
+  @apply block rounded-lg border border-line px-4 py-3 text-ink no-underline
+         transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50;
+}
+.tracking-tile-empty { @apply text-ink-faint; }
+.tracking-tile-empty .tracking-tile-title { @apply text-ink-soft; }
+.tracking-tile-empty .tracking-tile-count { @apply text-ink-faint; }
+.tracking-tile-overdue { @apply border-red-200 bg-red-50/40 hover:border-red-300; }
+.tracking-tile-title { @apply min-h-[2.4em] text-[12.5px] font-medium leading-snug text-ink-soft; }
+.tracking-tile-count { @apply mt-1 text-[26px] font-bold leading-none tabular-nums text-ink; }
+.tracking-tile-meta { @apply mt-1.5 flex flex-wrap gap-x-2.5 text-[12px]; }
+.tracking-tile-overdue-count { @apply font-semibold text-red-700; }
+.tracking-tile-oldest { @apply text-ink-faint; }
+
+/* ---------- Tracking-lite (R1): Pending page ---------- */
+.tracking-check { @apply inline-flex items-center gap-1.5 text-[13.5px] text-ink; }
+.tracking-alert { @apply w-full; }
+.tracking-doc-type { @apply text-[11.5px] uppercase tracking-[0.06em] text-ink-faint; }
+.tracking-doc-number { @apply font-medium text-accent no-underline hover:underline; }
+.tracking-empty { @apply py-8 text-center text-ink-soft; }
+.tracking-overdue td { @apply bg-red-50/40; }
+.tracking-overdue td:first-child { @apply border-l-4 border-l-red-500; }
+.tracking-overdue-badge { @apply ml-1.5; }
+.tracking-pager { @apply mt-3; }

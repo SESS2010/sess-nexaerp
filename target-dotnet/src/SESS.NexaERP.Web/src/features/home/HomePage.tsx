@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { MACHINE_DELIVERY_PAGE } from '../../types/machineDelivery'
+import { TrackingTiles } from '../tracking/TrackingTiles'
 
 // Every module screen is page-permission gated, so an approver, a
 // storekeeper and a requester each see a different subset of the app. This
@@ -63,6 +64,8 @@ export function HomePage() {
       </div>
 
       <ErrorAlert error={error} fallback="Could not load your session." />
+
+      {me && <TrackingTiles />}
 
       <div className="card">
         <p className="page-sub" style={{ marginBottom: 12 }}>
