@@ -18,11 +18,11 @@ CLAIMED (target): first merge 2 October; freeze 3 October 18:00 IST; go-live
 ## Provider and settings contract
 
 CONFIRMED (TD configuration decisions): provider cPanel; sender `erp@sess.co.in`;
-cap 50 sends/hour; first week TEST mode restricted to the TD's mailbox.
+cap 50 sends/hour; first week TEST mode restricted to `info@sess.co.in`.
 CLAIMED (TD-reported, not independently read back): the sender mailbox is created.
 CONFIRMED (TD settings): host `mail.sess.co.in`, port `465`, security `SslOnConnect`
-(implicit SSL/TLS), login `erp@sess.co.in`. The actual TD test mailbox is still to be
-provided to the operator; `<TD MAILBOX>` is a placeholder, not a valid recipient.
+(implicit SSL/TLS), login `erp@sess.co.in`. The TD confirmed `info@sess.co.in` as
+the test-mailbox allow-list on 29 September; it replaces the earlier placeholder.
 The integrator never connects to the server; commissioning read-back belongs to the operator.
 
 CLAIMED (complete planned key inventory, to implement and validate on `feature/email-lite`):
@@ -31,7 +31,7 @@ CLAIMED (complete planned key inventory, to implement and validate on `feature/e
 |---|---|
 | `Email:Enabled` | Enable/disable worker and scheduled sends |
 | `Email:Mode` | `TEST` initially; explicit operator switch to `LIVE` |
-| `Email:AllowList` | TD test mailbox only in week 1; configured outside the repo |
+| `Email:AllowList` | `["info@sess.co.in"]` in week 1 TEST mode; operator applies configuration |
 | `Email:Smtp:Host` | `mail.sess.co.in` |
 | `Email:Smtp:Port` | `465` |
 | `Email:Smtp:Security` | `SslOnConnect` (implicit SSL/TLS); no insecure fallback |
@@ -44,6 +44,9 @@ CLAIMED (complete planned key inventory, to implement and validate on `feature/e
 | `Email:VendorPoEmailEnabled` | Configuration switch, initially false |
 | `Email:DigestTimeIst` | `09:00` |
 | `Email:DigestDays` | `Mon-Sat` |
+
+`Email__AllowList__0=info@sess.co.in` is the equivalent environment-variable setting.
+These are approved configuration values, not a claim of server commissioning or mail delivery.
 
 The proposed explicit Security value replaces the earlier draft's ambiguous
 StartTls boolean; it must not be represented as an already implemented option.
@@ -91,7 +94,7 @@ CLAIMED (planned, not live endpoints):
 | Endpoint | Permission and contract |
 |---|---|
 | `GET /api/v1/email/outbox?status=&page=&pageSize=` | `admin.email` View; existing EmailOutboxPage shape; no bodies |
-| `POST /api/v1/email/test` | `admin.email` Update (TD/MD); body `{ "to": "recipient@example.invalid" }`; allow-listed recipient only; response contract to be finalized |
+| `POST /api/v1/email/test` | `admin.email` Update (TD/MD); body `{ "to": "info@sess.co.in" }`; allow-listed recipient only; response contract to be finalized |
 | `POST /api/v1/email/outbox/{id}/retry` | `admin.email` Update (TD/MD); FAILED/DEAD only; company authorization; response to be finalized |
 | `GET /api/v1/email/settings` | Authorized read; no password value; final DTO to be agreed |
 
@@ -124,4 +127,5 @@ performs the authorized cPanel test-mailbox read-back on MAGESHWARI SERVER PC;
 this laptop never writes to or probes that server.
 
 Frontend fixtures are under `docs/installation/tracking-mocks/email-log/`.
-All mock recipients use `example.invalid`; no actual TD/vendor address list is committed.
+All mock recipients use `example.invalid`. Only the TD-approved role mailbox configuration
+is documented here; vendor recipient lists and passwords are never committed.
