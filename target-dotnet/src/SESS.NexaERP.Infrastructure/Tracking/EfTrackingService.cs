@@ -114,6 +114,7 @@ public sealed class EfTrackingService(NexaErpDbContext db, ICurrentUser user, IO
         bool IsOverdue, string Link)
     {
         public TrackingPendingRow ToRow() => new(DocType, Queue, DocumentId, Number, Status, PendingWithRole, PendingWithRoleName,
-            PendingWithEmployeeCode, PendingWithEmployeeName, WaitingSince, AgeDays, OverdueAfterDays, IsOverdue, Link);
+            PendingWithEmployeeCode, PendingWithEmployeeName, WaitingSince, AgeDays, OverdueAfterDays, IsOverdue,
+            TrackingDocumentLinks.Document(DocType, DocumentId, Number));
     }
 }

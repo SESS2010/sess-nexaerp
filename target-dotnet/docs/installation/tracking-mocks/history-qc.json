@@ -7,6 +7,7 @@
   "WaitingSince": null,
   "AgeDays": null,
   "IsOverdue": null,
+  "Link": "/qc/inspections",
   "Events": [
     { "At": "2026-10-15T10:31:18+05:30", "Stage": "QC", "Action": "QC_FINALIZED", "FromStatus": null, "ToStatus": "ACCEPTED", "EmployeeCode": "SESS-33", "EmployeeName": "Trial QC Manager", "LoginId": null, "RoleCode": null, "Remarks": "QCI/SPVT/26-27/000019 line 1" },
     { "At": "2026-10-15T10:05:00+05:30", "Stage": "QC", "Action": "QC_STARTED", "FromStatus": null, "ToStatus": null, "EmployeeCode": "SESS-33", "EmployeeName": "Trial QC Manager", "LoginId": null, "RoleCode": null, "Remarks": "QCI/SPVT/26-27/000019 line 1" },

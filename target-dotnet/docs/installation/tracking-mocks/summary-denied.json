@@ -13,6 +13,6 @@
   {"DocType": "QC", "Queue": "qc-pending", "Title": "Receipts awaiting QC", "State": "READY", "Count": 1, "OverdueCount": 0, "OldestAgeDays": 1, "Link": "/tracking/pending?queue=qc-pending"},
   {"DocType": "MIR", "Queue": "mir-approval", "Title": "MIRs awaiting approval", "State": "READY", "Count": 1, "OverdueCount": 1, "OldestAgeDays": 3, "Link": "/tracking/pending?queue=mir-approval"},
   {"DocType": "MIR", "Queue": "mir-unissued", "Title": "Approved MIRs awaiting issue", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null, "Link": "/tracking/pending?queue=mir-unissued"},
-  {"DocType": "VENDOR_BILL", "Queue": "bill-awaiting-decision", "Title": "Vendor bills awaiting accept or reject", "State": "READY", "Count": 1, "OverdueCount": 0, "OldestAgeDays": 3, "Link": "/tracking/pending?queue=bill-awaiting-decision"},
-  {"DocType": "GRN", "Queue": "grn-without-bill", "Title": "Receipts with no vendor bill", "State": "READY", "Count": 0, "OverdueCount": 0, "OldestAgeDays": null, "Link": "/tracking/pending?queue=grn-without-bill"}
+  {"DocType": "VENDOR_BILL", "Queue": "bill-awaiting-decision", "Title": "Vendor bills awaiting accept or reject", "State": "ACCESS_DENIED", "Count": null, "OverdueCount": null, "OldestAgeDays": null, "Link": null},
+  {"DocType": "GRN", "Queue": "grn-without-bill", "Title": "Receipts with no vendor bill", "State": "ACCESS_DENIED", "Count": null, "OverdueCount": null, "OldestAgeDays": null, "Link": null}
 ]

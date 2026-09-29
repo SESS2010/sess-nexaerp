@@ -7,6 +7,7 @@
   "WaitingSince": "2026-10-13T11:20:00+05:30",
   "AgeDays": 2,
   "IsOverdue": true,
+  "Link": "/purchase/purchase-orders/PO%2FSPVT%2F26-27%2F000012",
   "Events": [
     { "At": "2026-10-13T11:20:00+05:30", "Stage": "PO", "Action": "Submit", "FromStatus": "Draft", "ToStatus": "PendingApproval", "EmployeeCode": "SESS-15", "EmployeeName": "Trial Buyer", "LoginId": "trial.buyer", "RoleCode": "PURCHASE_MANAGER", "Remarks": "PO submitted" },
     { "At": "2026-10-13T11:02:41+05:30", "Stage": "PO", "Action": "Create", "FromStatus": null, "ToStatus": "Draft", "EmployeeCode": "SESS-15", "EmployeeName": "Trial Buyer", "LoginId": "trial.buyer", "RoleCode": "PURCHASE_MANAGER", "Remarks": null },

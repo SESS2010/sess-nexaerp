@@ -397,6 +397,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // Tracking-lite (R1): the submitted PO waits for its approver; the buyer sees it, the approver finds it under "mine".
         var waiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=po-pending-approval")).Items);
         Assert.Equal(("PO", po.Id, po.Number, 0, 1, false), (waiting.DocType, waiting.DocumentId, waiting.Number, waiting.AgeDays, waiting.OverdueAfterDays, waiting.IsOverdue));
+        Assert.Equal("/purchase/purchase-orders/" + Uri.EscapeDataString(po.Number), waiting.Link);
+        await using (var digestDb = new NexaErpDbContext(options))
+        {
+            var digest = new SESS.NexaERP.Infrastructure.Tracking.EfTrackingDigestQuery(digestDb,
+                Microsoft.Extensions.Options.Options.Create(new SESS.NexaERP.Infrastructure.Reporting.ReportCalendarOptions { DefaultTimeZone = "Asia/Kolkata" }));
+            var digestRow = Assert.Single(await digest.PendingForRolesAsync(companyId, [waiting.PendingWithRole!], CancellationToken.None), x => x.DocumentId == po.Id);
+            Assert.Equal((waiting.DocType, waiting.DocumentId, waiting.Number, waiting.Link),
+                (digestRow.DocType, digestRow.DocumentId, digestRow.Number, digestRow.Link));
+        }
         Assert.Empty((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=po-pending-approval&mine=true")).Items);
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         var mine = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?mine=true&docType=PO")).Items);
@@ -477,10 +486,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(1, Assert.Single(workload.Tiles, x => x.Key == "gate-no-grn").Count);
         var gateWaiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?mine=true&docType=GATE_ENTRY")).Items);
         Assert.Equal((gate.GateEntryNumber, "STORES_EXECUTIVE"), (gateWaiting.Number, gateWaiting.PendingWithRole));
+        Assert.Equal(gate.Id, gateWaiting.DocumentId);
+        Assert.Equal($"/stores/gate-entries/{gate.Id:D}", gateWaiting.Link);
         var tiles = await Get<List<TrackingSummaryTile>>(client, "/api/v1/tracking/summary");
+        Assert.Equal("/tracking/pending?queue=gate-no-grn", Assert.Single(tiles, x => x.Queue == "gate-no-grn").Link);
         Assert.Equal((1, 0), (Assert.Single(tiles, x => x.Queue == "gate-no-grn").Count, Assert.Single(tiles, x => x.Queue == "gate-no-grn").OverdueCount));
         var grn = await Post<GoodsReceiptResult>(client, "/api/v1/stores/goods-receipts/", new CreateGoodsReceiptRequest(gate.GateEntryNumber, "GO-LIVE-BILL-1", today, DateTimeOffset.UtcNow, """{"billChecked":true}""",
             [new(gate.Lines.Single().Id, [new(1, quantity, "GO-LIVE-LOT-1", null, today.AddMonths(-1), today.AddYears(2))], [])]), "go-live-grn");
+        var draftGrn = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=grn-not-finalised")).Items);
+        Assert.Equal((grn.Id, grn.GrnNumber, $"/stores/goods-receipts/{grn.Id:D}"), (draftGrn.DocumentId, draftGrn.Number, draftGrn.Link));
         // inventory.grn create/submit belongs to the Stores Executive; the Stores Manager holds no GRN grant (see #12).
         grn = await Post<GoodsReceiptResult>(client, $"/api/v1/stores/goods-receipts/{grn.Id}/finalize", new FinalizeGoodsReceiptRequest(grn.Version, "go-live-grn-finalize"));
         Assert.Equal("FINALIZED", grn.Status);
@@ -504,6 +518,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(HttpStatusCode.Forbidden, qcCannotFinalize.StatusCode);
         var qcWaiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=qc-pending&mine=true")).Items);
         Assert.Equal((grn.Id, grn.GrnNumber, "QC_MANAGER"), (qcWaiting.DocumentId, qcWaiting.Number, qcWaiting.PendingWithRole));
+        Assert.Equal("/qc/inspections", qcWaiting.Link);
         var queue = await Get<PagedResponse<QcQueueItem>>(client, "/api/v1/qc/queue?pageSize=100");
         var lot = Assert.Single(queue.Items, x => x.GrnNumber == grn.GrnNumber);
         var policies = await Get<JsonElement>(client, $"{configuration}/qc-inspection-policies?effectiveOnly=true&itemId={lot.ItemId}");
@@ -515,6 +530,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Empty((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=qc-pending")).Items);
         var timeline = await Get<TrackingHistory>(client, $"/api/v1/tracking/QC/{grn.Id}/history");
         Assert.Equal((grn.GrnNumber, "FINALIZED", null), (timeline.Number, timeline.CurrentStatus, timeline.PendingWithRole));
+        Assert.Equal(("QC", grn.Id, "/qc/inspections"), (timeline.DocType, timeline.DocumentId, timeline.Link));
+        var historyWire = await Get<JsonElement>(client, $"/api/v1/tracking/QC/{grn.Id}/history");
+        Assert.Equal(grn.Id, historyWire.GetProperty("DocumentId").GetGuid());
+        Assert.Equal("/qc/inspections", historyWire.GetProperty("Link").GetString());
         Assert.Contains(timeline.Events, e => e.Stage == "GATE_ENTRY" && e.Action == "FINALIZED");
         Assert.Contains(timeline.Events, e => e.Stage == "GRN" && e.Action == "FINALIZED" && e.EmployeeCode == "SESS-35");
         Assert.Contains(timeline.Events, e => e.Stage == "QC" && e.Action == "QC_FINALIZED" && e.ToStatus == "ACCEPTED" && e.EmployeeCode == "SESS-33");
