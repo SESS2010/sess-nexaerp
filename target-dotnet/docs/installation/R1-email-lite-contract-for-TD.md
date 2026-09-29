@@ -91,12 +91,18 @@ CLAIMED (planned, not live endpoints):
 | Endpoint | Permission and contract |
 |---|---|
 | `GET /api/v1/email/outbox?status=&page=&pageSize=` | `admin.email` View; existing EmailOutboxPage shape; no bodies |
-| `POST /api/v1/email/test` | TD Update; allow-listed recipient only; response contract to be finalized |
-| `POST /api/v1/email/outbox/{id}/retry` | TD Update; FAILED/DEAD only; company authorization; response to be finalized |
+| `POST /api/v1/email/test` | `admin.email` Update (TD/MD); body `{ "to": "recipient@example.invalid" }`; allow-listed recipient only; response contract to be finalized |
+| `POST /api/v1/email/outbox/{id}/retry` | `admin.email` Update (TD/MD); FAILED/DEAD only; company authorization; response to be finalized |
 | `GET /api/v1/email/settings` | Authorized read; no password value; final DTO to be agreed |
 
-CONFIRMED (migration): TECHNICAL_DIRECTOR has View and Update; IT_MANAGER has View.
+CONFIRMED (migration 137): the active `admin.email` page already exists at `/admin/email`.
+CONFIRMED (TD decision; additive migration 141): TECHNICAL_DIRECTOR and MANAGING_DIRECTOR
+have View + Update; IT_MANAGER has View without Update. Existing audit-history and other
+grants are retained. Migration 140 is already merged and remains untouched.
 The frontend must not expose retry/test actions to a view-only role.
+CONFIRMED (frontend 670b891): the log calls the list/retry/test paths above; it builds
+actions from `admin.email` Update and treats action success as fire-and-reload.
+The send-test URL is `/api/v1/email/test`, not a separate `/send-test` route.
 
 CLAIMED (implementation plan, integrator-owned): after A and B, add the MailKit sender,
 outbox worker, HTML/text PO composer, 09:00 IST Mon-Sat digest job and endpoints on

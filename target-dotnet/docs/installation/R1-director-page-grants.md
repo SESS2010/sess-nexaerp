@@ -1,5 +1,9 @@
 # R1 director page grants - Option B
 
+CONFIRMED subsequent TD decision: migration 141 adds `admin.email` View + Update for
+MD and ensures TD View + Update / IT View; see the [email contract](R1-email-lite-contract-for-TD.md).
+The full table below is the migration-140 baseline; migration 141 adds one MD page.
+
 CONFIRMED: TD approval, 29 September 2026. Migration
 `20260929110000_R1DirectorPageGrants` preserves all existing grants and adds only
 missing View on the named director pages. Pending additionally requires ViewAuditHistory.

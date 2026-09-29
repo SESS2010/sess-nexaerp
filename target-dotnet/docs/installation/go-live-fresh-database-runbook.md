@@ -51,12 +51,14 @@ and 138 `20260928090000_TrackingLite`. The DC decision-14 feature adds **139**
 `20260928100000_MachineDeliverySelection`. The approved director/Pending page grants add
 **140** `20260929110000_R1DirectorPageGrants`; existing grants are retained and rollback
 refuses subsequent permission edits. See [per-role page list](R1-director-page-grants.md).
+The subsequent e-mail page decision adds **141** `20260929123000_R1EmailPageGrants`:
+`admin.email` View for IT/TD/MD, Update for TD/MD, retaining existing grants.
 Use the packaged assembly/manifest's exact count and head at the RC, not an old fixed count.
 Migration 139 changes read projections only; it adds the job number to the DC view and
 excludes dispatched jobs from the new-DC picker. See [DC frontend contract](r1-machine-dc-selection-contract.md).
 
-The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138
-139 or 140.** At the exact committed RC SHA, re-run the disposable two-database migration
+The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138,
+139, 140 or 141.** At the exact committed RC SHA, re-run the disposable two-database migration
 proof, require RECONCILED/VERIFIED, and package that bundle/installer with its manifest.
 On the server, the server agent reads back applied migration count/head and principal
 status after migration and provisioning. Include execute grants for all new SECURITY
@@ -235,7 +237,8 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (**140**, head `20260929110000_R1DirectorPageGrants`;
+in the built assembly (**141**, head `20260929123000_R1EmailPageGrants`;
+140 adds the director/Pending grants at `20260929110000_R1DirectorPageGrants`;
 139 adds R1 DC selection at `20260928100000_MachineDeliverySelection`;
 138 at `4cb906a`, ending at TrackingLite; 137 is EmailOutbox. Earlier: 117 at `c69366d`;
 130 with the thirteen 20 September migrations, which

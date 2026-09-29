@@ -1,12 +1,12 @@
 # E-mail log mocks (R1, design only)
 
-CONFIRMED: frontend owner is ILAMPARUTHI on feature/frontend. AGENTS.md reserves email-lite
-backend files for the TD; implementation ownership is awaiting the TD's answer.
+CONFIRMED: frontend owner is ILAMPARUTHI on feature/frontend. The TD assigned email-lite
+backend ownership to the integrator on 29 September, superseding the older AGENTS.md row.
 Canonical API plan: `../../R1-email-lite-contract-for-TD.md`.
-CLAIMED: admin endpoints and action responses remain planned until the TD implements and validates them.
+CLAIMED: admin endpoints and action responses remain planned until the integrator implements and validates them.
 These fixtures do not start or implement email-lite, SMTP, a worker, or an admin API.
 They use the existing Application/Outbox/EmailOutboxContracts.cs list shape and the
-planned email-lite admin contract. The TD must confirm HTTP action responses before frontend actions are enabled.
+planned email-lite admin contract. The backend contract must confirm HTTP action responses before frontend actions are enabled.
 All IDs, document numbers, messages and example.invalid addresses are invented.
 
 | File | Planned endpoint/scenario |
@@ -31,11 +31,11 @@ The standalone status examples represent different synthetic events/revisions, n
 
 ## Permissions and actions (existing planned contract)
 
-- Page admin.email View: TECHNICAL_DIRECTOR and IT_MANAGER. Resolve effective grants; do not
+- Page admin.email View: TECHNICAL_DIRECTOR, MANAGING_DIRECTOR and IT_MANAGER. Resolve effective grants; do not
   infer permission from whether the fixture loads. Backend authorization remains mandatory.
-- Update is TD-only. IT_MANAGER is read-only. Retry is visible/enabled only with Update and
+- Update is for TD and MD. IT_MANAGER is read-only. Retry is visible/enabled only with Update and
   Status FAILED or DEAD. Planned request: POST /api/v1/email/outbox/{Id}/retry.
-- Send test is TD-only and allow-list restricted. Planned request: POST /api/v1/email/test
+- Send test requires TD/MD Update and is allow-list restricted. Planned request: POST /api/v1/email/test
   with {"to":"recipient@example.invalid"}. No real address is supplied by these fixtures.
 - Settings are read-only in the planned API. No settings response shape or credential input is
   invented here; wait for the backend owner's confirmed contract.
