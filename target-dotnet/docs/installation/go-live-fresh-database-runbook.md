@@ -16,10 +16,10 @@ bundle runs as migration login with `Options=-c role=nexa_erp_owner`, followed b
 RECONCILED/VERIFIED. The checked-in frontend's production authentication is still a gate.
 
 
-## Release 1: governing schedule and commissioning (TD decision, 27 September)
+## Release 1: governing schedule and commissioning (TD decisions, 29 September)
 
 **R1 (Track A, Stores and Purchase) starts 15 October 2026 at 09:00 IST.** This section
-supersedes the earlier 8 October schedule. Sources: the TD's R1 plan, branch/merge rules
+supersedes the earlier 8 October schedule and the 27 September plan dates. Sources: the TD's R1 plan, branch/merge rules
 and decisions in the audit folder. Both companies (SPVT and SESS) follow the same gates.
 
 **NO DUMP / Option C remains frozen.** The server agent builds the production database
@@ -33,12 +33,13 @@ server installation, training screens or production login.
 | Date/time (IST) | Gate and owner |
 |---|---|
 | 29 Sep-2 Oct | Team rehearses masters on DEMO; QC policy for every received category, GST and approval settings. Root CA trust and user roster completed by the assigned owners. |
-| 2 Oct | Integrator merges the TD's email-lite branch only after focused tests and the fast suite. SMTP commissioning starts in TEST mode. |
-| 5-7 Oct | Purchase/approver, Stores/QC and Accounts training respectively; approver OTP and template-v2 preparation. |
-| 7 Oct, 18:00 | Code freeze: named backend and frontend SHAs, including the print layouts. Blocking changes thereafter need TD approval by name. That night's nightly tests the RC. |
-| 8 Oct | Green RC: TD alone advances main. Integrator proves migrations at the exact RC SHA, packages with ProductionLogin and the named full frontend SHA, then runs the laptop dry run. |
-| 9-10 Oct | Server agent installs the RC on DEMO. Department UAT, real login/OTP, prints, tracking and e-mail test evidence; TD signs off. |
-| 11-12 Oct | Physical stock count. On 12 Oct the server agent builds fresh production, loads masters, reconciles principals and verifies backup. |
+| 2 Oct | Target: integrator-owned `feature/email-lite`, after frontend QC-link and additive grant work, focused tests and fast suite; SMTP commissioning starts in TEST mode. |
+| 3 Oct (Sat), 18:00 | Code freeze. After this cutoff, UAT fixes only, one item per commit; no main movement without a green nightly. |
+| 4 Oct | Build the RC from green main; TD alone moves main. Prove migrations and build the package from exact named SHAs. |
+| 5 Oct (Mon) | MAGESHWARI operates the RC installation on MAGESHWARI SERVER PC; integrator never connects to or writes to the server. |
+| 6-7 Oct and 8-9 Oct | Department UAT, training, real login/OTP, prints, tracking and test-mailbox evidence; TD signs off. |
+| 10 Oct | Server operator creates the fresh production database, loads approved masters, reconciles principals and verifies backup. |
+| 11-12 Oct | Physical stock count; no production stock transaction before both opening-stock ceremonies. |
 | 13 Oct | TD enters company profiles and opens the inventory period; roster/logins and effective roles are read back. BroPOS freezes at 18:00. |
 | 14 Oct | Template-v2 ceremonies: SPVT 10:00, SESS 14:00; different Stores counter, Accounts valuer and TD authorizer. Verified backup after both. Go/no-go at 18:00. |
 | 15 Oct, 09:00 | Daily transactions begin only after go/no-go. TD authorizes the vendor-mail LIVE switch; first working-day digest at 09:00. |
