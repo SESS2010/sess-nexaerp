@@ -13,7 +13,7 @@ public sealed class OperationalMasterDataAdapterTests
     public void ItemTemplateContainsRequiredOperationalColumnsExampleAndNoThousandRowCeiling()
     {
         var definition=new ItemImportDefinition();
-        Assert.Equal(["RecordId","Version","ItemCode","Name","ItemType","IsReturnable","HsnSacCode","GstPercentage","UomCode","CategoryCode","SubcategoryCode","ManufacturerCode","PreferredVendorCode","SerialPolicy","ReorderLevel","Status","ApprovalStatus"],definition.Columns.Select(x=>x.Key));
+        Assert.Equal(["RecordId","Version","ItemCode","Name","ItemType","IsReturnable","HsnSacCode","GstPercentage","UomCode","CategoryCode","SubcategoryCode","ManufacturerCode","PreferredVendorCode","SerialPolicy","ReorderLevel","PartNumber","Barcode","StandardEstimatedPrice","Status","ApprovalStatus"],definition.Columns.Select(x=>x.Key));
         Assert.Single(definition.TemplateExampleRows);
         Assert.Contains(definition.WorkbookGuideNotes,x=>x.Contains("DRAFT",StringComparison.Ordinal));
         Assert.Equal(10000,new MasterDataTransferOptions().MaxRows);

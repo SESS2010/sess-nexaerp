@@ -1,5 +1,11 @@
 # Go-live runbook: fresh database, R1 on 15 October 2026
 
+> R1 F11 item load (29 September): use [the v2 mapping and reference-data steps](R1-items-go-live-import-mapping.md).
+> Prepare active NOS/MTR/KGS/ROLL/BOX/PKT/LTR/FT and the operator's distinct Make mappings
+> before loading the 1,413-item workbook. New items remain Draft; reconcile all source rows
+> and perform ERP approval. Existing item fields require no additional schema migration.
+
+
 > **Protected server rule (updated 22 September):** NEVER stop, disable, modify or remove
 > SESS_SQLEXPRESS, TEW_SQLEXPRESS, SQLBrowser, their ~77 SOLIDWORKS project databases,
 > ewserver, ANY Rockwell FactoryTalk service, IIS Default
