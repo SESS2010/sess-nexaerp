@@ -40,11 +40,31 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 RAISE EXCEPTION 'Stores and Purchase roles must see the pending page.'; END IF;
             END $x$;
             """);
-        var down = migrator.GenerateScript(migrations[^1], migrations[tracking - 1]);
+        // GenerateScript commits each migration separately. A refused 138 Down can leave
+        // later migrations (139 changes machine_delivery_json) already rolled back. Start
+        // both refusal and retry at 138, rather than falsely replaying their Down from head.
+        server.Execute("tracking-head-view.sql", """
+            CREATE TABLE public.tracking_head_view AS
+              SELECT replace(prosrc,E'\r\n',E'\n') body FROM pg_proc
+              WHERE oid='advance.machine_delivery_json(uuid,uuid)'::regprocedure;
+            """);
+        if (tracking < migrations.Length - 1)
+            server.Execute("tracking-successors-down.sql", migrator.GenerateScript(migrations[^1], migrations[tracking]));
+        var down = migrator.GenerateScript(migrations[tracking], migrations[tracking - 1]);
         server.Execute("tracking-threshold.sql", """UPDATE advance.tracking_queues SET "OverdueAfterDays"=4,"UpdatedBy"='td' WHERE "Queue"='bill-awaiting-decision';""");
         server.AssertRejected("tracking-down-refused.sql", down, "refuses changed overdue thresholds");
         server.Execute("tracking-threshold-back.sql", """UPDATE advance.tracking_queues SET "OverdueAfterDays"=3,"UpdatedBy"='TrackingLite' WHERE "Queue"='bill-awaiting-decision';""");
         server.Execute("tracking-down.sql", down);
         server.Execute("tracking-up-again.sql", migrator.GenerateScript(migrations[tracking - 1], migrations[^1]));
+        server.Execute("tracking-head-restored.sql", """
+            DO $check$ BEGIN
+              IF (SELECT replace(prosrc,E'\r\n',E'\n') FROM pg_proc
+                    WHERE oid='advance.machine_delivery_json(uuid,uuid)'::regprocedure)
+                  IS DISTINCT FROM (SELECT body FROM public.tracking_head_view)
+                OR (SELECT count(*) FROM advance.tracking_queues)<>16 THEN
+                RAISE EXCEPTION 'Tracking round trip failed to restore the head view and sixteen queues.';
+              END IF;
+            END $check$;
+            """);
     }
 }
