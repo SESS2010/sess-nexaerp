@@ -1,6 +1,6 @@
 # Tracking-lite mocks (R1)
 
-For the Pending page, the home tiles and the history panels. The shapes describe the G-13 through G-17 feature-branch contract (merge planned 29 September), not tonight's unchanged 5011bd2 API
+For the Pending page, the home tiles and the history panels. CONFIRMED: the shapes describe the G-13 through G-17 navigation contract; older deployed backends may return legacy links
 (`GET /api/v1/tracking/pending`, `/summary`, `/{docType}/{documentId}/history`). The data is invented:
 the numbers and names are placeholders, not real documents or employees.
 
@@ -45,3 +45,5 @@ QC links open /qc/inspections, retaining the GRN UUID for history; quotations op
 History responses include the same corrected Link. These are compatibility links: frontend
 trackingLinks.ts can construct them from DocType, DocumentId and Number using the contract table.
 Only READY tiles navigate. Do not import fixtures into production bundles.
+
+CONFIRMED (TD approval, 29 September): document identity remains the existing UUID plus display number; summary remains aggregate queue links. No numeric IDs are introduced.

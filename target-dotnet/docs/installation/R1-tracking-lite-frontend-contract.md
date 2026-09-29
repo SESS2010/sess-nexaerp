@@ -1,11 +1,11 @@
 # Tracking-lite: frontend contract (R1)
 
-Updated 28 September 2026 for UAT G-13 through G-17. Canonical committed path:
+Updated 29 September 2026 for UAT G-13 through G-17. Canonical committed path:
 `docs/installation/R1-tracking-lite-frontend-contract.md`.
 
 Frontend owner: ILAMPARUTHI on `feature/frontend` (Home tiles, Pending, history and E-mail log).
-Backend: integrator. This revision is prepared on `fix/r1-tracking-links` for the 29 September
-merge; tonight's `integration/r1` remains 5011bd2. It is not yet the live integration contract.
+Backend: integrator. CONFIRMED: this contract accompanies the G-13 through G-17 navigation
+implementation; older deployed backends may still return legacy links.
 Mocks: `docs/installation/tracking-mocks/`; all data is invented. Do not remove these from the
 backend branch. Frontend copies are optional; import fixtures only through development guards.
 
@@ -14,8 +14,8 @@ backend branch. Frontend copies are optional; import fixtures only through devel
 - Every pending document and history response retains `DocType`, `DocumentId`, and `Number`.
   `DocumentId` is the existing PostgreSQL UUID, serialized as a string, not a sequence number.
   Use `(DocType, DocumentId)` as identity; `Number` is display text and can contain `/`.
-  Confirmation requested from the TD that "numeric ids" means these existing stable IDs;
-  no new integer-key scheme or migration has been introduced.
+  CONFIRMED (TD approval, 29 September): retain existing UUIDs and display numbers;
+  summary stays aggregate queue links. No numeric IDs or key migration are introduced.
 - QC identity is the **GRN UUID**, never an inspection number or allocation UUID. A QC and GRN
   response may therefore share the UUID but differ in DocType. GRN-without-bill is a GRN.
 - Summary is an aggregate, not a document list: `DocType` + `Queue` identify each tile. Its `Link`
@@ -76,7 +76,7 @@ already let you see.
 ## 1. GET `/api/v1/tracking/pending`
 
 - Query: `docType`, `queue`, `overdueOnly` (bool), `mine` (bool: pending with one of my roles),
-  `page`, `pageSize` (≤ 200).
+  `page`, `pageSize` (â‰¤ 200).
 - Order: overdue first, then by `WaitingSince` ascending.
 
 ```json
@@ -134,8 +134,8 @@ The timeline for one document, merged from its module's history tables:
   "Link": "/purchase/purchase-orders/PO%2FSPVT%2F26-27%2F000012",
   "Events": [
     { "At": "2026-10-12T10:02:11+05:30", "Action": "Create", "FromStatus": null, "ToStatus": "Draft",
-      "EmployeeCode": "SESS-15", "EmployeeName": "…", "RoleCode": "PURCHASE_MANAGER", "Remarks": "Created from approved comparison" },
-    { "At": "…", "Action": "Approve", "FromStatus": "PendingApproval", "ToStatus": "Approved", "EmployeeCode": "SESS-01", "EmployeeName": "…", "RoleCode": "TECHNICAL_DIRECTOR", "Remarks": "…" }
+      "EmployeeCode": "SESS-15", "EmployeeName": "â€¦", "RoleCode": "PURCHASE_MANAGER", "Remarks": "Created from approved comparison" },
+    { "At": "â€¦", "Action": "Approve", "FromStatus": "PendingApproval", "ToStatus": "Approved", "EmployeeCode": "SESS-01", "EmployeeName": "â€¦", "RoleCode": "TECHNICAL_DIRECTOR", "Remarks": "â€¦" }
   ]
 }
 ```
