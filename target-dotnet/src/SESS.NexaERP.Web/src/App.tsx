@@ -75,6 +75,8 @@ import { EstimatedBomDetailPage } from './features/design/EstimatedBomDetailPage
 import { PurchaseDashboardPage } from './features/dashboards/PurchaseDashboardPage'
 import { StoresDashboardPage } from './features/dashboards/StoresDashboardPage'
 import { PendingPage } from './features/tracking/PendingPage'
+import { EmailLogPage } from './features/admin/EmailLogPage'
+import { EMAIL_LOG_PAGE_KEY } from './api/email'
 import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
 const TITLES: [prefix: string, title: string][] = [
@@ -104,6 +106,7 @@ const TITLES: [prefix: string, title: string][] = [
   ['/company/profile', 'Company Profile'],
   ['/stores/stock-adjustments', 'Stock Adjustment'],
   ['/notifications', 'Notifications'],
+  ['/admin/email', 'E-mail Log'],
   ['/reports', 'Reports'],
   ['/qc/inspections', 'QC / Inspection'],
   ['/qc/inspect', 'QC / Inspection'],
@@ -129,6 +132,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const inProduction = location.pathname.startsWith('/production') || location.pathname.startsWith('/design')
   const inReports = location.pathname.startsWith('/reports')
   const inAccounts = location.pathname.startsWith('/accounts')
+  const inAdmin = location.pathname.startsWith('/admin')
   // Session permissions ("page:Action") hide screens the role cannot View.
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
@@ -227,6 +231,12 @@ function Shell({ children }: { children: React.ReactNode }) {
           <NavSection id="reports" label="Reports" defaultOpen={inReports}>
             <NavLink to="/reports" className={navLinkClass}>Company reports</NavLink>
           </NavSection>
+
+          {can(EMAIL_LOG_PAGE_KEY) && (
+            <NavSection id="admin" label="Admin" defaultOpen={inAdmin}>
+              <NavLink to="/admin/email" className={navLinkClass}>E-mail log</NavLink>
+            </NavSection>
+          )}
         </nav>
       </aside>
       <div className="main">
@@ -322,6 +332,7 @@ export default function App() {
                 <Route path="/stores/stock-adjustments" element={gated(STOCK_ADJUSTMENT_PAGE_KEY, <StockAdjustmentListPage />)} />
                 <Route path="/stores/stock-adjustments/:id" element={gated(STOCK_ADJUSTMENT_PAGE_KEY, <StockAdjustmentDetailPage />)} />
                 <Route path="/notifications" element={<NotificationsPage />} />
+                <Route path="/admin/email" element={gated(EMAIL_LOG_PAGE_KEY, <EmailLogPage />)} />
                 <Route path="/reports" element={<ReportCataloguePage />} />
                 <Route path="/reports/:key" element={<ReportViewerPage />} />
                 <Route path="/qc/inspections" element={gated(PAGE_KEYS.qc, <QcQueuePage />)} />
