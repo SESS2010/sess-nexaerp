@@ -7,6 +7,7 @@ import { UserMenu } from './components/UserMenu'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { RequireAuth } from './features/auth/RequireAuth'
+import { RequirePage, gated } from './features/auth/RequirePage'
 import { CompanySelectPage } from './features/auth/CompanySelectPage'
 import { OidcCallbackPage, OidcLogoutCallbackPage } from './features/auth/OidcCallbackPage'
 import { PAGE_KEYS, SessionGate, SessionProvider, useSession } from './features/auth/SessionContext'
@@ -274,68 +275,68 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
-                <Route path="/dashboards/purchase" element={<PurchaseDashboardPage />} />
-                <Route path="/dashboards/stores" element={<StoresDashboardPage />} />
+                <Route path="/dashboards/purchase" element={<RequirePage allow={(can) => PURCHASE_DASHBOARD_KEYS.some((key) => can(key))} need="a dashboards.purchase* grant"><PurchaseDashboardPage /></RequirePage>} />
+                <Route path="/dashboards/stores" element={<RequirePage allow={canOpenAnyStoresSection} need="dashboards.stores-workload or dashboards.stores-qc-stock + inventory.grn"><StoresDashboardPage /></RequirePage>} />
                 <Route path="/tracking/pending" element={<PendingPage />} />
-                <Route path="/employees" element={<EmployeeListPage />} />
-                <Route path="/employees/:employeeCode" element={<EmployeeDetailPage />} />
-                <Route path="/vendors" element={<VendorListPage />} />
-                <Route path="/vendors/:vendorCode" element={<VendorDetailPage />} />
-                <Route path="/customers" element={<CustomerListPage />} />
-                <Route path="/customers/:customerCode" element={<CustomerDetailPage />} />
-                <Route path="/items" element={<ItemListPage />} />
-                <Route path="/items/:itemCode" element={<ItemDetailPage />} />
-                <Route path="/sales/customer-po" element={<CustomerPoListPage />} />
-                <Route path="/purchase/requisitions" element={<PurchaseRequisitionListPage />} />
-                <Route path="/purchase/requisitions/:prNumber" element={<PurchaseRequisitionDetailPage />} />
-                <Route path="/purchase/rfqs" element={<RfqListPage />} />
-                <Route path="/purchase/rfqs/:rfqNumber" element={<RfqDetailPage />} />
-                <Route path="/purchase/quotations" element={<QuotationListPage />} />
-                <Route path="/purchase/quotations/new" element={<QuotationPage />} />
-                <Route path="/purchase/comparisons" element={<ComparisonListPage />} />
-                <Route path="/purchase/comparisons/:comparisonNumber" element={<ComparisonDetailPage />} />
-                <Route path="/purchase/purchase-orders" element={<PurchaseOrderListPage />} />
-                <Route path="/purchase/purchase-orders/:poNumber" element={<PurchaseOrderDetailPage />} />
-                <Route path="/purchase/purchase-orders/:poNumber/print" element={<PrintDocumentPage kind="po" />} />
-                <Route path="/stores/stock-check" element={<StockCheckPage />} />
-                <Route path="/stores/stock-check/:prNumber" element={<StockCheckPage />} />
-                <Route path="/stores/gate-entries" element={<GateEntryListPage />} />
-                <Route path="/stores/gate-entries/:id" element={<GateEntryDetailPage />} />
-                <Route path="/stores/goods-receipts" element={<GoodsReceiptListPage />} />
-                <Route path="/stores/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
-                <Route path="/stores/material-issue-requests" element={<MaterialIssueRequestListPage />} />
-                <Route path="/stores/material-issue-requests/:id" element={<MaterialIssueRequestDetailPage />} />
-                <Route path="/stores/material-issues" element={<MaterialIssueListPage />} />
-                <Route path="/stores/material-issues/:id" element={<MaterialIssueDetailPage />} />
-                <Route path="/stores/material-returns" element={<MaterialReturnListPage />} />
-                <Route path="/stores/opening-stock" element={<OpeningStockListPage />} />
-                <Route path="/stores/opening-stock/:id" element={<OpeningStockDetailPage />} />
-                <Route path="/stores/machine-deliveries" element={<MachineDeliveryListPage />} />
-                <Route path="/stores/machine-deliveries/:id" element={<MachineDeliveryDetailPage />} />
-                <Route path="/stores/machine-deliveries/:id/print" element={<PrintDocumentPage kind="dc" />} />
-                <Route path="/accounts/vendor-bills" element={<VendorBillListPage />} />
-                <Route path="/accounts/vendor-bills/:id" element={<VendorBillDetailPage />} />
-                <Route path="/accounts/vendor-payments" element={<VendorPaymentsPage />} />
-                <Route path="/accounts/inventory-periods" element={<InventoryPeriodsPage />} />
+                <Route path="/employees" element={gated(PAGE_KEYS.employees, <EmployeeListPage />)} />
+                <Route path="/employees/:employeeCode" element={gated(PAGE_KEYS.employees, <EmployeeDetailPage />)} />
+                <Route path="/vendors" element={gated(PAGE_KEYS.vendors, <VendorListPage />)} />
+                <Route path="/vendors/:vendorCode" element={gated(PAGE_KEYS.vendors, <VendorDetailPage />)} />
+                <Route path="/customers" element={gated(PAGE_KEYS.customers, <CustomerListPage />)} />
+                <Route path="/customers/:customerCode" element={gated(PAGE_KEYS.customers, <CustomerDetailPage />)} />
+                <Route path="/items" element={gated(PAGE_KEYS.items, <ItemListPage />)} />
+                <Route path="/items/:itemCode" element={gated(PAGE_KEYS.items, <ItemDetailPage />)} />
+                <Route path="/sales/customer-po" element={gated(PAGE_KEYS.customerPo, <CustomerPoListPage />)} />
+                <Route path="/purchase/requisitions" element={gated(PAGE_KEYS.requisitions, <PurchaseRequisitionListPage />)} />
+                <Route path="/purchase/requisitions/:prNumber" element={gated(PAGE_KEYS.requisitions, <PurchaseRequisitionDetailPage />)} />
+                <Route path="/purchase/rfqs" element={gated(PAGE_KEYS.rfq, <RfqListPage />)} />
+                <Route path="/purchase/rfqs/:rfqNumber" element={gated(PAGE_KEYS.rfq, <RfqDetailPage />)} />
+                <Route path="/purchase/quotations" element={gated(PAGE_KEYS.quotations, <QuotationListPage />)} />
+                <Route path="/purchase/quotations/new" element={gated(PAGE_KEYS.quotations, <QuotationPage />)} />
+                <Route path="/purchase/comparisons" element={gated(PAGE_KEYS.comparisons, <ComparisonListPage />)} />
+                <Route path="/purchase/comparisons/:comparisonNumber" element={gated(PAGE_KEYS.comparisons, <ComparisonDetailPage />)} />
+                <Route path="/purchase/purchase-orders" element={gated(PAGE_KEYS.purchaseOrders, <PurchaseOrderListPage />)} />
+                <Route path="/purchase/purchase-orders/:poNumber" element={gated(PAGE_KEYS.purchaseOrders, <PurchaseOrderDetailPage />)} />
+                <Route path="/purchase/purchase-orders/:poNumber/print" element={gated(PAGE_KEYS.purchaseOrders, <PrintDocumentPage kind="po" />)} />
+                <Route path="/stores/stock-check" element={gated(PAGE_KEYS.stockCheck, <StockCheckPage />, 'verify')} />
+                <Route path="/stores/stock-check/:prNumber" element={gated(PAGE_KEYS.stockCheck, <StockCheckPage />, 'verify')} />
+                <Route path="/stores/gate-entries" element={gated(PAGE_KEYS.gateEntry, <GateEntryListPage />)} />
+                <Route path="/stores/gate-entries/:id" element={gated(PAGE_KEYS.gateEntry, <GateEntryDetailPage />)} />
+                <Route path="/stores/goods-receipts" element={gated(PAGE_KEYS.grn, <GoodsReceiptListPage />)} />
+                <Route path="/stores/goods-receipts/:id" element={gated(PAGE_KEYS.grn, <GoodsReceiptDetailPage />)} />
+                <Route path="/stores/material-issue-requests" element={gated(PAGE_KEYS.materialIssueRequests, <MaterialIssueRequestListPage />)} />
+                <Route path="/stores/material-issue-requests/:id" element={gated(PAGE_KEYS.materialIssueRequests, <MaterialIssueRequestDetailPage />)} />
+                <Route path="/stores/material-issues" element={gated(PAGE_KEYS.materialIssues, <MaterialIssueListPage />)} />
+                <Route path="/stores/material-issues/:id" element={gated(PAGE_KEYS.materialIssues, <MaterialIssueDetailPage />)} />
+                <Route path="/stores/material-returns" element={gated(PAGE_KEYS.materialReturns, <MaterialReturnListPage />)} />
+                <Route path="/stores/opening-stock" element={gated(PAGE_KEYS.openingStock, <OpeningStockListPage />)} />
+                <Route path="/stores/opening-stock/:id" element={gated(PAGE_KEYS.openingStock, <OpeningStockDetailPage />)} />
+                <Route path="/stores/machine-deliveries" element={gated(MACHINE_DELIVERY_PAGE, <MachineDeliveryListPage />)} />
+                <Route path="/stores/machine-deliveries/:id" element={gated(MACHINE_DELIVERY_PAGE, <MachineDeliveryDetailPage />)} />
+                <Route path="/stores/machine-deliveries/:id/print" element={gated(MACHINE_DELIVERY_PAGE, <PrintDocumentPage kind="dc" />)} />
+                <Route path="/accounts/vendor-bills" element={gated(PAGE_KEYS.vendorBills, <VendorBillListPage />)} />
+                <Route path="/accounts/vendor-bills/:id" element={gated(PAGE_KEYS.vendorBills, <VendorBillDetailPage />)} />
+                <Route path="/accounts/vendor-payments" element={gated(PAGE_KEYS.vendorPayments, <VendorPaymentsPage />)} />
+                <Route path="/accounts/inventory-periods" element={gated(INVENTORY_PERIODS_PAGE_KEY, <InventoryPeriodsPage />)} />
                 <Route path="/company/profile" element={<CompanyProfilePage />} />
-                <Route path="/stores/stock-adjustments" element={<StockAdjustmentListPage />} />
-                <Route path="/stores/stock-adjustments/:id" element={<StockAdjustmentDetailPage />} />
+                <Route path="/stores/stock-adjustments" element={gated(STOCK_ADJUSTMENT_PAGE_KEY, <StockAdjustmentListPage />)} />
+                <Route path="/stores/stock-adjustments/:id" element={gated(STOCK_ADJUSTMENT_PAGE_KEY, <StockAdjustmentDetailPage />)} />
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/reports" element={<ReportCataloguePage />} />
                 <Route path="/reports/:key" element={<ReportViewerPage />} />
-                <Route path="/qc/inspections" element={<QcQueuePage />} />
-                <Route path="/qc/inspect/:allocationId" element={<QcInspectPage />} />
-                <Route path="/qc/inspections/:number" element={<QcInspectionPage />} />
-                <Route path="/qc/concessions" element={<ConcessionPage />} />
-                <Route path="/qc/concessions/:number" element={<ConcessionPage />} />
-                <Route path="/qc/inspection-policies" element={<QcPolicyPage />} />
-                <Route path="/production/job-orders" element={<JobOrderListPage />} />
-                <Route path="/production/job-orders/:id" element={<JobOrderDetailPage />} />
-                <Route path="/production/component-fitments" element={<ComponentFitmentListPage />} />
-                <Route path="/production/boms" element={<ProductionBomListPage />} />
-                <Route path="/production/boms/:bomNumber" element={<ProductionBomDetailPage />} />
-                <Route path="/design/estimated-boms" element={<EstimatedBomListPage />} />
-                <Route path="/design/estimated-boms/:bomNumber" element={<EstimatedBomDetailPage />} />
+                <Route path="/qc/inspections" element={gated(PAGE_KEYS.qc, <QcQueuePage />)} />
+                <Route path="/qc/inspect/:allocationId" element={gated(PAGE_KEYS.qc, <QcInspectPage />)} />
+                <Route path="/qc/inspections/:number" element={gated(PAGE_KEYS.qc, <QcInspectionPage />)} />
+                <Route path="/qc/concessions" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
+                <Route path="/qc/concessions/:number" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
+                <Route path="/qc/inspection-policies" element={gated(PAGE_KEYS.qc, <QcPolicyPage />)} />
+                <Route path="/production/job-orders" element={gated(PAGE_KEYS.jobOrders, <JobOrderListPage />)} />
+                <Route path="/production/job-orders/:id" element={gated(PAGE_KEYS.jobOrders, <JobOrderDetailPage />)} />
+                <Route path="/production/component-fitments" element={gated(PAGE_KEYS.componentFitments, <ComponentFitmentListPage />)} />
+                <Route path="/production/boms" element={gated(PAGE_KEYS.productionBom, <ProductionBomListPage />)} />
+                <Route path="/production/boms/:bomNumber" element={gated(PAGE_KEYS.productionBom, <ProductionBomDetailPage />)} />
+                <Route path="/design/estimated-boms" element={gated(PAGE_KEYS.estimatedBom, <EstimatedBomListPage />)} />
+                <Route path="/design/estimated-boms/:bomNumber" element={gated(PAGE_KEYS.estimatedBom, <EstimatedBomDetailPage />)} />
               </Routes>
             </Shell>
             </SessionGate>
