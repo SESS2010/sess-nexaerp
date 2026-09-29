@@ -56,12 +56,15 @@ The subsequent e-mail page decision adds **141** `20260929123000_R1EmailPageGran
 The remaining approved director View grants add **142**
 `20260929130000_R1RemainingDirectorViews`: TD FAT Readiness; MD Material Issues and
 Machine DC. Existing actions are retained, with a guarded rollback journal.
+The vendor source-approval import extension adds **143**
+`20260929143000_VendorImportSourceApproval`: nullable source status/date, preserving
+the ERP approval gate; rollback refuses retained source data.
 Use the packaged assembly/manifest's exact count and head at the RC, not an old fixed count.
 Migration 139 changes read projections only; it adds the job number to the DC view and
 excludes dispatched jobs from the new-DC picker. See [DC frontend contract](r1-machine-dc-selection-contract.md).
 
 The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138,
-139, 140, 141 or 142.** At the exact committed RC SHA, re-run the disposable two-database migration
+139, 140, 141, 142 or 143.** At the exact committed RC SHA, re-run the disposable two-database migration
 proof, require RECONCILED/VERIFIED, and package that bundle/installer with its manifest.
 On the server, the server agent reads back applied migration count/head and principal
 status after migration and provisioning. Include execute grants for all new SECURITY
@@ -240,7 +243,7 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (**142**, head `20260929130000_R1RemainingDirectorViews`;
+in the built assembly (**143**, head `20260929143000_VendorImportSourceApproval`;
 140 adds the director/Pending grants at `20260929110000_R1DirectorPageGrants`;
 139 adds R1 DC selection at `20260928100000_MachineDeliverySelection`;
 138 at `4cb906a`, ending at TrackingLite; 137 is EmailOutbox. Earlier: 117 at `c69366d`;

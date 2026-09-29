@@ -47,7 +47,7 @@ public sealed class CustomerMasterDataDefinition : IMasterDataDefinition
 public sealed class VendorMasterDataDefinition : IMasterDataDefinition
 {
     public string MasterKey => "vendors";
-    public int TemplateVersion => 1;
+    public int TemplateVersion => 2;
     public string PageKey => "masters.vendors";
     public string BusinessCodeColumnKey => "VendorCode";
     public IReadOnlyList<string> OperationalRolePriority { get; } = ["PURCHASE_HEAD", "IT_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR", "MD", "ADMIN"];
@@ -56,7 +56,9 @@ public sealed class VendorMasterDataDefinition : IMasterDataDefinition
     [
         "PortalOrganizationId is not imported. The server derives it from Vendor Code.",
         "Bank details / BankMetadataJson are deliberately excluded from the template, export and import. Enter bank details only through the governed UI with masters.vendors:view-commercial-values.",
-        "Company relationship customer codes are not part of this shared vendor workbook."
+        "Company relationship customer codes are not part of this shared vendor workbook.",
+        "Approval Status and Date of Approved retain source register facts. Neither approves the vendor in ERP. Blank source cells preserve existing source facts on update.",
+        "Use Approved or Pending, and DD-MM-YYYY dates. Blank GSTIN is allowed; set Country to China explicitly for overseas vendors."
     ];
     public IReadOnlyList<MasterDataColumnDefinition> Columns { get; } =
     [
@@ -83,7 +85,9 @@ public sealed class VendorMasterDataDefinition : IMasterDataDefinition
         PartyColumns.Text("DeliveryTerms", "Delivery Terms", false, 500, "Optional delivery terms."),
         PartyColumns.Integer("CreditPeriodDays", "Credit Period Days", "Optional non-negative whole number."),
         PartyColumns.Text("AttachmentMetadataJson", "Attachment Metadata JSON", false, null, "Optional attachment metadata JSON."),
-        PartyColumns.ReadOnly("ApprovalStatus", "Approval Status", "Governed approval status."),
+        PartyColumns.ReadOnly("ApprovalStatus", "ERP Approval Status", "Governed ERP approval; source approval does not bypass this workflow."),
+        PartyColumns.Text("LegacyApprovalStatus", "Approval Status", false, 8, "Source register approval only; ERP approval is still required.", "Approved, Pending"),
+        new("LegacyApprovedDate", "Date of Approved", MasterDataColumnType.Text, false, false, true, "DD-MM-YYYY", "Calendar date or blank", null, "Historical source approval date, not the ERP approval timestamp."),
         PartyColumns.ReadOnly("VendorStatus", "Vendor Status", "Governed lifecycle status."),
         PartyColumns.ReadOnlyBoolean("IsActive", "Is Active", "Governed lifecycle state.")
     ];
@@ -237,7 +241,7 @@ public sealed class CustomerMasterDataAdapter(ICustomerMasterDataService service
 
 public sealed class VendorMasterDataAdapter(IVendorMasterDataService service) : PartyMasterDataAdapterBase, IMasterDataAdapter
 {
-    private static readonly string[] MaterialKeys = ["VendorCode", "LegalVendorName", "TradeName", "VendorType", "GstNumber", "PanNumber", "MsmeStatus", "MsmeNumber", "ContactPerson", "Phone", "Email", "BillingAddress", "ShippingAddress", "State", "StateCode", "Country", "MaterialServiceCategories", "ApprovedMakes", "PaymentTerms", "DeliveryTerms", "CreditPeriodDays", "AttachmentMetadataJson", "ApprovalStatus", "VendorStatus", "IsActive"];
+    private static readonly string[] MaterialKeys = ["VendorCode", "LegalVendorName", "TradeName", "VendorType", "GstNumber", "PanNumber", "MsmeStatus", "MsmeNumber", "ContactPerson", "Phone", "Email", "BillingAddress", "ShippingAddress", "State", "StateCode", "Country", "MaterialServiceCategories", "ApprovedMakes", "PaymentTerms", "DeliveryTerms", "CreditPeriodDays", "AttachmentMetadataJson", "ApprovalStatus", "VendorStatus", "IsActive", "LegacyApprovalStatus", "LegacyApprovedDate"];
     public IMasterDataDefinition Definition { get; } = new VendorMasterDataDefinition();
     public string NormalizeBusinessCode(string value) => PartyMasterRules.Code(value);
     public Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken ct) => service.ExportAsync(query, ct);
@@ -249,13 +253,18 @@ public sealed class VendorMasterDataAdapter(IVendorMasterDataService service) : 
         RequiredBoolValue(row, "MsmeStatus", "MSME Status", errors); Maximum(row, "MsmeNumber", "MSME Number", 80, errors);
         if (bool.TryParse(Value(row, "MsmeStatus"), out var msme) && msme && string.IsNullOrWhiteSpace(Value(row, "MsmeNumber"))) errors.Add(Error("MsmeNumber", "MSME Number", "REQUIRED_WHEN_MSME", "MSME Number is required when MSME Status is TRUE.", Value(row, "MsmeNumber")));
         foreach (var field in new (string Key, string Header)[] { ("MaterialServiceCategories", "Material / Service Categories"), ("ApprovedMakes", "Approved Makes"), ("DeliveryTerms", "Delivery Terms") }) Maximum(row, field.Key, field.Header, 500, errors);
-        NonNegativeInt(row, "CreditPeriodDays", "Credit Period Days", errors); ReadOnly(row, existing, "ApprovalStatus", "Approval Status", errors); ReadOnly(row, existing, "VendorStatus", "Vendor Status", errors);
+        NonNegativeInt(row, "CreditPeriodDays", "Credit Period Days", errors); ReadOnly(row, existing, "ApprovalStatus", "ERP Approval Status", errors); ReadOnly(row, existing, "VendorStatus", "Vendor Status", errors);
+        errors.AddRange(VendorImportApproval.Validate(Value(row, "LegacyApprovalStatus"), Value(row, "LegacyApprovedDate")));
         ValidateIdentity(row, existing, lookupContext as PartyIdentityContext, "LegalVendorName", errors); return errors;
     }
-    public bool IsMateriallyEqual(MasterDataRawRow row, MasterDataExistingRecord existing) => Same(row, existing, MaterialKeys);
-    public Task<MasterDataApplyResult> CreateAsync(MasterDataRawRow row, CancellationToken ct) => service.CreateAsync(Request(row, null, null), ct);
+    public bool IsMateriallyEqual(MasterDataRawRow row, MasterDataExistingRecord existing) => Same(row, existing, MaterialKeys.Where(key => key is not ("LegacyApprovalStatus" or "LegacyApprovedDate")))
+        && VendorImportApproval.Same(row, existing);
+    public Task<MasterDataApplyResult> CreateAsync(MasterDataRawRow row, CancellationToken ct) => service.CreateAsync(Import(row, null, null), ct);
     public Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, MasterDataRawRow row, uint expectedVersion, CancellationToken ct)
-    { existing.MaterialValues.TryGetValue("__BankMetadataJson", out var bank); return service.UpdateAsync(existing, Request(row, expectedVersion, bank), ct); }
+    { existing.MaterialValues.TryGetValue("__BankMetadataJson", out var bank); return service.UpdateAsync(existing, Import(row, expectedVersion, bank), ct); }
+    private static VendorMasterDataImportRequest Import(MasterDataRawRow row, uint? version, string? bank) =>
+        new(Request(row, version, bank), VendorImportApproval.Status(Value(row, "LegacyApprovalStatus")),
+            VendorImportApproval.Date(Value(row, "LegacyApprovedDate")));
     private static UpsertVendorRequest Request(MasterDataRawRow r, uint? version, string? bank)
     {
         var location = PartyMasterRules.Location(Value(r, "State"), Value(r, "StateCode"), Value(r, "Country"));

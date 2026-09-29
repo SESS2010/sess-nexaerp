@@ -30,6 +30,8 @@ public sealed class Vendor : AuditableEntity
     public string? BankMetadataJson { get; set; }
     public string? AttachmentMetadataJson { get; set; }
     public string PortalOrganizationId { get; set; } = string.Empty;
+    public string? LegacyApprovalStatus { get; set; }
+    public DateOnly? LegacyApprovedDate { get; set; }
     public string ApprovalStatus { get; set; } = MasterApprovalStatuses.Draft;
     public string VendorStatus { get; set; } = MasterStatuses.Draft;
     public string CommercialVerificationStatus { get; set; } = MasterApprovalStatuses.Draft;

@@ -52139,6 +52139,13 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsVendorCodeLocked")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("LegacyApprovalStatus")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<DateOnly?>("LegacyApprovedDate")
+                        .HasColumnType("date");
+
                     b.Property<string>("LegalVendorName")
                         .IsRequired()
                         .HasMaxLength(240)

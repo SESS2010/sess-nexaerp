@@ -159,11 +159,13 @@ public sealed class EfVendorMasterDataService(
             .Select(x => new MasterDataPartyIdentityRecord(x.Id, x.VendorCode, x.GstNumber, x.PanNumber, x.LegalVendorName))
             .ToListAsync(cancellationToken).ContinueWith<IReadOnlyList<MasterDataPartyIdentityRecord>>(x => x.Result, cancellationToken, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
 
-    public async Task<MasterDataApplyResult> CreateAsync(UpsertVendorRequest request, CancellationToken cancellationToken)
+    public async Task<MasterDataApplyResult> CreateAsync(VendorMasterDataImportRequest import, CancellationToken cancellationToken)
     {
+        import = VendorImportApproval.Normalize(import);
+        var request = import.Vendor;
         var values = await ValidateAsync(request, null, cancellationToken); var now = clock.UtcNow;
         var row = new Vendor { VendorCode = values.Code, IsVendorCodeLocked = false, CreatedAt = now, CreatedBy = user.LoginId };
-        Apply(row, request, values, now, creating: true); db.Vendors.Add(row);
+        Apply(row, request, values, now, creating: true); ApplySourceApproval(row, import); db.Vendors.Add(row);
         db.MasterStatusHistories.Add(new() { MasterType = nameof(Vendor), MasterId = row.Id, MasterCode = row.VendorCode, PreviousStatus = null,
             NewStatus = row.VendorStatus, Reason = "Vendor draft created by master-data import", SourceRevision = "MASTER_DATA_IMPORT",
             CorrelationId = $"MASTER_DATA_IMPORT_VENDOR_CREATE_{Guid.NewGuid():N}", CreatedAt = now, CreatedBy = user.LoginId });
@@ -171,14 +173,18 @@ public sealed class EfVendorMasterDataService(
         return new(row.Id, row.Version);
     }
 
-    public async Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertVendorRequest request, CancellationToken cancellationToken)
+    public async Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, VendorMasterDataImportRequest import, CancellationToken cancellationToken)
     {
+        import = VendorImportApproval.Normalize(import);
+        var request = import.Vendor;
         var row = await db.Vendors.SingleOrDefaultAsync(x => x.Id == existing.Id, cancellationToken) ?? throw new MasterDataNotFoundException("Vendor not found.");
         if (row.Version != existing.Version || request.Version != existing.Version) throw new MasterDataConflictException("Stale record version. Refresh and retry.");
         var values = await ValidateAsync(request, row.Id, cancellationToken);
         if (!string.Equals(row.VendorCode, values.Code, StringComparison.Ordinal)) throw new MasterDataValidationException("Vendor business code is immutable through upload.");
-        var before = Export(row); var controlledBefore = ControlledSnapshot(row); var controlled = ControlledChanged(row, request);
-        var now = clock.UtcNow; Apply(row, request, values, now, creating: false); row.Version = checked(row.Version + 1);
+        var before = Export(row); var controlledBefore = ControlledSnapshot(row); var controlled = ControlledChanged(row, request)
+            || (import.LegacyApprovalStatus == "Pending" && row.LegacyApprovalStatus != "Pending"
+                && row.VendorStatus == MasterStatuses.Active && row.ApprovalStatus == MasterApprovalStatuses.Approved);
+        var now = clock.UtcNow; Apply(row, request, values, now, creating: false); ApplySourceApproval(row, import); row.Version = checked(row.Version + 1);
         if (controlled) await AddReverificationAsync(row, controlledBefore, cancellationToken);
         await db.SaveChangesAsync(cancellationToken); await audit.WriteAsync("Masters", "ImportUpdate", nameof(Vendor), row.Id.ToString(), before, row, cancellationToken);
         return new(row.Id, row.Version);
@@ -218,16 +224,26 @@ public sealed class EfVendorMasterDataService(
         if (!creating) { row.UpdatedAt = now; row.UpdatedBy = user.LoginId; }
     }
 
+    private static void ApplySourceApproval(Vendor row, VendorMasterDataImportRequest import)
+    {
+        if (import.LegacyApprovalStatus is not null) row.LegacyApprovalStatus = import.LegacyApprovalStatus;
+        if (import.LegacyApprovedDate.HasValue) row.LegacyApprovedDate = import.LegacyApprovedDate;
+    }
+
     private async Task AddReverificationAsync(Vendor row, object before, CancellationToken cancellationToken)
     {
+        var company = await db.Companies.AsNoTracking()
+            .Where(x => x.Code == user.OrganizationId && x.IsActive).Select(x => new { x.Id, x.Code })
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new UnauthorizedAccessException("An active company context is required for vendor re-verification history.");
         var previous = row.ApprovalStatus; row.CommercialVerificationStatus = MasterApprovalStatuses.PendingApproval; row.ApprovalStatus = MasterApprovalStatuses.PendingApproval;
         row.VendorStatus = MasterStatuses.PendingApproval; row.RequiresReverification = true; row.CommercialVerifiedBy = null; row.CommercialVerifiedAt = null; row.ApprovedBy = null; row.ApprovedAt = null;
         var role = await ResolveRoleAsync(cancellationToken); var correlation = $"MASTER_DATA_IMPORT_VENDOR_REVERIFY_{Guid.NewGuid():N}";
         db.MasterApprovalHistories.Add(new() { MasterType = nameof(Vendor), MasterId = row.Id, MasterCode = row.VendorCode,
             Action = "ControlledDetailsChanged", FromStatus = previous, ToStatus = row.ApprovalStatus,
-            Remarks = "GST/PAN/commercial details changed by import; Accounts re-verification and final approval required.", ActorLoginId = user.LoginId,
+            Remarks = "GST/PAN/commercial details or source approval changed to Pending by import; Accounts re-verification and final approval required.", ActorLoginId = user.LoginId,
             ActorRoleCode = role, CorrelationId = correlation, CreatedBy = user.LoginId });
-        db.ControlledConfigurationHistories.Add(new() { OrganizationId = user.OrganizationId ?? "SESS", EntityType = nameof(Vendor), EntityId = row.Id,
+        db.ControlledConfigurationHistories.Add(new() { CompanyId = company.Id, OrganizationId = company.Code, EntityType = nameof(Vendor), EntityId = row.Id,
             Action = "ControlledDetailsChanged", BeforeJson = JsonSerializer.Serialize(before), AfterJson = JsonSerializer.Serialize(ControlledSnapshot(row)),
             ActorLoginId = user.LoginId, ActorRoleCode = role, Remarks = "Controlled vendor details changed by master-data import.", CorrelationId = correlation, CreatedBy = user.LoginId });
     }
@@ -244,7 +260,7 @@ public sealed class EfVendorMasterDataService(
         !string.Equals(x.GstNumber, PartyMasterRules.UpperOptional(r.GstNumber), StringComparison.Ordinal) || !string.Equals(x.PanNumber, PartyMasterRules.UpperOptional(r.PanNumber), StringComparison.Ordinal)
         || !string.Equals(x.PaymentTerms, PartyMasterRules.Optional(r.PaymentTerms), StringComparison.Ordinal) || !string.Equals(x.DeliveryTerms, PartyMasterRules.Optional(r.DeliveryTerms), StringComparison.Ordinal)
         || x.CreditPeriodDays != r.CreditPeriodDays;
-    private static object ControlledSnapshot(Vendor x) => new { x.GstNumber, x.PanNumber, x.BankMetadataJson, x.PaymentTerms, x.DeliveryTerms, x.CreditPeriodDays, x.CommercialVerificationStatus, x.ApprovalStatus, x.VendorStatus, x.EffectiveFrom, x.EffectiveTo };
+    private static object ControlledSnapshot(Vendor x) => new { x.GstNumber, x.PanNumber, x.BankMetadataJson, x.PaymentTerms, x.DeliveryTerms, x.CreditPeriodDays, x.CommercialVerificationStatus, x.ApprovalStatus, x.VendorStatus, x.EffectiveFrom, x.EffectiveTo, x.LegacyApprovalStatus, x.LegacyApprovedDate };
 
     private static MasterDataExportRow Export(Vendor x) => new(new Dictionary<string, object?>
     {
@@ -255,6 +271,7 @@ public sealed class EfVendorMasterDataService(
         ["ShippingAddress"] = x.ShippingAddress, ["State"] = x.State, ["StateCode"] = x.StateCode, ["Country"] = x.Country,
         ["MaterialServiceCategories"] = x.MaterialServiceCategories, ["ApprovedMakes"] = x.ApprovedMakes, ["PaymentTerms"] = x.PaymentTerms,
         ["DeliveryTerms"] = x.DeliveryTerms, ["CreditPeriodDays"] = x.CreditPeriodDays, ["AttachmentMetadataJson"] = x.AttachmentMetadataJson,
+        ["LegacyApprovalStatus"] = x.LegacyApprovalStatus, ["LegacyApprovedDate"] = x.LegacyApprovedDate?.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture),
         ["ApprovalStatus"] = x.ApprovalStatus, ["VendorStatus"] = x.VendorStatus, ["IsActive"] = x.IsActive
     });
 

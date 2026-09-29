@@ -1,4 +1,6 @@
 using ClosedXML.Excel;
+using Microsoft.EntityFrameworkCore;
+using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Masters;
 using SESS.NexaERP.Infrastructure.MasterData;
@@ -110,6 +112,60 @@ public sealed class CustomerVendorMasterDataAdapterTests
         Assert.Contains(errors, x => x.ColumnKey == "GstNumber" && x.Code == "DUPLICATE_IN_FILE");
     }
 
+    [Fact]
+    public void VendorSourceApprovalModelMatchesMigrationSnapshot()
+    {
+        using var model = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options);
+        Assert.False(model.Database.HasPendingModelChanges());
+    }
+
+    [Theory]
+    [InlineData("Approved", "29-09-2026")]
+    [InlineData("Pending", null)]
+    [InlineData(null, null)]
+    public async Task VendorSourceApprovalMapsWithoutChangingErpApproval(string? status, string? date)
+    {
+        var service = new VendorService(); var adapter = new VendorMasterDataAdapter(service);
+        var values = VendorRow().Values.ToDictionary(x => x.Key, x => x.Value);
+        values["LegacyApprovalStatus"] = status; values["LegacyApprovedDate"] = date;
+        var row = Row(values);
+        Assert.Empty(adapter.Validate(row, null, null));
+        await adapter.CreateAsync(row, default);
+        Assert.Equal(status, service.Import!.LegacyApprovalStatus);
+        Assert.Equal(date is null ? (DateOnly?)null : new DateOnly(2026, 9, 29), service.Import.LegacyApprovedDate);
+        Assert.Equal(2, adapter.Definition.TemplateVersion);
+        Assert.False(adapter.Definition.Columns.Single(x => x.Key == "ApprovalStatus").Editable);
+        Assert.Equal("ERP Approval Status", adapter.Definition.Columns.Single(x => x.Key == "ApprovalStatus").Header);
+    }
+
+    [Theory]
+    [InlineData("Active", null, "LegacyApprovalStatus")]
+    [InlineData("Approved", "31-02-2026", "LegacyApprovedDate")]
+    [InlineData("Approved", "2026-09-29", "LegacyApprovedDate")]
+    public void VendorSourceApprovalRejectsInvalidStatusAndDates(string status, string? date, string column)
+    {
+        var values = VendorRow().Values.ToDictionary(x => x.Key, x => x.Value);
+        values["LegacyApprovalStatus"] = status; values["LegacyApprovedDate"] = date;
+        Assert.Contains(new VendorMasterDataAdapter(new VendorService()).Validate(Row(values), null, null), x => x.ColumnKey == column);
+    }
+
+    [Fact]
+    public void VendorSourceApprovalWorkbookPreservesTextAndNativeExcelDates()
+    {
+        var definition = new VendorMasterDataDefinition(); var service = new MasterDataWorkbookService();
+        var values = VendorRow().Values.ToDictionary(x => x.Key, x => (object?)x.Value);
+        values["LegacyApprovalStatus"] = "Approved"; values["LegacyApprovedDate"] = "29-09-2026";
+        var bytes = service.Create(definition, [new(values)], DateTimeOffset.UtcNow);
+        Assert.Equal("29-09-2026", Assert.Single(service.Read(bytes, definition, 10000).Rows).Values["LegacyApprovedDate"]);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var column = definition.Columns.Select((x, i) => (x, i)).Single(x => x.x.Key == "LegacyApprovedDate").i + 1;
+        workbook.Worksheet("Data").Cell(2, column).Value = new DateTime(2026, 9, 29);
+        workbook.Worksheet("Data").Cell(2, column).Style.DateFormat.Format = "dd-MM-yyyy";
+        using var stream = new MemoryStream(); workbook.SaveAs(stream);
+        Assert.Equal("29-09-2026", Assert.Single(service.Read(stream.ToArray(), definition, 10000).Rows).Values["LegacyApprovedDate"]);
+    }
+
     private static MasterDataRawRow CustomerRow(string? state = null, string? stateCode = null, string? country = null, string? gst = null, string? pan = null) =>
         Row(new Dictionary<string, string?> { ["CustomerCode"] = "CUST-001", ["LegalCustomerName"] = "Trial Customer", ["CustomerType"] = "INDUSTRIAL", ["State"] = state, ["StateCode"] = stateCode, ["Country"] = country, ["GstNumber"] = gst, ["PanNumber"] = pan });
     private static MasterDataRawRow VendorRow(string msme = "FALSE", string? msmeNumber = null) =>
@@ -131,10 +187,11 @@ public sealed class CustomerVendorMasterDataAdapterTests
     private sealed class VendorService : IVendorMasterDataService
     {
         public UpsertVendorRequest? Request { get; private set; }
+        public VendorMasterDataImportRequest? Import { get; private set; }
         public Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<MasterDataExportRow>>([]);
         public Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<IReadOnlyList<MasterDataPartyIdentityRecord>> LoadIdentityRecordsAsync(IReadOnlyCollection<string> gstins, IReadOnlyCollection<string> pans, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<MasterDataPartyIdentityRecord>>([]);
-        public Task<MasterDataApplyResult> CreateAsync(UpsertVendorRequest request, CancellationToken cancellationToken) { Request = request; return Task.FromResult(new MasterDataApplyResult(Guid.NewGuid(), 0)); }
-        public Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertVendorRequest request, CancellationToken cancellationToken) { Request = request; return Task.FromResult(new MasterDataApplyResult(existing.Id, existing.Version + 1)); }
+        public Task<MasterDataApplyResult> CreateAsync(VendorMasterDataImportRequest import, CancellationToken cancellationToken) { Import = import; Request = import.Vendor; return Task.FromResult(new MasterDataApplyResult(Guid.NewGuid(), 0)); }
+        public Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, VendorMasterDataImportRequest import, CancellationToken cancellationToken) { Import = import; Request = import.Vendor; return Task.FromResult(new MasterDataApplyResult(existing.Id, existing.Version + 1)); }
     }
 }

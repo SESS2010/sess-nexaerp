@@ -121,7 +121,7 @@ internal sealed class MasterDataWorkbookService
                 var cell = data.Cell(rowNumber, columnNumber);
                 if (cell.HasFormula)
                     throw new MasterDataValidationException($"Formula cells are not allowed. Remove the formula at {cell.Address}.");
-                var value = ReadValue(cell);
+                var value = ReadValue(cell, definition.Columns[columnNumber - 1].Format == "DD-MM-YYYY" ? "dd-MM-yyyy" : "yyyy-MM-dd");
                 if (!string.IsNullOrWhiteSpace(value)) hasValue = true;
                 values[definition.Columns[columnNumber - 1].Key] = value;
             }
@@ -179,14 +179,14 @@ internal sealed class MasterDataWorkbookService
         }
     }
 
-    private static string? ReadValue(IXLCell cell)
+    private static string? ReadValue(IXLCell cell, string dateFormat = "yyyy-MM-dd")
     {
         if (cell.IsEmpty()) return null;
         return cell.DataType switch
         {
             XLDataType.Boolean => cell.GetBoolean() ? "TRUE" : "FALSE",
             XLDataType.Number => cell.GetDouble().ToString("G17", CultureInfo.InvariantCulture),
-            XLDataType.DateTime => cell.GetDateTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            XLDataType.DateTime => cell.GetDateTime().ToString(dateFormat, CultureInfo.InvariantCulture),
             XLDataType.TimeSpan => cell.GetTimeSpan().ToString("c", CultureInfo.InvariantCulture),
             _ => cell.GetString().Trim()
         };

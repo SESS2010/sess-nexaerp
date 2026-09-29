@@ -193,13 +193,15 @@ public interface ICustomerMasterDataService
     Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertCustomerRequest request, CancellationToken cancellationToken);
 }
 
+public sealed record VendorMasterDataImportRequest(UpsertVendorRequest Vendor, string? LegacyApprovalStatus, DateOnly? LegacyApprovedDate);
+
 public interface IVendorMasterDataService
 {
     Task<IReadOnlyList<MasterDataExportRow>> ExportAsync(MasterDataExportQuery query, CancellationToken cancellationToken);
     Task<MasterDataExistingSet> LoadExistingAsync(IReadOnlyCollection<string> normalizedCodes, IReadOnlyCollection<Guid> recordIds, CancellationToken cancellationToken);
     Task<IReadOnlyList<MasterDataPartyIdentityRecord>> LoadIdentityRecordsAsync(IReadOnlyCollection<string> gstins, IReadOnlyCollection<string> pans, CancellationToken cancellationToken);
-    Task<MasterDataApplyResult> CreateAsync(UpsertVendorRequest request, CancellationToken cancellationToken);
-    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, UpsertVendorRequest request, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> CreateAsync(VendorMasterDataImportRequest import, CancellationToken cancellationToken);
+    Task<MasterDataApplyResult> UpdateAsync(MasterDataExistingRecord existing, VendorMasterDataImportRequest import, CancellationToken cancellationToken);
 }
 
 public interface IWarehouseMasterDataService

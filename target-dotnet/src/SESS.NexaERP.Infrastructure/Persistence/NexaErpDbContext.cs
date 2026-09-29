@@ -261,6 +261,8 @@ public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> 
             entity.Property(x => x.AttachmentMetadataJson).HasColumnType("jsonb");
             entity.Property(x => x.ApprovalStatus).HasMaxLength(60).IsRequired();
             entity.Property(x => x.VendorStatus).HasMaxLength(40).IsRequired();
+            entity.Property(x => x.LegacyApprovalStatus).HasMaxLength(8);
+            entity.Property(x => x.LegacyApprovedDate).HasColumnType("date");
             entity.Property(x => x.ApprovedBy).HasMaxLength(160);
             entity.Property(x => x.Version).IsConcurrencyToken();
         });
