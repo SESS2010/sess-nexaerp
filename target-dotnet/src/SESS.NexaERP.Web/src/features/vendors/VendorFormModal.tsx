@@ -5,6 +5,16 @@ import {
 } from '../../api/vendors'
 import type { VendorAttachmentMetadata } from '../../api/vendors'
 import type { UpsertVendorRequest, VendorDetail } from '../../types/vendor'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import {
+  GSTIN_HINT, PAN_HINT, gstinPanMismatch, isValidGstin, isValidPan, normalizeGstin, normalizePan,
+} from '../../utils/indiaTaxIds'
+
+const GSTIN_ERROR =
+  'GSTIN must be 15 characters: 2-digit state code, 10-character PAN, entity code, Z, check character'
+const PAN_ERROR = 'PAN must be 10 characters: 5 letters, 4 digits, 1 letter'
+const GSTIN_PAN_MISMATCH_ERROR = 'GSTIN does not contain the PAN entered'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -16,6 +26,11 @@ interface Props {
 const VENDOR_TYPES = ['Material', 'Service', 'Material+Service', 'Transport', 'Contractor']
 
 export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can } = useSession()
+  // Attachments go through POST /vendors/attachments (:upload-attachment); the
+  // save itself is :create (POST) or :update (PUT).
+  const canUpload = can(PAGE_KEYS.vendors, 'upload-attachment')
+  const canSave = can(PAGE_KEYS.vendors, mode === 'create' ? 'create' : 'update')
   const [form, setForm] = useState({
     vendorCode: existing?.VendorCode ?? '',
     legalVendorName: existing?.LegalVendorName ?? '',
@@ -45,7 +60,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
     branch: parseBankMetadata(existing?.BankMetadata).branch ?? '',
   })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [existingAttachments] = useState<VendorAttachmentMetadata>(
     () => parseAttachmentMetadata(existing?.AttachmentMetadataJson ?? null),
   )
@@ -56,7 +71,8 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
   // New vendors get the next VEN-### code from the server; the field is
   // read-only so the series stays continuous.
   useEffect(() => {
-    if (mode === 'create') {
+    // GET /vendors/next-code is gated on :create, same as the save.
+    if (mode === 'create' && canSave) {
       getNextVendorCode()
         .then((next) => setForm((prev) => ({ ...prev, vendorCode: next.VendorCode })))
         .catch(() => setError('Could not fetch the next vendor code. Reload and try again.'))
@@ -67,10 +83,25 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
   const set = (key: keyof typeof form) => (event: { target: { value: string } }) =>
     setForm((prev) => ({ ...prev, [key]: event.target.value }))
 
+  // Both identifiers stay optional (the backend accepts null); only a non-empty
+  // value is validated. Values are normalised on change, so what is checked here
+  // is exactly what is submitted.
+  const gstinError = form.gstNumber && !isValidGstin(form.gstNumber) ? GSTIN_ERROR : null
+  const panError = form.panNumber && !isValidPan(form.panNumber) ? PAN_ERROR : null
+  // Characters 3-12 of a GSTIN are the PAN of the same entity.
+  const gstinPanError = !gstinError && !panError && gstinPanMismatch(form.gstNumber, form.panNumber)
+    ? GSTIN_PAN_MISMATCH_ERROR
+    : null
+  const taxIdError = gstinError ?? panError ?? gstinPanError
+
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    if (taxIdError) {
+      setError(taxIdError)
+      return
+    }
     setSaving(true)
-    setError('')
+    setError(null)
     const optional = (value: string) => (value.trim() ? value.trim() : null)
     try {
       // Upload any newly selected files first, then reference them from the
@@ -137,7 +168,7 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
         onSaved(detail.VendorCode)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -178,11 +209,31 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
           </label>
           <label className="field">
             <span className="field-label">GSTIN</span>
-            <input className="input" value={form.gstNumber} onChange={set('gstNumber')} placeholder="15-character GSTIN" />
+            <input
+              className="input mono"
+              value={form.gstNumber}
+              onChange={(event) => setForm((prev) => ({ ...prev, gstNumber: normalizeGstin(event.target.value) }))}
+              placeholder="27AAPFU0939F1ZV"
+              maxLength={15}
+            />
+            {gstinError
+              ? <span className="field-error scan-warning">{gstinError}</span>
+              : gstinPanError
+                ? <span className="field-error scan-warning">{gstinPanError}</span>
+                : <span className="field-hint">{GSTIN_HINT}</span>}
           </label>
           <label className="field">
             <span className="field-label">PAN</span>
-            <input className="input" value={form.panNumber} onChange={set('panNumber')} placeholder="10-character PAN" />
+            <input
+              className="input mono"
+              value={form.panNumber}
+              onChange={(event) => setForm((prev) => ({ ...prev, panNumber: normalizePan(event.target.value) }))}
+              placeholder="AAPFU0939F"
+              maxLength={10}
+            />
+            {panError
+              ? <span className="field-error scan-warning">{panError}</span>
+              : <span className="field-hint">{PAN_HINT}</span>}
           </label>
           <label className="field">
             <span className="field-label">MSME</span>
@@ -282,46 +333,54 @@ export function VendorFormModal({ mode, existing, onClose, onSaved }: Props) {
           <div className="field-wide form-section-title">Attachments</div>
           <label className="field">
             <span className="field-label">GST certificate * (PDF/JPG/PNG, max 5 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={(event) => setGstFile(event.target.files?.[0] ?? null)}
-            />
+            {canUpload && (
+              <input
+                className="input"
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(event) => setGstFile(event.target.files?.[0] ?? null)}
+              />
+            )}
             {!gstFile && existingAttachments.gstCertificate && (
               <span className="field-hint">Current: {existingAttachments.gstCertificate.fileName}</span>
             )}
           </label>
           <label className="field">
             <span className="field-label">Bank cheque leaf (PDF/JPG/PNG, max 5 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={(event) => setBankLeafFile(event.target.files?.[0] ?? null)}
-            />
+            {canUpload && (
+              <input
+                className="input"
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(event) => setBankLeafFile(event.target.files?.[0] ?? null)}
+              />
+            )}
             {!bankLeafFile && existingAttachments.bankLeaf && (
               <span className="field-hint">Current: {existingAttachments.bankLeaf.fileName}</span>
             )}
           </label>
           <label className="field">
             <span className="field-label">PAN card (PDF/JPG/PNG, max 5 MB)</span>
-            <input
-              className="input"
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-              onChange={(event) => setPanFile(event.target.files?.[0] ?? null)}
-            />
+            {canUpload && (
+              <input
+                className="input"
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                onChange={(event) => setPanFile(event.target.files?.[0] ?? null)}
+              />
+            )}
             {!panFile && existingAttachments.panCard && (
               <span className="field-hint">Current: {existingAttachments.panCard.fileName}</span>
             )}
           </label>
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the vendor." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create vendor' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create vendor' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

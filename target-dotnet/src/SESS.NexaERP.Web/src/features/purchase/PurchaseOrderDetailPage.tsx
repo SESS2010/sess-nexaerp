@@ -10,18 +10,37 @@ import {
   rememberDoc,
 } from '../../api/purchase'
 import type { PurchaseOrderDetail } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 type Pane = 'workflow' | 'amend' | 'cancel'
+
+/** Rev869BPurchaseEndpoints.Print.cs: PrintablePoStatuses. */
+const PRINTABLE_PO_STATUSES = new Set(['Issued', 'Closed', 'Cancelled'])
 
 export function PurchaseOrderDetailPage() {
   const { poNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can } = useSession()
+
+  // Every command below is its own action on purchase.po; the session's
+  // Permissions already reflect the role and assignment type the service
+  // will accept, so each button is simply present or absent.
+  const canSubmit = can(PAGE_KEYS.purchaseOrders, 'submit')
+  const canApprove = can(PAGE_KEYS.purchaseOrders, 'approve')
+  const canReject = can(PAGE_KEYS.purchaseOrders, 'reject')
+  const canIssue = can(PAGE_KEYS.purchaseOrders, 'issue')
+  const canAmend = can(PAGE_KEYS.purchaseOrders, 'update')
+  const canCancel = can(PAGE_KEYS.purchaseOrders, 'cancel')
+  const canPrint = can(PAGE_KEYS.purchaseOrders, 'print')
+  const canWorkflow = canSubmit || canApprove || canReject || canIssue
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [pane, setPane] = useState<Pane>('workflow')
   const [busy, setBusy] = useState('')
@@ -35,7 +54,7 @@ export function PurchaseOrderDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const detail = await getPurchaseOrder(poNumber)
       setPo(detail)
@@ -45,7 +64,7 @@ export function PurchaseOrderDetailPage() {
       setWarrantyTerms(detail.WarrantyTermsSnapshot ?? '')
     } catch (err) {
       setPo(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the purchase order.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -65,7 +84,7 @@ export function PurchaseOrderDetailPage() {
 
   const runSimple = async (action: 'submit' | 'issue', label: string) => {
     if (!po || !guardRemarks(label)) return
-    setError(''); setNotice(''); setBusy(action)
+    setError(null); setNotice(''); setBusy(action)
     try {
       const result = await actOnPurchaseOrder(po.PoNumber, action, {
         Remarks: remarks.trim(),
@@ -76,7 +95,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed.`)
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -84,7 +103,7 @@ export function PurchaseOrderDetailPage() {
 
   const runApproval = async (action: 'approve' | 'reject', label: string) => {
     if (!po || !guardRemarks(label)) return
-    setError(''); setNotice(''); setBusy(action)
+    setError(null); setNotice(''); setBusy(action)
     try {
       const result = await approvePurchaseOrder(po.PoNumber, action, {
         Remarks: remarks.trim(),
@@ -96,7 +115,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${label} failed.`)
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -104,7 +123,7 @@ export function PurchaseOrderDetailPage() {
 
   const runAmend = async () => {
     if (!po) return
-    setError(''); setNotice('')
+    setError(null); setNotice('')
     if (!amendmentReason.trim()) {
       setError('An amendment must state its reason — the PO is a contract document.')
       return
@@ -123,7 +142,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`Amendment recorded. ${result.Number} is now ${result.Status} at version ${result.Version}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Amendment failed.')
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -131,7 +150,7 @@ export function PurchaseOrderDetailPage() {
 
   const runCancel = async () => {
     if (!po) return
-    setError(''); setNotice('')
+    setError(null); setNotice('')
     if (!cancelReason.trim()) {
       setError('Cancellation needs a written reason.')
       return
@@ -147,7 +166,7 @@ export function PurchaseOrderDetailPage() {
       setNotice(`Purchase order cancelled. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cancellation failed.')
+      setError(err)
     } finally {
       setBusy('')
     }
@@ -158,7 +177,7 @@ export function PurchaseOrderDetailPage() {
   if (!po) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Purchase order not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Purchase order not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/purchase-orders')}>
           ‹ Back to purchase orders
         </button>
@@ -168,6 +187,12 @@ export function PurchaseOrderDetailPage() {
 
   const lines = po.Lines ?? []
   const masked = po.TotalPayableValue === undefined
+
+  // A pane is only offered when the session may act inside it; the selected
+  // pane falls back to the first one that is still allowed.
+  const paneAllowed: Record<Pane, boolean> = { workflow: canWorkflow, amend: canAmend, cancel: canCancel }
+  const availablePanes = (['workflow', 'amend', 'cancel'] as Pane[]).filter((name) => paneAllowed[name])
+  const activePane: Pane | null = paneAllowed[pane] ? pane : availablePanes[0] ?? null
 
   return (
     <div className="page">
@@ -188,10 +213,22 @@ export function PurchaseOrderDetailPage() {
               : ''}
           </p>
         </div>
-        <div className="action-row"><StatusBadge value={po.Status} /></div>
+        <div className="action-row">
+          <StatusBadge value={po.Status} />
+          {/* The server prints only an Issued, Closed or Cancelled PO (409 otherwise), and each print is audited. */}
+          {canPrint && PRINTABLE_PO_STATUSES.has(po.Status) && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => navigate(`/purchase/purchase-orders/${encodeURIComponent(po.PoNumber)}/print`)}
+            >
+              Print
+            </button>
+          )}
+        </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {masked && (
         <div className="alert">
@@ -270,31 +307,47 @@ export function PurchaseOrderDetailPage() {
         </table>
       </div>
 
-      <div className="tabs" style={{ marginTop: 24 }}>
-        <button type="button" className={`tab${pane === 'workflow' ? ' active' : ''}`} onClick={() => setPane('workflow')}>Workflow</button>
-        <button type="button" className={`tab${pane === 'amend' ? ' active' : ''}`} onClick={() => setPane('amend')}>Amend</button>
-        <button type="button" className={`tab${pane === 'cancel' ? ' active' : ''}`} onClick={() => setPane('cancel')}>Cancel</button>
-      </div>
+      {availablePanes.length > 0 && (
+        <div className="tabs" style={{ marginTop: 24 }}>
+          {canWorkflow && (
+            <button type="button" className={`tab${activePane === 'workflow' ? ' active' : ''}`} onClick={() => setPane('workflow')}>Workflow</button>
+          )}
+          {canAmend && (
+            <button type="button" className={`tab${activePane === 'amend' ? ' active' : ''}`} onClick={() => setPane('amend')}>Amend</button>
+          )}
+          {canCancel && (
+            <button type="button" className={`tab${activePane === 'cancel' ? ' active' : ''}`} onClick={() => setPane('cancel')}>Cancel</button>
+          )}
+        </div>
+      )}
 
-      {pane === 'workflow' && (
+      {activePane === 'workflow' && (
         <div className="card">
           <label className="field field-wide">
             <span className="field-label">Remarks *</span>
             <textarea className="input" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </label>
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => void runSimple('submit', 'Submit')}>
-              {busy === 'submit' ? 'Working…' : 'Submit for approval'}
-            </button>
-            <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runApproval('approve', 'Approve')}>
-              {busy === 'approve' ? 'Working…' : 'Approve'}
-            </button>
-            <button type="button" className="btn btn-warn" disabled={!!busy} onClick={() => void runApproval('reject', 'Reject')}>
-              {busy === 'reject' ? 'Working…' : 'Reject'}
-            </button>
-            <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runSimple('issue', 'Issue')}>
-              {busy === 'issue' ? 'Working…' : 'Issue to vendor'}
-            </button>
+            {canSubmit && (
+              <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => void runSimple('submit', 'Submit')}>
+                {busy === 'submit' ? 'Working…' : 'Submit for approval'}
+              </button>
+            )}
+            {canApprove && (
+              <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runApproval('approve', 'Approve')}>
+                {busy === 'approve' ? 'Working…' : 'Approve'}
+              </button>
+            )}
+            {canReject && (
+              <button type="button" className="btn btn-warn" disabled={!!busy} onClick={() => void runApproval('reject', 'Reject')}>
+                {busy === 'reject' ? 'Working…' : 'Reject'}
+              </button>
+            )}
+            {canIssue && (
+              <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runSimple('issue', 'Issue')}>
+                {busy === 'issue' ? 'Working…' : 'Issue to vendor'}
+              </button>
+            )}
           </div>
           <p className="field-hint">
             Sent with record version {po.Version}. Issue is the point the PO becomes a commitment to
@@ -303,7 +356,7 @@ export function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      {pane === 'amend' && (
+      {activePane === 'amend' && (
         <div className="card">
           <div className="form-grid">
             <label className="field field-wide">
@@ -326,7 +379,7 @@ export function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      {pane === 'cancel' && (
+      {activePane === 'cancel' && (
         <div className="card">
           <label className="field field-wide">
             <span className="field-label">Cancellation reason *</span>
@@ -339,6 +392,8 @@ export function PurchaseOrderDetailPage() {
           </div>
         </div>
       )}
+
+      <HistoryPanel docType="PO" documentId={po.Id} />
     </div>
   )
 }

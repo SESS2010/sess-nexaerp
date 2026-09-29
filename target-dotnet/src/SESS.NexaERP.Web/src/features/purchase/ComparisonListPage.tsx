@@ -1,29 +1,48 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createComparison, getRfq, newIdempotencyKey, rememberDoc } from '../../api/purchase'
-import { DocumentRegister } from './DocumentRegister'
+import { createComparison, getRfq, listComparisons, newIdempotencyKey, rememberDoc } from '../../api/purchase'
+import type { ComparisonListItem } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { StatusBadge } from '../employees/StatusBadge'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { PurchaseDocumentRegister, formatDate, formatMoney, type RegisterColumn } from './PurchaseDocumentRegister'
+
+const COLUMNS: RegisterColumn<ComparisonListItem>[] = [
+  { header: 'Comparison', sortKey: 'comparisonnumber', className: 'mono', render: (row) => row.ComparisonNumber },
+  { header: 'RFQ', className: 'mono', render: (row) => row.RfqNumber },
+  { header: 'Selected vendor', render: (row) => row.SelectedVendorName ? `${row.SelectedVendorCode} — ${row.SelectedVendorName}` : '—' },
+  { header: 'Total payable', className: 'text-right mono', render: (row) => formatMoney(row.TotalPayableValue) },
+  { header: 'Created', sortKey: 'date', render: (row) => formatDate(row.CreatedAt) },
+  { header: 'Status', sortKey: 'status', render: (row) => <StatusBadge value={row.Status} /> },
+]
 
 export function ComparisonListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [showCreate, setShowCreate] = useState(false)
   const [rfqNumber, setRfqNumber] = useState('')
   const [rfqVersion, setRfqVersion] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
+
+  // POST /purchase/comparisons → purchase.commercial-comparisons:create.
+  const canCreateComparison = can(PAGE_KEYS.comparisons, 'create')
+  // The version lookup reads GET /purchase/rfqs/{number} → purchase.rfq:view.
+  const canReadRfq = can(PAGE_KEYS.rfq, 'view')
 
   const loadRfqVersion = async () => {
-    setError('')
+    setError(null)
     try {
       const rfq = await getRfq(rfqNumber)
       setRfqVersion(String(rfq.Version))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to read the RFQ version.')
+      setError(err)
     }
   }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     if (!rfqNumber.trim()) {
       setError('RFQ number is required.')
       return
@@ -38,24 +57,27 @@ export function ComparisonListPage() {
       rememberDoc('comparison', result.Number)
       navigate(`/purchase/comparisons/${encodeURIComponent(result.Number)}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create the comparison.')
+      setError(err)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <DocumentRegister
-      kind="comparison"
+    <PurchaseDocumentRegister
       title="Commercial Comparison"
       subtitle="Step 4 of the purchase flow — quotations are compared and a vendor is recommended for approval"
-      missingEndpoint="GET /api/v1/purchase/comparisons"
-      placeholder="Open comparison by number, e.g. CMP-2627-00001"
-      routePrefix="/purchase/comparisons"
+      numberPlaceholder="Comparison number, e.g. CMP-2627-00001"
+      defaultSort={{ sortBy: 'date', sortDirection: 'desc' }}
+      fetch={listComparisons}
+      columns={COLUMNS}
+      rowKey={(row) => row.Id}
+      onOpen={(row) => navigate(`/purchase/comparisons/${encodeURIComponent(row.ComparisonNumber)}`)}
       createLabel="+ New Comparison"
       onCreate={() => setShowCreate(true)}
+      canCreate={canCreateComparison}
     >
-      {showCreate && (
+      {showCreate && canCreateComparison && (
         <div className="modal-backdrop">
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
@@ -83,11 +105,13 @@ export function ComparisonListPage() {
                   value={rfqVersion}
                   onChange={(event) => setRfqVersion(event.target.value)}
                 />
-                <button type="button" className="link-button" onClick={() => void loadRfqVersion()}>
-                  Read current version from the RFQ
-                </button>
+                {canReadRfq && (
+                  <button type="button" className="link-button" onClick={() => void loadRfqVersion()}>
+                    Read current version from the RFQ
+                  </button>
+                )}
               </label>
-              {error && <div className="field-wide alert alert-error">{error}</div>}
+              <ErrorAlert error={error} className="field-wide" fallback="Could not create the comparison." />
               <div className="field-wide modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setShowCreate(false)} disabled={busy}>
                   Cancel
@@ -100,6 +124,6 @@ export function ComparisonListPage() {
           </div>
         </div>
       )}
-    </DocumentRegister>
+    </PurchaseDocumentRegister>
   )
 }

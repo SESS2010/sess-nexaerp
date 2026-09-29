@@ -9,20 +9,25 @@ import {
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail } from '../../types/purchase'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
 
 interface ActionDefinition {
   action: ComparisonAction
   label: string
   tone: 'btn-primary' | 'btn-ghost' | 'btn-warn'
+  /** Action name on purchase.commercial-comparisons required by the endpoint. */
+  permission: string
 }
 
 const ACTIONS: ActionDefinition[] = [
-  { action: 'approve', label: 'Approve', tone: 'btn-primary' },
-  { action: 'request-revision', label: 'Request revision', tone: 'btn-warn' },
-  { action: 'reject', label: 'Reject', tone: 'btn-warn' },
-  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost' },
+  { action: 'approve', label: 'Approve', tone: 'btn-primary', permission: 'approve' },
+  { action: 'request-revision', label: 'Request revision', tone: 'btn-warn', permission: 'request-revision' },
+  { action: 'reject', label: 'Reject', tone: 'btn-warn', permission: 'reject' },
+  { action: 'resubmit', label: 'Resubmit', tone: 'btn-ghost', permission: 'resubmit' },
 ]
 
 function prettyJson(value: string | undefined): string {
@@ -37,10 +42,17 @@ function prettyJson(value: string | undefined): string {
 export function ComparisonDetailPage() {
   const { comparisonNumber = '' } = useParams()
   const navigate = useNavigate()
+  const { can } = useSession()
+
+  // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
+  const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
+  // Approve / reject / request-revision / resubmit each need their own action
+  // grant on purchase.commercial-comparisons.
+  const allowedActions = ACTIONS.filter((definition) => can(PAGE_KEYS.comparisons, definition.permission))
 
   const [comparison, setComparison] = useState<ComparisonDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
   const [quotationId, setQuotationId] = useState('')
@@ -53,14 +65,14 @@ export function ComparisonDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const detail = await getComparison(comparisonNumber)
       setComparison(detail)
       rememberDoc('comparison', detail.ComparisonNumber)
     } catch (err) {
       setComparison(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the comparison.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -72,7 +84,7 @@ export function ComparisonDetailPage() {
 
   const recommend = async () => {
     if (!comparison) return
-    setError('')
+    setError(null)
     setNotice('')
     if (!quotationId.trim()) {
       setError('Pick the winning vendor quotation id to recommend.')
@@ -98,7 +110,7 @@ export function ComparisonDetailPage() {
       setRecommendationRemarks('')
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record the recommendation.')
+      setError(err)
     } finally {
       setRecommending(false)
     }
@@ -106,7 +118,7 @@ export function ComparisonDetailPage() {
 
   const runAction = async (definition: ActionDefinition) => {
     if (!comparison) return
-    setError('')
+    setError(null)
     setNotice('')
     if (!remarks.trim()) {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
@@ -123,7 +135,7 @@ export function ComparisonDetailPage() {
       setNotice(`${definition.label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${definition.label} failed.`)
+      setError(err)
     } finally {
       setBusy(null)
     }
@@ -134,7 +146,7 @@ export function ComparisonDetailPage() {
   if (!comparison) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Comparison not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Comparison not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/purchase/comparisons')}>
           ‹ Back to comparisons
         </button>
@@ -166,7 +178,7 @@ export function ComparisonDetailPage() {
         <div className="action-row"><StatusBadge value={comparison.Status} /></div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {masked && (
         <div className="alert">
@@ -257,6 +269,7 @@ export function ComparisonDetailPage() {
         </details>
       )}
 
+      {canRecommend && (
       <div className="card">
         <div className="form-section-title">Recommend a vendor</div>
         <div className="form-grid">
@@ -285,7 +298,9 @@ export function ComparisonDetailPage() {
           </div>
         </div>
       </div>
+      )}
 
+      {allowedActions.length > 0 && (
       <div className="card">
         <div className="form-section-title">Approval</div>
         <label className="field field-wide">
@@ -293,7 +308,7 @@ export function ComparisonDetailPage() {
           <textarea className="input" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </label>
         <div className="action-row">
-          {ACTIONS.map((definition) => (
+          {allowedActions.map((definition) => (
             <button
               key={definition.action}
               type="button"
@@ -310,6 +325,9 @@ export function ComparisonDetailPage() {
           and returns a conflict otherwise.
         </p>
       </div>
+      )}
+
+      <HistoryPanel docType="COMPARISON" documentId={comparison.Id} />
     </div>
   )
 }

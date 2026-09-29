@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { ApiError, api, authorizedFetch } from './client'
 import type { PagedResponse } from './client'
 import type {
   ItemDetail, ItemSummary, ItemVendorLink, ReferenceLookup, SubcategoryLookup,
@@ -18,16 +18,20 @@ export interface ItemListQuery {
   search?: string
   status?: string
   category?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listItems(query: ItemListQuery): Promise<PagedResponse<ItemSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.category) params.set('category', query.category)
-  return api.get<PagedResponse<ItemSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<ItemSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getItem(itemCode: string): Promise<ItemDetail> {
@@ -61,43 +65,34 @@ export function getVendorItems(vendorCode: string): Promise<VendorSuppliedItem[]
 export async function uploadItemImage(itemCode: string, file: File): Promise<void> {
   const body = new FormData()
   body.set('file', file)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Image upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  await authorizedFetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { method: 'POST', body })
 }
 
 /** Fetches the item image as an object URL (authenticated); null when absent. */
 export async function fetchItemImageUrl(itemCode: string): Promise<string | null> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/${encodeURIComponent(itemCode)}/image`, { headers })
-  if (!response.ok) return null
-  return URL.createObjectURL(await response.blob())
+  try {
+    const response = await authorizedFetch(`${BASE}/${encodeURIComponent(itemCode)}/image`)
+    return URL.createObjectURL(await response.blob())
+  } catch (error) {
+    // No image (404) is the normal case; an expired session is not.
+    if (error instanceof ApiError && error.status === 401) throw error
+    return null
+  }
 }
 
 // Reference lookups for the item form (categories, subcategories, uoms, manufacturers).
 const lookupParams = 'page=1&pageSize=200&isActive=true'
 
 export function listItemCategories(): Promise<PagedResponse<ReferenceLookup>> {
-  return api.get<PagedResponse<ReferenceLookup>>(`${MASTERS}/item-categories?${lookupParams}`)
+  return api.getPaged<ReferenceLookup>(`${MASTERS}/item-categories?${lookupParams}`)
 }
 
 export function listItemSubcategories(categoryId: string): Promise<PagedResponse<SubcategoryLookup>> {
-  return api.get<PagedResponse<SubcategoryLookup>>(`${MASTERS}/item-subcategories?${lookupParams}&categoryId=${categoryId}`)
+  return api.getPaged<SubcategoryLookup>(`${MASTERS}/item-subcategories?${lookupParams}&categoryId=${categoryId}`)
 }
 
 export function listUoms(): Promise<PagedResponse<ReferenceLookup>> {
-  return api.get<PagedResponse<ReferenceLookup>>(`${MASTERS}/uoms?${lookupParams}`)
+  return api.getPaged<ReferenceLookup>(`${MASTERS}/uoms?${lookupParams}`)
 }
 
 // Inline quick-adds for the master-backed dropdowns.

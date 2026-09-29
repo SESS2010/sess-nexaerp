@@ -19,7 +19,12 @@ export interface CustomerPoSummary {
 }
 
 export interface CustomerPoLine {
+  /** Read-side only: the line's own id, which Job Order creation needs. Absent on upsert. */
+  Id?: string | null
   SlNo: number
+  /** Item master ids behind the line (the machine item for a Machine sales line). */
+  ItemId?: string
+  UomId?: string
   Description: string
   DueDate: string | null
   Quantity: number | null

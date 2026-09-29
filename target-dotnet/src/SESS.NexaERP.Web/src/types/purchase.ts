@@ -253,6 +253,45 @@ export interface QuotationLineRequest {
   RoundOff: number
 }
 
+/**
+ * GET /purchase/rfq-invitations/{id}/tax-context (Rev869BPurchaseEndpoints.cs).
+ * R2: the two GST state codes the quotation must carry, derived by the server
+ * from the vendor (GSTIN, else state code) and the delivery location (warehouse
+ * state, else the company profile). Submit refuses any other values.
+ */
+export interface QuotationTaxContext {
+  InvitationId: string
+  RfqNumber: string
+  VendorCode: string
+  SupplierStateCode: string
+  /** VENDOR_GSTIN | VENDOR_STATE_CODE (QuotationStateRule). */
+  SupplierStateSource: string
+  PlaceOfSupplyStateCode: string
+  /** DELIVERY_WAREHOUSE | COMPANY (QuotationStateRule). */
+  PlaceOfSupplySource: string
+  /** INTRASTATE (CGST+SGST) | INTERSTATE (IGST). */
+  SupplyType: string
+}
+
+/** The source codes of QuotationTaxContext, in words, matching QuotationStateRule.Words. */
+export function quotationStateSourceWords(source: string): string {
+  switch (source) {
+    case 'VENDOR_GSTIN': return "from the vendor's GSTIN"
+    case 'VENDOR_STATE_CODE': return "from the vendor's state code"
+    case 'DELIVERY_WAREHOUSE': return 'from the delivery warehouse'
+    case 'COMPANY': return 'from the company profile'
+    default: return `from ${source}`
+  }
+}
+
+export function supplyTypeWords(supplyType: string): string {
+  switch (supplyType) {
+    case 'INTRASTATE': return 'Intra-state (CGST + SGST)'
+    case 'INTERSTATE': return 'Inter-state (IGST)'
+    default: return supplyType
+  }
+}
+
 export interface SubmitQuotationRequest {
   VendorQuoteReference: string
   CurrencyCode: string
@@ -282,15 +321,25 @@ export interface TechnicalVerificationRequest {
   IdempotencyKey: string
 }
 
+// Canonical enum names from Domain/Masters/VendorRegistrationTypes.cs — the
+// tax resolver matches the stored rule's value exactly, so 'Regular' never
+// resolves a rule created as 'REGULAR'.
 export const VENDOR_REGISTRATION_TYPES = [
-  'Regular',
-  'Composition',
-  'Unregistered',
+  'REGULAR',
+  'COMPOSITION',
+  'UNREGISTERED',
   'SEZ',
-  'Overseas',
+  'OVERSEAS',
+  'DEEMED_EXPORT',
+  'UIN',
 ] as const
 
-export const QUOTATION_SUBMISSION_SOURCES = ['Email', 'Portal', 'Hardcopy', 'Fax'] as const
+// The service accepts only the two received-on-behalf-of-vendor sources
+// (EfRev869BPurchaseService.RfqQuotation.cs:163); anything else is rejected.
+export const QUOTATION_SUBMISSION_SOURCES = [
+  { value: 'EMAIL_RECEIVED', label: 'Received by email' },
+  { value: 'PHYSICAL_RECEIVED', label: 'Received physically (hardcopy)' },
+] as const
 
 // --- Commercial comparison ---
 
@@ -436,4 +485,112 @@ export type RecentDocKind = 'rfq' | 'quotation' | 'comparison' | 'purchase-order
 export interface RecentDoc {
   Number: string
   SeenAt: string
+}
+
+/* ------------------------------------------------------------------ */
+/* REV869B document registers — GET list endpoints (main b0b2a91).     */
+/* Mirrors SESS.NexaERP.Application.Purchase.Rev869BPurchaseReadContracts. */
+/* ------------------------------------------------------------------ */
+
+export interface RfqListItem {
+  Id: string
+  RfqNumber: string
+  QuoteDueAt: string
+  Status: string
+  InvitedVendorCount: number
+  CreatedAt: string
+  Version: number
+}
+
+export interface QuotationListItem {
+  Id: string
+  QuotationNumber: string
+  RfqNumber: string
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  RevisionNumber: number
+  ReceivedAt: string
+  Status: string
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface ComparisonListItem {
+  Id: string
+  ComparisonNumber: string
+  RfqNumber: string
+  SelectedVendorId: string | null
+  SelectedVendorCode: string | null
+  SelectedVendorName: string | null
+  Status: string
+  CreatedAt: string
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface PurchaseOrderListItem {
+  Id: string
+  PurchaseOrderNumber: string
+  RevisionNumber: number
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  Status: string
+  CreatedAt: string
+  IssuedAt: string | null
+  TotalPayableValue: number | null
+  Version: number
+}
+
+export interface MaterialFollowUpListItem {
+  Id: string
+  HandoffNumber: string
+  PurchaseOrderId: string
+  PurchaseOrderLineId: string
+  OrderedQuantity: number
+  Status: string
+  HandoffAt: string
+}
+
+/* ------------------------------------------------------------------ */
+/* Stores stock check on an approved PR (POST /requisitions/{pr}/stock-check). */
+/* ------------------------------------------------------------------ */
+
+export interface StockCheckLocationRequest {
+  LineNumber: number
+  WarehouseCode: string
+  /** Required — reservation needs a physical rack/bin. */
+  RackBinCode: string | null
+}
+
+export interface StockCheckRequest {
+  Remarks: string
+  Version: number
+  IdempotencyKey: string | null
+  Locations: StockCheckLocationRequest[]
+}
+
+/** Row of GET /api/v1/inventory/rack-bins. */
+export interface RackBinSummary {
+  Id: string
+  WarehouseId: string
+  WarehouseCode: string
+  BinCode: string
+  RackName: string
+  BinNameNumber: string
+  Zone: string | null
+  LocationType: string
+  MaterialCondition: string
+  Status: string
+  ApprovalStatus: string
+  IsActive: boolean
+  Version: number
+}
+
+/** Response of the stock-check POST: the check record, not the PR. */
+export interface StockCheckResult {
+  CheckNumber: string
+  ResultStatus: string
+  PrNumber: string
 }

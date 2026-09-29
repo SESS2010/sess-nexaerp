@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  getQuotationTaxContext,
   getRfq,
   newIdempotencyKey,
   quotationAttachmentUrl,
@@ -7,10 +8,17 @@ import {
   submitQuotation,
   verifyQuotationTechnically,
 } from '../../api/purchase'
-import { getStoredToken } from '../../api/client'
-import type { QuotationLineRequest, RfqDetail, RfqLine } from '../../types/purchase'
-import { QUOTATION_SUBMISSION_SOURCES, VENDOR_REGISTRATION_TYPES } from '../../types/purchase'
+import { authorizedFetch, saveResponseAsFile } from '../../api/client'
+import type { QuotationLineRequest, QuotationTaxContext, RfqDetail, RfqLine } from '../../types/purchase'
+import {
+  QUOTATION_SUBMISSION_SOURCES,
+  VENDOR_REGISTRATION_TYPES,
+  quotationStateSourceWords,
+  supplyTypeWords,
+} from '../../types/purchase'
 import { formatAmount } from './PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftQuoteLine {
   rfqLine: RfqLine
@@ -42,6 +50,8 @@ function lineTotal(line: DraftQuoteLine): number {
   )
 }
 
+const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function todayLocal(): string {
   const now = new Date()
   const pad = (value: number) => String(value).padStart(2, '0')
@@ -49,6 +59,18 @@ function todayLocal(): string {
 }
 
 export function QuotationPage() {
+  const { can } = useSession()
+
+  // GET /purchase/rfqs/{number} → purchase.rfq:view (read prerequisite).
+  const canReadRfq = can(PAGE_KEYS.rfq, 'view')
+  // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
+  // POST /quotations/{number}/technical-verifications →
+  // purchase.technical-verification:verify.
+  const canVerifyTechnically = can(PAGE_KEYS.technicalVerification, 'verify')
+  // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
+  const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
+
   // --- source RFQ + invitation ---
   const [rfqNumber, setRfqNumber] = useState('')
   const [invitationId, setInvitationId] = useState('')
@@ -63,13 +85,18 @@ export function QuotationPage() {
   const [paymentTerms, setPaymentTerms] = useState('')
   const [deliveryTerms, setDeliveryTerms] = useState('')
   const [warrantyTerms, setWarrantyTerms] = useState('')
-  const [submissionSource, setSubmissionSource] = useState<string>(QUOTATION_SUBMISSION_SOURCES[0])
+  const [submissionSource, setSubmissionSource] = useState<string>(QUOTATION_SUBMISSION_SOURCES[0].value)
   const [receivedAt, setReceivedAt] = useState(todayLocal())
   const [attachmentObjectKey, setAttachmentObjectKey] = useState('')
   const [attachmentSha256, setAttachmentSha256] = useState('')
   const [vendorAttestation, setVendorAttestation] = useState('')
-  const [supplierStateCode, setSupplierStateCode] = useState('33')
-  const [placeOfSupplyStateCode, setPlaceOfSupplyStateCode] = useState('33')
+  // R2: both GST state codes come from the server for the selected invitation
+  // (vendor GSTIN / state, delivery warehouse / company profile). They are shown
+  // read-only and sent back exactly as derived; submit is refused until they load.
+  const [taxContext, setTaxContext] = useState<QuotationTaxContext | null>(null)
+  const [taxContextError, setTaxContextError] = useState<unknown>(null)
+  const [loadingTaxContext, setLoadingTaxContext] = useState(false)
+  const [taxContextTick, setTaxContextTick] = useState(0)
   const [vendorRegistrationType, setVendorRegistrationType] = useState<string>(VENDOR_REGISTRATION_TYPES[0])
   const [headerDiscountValue, setHeaderDiscountValue] = useState('0')
   const [requestLateAuthorization, setRequestLateAuthorization] = useState(false)
@@ -86,7 +113,7 @@ export function QuotationPage() {
   const [verifying, setVerifying] = useState(false)
 
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
   const grandTotal = useMemo(
@@ -95,7 +122,7 @@ export function QuotationPage() {
   )
 
   const loadRfq = async () => {
-    setError('')
+    setError(null)
     setNotice('')
     setLoadingRfq(true)
     try {
@@ -120,11 +147,36 @@ export function QuotationPage() {
     } catch (err) {
       setRfq(null)
       setLines([])
-      setError(err instanceof Error ? err.message : 'Failed to load the RFQ.')
+      setError(err)
     } finally {
       setLoadingRfq(false)
     }
   }
+
+  const invitationLooksValid = GUID_PATTERN.test(invitationId.trim())
+
+  useEffect(() => {
+    const id = invitationId.trim()
+    setTaxContext(null)
+    setTaxContextError(null)
+    if (!GUID_PATTERN.test(id) || !canRecordQuotation) {
+      setLoadingTaxContext(false)
+      return
+    }
+    let cancelled = false
+    setLoadingTaxContext(true)
+    // A short pause so a GUID being pasted or typed is looked up once, not per keystroke.
+    const timer = window.setTimeout(() => {
+      getQuotationTaxContext(id)
+        .then((context) => { if (!cancelled) setTaxContext(context) })
+        .catch((err) => { if (!cancelled) setTaxContextError(err) })
+        .finally(() => { if (!cancelled) setLoadingTaxContext(false) })
+    }, 300)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [invitationId, canRecordQuotation, taxContextTick])
 
   const setLine = (index: number, patch: Partial<DraftQuoteLine>) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
@@ -132,7 +184,7 @@ export function QuotationPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
     setNotice('')
 
     if (!invitationId.trim()) {
@@ -141,6 +193,14 @@ export function QuotationPage() {
     }
     if (lines.length === 0) {
       setError('Load an RFQ first so the quotation has lines.')
+      return
+    }
+    if (!taxContext) {
+      setError(
+        loadingTaxContext
+          ? 'The GST state codes for this invitation are still being looked up. Wait a moment and try again.'
+          : 'The GST state codes for this invitation could not be derived, so the quotation cannot be recorded. See the Tax identity section.',
+      )
       return
     }
     if (lines.some((line) => !line.hsnSacCode.trim())) {
@@ -163,8 +223,8 @@ export function QuotationPage() {
       OtherCharges: num(line.otherCharges),
       PromisedDeliveryDate: line.promisedDeliveryDate,
       HsnSacCode: line.hsnSacCode.trim(),
-      SupplierStateCode: supplierStateCode.trim(),
-      PlaceOfSupplyStateCode: placeOfSupplyStateCode.trim(),
+      SupplierStateCode: taxContext.SupplierStateCode,
+      PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
       VendorRegistrationType: vendorRegistrationType,
       RoundOff: num(line.roundOff),
     }))
@@ -195,14 +255,14 @@ export function QuotationPage() {
       setVerifyVersion(String(result.Version))
       setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record the quotation.')
+      setError(err)
     } finally {
       setSaving(false)
     }
   }
 
   const runVerification = async () => {
-    setError('')
+    setError(null)
     setNotice('')
     if (!verifyQuotationNumber.trim() || !verifyLineId.trim()) {
       setError('Technical verification needs both a quotation number and a quotation line id.')
@@ -221,7 +281,7 @@ export function QuotationPage() {
       setVerifyVersion(String(result.Version))
       setNotice(`Technical verification recorded. ${result.Number} is now ${result.Status}.`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Technical verification failed.')
+      setError(err)
     } finally {
       setVerifying(false)
     }
@@ -231,20 +291,10 @@ export function QuotationPage() {
     const number = verifyQuotationNumber.trim()
     if (!number) return
     try {
-      const token = getStoredToken()
-      const response = await fetch(quotationAttachmentUrl(number), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      if (!response.ok) throw new Error(`Download failed (${response.status})`)
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${number}-quotation`
-      anchor.click()
-      URL.revokeObjectURL(url)
+      const response = await authorizedFetch(quotationAttachmentUrl(number))
+      await saveResponseAsFile(response, `${number}-quotation`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download the attachment.')
+      setError(err)
     }
   }
 
@@ -267,7 +317,7 @@ export function QuotationPage() {
         so a recorded quotation cannot be reopened here.
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
 
       <div className="card">
@@ -282,12 +332,14 @@ export function QuotationPage() {
               onChange={(event) => setRfqNumber(event.target.value)}
             />
           </label>
-          <div className="field">
-            <span className="field-label">&nbsp;</span>
-            <button type="button" className="btn btn-ghost" disabled={loadingRfq} onClick={() => void loadRfq()}>
-              {loadingRfq ? 'Loading…' : 'Load RFQ lines'}
-            </button>
-          </div>
+          {canReadRfq && (
+            <div className="field">
+              <span className="field-label">&nbsp;</span>
+              <button type="button" className="btn btn-ghost" disabled={loadingRfq} onClick={() => void loadRfq()}>
+                {loadingRfq ? 'Loading…' : 'Load RFQ lines'}
+              </button>
+            </div>
+          )}
           <label className="field">
             <span className="field-label">Invitation id (GUID) *</span>
             <input
@@ -336,7 +388,7 @@ export function QuotationPage() {
             <label className="field">
               <span className="field-label">Submission source *</span>
               <select className="input" value={submissionSource} onChange={(e) => setSubmissionSource(e.target.value)}>
-                {QUOTATION_SUBMISSION_SOURCES.map((option) => <option key={option} value={option}>{option}</option>)}
+                {QUOTATION_SUBMISSION_SOURCES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="field">
@@ -365,13 +417,64 @@ export function QuotationPage() {
             </label>
             <label className="field">
               <span className="field-label">Supplier state code *</span>
-              <input className="input mono" value={supplierStateCode} onChange={(e) => setSupplierStateCode(e.target.value)} />
+              <input
+                className="input mono"
+                value={taxContext?.SupplierStateCode ?? ''}
+                readOnly
+                placeholder={loadingTaxContext ? 'Looking up…' : '—'}
+                title="Derived by the server from the vendor; cannot be typed."
+              />
+              {taxContext && (
+                <span className="field-hint">
+                  Supplier state {taxContext.SupplierStateCode} {quotationStateSourceWords(taxContext.SupplierStateSource)} (vendor {taxContext.VendorCode}).
+                </span>
+              )}
             </label>
             <label className="field">
               <span className="field-label">Place of supply state code *</span>
-              <input className="input mono" value={placeOfSupplyStateCode} onChange={(e) => setPlaceOfSupplyStateCode(e.target.value)} />
-              <span className="field-hint">Same code as supplier means CGST + SGST; different means IGST.</span>
+              <input
+                className="input mono"
+                value={taxContext?.PlaceOfSupplyStateCode ?? ''}
+                readOnly
+                placeholder={loadingTaxContext ? 'Looking up…' : '—'}
+                title="Derived by the server from the delivery location; cannot be typed."
+              />
+              {taxContext && (
+                <span className="field-hint">
+                  Place of supply {taxContext.PlaceOfSupplyStateCode} {quotationStateSourceWords(taxContext.PlaceOfSupplySource)}.
+                </span>
+              )}
             </label>
+            <div className="field-wide">
+              {taxContext ? (
+                <div className="alert" style={{ marginBottom: 0 }}>
+                  <strong>{supplyTypeWords(taxContext.SupplyType)}</strong> — supplier state {taxContext.SupplierStateCode}{' '}
+                  {quotationStateSourceWords(taxContext.SupplierStateSource)} · place of supply {taxContext.PlaceOfSupplyStateCode}{' '}
+                  {quotationStateSourceWords(taxContext.PlaceOfSupplySource)} · RFQ {taxContext.RfqNumber}, vendor {taxContext.VendorCode}.
+                  These codes are decided by the server and sent as shown; the quotation is refused if they differ.
+                </div>
+              ) : loadingTaxContext ? (
+                <p className="field-hint">Looking up the GST state codes for invitation {invitationId.trim()}…</p>
+              ) : taxContextError ? (
+                <>
+                  <ErrorAlert
+                    error={taxContextError}
+                    onReload={() => setTaxContextTick((value) => value + 1)}
+                    fallback="The GST state codes for this invitation could not be derived."
+                  />
+                  <p className="field-hint">
+                    The quotation cannot be recorded until this is fixed: a vendor needs a GSTIN or a two-digit state code in the Vendor Master,
+                    and the company profile needs its state code (Technical Director).
+                  </p>
+                </>
+              ) : (
+                <p className="field-hint">
+                  {invitationLooksValid
+                    ? 'The GST state codes will be derived once the invitation is checked.'
+                    : 'Enter the invitation id above; the supplier state and place of supply are then derived from the vendor and the delivery location.'}
+                </p>
+              )}
+            </div>
 
             <div className="field-wide form-section-title">Evidence</div>
             <label className="field">
@@ -467,9 +570,16 @@ export function QuotationPage() {
           </div>
 
           <div className="action-row" style={{ marginTop: 16 }}>
-            <button type="submit" className="btn btn-primary" disabled={saving || lines.length === 0}>
-              {saving ? 'Recording…' : 'Record quotation'}
-            </button>
+            {canRecordQuotation && (
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={saving || lines.length === 0 || !taxContext}
+                title={!taxContext ? 'Waiting for the GST state codes of the selected invitation.' : undefined}
+              >
+                {saving ? 'Recording…' : 'Record quotation'}
+              </button>
+            )}
             <div className="spacer" />
             <strong>Quoted total: ₹{formatAmount(grandTotal)}</strong>
           </div>
@@ -511,12 +621,16 @@ export function QuotationPage() {
             <textarea className="input" rows={2} value={verifyRemarks} onChange={(e) => setVerifyRemarks(e.target.value)} />
           </label>
           <div className="field-wide action-row">
-            <button type="button" className="btn btn-primary" disabled={verifying} onClick={() => void runVerification()}>
-              {verifying ? 'Recording…' : 'Record verification'}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => void downloadAttachment()}>
-              Download quotation attachment
-            </button>
+            {canVerifyTechnically && (
+              <button type="button" className="btn btn-primary" disabled={verifying} onClick={() => void runVerification()}>
+                {verifying ? 'Recording…' : 'Record verification'}
+              </button>
+            )}
+            {canDownloadAttachment && (
+              <button type="button" className="btn btn-ghost" onClick={() => void downloadAttachment()}>
+                Download quotation attachment
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -13,6 +13,8 @@ import type {
 } from '../../types/stores'
 import { DEFAULT_ISO_VERIFICATION, TRANSPORT_MODES } from '../../types/stores'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftLine {
   purchaseOrderLineId: string
@@ -52,6 +54,7 @@ interface Props {
 }
 
 export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can } = useSession()
   const [poNumber, setPoNumber] = useState(existing?.PurchaseOrderNumber ?? '')
   const [po, setPo] = useState<SourcePurchaseOrder | null>(null)
   const [loadingPo, setLoadingPo] = useState(false)
@@ -66,7 +69,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   )
   const [lines, setLines] = useState<DraftLine[]>([])
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   // On edit the PO is fixed; pull its lines straight away so quantities are editable.
   useEffect(() => {
@@ -75,7 +78,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
   }, [])
 
   async function loadPo(number: string) {
-    setError('')
+    setError(null)
     setLoadingPo(true)
     try {
       const loaded = await getSourcePurchaseOrder(number.trim().toUpperCase())
@@ -97,7 +100,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
     } catch (err) {
       setPo(null)
       setLines([])
-      setError(err instanceof Error ? err.message : 'Failed to load the purchase order.')
+      setError(err)
     } finally {
       setLoadingPo(false)
     }
@@ -109,7 +112,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
 
     const payloadLines: GateEntryLineRequest[] = lines
       .filter((line) => line.include)
@@ -156,13 +159,17 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
 
       onSaved(saved)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save the gate entry.')
+      setError(err)
     } finally {
       setSaving(false)
     }
   }
 
   const poUsable = po && po.Status === 'Issued' && po.IsCurrentVersion
+  // POST/PUT /stores/gate-entries → inventory.grn:create / :update.
+  const canSave = can(PAGE_KEYS.gateEntry, mode === 'create' ? 'create' : 'update')
+  // GET /purchase/purchase-orders/{number} → purchase.po:view.
+  const canReadPo = can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (
     <div className="modal-backdrop">
@@ -185,7 +192,7 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
               onChange={(event) => setPoNumber(event.target.value)}
             />
           </label>
-          {mode === 'create' && (
+          {mode === 'create' && canReadPo && (
             <div className="field">
               <span className="field-label">&nbsp;</span>
               <button type="button" className="btn btn-ghost" disabled={loadingPo} onClick={() => void loadPo(poNumber)}>
@@ -333,13 +340,15 @@ export function GateEntryFormModal({ mode, existing, onClose, onSaved }: Props) 
             </table>
           </div>
 
-          {error && <div className="field-wide alert alert-error">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the gate entry." />
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create draft gate entry' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create draft gate entry' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>

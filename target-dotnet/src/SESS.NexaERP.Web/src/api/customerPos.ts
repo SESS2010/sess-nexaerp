@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { api, authorizedFetch, saveResponseAsFile } from './client'
 import type { PagedResponse } from './client'
 import type { CustomerPoDetail, CustomerPoLookups, CustomerPoSummary, UpsertCustomerPoRequest } from '../types/customerPo'
 
@@ -8,10 +8,16 @@ export interface CustomerPoListQuery {
   page: number
   pageSize: number
   search?: string
+  /** Exact internal PO record number (e.g. CPO-…); server upper-cases it. */
+  poRecordNumber?: string
+  /** Exact customer's own PO number. */
+  customerPoNumber?: string
   workStatus?: string
   salesType?: string
   serviceMode?: string
   fiscalYear?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listCustomerPos(query: CustomerPoListQuery): Promise<PagedResponse<CustomerPoSummary>> {
@@ -19,11 +25,15 @@ export function listCustomerPos(query: CustomerPoListQuery): Promise<PagedRespon
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
   if (query.search) params.set('search', query.search)
+  if (query.poRecordNumber) params.set('poRecordNumber', query.poRecordNumber)
+  if (query.customerPoNumber) params.set('customerPoNumber', query.customerPoNumber)
   if (query.workStatus) params.set('workStatus', query.workStatus)
   if (query.salesType) params.set('salesType', query.salesType)
   if (query.serviceMode) params.set('serviceMode', query.serviceMode)
   if (query.fiscalYear) params.set('fiscalYear', query.fiscalYear)
-  return api.get<PagedResponse<CustomerPoSummary>>(`${BASE}?${params.toString()}`)
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
+  return api.getPaged<CustomerPoSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getCustomerPo(poRecordNumber: string): Promise<CustomerPoDetail> {
@@ -57,34 +67,13 @@ async function uploadPdf(path: string, file: File, version: number, revisionReas
   body.set('file', file)
   body.set('version', String(version))
   body.set('revisionReason', revisionReason)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(path, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  const response = await authorizedFetch(path, { method: 'POST', body })
   return (await response.json()) as Record<string, string>
 }
 
 async function downloadPdf(path: string, fileName: string): Promise<void> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(path, { headers })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileName || 'document.pdf'
-  anchor.click()
-  URL.revokeObjectURL(url)
+  const response = await authorizedFetch(path)
+  await saveResponseAsFile(response, fileName || 'document.pdf')
 }
 
 export function uploadCustomerPoFile(poRecordNumber: string, file: File, version: number, revisionReason: string) {

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createRfq, listPurchaseHandoffs, newIdempotencyKey } from '../../api/purchase'
 import type { PurchaseRequirementHandoffSummary, Rev869BDocumentResult } from '../../types/purchase'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface Props {
   onClose: () => void
@@ -15,6 +17,7 @@ function defaultDueAt(): string {
 }
 
 export function RfqCreateModal({ onClose, onCreated }: Props) {
+  const { can } = useSession()
   const [handoffs, setHandoffs] = useState<PurchaseRequirementHandoffSummary[]>([])
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [quoteDueAt, setQuoteDueAt] = useState(defaultDueAt())
@@ -23,16 +26,19 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
   const [singleSourceJustification, setSingleSourceJustification] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     listPurchaseHandoffs()
       .then((paged) => setHandoffs(paged.Items ?? []))
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load handoffs.'))
+      .catch((err) => setError(err))
       .finally(() => setLoading(false))
   }, [])
 
   const selectedCount = useMemo(() => Object.keys(selected).length, [selected])
+
+  // POST /purchase/rfqs → purchase.rfq:create.
+  const canCreateRfq = can(PAGE_KEYS.rfq, 'create')
 
   const toggle = (handoff: PurchaseRequirementHandoffSummary) => {
     setSelected((prev) => {
@@ -45,7 +51,7 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
-    setError('')
+    setError(null)
 
     const lines = Object.entries(selected).map(([id, quantity]) => ({
       PurchaseRequirementHandoffId: id,
@@ -77,7 +83,7 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
       })
       onCreated(result)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create the RFQ.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -200,13 +206,15 @@ export function RfqCreateModal({ onClose, onCreated }: Props) {
             </table>
           </div>
 
-          {error && <div className="field-wide alert alert-error">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not create the RFQ." />
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || loading}>
-              {saving ? 'Creating…' : 'Create RFQ'}
-            </button>
+            {canCreateRfq && (
+              <button type="submit" className="btn btn-primary" disabled={saving || loading}>
+                {saving ? 'Creating…' : 'Create RFQ'}
+              </button>
+            )}
           </div>
         </form>
       </div>

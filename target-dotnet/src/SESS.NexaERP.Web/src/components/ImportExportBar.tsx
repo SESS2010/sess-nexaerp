@@ -1,21 +1,46 @@
 import { useRef, useState } from 'react'
-import { downloadExport, downloadTemplate, importWorkbook } from '../api/masterdata'
+import { downloadErrorWorkbook, downloadExport, downloadTemplate, importWorkbook } from '../api/masterdata'
 import type { ImportResult, MasterKey } from '../api/masterdata'
+import { PAGE_KEYS, useSession } from '../features/auth/SessionContext'
 
 interface Props {
   masterKey: MasterKey
-  onImported: () => void
+  /** Called after every completed upload, with the batch summary (rejected rows included). */
+  onImported: (result: ImportResult) => void
+  /** Hide Export for masters that have nothing to export (opening stock is import-only). */
+  exportable?: boolean
+}
+
+// Page key each master resolves to in the API's IMasterDataRegistry
+// (Infrastructure/MasterData/CustomerVendorMasterDataAdapters.cs and
+// UomMasterDataAdapter.cs). MasterDataTransferEndpoints checks, per action:
+//   template → download
+//   export   → export, plus view-commercial-values on the same page when the
+//              master declares a SensitiveResultPermission (customers, vendors)
+//   import   → create AND update
+const MASTER_PAGES: Record<MasterKey, { pageKey: string; exportIsSensitive: boolean }> = {
+  customers: { pageKey: PAGE_KEYS.customers, exportIsSensitive: true },
+  vendors: { pageKey: PAGE_KEYS.vendors, exportIsSensitive: true },
+  uoms: { pageKey: 'masters.uoms', exportIsSensitive: false },
+  'opening-stock': { pageKey: 'stores.opening-stock', exportIsSensitive: false },
 }
 
 // Template / Export / Import controls for a master list page, backed by the
-// master-data transfer API (idempotent imports, full audit trail).
-export function ImportExportBar({ masterKey, onImported }: Props) {
+// master-data transfer API (idempotent imports, full audit trail). Each control
+// is hidden (never disabled) when the session lacks the grant the API demands.
+export function ImportExportBar({ masterKey, onImported, exportable = true }: Props) {
+  const { can } = useSession()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [busy, setBusy] = useState<'template' | 'export' | 'import' | null>(null)
+  const [busy, setBusy] = useState<'template' | 'export' | 'import' | 'errors' | null>(null)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
 
-  const run = async (kind: 'template' | 'export', fn: () => Promise<void>) => {
+  const { pageKey, exportIsSensitive } = MASTER_PAGES[masterKey]
+  const canTemplate = can(pageKey, 'download')
+  const canExport = exportable && can(pageKey, 'export') && (!exportIsSensitive || can(pageKey, 'view-commercial-values'))
+  const canImport = can(pageKey, 'create') && can(pageKey, 'update')
+
+  const run = async (kind: 'template' | 'export' | 'errors', fn: () => Promise<void>) => {
     setBusy(kind)
     setError('')
     try {
@@ -35,7 +60,7 @@ export function ImportExportBar({ masterKey, onImported }: Props) {
     try {
       const summary = await importWorkbook(masterKey, file)
       setResult(summary)
-      onImported()
+      onImported(summary)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed.')
     } finally {
@@ -48,24 +73,34 @@ export function ImportExportBar({ masterKey, onImported }: Props) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => run('template', () => downloadTemplate(masterKey))}>
-          {busy === 'template' ? 'Preparing…' : '⬇ Template'}
-        </button>
-        <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => run('export', () => downloadExport(masterKey))}>
-          {busy === 'export' ? 'Exporting…' : '⬇ Export'}
-        </button>
-        <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => fileRef.current?.click()}>
-          {busy === 'import' ? 'Importing…' : '⬆ Import'}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => void onFilePicked(event.target.files?.[0] ?? null)}
-        />
-      </div>
+      {(canTemplate || canExport || canImport) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {canTemplate && (
+            <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => run('template', () => downloadTemplate(masterKey))}>
+              {busy === 'template' ? 'Preparing…' : '⬇ Template'}
+            </button>
+          )}
+          {canExport && (
+            <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => run('export', () => downloadExport(masterKey))}>
+              {busy === 'export' ? 'Exporting…' : '⬇ Export'}
+            </button>
+          )}
+          {canImport && (
+            <>
+              <button type="button" className="btn btn-ghost" disabled={busy !== null} onClick={() => fileRef.current?.click()}>
+                {busy === 'import' ? 'Importing…' : '⬆ Import'}
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={(event) => void onFilePicked(event.target.files?.[0] ?? null)}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       {error && <div className="alert alert-error field-wide w-full basis-full">{error}</div>}
 
@@ -80,7 +115,13 @@ export function ImportExportBar({ masterKey, onImported }: Props) {
             <span className={result.RejectedRows > 0 ? 'font-semibold text-red-700' : 'text-ink-faint'}>
               Rejected {result.RejectedRows}
             </span>
-            <button type="button" className="link-button ml-auto" onClick={() => setResult(null)}>Dismiss</button>
+            {result.RejectedRows > 0 && (
+              <button type="button" className="btn btn-ghost ml-auto" disabled={busy !== null}
+                onClick={() => run('errors', () => downloadErrorWorkbook(result.BatchId))}>
+                {busy === 'errors' ? 'Preparing…' : '⬇ errors.xlsx'}
+              </button>
+            )}
+            <button type="button" className={`link-button ${result.RejectedRows > 0 ? '' : 'ml-auto'}`} onClick={() => setResult(null)}>Dismiss</button>
           </div>
           {rejected.length > 0 && (
             <div className="max-h-48 overflow-y-auto rounded-lg border border-red-200 bg-red-50/60 p-3 text-[12.5px]">

@@ -29,6 +29,17 @@ Implemented screens: **Login**, **Employee Master**, **Vendor Master**.
 
 The Vite dev server proxies `/api` and `/health` to the API (default `http://localhost:5000`). If the API listens elsewhere, create `.env.local` with `VITE_API_TARGET=http://localhost:<port>`.
 
+## Run on the office network (shared server)
+
+Build the frontend straight into the API host and let the API serve it, so everyone opens one URL:
+
+```powershell
+cd src\SESS.NexaERP.Web
+npm run build:api      # writes ../SESS.NexaERP.Api/wwwroot
+```
+
+Then start the API bound to all interfaces (`ASPNETCORE_URLS=http://0.0.0.0:5000`, already the default in `launchSettings.json`) and open `http://<server-ip>:5000` from any workstation. Full steps, including the Windows Firewall rule and database notes, are in `docs/installation/lan-network-access.md`.
+
 ## Authentication
 
 The API accepts only JWT bearer tokens (permanent OIDC design; provider selection pending — see `docs/rev866_oidc_decision_note.md`). The **/login** page uses the Debug-only development sign-in pipeline (`/api/v1/dev/*`): pick an employee identity and a company; the API issues a short-lived JWT bound to that employee's real identity mapping. When the production OIDC provider is chosen, the login page swaps to the standard OIDC redirect — no other screen changes.

@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { api, authorizedFetch } from './client'
 import type { PagedResponse } from './client'
 import type { UpsertVendorRequest, VendorDetail, VendorSummary } from '../types/vendor'
 
@@ -22,16 +22,20 @@ export interface VendorListQuery {
   search?: string
   status?: string
   type?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listVendors(query: VendorListQuery): Promise<PagedResponse<VendorSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
   if (query.type) params.set('type', query.type)
-  return api.get<PagedResponse<VendorSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<VendorSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getVendor(vendorCode: string): Promise<VendorDetail> {
@@ -53,6 +57,33 @@ export function runVendorAction(vendorCode: string, action: VendorAction, remark
   })
 }
 
+// Accounts commercial verification (masters.vendors:verify, ACCOUNTS_MANAGER).
+// Returns the VendorDetail with the new Version; the vendor stays Pending Approval
+// until the MD's final approve. Not idempotent: never retry blindly.
+export function verifyVendorCommercial(vendorCode: string, remarks: string, version: number): Promise<VendorDetail> {
+  return api.post<VendorDetail>(`${BASE}/${encodeURIComponent(vendorCode)}/verify-commercial`, {
+    Remarks: remarks,
+    Version: version,
+  })
+}
+
+// MasterHistorySummary from GET /vendors/{code}/approval-history (masters.vendors:view-audit-history).
+export interface VendorApprovalHistoryRow {
+  Id: string
+  Action: string
+  FromStatus: string | null
+  ToStatus: string | null
+  Remarks: string | null
+  ActorLoginId: string
+  ActorRoleCode: string
+  CreatedAt: string
+  CorrelationId: string | null
+}
+
+export function getVendorApprovalHistory(vendorCode: string): Promise<VendorApprovalHistoryRow[]> {
+  return api.get<VendorApprovalHistoryRow[]>(`${BASE}/${encodeURIComponent(vendorCode)}/approval-history`)
+}
+
 export type VendorAttachmentKind = 'BANK_LEAF' | 'GST_CERTIFICATE' | 'PAN_CARD'
 
 export interface VendorAttachmentInfo {
@@ -71,27 +102,12 @@ export async function uploadVendorAttachment(kind: VendorAttachmentKind, file: F
   const body = new FormData()
   body.set('kind', kind)
   body.set('file', file)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  const response = await authorizedFetch(`${BASE}/attachments`, { method: 'POST', body })
   return (await response.json()) as VendorAttachmentInfo
 }
 
 export async function downloadVendorAttachment(attachmentId: string, fileName: string): Promise<void> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments/${attachmentId}`, { headers })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const response = await authorizedFetch(`${BASE}/attachments/${attachmentId}`)
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

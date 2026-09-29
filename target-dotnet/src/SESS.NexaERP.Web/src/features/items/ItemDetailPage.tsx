@@ -3,31 +3,36 @@ import { Link, useParams } from 'react-router-dom'
 import { fetchItemImageUrl, getItem, getItemVendors, runItemAction } from '../../api/items'
 import type { ItemAction } from '../../api/items'
 import type { ItemDetail, ItemVendorLink } from '../../types/item'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
 
-const ACTIONS: { action: ItemAction; label: string; from: string[] }[] = [
-  { action: 'submit', label: 'Submit', from: ['Draft'] },
-  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'] },
-  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'] },
-  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'] },
-  { action: 'hold', label: 'Hold', from: ['Approved'] },
-  { action: 'reactivate', label: 'Reactivate', from: ['Approved'] },
-  { action: 'deactivate', label: 'Deactivate', from: ['Approved'] },
+// `permission` is the masters.items action the API requires for the route
+// (InventoryEndpoints.MapItemAction): hold -> Deactivate, reactivate -> Update.
+const ACTIONS: { action: ItemAction; label: string; from: string[]; permission: string }[] = [
+  { action: 'submit', label: 'Submit', from: ['Draft'], permission: 'submit' },
+  { action: 'approve', label: 'Approve', from: ['Pending Approval', 'Clarification Requested'], permission: 'approve' },
+  { action: 'reject', label: 'Reject', from: ['Pending Approval', 'Clarification Requested'], permission: 'reject' },
+  { action: 'request-revision', label: 'Request revision', from: ['Pending Approval', 'Approved'], permission: 'request-revision' },
+  { action: 'resubmit', label: 'Resubmit', from: ['Revision Requested', 'Rejected'], permission: 'resubmit' },
+  { action: 'hold', label: 'Hold', from: ['Approved'], permission: 'deactivate' },
+  { action: 'reactivate', label: 'Reactivate', from: ['Approved'], permission: 'update' },
+  { action: 'deactivate', label: 'Deactivate', from: ['Approved'], permission: 'deactivate' },
 ]
 
 export function ItemDetailPage() {
   const { itemCode = '' } = useParams()
+  const { can } = useSession()
   const [detail, setDetail] = useState<ItemDetail | null>(null)
   const [vendors, setVendors] = useState<ItemVendorLink[]>([])
   const [imageUrl, setImageUrl] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
-    setError('')
+    setError(null)
     try {
       const item = await getItem(itemCode)
       setDetail(item)
@@ -39,7 +44,7 @@ export function ItemDetailPage() {
       }
     } catch (err) {
       setDetail(null)
-      setError(err instanceof Error ? err.message : 'Failed to load item.')
+      setError(err)
     }
   }, [itemCode])
 
@@ -56,7 +61,7 @@ export function ItemDetailPage() {
       await runItemAction(itemCode, action, remarks.trim(), detail.Version)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setError(err)
     } finally {
       setBusy(false)
     }
@@ -79,8 +84,10 @@ export function ItemDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
-            <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
-            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus)).map((item) => (
+            {can(PAGE_KEYS.items, 'update') && (
+              <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {ACTIONS.filter((item) => item.from.includes(detail.ApprovalStatus) && can(PAGE_KEYS.items, item.permission)).map((item) => (
               <button key={item.action} type="button" className="btn btn-ghost" disabled={busy} onClick={() => runAction(item.action, item.label)}>
                 {item.label}
               </button>
@@ -89,7 +96,7 @@ export function ItemDetailPage() {
         )}
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <div className="flex flex-col gap-5 lg:flex-row">
@@ -121,6 +128,11 @@ export function ItemDetailPage() {
               <Field label="Min / Max stock" value={`${detail.MinimumStock} / ${detail.MaximumStock}`} mono />
               <Field label="Reorder level" value={String(detail.ReorderLevel)} mono />
               <Field label="Estimated price" value={detail.StandardEstimatedPrice != null ? String(detail.StandardEstimatedPrice) : '—'} mono />
+              <Field
+                label="Last accepted purchase price"
+                value={detail.LastPurchaseRate != null ? `${detail.LastPurchaseRate}${detail.LastPurchaseDate ? ` on ${detail.LastPurchaseDate}` : ''}` : 'No accepted purchase price'}
+                mono
+              />
               <Field label="Preferred vendor" value={detail.PreferredVendorCode ?? '—'} mono />
             </div>
 

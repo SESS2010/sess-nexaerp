@@ -5,6 +5,9 @@ import type { GateEntryResult, IsoReceiptVerification } from '../../types/stores
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { HistoryPanel } from '../../components/HistoryPanel'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 function yesNo(value: boolean | null | undefined): string {
   if (value === null || value === undefined) return 'Not applicable'
@@ -22,10 +25,11 @@ function parseIso(json: string): IsoReceiptVerification | null {
 export function GateEntryDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const { can } = useSession()
 
   const [gate, setGate] = useState<GateEntryResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
   const [editing, setEditing] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
@@ -33,12 +37,12 @@ export function GateEntryDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       setGate(await getGateEntry(id))
     } catch (err) {
       setGate(null)
-      setError(err instanceof Error ? err.message : 'Failed to load the gate entry.')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -50,7 +54,7 @@ export function GateEntryDetailPage() {
 
   const finalize = async () => {
     if (!gate) return
-    setError('')
+    setError(null)
     setNotice('')
     setFinalizing(true)
     try {
@@ -62,7 +66,7 @@ export function GateEntryDetailPage() {
       setConfirmFinalize(false)
       setNotice(`Gate entry finalized. It is now immutable at version ${result.Version}.`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Finalize failed.')
+      setError(err)
     } finally {
       setFinalizing(false)
     }
@@ -73,7 +77,7 @@ export function GateEntryDetailPage() {
   if (!gate) {
     return (
       <div className="page">
-        <div className="alert alert-error">{error || 'Gate entry not found.'}</div>
+        <ErrorAlert error={error} onReload={() => void load()} fallback="Gate entry not found." />
         <button type="button" className="btn btn-ghost" onClick={() => navigate('/stores/gate-entries')}>
           ‹ Back to gate entries
         </button>
@@ -83,6 +87,11 @@ export function GateEntryDetailPage() {
 
   const iso = parseIso(gate.IsoReceiptVerificationJson)
   const isDraft = gate.Status === 'DRAFT'
+  // Every Gate Entry mutation is an action on inventory.grn. Editing re-reads
+  // the source PO (purchase.po:view) to list its lines; without that grant the
+  // modal can load nothing and the draft can never be saved.
+  const canEdit = can(PAGE_KEYS.gateEntry, 'update') && can(PAGE_KEYS.purchaseOrders, 'view')
+  const canFinalize = can(PAGE_KEYS.gateEntry, 'submit')
 
   return (
     <div className="page">
@@ -101,13 +110,13 @@ export function GateEntryDetailPage() {
         </div>
         <div className="action-row">
           <StatusBadge value={gate.Status} />
-          {isDraft && (
+          {isDraft && canEdit && (
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(true)}>Edit draft</button>
           )}
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
       {!isDraft && (
         <div className="alert">
@@ -170,7 +179,7 @@ export function GateEntryDetailPage() {
         </table>
       </div>
 
-      {isDraft && (
+      {isDraft && canFinalize && (
         <div className="card">
           <div className="form-section-title">Finalize</div>
           <p className="field-hint">
@@ -227,6 +236,8 @@ export function GateEntryDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <HistoryPanel docType="GATE_ENTRY" documentId={gate.Id} />
 
       {editing && (
         <GateEntryFormModal

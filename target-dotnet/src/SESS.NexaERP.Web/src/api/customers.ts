@@ -1,4 +1,4 @@
-import { api, getStoredToken } from './client'
+import { api, authorizedFetch } from './client'
 import type { PagedResponse } from './client'
 import type { CustomerDetail, CustomerSummary, UpsertCustomerRequest } from '../types/customer'
 
@@ -20,15 +20,19 @@ export interface CustomerListQuery {
   pageSize: number
   search?: string
   status?: string
+  sortBy?: string
+  sortDirection?: string
 }
 
 export function listCustomers(query: CustomerListQuery): Promise<PagedResponse<CustomerSummary>> {
   const params = new URLSearchParams()
   params.set('page', String(query.page))
   params.set('pageSize', String(query.pageSize))
+  if (query.sortBy) params.set('sortBy', query.sortBy)
+  if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   if (query.search) params.set('search', query.search)
   if (query.status) params.set('status', query.status)
-  return api.get<PagedResponse<CustomerSummary>>(`${BASE}?${params.toString()}`)
+  return api.getPaged<CustomerSummary>(`${BASE}?${params.toString()}`)
 }
 
 export function getCustomer(customerCode: string): Promise<CustomerDetail> {
@@ -68,27 +72,12 @@ export async function uploadCustomerAttachment(kind: CustomerAttachmentKind, fil
   const body = new FormData()
   body.set('kind', kind)
   body.set('file', file)
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments`, { method: 'POST', body, headers })
-  if (!response.ok) {
-    let message = `Upload failed (${response.status})`
-    try {
-      const errorBody = await response.json()
-      message = errorBody.Detail || errorBody.message || message
-    } catch { /* keep default */ }
-    throw new Error(message)
-  }
+  const response = await authorizedFetch(`${BASE}/attachments`, { method: 'POST', body })
   return (await response.json()) as CustomerAttachmentInfo
 }
 
 export async function downloadCustomerAttachment(attachmentId: string, fileName: string): Promise<void> {
-  const headers: Record<string, string> = {}
-  const token = getStoredToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(`${BASE}/attachments/${attachmentId}`, { headers })
-  if (!response.ok) throw new Error(`Download failed (${response.status})`)
+  const response = await authorizedFetch(`${BASE}/attachments/${attachmentId}`)
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

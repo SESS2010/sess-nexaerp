@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createEmployee, createEmployeeLookup, getEmployeeLookups, updateEmployee } from '../../api/employees'
 import { AddableSelect } from '../../components/AddableSelect'
+import type { AddableOption } from '../../components/AddableSelect'
 import type { EmployeeDetail, EmployeeMasterLookups } from '../../types/employee'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -14,6 +17,11 @@ interface Props {
 const EMPLOYEE_TYPES = ['Permanent', 'Contract', 'Trainee', 'Consultant']
 
 export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
+  const { can } = useSession()
+  // POST / requires Create, PUT /{code} requires Update; the inline lookup
+  // quick-add (POST /lookups/*) requires Create in both modes.
+  const canSave = can(PAGE_KEYS.employees, mode === 'create' ? 'create' : 'update')
+  const canQuickAdd = can(PAGE_KEYS.employees, 'create')
   const [lookups, setLookups] = useState<EmployeeMasterLookups | null>(null)
   const [form, setForm] = useState({
     employeeCode: existing?.EmployeeCode ?? '',
@@ -29,7 +37,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
     remarks: '',
   })
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
     getEmployeeLookups()
@@ -46,7 +54,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
           }))
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load master lookups.'))
+      .catch((err) => setError(err))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -56,7 +64,7 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setSaving(true)
-    setError('')
+    setError(null)
     try {
       const shared = {
         EmployeeName: form.employeeName,
@@ -71,10 +79,10 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
       }
       const detail = mode === 'create'
         ? await createEmployee({ ...shared, EmployeeCode: form.employeeCode, Remarks: form.remarks })
-        : await updateEmployee(existing!.EmployeeCode, { ...shared, Reason: form.remarks })
+        : await updateEmployee(existing!.EmployeeCode, { ...shared, Reason: form.remarks, Version: existing!.Version })
       onSaved(detail)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed.')
+      setError(err)
     } finally {
       setSaving(false)
     }
@@ -108,9 +116,9 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">Grade *</span>
             <input className="input" required value={form.grade} onChange={set('grade')} placeholder="e.g. Executive" />
           </label>
-          <AddableSelect
+          <LookupSelect
             label="Department"
-            required
+            canCreate={canQuickAdd}
             value={form.departmentCode}
             options={(lookups?.Departments ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
             placeholder="Select department…"
@@ -121,9 +129,9 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
               return { value: created.Code, label: created.Name }
             }}
           />
-          <AddableSelect
+          <LookupSelect
             label="Skill category"
-            required
+            canCreate={canQuickAdd}
             value={form.skillCode}
             options={(lookups?.Skills ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
             placeholder="Select skill…"
@@ -134,9 +142,9 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
               return { value: created.Code, label: created.Name }
             }}
           />
-          <AddableSelect
+          <LookupSelect
             label="Designation"
-            required
+            canCreate={canQuickAdd}
             value={form.designationCode}
             options={(lookups?.Designations ?? []).map((item) => ({ value: item.Code, label: item.Name }))}
             placeholder="Select designation…"
@@ -163,15 +171,60 @@ export function EmployeeFormModal({ mode, existing, onClose, onSaved }: Props) {
             <span className="field-label">{mode === 'create' ? 'Remarks *' : 'Reason for update *'}</span>
             <textarea className="input" required rows={2} value={form.remarks} onChange={set('remarks')} />
           </label>
-          {error && <div className="alert alert-error field-wide">{error}</div>}
+          <ErrorAlert error={error} className="field-wide" fallback="Could not save the employee." />
           <div className="modal-actions field-wide">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || !lookups}>
-              {saving ? 'Saving…' : mode === 'create' ? 'Create employee' : 'Save changes'}
-            </button>
+            {canSave && (
+              <button type="submit" className="btn btn-primary" disabled={saving || !lookups}>
+                {saving ? 'Saving…' : mode === 'create' ? 'Create employee' : 'Save changes'}
+              </button>
+            )}
           </div>
         </form>
       </div>
     </div>
+  )
+}
+
+interface LookupSelectProps {
+  label: string
+  /** employees.master:create — without it the inline "+" quick-add is not rendered. */
+  canCreate: boolean
+  value: string
+  options: AddableOption[]
+  placeholder: string
+  onChange: (value: string) => void
+  onCreate: (name: string, code: string) => Promise<AddableOption>
+}
+
+/**
+ * Required master dropdown. Holders of employees.master:create get the
+ * AddableSelect with its inline quick-add (POST /lookups/*); everyone else
+ * gets a plain select over the same options.
+ */
+function LookupSelect({ label, canCreate, value, options, placeholder, onChange, onCreate }: LookupSelectProps) {
+  if (canCreate) {
+    return (
+      <AddableSelect
+        label={label}
+        required
+        value={value}
+        options={options}
+        placeholder={placeholder}
+        onChange={onChange}
+        onCreate={onCreate}
+      />
+    )
+  }
+  return (
+    <label className="field">
+      <span className="field-label">{label} *</span>
+      <select className="input" required value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
   )
 }

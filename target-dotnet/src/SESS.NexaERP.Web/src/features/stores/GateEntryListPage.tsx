@@ -6,49 +6,76 @@ import { GATE_ENTRY_STATES } from '../../types/stores'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 import { GateEntryFormModal } from './GateEntryFormModal'
+import { ErrorAlert } from '../../components/ErrorAlert'
+import { SortableHeader } from '../../components/SortableHeader'
+import { useSort } from '../../hooks/useSort'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+
+/**
+ * GET /api/v1/stores/gate-entries sorts server-side on gateentrynumber,
+ * purchaseordernumber, vendorname, arrivedat and status (StoresListSortingTests).
+ */
+const SORTABLE = true
 
 const PAGE_SIZE = 25
 
 export function GateEntryListPage() {
   const navigate = useNavigate()
+  const { can } = useSession()
   const [rows, setRows] = useState<GateEntryResult[]>([])
+  const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(1)
+  // Arrival order is what the register reads as "current" — newest gate entry
+  // on top. The list is paged server-side, so every sort goes to the endpoint;
+  // reordering one fetched page in the browser would read as a bug.
+  const { sort, toggleSort } = useSort({ sortBy: 'arrivedat', sortDirection: 'desc' }, () => setPage(1))
+  const [gateNumber, setGateNumber] = useState('')
+  const [appliedGate, setAppliedGate] = useState('')
   const [poNumber, setPoNumber] = useState('')
   const [appliedPo, setAppliedPo] = useState('')
   const [state, setState] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<unknown>(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(null)
     try {
       const data = await listGateEntries({
         page,
         pageSize: PAGE_SIZE,
+        gateEntryNumber: appliedGate || undefined,
         purchaseOrderNumber: appliedPo || undefined,
         state: state || undefined,
         from: from || undefined,
         to: to || undefined,
+        sortBy: sort.sortBy,
+        sortDirection: sort.sortDirection,
       })
       setRows(data.Items ?? [])
+      setTotalCount(data.TotalCount)
     } catch (err) {
       setRows([])
-      setError(err instanceof Error ? err.message : 'Failed to load gate entries.')
+      setTotalCount(0)
+      setError(err)
     } finally {
       setLoading(false)
     }
-  }, [page, appliedPo, state, from, to])
+  }, [page, appliedGate, appliedPo, state, from, to, sort])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // The API returns no total count, so "next" is only offered on a full page.
-  const maybeMore = rows.length === PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  // POST /stores/gate-entries → inventory.grn:create. The form also has to read
+  // the source PO (purchase.po:view) to list its lines and refuses to save with
+  // none, so without that grant the create flow can never complete.
+  const canCreate = can(PAGE_KEYS.gateEntry, 'create') && can(PAGE_KEYS.purchaseOrders, 'view')
 
   return (
     <div className="page">
@@ -60,13 +87,24 @@ export function GateEntryListPage() {
           </p>
         </div>
         <div className="action-row">
-          <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
-            + New Gate Entry
-          </button>
+          {canCreate && (
+            <button type="button" className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              + New Gate Entry
+            </button>
+          )}
         </div>
       </div>
 
       <div className="toolbar">
+        <input
+          className="input search"
+          placeholder="Gate Entry number…"
+          value={gateNumber}
+          onChange={(event) => setGateNumber(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') { setPage(1); setAppliedGate(gateNumber.trim().toUpperCase()) }
+          }}
+        />
         <input
           className="input search"
           placeholder="Filter by PO number…"
@@ -79,7 +117,7 @@ export function GateEntryListPage() {
         <button
           type="button"
           className="btn btn-ghost"
-          onClick={() => { setPage(1); setAppliedPo(poNumber.trim().toUpperCase()) }}
+          onClick={() => { setPage(1); setAppliedGate(gateNumber.trim().toUpperCase()); setAppliedPo(poNumber.trim().toUpperCase()) }}
         >Search</button>
         <select className="input" value={state} onChange={(event) => { setState(event.target.value); setPage(1) }}>
           <option value="">All states</option>
@@ -90,26 +128,26 @@ export function GateEntryListPage() {
         <div className="spacer" />
         <div className="pager">
           <button type="button" className="btn btn-ghost" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>‹ Prev</button>
-          <span className="pager-label">Page {page}</span>
-          <button type="button" className="btn btn-ghost" disabled={!maybeMore || loading} onClick={() => setPage(page + 1)}>Next ›</button>
+          <span className="pager-label">Page {page} of {totalPages} · {totalCount} total</span>
+          <button type="button" className="btn btn-ghost" disabled={page >= totalPages || loading} onClick={() => setPage(page + 1)}>Next ›</button>
         </div>
       </div>
 
-      {error && <div className="alert alert-error">{error}</div>}
+      <ErrorAlert error={error} onReload={() => void load()} fallback="Failed to load gate entries." />
 
       <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
-              <th>Gate Entry</th>
-              <th>PO number</th>
-              <th>Vendor</th>
+              <SortableHeader label="Gate Entry" sortKey="gateentrynumber" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
+              <SortableHeader label="PO number" sortKey="purchaseordernumber" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
+              <SortableHeader label="Vendor" sortKey="vendorname" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
               <th>Vendor DC</th>
               <th>Vehicle</th>
               <th>Transport</th>
-              <th>Arrived at</th>
+              <SortableHeader label="Arrived at" sortKey="arrivedat" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
               <th className="text-right">Lines</th>
-              <th>Status</th>
+              <SortableHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} disabled={loading} sortable={SORTABLE} />
             </tr>
           </thead>
           <tbody>
