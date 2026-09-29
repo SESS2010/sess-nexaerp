@@ -113,11 +113,22 @@ other actions. Blank means no seeded View for that role.
 
 The read-back contains 74 TD pages and 68 MD pages.
 
-## Scope question retained for the TD
+## Approved follow-up: migration 142
 
-CLAIMED (pending TD decision): expand the named additions to include TD View on
-FAT Readiness and MD View on Material Issues / Machine DC. These three are outside
-the explicit role/page additions above and remain absent in this read-back.
+CONFIRMED TD approval: add only View for TECHNICAL_DIRECTOR on
+`production.fat-readiness` and MANAGING_DIRECTOR on `stores.material-issues` and
+`stores.machine-deliveries`. Migration `20260929130000_R1RemainingDirectorViews`
+implements these three additions. The historical migration-140 table above remains
+unchanged; migration 141 additionally grants MD `admin.email` View + Update.
+All existing actions are preserved, including any operator-customized grants.
+No merged migration is edited and no SECURITY DEFINER function is introduced.
+
+Validation evidence for this follow-up: `local-evidence/remaining-director-20260929/`.
+CONFIRMED final follow-up checks: focused **21/21** (three database cases and 18
+existing vendor/foundation tests), fast suite **1045/1045**, zero skips.
+The focused tests require the exact three role/page pairs, preserve existing actions
+and unrelated rows, refuse rollback after a later edit, and restore the complete
+previous grant set on a clean rollback before reapplying.
 
 ## Validation and rollback
 
