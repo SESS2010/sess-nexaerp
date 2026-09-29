@@ -1,0 +1,27 @@
+{
+  "Total": 1,
+  "Page": 1,
+  "PageSize": 50,
+  "Items": [
+    {
+      "Id": "d1364b05-981b-5a9a-b47d-680f1157aa31",
+      "CompanyId": "22222222-3333-4444-8555-666666666666",
+      "EventType": "PO_ISSUED",
+      "SourceEntityType": "PurchaseOrder",
+      "SourceEntityId": "0cfb773d-4c15-5d16-a666-ef381785ab31",
+      "IdempotencyKey": "PO_ISSUED:0cfb773d4c155d16a666ef381785ab31:5",
+      "PayloadJson": "{\"purchaseOrderId\":\"0cfb773d-4c15-5d16-a666-ef381785ab31\",\"poNumber\":\"PO/TRIAL/26-27/000012\",\"revisionNumber\":5}",
+      "To": [
+        "recipient@example.invalid"
+      ],
+      "Cc": [],
+      "Subject": "Trial PO PO/TRIAL/26-27/000012 - revision 5",
+      "Status": "FAILED",
+      "Attempts": 2,
+      "NextAttemptAt": "2026-10-15T09:05:00+05:30",
+      "LastError": "Temporary delivery failure; retry scheduled.",
+      "CreatedAt": "2026-10-15T08:46:00+05:30",
+      "SentAt": null
+    }
+  ]
+}

@@ -47,3 +47,8 @@ trackingLinks.ts can construct them from DocType, DocumentId and Number using th
 Only READY tiles navigate. Do not import fixtures into production bundles.
 
 CONFIRMED (TD approval, 29 September): document identity remains the existing UUID plus display number; summary remains aggregate queue links. No numeric IDs are introduced.
+
+## E-mail log fixtures
+
+CONFIRMED: `email-log/README.md` documents the synthetic list, failure and empty-state examples.
+CLAIMED: their admin API actions are planned, pending the email-lite implementation; they do not contact SMTP.

@@ -76,7 +76,7 @@ already let you see.
 ## 1. GET `/api/v1/tracking/pending`
 
 - Query: `docType`, `queue`, `overdueOnly` (bool), `mine` (bool: pending with one of my roles),
-  `page`, `pageSize` (â‰¤ 200).
+  `page`, `pageSize` (<= 200).
 - Order: overdue first, then by `WaitingSince` ascending.
 
 ```json
@@ -134,8 +134,8 @@ The timeline for one document, merged from its module's history tables:
   "Link": "/purchase/purchase-orders/PO%2FSPVT%2F26-27%2F000012",
   "Events": [
     { "At": "2026-10-12T10:02:11+05:30", "Action": "Create", "FromStatus": null, "ToStatus": "Draft",
-      "EmployeeCode": "SESS-15", "EmployeeName": "â€¦", "RoleCode": "PURCHASE_MANAGER", "Remarks": "Created from approved comparison" },
-    { "At": "â€¦", "Action": "Approve", "FromStatus": "PendingApproval", "ToStatus": "Approved", "EmployeeCode": "SESS-01", "EmployeeName": "â€¦", "RoleCode": "TECHNICAL_DIRECTOR", "Remarks": "â€¦" }
+      "EmployeeCode": "SESS-15", "EmployeeName": "...", "RoleCode": "PURCHASE_MANAGER", "Remarks": "Created from approved comparison" },
+    { "At": "...", "Action": "Approve", "FromStatus": "PendingApproval", "ToStatus": "Approved", "EmployeeCode": "SESS-01", "EmployeeName": "...", "RoleCode": "TECHNICAL_DIRECTOR", "Remarks": "..." }
   ]
 }
 ```
@@ -155,7 +155,7 @@ The timeline for one document, merged from its module's history tables:
    - overdue rows in red;
    - age in days;
    - a "pending with" column;
-   - the number links to the detail page;
+   - the number links to the supported app destination in the navigation table;
    - CSV export (client side);
    - mobile-friendly.
 2. **Home tiles and menu badges** from `/summary` (IL): overdue count in red.
@@ -165,7 +165,7 @@ The timeline for one document, merged from its module's history tables:
    - the list from `GET /api/v1/email/outbox`, with a status filter;
    - a Retry button for the TD;
    - a "send test" dialog.
-   - The mock-only handoff is in `email-log-mocks/README.md`. Backend ownership remains undecided;
+   - The mock-only handoff is in `tracking-mocks/email-log/README.md`. Backend ownership remains undecided;
      no email-lite backend is implemented by this change.
 
 ## Errors
