@@ -12,7 +12,7 @@ import { api } from './client'
 import type { EmailOutboxPage } from '../types/email'
 
 /** Page key declared for the planned endpoints (TECHNICAL_DIRECTOR View+Update, IT_MANAGER View). */
-export const EMAIL_LOG_PAGE_KEY = 'admin.email'
+export { EMAIL_LOG_PAGE_KEY } from '../features/auth/pageKeys'
 
 const OUTBOX = '/api/v1/email/outbox'
 

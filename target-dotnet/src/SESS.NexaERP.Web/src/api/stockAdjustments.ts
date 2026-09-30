@@ -15,7 +15,7 @@ import type {
 const BASE = '/api/v1/stores/stock-adjustments'
 
 /** Page key of every route below (advance.page_definitions, migration StockAdjustmentPosting). */
-export const STOCK_ADJUSTMENT_PAGE_KEY = 'stores.stock-adjustments'
+export { STOCK_ADJUSTMENT_PAGE_KEY } from '../features/auth/pageKeys'
 
 export interface StockAdjustmentListQuery {
   page: number

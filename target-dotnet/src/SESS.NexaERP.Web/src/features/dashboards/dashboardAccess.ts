@@ -1,4 +1,4 @@
-import { PAGE_KEYS } from '../auth/SessionContext'
+import { PAGE_KEYS } from '../auth/pageKeys.ts'
 
 /**
  * Dashboard page keys from the contract. Kept here rather than in
