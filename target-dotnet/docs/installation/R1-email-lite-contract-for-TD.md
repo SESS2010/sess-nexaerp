@@ -1,12 +1,14 @@
 # R1 email-lite contract for the TD
 
-Updated 29 September 2026. Canonical path: `docs/installation/R1-email-lite-contract-for-TD.md`.
+Updated 30 September 2026. Canonical path: `docs/installation/R1-email-lite-contract-for-TD.md`.
 
 ## Evidence and ownership
 
 CONFIRMED (repository): migration 137, the outbox store, PO issue hook, print query,
-tracking digest query and registration/endpoint stubs exist. Email sender, worker,
-composers, digest scheduler and admin endpoints are not implemented by those stubs.
+tracking digest query and registration/endpoint hooks exist. Email sender, worker,
+composers, digest scheduler and admin endpoints remain pending.
+CONFIRMED (feature/email-lite, not yet integration): configuration binding/validation
+and the shared To/CC recipient policy are implemented and sending defaults to disabled.
 CONFIRMED (TD instruction, 29 September): the integrator owns email-lite backend,
 including Email folders, endpoints and tests. This explicit instruction supersedes
 the older TD ownership row in AGENTS.md. ILAMPARUTHI alone owns the frontend,
@@ -25,7 +27,9 @@ CONFIRMED (TD settings): host `mail.sess.co.in`, port `465`, security `SslOnConn
 the test-mailbox allow-list on 29 September; it replaces the earlier placeholder.
 The integrator never connects to the server; commissioning read-back belongs to the operator.
 
-CLAIMED (complete planned key inventory, to implement and validate on `feature/email-lite`):
+CONFIRMED (feature/email-lite): the non-secret keys below bind to validated options.
+CLAIMED (remaining delivery implementation): the worker/sender must enforce the behaviors
+below; the operator-only secret is not part of the options object.
 
 | Setting | Required value or behavior |
 |---|---|
@@ -44,6 +48,13 @@ CLAIMED (complete planned key inventory, to implement and validate on `feature/e
 | `Email:VendorPoEmailEnabled` | Configuration switch, initially false |
 | `Email:DigestTimeIst` | `09:00` |
 | `Email:DigestDays` | `Mon-Sat` |
+
+Configuration validation accepts `Email:HourlyLimit` from 1 through the R1 cap of 50.
+`Email:DigestTimeIst` uses `HH:mm`; `Email:DigestDays` accepts three-letter day names,
+comma-separated days and inclusive ranges (default `Mon-Sat`). Enabled TEST mode
+requires a nonempty allow-list. Vendor PO sending additionally requires a valid
+`Email:PurchaseMailbox`; it stays disabled until the TD supplies that CC address.
+Recipient checks reject an out-of-list To or CC address without redirecting it.
 
 `Email__AllowList__0=info@sess.co.in` is the equivalent environment-variable setting.
 These are approved configuration values, not a claim of server commissioning or mail delivery.
