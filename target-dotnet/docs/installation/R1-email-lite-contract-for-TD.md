@@ -44,7 +44,7 @@ below; the operator-only secret is not part of the options object.
 | `Email:From` | `erp@sess.co.in` |
 | `Email:FromNamePerCompany` | Company-specific display names |
 | `Email:HourlyLimit` | 50; shared cap across all send types and companies for the mailbox |
-| `Email:PurchaseMailbox` | Purchase CC address, supplied outside the repo |
+| `Email:PurchaseMailbox` | purchase@sess.co.in; TD will create the mailbox in cPanel |
 | `Email:VendorPoEmailEnabled` | Configuration switch, initially false |
 | `Email:DigestTimeIst` | `09:00` |
 | `Email:DigestDays` | `Mon-Sat` |
@@ -53,7 +53,7 @@ Configuration validation accepts `Email:HourlyLimit` from 1 through the R1 cap o
 `Email:DigestTimeIst` uses `HH:mm`; `Email:DigestDays` accepts three-letter day names,
 comma-separated days and inclusive ranges (default `Mon-Sat`). Enabled TEST mode
 requires a nonempty allow-list. Vendor PO sending additionally requires a valid
-`Email:PurchaseMailbox`; it stays disabled until the TD supplies that CC address.
+`Email:PurchaseMailbox`; it stays disabled until the TD confirms that purchase@sess.co.in exists in cPanel.
 Recipient checks reject an out-of-list To or CC address without redirecting it.
 
 `Email__AllowList__0=info@sess.co.in` is the equivalent environment-variable setting.
@@ -140,3 +140,20 @@ this laptop never writes to or probes that server.
 Frontend fixtures are under `docs/installation/tracking-mocks/email-log/`.
 All mock recipients use `example.invalid`. Only the TD-approved role mailbox configuration
 is documented here; vendor recipient lists and passwords are never committed.
+
+## TD decisions: 30 September evening
+
+CONFIRMED (TD instruction): Purchase CC is purchase@sess.co.in. Keep
+Email:VendorPoEmailEnabled=false until the TD confirms mailbox creation. Mailbox
+existence is an operator commissioning check, not inferred from a valid address.
+The week-one allow-list remains info@sess.co.in only; this decision does not add
+Purchase or vendors to that allow-list. All To and CC recipients remain checked.
+
+CONFIRMED (approved behavior, implementation pending): a PO notification created
+while vendor-PO sending is disabled is stored as SKIPPED with a stable reason.
+Record this decision atomically with the PO/outbox transaction so a later configuration
+change cannot turn disabled-period events into a delivery backlog. Enabling the
+switch never automatically sends old POs. SKIPPED is terminal for the retry API.
+The worker must also refuse delivery while the switch is disabled. Existing pending
+PO rows predating this implementation need an explicit reviewed cutover disposition;
+they must not be silently sent when the feature is first enabled.
