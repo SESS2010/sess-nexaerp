@@ -48,6 +48,40 @@ public sealed class ItemImportV2Tests
         Assert.Throws<MasterDataValidationException>(() => service.Read(output.ToArray(), definition, 10000));
     }
 
+
+    [Theory]
+    [InlineData(9.2, "9.2", true)]
+    [InlineData(4.2, "4.2", true)]
+    [InlineData(3.2, "3.2", true)]
+    [InlineData(5.2, "5.2", true)]
+    [InlineData(18.18, "18.18", true)]
+    [InlineData(0.001, "0.001", false)]
+    [InlineData(9.201, "9.201", false)]
+    [InlineData(-9.2, "-9.2", false)]
+    [InlineData(10000000000000000d, "10000000000000000", false)]
+    public void NumericWorkbookCostRetainsValueWithoutRelaxingPrecision(double cost, string expected, bool valid)
+    {
+        var definition = new ItemImportDefinition();
+        var values = Row().Values.ToDictionary(x => x.Key, x => (object?)x.Value);
+        values["StandardEstimatedPrice"] = (decimal)cost;
+        var service = new MasterDataWorkbookService();
+        var bytes = service.Create(definition, [new(values)], DateTimeOffset.UtcNow);
+        using (var workbook = new XLWorkbook(new MemoryStream(bytes)))
+            Assert.Equal(XLDataType.Number, workbook.Worksheet("Data").Cell(2, 18).DataType);
+        var row = Assert.Single(service.Read(bytes, definition, 100).Rows);
+        Assert.Equal(expected, row.Values["StandardEstimatedPrice"]);
+        var errors = new ItemMasterDataAdapter(null!, null!).Validate(row, null, null);
+        if (valid)
+        {
+            Assert.Empty(errors);
+            var item = new Item();
+            ItemImportValues.Apply(item, row);
+            Assert.Equal((decimal)cost, item.StandardEstimatedPrice);
+        }
+        else
+            Assert.Contains(errors, x => x.ColumnKey == "StandardEstimatedPrice" && x.Code == "INVALID_VALUE");
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("0.001")]

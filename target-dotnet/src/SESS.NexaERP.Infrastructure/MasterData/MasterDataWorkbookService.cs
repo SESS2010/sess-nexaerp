@@ -185,7 +185,7 @@ internal sealed class MasterDataWorkbookService
         return cell.DataType switch
         {
             XLDataType.Boolean => cell.GetBoolean() ? "TRUE" : "FALSE",
-            XLDataType.Number => cell.GetDouble().ToString("G17", CultureInfo.InvariantCulture),
+            XLDataType.Number => cell.GetDouble().ToString("R", CultureInfo.InvariantCulture),
             XLDataType.DateTime => cell.GetDateTime().ToString(dateFormat, CultureInfo.InvariantCulture),
             XLDataType.TimeSpan => cell.GetTimeSpan().ToString("c", CultureInfo.InvariantCulture),
             _ => cell.GetString().Trim()
