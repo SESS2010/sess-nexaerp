@@ -293,6 +293,38 @@ mappings or covers from another database. Enable ordinary users after both cerem
 
 Check: `/api/v1/session/me` for SESS-12; each mapped user can sign in and sees their company.
 
+### 30 September commissioning handoff and roster gate
+
+CLAIMED (TD report, 30 September): the server identity operator has created eight
+Keycloak accounts: Staff sess-12, sess-16, sess-33, sess-35, sess-41; Approvers
+sess-01, sess-02, sess-14. This is not an integrator verification of the server.
+
+After the commissioning session's read-only target/configuration verification,
+the operator uses tools/setup/Invoke-Setup.ps1 and its reviewed Identities Read / Create
+plans to establish missing approved DEMO mappings. Verify each actual OIDC issuer/sub;
+never substitute an employee code or username for sub. Complete SESS-12 bootstrap
+first where required. Read back each mapping, company, effective dates and session/me;
+retain sanitized receipts without credentials or tokens. The signed scope roster,
+active employee/company/department/role assignments and operational scopes remain gates.
+
+Repeat this ceremony independently against the fresh production database on or after
+10 October, before admitting ordinary users and subject to both opening ceremonies.
+Do not restore DEMO mappings or assume the same ERP mapping IDs. Server work belongs
+to the commissioning operator; the integrator does not access or write to the server.
+
+CONFIRMED (source review): the shipped employee rebuild includes employee code SESS-28,
+and the company/role migrations include SESS-15 and SESS-25. An absent preview employee
+therefore requires package/migration/read-back diagnosis before any duplicate creation.
+The historical role manifests allow multiple roles, including support roles; they do
+not prove the newly requested one-R1-role roster. Before go-live, compare effective
+assignments per employee AND company against the signed roster, detect overlapping
+duplicate assignments within each company, and require exactly the approved R1 role.
+Rows in different companies or expired history are not automatically duplicates.
+Do not delete history or repair assignments with direct SQL. Use the governed role
+end/assignment workflow, with required approval, then read back effective authority;
+if that cannot implement the signed roster, stop for a reviewed reconciliation change.
+This roster gate is not yet recorded as passing on a fresh database.
+
 ## 6. Prepare fresh supporting documents (SESS team)
 
 Collect vendor GST certificates from SESS's own records. IT Manager uploads each original
