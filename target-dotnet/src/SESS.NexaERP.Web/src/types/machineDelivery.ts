@@ -3,9 +3,9 @@
 // Contract: target-dotnet/docs/installation/machine-delivery-frontend-contract.md
 // JSON is PascalCase in both directions.
 
-export const MACHINE_DELIVERY_PAGE = 'stores.machine-deliveries'
+export { MACHINE_DELIVERY_PAGE } from '../features/auth/pageKeys'
 /** The signature evidence download sits behind a different page permission. */
-export const MACHINE_DOSSIER_PAGE = 'reports.machine-dossier'
+export { MACHINE_DOSSIER_PAGE } from '../features/auth/pageKeys'
 
 export type MachineDeliveryNature = 'RETURNABLE' | 'NON_RETURNABLE'
 export type MachineDeliveryPurpose = 'DEMO' | 'TRIAL' | 'JOB_WORK' | 'SITE_WORK' | 'CUSTOMER_PO_BASED'

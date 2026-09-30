@@ -114,37 +114,7 @@ export function useSession(): SessionState {
   return context
 }
 
-/** Page keys as declared by RequirePagePermission(...) in the API endpoints. */
-export const PAGE_KEYS = {
-  employees: 'employees.master',
-  vendors: 'masters.vendors',
-  customers: 'masters.customers',
-  items: 'masters.items',
-  customerPo: 'sales.customer-po',
-  requisitions: 'purchase.requisitions',
-  approvals: 'purchase.requisition-approvals',
-  handoff: 'purchase.requirement-handoff',
-  technicalVerification: 'purchase.technical-verification',
-  rfq: 'purchase.rfq',
-  quotations: 'purchase.vendor-quotations',
-  comparisons: 'purchase.commercial-comparisons',
-  purchaseOrders: 'purchase.po',
-  materialFollowUp: 'purchase.material-followup',
-  stockCheck: 'stores.stock-check',
-  reservations: 'stores.reservations',
-  gateEntry: 'inventory.grn',
-  grn: 'inventory.grn',
-  qc: 'qc.inspection-policies',
-  materialIssueRequests: 'stores.material-issue-requests',
-  materialIssues: 'stores.material-issues',
-  materialIssueExcess: 'stores.material-issue-excess',
-  materialReturns: 'stores.material-returns',
-  openingStock: 'stores.opening-stock',
-  vendorBills: 'accounts.vendor-bills',
-  vendorPayments: 'accounts.vendor-financial-evidence',
-  jobOrders: 'production.job-orders',
-  componentFitments: 'production.component-fitments',
-  fatReadiness: 'production.fat-readiness',
-  productionBom: 'production.production-bom',
-  estimatedBom: 'design.estimated-bom',
-} as const
+// Page keys now live in pageKeys.ts (no React, no api/client) so the
+// navigation catalogue and its tests can read them. Re-exported here because
+// most of the app imports them from the session.
+export { PAGE_KEYS } from './pageKeys'

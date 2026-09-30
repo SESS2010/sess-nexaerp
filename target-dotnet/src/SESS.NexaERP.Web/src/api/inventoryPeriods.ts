@@ -12,7 +12,7 @@ import type {
 // result with Replayed = true, a changed payload under the same key is refused.
 const BASE = '/api/v1/accounts/inventory-periods'
 
-export const INVENTORY_PERIODS_PAGE_KEY = 'accounts.inventory-periods'
+export { INVENTORY_PERIODS_PAGE_KEY } from '../features/auth/pageKeys'
 
 export function newInventoryPeriodKey(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`
