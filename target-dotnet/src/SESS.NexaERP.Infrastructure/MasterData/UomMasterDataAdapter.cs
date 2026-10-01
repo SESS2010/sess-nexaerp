@@ -11,7 +11,7 @@ public sealed class UomMasterDataDefinition : IMasterDataDefinition
     public string PageKey => "masters.uoms";
     public string BusinessCodeColumnKey => "Code";
     public IReadOnlyList<string> OperationalRolePriority { get; } =
-        ["PURCHASE_MANAGER", "STORES_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR"];
+        ["STORES_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR"];
     public MasterDataSensitivePermission? SensitiveResultPermission => null;
     public IReadOnlyList<string> WorkbookGuideNotes => [];
     public IReadOnlyList<MasterDataColumnDefinition> Columns { get; } =

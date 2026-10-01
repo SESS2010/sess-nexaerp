@@ -13,6 +13,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task ProveRequiredReadGrantMigration(DisposablePostgreSql server,
         DbContextOptions<NexaErpDbContext> options, IMigrator migrator, string[] migrations)
     {
+        // The later import-owner migration now owns Purchase Manager's vendor row.
+        // Prove the predecessor's guarded rollback at its own starting state, then restore the owner grants.
+        const string ownerGrants = "20261002090000_R1MasterImportOwnerGrants";
+        var ownerIndex = Array.IndexOf(migrations, ownerGrants);
+        if (ownerIndex > 0)
+            server.Execute("required-read-owner-down.sql", migrator.GenerateScript(ownerGrants, migrations[ownerIndex - 1]));
         const string target = "20260918103000_RequiredOperationalReadGrants";
         var index = Array.IndexOf(migrations, target);
         Assert.True(index > 0);
@@ -41,6 +47,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("SITE_PERMISSION_WITNESS", preserved.CreatedBy);
         server.Execute("required-read-remove-site-fixture.sql", $"DELETE FROM advance.role_page_permissions WHERE \"Id\"='{permission.Id:D}' AND \"CreatedBy\"='SITE_PERMISSION_WITNESS';");
         server.Execute("required-read-final-up.sql", up);
+        if (ownerIndex > 0)
+            server.Execute("required-read-owner-up.sql", migrator.GenerateScript(migrations[ownerIndex - 1], ownerGrants));
     }
 
     private static async Task ProveRequiredActorLookups(HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid purchaseId, Guid tdId)

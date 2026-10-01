@@ -7,6 +7,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { SortableHeader } from '../../components/SortableHeader'
+import { ImportExportBar } from '../../components/ImportExportBar'
 import { useSort } from '../../hooks/useSort'
 
 const PAGE_SIZE = 25
@@ -74,6 +75,9 @@ export function ItemListPage() {
           </button>
         )}
       </div>
+
+      <button type="button" className="btn btn-ghost" onClick={() => navigate('/items/import')}>Import / Export workbook</button>
+      <ImportExportBar masterKey="items" onImported={() => void load()} />
 
       <div className="toolbar">
         <input

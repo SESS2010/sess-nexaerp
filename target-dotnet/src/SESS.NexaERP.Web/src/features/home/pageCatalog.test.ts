@@ -126,3 +126,13 @@ test('every catalogue entry has a route, a label and a page rule', () => {
 test('the machine DC shortcut uses the machine delivery page key', () => {
   assert.ok(labelsFor([`${MACHINE_DELIVERY_PAGE}:view`]).includes('Machine DC'))
 })
+
+
+test('master import shortcuts follow their own view grants', () => {
+  const granted = labelsFor(['masters.uoms:view', 'masters.manufacturers:view'])
+  assert.ok(granted.includes('UOM Import'))
+  assert.ok(granted.includes('Manufacturer Import'))
+  const denied = labelsFor([`${PAGE_KEYS.items}:view`])
+  assert.ok(!denied.includes('UOM Import'))
+  assert.ok(!denied.includes('Manufacturer Import'))
+})

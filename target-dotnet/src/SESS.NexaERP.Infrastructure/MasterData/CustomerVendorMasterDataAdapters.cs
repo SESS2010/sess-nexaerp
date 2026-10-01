@@ -50,7 +50,7 @@ public sealed class VendorMasterDataDefinition : IMasterDataDefinition
     public int TemplateVersion => 2;
     public string PageKey => "masters.vendors";
     public string BusinessCodeColumnKey => "VendorCode";
-    public IReadOnlyList<string> OperationalRolePriority { get; } = ["PURCHASE_HEAD", "IT_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR", "MD", "ADMIN"];
+    public IReadOnlyList<string> OperationalRolePriority { get; } = ["PURCHASE_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR"];
     public MasterDataSensitivePermission? SensitiveResultPermission => new(PageKey, PagePermissionActions.ViewCommercialValues);
     public IReadOnlyList<string> WorkbookGuideNotes { get; } =
     [

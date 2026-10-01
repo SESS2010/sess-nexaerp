@@ -1,3 +1,4 @@
+import { MasterImportPage } from './features/masters/MasterImportPage'
 import { useState } from 'react'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
@@ -173,6 +174,8 @@ function Shell({ children }: { children: React.ReactNode }) {
             {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
             {can(PAGE_KEYS.customers) && <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>}
             {can(PAGE_KEYS.items) && <NavLink to="/items" className={navLinkClass}>Item Master</NavLink>}
+            {can('masters.uoms') && <NavLink to="/masters/uoms/import" className={navLinkClass}>UOM Import</NavLink>}
+            {can('masters.manufacturers') && <NavLink to="/masters/manufacturers/import" className={navLinkClass}>Manufacturer Import</NavLink>}
             <NavLink to="/company/profile" className={navLinkClass}>Company Profile</NavLink>
             <span className="nav-link disabled">Warehouse / Rack-Bin</span>
           </NavSection>
@@ -294,6 +297,9 @@ export default function App() {
                 <Route path="/vendors/:vendorCode" element={gated(PAGE_KEYS.vendors, <VendorDetailPage />)} />
                 <Route path="/customers" element={gated(PAGE_KEYS.customers, <CustomerListPage />)} />
                 <Route path="/customers/:customerCode" element={gated(PAGE_KEYS.customers, <CustomerDetailPage />)} />
+                <Route path="/items/import" element={gated(PAGE_KEYS.items, <MasterImportPage masterKey="items" title="Item Import / Export" />)} />
+                <Route path="/masters/uoms/import" element={gated('masters.uoms', <MasterImportPage masterKey="uoms" title="UOM Import" />)} />
+                <Route path="/masters/manufacturers/import" element={gated('masters.manufacturers', <MasterImportPage masterKey="manufacturers" title="Manufacturer Import" />)} />
                 <Route path="/items" element={gated(PAGE_KEYS.items, <ItemListPage />)} />
                 <Route path="/items/:itemCode" element={gated(PAGE_KEYS.items, <ItemDetailPage />)} />
                 <Route path="/sales/customer-po" element={gated(PAGE_KEYS.customerPo, <CustomerPoListPage />)} />

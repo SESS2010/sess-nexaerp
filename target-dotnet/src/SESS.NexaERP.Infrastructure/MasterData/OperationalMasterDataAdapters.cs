@@ -32,7 +32,7 @@ internal static class ImportFields
 public sealed class ItemImportDefinition : IMasterDataDefinition
 {
     public string MasterKey=>"items"; public int TemplateVersion=>2; public string PageKey=>"masters.items"; public string BusinessCodeColumnKey=>"ItemCode";
-    public IReadOnlyList<string> OperationalRolePriority=>["STORES_MANAGER","PURCHASE_MANAGER","TECHNICAL_DIRECTOR","IT_MANAGER"];
+    public IReadOnlyList<string> OperationalRolePriority=>["STORES_MANAGER","TECHNICAL_DIRECTOR","MANAGING_DIRECTOR"];
     public MasterDataSensitivePermission? SensitiveResultPermission=>null;
     public IReadOnlyList<string> WorkbookGuideNotes=>["Every imported item lands as DRAFT and must be approved before purchase or receipt.","Unknown lookup codes are refused; imports never create categories, UOMs, manufacturers or vendors.","Blank create defaults: Item Type RAW_MATERIAL, Is Returnable FALSE, Serial Policy NONE, Reorder Level 0. Blank update values preserve these existing policies.","Model/Part No is retained verbatim in Part Number; no model/part split is inferred. Cost is Standard Estimated Price, not Last Purchase Price or opening-stock value.","Department mapping: REFRIGERATION -> REF, ELECTRICALS -> ELE, FABRICATION -> FAB. Make must be mapped to an existing active Manufacturer Code."];
     public IReadOnlyList<MasterDataColumnDefinition> Columns=>[
