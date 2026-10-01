@@ -105,7 +105,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using var runtime = new NexaErpDbContext(
                 new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options);
             var service = new EfCompanyReportService(runtime,user);
-            var request = new CompanyReportRequest(ToDate:DateOnly.FromDateTime(
+            // Fixed September fixture dates must survive later calendar-month runs.
+            var request = new CompanyReportRequest(FromDate:new DateOnly(2026,9,1), ToDate:DateOnly.FromDateTime(
                 TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTimeOffset.UtcNow,"Asia/Kolkata").DateTime));
             var original = new Dictionary<string,CompanyReportPage>();
             foreach (var key in keys)
