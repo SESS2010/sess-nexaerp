@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   approveConcession,
-  createConcession,
   getConcession,
   listAvailableConditionLocations,
   rejectConcession,
@@ -14,36 +13,27 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
-interface CreatePrefill {
-  failedParameterResultId?: string
-  failedParameter?: string
-  measuredValue?: string
-  inspectionNumber?: string
-  lotDispositionId?: string
-  rejectedQuantity?: number
-  rejectedSerialIds?: string[]
-}
-
 /**
  * Inventory concessions: the QC manager raises one against a rejected lot
  * disposition (a FAIL parameter result), the Technical Director approves it
  * into an AVAILABLE location, rejects it, or later reverses an approval.
  *
- * Route /qc/concessions opens by number or raises a new one;
- * /qc/concessions/:number shows the record and the TD decisions.
+ * Route /qc/concessions opens a concession by number;
+ * /qc/concessions/:number shows the record and the TD decisions. A new
+ * concession is raised only from a finalized inspection, on
+ * /qc/concessions/new?inspection=… (ConcessionCreatePage).
  */
 export function ConcessionPage() {
   const { number = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
   const { can, me } = useSession()
-  const prefill = (location.state as { prefill?: CreatePrefill } | null)?.prefill
 
   const [lookup, setLookup] = useState('')
   const [concession, setConcession] = useState<InventoryConcessionResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState((location.state as { notice?: string } | null)?.notice ?? '')
   const [busy, setBusy] = useState(false)
 
   // Decision inputs (TD).
@@ -51,20 +41,10 @@ export function ConcessionPage() {
   const [locationId, setLocationId] = useState('')
   const [decisionReason, setDecisionReason] = useState('')
 
-  // Create inputs (QC manager). The lot disposition id is not exposed by any
-  // GET today, so it has to be supplied; reported as a backend gap.
-  // POST /api/v1/qc/concessions → qc.inspection-policies:create. The service
-  // (CreateConcessionAsync) enforces no role beyond the page grant.
+  // Nothing is created here: POST /api/v1/qc/concessions needs the QC lot
+  // disposition id and the FAIL parameter result id, which only the inspection
+  // read supplies. The link lives on the inspection page (field review 1 Oct).
   const canCreate = can(PAGE_KEYS.qc, 'create')
-  const [showCreate, setShowCreate] = useState(Boolean(prefill) && canCreate)
-  const [lotDispositionId, setLotDispositionId] = useState(prefill?.lotDispositionId ?? '')
-  const [failedResultId, setFailedResultId] = useState(prefill?.failedParameterResultId ?? '')
-  const [quantity, setQuantity] = useState(prefill?.rejectedQuantity ? String(prefill.rejectedQuantity) : '')
-  const [failedParameter, setFailedParameter] = useState(prefill?.failedParameter ?? '')
-  const [measuredValue, setMeasuredValue] = useState(prefill?.measuredValue ?? '')
-  const [justification, setJustification] = useState('')
-  const [intendedUse, setIntendedUse] = useState('')
-  const [serialIds, setSerialIds] = useState(prefill?.rejectedSerialIds?.join(', ') ?? '')
   const keyRef = useRef<{ fingerprint: string; key: string } | null>(null)
 
   // Approve/reject are qc.inspection-policies:approve and reverse is …:cancel;
@@ -118,28 +98,6 @@ export function ConcessionPage() {
     }
   }
 
-  const create = async () => {
-    const qty = Number(quantity) || 0
-    if (!lotDispositionId.trim() || !failedResultId.trim()) { setError('Lot disposition id and failed parameter result id are required.'); return }
-    if (qty <= 0) { setError('Quantity must be more than zero.'); return }
-    if (!failedParameter.trim() || !measuredValue.trim() || !justification.trim() || !intendedUse.trim()) {
-      setError('Failed parameter, measured value, technical justification and intended use are all required.')
-      return
-    }
-    const body = {
-      QcInspectionLotDispositionId: lotDispositionId.trim(),
-      FailedParameterResultId: failedResultId.trim(),
-      Quantity: qty,
-      FailedParameter: failedParameter.trim(),
-      MeasuredValue: measuredValue.trim(),
-      TechnicalJustification: justification.trim(),
-      IntendedUse: intendedUse.trim(),
-      InventorySerialIds: serialIds.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
-    }
-    await run('Concession raised', () => createConcession(body, keyFor('concession-create', body)))
-    setShowCreate(false)
-  }
-
   const approve = () => {
     if (!concession) return
     if (!locationId) { setError('Pick the AVAILABLE location the accepted stock moves to.'); return }
@@ -178,11 +136,7 @@ export function ConcessionPage() {
         </div>
         <div className="action-row">
           {concession && <StatusBadge value={concession.Status} />}
-          {canCreate && (
-            <button type="button" className="btn btn-primary" onClick={() => setShowCreate((value) => !value)}>
-              {showCreate ? 'Close form' : '+ Raise concession'}
-            </button>
-          )}
+          {canCreate && <Link className="btn btn-ghost" to="/qc/inspections">Raise from an inspection ›</Link>}
         </div>
       </div>
 
@@ -198,59 +152,6 @@ export function ConcessionPage() {
 
       {notice && <div className="alert">{notice}</div>}
       <ErrorAlert error={error} onReload={() => void load(number)} fallback="The last action failed." />
-
-      {showCreate && canCreate && (
-        <div className="card">
-          <h2 className="form-section-title">Raise concession{prefill?.inspectionNumber ? <> for <span className="mono">{prefill.inspectionNumber}</span></> : null}</h2>
-          {!prefill?.lotDispositionId && (
-            <div className="alert alert-warn" role="status">
-              <div className="alert-title">Lot disposition id must be supplied by hand</div>
-              <p className="alert-body">
-                Open the finalized inspection and use its Raise concession link so the rejected lot disposition,
-                quantity and serials are carried over from GET /qc/inspections/{'{number}'}.
-              </p>
-            </div>
-          )}
-          <div className="form-grid">
-            <label className="field">
-              <span className="field-label">QC lot disposition id *</span>
-              <input className="input mono" value={lotDispositionId} onChange={(event) => setLotDispositionId(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field">
-              <span className="field-label">Failed parameter result id *</span>
-              <input className="input mono" value={failedResultId} onChange={(event) => setFailedResultId(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field">
-              <span className="field-label">Quantity *</span>
-              <input className="input" type="number" min="0" step="any" value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={busy} />
-              <span className="field-hint">Cannot exceed the rejected quantity of the lot disposition.</span>
-            </label>
-            <label className="field">
-              <span className="field-label">Failed parameter *</span>
-              <input className="input" value={failedParameter} onChange={(event) => setFailedParameter(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field">
-              <span className="field-label">Measured value *</span>
-              <input className="input" value={measuredValue} onChange={(event) => setMeasuredValue(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field">
-              <span className="field-label">Serial ids (serialized items)</span>
-              <input className="input mono" placeholder="comma separated InventorySerialId values" value={serialIds} onChange={(event) => setSerialIds(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field field-wide">
-              <span className="field-label">Technical justification *</span>
-              <textarea className="input" rows={2} value={justification} onChange={(event) => setJustification(event.target.value)} disabled={busy} />
-            </label>
-            <label className="field field-wide">
-              <span className="field-label">Intended use *</span>
-              <textarea className="input" rows={2} value={intendedUse} onChange={(event) => setIntendedUse(event.target.value)} disabled={busy} />
-            </label>
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void create()}>Raise concession</button>
-          </div>
-        </div>
-      )}
 
       {loading && <p>Loading…</p>}
 

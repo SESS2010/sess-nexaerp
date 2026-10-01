@@ -108,7 +108,7 @@ export function QcInspectionPage() {
 
   // POST /qc/inspections/{number}/corrections → qc.inspection-policies:update.
   const canCorrect = can(PAGE_KEYS.qc, 'update')
-  // The link only navigates, but it lands on the concession create form
+  // The link only navigates, but it lands on the concession create page
   // (POST /api/v1/qc/concessions → qc.inspection-policies:create).
   const canRaiseConcession = can(PAGE_KEYS.qc, 'create')
 
@@ -167,17 +167,11 @@ export function QcInspectionPage() {
                       <td>
                         <StatusBadge value={row.Result} />
                         {row.Result === 'FAIL' && inspection.RejectedQuantity > 0 && canRaiseConcession && (
-                          <button type="button" className="link-button" onClick={() => navigate('/qc/concessions', {
-                            state: { prefill: {
-                              failedParameterResultId: row.Id,
-                              failedParameter: row.ParameterCode,
-                              measuredValue: row.MeasuredValue,
-                              inspectionNumber: inspection.InspectionNumber,
-                              lotDispositionId: inspection.QcInspectionLotDispositionId,
-                              rejectedQuantity: inspection.RejectedQuantity,
-                              rejectedSerialIds: inspection.SerialDispositions.filter((s) => s.Disposition === 'REJECTED').map((s) => s.InventorySerialId),
-                            } },
-                          })}>
+                          <button type="button" className="link-button" onClick={() => navigate(
+                            // The create page reads the inspection itself, so the
+                            // context survives a refresh and no id is ever typed.
+                            `/qc/concessions/new?inspection=${encodeURIComponent(inspection.InspectionNumber)}&parameter=${encodeURIComponent(row.Id)}`,
+                          )}>
                             Raise concession
                           </button>
                         )}
