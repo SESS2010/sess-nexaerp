@@ -3,7 +3,7 @@ import { api, authorizedFetch, saveResponseAsFile } from './client'
 const BASE = '/api/v1/master-data'
 
 /** Keys in the API's IMasterDataRegistry that a screen imports through today. */
-export type MasterKey = 'customers' | 'vendors' | 'uoms' | 'opening-stock'
+export type MasterKey = 'customers' | 'vendors' | 'items' | 'uoms' | 'manufacturers' | 'opening-stock'
 
 async function downloadFile(path: string, fallbackName: string): Promise<void> {
   const response = await authorizedFetch(path)
@@ -67,7 +67,7 @@ export function downloadErrorWorkbook(batchId: string): Promise<void> {
 
 export async function importWorkbook(masterKey: MasterKey, file: File): Promise<ImportResult> {
   const body = new FormData()
-  body.set('Mode', 'IMPORT_VALID_ROWS')
+  body.set('Mode', ['vendors', 'items', 'uoms', 'manufacturers'].includes(masterKey) ? 'REJECT_ENTIRE_FILE' : 'IMPORT_VALID_ROWS')
   body.set('IdempotencyKey', crypto.randomUUID())
   body.set('file', file)
   const response = await authorizedFetch(`${BASE}/${masterKey}/import`, { method: 'POST', body })

@@ -47,6 +47,50 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(layers, await db.FifoInventoryCostLayers.CountAsync());
         Assert.Equal(openings, await db.OpeningStocks.CountAsync());
 
+        user.Set(tdId, "SESS-01", "TECHNICAL_DIRECTOR");
+        await ProveWholeFileRejection(new UomMasterDataDefinition(), "ATOMICUOM", "QuantityPrecision", 9);
+        await ProveWholeFileRejection(new ManufacturerImportDefinition(), "ATOMICMAKE", "Name", "");
+
+        await ProveWholeFileRejection(new VendorMasterDataDefinition(), "ATOMICVENDOR", "Email", "invalid-address",
+            new() { ["LegalVendorName"] = "Synthetic vendor for import rollback", ["VendorType"] = "Manufacturer", ["MsmeStatus"] = false, ["Country"] = "India", ["StateCode"] = "33" });
+        var activeUom = await db.Uoms.Where(x => x.IsActive).OrderBy(x => x.Code).Select(x => x.Code).FirstAsync();
+        var category = await db.ItemCategories.Where(x => x.IsActive).OrderBy(x => x.Code).Select(x => x.Code).FirstAsync();
+        await ProveWholeFileRejection(new ItemImportDefinition(), "ATOMICITEM", "UomCode", "MISSING-UOM",
+            new() { ["Name"] = "Synthetic item for import rollback", ["HsnSacCode"] = "84189900", ["GstPercentage"] = 18m, ["UomCode"] = activeUom, ["CategoryCode"] = category });
+
+        async Task ProveWholeFileRejection(IMasterDataDefinition definition, string prefix, string badColumn, object badValue,
+            Dictionary<string, object?>? supplied = null)
+        {
+            var good = supplied ?? new Dictionary<string, object?> { ["Name"] = "Synthetic import witness", ["MeasurementDimension"] = "COUNT", ["QuantityPrecision"] = 0 };
+            good[definition.BusinessCodeColumnKey] = prefix + "1";
+            var bad = new Dictionary<string, object?>(good) { [definition.BusinessCodeColumnKey] = prefix + "2", [badColumn] = badValue };
+            async Task<MasterDataImportResult> Upload(Dictionary<string, object?>[] values)
+            {
+                using var form = new MultipartFormDataContent();
+                var bytes = new MasterDataWorkbookService().Create(definition, values.Select(x => new MasterDataExportRow(x)).ToArray(), DateTimeOffset.UtcNow);
+                form.Add(new ByteArrayContent(bytes), "File", "atomic.xlsx");
+                form.Add(new StringContent(MasterDataImportModes.RejectEntireFile), "Mode");
+                form.Add(new StringContent(Guid.NewGuid().ToString()), "IdempotencyKey");
+                using var response = await client.PostAsync("/api/v1/master-data/" + definition.MasterKey + "/import", form);
+                Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+                return (await response.Content.ReadFromJsonAsync<MasterDataImportResult>())!;
+            }
+            var rejected = await Upload([good, bad]);
+            Assert.Equal(MasterDataImportStatuses.Rejected, rejected.Status);
+            Assert.Equal(0, rejected.CreatedRows);
+            Assert.Equal(0, rejected.UpdatedRows);
+            Assert.Equal(1, rejected.RejectedRows);
+            Assert.Equal(1, rejected.NotImportedRows);
+            var duplicate = await Upload([good, new Dictionary<string, object?>(good)]);
+            Assert.Equal(0, duplicate.CreatedRows);
+            Assert.Equal(2, duplicate.RejectedRows);
+            // The same good code must still be new after both rejected files.
+            var accepted = await Upload([good]);
+            Assert.Equal(MasterDataImportStatuses.Completed, accepted.Status);
+            Assert.Equal(1, accepted.CreatedRows);
+            Assert.Equal(0, accepted.InvalidRows);
+        }
+
         async Task Import(IMasterDataDefinition definition, Dictionary<string, object?> values)
         {
             Assert.Equal("none", user.ForRequest().RoleCode);
@@ -56,7 +100,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             {
                 using var form = new MultipartFormDataContent();
                 form.Add(new ByteArrayContent(bytes), "File", "authority-witness.xlsx");
-                form.Add(new StringContent(MasterDataImportModes.ImportValidRows), "Mode");
+                form.Add(new StringContent(MasterDataImportModes.RejectEntireFile), "Mode");
                 form.Add(new StringContent("authority-witness-" + definition.MasterKey), "IdempotencyKey");
                 using var response = await client.PostAsync("/api/v1/master-data/" + definition.MasterKey + "/import", form);
                 var body = await response.Content.ReadAsStringAsync();

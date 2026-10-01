@@ -66,6 +66,8 @@ export const PAGE_CATALOG: readonly CatalogGroup[] = [
       { to: '/vendors', label: 'Vendor Master', hint: 'Suppliers and their items', page: PAGE_KEYS.vendors },
       { to: '/customers', label: 'Customer Master', hint: 'Customers and contacts', page: PAGE_KEYS.customers },
       { to: '/items', label: 'Item Master', hint: 'Items, categories and UoM', page: PAGE_KEYS.items },
+      { to: '/masters/uoms/import', label: 'UOM Import', hint: 'Validate and import UOM workbooks', page: 'masters.uoms' },
+      { to: '/masters/manufacturers/import', label: 'Manufacturer Import', hint: 'Validate and import manufacturer workbooks', page: 'masters.manufacturers' },
       // GET /api/v1/company/profile has no page key: any signed-in employee of
       // the company reads it (only the Technical Director saves).
       { to: '/company/profile', label: 'Company Profile', hint: 'Legal name, GSTIN and state printed on POs and DCs; warehouse GST states', page: ALWAYS_VISIBLE },

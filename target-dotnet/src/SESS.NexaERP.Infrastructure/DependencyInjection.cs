@@ -50,6 +50,7 @@ public static class DependencyInjection
             .Validate(x => x.SensitiveRowRetentionDays == 90, "Sensitive row retention is fixed at 90 days.")
             .ValidateOnStart();
         services.AddScoped<IMasterDataAdapter, UomMasterDataAdapter>();
+        services.AddScoped<IMasterDataAdapter, ManufacturerMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, CustomerMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, VendorMasterDataAdapter>();
         services.AddScoped<IMasterDataAdapter, WarehouseMasterDataAdapter>();

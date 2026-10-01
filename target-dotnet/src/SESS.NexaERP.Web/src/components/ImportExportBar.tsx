@@ -22,6 +22,8 @@ const MASTER_PAGES: Record<MasterKey, { pageKey: string; exportIsSensitive: bool
   customers: { pageKey: PAGE_KEYS.customers, exportIsSensitive: true },
   vendors: { pageKey: PAGE_KEYS.vendors, exportIsSensitive: true },
   uoms: { pageKey: 'masters.uoms', exportIsSensitive: false },
+  items: { pageKey: PAGE_KEYS.items, exportIsSensitive: false },
+  manufacturers: { pageKey: 'masters.manufacturers', exportIsSensitive: false },
   'opening-stock': { pageKey: 'stores.opening-stock', exportIsSensitive: false },
 }
 
@@ -29,7 +31,7 @@ const MASTER_PAGES: Record<MasterKey, { pageKey: string; exportIsSensitive: bool
 // master-data transfer API (idempotent imports, full audit trail). Each control
 // is hidden (never disabled) when the session lacks the grant the API demands.
 export function ImportExportBar({ masterKey, onImported, exportable = true }: Props) {
-  const { can } = useSession()
+  const { can, me } = useSession()
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<'template' | 'export' | 'import' | 'errors' | null>(null)
   const [error, setError] = useState('')
@@ -38,7 +40,12 @@ export function ImportExportBar({ masterKey, onImported, exportable = true }: Pr
   const { pageKey, exportIsSensitive } = MASTER_PAGES[masterKey]
   const canTemplate = can(pageKey, 'download')
   const canExport = exportable && can(pageKey, 'export') && (!exportIsSensitive || can(pageKey, 'view-commercial-values'))
-  const canImport = can(pageKey, 'create') && can(pageKey, 'update')
+  const importOwners = masterKey === 'vendors'
+    ? ['PURCHASE_MANAGER', 'TECHNICAL_DIRECTOR', 'MANAGING_DIRECTOR']
+    : ['items', 'uoms', 'manufacturers'].includes(masterKey)
+      ? ['STORES_MANAGER', 'TECHNICAL_DIRECTOR', 'MANAGING_DIRECTOR'] : null
+  const owner = importOwners === null || importOwners.some(role => me?.FullAuthorityRoleCodes?.includes(role))
+  const canImport = owner && can(pageKey, 'create') && can(pageKey, 'update')
 
   const run = async (kind: 'template' | 'export' | 'errors', fn: () => Promise<void>) => {
     setBusy(kind)
@@ -102,6 +109,9 @@ export function ImportExportBar({ masterKey, onImported, exportable = true }: Pr
         </div>
       )}
 
+      {canImport && ['vendors', 'items', 'uoms', 'manufacturers'].includes(masterKey) && (
+        <p className="w-full text-sm">All rows are checked before importing. If any row fails, no master records are changed. Correct every error and upload again.</p>
+      )}
       {error && <div className="alert alert-error field-wide w-full basis-full">{error}</div>}
 
       {result && (
@@ -112,6 +122,7 @@ export function ImportExportBar({ masterKey, onImported, exportable = true }: Pr
             <span className="text-emerald-700">Created {result.CreatedRows}</span>
             <span className="text-blue-700">Updated {result.UpdatedRows}</span>
             <span className="text-ink-faint">Unchanged {result.UnchangedRows}</span>
+            <span className="text-ink-faint">Not imported {result.NotImportedRows}</span>
             <span className={result.RejectedRows > 0 ? 'font-semibold text-red-700' : 'text-ink-faint'}>
               Rejected {result.RejectedRows}
             </span>

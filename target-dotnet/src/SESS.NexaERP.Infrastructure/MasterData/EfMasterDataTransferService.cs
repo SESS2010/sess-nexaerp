@@ -46,6 +46,9 @@ public sealed class EfMasterDataTransferService(
     {
         var adapter = registry.GetRequired(request.MasterKey);
         ValidateImportRequest(request);
+        if (MasterImportPolicy.RequiresWholeFile(adapter.Definition.MasterKey)
+            && request.Mode != MasterDataImportModes.RejectEntireFile)
+            throw new MasterDataValidationException("This master requires REJECT_ENTIRE_FILE; no rows may be imported from a file containing errors.");
         ValidateArchive(request.Content);
         var company = await ResolveCompanyAsync(cancellationToken);
         var employee = await db.Employees.AsNoTracking().SingleAsync(x => x.Id == user.EmployeeId!.Value, cancellationToken);
@@ -230,9 +233,11 @@ public sealed class EfMasterDataTransferService(
         if (mode == MasterDataImportModes.RejectEntireFile && outcomes.Any(x => x.Outcome == MasterDataRowOutcomes.Rejected))
         {
             await transaction.RollbackAsync(cancellationToken);
+            await transaction.DisposeAsync();
             db.ChangeTracker.Clear();
             var completedRows = outcomes.ToDictionary(x => x.Item.Source.SourceRowNumber);
             var rejectedAll = prepared.Select(x => completedRows.TryGetValue(x.Source.SourceRowNumber, out var outcome)
+                && outcome.Outcome == MasterDataRowOutcomes.Rejected
                 ? outcome
                 : RowOutcome.NotImported(x)).ToArray();
             await PersistOutcomesAsync(batchId, rejectedAll, valid, invalid, MasterDataImportStatuses.Rejected, cancellationToken);
