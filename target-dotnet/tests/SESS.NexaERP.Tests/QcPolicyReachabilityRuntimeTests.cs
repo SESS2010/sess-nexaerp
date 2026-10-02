@@ -28,6 +28,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.All(user.EffectiveRoleAssignments, x => Assert.NotEqual(Guid.Empty, x.AssignmentId));
         var queue = await Get<PagedResponse<QcQueueItem>>(client, "/api/v1/qc/queue?pageSize=100");
         var lot = Assert.Single(queue.Items, x => x.GrnNumber == grn.GrnNumber);
+        await ProveDirectorQcQueueReads(client, options, user, tdId, lot);
+        user.Set(qcId, "SESS-33", "QC_MANAGER");
         var byAllocation = await Get<PagedResponse<QcQueueItem>>(client,
             "/api/v1/qc/queue?allocationId=" + lot.GoodsReceiptLineLotAllocationId);
         Assert.Equal(1, byAllocation.TotalCount);

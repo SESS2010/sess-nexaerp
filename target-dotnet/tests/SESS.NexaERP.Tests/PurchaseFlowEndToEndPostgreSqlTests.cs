@@ -582,6 +582,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     receiptQuantity: 2m, requestedQuantity: demand, expectedHandoffQuantity: 2m,
                     technicalWitnessClient: qcHost.Client, technicalWitnessActorId: technicalVerifierId);
                 await ProveMultiSerialQcDiscrepancy(qcHost.Client, options, user, multi, qcId, tdId);
+                await ProveDirectorQcInspectionReads(qcHost.Client, options, user, tdId, mdId);
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);

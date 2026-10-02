@@ -18,7 +18,7 @@ export function QcInspectPage() {
   const { allocationId = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [item, setItem] = useState<QcQueueItem | null>((location.state as { item?: QcQueueItem } | null)?.item ?? null)
   const [serials, setSerials] = useState<QcSerialSource[] | null>(null)
   const [policies, setPolicies] = useState<QcInspectionPolicy[]>([])
@@ -97,7 +97,7 @@ export function QcInspectPage() {
   }
 
   // POST /qc/inspections → qc.inspection-policies:create.
-  const canFinalize = can(PAGE_KEYS.qc, 'create')
+  const canFinalize = can(PAGE_KEYS.qc, 'create') && Boolean(me?.RoleCodes.includes('QC_MANAGER'))
 
   if (loading) return <div className="page"><p>Loading…</p></div>
   if (!item || serials === null) {
@@ -130,6 +130,7 @@ export function QcInspectPage() {
 
       {/* POST /api/v1/qc/inspections requires qc.inspection-policies:create plus a
           direct QC_MANAGER role (EfQcWorkflowService.FinalizeCore → RequireQcManager). */}
+      {!canFinalize && <p className="field-hint">Read-only inspection view. A QC Manager must finalize the inspection.</p>}
       {canFinalize && (
         <QcDispositionForm
           quantity={item.Quantity}

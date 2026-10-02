@@ -21,7 +21,7 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user, 
     public async Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId, string? grnNumber,
         bool overdueOnly, int page, int pageSize, CancellationToken ct)
     {
-        RequireQcManager();
+        _ = user.RequireRole("qc-read", "QC_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR");
         if (page < 1 || pageSize is < 1 or > 100)
             throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
         var company = await Company(ct);

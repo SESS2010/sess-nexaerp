@@ -19,7 +19,7 @@ export function QcInspectionPage() {
   const { number = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [inspection, setInspection] = useState<QcInspectionResult | null>(null)
   const [serials, setSerials] = useState<QcSerialSource[]>([])
   // The inspection view carries the GRN number, not its id; the GRN read below supplies the id for the QC history panel.
@@ -107,7 +107,7 @@ export function QcInspectionPage() {
   }
 
   // POST /qc/inspections/{number}/corrections → qc.inspection-policies:update.
-  const canCorrect = can(PAGE_KEYS.qc, 'update')
+  const canCorrect = can(PAGE_KEYS.qc, 'update') && Boolean(me?.RoleCodes.includes('QC_MANAGER'))
   // The link only navigates, but it lands on the concession create page
   // (POST /api/v1/qc/concessions → qc.inspection-policies:create).
   const canRaiseConcession = can(PAGE_KEYS.qc, 'create')
