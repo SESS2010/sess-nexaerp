@@ -40,6 +40,7 @@ import { QcQueuePage } from './features/qc/QcQueuePage'
 import { QcInspectPage } from './features/qc/QcInspectPage'
 import { QcInspectionPage } from './features/qc/QcInspectionPage'
 import { ConcessionPage } from './features/qc/ConcessionPage'
+import { ConcessionCreatePage } from './features/qc/ConcessionCreatePage'
 import { QcPolicyPage } from './features/qc/QcPolicyPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
 import { MaterialIssueRequestListPage } from './features/stores/MaterialIssueRequestListPage'
@@ -345,6 +346,7 @@ export default function App() {
                 <Route path="/qc/inspect/:allocationId" element={gated(PAGE_KEYS.qc, <QcInspectPage />)} />
                 <Route path="/qc/inspections/:number" element={gated(PAGE_KEYS.qc, <QcInspectionPage />)} />
                 <Route path="/qc/concessions" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
+                <Route path="/qc/concessions/new" element={gated(PAGE_KEYS.qc, <ConcessionCreatePage />)} />
                 <Route path="/qc/concessions/:number" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
                 <Route path="/qc/inspection-policies" element={gated(PAGE_KEYS.qc, <QcPolicyPage />)} />
                 <Route path="/production/job-orders" element={gated(PAGE_KEYS.jobOrders, <JobOrderListPage />)} />
