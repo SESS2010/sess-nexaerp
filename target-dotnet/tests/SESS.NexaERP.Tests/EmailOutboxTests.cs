@@ -80,12 +80,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"""INSERT INTO advance.email_outbox("CompanyId","EventType","IdempotencyKey","Status","CreatedBy") VALUES('{pvt}','TEST','bad','QUEUED','t');""",
             "CK_email_outbox_composed");
 
-        // TD decision, 29 September (migration 141): TD/MD View+Update, IT View.
-        // Keep the exact grant-set assertion; this adds the approved MD row, not an at-least check.
+        // TD decision, 2 October (migration 146): R1 email is manual, TD/MD View only.
+        // Keep the exact grant-set assertion, including the retained but disabled IT row.
         server.Execute("email-page.sql", """
             DO $x$ BEGIN
               IF (SELECT string_agg(r."Code"||':'||p."CanView"||':'||p."CanUpdate", ',' ORDER BY r."Code") FROM advance.role_page_permissions p
-                  JOIN advance.roles r ON r."Id"=p."RoleId" WHERE p."PageDefinitionId"=md5('admin.email')::uuid) <> 'IT_MANAGER:true:false,MANAGING_DIRECTOR:true:true,TECHNICAL_DIRECTOR:true:true'
+                  JOIN advance.roles r ON r."Id"=p."RoleId" WHERE p."PageDefinitionId"=md5('admin.email')::uuid) <> 'IT_MANAGER:false:false,MANAGING_DIRECTOR:true:false,TECHNICAL_DIRECTOR:true:false'
               THEN RAISE EXCEPTION 'admin.email grants are wrong.'; END IF;
             END $x$;
             """);

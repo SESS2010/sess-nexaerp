@@ -141,7 +141,7 @@ export const PAGE_CATALOG: readonly CatalogGroup[] = [
     id: 'admin',
     label: 'Admin',
     entries: [
-      { to: '/admin/email', label: 'E-mail log', hint: 'What the ERP sent, and what failed', page: EMAIL_LOG_PAGE_KEY },
+      { to: '/admin/email', label: 'E-mail log', hint: 'E-mail sending starts in R1.1', page: EMAIL_LOG_PAGE_KEY },
     ],
   },
 ]
