@@ -73,12 +73,19 @@ The #60 import screens add **145** `20261002090000_R1MasterImportOwnerGrants`:
 missing View/Create/Update/Download for the approved master import owners only;
 Export remains independent. See [master import screens](R1-master-import-screens.md).
 This is unrelated to the withdrawn Accounts Manager Inventory Periods proposal.
+The R1 manual-email decision adds **146** `20261002140000_R1EmailLogReadOnly`:
+only TD/MD retain View of the informational E-mail log page. Automated sending is
+R1.1; the earlier SMTP/digest commissioning dates in this runbook are superseded.
+The MIR queue correction adds **147** `20261003083000_MirPendingScopeAlignment`:
+Pending, its MIR history and Stores workload follow the MIR module's selected-company
+read scope. Existing page grants, role authority and maker-checker checks are retained.
+See [MIR scope alignment](R1-mir-pending-scope.md).
 Use the packaged assembly/manifest's exact count and head at the RC, not an old fixed count.
 Migration 139 changes read projections only; it adds the job number to the DC view and
 excludes dispatched jobs from the new-DC picker. See [DC frontend contract](r1-machine-dc-selection-contract.md).
 
 The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138,
-139, 140, 141, 142, 143, 144 or 145.** At the exact committed RC SHA, re-run the disposable two-database migration
+139, 140, 141, 142, 143, 144, 145, 146 or 147.** At the exact committed RC SHA, re-run the disposable two-database migration
 proof, require RECONCILED/VERIFIED, and package that bundle/installer with its manifest.
 On the server, the server agent reads back applied migration count/head and principal
 status after migration and provisioning. Include execute grants for all new SECURITY
@@ -257,7 +264,7 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (**145**, head `20261002090000_R1MasterImportOwnerGrants`;
+in the built assembly (**147**, head `20261003083000_MirPendingScopeAlignment`;
 140 adds the director/Pending grants at `20260929110000_R1DirectorPageGrants`;
 139 adds R1 DC selection at `20260928100000_MachineDeliverySelection`;
 138 at `4cb906a`, ending at TrackingLite; 137 is EmailOutbox. Earlier: 117 at `c69366d`;
