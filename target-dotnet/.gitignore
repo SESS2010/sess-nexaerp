@@ -32,3 +32,13 @@ secrets.json
 
 # Built React frontend copied into the API host (npm run build:api)
 src/SESS.NexaERP.Api/wwwroot/
+
+# TD-approved local clutter exclusion (2026-10-02)
+/*.log
+/pc-maintenance-*/
+/backups/
+/.codex-doc-review/
+/outputs/**
+!/outputs/**/
+!/outputs/*.md
+!/outputs/**/*.md
