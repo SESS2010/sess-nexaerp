@@ -58,9 +58,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             }
             await seed.SaveChangesAsync();
         }
+        var roleOnDate = DateOnly.FromDateTime(DateTime.UtcNow);
         var assignments = await Query(options, async db =>
             (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
-                .Where(x => x.CompanyId == companyId && x.EffectiveTo == null).ToListAsync())
+                .Where(x => x.CompanyId == companyId && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
+                    && x.EffectiveFrom <= roleOnDate && (x.EffectiveTo == null || x.EffectiveTo >= roleOnDate)).ToListAsync())
             .ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
                 x => new EffectiveRoleAssignment(x.Id, x.Role!.Code, x.AssignmentType)));
         var runtime = new NpgsqlConnectionStringBuilder(server.ConnectionString) { Username = "nexa_erp_runtime", Password = password, Pooling = false }.ConnectionString;
@@ -186,7 +188,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task ProveItemMasterAuthority(DisposablePostgreSql server, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, IReadOnlyDictionary<string, Guid> employees, SESS.NexaERP.Domain.Inventory.Item template)
     {
-        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
+        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, [role, .. effectiveRoles]);
         UpsertItemRequest Draft(string code) => new(code, "Go-live item " + code, "Go-live item " + code, template.CategoryId!.Value, null, template.MaterialType, template.ItemType,
             false, template.Uom, null, null, null, template.HsnSacCode, template.GstPercentage, null, null, false, false, false, false, 0, 0, 0, null, null, null, null, null, null, null, null);
         async Task<JsonElement> Detail(string code) => await Get<JsonElement>(client, "/api/v1/inventory/items/" + code);
@@ -205,13 +207,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-self-approve"));
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-td-ordinary-approve"));
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-approve"));
         Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
         // A correction within one month of creation returns the record to approval. Maker-checker
         // excludes only the maker of the current pending change: the Purchase Manager corrects the
         // item the Stores Manager created, and the Stores Manager approves that correction.
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         var detail = await Detail("GO-LIVE-ITM-001");
         var corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected" };
         await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
@@ -223,7 +225,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-creator-approves-young-correction"));
         // A correction to a record more than one month old (since creation) needs the Technical Director.
         server.Execute("age-go-live-item.sql", """UPDATE advance.items SET "CreatedAt"=now()-interval '35 days' WHERE "ItemCode"='GO-LIVE-ITM-001';""");
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         detail = await Detail("GO-LIVE-ITM-001");
         corrected = JsonSerializer.Deserialize<UpsertItemRequest>(detail.GetRawText(), new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Name = "Go-live item corrected after one month" };
         await Put<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-001", corrected);
@@ -236,7 +238,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-41", "STORES_MANAGER");
         var duplicate = await Post<JsonElement>(client, "/api/v1/inventory/items", Draft("GO-LIVE-ITM-002"));
         await Post<JsonElement>(client, "/api/v1/inventory/items/GO-LIVE-ITM-002/submit", new MasterActionRequest("Submitted", duplicate.GetProperty("Version").GetUInt32()));
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-002", "item-duplicate-approve"));
         var survivorId = (await Detail("GO-LIVE-ITM-001")).GetProperty("Id").GetGuid();
         var sourceId = (await Detail("GO-LIVE-ITM-002")).GetProperty("Id").GetGuid();
@@ -261,7 +263,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         TaxWorkflowUser user, Dictionary<string, EffectiveRoleAssignment> assignments, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
         SESS.NexaERP.Domain.Inventory.Item item, SESS.NexaERP.Domain.Inventory.Item purchased, Guid availableLocationId, DateOnly today)
     {
-        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, effectiveRoles);
+        void Actor(string code, string role, params string[] effectiveRoles) => user.Set(employees[code], code, role, [role, .. effectiveRoles]);
         const string configuration = "/api/v1/rev869a/configuration";
         var category = item.Category!.Code;
         // The purchased item has 2 opening units: the stock check reserves them and hands 3 to procurement,
@@ -295,7 +297,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         submitted = await Get<JsonElement>(client, "/api/v1/masters/vendors/GO-LIVE-VEN-001");
         await Post<JsonElement>(client, "/api/v1/masters/vendors/GO-LIVE-VEN-001/approve", new MasterActionRequest("Vendor approved", submitted.GetProperty("Version").GetUInt32()));
         // Vendor qualification: Purchase Manager creates, Technical Director verifies, Managing Director approves.
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         await PostNoResult(client, configuration + "/vendor-qualifications",
             new CreateVendorQualificationRequest("SESS_PVT_LTD", "GO-LIVE-VEN-001", category, "GO-LIVE-QUALIFICATION", today, null, "Qualified for go-live category"), "go-live-qualification-create");
         var qualification = await Query(options, db => db.VendorQualifications.Where(x => x.VendorId == vendorId && x.QualificationCode == "GO-LIVE-QUALIFICATION").Select(x => new { x.Id, x.Version }).SingleAsync());
@@ -322,7 +324,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // department requesters such as the IT Manager hold only view on purchase.requisitions (finding #22);
         // delivery to the real warehouse; Accounts verifies and approves.
         var required = today.AddDays(30);
-        Actor("SESS-15", "PURCHASE_EXECUTIVE", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         var pr = await Post<PurchaseRequisitionDetail>(client, "/api/v1/purchase/requisitions", new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "PURCHASE", "SESS-15", required, "NORMAL",
             "Go-live first receipt", "MAIN", null, null, null, null, null, [new(purchased.ItemCode, 5m, 100m, required, "MAIN", null, null, null)]));
         pr = await Post<PurchaseRequisitionDetail>(client, $"/api/v1/purchase/requisitions/{pr.PrNumber}/submit", new PurchaseRequisitionActionRequest(null, pr.Version, "go-live-pr-submit"));
@@ -341,7 +343,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "Go-live Company Pvt Ltd", null, "33ABACS5491H1ZA", "ABACS5491H", "33", "Tamil Nadu", "No. 1, Example Street", null, "Chennai", "600001", null, null, 0, "Legal details from the GST certificate")))
             Assert.True(profile.IsSuccessStatusCode, await profile.Content.ReadAsStringAsync());
         // RFQ, single-source invitation, quotation entered on the vendor's behalf.
-        Actor("SESS-15", "PURCHASE_EXECUTIVE", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         var rfq = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/rfqs", new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7), "INR", true, "Only qualified vendor at go-live", "go-live-rfq", [new(handoff.Id, handoff.HandoffQuantity)]));
         var rfqVersion = await Query(options, db => db.RequestForQuotations.Where(x => x.Id == rfq.Id).Select(x => x.Version).SingleAsync());
         var invitation = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/rfqs/{rfq.Number}/vendors", new Rev869BInviteVendorRequest(vendorId, "Qualified vendor invited", rfqVersion, "go-live-invite"));
@@ -384,16 +386,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Actor("SESS-01", "TECHNICAL_DIRECTOR");
             await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/quotations/{quotation.Number}/technical-verifications", new Rev869BTechnicalVerificationRequest(quotationLineId, true, """{"goLive":true}""", "Technically compliant", quotation.Version, "go-live-technical"));
         }
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         rfqVersion = await Query(options, db => db.RequestForQuotations.Where(x => x.Id == rfq.Id).Select(x => x.Version).SingleAsync());
         var comparison = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/comparisons", new Rev869BCreateComparisonRequest(rfq.Number, rfqVersion, "go-live-comparison"));
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/recommend", new Rev869BRecommendComparisonRequest(quotation.Id, "Only compliant offer", "Only qualified vendor at go-live", comparison.Version, "go-live-recommend"));
+        // The TD-approved Purchase Manager/Executive pair cannot approve its own comparison.
+        using (var self = await client.PostAsJsonAsync($"/api/v1/purchase/comparisons/{comparison.Number}/approve",
+            new Rev869BApprovalActionRequest("Creator must not approve", comparison.Version, "go-live-comparison-self-approve")))
+            Assert.Equal(HttpStatusCode.Forbidden, self.StatusCode);
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/approve", new Rev869BApprovalActionRequest("Comparison approved", comparison.Version, "go-live-comparison-approve"));
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         var po = await Post<Rev869BDocumentResult>(client, "/api/v1/purchase/purchase-orders", new Rev869BCreatePurchaseOrderRequest(comparison.Number, comparison.Version, "go-live-po"));
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/submit", new Rev869BSubmitPurchaseOrderRequest("PO submitted", po.Version, "go-live-po-submit"));
+        // The same real seeded actor is refused at the PO approval endpoint.
+        using (var self = await client.PostAsJsonAsync($"/api/v1/purchase/purchase-orders/{po.Number}/approve",
+            new Rev869BPoApprovalActionRequest("Creator must not approve", po.Version, null, "go-live-po-self-approve")))
+            Assert.Equal(HttpStatusCode.Forbidden, self.StatusCode);
         // Tracking-lite (R1): the submitted PO waits for its approver; the buyer sees it, the approver finds it under "mine".
         var waiting = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?queue=po-pending-approval")).Items);
         Assert.Equal(("PO", po.Id, po.Number, 0, 1, false), (waiting.DocType, waiting.DocumentId, waiting.Number, waiting.AgeDays, waiting.OverdueAfterDays, waiting.IsOverdue));
@@ -411,7 +421,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var mine = Assert.Single((await Get<TrackingPendingPage>(client, "/api/v1/tracking/pending?mine=true&docType=PO")).Items);
         Assert.Equal((po.Number, "SESS-14"), (mine.Number, mine.PendingWithEmployeeCode));
         po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/approve", new Rev869BPoApprovalActionRequest("PO approved", po.Version, null, "go-live-po-approve"));
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         // R7: an approved but unissued PO does not print.
         using (var early = await client.GetAsync($"/api/v1/purchase/purchase-orders/{po.Number}/print"))
         {
@@ -437,7 +447,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Contains(billedNotReceived.Rows, row => row.GetProperty("itemCode").GetString() == purchased.ItemCode);
         // 2. The PO is amended before receipt (delivery terms); the amendment is approved and issued and the
         //    open-orders dashboard flags the delivery date as unconfirmed. The receipt is against the amended revision.
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         var openBefore = await Get<PurchaseOpenOrdersPage>(client, "/api/v1/dashboards/purchase/open-orders");
         Assert.Equal(1, openBefore.OpenPoCount);
         Assert.Equal(0, openBefore.DeliveryDateUnconfirmedPoCount);
@@ -448,7 +458,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         var priorVersion = await Query(options, db => db.PurchaseOrders.AsNoTracking().Where(x => x.Id == po.Id).Select(x => x.Version).SingleAsync());
         amended = await Post<Rev869BDocumentResult>(client, poPath + "/approve", new Rev869BPoApprovalActionRequest("Amendment approved", amended.Version, priorVersion, "go-live-po-amend-approve"));
-        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE");
+        Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
         amended = await Post<Rev869BDocumentResult>(client, poPath + "/issue", new Rev869BIssuePurchaseOrderRequest("Amendment issued", amended.Version, "go-live-po-amend-issue"));
         Assert.Equal(Rev869BStatuses.Issued, amended.Status);
         Assert.NotEqual(po.Id, amended.Id);

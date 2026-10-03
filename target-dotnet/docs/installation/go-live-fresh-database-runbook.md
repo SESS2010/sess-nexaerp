@@ -80,12 +80,18 @@ The MIR queue correction adds **147** `20261003083000_MirPendingScopeAlignment`:
 Pending, its MIR history and Stores workload follow the MIR module's selected-company
 read scope. Existing page grants, role authority and maker-checker checks are retained.
 See [MIR scope alignment](R1-mir-pending-scope.md).
+The signed-roster reconciliation adds **148** `20261003090000_R1RosterSeedReconciliation`:
+14 users hold the approved 38 FULL assignments across both companies from 10 Oct;
+correct existing assignments are retained, known extras end 9 Oct, and the five
+approved exception pairs include DESIGN_ENGINEER + SERVICE_ENGINEER for SESS-17/19
+and PURCHASE_MANAGER + PURCHASE_EXECUTIVE for SESS-15.
+See [signed roster reconciliation](R1-roster-seed-reconciliation.md).
 Use the packaged assembly/manifest's exact count and head at the RC, not an old fixed count.
 Migration 139 changes read projections only; it adds the job number to the DC view and
 excludes dispatched jobs from the new-DC picker. See [DC frontend contract](r1-machine-dc-selection-contract.md).
 
 The last package migration proof is still `17b9a7e`, head 136. **It is not proof for 138,
-139, 140, 141, 142, 143, 144, 145, 146 or 147.** At the exact committed RC SHA, re-run the disposable two-database migration
+139, 140, 141, 142, 143, 144, 145, 146, 147 or 148.** At the exact committed RC SHA, re-run the disposable two-database migration
 proof, require RECONCILED/VERIFIED, and package that bundle/installer with its manifest.
 On the server, the server agent reads back applied migration count/head and principal
 status after migration and provisioning. Include execute grants for all new SECURITY
@@ -264,7 +270,7 @@ Then, API still stopped, as DBA: `database-principals provision` then `database-
 (mandatory reconciliation after every migration run).
 
 Check: `SELECT count(*) FROM advance."__EFMigrationsHistory"` equals the number of migrations
-in the built assembly (**147**, head `20261003083000_MirPendingScopeAlignment`;
+in the built assembly (**148**, head `20261003090000_R1RosterSeedReconciliation`;
 140 adds the director/Pending grants at `20260929110000_R1DirectorPageGrants`;
 139 adds R1 DC selection at `20260928100000_MachineDeliverySelection`;
 138 at `4cb906a`, ending at TrackingLite; 137 is EmailOutbox. Earlier: 117 at `c69366d`;
