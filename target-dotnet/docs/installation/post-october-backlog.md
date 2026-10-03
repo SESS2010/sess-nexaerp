@@ -109,3 +109,30 @@ acceptance are recorded separately in the consolidated B closure report.
 - [Microsoft commercial ESU terms](https://learn.microsoft.com/en-us/windows/whats-new/extended-security-updates), checked 22 September 2026: year-one USD 61, annual doubling and cumulative purchase rules.
 
 No server change, legacy import or new feature was performed for this backlog.
+
+## R2 HR department assignments, transfers and promotion - TD decision 3 Oct 2026
+
+**R2 only; do not implement before the R1 freeze/go-live.** Deliver the governed
+employee department-assignment/transfer API and screen together with the HR
+promotion screen. The existing R1 employee profile API does not read or maintain
+company-specific dated department assignments. Changing the profile department
+is not a substitute for an assignment or transfer.
+
+The current department model uses PRIMARY/SECONDARY. A bounded SECONDARY
+assignment represents temporary department coverage; TEMPORARY is a separate
+role-assignment type. R2 must preserve primary assignments, company isolation,
+effective dates and retained transfer history, and expose current-state readback
+and operator audit. Exact write/approval authority and any workflow changes need
+a TD-approved R2 specification. Do not grant operational scopes automatically.
+Integrate the screens with the existing governed role/promotion and MFA procedure
+rather than replacing its authority or identity checks.
+
+**R1 UAT decision:** SESS-32/40 keep only their already-assigned temporary UAT
+roles through 9 Oct. Do not add PURCHASE/QC/STORES department assignments or retry
+their refused scope creates. Their IT assignments and the original staff4 scope
+plan remain unchanged. UAT uses the existing real-user logins with their approved
+roles and scopes. This decision grants no extra production access to SESS-32/40.
+
+The operator preparation file RUN-STAFF4-DEPT-SCOPES.ps1 is deliberately fail-closed;
+it is not an executable department-assignment solution. No SQL workaround, scope
+validation bypass or R1 department-assignment API is authorized by this record.
