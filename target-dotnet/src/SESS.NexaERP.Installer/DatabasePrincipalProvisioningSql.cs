@@ -128,7 +128,7 @@ internal static class DatabasePrincipalProvisioningSql
             FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','v','m','f')
-              AND c.relname NOT IN ('authentication_bootstrap_state','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','machine_delivery_challans','machine_delivery_signatures','machine_delivery_bom_entries','supplier_invoices','supplier_invoice_lines','supplier_invoice_cancellations','supplier_invoice_receipt_matches','supplier_invoice_bill_links','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
+              AND c.relname NOT IN ('authentication_bootstrap_state','r1_roster_reconciliation_runs','r1_roster_reconciliation_entries','r1_roster_reconciliation_activations','command_requests','command_receipts','vendor_bills','vendor_bill_lines','vendor_bill_history','vendor_bill_cost_allocations','fifo_inventory_cost_layers','fifo_cost_consumptions','fifo_cost_restorations','fifo_consumption_creation_order','machine_delivery_challans','machine_delivery_signatures','machine_delivery_bom_entries','supplier_invoices','supplier_invoice_lines','supplier_invoice_cancellations','supplier_invoice_receipt_matches','supplier_invoice_bill_links','vendor_bill_charges','vendor_bill_charge_allocations','fifo_landed_cost_adjustments','actual_bom_valuation_adjustments','component_fitments','component_fitment_reversals','actual_boms','actual_bom_entries','job_order_fat_custody_explanations','job_order_fat_reconciliations','job_order_fat_reconciliation_lines','item_company_last_purchases','vendor_advances','vendor_advance_reversals','vendor_advance_adjustments','vendor_advance_adjustment_restorations','vendor_payments','vendor_payment_allocations','vendor_bank_advices')
           LOOP
             IF item.relkind IN ('v','m') THEN
               EXECUTE format('GRANT SELECT ON TABLE advance.%I TO nexa_erp_runtime',item.relname);
@@ -277,6 +277,13 @@ internal static class DatabasePrincipalProvisioningSql
             EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM nexa_erp_runtime';
             EXECUTE 'REVOKE ALL ON FUNCTION advance.complete_authentication_bootstrap(text,text) FROM nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.complete_authentication_bootstrap(text,text) TO nexa_erp_bootstrap';
+          END IF;
+          IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+            WHERE n.nspname='advance' AND c.relname IN
+              ('r1_roster_reconciliation_runs','r1_roster_reconciliation_entries','r1_roster_reconciliation_activations')
+              AND acl.grantee<>c.relowner) THEN
+            RAISE EXCEPTION 'R1 roster rollback journals must grant no privilege outside their owner.';
           END IF;
           IF to_regprocedure('advance.govern_authentication_bootstrap(text,text,boolean,boolean)') IS NOT NULL THEN
             REVOKE ALL ON FUNCTION advance.govern_authentication_bootstrap(text,text,boolean,boolean)
@@ -639,6 +646,7 @@ internal static class DatabasePrincipalProvisioningSql
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE n.nspname='advance' AND c.relkind IN ('r','p','f')
               AND c.relname<>'authentication_bootstrap_state'
+              AND c.relname NOT IN ('r1_roster_reconciliation_runs','r1_roster_reconciliation_entries','r1_roster_reconciliation_activations')
               AND c.relname NOT IN ('opening_stock_import_staging_lines','opening_stocks','opening_stock_lines','opening_stock_events')
               AND NOT (c.relname='vendor_manual_assessments'
                        AND to_regprocedure('advance.record_vendor_manual_assessment(uuid,uuid,uuid,bigint,uuid,numeric,numeric,numeric,text,uuid,text,uuid,text,text)') IS NOT NULL)
@@ -663,6 +671,13 @@ internal static class DatabasePrincipalProvisioningSql
                    OR NOT has_table_privilege('nexa_erp_runtime',c.oid,'UPDATE')
                    OR has_table_privilege('nexa_erp_runtime',c.oid,'DELETE'))
           ) THEN RAISE EXCEPTION 'Runtime table privileges differ from SELECT/INSERT/UPDATE without DELETE.'; END IF;
+          IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+            WHERE n.nspname='advance' AND c.relname IN
+              ('r1_roster_reconciliation_runs','r1_roster_reconciliation_entries','r1_roster_reconciliation_activations')
+              AND acl.grantee<>c.relowner) THEN
+            RAISE EXCEPTION 'R1 roster rollback journals must grant no privilege outside their owner.';
+          END IF;
           IF to_regprocedure('advance.govern_authentication_bootstrap(text,text,boolean,boolean)') IS NOT NULL THEN
             IF NOT has_function_privilege('nexa_erp_bootstrap','advance.govern_authentication_bootstrap(text,text,boolean,boolean)','EXECUTE')
                OR has_function_privilege('nexa_erp_runtime','advance.govern_authentication_bootstrap(text,text,boolean,boolean)','EXECUTE')

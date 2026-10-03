@@ -87,7 +87,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null,
         Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
         Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
-        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false)
+        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false, bool rosterSupportFixture = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -114,6 +114,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
+        var useIndependentSupportActors = rosterSupportFixture || DateOnly.FromDateTime(DateTime.UtcNow) >= new DateOnly(2026,10,10);
+        if (useIndependentSupportActors) server.Execute("r1-workflow-support-fixture.sql",R1PurchaseFlowSupportFixtureSql);
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         Guid creatorId;
         Guid managerId;
@@ -126,6 +128,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid qcId;
         Guid productionId;
         Guid accountsSupportId;
+        Guid storesManagerId;
         Guid secondReceiptOperatorId;
         Guid departmentId;
         Guid warehouseId;
@@ -149,19 +152,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             mdId = await Employee(seed, "SESS-02");
             verifierId = await Employee(seed, "SESS-05");
             technicalVerifierId = await Employee(seed, "SESS-04");
-            purchaseId = await Employee(seed, "SESS-15");
+            purchaseId = await Employee(seed, useIndependentSupportActors ? R1PurchaseSupportEmployeeCode : "SESS-15");
             storesId = await Employee(seed, "SESS-35");
             qcId = await Employee(seed, "SESS-33");
             productionId = await Employee(seed, "SESS-25");
-            accountsSupportId = await Employee(seed, "SESS-41");
+            storesManagerId = await Employee(seed, "SESS-41");
+            accountsSupportId = useIndependentSupportActors ? await Employee(seed,R1AccountsSupportEmployeeCode) : storesManagerId;
             secondReceiptOperatorId = await Employee(seed, "SESS-16");
             var identities = new List<(Guid, string)>
             {
                 (creatorId, "SESS-12"), (managerId, "SESS-14"), (tdId, "SESS-01"),
-                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, "SESS-15"), (storesId, "SESS-35"),
-                (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, "SESS-41"),
+                (mdId, "SESS-02"), (verifierId, "SESS-05"), (purchaseId, useIndependentSupportActors ? R1PurchaseSupportEmployeeCode : "SESS-15"), (storesId, "SESS-35"),
+                (qcId, "SESS-33"), (productionId, "SESS-25"), (accountsSupportId, useIndependentSupportActors ? R1AccountsSupportEmployeeCode : "SESS-41"),
                 (secondReceiptOperatorId, "SESS-16")
             };
+            if (useIndependentSupportActors) identities.Add((storesManagerId,"SESS-41"));
             if (multiSerialQcWitness) identities.Add((technicalVerifierId, "SESS-04"));
             var identityEmployeeIds = identities.Select(x => x.Item1).ToArray();
             await seed.Employees.Where(x => identityEmployeeIds.Contains(x.Id))
@@ -190,7 +195,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .Where(x=>x.Code=="IT"||x.Code=="PRODUCTION").Select(x=>x.Id).ToListAsync())
                 seed.EmployeeOperationalScopes.Add(new EmployeeOperationalScope
             {
-                CompanyId=companyId,OrganizationId="SESS_PVT_LTD",EmployeeId=accountsSupportId,
+                CompanyId=companyId,OrganizationId="SESS_PVT_LTD",EmployeeId=storesManagerId,
                 DepartmentId=reportingDepartment,WarehouseId=null,OwnRecordsOnly=false,
                 AllowsPrivilegedCrossScope=false,EffectiveFrom=new DateOnly(2026,1,1),IsActive=true,
                 Remarks="Disposable Stores Manager department reporting scope",CreatedBy="STORES_WORKLOAD_FIXTURE"
@@ -251,11 +256,19 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "qc-posting-function-permissions.json"),
                 JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
         }
+        var roleOnDate = rosterSupportFixture ? new DateOnly(2026,10,10) : DateOnly.FromDateTime(DateTime.UtcNow);
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
-            .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.EffectiveTo == null)
+            .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001")
+                && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
+                && x.EffectiveFrom <= roleOnDate && (x.EffectiveTo == null || x.EffectiveTo >= roleOnDate))
             .ToListAsync()).ToDictionary(x => TaxWorkflowUser.AssignmentKey(x.EmployeeId, x.Role!.Code),
                 x => new EffectiveRoleAssignment(x.Id, x.Role!.Code, x.AssignmentType)));
         var user = new TaxWorkflowUser(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive, roleAssignments);
+        if (useIndependentSupportActors)
+        {
+            user.RotateSubject(purchaseId,R1PurchaseSupportEmployeeCode);
+            user.RotateSubject(accountsSupportId,R1AccountsSupportEmployeeCode);
+        }
         var runtimeConnection = new Npgsql.NpgsqlConnectionStringBuilder(server.ConnectionString)
         {
             Username = "nexa_erp_runtime",
@@ -447,7 +460,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await RunMaterialIssueWitness(client, options, runtimeConnection, user, grns[0], grns[2], verifierId,
                 purchaseId, productionId, storesId, tdId, managerId, qcId, pendingLandedBill, returnRace, server.ReadDiagnosticLog, serializedRace,
                 mirRace is null ? null : draft => mirRace(new(options, runtimeConnection, draft,
-                    productionId, accountsSupportId, "mir-consumable-approve", server.ReadDiagnosticLog)),
+                    productionId, storesManagerId, "mir-consumable-approve", server.ReadDiagnosticLog)),
                 issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
                     draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)),
                 storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")));
@@ -585,7 +598,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveDirectorQcInspectionReads(qcHost.Client, options, user, tdId, mdId);
                 await qcReachability.AssertCompleteAsync(qcHost.QcMutationRoutes);
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
-                await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, accountsSupportId);
+                await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, storesManagerId);
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
                 await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId);
@@ -1334,7 +1347,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new DateOnly(2026, 9, 8),
                 [new MaterialIssueRequestLineInput(itemId, fixture.UomId, .95m, null, null)],
                 "mir-customer-create"));
-        Assert.Equal("SESS-15", mir.EmployeeCode); Assert.False(string.IsNullOrWhiteSpace(mir.EmployeeName));
+        Assert.Equal(purchaseId,mir.RequestedByEmployeeId);
+        Assert.Equal(await Query(options,db=>db.Employees.Where(x=>x.Id==purchaseId).Select(x=>x.EmployeeCode).SingleAsync()),mir.EmployeeCode);
+        Assert.False(string.IsNullOrWhiteSpace(mir.EmployeeName));
         Assert.False(string.IsNullOrWhiteSpace(mir.DepartmentCode));
         Assert.Equal(fixture.MachineLineId, Assert.Single(mir.Lines).CustomerPurchaseOrderLineId);
         Assert.Equal(0m, Assert.Single(mir.Lines).CustomerPoBaseQuantity);
