@@ -24,3 +24,16 @@ Focused verification covers approval and issue lifecycle states under a mismatch
 department/warehouse and own-record scope, source-page denial, selected-company
 isolation, unchanged function security, rollback refusal and Up/Down/Up. The fast
 suite and nightly are separate release gates; a source change is not deployment proof.
+
+## Owner-only rollback journal
+
+Migration 149, `20261003113000_MirRollbackJournalProtection`, removes non-owner
+ACLs from the retained queue/function backup journal. The installer excludes this
+journal from application-table grants, reconciles private journals to owner-only
+access and verifies that no other grantee remains. Runtime and bootstrap cannot
+read or alter saved rollback SQL. This changes no MIR function, queue or page grant.
+
+Down retains every backup row and the protection; it never reopens unsafe grants.
+Focused tests reproduce the previous broad runtime grant, verify read/write
+refusal, preserve exact saved data/function security across Up/Down/Up, and prove
+installer verification refusal and repair of an unexpected direct-reader grant.
