@@ -296,7 +296,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     }
 
     [Fact]
-    public void GeneratedBusinessBaselineScriptsAreAcceptedByDisposablePostgreSql()
+    public async Task GeneratedBusinessBaselineScriptsAreAcceptedByDisposablePostgreSql()
     {
         var options = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -310,6 +310,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("business-up.sql", MigrationOwnerSession + migrator.GenerateScript("0", migration));
         server.Execute("multi-company-pr-number.sql", MultiCompanyPrNumberAssertions);
         server.Execute("business-part2-assertions.sql", Part2Assertions);
+        await AssertR1RosterManifest(server.ConnectionString);
         // Each rejected transaction rolls back when its psql connection exits: prove the
         // updated contract still rejects write escalation and unrelated page grants.
         server.AssertRejected("business-part2-tracking-escalation.sql", """
@@ -328,7 +329,47 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
               AND r."Code"='PROJECT_MANAGER' AND d."PageKey"='tracking.pending';
             """ + Part2Assertions, "Catalogue roles must hold exactly");
         server.Execute("business-part2-after-rejected-grants.sql", Part2Assertions);
-        server.Execute("business-down.sql", MigrationOwnerSession + migrator.GenerateScript(migration, "0"));
+        AssertRetainedRosterHistoryAndHistoricalBaselineDown(server, migrator, migration, true);
+    }
+
+    // #57 retains immutable authority history. A current-head rollback to zero must
+    // refuse that loss; historical pre-roster baseline round trips remain covered.
+    private static void AssertRetainedRosterHistoryAndHistoricalBaselineDown(
+        DisposablePostgreSql server, IMigrator migrator, string head, bool managedRoles)
+    {
+        server.Execute("roster-history-before-whole-down.sql", """
+            CREATE TABLE public.baseline_authority_before_down AS
+            SELECT 'assignments' kind,md5(jsonb_agg(to_jsonb(a) ORDER BY "Id")::text) digest
+              FROM advance.employee_role_assignments a UNION ALL
+            SELECT 'events',md5(jsonb_agg(to_jsonb(e) ORDER BY "Id")::text)
+              FROM advance.employee_role_assignment_events e;
+            """);
+        // NoTransactions keeps the rejected Down in one outer transaction, so
+        // earlier migrations cannot commit a partial teardown before the refusal.
+        var session = managedRoles ? MigrationOwnerSession : "";
+        server.AssertRejected("current-head-down-refuses-retained-history.sql",
+            session + "BEGIN;\n" + migrator.GenerateScript(head, "0", MigrationsSqlGenerationOptions.NoTransactions),
+            "violates foreign key constraint");
+        server.Execute("roster-history-after-rejected-down.sql", """
+            DO $check$ BEGIN
+              IF EXISTS(SELECT 1 FROM public.baseline_authority_before_down old FULL JOIN
+                (SELECT 'assignments' kind,md5(jsonb_agg(to_jsonb(a) ORDER BY "Id")::text) digest
+                   FROM advance.employee_role_assignments a UNION ALL
+                 SELECT 'events',md5(jsonb_agg(to_jsonb(e) ORDER BY "Id")::text)
+                   FROM advance.employee_role_assignment_events e) current USING(kind)
+                 WHERE old.digest IS DISTINCT FROM current.digest)
+                OR NOT EXISTS(SELECT 1 FROM public."__EFMigrationsHistory"
+                   WHERE "MigrationId"='20261003113000_MirRollbackJournalProtection') THEN
+                RAISE EXCEPTION 'Rejected whole-history Down changed authority or migration history.';
+              END IF;
+            END $check$;
+            """);
+        using var historical = DisposablePostgreSql.Start(FindPostgreSqlBin());
+        if (managedRoles) historical.Execute("historical-role-prerequisites.sql", BootstrapRolePrerequisites);
+        historical.Execute("historical-before-roster-up.sql", session + migrator.GenerateScript("0", R1RosterBefore));
+        if (!managedRoles)
+            historical.Execute("historical-no-managed-roles.sql", NoManagedRoleAssertions);
+        historical.Execute("historical-before-roster-down.sql", session + migrator.GenerateScript(R1RosterBefore, "0"));
     }
 
     [Fact]
@@ -342,7 +383,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var server = DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("business-no-roles-up.sql", migrator.GenerateScript("0", migration));
         server.Execute("business-no-roles-assertions.sql", NoManagedRoleAssertions);
-        server.Execute("business-no-roles-down.sql", migrator.GenerateScript(migration, "0"));
+        AssertRetainedRosterHistoryAndHistoricalBaselineDown(server, migrator, migration, false);
     }
 
     [Fact]
@@ -374,7 +415,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("business-before-principals.sql", migrator.GenerateScript("0", migration));
         server.Execute("installer-reconcile.sql", InstallerPasswordSettings + DatabasePrincipalProvisioningSql.Provision +
             DatabasePrincipalProvisioningSql.Verify + CeremonyAclAssertions + DatabasePrincipalProvisioningSql.RoleStatus);
-        server.Execute("business-after-principals-down.sql", migrator.GenerateScript(migration, "0"));
+        AssertRetainedRosterHistoryAndHistoricalBaselineDown(server, migrator, migration, false);
     }
 
     [Fact]
@@ -750,12 +791,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
           ) THEN RAISE EXCEPTION 'PURCHASE_MANAGER retains a purchase approval permission.'; END IF;
           IF (SELECT count(*) FROM advance.employee_company_assignments)<>93 THEN RAISE EXCEPTION 'Expected 93 company assignments.'; END IF;
           IF (SELECT count(*) FROM advance.employee_department_assignments)<>586 THEN RAISE EXCEPTION 'Expected 586 department assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"<>md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>159
+          IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"<>md5('role:CHIEF_FINANCIAL_OFFICER')::uuid AND "CreatedBy"<>'R1RosterSeedReconciliation')<>159
             OR (SELECT count(*) FROM advance.employee_role_assignments WHERE "RoleId"=md5('role:CHIEF_FINANCIAL_OFFICER')::uuid)<>2
-          THEN RAISE EXCEPTION 'Expected the original 159 retained assignments plus exactly two documented CFO assignments.'; END IF;
+          OR (SELECT count(*) FROM advance.employee_role_assignments WHERE "CreatedBy"='R1RosterSeedReconciliation')<>2
+          THEN RAISE EXCEPTION 'Expected the original 159 retained assignments, two CFO assignments and exactly two R1 HR additions.'; END IF;
           IF (SELECT count(*) FROM advance.employee_role_assignments WHERE "ApprovalStatus" IN ('Approved','SeedApproved') AND "EffectiveFrom"<=DATE '2026-09-05' AND ("EffectiveTo" IS NULL OR "EffectiveTo">=DATE '2026-09-05'))<>118 THEN RAISE EXCEPTION 'Expected 118 effective confirmed assignments.'; END IF;
-          IF (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode" IS DISTINCT FROM 'CHIEF_FINANCIAL_OFFICER')<>148
-            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER')<>2
+          IF (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode" IS DISTINCT FROM 'CHIEF_FINANCIAL_OFFICER' AND "ActorLoginId"<>'R1RosterSeedReconciliation')<>148
+            OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER' AND "ActorLoginId"<>'R1RosterSeedReconciliation')<>2
             OR (SELECT count(*) FROM advance.employee_role_assignment_events WHERE "ToRoleCode"='CHIEF_FINANCIAL_OFFICER'
               AND "Operation"='BASELINE_CONFIRM' AND "ActorLoginId"='migration-governed-inventory-periods')<>2
           THEN RAISE EXCEPTION 'Expected the original 148 immutable events plus exactly two explicitly marked CFO baseline events.'; END IF;
