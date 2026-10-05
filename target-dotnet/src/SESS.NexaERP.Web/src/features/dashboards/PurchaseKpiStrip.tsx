@@ -1,7 +1,7 @@
 // Row 1: six headline cards. Every number is one the server returned;
 // currencies are listed, never added. A card opens the detail panel behind it.
 
-import { AlertTriangle, ClipboardList, IndianRupee, PackageCheck, ShoppingCart, Wallet } from 'lucide-react'
+import { CircleX, Clock3, FileText, IndianRupee, ShoppingCart } from 'lucide-react'
 import { formatCount } from '../../utils/dashboardFormat'
 import { NullValue } from './DashboardParts'
 import { StatCard, StatGrid, type Tone } from './DashboardUi'
@@ -37,7 +37,7 @@ export function PurchaseStatCards({ reports, show, onOpen }: { reports: Purchase
 }
 
 function QueuesCard({ report, allowed, onOpen }: { report: PurchaseReports['workload']; allowed: boolean; onOpen: OpenSection }) {
-  const common = { icon: ClipboardList, label: 'Queues with work', onClick: () => onOpen('workload') }
+  const common = { icon: FileText, accent: 'rose' as const, label: 'Queues with work', onClick: () => onOpen('workload') }
   const state = base(allowed, report)
   if (state && 'problem' in state) return <StatCard {...common} {...PROBLEM} />
   if (state || report?.status !== 'ready') return <StatCard {...common} {...state} value="" />
@@ -49,14 +49,14 @@ function QueuesCard({ report, allowed, onOpen }: { report: PurchaseReports['work
   return (
     <StatCard {...common}
       tone={busy.length ? ageTone(oldest, WORKLOAD_AGE) : 'ok'}
-      value={<>{busy.length}<span className="text-sm font-normal text-slate-400"> of {ready.length}</span></>}
+      value={<>{busy.length}<span className="text-lg font-medium text-slate-400"> of {ready.length}</span></>}
       sub={oldest === null ? 'Nothing waiting' : `Oldest waiting ${oldest} d`}
       info={`Purchase queues that have at least one document waiting. Colour = oldest wait: amber from ${WORKLOAD_AGE.warn} d, red from ${WORKLOAD_AGE.bad} d.${hidden ? ` ${hidden} queue(s) hidden from your role.` : ''}`} />
   )
 }
 
 function OpenPoCard({ report, allowed, onOpen }: { report: PurchaseReports['openOrders']; allowed: boolean; onOpen: OpenSection }) {
-  const common = { icon: ShoppingCart, label: 'Open POs', onClick: () => onOpen('openOrders') }
+  const common = { icon: ShoppingCart, accent: 'blue' as const, label: 'Open POs', onClick: () => onOpen('openOrders') }
   const state = base(allowed, report)
   if (state && 'problem' in state) return <StatCard {...common} {...PROBLEM} />
   if (state || report?.status !== 'ready') return <StatCard {...common} {...state} value="" />
@@ -71,7 +71,7 @@ function OpenPoCard({ report, allowed, onOpen }: { report: PurchaseReports['open
 }
 
 function LateCard({ report, allowed, onOpen }: { report: PurchaseReports['openOrders']; allowed: boolean; onOpen: OpenSection }) {
-  const common = { icon: AlertTriangle, label: 'Late deliveries', onClick: () => onOpen('openOrders', { overdue: true }) }
+  const common = { icon: Clock3, accent: 'emerald' as const, label: 'Late deliveries', onClick: () => onOpen('openOrders', { overdue: true }) }
   const state = base(allowed, report)
   if (state && 'problem' in state) return <StatCard {...common} {...PROBLEM} />
   if (state || report?.status !== 'ready') return <StatCard {...common} {...state} value="" />
@@ -95,7 +95,8 @@ function LateCard({ report, allowed, onOpen }: { report: PurchaseReports['openOr
 
 function ObligationCard({ kind, report, allowed, onOpen }: { kind: 'grni' | 'vendor-advances'; report: PurchaseReports['obligations']; allowed: boolean; onOpen: OpenSection }) {
   const common = {
-    icon: kind === 'grni' ? PackageCheck : Wallet,
+    icon: kind === 'grni' ? CircleX : FileText,
+    accent: kind === 'grni' ? ('orange' as const) : ('violet' as const),
     label: kind === 'grni' ? 'Received, not billed' : 'Advances not adjusted',
     onClick: () => onOpen('obligations', { queue: kind }),
   }
@@ -115,16 +116,21 @@ function ObligationCard({ kind, report, allowed, onOpen }: { kind: 'grni' | 'ven
 }
 
 function SpendCard({ report, allowed, onOpen }: { report: PurchaseReports['spending']; allowed: boolean; onOpen: OpenSection }) {
-  const common = { icon: IndianRupee, label: 'Spend this FY', onClick: () => onOpen('spending') }
+  const common = { icon: IndianRupee, accent: 'purple' as const, label: 'Spend this FY', onClick: () => onOpen('spending') }
   const state = base(allowed, report)
   if (state && 'problem' in state) return <StatCard {...common} {...PROBLEM} />
   if (state || report?.status !== 'ready') return <StatCard {...common} {...state} value="" />
   const fy = report.data.Periods.find((period) => period.Key === 'financial-year')
   const amounts = fy ? inrFirst(fy.Amounts) : null
   const [first, ...rest] = amounts ?? []
+  // Monthly spend of the same currency as the headline figure, oldest first.
+  const sparkCurrency = first?.Currency ?? 'INR'
+  const spark = [...report.data.MonthlyTrend]
+    .sort((x, y) => x.FromDate.localeCompare(y.FromDate))
+    .map((month) => month.Amounts.find((a) => a.Currency === sparkCurrency)?.Amount ?? 0)
   return (
-    <StatCard {...common}
-      value={amounts === null ? <NullValue reason="unknown" /> : first ? formatCompactAmount(first.Amount, first.Currency) : <NullValue reason="none" />}
+    <StatCard {...common} spark={spark}
+      value={amounts === null ? <NullValue reason="unknown" /> : first ? formatCompactAmount(first.Amount, first.Currency) : <span className="text-lg font-semibold text-slate-400">No spend</span>}
       sub={<>{rest.length > 0 && `+ ${rest.map((a) => formatCompactAmount(a.Amount, a.Currency)).join(' · ')} · `}<span className="text-amber-700">incl. GST</span></>}
       info={GST_TIP} />
   )

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { LucideIcon } from 'lucide-react'
 
 const STORAGE_KEY = 'nexaerp.nav.collapsed'
 
@@ -25,6 +26,8 @@ interface Props {
   label: string
   /** Sections holding the active route stay open on first render. */
   defaultOpen?: boolean
+  /** Section icon shown before the label. */
+  icon?: LucideIcon
   children: React.ReactNode
 }
 
@@ -32,7 +35,7 @@ interface Props {
  * Collapsible sidebar group. The open/closed state is per-browser so a user who
  * only works in one module is not scrolling past the others every day.
  */
-export function NavSection({ id, label, defaultOpen = true, children }: Props) {
+export function NavSection({ id, label, defaultOpen = true, icon: Icon, children }: Props) {
   const [open, setOpen] = useState(defaultOpen)
 
   useEffect(() => {
@@ -55,7 +58,10 @@ export function NavSection({ id, label, defaultOpen = true, children }: Props) {
         aria-controls={`nav-group-${id}`}
         onClick={toggle}
       >
-        <span>{label}</span>
+        <span className="nav-section-label">
+          {Icon && <Icon className="nav-section-icon" aria-hidden />}
+          {label}
+        </span>
         <span className={`nav-chevron${open ? ' open' : ''}`} aria-hidden="true">
           <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M3 4.5 6 7.5 9 4.5" strokeLinecap="round" strokeLinejoin="round" />

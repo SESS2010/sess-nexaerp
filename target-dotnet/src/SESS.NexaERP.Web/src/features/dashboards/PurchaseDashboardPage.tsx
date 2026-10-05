@@ -76,11 +76,13 @@ export function PurchaseDashboardPage() {
   const company = getCompanyCode().replace(/_/g, ' ')
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="mx-auto max-w-[1600px]">
       <DashHeader
         icon={ShoppingCart}
         title="Purchase"
-        context={<>{company} · {DASHBOARD_MOCKS_ENABLED ? <span className="font-semibold text-amber-700">MOCK DATA</span> : 'live'}</>}
+        context={<>{company} · {DASHBOARD_MOCKS_ENABLED
+          ? <span className="font-semibold text-amber-700">MOCK DATA</span>
+          : <>live <span className="h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-100" aria-hidden /></>}</>}
         updated={permitted.length === 0 || loading ? undefined : anyLoading && !loadedAt ? 'Loading…' : loadedAt ? `Updated ${formatRelative(loadedAt, now)}` : undefined}
         refreshing={anyLoading}
         onRefresh={permitted.length > 0 ? refresh : undefined}
@@ -107,20 +109,22 @@ export function PurchaseDashboardPage() {
           <NoAccess what="the Purchase dashboard — ask the administrator if you should" />
         </Panel>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <PurchaseStatCards reports={visible} show={show} onOpen={openSection} />
 
-          <div className="grid gap-3 xl:grid-cols-3">
-            <div className="xl:col-span-2">
+          {/* Left: attention, then queues + delivery. Right: spend trend, then owed. */}
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.13fr)_minmax(0,1fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
               <PurchaseAttention reports={visible} can={can} refreshTick={tick} onOpen={openSection} />
+              <div className="grid flex-1 gap-4 md:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)]">
+                <QueuesPanel report={visible.workload} allowed={show.workload} onOpen={openSection} />
+                <DeliveryPanel report={visible.openOrders} allowed={show.openOrders} onOpen={openSection} />
+              </div>
             </div>
-            <SpendTrendPanel report={visible.spending} allowed={show.spending} period={spendPeriod} onPeriod={setSpendPeriod} onOpen={openSection} />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <QueuesPanel report={visible.workload} allowed={show.workload} onOpen={openSection} />
-            <DeliveryPanel report={visible.openOrders} allowed={show.openOrders} onOpen={openSection} />
-            <OwedPanel report={visible.obligations} allowed={show.obligations} onOpen={openSection} />
+            <div className="flex min-w-0 flex-col gap-4">
+              <SpendTrendPanel report={visible.spending} allowed={show.spending} period={spendPeriod} onPeriod={setSpendPeriod} onOpen={openSection} />
+              <OwedPanel report={visible.obligations} allowed={show.obligations} onOpen={openSection} />
+            </div>
           </div>
 
           <div className="space-y-3 pt-2">
