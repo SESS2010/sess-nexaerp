@@ -1,10 +1,17 @@
 import { MasterImportPage } from './features/masters/MasterImportPage'
 import { useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import {
+  Archive, BadgeAlert, BadgeCheck, Boxes, Briefcase, Building2, Calculator, CalendarClock, CalendarRange, ChartBar, ChartColumn,
+  ClipboardList, Cog, CreditCard, Database, DoorOpen, Factory, FileCheck2, FileCode, FileSearch, FileSpreadsheet, FileText,
+  Handshake, House, Inbox, Landmark, Layers, LayoutDashboard, ListChecks, ListTree, Mail, Menu, Package, PackageCheck, PackageMinus,
+  Receipt, ReceiptText, Scale, Send, Settings, ShieldCheck, ShoppingBag, ShoppingCart, SlidersHorizontal, Store, Truck, Undo2,
+  Users, Wallet, Warehouse, Wrench, type LucideIcon,
+} from 'lucide-react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSection } from './components/NavSection'
 import { SessLogo } from './components/SessLogo'
 import { UserMenu } from './components/UserMenu'
+import { GlobalSearch } from './components/GlobalSearch'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { RequireAuth } from './features/auth/RequireAuth'
@@ -120,14 +127,57 @@ const TITLES: [prefix: string, title: string][] = [
   ['/design/estimated-boms', 'Estimated BOM'],
 ]
 
+/** Top-bar icon per area; the first matching prefix wins. */
+const TITLE_ICONS: [prefix: string, icon: LucideIcon][] = [
+  ['/dashboards/purchase', ShoppingCart],
+  ['/dashboards/stores', Store],
+  ['/tracking', Inbox],
+  ['/employees', Users],
+  ['/vendors', Building2],
+  ['/customers', Handshake],
+  ['/items', Package],
+  ['/company', Landmark],
+  ['/sales', Briefcase],
+  ['/purchase', ShoppingBag],
+  ['/qc', ShieldCheck],
+  ['/stores', Boxes],
+  ['/production', Factory],
+  ['/design', Calculator],
+  ['/accounts', Wallet],
+  ['/reports', ChartColumn],
+  ['/notifications', Inbox],
+  ['/admin', Settings],
+]
+
 function navLinkClass({ isActive }: { isActive: boolean }): string {
   return `nav-link${isActive ? ' active' : ''}`
+}
+
+/** Sidebar link: icon + label. */
+function Item({ to, icon: Icon, children, end, className }: { to: string; icon: LucideIcon; children: React.ReactNode; end?: boolean; className?: string }) {
+  return (
+    <NavLink to={to} end={end} className={(state) => `${navLinkClass(state)}${className ? ` ${className}` : ''}`}>
+      <Icon className="nav-icon" aria-hidden />
+      <span className="truncate">{children}</span>
+    </NavLink>
+  )
+}
+
+/** Planned screen: shown greyed out so users see what is coming. */
+function Soon({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) {
+  return (
+    <span className="nav-link disabled" title="Coming in a later release">
+      <Icon className="nav-icon" aria-hidden />
+      <span className="truncate">{children}</span>
+    </span>
+  )
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const match = TITLES.find(([prefix]) => location.pathname.startsWith(prefix))
   const title = match ? match[1] : 'Home'
+  const TitleIcon = TITLE_ICONS.find(([prefix]) => location.pathname.startsWith(prefix))?.[1] ?? House
   const inPurchase = location.pathname.startsWith('/purchase')
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')
@@ -162,83 +212,85 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="nav">
+          {/* Home is open to every signed-in employee: it needs only session/me. */}
+          <Item to="/" icon={House} end className="nav-home">Home</Item>
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
           {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can) || can('tracking.pending')) && (
-            <NavSection id="dashboards" label="Dashboards" defaultOpen>
-              {can('tracking.pending') && <NavLink to="/tracking/pending" className={navLinkClass}>Pending</NavLink>}
-              {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && <NavLink to="/dashboards/purchase" className={navLinkClass}>Purchase</NavLink>}
-              {canOpenAnyStoresSection(can) && <NavLink to="/dashboards/stores" className={navLinkClass}>Stores</NavLink>}
+            <NavSection id="dashboards" label="Dashboards" icon={LayoutDashboard} defaultOpen>
+              {can('tracking.pending') && <Item to="/tracking/pending" icon={Inbox}>Pending</Item>}
+              {PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) && <Item to="/dashboards/purchase" icon={ShoppingCart}>Purchase</Item>}
+              {canOpenAnyStoresSection(can) && <Item to="/dashboards/stores" icon={Store}>Stores</Item>}
             </NavSection>
           )}
-          <NavSection id="masters" label="Masters" defaultOpen={!inPurchase && !inSales && !inStores && !inProduction}>
-            {can(PAGE_KEYS.employees) && <NavLink to="/employees" className={navLinkClass}>Employee Master</NavLink>}
-            {can(PAGE_KEYS.vendors) && <NavLink to="/vendors" className={navLinkClass}>Vendor Master</NavLink>}
-            {can(PAGE_KEYS.customers) && <NavLink to="/customers" className={navLinkClass}>Customer Master</NavLink>}
-            {can(PAGE_KEYS.items) && <NavLink to="/items" className={navLinkClass}>Item Master</NavLink>}
-            {can('masters.uoms') && <NavLink to="/masters/uoms/import" className={navLinkClass}>UOM Import</NavLink>}
-            {can('masters.manufacturers') && <NavLink to="/masters/manufacturers/import" className={navLinkClass}>Manufacturer Import</NavLink>}
-            <NavLink to="/company/profile" className={navLinkClass}>Company Profile</NavLink>
-            <span className="nav-link disabled">Warehouse / Rack-Bin</span>
+          <NavSection id="masters" label="Masters" icon={Database} defaultOpen={!inPurchase && !inSales && !inStores && !inProduction}>
+            {can(PAGE_KEYS.employees) && <Item to="/employees" icon={Users}>Employee Master</Item>}
+            {can(PAGE_KEYS.vendors) && <Item to="/vendors" icon={Building2}>Vendor Master</Item>}
+            {can(PAGE_KEYS.customers) && <Item to="/customers" icon={Handshake}>Customer Master</Item>}
+            {can(PAGE_KEYS.items) && <Item to="/items" icon={Package}>Item Master</Item>}
+            {can('masters.uoms') && <Item to="/masters/uoms/import" icon={FileSpreadsheet}>UOM Import</Item>}
+            {can('masters.manufacturers') && <Item to="/masters/manufacturers/import" icon={FileSpreadsheet}>Manufacturer Import</Item>}
+            <Item to="/company/profile" icon={Landmark}>Company Profile</Item>
+            <Soon icon={Warehouse}>Warehouse / Rack-Bin</Soon>
           </NavSection>
 
-          <NavSection id="sales" label="Sales" defaultOpen={inSales}>
-            {can(PAGE_KEYS.customerPo) && <NavLink to="/sales/customer-po" className={navLinkClass}>Customer PO</NavLink>}
-            <span className="nav-link disabled">Contract Review</span>
-            <span className="nav-link disabled">Contract Confirmation</span>
-            <span className="nav-link disabled">Order Acceptance (OA)</span>
-            <span className="nav-link disabled">Proforma / Advance PI</span>
-            <span className="nav-link disabled">Sales Dispatch Request</span>
+          <NavSection id="sales" label="Sales" icon={Briefcase} defaultOpen={inSales}>
+            {can(PAGE_KEYS.customerPo) && <Item to="/sales/customer-po" icon={ClipboardList}>Customer PO</Item>}
+            <Soon icon={FileSearch}>Contract Review</Soon>
+            <Soon icon={FileCheck2}>Contract Confirmation</Soon>
+            <Soon icon={BadgeCheck}>Order Acceptance (OA)</Soon>
+            <Soon icon={ReceiptText}>Proforma / Advance PI</Soon>
+            <Soon icon={Truck}>Sales Dispatch Request</Soon>
           </NavSection>
 
-          <NavSection id="purchase" label="Purchase" defaultOpen={inPurchase}>
-            {can(PAGE_KEYS.requisitions) && <NavLink to="/purchase/requisitions" className={navLinkClass}>Purchase Requisition</NavLink>}
-            {can(PAGE_KEYS.rfq) && <NavLink to="/purchase/rfqs" className={navLinkClass}>RFQ</NavLink>}
-            {can(PAGE_KEYS.quotations) && <NavLink to="/purchase/quotations" className={navLinkClass}>Vendor Quotations</NavLink>}
-            {can(PAGE_KEYS.comparisons) && <NavLink to="/purchase/comparisons" className={navLinkClass}>Comparison</NavLink>}
-            {can(PAGE_KEYS.purchaseOrders) && <NavLink to="/purchase/purchase-orders" className={navLinkClass}>Purchase Order</NavLink>}
-            <span className="nav-link disabled">Material Follow-up</span>
+          <NavSection id="purchase" label="Purchase" icon={ShoppingBag} defaultOpen={inPurchase}>
+            {can(PAGE_KEYS.requisitions) && <Item to="/purchase/requisitions" icon={FileText}>Purchase Requisition</Item>}
+            {can(PAGE_KEYS.rfq) && <Item to="/purchase/rfqs" icon={Send}>RFQ</Item>}
+            {can(PAGE_KEYS.quotations) && <Item to="/purchase/quotations" icon={FileSpreadsheet}>Vendor Quotations</Item>}
+            {can(PAGE_KEYS.comparisons) && <Item to="/purchase/comparisons" icon={Scale}>Comparison</Item>}
+            {can(PAGE_KEYS.purchaseOrders) && <Item to="/purchase/purchase-orders" icon={ShoppingCart}>Purchase Order</Item>}
+            <Soon icon={CalendarClock}>Material Follow-up</Soon>
           </NavSection>
 
-          <NavSection id="stores" label="Stores" defaultOpen={inStores}>
-            {can(PAGE_KEYS.stockCheck, 'verify') && <NavLink to="/stores/stock-check" className={navLinkClass}>Stock Check</NavLink>}
-            {can(PAGE_KEYS.gateEntry) && <NavLink to="/stores/gate-entries" className={navLinkClass}>Gate Entry</NavLink>}
-            {can(PAGE_KEYS.grn) && <NavLink to="/stores/goods-receipts" className={navLinkClass}>GRN</NavLink>}
-            {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspections" className={navLinkClass}>QC / Inspection</NavLink>}
-            {can(PAGE_KEYS.qc) && <NavLink to="/qc/concessions" className={navLinkClass}>QC Concessions</NavLink>}
-            {can(PAGE_KEYS.qc) && <NavLink to="/qc/inspection-policies" className={navLinkClass}>QC Policies</NavLink>}
-            {can(PAGE_KEYS.materialIssueRequests) && <NavLink to="/stores/material-issue-requests" className={navLinkClass}>MIR</NavLink>}
-            {can(PAGE_KEYS.materialIssues) && <NavLink to="/stores/material-issues" className={navLinkClass}>Material Issues</NavLink>}
-            {can(PAGE_KEYS.materialReturns) && <NavLink to="/stores/material-returns" className={navLinkClass}>Material Returns</NavLink>}
-            {can(PAGE_KEYS.openingStock) && <NavLink to="/stores/opening-stock" className={navLinkClass}>Opening Stock</NavLink>}
-            {can(MACHINE_DELIVERY_PAGE) && <NavLink to="/stores/machine-deliveries" className={navLinkClass}>Machine DC</NavLink>}
-            {can(STOCK_ADJUSTMENT_PAGE_KEY) && <NavLink to="/stores/stock-adjustments" className={navLinkClass}>Stock Adjustment</NavLink>}
+          <NavSection id="stores" label="Stores" icon={Boxes} defaultOpen={inStores}>
+            {can(PAGE_KEYS.stockCheck, 'verify') && <Item to="/stores/stock-check" icon={Layers}>Stock Check</Item>}
+            {can(PAGE_KEYS.gateEntry) && <Item to="/stores/gate-entries" icon={DoorOpen}>Gate Entry</Item>}
+            {can(PAGE_KEYS.grn) && <Item to="/stores/goods-receipts" icon={PackageCheck}>GRN</Item>}
+            {can(PAGE_KEYS.qc) && <Item to="/qc/inspections" icon={ShieldCheck}>QC / Inspection</Item>}
+            {can(PAGE_KEYS.qc) && <Item to="/qc/concessions" icon={BadgeAlert}>QC Concessions</Item>}
+            {can(PAGE_KEYS.qc) && <Item to="/qc/inspection-policies" icon={ListChecks}>QC Policies</Item>}
+            {can(PAGE_KEYS.materialIssueRequests) && <Item to="/stores/material-issue-requests" icon={ClipboardList}>MIR</Item>}
+            {can(PAGE_KEYS.materialIssues) && <Item to="/stores/material-issues" icon={PackageMinus}>Material Issues</Item>}
+            {can(PAGE_KEYS.materialReturns) && <Item to="/stores/material-returns" icon={Undo2}>Material Returns</Item>}
+            {can(PAGE_KEYS.openingStock) && <Item to="/stores/opening-stock" icon={Archive}>Opening Stock</Item>}
+            {can(MACHINE_DELIVERY_PAGE) && <Item to="/stores/machine-deliveries" icon={Truck}>Machine DC</Item>}
+            {can(STOCK_ADJUSTMENT_PAGE_KEY) && <Item to="/stores/stock-adjustments" icon={SlidersHorizontal}>Stock Adjustment</Item>}
           </NavSection>
 
-          <NavSection id="production" label="Production" defaultOpen={inProduction}>
-            {can(PAGE_KEYS.jobOrders) && <NavLink to="/production/job-orders" className={navLinkClass}>Job Orders</NavLink>}
-            {can(PAGE_KEYS.estimatedBom) && <NavLink to="/design/estimated-boms" className={navLinkClass}>Estimated BOM</NavLink>}
-            {can(PAGE_KEYS.productionBom) && <NavLink to="/production/boms" className={navLinkClass}>Production BOM</NavLink>}
-            {can(PAGE_KEYS.componentFitments) && <NavLink to="/production/component-fitments" className={navLinkClass}>Fitments / Actual BOM</NavLink>}
-            <span className="nav-link disabled">Engineering Documents</span>
+          <NavSection id="production" label="Production" icon={Factory} defaultOpen={inProduction}>
+            {can(PAGE_KEYS.jobOrders) && <Item to="/production/job-orders" icon={Wrench}>Job Orders</Item>}
+            {can(PAGE_KEYS.estimatedBom) && <Item to="/design/estimated-boms" icon={Calculator}>Estimated BOM</Item>}
+            {can(PAGE_KEYS.productionBom) && <Item to="/production/boms" icon={ListTree}>Production BOM</Item>}
+            {can(PAGE_KEYS.componentFitments) && <Item to="/production/component-fitments" icon={Cog}>Fitments / Actual BOM</Item>}
+            <Soon icon={FileCode}>Engineering Documents</Soon>
           </NavSection>
 
           {(can(PAGE_KEYS.vendorBills) || can(PAGE_KEYS.vendorPayments) || can(INVENTORY_PERIODS_PAGE_KEY)) && (
-            <NavSection id="accounts" label="Accounts" defaultOpen={inAccounts}>
-              {can(PAGE_KEYS.vendorBills) && <NavLink to="/accounts/vendor-bills" className={navLinkClass}>Vendor Bills</NavLink>}
-              {can(PAGE_KEYS.vendorPayments) && <NavLink to="/accounts/vendor-payments" className={navLinkClass}>Vendor Payments</NavLink>}
-              {can(INVENTORY_PERIODS_PAGE_KEY) && <NavLink to="/accounts/inventory-periods" className={navLinkClass}>Inventory Periods</NavLink>}
+            <NavSection id="accounts" label="Accounts" icon={Wallet} defaultOpen={inAccounts}>
+              {can(PAGE_KEYS.vendorBills) && <Item to="/accounts/vendor-bills" icon={Receipt}>Vendor Bills</Item>}
+              {can(PAGE_KEYS.vendorPayments) && <Item to="/accounts/vendor-payments" icon={CreditCard}>Vendor Payments</Item>}
+              {can(INVENTORY_PERIODS_PAGE_KEY) && <Item to="/accounts/inventory-periods" icon={CalendarRange}>Inventory Periods</Item>}
             </NavSection>
           )}
 
           {/* Report access is decided per report by the server (report_grants); the
               catalogue shows what the session may open, so the link needs no page key. */}
-          <NavSection id="reports" label="Reports" defaultOpen={inReports}>
-            <NavLink to="/reports" className={navLinkClass}>Company reports</NavLink>
+          <NavSection id="reports" label="Reports" icon={ChartColumn} defaultOpen={inReports}>
+            <Item to="/reports" icon={ChartBar}>Company reports</Item>
           </NavSection>
 
           {can(EMAIL_LOG_PAGE_KEY) && (
-            <NavSection id="admin" label="Admin" defaultOpen={inAdmin}>
-              <NavLink to="/admin/email" className={navLinkClass}>E-mail log</NavLink>
+            <NavSection id="admin" label="Admin" icon={Settings} defaultOpen={inAdmin}>
+              <Item to="/admin/email" icon={Mail}>E-mail log</Item>
             </NavSection>
           )}
         </nav>
@@ -254,9 +306,18 @@ function Shell({ children }: { children: React.ReactNode }) {
               aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
               aria-expanded={!menuHidden}
             >
-              {menuHidden ? <PanelLeftOpen size={18} aria-hidden /> : <PanelLeftClose size={18} aria-hidden />}
+              <Menu size={20} aria-hidden />
             </button>
-            <div className="topbar-title">{title}</div>
+            {/* Home carries its own greeting, so the bar shows the search only. */}
+            {location.pathname !== '/' && (
+              <>
+                <span className="topbar-icon" aria-hidden><TitleIcon size={20} /></span>
+                <div className="topbar-title">{title}</div>
+              </>
+            )}
+          </div>
+          <div className="mx-6 flex min-w-0 flex-1 justify-center">
+            <GlobalSearch />
           </div>
           <div className="topbar-actions">
             <NotificationBell />

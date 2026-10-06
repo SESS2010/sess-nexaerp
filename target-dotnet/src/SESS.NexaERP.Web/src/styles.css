@@ -26,7 +26,7 @@ body {
 
 /* Fixed rail: scrolls on its own when the menu is long, with the scrollbar hidden. */
 .sidebar {
-  @apply w-60 shrink-0 flex h-full flex-col overflow-y-auto overscroll-contain text-slate-400;
+  @apply w-64 shrink-0 flex h-full flex-col overflow-y-auto overscroll-contain text-slate-400;
   background: linear-gradient(180deg, var(--color-shell) 0%, #101c33 100%);
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -35,14 +35,14 @@ body {
 /* Hidden menu: slides away so the screen gets the full width. */
 .sidebar { transition: width 150ms ease, opacity 150ms ease; }
 .sidebar-hidden { @apply w-0 overflow-hidden opacity-0; }
-.menu-toggle { @apply inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800; }
+.menu-toggle { @apply mr-1 inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 hover:text-slate-900; }
 
 .brand {
   @apply sticky top-0 z-10 flex shrink-0 items-center gap-3 overflow-hidden px-5 py-5 border-b border-white/[0.06];
   background: var(--color-shell);
 }
 .brand-mark {
-  @apply grid size-9 shrink-0 place-items-center rounded-lg text-white shadow-lg shadow-blue-900/40;
+  @apply grid size-11 shrink-0 place-items-center rounded-lg text-white shadow-lg shadow-blue-900/40;
   background: linear-gradient(135deg, #2563eb, #1e40af);
 }
 .brand-mark svg { @apply size-full; }
@@ -52,13 +52,20 @@ body {
 .nav { @apply flex flex-col gap-0.5 px-3 pb-6 pt-4; }
 .nav-section { @apply px-3 pt-5 pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-500/90; }
 .nav-link {
-  @apply block rounded-lg px-3 py-2 text-[13.5px] font-medium text-slate-300 no-underline
-         transition-colors duration-150 hover:bg-white/[0.05] hover:text-white;
+  @apply flex items-center gap-3 rounded-lg py-2 pl-5 pr-3 text-[13.5px] font-medium text-slate-300 no-underline
+         transition-colors duration-150 hover:bg-white/[0.06] hover:text-white;
 }
+.nav-icon { @apply size-[17px] shrink-0 text-slate-400 transition-colors; stroke-width: 1.8; }
+.nav-link:hover .nav-icon { @apply text-slate-200; }
 .nav-link.active {
-  @apply bg-accent text-white shadow-md shadow-blue-950/40;
+  @apply bg-gradient-to-r from-blue-600 to-sky-400 text-white shadow-lg shadow-blue-500/30;
 }
+/* Home: the first, larger pill at the top of the menu. */
+.nav-link.nav-home { @apply mb-2 py-3 text-[15px] font-semibold; }
+.nav-link.nav-home .nav-icon { @apply size-5; }
+.nav-link.active .nav-icon { @apply text-white; }
 .nav-link.disabled { @apply cursor-not-allowed text-slate-600 hover:bg-transparent hover:text-slate-600; }
+.nav-link.disabled .nav-icon { @apply text-slate-600; }
 
 /* Home page shortcut tiles (light surface, unlike the sidebar nav links). */
 .home-tile {
@@ -75,10 +82,13 @@ body {
 .nav-group { @apply flex flex-col; }
 .nav-section-toggle {
   @apply flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border-0 bg-transparent
-         px-3 pt-5 pb-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.14em]
-         text-slate-500/90 transition-colors hover:text-slate-300
+         px-3 pt-5 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.14em]
+         text-slate-300 transition-colors hover:text-white
          focus-visible:ring-2 focus-visible:ring-blue-500/40;
 }
+.nav-section-label { @apply flex items-center gap-3; }
+.nav-section-icon { @apply size-[18px] shrink-0 text-slate-400; stroke-width: 1.8; }
+.nav-group + .nav-group { @apply mt-1 border-t border-white/[0.06]; }
 .nav-chevron { @apply grid size-4 place-items-center text-slate-500 transition-transform duration-200; }
 .nav-chevron.open { @apply rotate-180 text-slate-400; }
 .nav-group-body { @apply flex flex-col gap-0.5; }
@@ -87,10 +97,11 @@ body {
 .main { @apply flex h-full min-w-0 flex-1 flex-col overflow-hidden; }
 
 .topbar {
-  @apply sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line
+  @apply sticky top-0 z-30 flex h-[72px] items-center justify-between border-b border-line
          bg-white/85 px-6 backdrop-blur-md;
 }
-.topbar-title { @apply text-[15px] font-semibold tracking-tight; }
+.topbar-icon { @apply grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600; }
+.topbar-title { @apply text-[18px] font-bold tracking-tight text-slate-900; }
 .topbar-actions { @apply flex items-center gap-3; }
 
 .content { @apply min-h-0 flex-1 overflow-auto px-6 py-6 lg:px-8; }
@@ -318,7 +329,7 @@ body {
 /* ---------- User menu ---------- */
 .user-menu { @apply flex items-center gap-2.5; }
 .user-chip {
-  @apply inline-flex items-center gap-2 rounded-full border border-line bg-slate-50 py-1 pl-3 pr-3.5 text-[12.5px];
+  @apply inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white pl-4 pr-4 text-[12.5px] shadow-sm;
 }
 .user-chip .mono { @apply font-semibold text-ink; }
 .user-org { @apply text-[11.5px] text-ink-faint; }
