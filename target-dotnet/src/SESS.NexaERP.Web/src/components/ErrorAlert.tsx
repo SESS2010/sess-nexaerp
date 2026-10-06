@@ -248,6 +248,85 @@ function classifyConflict(message: string, code?: string): Conflict {
   }
 }
 
+interface Failure {
+  title: string
+  guidance: string
+  /** One plain line per rejected field, e.g. "Line 2 · Quantity: must be greater than 0". */
+  fields: string[]
+  reloadable: boolean
+}
+
+/** "Lines[1].RequiredDate" → "Line 2 · Required date". */
+export function humanizeField(path: string): string {
+  return path
+    .split('.')
+    .filter(Boolean)
+    .map((part) => {
+      const indexed = /^(\w+)\[(\d+)\]$/.exec(part)
+      // "Lines[1]" names one line: singular, but leave "Address" alone.
+      const word = (indexed ? indexed[1].replace(/([^s])s$/, '$1') : part).replace(/^\$/, '')
+      const spaced = word
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .toLowerCase()
+      const label = spaced.charAt(0).toUpperCase() + spaced.slice(1)
+      return indexed ? `${label} ${Number(indexed[2]) + 1}` : label
+    })
+    .join(' · ')
+}
+
+/**
+ * Plain-language wording for the failures that are not access refusals or
+ * conflicts: field validation (400/422), a missing record (404), the server
+ * failing (5xx) and the network being down. Returns null for a plain string or
+ * an unrecognised error, which keep the old one-line banner.
+ */
+export function describeFailure(error: unknown): Failure | null {
+  if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
+    return {
+      title: 'The ERP response could not be confirmed',
+      guidance: 'Check that this PC is on the office network. The result could not be confirmed. Check the record before retrying.',
+      fields: [],
+      reloadable: true,
+    }
+  }
+  if (!(error instanceof ApiError)) return null
+
+  if (error.status === 400 || error.status === 422) {
+    const fields = Object.entries(error.errors ?? {}).map(
+      ([field, messages]) => `${humanizeField(field)}: ${messages.join('; ')}`,
+    )
+    return {
+      title: fields.length > 0 ? 'Please correct the highlighted entries' : 'This entry was not accepted',
+      guidance:
+        fields.length > 0
+          ? 'Nothing was saved. Fix the items below and submit again.'
+          : `Nothing was saved. ${error.envelope?.Detail || error.envelope?.Title || 'Check the values you entered and submit again.'}`,
+      fields,
+      reloadable: false,
+    }
+  }
+  if (error.status === 404) {
+    return {
+      title: 'This record was not found',
+      guidance:
+        'It may belong to the other company, or it was removed. Check the company at the top, then open it again from the list.',
+      fields: [],
+      reloadable: true,
+    }
+  }
+  if (error.status >= 500) {
+    return {
+      title: 'The ERP server could not complete this',
+      guidance:
+        'This is not a mistake in your entry. Reload to check whether it was saved before trying again. If it keeps happening, send a screenshot with the trace number to SURANTHER.',
+      fields: [],
+      reloadable: true,
+    }
+  }
+  return null
+}
+
 /** Identity refusals from server-frontend-oidc-contract.md, branched on Code. */
 const AUTH_CODES = new Set(['EMPLOYEE_ACCESS_NOT_CONFIGURED', 'MFA_REQUIRED', 'AUTHENTICATION_REQUIRED'])
 
@@ -336,9 +415,35 @@ export function ErrorAlert({ error, onReload, fallback = 'Something went wrong.'
   }
 
   if (!isConflict) {
+    const failure = describeFailure(error)
+    if (!failure) {
+      return (
+        <div className={`alert alert-error ${className}`.trim()} role="alert">
+          {message || fallback}
+        </div>
+      )
+    }
     return (
       <div className={`alert alert-error ${className}`.trim()} role="alert">
-        {message || fallback}
+        <div className="alert-title">{failure.title}</div>
+        <p className="alert-body">{failure.guidance}</p>
+        {failure.fields.length > 0 && (
+          <ul className="alert-body">
+            {failure.fields.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+        {error instanceof ApiError && error.traceId && <p className="alert-detail mono">Trace {error.traceId}</p>}
+        <details className="alert-detail">
+          <summary>Technical detail</summary>
+          <p className="mono">{message}</p>
+        </details>
+        {failure.reloadable && onReload && (
+          <button type="button" className="btn btn-ghost mt-2" onClick={onReload}>
+            ↻ Try again
+          </button>
+        )}
       </div>
     )
   }
