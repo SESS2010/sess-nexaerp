@@ -404,7 +404,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     qcStock is null ? null : (stage,id)=>qcStock(new(options,runtimeConnection,stage,id,band.Code)),
                     supplierInvoices is null && intercompanyPurchase is null ? null : async (stage,id) =>
                     {
-                        var context = new SupplierInvoiceWitnessContext(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection);
+                        var context = new SupplierInvoiceWitnessContext(client,options,user,stage,id,band.Code,managerId,purchaseId,storesId,runtimeConnection,accountsSupportId,useIndependentSupportActors ? R1AccountsSupportEmployeeCode : "SESS-41");
                         if (supplierInvoices is not null) await supplierInvoices(context);
                         if (intercompanyPurchase is not null) await intercompanyPurchase(context);
                     }, technicalWitnessClient: multiSerialQcWitness ? qcHost.Client : null,
@@ -579,9 +579,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.InRange(invoiceRequestedQuantity * extraBand.PrAmount, 5000m, 100000m);
                 var partialGrn=await RunPurchaseBand(adminClient,approvalClient,client,options,user,extraBand,
                     creatorId,managerId,tdId,mdId,verifierId,purchaseId,storesId,qcId,vendor1Id,vendor2Id,
-                    supplierInvoices:(stage,id)=>supplierInvoices(new(client,options,user,stage,id,"INVOICE",managerId,purchaseId,storesId,runtimeConnection)),
+                    supplierInvoices:(stage,id)=>supplierInvoices(new(client,options,user,stage,id,"INVOICE",managerId,purchaseId,storesId,runtimeConnection,accountsSupportId,useIndependentSupportActors ? R1AccountsSupportEmployeeCode : "SESS-41")),
                     receiptQuantity:.4m, requestedQuantity:invoiceRequestedQuantity);
-                await supplierInvoices(new(client,options,user,"FINAL",partialGrn.PurchaseOrderId,"INVOICE",managerId,purchaseId,storesId,runtimeConnection));
+                await supplierInvoices(new(client,options,user,"FINAL",partialGrn.PurchaseOrderId,"INVOICE",managerId,purchaseId,storesId,runtimeConnection,accountsSupportId,useIndependentSupportActors ? R1AccountsSupportEmployeeCode : "SESS-41"));
             }
 #if REPORT_VOLUME_WITNESS
             if (returnRace is null && grnRace is null && mirRace is null && prRace is null && billRace is null && issueRace is null && paymentRace is null && qcCorrection is null && qcRace is null && fifoRace is null && mixedRun is null && obligations is null && openOrders is null && openOrderAmendment is null && storesWorkload is null && qcStock is null && fifoPartialReturn is null && supplierInvoices is null) await RunReportVolumeWitness(options,runtimeConnection);
