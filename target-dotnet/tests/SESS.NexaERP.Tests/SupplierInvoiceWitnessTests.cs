@@ -16,7 +16,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private sealed record SupplierInvoiceWitnessContext(HttpClient Client,DbContextOptions<NexaErpDbContext> Options,
         TaxWorkflowUser User,string Stage,Guid PurchaseOrderId,string Band,Guid AccountsId,Guid PurchaseId,
-        Guid StoresId,string RuntimeConnection);
+        Guid StoresId,string RuntimeConnection,Guid AccountsAssistantId,string AccountsAssistantCode);
 #if WORKFLOW_WITNESS
     [Fact]
     public Task SupplierInvoicesTrackRealReceiptsReversalsAndImmutableEvidence()
@@ -49,8 +49,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     "supplier-invoice-"+context.Band);
                 await AssertPostStatus(client,"/api/v1/accounts/supplier-invoices/",
                     request with { CurrencyCode="USD",IdempotencyKey=request.IdempotencyKey+"-wrong-currency" },HttpStatusCode.Conflict);
-                var assistantId=await db.Employees.Where(x=>x.EmployeeCode=="SESS-41").Select(x=>x.Id).SingleAsync();
-                user.Set(assistantId,"SESS-41","ACCOUNTS_ASSISTANT");
+                var assistantId=context.AccountsAssistantId;
+                user.Set(assistantId,context.AccountsAssistantCode,"ACCOUNTS_ASSISTANT");
                 var assistantOptions=await Get<PagedResponse<SupplierInvoicePurchaseOrderOption>>(client,
                     $"/api/v1/accounts/supplier-invoices/purchase-order-options?search={Uri.EscapeDataString(po.PoNumber)}");
                 Assert.Equal(selectedPo.Id,Assert.Single(assistantOptions.Items).Id);

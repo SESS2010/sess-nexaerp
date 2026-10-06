@@ -218,7 +218,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static async Task AssertR1RosterManifest(string connectionString)
     {
         await using var db = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(connectionString).Options);
-        foreach (var date in new[] {new DateOnly(2026,10,10),new DateOnly(2026,10,11)})
+        foreach (var date in new[] {new DateOnly(2026,10,10),new DateOnly(2026,10,11),new DateOnly(2026,10,15)})
         foreach (var companyCode in new[] {"SESS_PVT_LTD","SESS_PROPRIETORSHIP"})
         {
             var company = await db.Companies.SingleAsync(x => x.Code == companyCode);
