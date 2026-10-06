@@ -51,6 +51,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var employee = await db.Employees.Where(x => x.EmployeeCode == "SESS-15").Select(x => x.Id).SingleAsync();
             var companyId = await db.Companies.Where(x => x.Code == company).Select(x => x.Id).SingleAsync();
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            // PROP has no seeded final-approver policy: configure the same independent MD prerequisite in this disposable fixture only.
+            if (!await db.OrganizationPolicies.AnyAsync(x => x.OrganizationId == company && x.PolicyCode == Rev869APolicyCodes.VendorFinalApprover))
+            {
+                db.OrganizationPolicies.Add(new OrganizationPolicy
+                {
+                    CompanyId = companyId, OrganizationId = company, PolicyCode = Rev869APolicyCodes.VendorFinalApprover,
+                    PolicyValue = "MANAGING_DIRECTOR", EffectiveFrom = today, CreatedBy = "vendor-owner-disposable-fixture"
+                });
+                await db.SaveChangesAsync();
+            }
             var assignments = await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
                 .Where(x => x.EmployeeId == employee && x.CompanyId == companyId && x.EffectiveFrom <= today &&
                     (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today) &&
