@@ -284,8 +284,8 @@ export function humanizeField(path: string): string {
 export function describeFailure(error: unknown): Failure | null {
   if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
     return {
-      title: 'The ERP server could not be reached',
-      guidance: 'Check that this PC is on the office network, then try again. Nothing was saved.',
+      title: 'The ERP response could not be confirmed',
+      guidance: 'Check that this PC is on the office network. The result could not be confirmed. Check the record before retrying.',
       fields: [],
       reloadable: true,
     }
