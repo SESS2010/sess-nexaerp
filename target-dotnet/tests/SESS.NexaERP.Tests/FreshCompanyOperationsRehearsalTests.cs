@@ -358,7 +358,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             ("pending-approvals", "SESS-41", "STORES_MANAGER", "?mode=details&pageSize=1000", true)
         })
         {
-            Actor(code, role, code == "SESS-15" ? new[] { "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER", "STORES_EXECUTIVE" } : new[] { role });
+            Actor(code, role, code == "SESS-15" ? new[] { "PURCHASE_EXECUTIVE", "PURCHASE_MANAGER" } : new[] { role });
             var page = await Get<CompanyReportPage>(client, WitnessReportPath($"/api/v1/reports/{key}{query}"));
             reportRows[key] = page.TotalRows;
             Assert.True(!expectRows || page.Rows.Count > 0, $"Report {key} returned no rows.");

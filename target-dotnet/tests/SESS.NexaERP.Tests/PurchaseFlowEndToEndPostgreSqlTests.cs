@@ -2443,7 +2443,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             bool useRealOperationalScopes = false,
             bool denyLifecycleScope = false, Func<Microsoft.AspNetCore.Http.HttpContext, TaxWorkflowUser>? requestUser = null,
             Action<ICurrentUser, bool>? observeRequest = null,
-            Func<Microsoft.AspNetCore.Http.HttpContext, ICurrentUser, Action>? captureRequest = null)
+            Func<Microsoft.AspNetCore.Http.HttpContext, ICurrentUser, Action>? captureRequest = null,
+            IDateTimeProvider? dateTimeProvider = null)
         {
             var port = FreePurchaseFlowPort();
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
@@ -2463,6 +2464,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             builder.Services.AddAuthorization();
             builder.Services.ConfigureHttpJsonOptions(x => ApiJsonContract.Configure(x.SerializerOptions));
             builder.Services.AddInfrastructure(builder.Configuration);
+            if (dateTimeProvider is not null) builder.Services.AddSingleton<IDateTimeProvider>(dateTimeProvider);
             if (requestUser is null) builder.Services.AddScoped<ICurrentUser>(_ => user.ForRequest());
             else
             {
