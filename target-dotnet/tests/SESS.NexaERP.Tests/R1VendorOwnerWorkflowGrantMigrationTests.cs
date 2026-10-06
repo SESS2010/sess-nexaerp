@@ -162,7 +162,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("vendor-owner-down-for-existing.sql", down);
         server.Execute("vendor-owner-site-grant.sql", """
             UPDATE advance.role_page_permissions g SET "CanSubmit"=true,"CanUploadAttachment"=true,
-              "UpdatedBy"='TD_APPROVED_DEMO_SETUP',"Version"="Version"+1
+              "UpdatedBy"='TD_APPROVED_DEMO_SETUP',"Version"=g."Version"+1
             FROM advance.roles r,advance.page_definitions p WHERE r."Id"=g."RoleId" AND p."Id"=g."PageDefinitionId"
               AND r."Code"='PURCHASE_MANAGER' AND p."PageKey"='masters.vendors';
             """);
