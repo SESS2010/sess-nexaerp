@@ -34,6 +34,12 @@ export function invitationLabel(invitation: RfqInvitationCandidate): string {
   return `${invitation.RfqNumber} · ${invitation.VendorCode} — ${invitation.VendorName} (${revision})`
 }
 
+/** RFQ detail: the server's invitations for one RFQ (number compared case-insensitively). */
+export function invitationsForRfq(rows: RfqInvitationCandidate[], rfqNumber: string): RfqInvitationCandidate[] {
+  const wanted = rfqNumber.trim().toUpperCase()
+  return sortInvitations(rows.filter((row) => row.RfqNumber.toUpperCase() === wanted))
+}
+
 /** Invitations sorted by RFQ number then vendor code, as the server already returns them. */
 export function sortInvitations(invitations: RfqInvitationCandidate[]): RfqInvitationCandidate[] {
   return [...invitations].sort((a, b) =>
@@ -72,6 +78,26 @@ export function previousVersionFor(invitation: RfqInvitationCandidate | null): n
   return invitation?.CurrentQuotationVersion ?? null
 }
 
+/** Status the server requires before technical verification (VerifyTechnicalAsync). */
+export const VERIFIABLE_QUOTATION_STATUS = 'Submitted'
+/** Line snapshot a comparison carries for a technically compliant quotation. */
+export const TECHNICALLY_COMPLIANT = 'TechnicallyCompliant'
+
+/**
+ * Quotations DINESH can verify: current submitted ones, by number. Filtered
+ * here because GET /quotations?status= upper-cases the value and never matches.
+ */
+export function verifiableQuotations(rows: QuotationListItem[]): QuotationListItem[] {
+  return rows
+    .filter((row) => row.Status === VERIFIABLE_QUOTATION_STATUS)
+    .sort((a, b) => a.QuotationNumber.localeCompare(b.QuotationNumber))
+}
+
+/** Dropdown text for a quotation. */
+export function quotationOptionLabel(row: Pick<QuotationListItem, 'QuotationNumber' | 'RfqNumber' | 'VendorCode' | 'VendorName'>): string {
+  return `${row.QuotationNumber} · ${row.RfqNumber} · ${row.VendorCode} — ${row.VendorName}`
+}
+
 /** Dropdown text for a quotation line to verify. */
 export function quotationLineLabel(line: QuotationDetail['Lines'][number]): string {
   return `Line ${line.LineNumber} · ${line.ItemCode} — ${line.ItemName}`
@@ -84,7 +110,8 @@ export interface QuotationChoice {
 
 /**
  * Quotations a comparison can recommend: the distinct parent quotations of its
- * lines, labelled with the quotation number and vendor when the list knows them.
+ * technically compliant lines, labelled with the quotation number and vendor
+ * when the list knows them.
  */
 export function comparisonQuotationChoices(
   lines: ComparisonLine[],
@@ -95,7 +122,7 @@ export function comparisonQuotationChoices(
   const choices: QuotationChoice[] = []
   for (const line of lines) {
     const id = line.VendorQuotationId
-    if (!id || seen.has(id)) continue
+    if (!id || seen.has(id) || line.TechnicalComplianceSnapshot !== TECHNICALLY_COMPLIANT) continue
     seen.add(id)
     const quotation = byId.get(id)
     choices.push({

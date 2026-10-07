@@ -6,8 +6,11 @@ import {
   comparisonQuotationChoices,
   draftLinesFor,
   invitationLabel,
+  invitationsForRfq,
   previousVersionFor,
+  quotationOptionLabel,
   sortInvitations,
+  verifiableQuotations,
 } from './quotationDraft.ts'
 import type {
   ComparisonLine,
@@ -74,9 +77,9 @@ test('previous quotation version is null for a first quotation and the current v
 
 test('comparison choices are the distinct parent quotations, labelled by number and vendor', () => {
   const lines = [
-    { Id: 'l1', VendorQuotationLineId: 'ql1', VendorQuotationId: 'q-a' },
-    { Id: 'l2', VendorQuotationLineId: 'ql2', VendorQuotationId: 'q-a' },
-    { Id: 'l3', VendorQuotationLineId: 'ql3', VendorQuotationId: 'q-b' },
+    { Id: 'l1', VendorQuotationLineId: 'ql1', VendorQuotationId: 'q-a', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+    { Id: 'l2', VendorQuotationLineId: 'ql2', VendorQuotationId: 'q-a', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+    { Id: 'l3', VendorQuotationLineId: 'ql3', VendorQuotationId: 'q-b', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
   ] as ComparisonLine[]
   const known = [
     { Id: 'q-a', QuotationNumber: 'VQ-2627-00001', VendorCode: 'V-0012', VendorName: 'Sri Ganesh Traders' },
@@ -85,4 +88,42 @@ test('comparison choices are the distinct parent quotations, labelled by number 
   assert.deepEqual(choices.map((choice) => choice.quotationId), ['q-a', 'q-b'])
   assert.equal(choices[0].label, 'VQ-2627-00001 · V-0012 — Sri Ganesh Traders')
   assert.ok(!choices[1].label.includes('q-b'))
+})
+
+// 1 · RFQ detail reads invitations from the server list
+test('RFQ detail keeps only its own invitations, case-insensitively, sorted by vendor', () => {
+  const rows = [
+    invitation({ InvitationId: 'x', RfqNumber: 'RFQ-2627-00009' }),
+    invitation({ InvitationId: 'b', VendorCode: 'V-0020' }),
+    invitation({ InvitationId: 'a', VendorCode: 'V-0003' }),
+  ]
+  assert.deepEqual(invitationsForRfq(rows, ' rfq-2627-00004 ').map((row) => row.InvitationId), ['a', 'b'])
+  assert.deepEqual(invitationsForRfq([], 'RFQ-2627-00004'), [])
+})
+
+// 3 · technical verification offers only quotations the server will accept
+test('verification dropdown lists only Submitted quotations, by number', () => {
+  const rows = [
+    { Id: '3', QuotationNumber: 'VQ-2627-00003', Status: 'Submitted' },
+    { Id: '1', QuotationNumber: 'VQ-2627-00001', Status: 'TechnicallyCompliant' },
+    { Id: '2', QuotationNumber: 'VQ-2627-00002', Status: 'Submitted' },
+    { Id: '4', QuotationNumber: 'VQ-2627-00004', Status: 'Superseded' },
+  ] as QuotationListItem[]
+  assert.deepEqual(verifiableQuotations(rows).map((row) => row.Id), ['2', '3'])
+})
+
+test('quotation option label is number, RFQ and vendor', () => {
+  assert.equal(
+    quotationOptionLabel({ QuotationNumber: 'VQ-2627-00002', RfqNumber: 'RFQ-2627-00004', VendorCode: 'V-0012', VendorName: 'Sri Ganesh Traders' }),
+    'VQ-2627-00002 · RFQ-2627-00004 · V-0012 — Sri Ganesh Traders',
+  )
+})
+
+// 4 · comparison recommends only technically compliant quotations
+test('comparison choices skip quotations whose lines are not technically compliant', () => {
+  const lines = [
+    { Id: 'l1', VendorQuotationLineId: 'ql1', VendorQuotationId: 'q-ok', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+    { Id: 'l2', VendorQuotationLineId: 'ql2', VendorQuotationId: 'q-bad', TechnicalComplianceSnapshot: 'TechnicallyRejected' },
+  ] as ComparisonLine[]
+  assert.deepEqual(comparisonQuotationChoices(lines, []).map((choice) => choice.quotationId), ['q-ok'])
 })

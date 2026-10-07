@@ -15,6 +15,8 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
+import { CopyId } from '../../components/CopyId'
+import { invitationsForRfq } from './quotationDraft'
 
 
 export function RfqDetailPage() {
@@ -57,10 +59,8 @@ export function RfqDetailPage() {
 
   const loadInvitations = useCallback(async () => {
     if (!canRecordQuotation) return
-    const wanted = rfqNumber.trim().toUpperCase()
     try {
-      const rows = await listRfqInvitations()
-      setInvitations(rows.filter((row) => row.RfqNumber.toUpperCase() === wanted))
+      setInvitations(invitationsForRfq(await listRfqInvitations(), rfqNumber))
     } catch {
       setInvitations([])
     }
@@ -271,7 +271,10 @@ export function RfqDetailPage() {
                 )}
                 {invitations.map((invitation) => (
                   <tr key={invitation.InvitationId}>
-                    <td>{invitation.VendorCode} — {invitation.VendorName}</td>
+                    <td>
+                      {invitation.VendorCode} — {invitation.VendorName}
+                      <div><CopyId label="Invitation id" value={invitation.InvitationId} /></div>
+                    </td>
                     <td><StatusBadge value={invitation.Status} /></td>
                     <td>{invitation.CurrentQuotationVersion == null ? 'Not yet received' : 'Received'}</td>
                     <td>{new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}</td>

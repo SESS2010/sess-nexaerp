@@ -16,6 +16,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
+import { CopyId } from '../../components/CopyId'
 
 interface ActionDefinition {
   action: ComparisonAction
@@ -238,6 +239,7 @@ export function ComparisonDetailPage() {
             {comparison.RecommendedVendorQuotationId
               ? quotationLabelById.get(comparison.RecommendedVendorQuotationId) ?? 'Recorded'
               : '—'}
+            <CopyId value={comparison.RecommendedVendorQuotationId} />
           </div>
           {comparison.RecommendationRemarks && (
             <div className="detail-field field-wide">
@@ -275,7 +277,11 @@ export function ComparisonDetailPage() {
             )}
             {lines.map((line) => (
               <tr key={line.Id} className={line.IsRecommended ? 'row-selected' : undefined}>
-                <td>{quotationLabelById.get(line.VendorQuotationId) ?? '—'}</td>
+                <td>
+                  {quotationLabelById.get(line.VendorQuotationId) ?? '—'}
+                  <div><CopyId label="Quotation id" value={line.VendorQuotationId} /></div>
+                  <div><CopyId label="Line id" value={line.VendorQuotationLineId} /></div>
+                </td>
                 <td><StatusBadge value={line.TechnicalComplianceSnapshot || 'Unknown'} /></td>
                 <td>{line.DeliverySnapshot || '—'}</td>
                 <td>{line.WarrantySnapshot ?? 'Masked'}</td>
@@ -309,11 +315,14 @@ export function ComparisonDetailPage() {
           <label className="field field-wide">
             <span className="field-label">Winning vendor quotation *</span>
             <select className="input" value={quotationId} onChange={(e) => setQuotationId(e.target.value)}>
-              <option value="">Choose the quotation to recommend</option>
+              <option value="">
+                {quotationChoices.length === 0 ? 'No technically compliant quotation on this comparison' : 'Choose the quotation to recommend'}
+              </option>
               {quotationChoices.map((choice) => (
                 <option key={choice.quotationId} value={choice.quotationId}>{choice.label}</option>
               ))}
             </select>
+            <CopyId label="Quotation id" value={quotationId} />
           </label>
           <label className="field field-wide">
             <span className="field-label">Recommendation remarks *</span>

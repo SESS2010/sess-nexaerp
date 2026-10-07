@@ -4,6 +4,7 @@ import {
   getQuotation,
   getQuotationTaxContext,
   getRfq,
+  listQuotations,
   listRfqInvitations,
   newIdempotencyKey,
   quotationAttachmentUrl,
@@ -14,6 +15,7 @@ import {
 import { authorizedFetch, saveResponseAsFile } from '../../api/client'
 import type {
   QuotationDetail,
+  QuotationListItem,
   QuotationLineRequest,
   QuotationTaxContext,
   RfqInvitationCandidate,
@@ -27,12 +29,15 @@ import {
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { CopyId } from '../../components/CopyId'
 import {
   draftLinesFor,
   invitationLabel,
   previousVersionFor,
   quotationLineLabel,
+  quotationOptionLabel,
   sortInvitations,
+  verifiableQuotations,
 } from './quotationDraft'
 import type { DraftQuoteLine } from './quotationDraft'
 
@@ -111,6 +116,7 @@ export function QuotationPage() {
   // --- technical verification (lines from GET /quotations/{number}) ---
   const [verifyQuotationNumber, setVerifyQuotationNumber] = useState(params.get('quotation') ?? '')
   const [verifyQuotation, setVerifyQuotation] = useState<QuotationDetail | null>(null)
+  const [pendingQuotations, setPendingQuotations] = useState<QuotationListItem[]>([])
   const [loadingVerifyQuotation, setLoadingVerifyQuotation] = useState(false)
   const [verifyLineId, setVerifyLineId] = useState('')
   const [verifyCompliant, setVerifyCompliant] = useState(true)
@@ -207,10 +213,31 @@ export function QuotationPage() {
     }
   }, [])
 
+  // Quotations waiting for technical verification (current, Submitted).
+  const loadPendingQuotations = useCallback(async () => {
+    if (!canReadQuotation) return
+    try {
+      const page = await listQuotations({ page: 1, pageSize: 100 })
+      setPendingQuotations(verifiableQuotations(page.Items))
+    } catch (err) {
+      setPendingQuotations([])
+      setError(err)
+    }
+  }, [canReadQuotation])
+
+  useEffect(() => {
+    void loadPendingQuotations()
+  }, [loadPendingQuotations])
+
   useEffect(() => {
     const initial = params.get('quotation')
     if (initial && canReadQuotation) void loadVerifyQuotation(initial)
   }, [params, canReadQuotation, loadVerifyQuotation])
+
+  const chooseVerifyQuotation = (number: string) => {
+    setVerifyQuotationNumber(number)
+    void loadVerifyQuotation(number)
+  }
 
   const setLine = (index: number, patch: Partial<DraftQuoteLine>) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
@@ -292,6 +319,7 @@ export function QuotationPage() {
       // The invitation now carries a current quotation version; refresh so a
       // revision sends the right previous version, and load lines to verify.
       void loadInvitations()
+      void loadPendingQuotations()
       if (canReadQuotation) void loadVerifyQuotation(result.Number)
     } catch (err) {
       setError(err)
@@ -319,6 +347,7 @@ export function QuotationPage() {
       })
       setVerifyVersion(String(result.Version))
       setNotice(`Technical verification recorded. ${result.Number} is now ${result.Status}.`)
+      void loadPendingQuotations()
     } catch (err) {
       setError(err)
     } finally {
@@ -388,6 +417,8 @@ export function QuotationPage() {
               {invitation.RfqNumber} — {invitation.Lines.length} line(s), currency {invitation.CurrencyCode},
               quotes due {new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}, invitation {invitation.Status}.
               {invitation.CurrentQuotationVersion != null && ' This vendor already quoted; recording again creates a revision.'}
+              <br />
+              <CopyId label="Invitation id" value={invitation.InvitationId} /> · version {invitation.InvitationVersion}
             </p>
           )}
         </div>
@@ -564,6 +595,7 @@ export function QuotationPage() {
                     <td className="mono">
                       {line.itemCode}
                       <div className="field-hint">{line.itemName} · {line.uom}</div>
+                      <CopyId label="RFQ line id" value={line.rfqLineId} />
                     </td>
                     <td><input className="input text-right mono" value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })} /></td>
                     <td><input className="input text-right mono" value={line.unitRate} onChange={(e) => setLine(index, { unitRate: e.target.value })} /></td>
@@ -602,28 +634,25 @@ export function QuotationPage() {
       <div className="card">
         <div className="form-section-title">4 · Technical verification</div>
         <div className="form-grid">
-          <label className="field">
-            <span className="field-label">Quotation number *</span>
-            <input
-              className="input mono"
-              placeholder="VQ-2627-00001"
+          <label className="field field-wide">
+            <span className="field-label">Quotation *</span>
+            <select
+              className="input"
               value={verifyQuotationNumber}
-              onChange={(e) => { setVerifyQuotationNumber(e.target.value); setVerifyQuotation(null); setVerifyLineId('') }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void loadVerifyQuotation(verifyQuotationNumber) } }}
-            />
-          </label>
-          <div className="field">
-            <span className="field-label">&nbsp;</span>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={!canReadQuotation || loadingVerifyQuotation || !verifyQuotationNumber.trim()}
-              title={!canReadQuotation ? 'Needs view access to vendor quotations.' : undefined}
-              onClick={() => void loadVerifyQuotation(verifyQuotationNumber)}
+              disabled={!canReadQuotation || loadingVerifyQuotation}
+              onChange={(e) => chooseVerifyQuotation(e.target.value)}
             >
-              {loadingVerifyQuotation ? 'Loading…' : 'Load quotation lines'}
-            </button>
-          </div>
+              <option value="">
+                {pendingQuotations.length === 0 ? 'No quotations waiting for technical verification' : 'Choose a quotation to verify'}
+              </option>
+              {verifyQuotationNumber && !pendingQuotations.some((row) => row.QuotationNumber === verifyQuotationNumber) && (
+                <option value={verifyQuotationNumber}>{verifyQuotationNumber}</option>
+              )}
+              {pendingQuotations.map((row) => (
+                <option key={row.Id} value={row.QuotationNumber}>{quotationOptionLabel(row)}</option>
+              ))}
+            </select>
+          </label>
           <label className="field field-wide">
             <span className="field-label">Quotation line *</span>
             <select
@@ -643,6 +672,8 @@ export function QuotationPage() {
                 RFQ {verifyQuotation.RfqNumber} · {verifyQuotation.Status} · version {verifyQuotation.Version}
               </span>
             )}
+            {verifyQuotation && <CopyId label="Quotation id" value={verifyQuotation.Id} />}
+            {verifyLineId && <CopyId label="Quotation line id" value={verifyLineId} />}
             {!canReadQuotation && (
               <span className="field-hint">
                 Choosing a line needs view access to vendor quotations (purchase.vendor-quotations:view).
