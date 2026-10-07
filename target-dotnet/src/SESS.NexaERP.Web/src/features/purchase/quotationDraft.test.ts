@@ -3,7 +3,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  OperationIntent,
+  RequestGate,
   comparisonQuotationChoices,
+  currentQuotationFor,
+  invitationDrift,
+  isStaleConflict,
+  quotationLineLabel,
+  quotationScreenReads,
+  revisionIntent,
+  sessionScopeKey,
   draftLinesFor,
   invitationLabel,
   invitationsForRfq,
@@ -126,4 +135,116 @@ test('comparison choices skip quotations whose lines are not technically complia
     { Id: 'l2', VendorQuotationLineId: 'ql2', VendorQuotationId: 'q-bad', TechnicalComplianceSnapshot: 'TechnicallyRejected' },
   ] as ComparisonLine[]
   assert.deepEqual(comparisonQuotationChoices(lines, []).map((choice) => choice.quotationId), ['q-ok'])
+})
+
+// --- P09: revision intent / previous version --------------------------------
+
+test('a new invitation has no current quotation: new intent, previous version null', () => {
+  assert.deepEqual(revisionIntent(invitation()), { kind: 'new', previousQuotationVersion: null })
+})
+
+test('an existing quotation is revised with CurrentQuotationVersion, never RevisionNumber', () => {
+  const inv = invitation({ CurrentQuotationVersion: 9 })
+  const current = { Id: 'q-1', RfqNumber: inv.RfqNumber, VendorId: inv.VendorId, RevisionNumber: 2, Version: 9 } as QuotationListItem
+  const intent = revisionIntent(inv)
+  assert.deepEqual(intent, { kind: 'revision', previousQuotationVersion: 9 })
+  assert.notEqual(intent.previousQuotationVersion, current.RevisionNumber)
+  assert.equal(currentQuotationFor(inv, [current])?.Id, 'q-1')
+  assert.equal(currentQuotationFor(invitation(), [current]), null)
+})
+
+test('fresh read before submit: unchanged invitation passes', () => {
+  assert.equal(invitationDrift(invitation(), invitation()), null)
+})
+
+test('fresh read before submit: a quotation recorded meanwhile stops the submit (becomes a revision)', () => {
+  const message = invitationDrift(invitation(), invitation({ CurrentQuotationVersion: 4 }))
+  assert.match(message ?? '', /revision/)
+})
+
+test('fresh read before submit: changed invitation version or vanished invitation stops the submit', () => {
+  assert.match(invitationDrift(invitation(), invitation({ InvitationVersion: 4 })) ?? '', /changed/)
+  assert.match(invitationDrift(invitation({ CurrentQuotationVersion: 2 }), invitation({ CurrentQuotationVersion: 5 })) ?? '', /current version 5/)
+  assert.match(invitationDrift(invitation(), undefined) ?? '', /no longer available/)
+})
+
+test('a stale 409 is recognised (and is never replayed by the screens)', () => {
+  assert.equal(isStaleConflict({ status: 409 }), true)
+  assert.equal(isStaleConflict({ status: 400 }), false)
+  assert.equal(isStaleConflict(new Error('network')), false)
+  assert.equal(isStaleConflict(null), false)
+})
+
+test('identical retry keeps the key; a changed target or version makes a new one', () => {
+  let n = 0
+  const intent = new OperationIntent(() => `k${++n}`)
+  const first = intent.keyFor(['scope', 'inv-1', { PreviousQuotationVersion: 4 }])
+  assert.equal(intent.keyFor(['scope', 'inv-1', { PreviousQuotationVersion: 4 }]), first)
+  assert.notEqual(intent.keyFor(['scope', 'inv-1', { PreviousQuotationVersion: 5 }]), first)
+  assert.notEqual(intent.keyFor(['scope', 'inv-2', { PreviousQuotationVersion: 5 }]), first)
+  intent.clear()
+  assert.equal(intent.keyFor(['scope', 'inv-1', { PreviousQuotationVersion: 4 }]), 'k4')
+})
+
+// --- lifecycle: company change and out-of-order reads -------------------------
+
+test('an old response cannot overwrite a later selection', () => {
+  const gate = new RequestGate()
+  const older = gate.begin()
+  const newer = gate.begin()
+  assert.equal(gate.isCurrent(older), false)
+  assert.equal(gate.isCurrent(newer), true)
+})
+
+test('a company/login change invalidates reads still in flight', () => {
+  const gate = new RequestGate()
+  const pending = gate.begin()
+  gate.reset()
+  assert.equal(gate.isCurrent(pending), false)
+  assert.notEqual(
+    sessionScopeKey({ CompanyId: 'c-1', OrganizationId: 'SESS_PVT_LTD', EmployeeId: 'e-1' }),
+    sessionScopeKey({ CompanyId: 'c-2', OrganizationId: 'OTHER', EmployeeId: 'e-1' }),
+  )
+  assert.equal(sessionScopeKey(null), '')
+})
+
+// --- no unauthorized reads ------------------------------------------------------
+
+test('DINESH (verify + quotation view, no create) never reads invitation candidates', () => {
+  assert.deepEqual(
+    quotationScreenReads({ recordQuotation: false, readQuotation: true, readRfq: false }),
+    { invitations: false, rfqDetail: false, quotations: true },
+  )
+})
+
+test('PRIYA (create + view) reads invitations, RFQ detail and quotations; an RFQ-only viewer reads none', () => {
+  assert.deepEqual(
+    quotationScreenReads({ recordQuotation: true, readQuotation: true, readRfq: true }),
+    { invitations: true, rfqDetail: true, quotations: true },
+  )
+  assert.deepEqual(
+    quotationScreenReads({ recordQuotation: false, readQuotation: false, readRfq: true }),
+    { invitations: false, rfqDetail: false, quotations: false },
+  )
+})
+
+// --- verification lines and comparison headers -----------------------------------
+
+test('verification line label carries item and quantity', () => {
+  assert.equal(
+    quotationLineLabel({ Id: 'ql-1', LineNumber: 2, Quantity: 4, RequestForQuotationLineId: 'rl-2', ItemCode: 'ELE-0002', ItemName: 'Relay' }),
+    'Line 2 · ELE-0002 — Relay · qty 4',
+  )
+})
+
+test('two quotations with several lines group to two headers; an unnamed header is not recommendable', () => {
+  const lines = [
+    { Id: 'l1', VendorQuotationLineId: 'a1', VendorQuotationId: 'q-a', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+    { Id: 'l2', VendorQuotationLineId: 'b1', VendorQuotationId: 'q-b', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+    { Id: 'l3', VendorQuotationLineId: 'a2', VendorQuotationId: 'q-a', TechnicalComplianceSnapshot: 'TechnicallyCompliant' },
+  ] as ComparisonLine[]
+  const known = [{ Id: 'q-a', QuotationNumber: 'VQ-2627-00001', VendorCode: 'V-0012', VendorName: 'A' }] as QuotationListItem[]
+  const choices = comparisonQuotationChoices(lines, known)
+  assert.deepEqual(choices.map((c) => [c.quotationId, c.resolved]), [['q-a', true], ['q-b', false]])
+  assert.ok(choices.every((c) => !['a1', 'a2', 'b1'].includes(c.quotationId)), 'header ids, never line ids')
 })

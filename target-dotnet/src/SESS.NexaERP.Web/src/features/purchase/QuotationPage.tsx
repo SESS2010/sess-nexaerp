@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   getQuotation,
@@ -31,11 +31,18 @@ import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { CopyId } from '../../components/CopyId'
 import {
+  OperationIntent,
+  RequestGate,
+  currentQuotationFor,
   draftLinesFor,
+  invitationDrift,
   invitationLabel,
-  previousVersionFor,
+  isStaleConflict,
   quotationLineLabel,
   quotationOptionLabel,
+  quotationScreenReads,
+  revisionIntent,
+  sessionScopeKey,
   sortInvitations,
   verifiableQuotations,
 } from './quotationDraft'
@@ -64,20 +71,30 @@ function todayLocal(): string {
 }
 
 export function QuotationPage() {
-  const { can } = useSession()
+  const { me, can } = useSession()
   const [params] = useSearchParams()
 
   // GET /purchase/rfqs/{number} → purchase.rfq:view (only for the required dates).
   const canReadRfq = can(PAGE_KEYS.rfq, 'view')
-  // GET /quotations/{number} → purchase.vendor-quotations:view (lines to verify).
+  // GET /quotations and /quotations/{number} → purchase.vendor-quotations:view.
   const canReadQuotation = can(PAGE_KEYS.quotations, 'view')
-  // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create.
+  // GET /rfq-invitations and POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create.
   const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
   // POST /quotations/{number}/technical-verifications →
   // purchase.technical-verification:verify.
   const canVerifyTechnically = can(PAGE_KEYS.technicalVerification, 'verify')
   // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
   const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
+  const reads = quotationScreenReads({ recordQuotation: canRecordQuotation, readQuotation: canReadQuotation, readRfq: canReadRfq })
+
+  // Company / login scope: a change clears every list, selection and pending key.
+  const scope = sessionScopeKey(me)
+  const invitationGate = useRef(new RequestGate())
+  const linesGate = useRef(new RequestGate())
+  const pendingGate = useRef(new RequestGate())
+  const verifyGate = useRef(new RequestGate())
+  const submitIntent = useRef(new OperationIntent(() => newIdempotencyKey('quote-submit')))
+  const verifyIntent = useRef(new OperationIntent(() => newIdempotencyKey('quote-verify')))
 
   // --- source invitation (GET /rfq-invitations; no ids are typed) ---
   const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
@@ -89,6 +106,7 @@ export function QuotationPage() {
     () => invitations.find((row) => row.InvitationId === invitationId) ?? null,
     [invitations, invitationId],
   )
+  const intent = invitation ? revisionIntent(invitation) : null
 
   // --- quotation header ---
   const [vendorQuoteReference, setVendorQuoteReference] = useState('')
@@ -113,44 +131,113 @@ export function QuotationPage() {
   const [requestLateAuthorization, setRequestLateAuthorization] = useState(false)
   const [lateAuthorizationRemarks, setLateAuthorizationRemarks] = useState('')
 
-  // --- technical verification (lines from GET /quotations/{number}) ---
+  // --- technical verification (list + detail from GET /quotations) ---
+  const [quotationRows, setQuotationRows] = useState<QuotationListItem[]>([])
+  const [quotationRowsError, setQuotationRowsError] = useState<unknown>(null)
+  const pendingQuotations = useMemo(() => verifiableQuotations(quotationRows), [quotationRows])
   const [verifyQuotationNumber, setVerifyQuotationNumber] = useState(params.get('quotation') ?? '')
   const [verifyQuotation, setVerifyQuotation] = useState<QuotationDetail | null>(null)
-  const [pendingQuotations, setPendingQuotations] = useState<QuotationListItem[]>([])
   const [loadingVerifyQuotation, setLoadingVerifyQuotation] = useState(false)
   const [verifyLineId, setVerifyLineId] = useState('')
   const [verifyCompliant, setVerifyCompliant] = useState(true)
   const [verifyEvidence, setVerifyEvidence] = useState('{}')
   const [verifyRemarks, setVerifyRemarks] = useState('')
-  const [verifyVersion, setVerifyVersion] = useState('0')
   const [verifying, setVerifying] = useState(false)
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
+  const currentQuotation = invitation ? currentQuotationFor(invitation, quotationRows) : null
+
   const grandTotal = useMemo(
     () => lines.reduce((sum, line) => sum + lineTotal(line), 0) - num(headerDiscountValue),
     [lines, headerDiscountValue],
   )
 
-  const loadInvitations = useCallback(async () => {
-    if (!canRecordQuotation) return
+  /** Reads invitations; returns the fresh rows, or null when the read failed or was superseded. */
+  const loadInvitations = useCallback(async (): Promise<RfqInvitationCandidate[] | null> => {
+    if (!reads.invitations) return null
+    const ticket = invitationGate.current.begin()
     setInvitationsError(null)
     setLoadingInvitations(true)
     try {
-      setInvitations(sortInvitations(await listRfqInvitations()))
+      const rows = sortInvitations(await listRfqInvitations())
+      if (!invitationGate.current.isCurrent(ticket)) return null
+      setInvitations(rows)
+      return rows
     } catch (err) {
-      setInvitations([])
-      setInvitationsError(err)
+      if (invitationGate.current.isCurrent(ticket)) {
+        // Read unavailable: no list, no selection, nothing to submit against.
+        setInvitations([])
+        setInvitationsError(err)
+      }
+      return null
     } finally {
-      setLoadingInvitations(false)
+      if (invitationGate.current.isCurrent(ticket)) setLoadingInvitations(false)
     }
-  }, [canRecordQuotation])
+  }, [reads.invitations])
 
+  const loadQuotationRows = useCallback(async () => {
+    if (!reads.quotations) return
+    const ticket = pendingGate.current.begin()
+    setQuotationRowsError(null)
+    try {
+      const page = await listQuotations({ page: 1, pageSize: 100 })
+      if (pendingGate.current.isCurrent(ticket)) setQuotationRows(page.Items)
+    } catch (err) {
+      if (pendingGate.current.isCurrent(ticket)) {
+        setQuotationRows([])
+        setQuotationRowsError(err)
+      }
+    }
+  }, [reads.quotations])
+
+  const loadVerifyQuotation = useCallback(async (number: string) => {
+    const trimmed = number.trim()
+    const ticket = verifyGate.current.begin()
+    setVerifyQuotation(null)
+    setVerifyLineId('')
+    verifyIntent.current.clear()
+    if (!trimmed || !reads.quotations) {
+      setLoadingVerifyQuotation(false)
+      return
+    }
+    setLoadingVerifyQuotation(true)
+    try {
+      const detail = await getQuotation(trimmed)
+      if (!verifyGate.current.isCurrent(ticket)) return
+      setVerifyQuotation(detail)
+      if (detail.Lines.length === 1) setVerifyLineId(detail.Lines[0].Id)
+    } catch (err) {
+      if (verifyGate.current.isCurrent(ticket)) setError(err)
+    } finally {
+      if (verifyGate.current.isCurrent(ticket)) setLoadingVerifyQuotation(false)
+    }
+  }, [reads.quotations])
+
+  // Scope change (company / login): drop everything, then read again.
   useEffect(() => {
+    invitationGate.current.reset()
+    linesGate.current.reset()
+    pendingGate.current.reset()
+    verifyGate.current.reset()
+    submitIntent.current.clear()
+    verifyIntent.current.clear()
+    setInvitations([])
+    setInvitationId('')
+    setLines([])
+    setQuotationRows([])
+    setVerifyQuotation(null)
+    setVerifyLineId('')
+    setError(null)
+    setNotice('')
+    if (!scope) return
     void loadInvitations()
-  }, [loadInvitations])
+    void loadQuotationRows()
+    const initial = params.get('quotation')
+    if (initial) void loadVerifyQuotation(initial)
+  }, [scope, loadInvitations, loadQuotationRows, loadVerifyQuotation, params])
 
   // ?rfq=RFQ-… preselects that RFQ's only invitation; ?vendor=CODE narrows to one vendor.
   useEffect(() => {
@@ -163,26 +250,31 @@ export function QuotationPage() {
     if (matches.length === 1) setInvitationId(matches[0].InvitationId)
   }, [invitations, invitationId, params])
 
-  // Choosing an invitation fills the lines, currency and revision from the server.
+  // Choosing an invitation resets the draft and fills lines/currency from the server.
+  // Keyed on the id only, so a refresh of the same invitation keeps typed rates.
+  const selectedRfqNumber = invitation?.RfqNumber ?? ''
   useEffect(() => {
-    if (!invitation) {
+    const ticket = linesGate.current.begin()
+    submitIntent.current.clear()
+    const selected = invitations.find((row) => row.InvitationId === invitationId)
+    if (!selected) {
       setLines([])
       return
     }
-    setCurrencyCode(invitation.CurrencyCode)
-    setLines(draftLinesFor(invitation, null))
-    if (!canReadRfq) return
-    let cancelled = false
-    getRfq(invitation.RfqNumber)
-      .then((detail) => { if (!cancelled) setLines(draftLinesFor(invitation, detail)) })
+    setCurrencyCode(selected.CurrencyCode)
+    setLines(draftLinesFor(selected, null))
+    if (!reads.rfqDetail) return
+    getRfq(selected.RfqNumber)
+      .then((detail) => { if (linesGate.current.isCurrent(ticket)) setLines(draftLinesFor(selected, detail)) })
       .catch(() => { /* required dates are a convenience; the lines are already filled */ })
-    return () => { cancelled = true }
-  }, [invitation, canReadRfq])
+    // A refresh of the same invitation must not wipe the typed draft, so the
+    // list itself is deliberately not a dependency.
+  }, [invitationId, selectedRfqNumber, reads.rfqDetail]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setTaxContext(null)
     setTaxContextError(null)
-    if (!invitationId || !canRecordQuotation) {
+    if (!invitationId || !reads.invitations) {
       setLoadingTaxContext(false)
       return
     }
@@ -193,46 +285,7 @@ export function QuotationPage() {
       .catch((err) => { if (!cancelled) setTaxContextError(err) })
       .finally(() => { if (!cancelled) setLoadingTaxContext(false) })
     return () => { cancelled = true }
-  }, [invitationId, canRecordQuotation, taxContextTick])
-
-  const loadVerifyQuotation = useCallback(async (number: string) => {
-    const trimmed = number.trim()
-    setVerifyQuotation(null)
-    setVerifyLineId('')
-    if (!trimmed) return
-    setLoadingVerifyQuotation(true)
-    try {
-      const detail = await getQuotation(trimmed)
-      setVerifyQuotation(detail)
-      setVerifyVersion(String(detail.Version))
-      if (detail.Lines.length === 1) setVerifyLineId(detail.Lines[0].Id)
-    } catch (err) {
-      setError(err)
-    } finally {
-      setLoadingVerifyQuotation(false)
-    }
-  }, [])
-
-  // Quotations waiting for technical verification (current, Submitted).
-  const loadPendingQuotations = useCallback(async () => {
-    if (!canReadQuotation) return
-    try {
-      const page = await listQuotations({ page: 1, pageSize: 100 })
-      setPendingQuotations(verifiableQuotations(page.Items))
-    } catch (err) {
-      setPendingQuotations([])
-      setError(err)
-    }
-  }, [canReadQuotation])
-
-  useEffect(() => {
-    void loadPendingQuotations()
-  }, [loadPendingQuotations])
-
-  useEffect(() => {
-    const initial = params.get('quotation')
-    if (initial && canReadQuotation) void loadVerifyQuotation(initial)
-  }, [params, canReadQuotation, loadVerifyQuotation])
+  }, [invitationId, reads.invitations, taxContextTick, scope])
 
   const chooseVerifyQuotation = (number: string) => {
     setVerifyQuotationNumber(number)
@@ -245,6 +298,7 @@ export function QuotationPage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (saving) return
     setError(null)
     setNotice('')
 
@@ -273,27 +327,38 @@ export function QuotationPage() {
       return
     }
 
-    const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
-      RequestForQuotationLineId: line.rfqLineId,
-      Quantity: num(line.quantity),
-      UnitRate: num(line.unitRate),
-      DiscountValue: num(line.discountValue),
-      PackingForwarding: num(line.packingForwarding),
-      Freight: num(line.freight),
-      Insurance: num(line.insurance),
-      OtherCharges: num(line.otherCharges),
-      PromisedDeliveryDate: line.promisedDeliveryDate,
-      HsnSacCode: line.hsnSacCode.trim(),
-      SupplierStateCode: taxContext.SupplierStateCode,
-      PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
-      VendorRegistrationType: vendorRegistrationType,
-      RoundOff: num(line.roundOff),
-    }))
-
     setSaving(true)
     try {
-      const previousVersion = previousVersionFor(invitation)
-      const result = await submitQuotation(invitation.InvitationId, {
+      // Re-read the invitation before writing; any change stops for an explicit review.
+      const fresh = await loadInvitations()
+      if (!fresh) {
+        setError('The invitation could not be re-read just now, so nothing was recorded. Try again.')
+        return
+      }
+      const drift = invitationDrift(invitation, fresh.find((row) => row.InvitationId === invitation.InvitationId))
+      if (drift) {
+        setError(drift)
+        return
+      }
+      const reviewed = revisionIntent(invitation)
+
+      const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
+        RequestForQuotationLineId: line.rfqLineId,
+        Quantity: num(line.quantity),
+        UnitRate: num(line.unitRate),
+        DiscountValue: num(line.discountValue),
+        PackingForwarding: num(line.packingForwarding),
+        Freight: num(line.freight),
+        Insurance: num(line.insurance),
+        OtherCharges: num(line.otherCharges),
+        PromisedDeliveryDate: line.promisedDeliveryDate,
+        HsnSacCode: line.hsnSacCode.trim(),
+        SupplierStateCode: taxContext.SupplierStateCode,
+        PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
+        VendorRegistrationType: vendorRegistrationType,
+        RoundOff: num(line.roundOff),
+      }))
+      const body = {
         VendorQuoteReference: vendorQuoteReference.trim(),
         CurrencyCode: currencyCode.trim().toUpperCase(),
         PaymentTerms: paymentTerms.trim(),
@@ -307,56 +372,79 @@ export function QuotationPage() {
         AttachmentSha256: attachmentSha256.trim(),
         VendorAttestation: vendorAttestation.trim(),
         InvitationVersion: invitation.InvitationVersion,
-        PreviousQuotationVersion: previousVersion,
-        IdempotencyKey: newIdempotencyKey('quote-submit'),
+        PreviousQuotationVersion: reviewed.previousQuotationVersion,
         Lines: payloadLines,
         HeaderDiscountValue: num(headerDiscountValue),
-      })
+      }
+      // Same key only for an identical retry of this exact operation.
+      const key = submitIntent.current.keyFor([scope, invitation.InvitationId, body])
+      const result = await submitQuotation(invitation.InvitationId, { ...body, IdempotencyKey: key })
+      submitIntent.current.clear()
       rememberDoc('quotation', result.Number)
-      setVerifyQuotationNumber(result.Number)
-      setVerifyVersion(String(result.Version))
       setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
-      // The invitation now carries a current quotation version; refresh so a
-      // revision sends the right previous version, and load lines to verify.
+      // The invitation now carries a current quotation version: reread before any
+      // further revision, and load the new quotation for verification.
       void loadInvitations()
-      void loadPendingQuotations()
-      if (canReadQuotation) void loadVerifyQuotation(result.Number)
+      void loadQuotationRows()
+      if (reads.quotations) {
+        setVerifyQuotationNumber(result.Number)
+        void loadVerifyQuotation(result.Number)
+      }
     } catch (err) {
       setError(err)
+      if (isStaleConflict(err)) {
+        // Stale: reread, show the current state, and wait for the user. No replay.
+        submitIntent.current.clear()
+        void loadInvitations()
+        void loadQuotationRows()
+        setNotice('The invitation or its current quotation changed on the server. The latest state is now shown — review it and submit again.')
+      }
     } finally {
       setSaving(false)
     }
   }
 
   const runVerification = async () => {
+    if (verifying) return
     setError(null)
     setNotice('')
-    if (!verifyQuotationNumber.trim() || !verifyLineId) {
-      setError('Load the quotation and choose the line being verified.')
+    if (!verifyQuotation || !verifyLineId) {
+      setError('Choose the quotation and the line being verified.')
       return
     }
+    const number = verifyQuotation.QuotationNumber
     setVerifying(true)
     try {
-      const result = await verifyQuotationTechnically(verifyQuotationNumber.trim(), {
+      const body = {
         VendorQuotationLineId: verifyLineId,
         IsCompliant: verifyCompliant,
         ComplianceEvidenceJson: verifyEvidence.trim() || '{}',
         Remarks: verifyRemarks.trim(),
-        QuotationVersion: num(verifyVersion),
-        IdempotencyKey: newIdempotencyKey('quote-verify'),
-      })
-      setVerifyVersion(String(result.Version))
+        QuotationVersion: verifyQuotation.Version,
+      }
+      const key = verifyIntent.current.keyFor([scope, number, body])
+      const result = await verifyQuotationTechnically(number, { ...body, IdempotencyKey: key })
+      verifyIntent.current.clear()
       setNotice(`Technical verification recorded. ${result.Number} is now ${result.Status}.`)
-      void loadPendingQuotations()
+      setVerifyRemarks('')
+      // Reread after every line decision: new version, new status, no stale selection.
+      void loadVerifyQuotation(number)
+      void loadQuotationRows()
     } catch (err) {
       setError(err)
+      if (isStaleConflict(err)) {
+        verifyIntent.current.clear()
+        setNotice('The quotation changed on the server. It has been reloaded — choose the line again and review before recording.')
+        void loadVerifyQuotation(number)
+        void loadQuotationRows()
+      }
     } finally {
       setVerifying(false)
     }
   }
 
   const downloadAttachment = async () => {
-    const number = verifyQuotationNumber.trim()
+    const number = verifyQuotation?.QuotationNumber ?? verifyQuotationNumber.trim()
     if (!number) return
     try {
       const response = await authorizedFetch(quotationAttachmentUrl(number))
@@ -416,10 +504,23 @@ export function QuotationPage() {
             <p className="field-hint">
               {invitation.RfqNumber} — {invitation.Lines.length} line(s), currency {invitation.CurrencyCode},
               quotes due {new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}, invitation {invitation.Status}.
-              {invitation.CurrentQuotationVersion != null && ' This vendor already quoted; recording again creates a revision.'}
               <br />
-              <CopyId label="Invitation id" value={invitation.InvitationId} /> · version {invitation.InvitationVersion}
+              <CopyId label="Invitation id" value={invitation.InvitationId} /> · invitation version {invitation.InvitationVersion}
             </p>
+          )}
+          {invitation && intent && (
+            <div className="alert" style={{ marginBottom: 0 }}>
+              {intent.kind === 'new' ? (
+                <><strong>New quotation</strong> — no quotation is on file for {invitation.VendorCode} on {invitation.RfqNumber}.</>
+              ) : (
+                <>
+                  <strong>Revision</strong> of the current quotation
+                  {currentQuotation ? <> {currentQuotation.QuotationNumber} (revision {currentQuotation.RevisionNumber})</> : null}
+                  {' '}— previous quotation version {intent.previousQuotationVersion} is taken from the server.
+                  {currentQuotation && <div><CopyId label="Current quotation id" value={currentQuotation.Id} /></div>}
+                </>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -643,7 +744,9 @@ export function QuotationPage() {
               onChange={(e) => chooseVerifyQuotation(e.target.value)}
             >
               <option value="">
-                {pendingQuotations.length === 0 ? 'No quotations waiting for technical verification' : 'Choose a quotation to verify'}
+                {quotationRowsError != null
+                  ? 'Quotations could not be read'
+                  : pendingQuotations.length === 0 ? 'No quotations waiting for technical verification' : 'Choose a quotation to verify'}
               </option>
               {verifyQuotationNumber && !pendingQuotations.some((row) => row.QuotationNumber === verifyQuotationNumber) && (
                 <option value={verifyQuotationNumber}>{verifyQuotationNumber}</option>
@@ -671,6 +774,9 @@ export function QuotationPage() {
                 {verifyQuotation.QuotationNumber} · {verifyQuotation.VendorCode} — {verifyQuotation.VendorName} ·
                 RFQ {verifyQuotation.RfqNumber} · {verifyQuotation.Status} · version {verifyQuotation.Version}
               </span>
+            )}
+            {quotationRowsError != null && (
+              <ErrorAlert error={quotationRowsError} onReload={() => void loadQuotationRows()} fallback="Quotations could not be read." />
             )}
             {verifyQuotation && <CopyId label="Quotation id" value={verifyQuotation.Id} />}
             {verifyLineId && <CopyId label="Quotation line id" value={verifyLineId} />}

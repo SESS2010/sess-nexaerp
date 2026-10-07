@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   actOnComparison,
@@ -10,7 +10,7 @@ import {
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail, QuotationListItem } from '../../types/purchase'
-import { comparisonQuotationChoices } from './quotationDraft'
+import { OperationIntent, comparisonQuotationChoices, isStaleConflict, sessionScopeKey } from './quotationDraft'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
@@ -45,7 +45,9 @@ function prettyJson(value: string | undefined): string {
 export function ComparisonDetailPage() {
   const { comparisonNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { me, can } = useSession()
+  const scope = sessionScopeKey(me)
+  const recommendIntent = useRef(new OperationIntent(() => newIdempotencyKey('comparison-recommend')))
 
   // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
   const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
@@ -85,8 +87,12 @@ export function ComparisonDetailPage() {
   }, [comparisonNumber])
 
   useEffect(() => {
+    // A new comparison or company/login: forget the previous selection and key.
+    setQuotationId('')
+    setKnownQuotations([])
+    recommendIntent.current.clear()
     void load()
-  }, [load])
+  }, [load, scope])
 
   useEffect(() => {
     const lines = comparison?.Lines ?? []
@@ -126,23 +132,44 @@ export function ComparisonDetailPage() {
       setError('A recommendation must say why that vendor was chosen — this is the audit record.')
       return
     }
+    const choice = quotationChoices.find((row) => row.quotationId === quotationId)
+    if (!choice?.resolved) {
+      setError('This quotation could not be identified from the quotation list, so it cannot be recommended. Reload the page; if it persists, report it.')
+      return
+    }
+    if (recommending) return
     setRecommending(true)
     try {
-      const result = await recommendComparison(comparison.ComparisonNumber, {
+      // Freshly read the comparison: a changed version stops for review, never a silent retry.
+      const fresh = await getComparison(comparison.ComparisonNumber)
+      if (fresh.Version !== comparison.Version) {
+        setComparison(fresh)
+        recommendIntent.current.clear()
+        setError(`Comparison ${fresh.ComparisonNumber} changed since you opened it (now version ${fresh.Version}, ${fresh.Status}). Review it and recommend again.`)
+        return
+      }
+      const body = {
         VendorQuotationId: quotationId,
         RecommendationRemarks: recommendationRemarks.trim(),
         SingleSourceJustification: comparison.IsSingleSource
           ? singleSourceJustification.trim() || null
           : null,
-        Version: comparison.Version,
-        IdempotencyKey: newIdempotencyKey('comparison-recommend'),
-      })
+        Version: fresh.Version,
+      }
+      const key = recommendIntent.current.keyFor([scope, comparison.ComparisonNumber, body])
+      const result = await recommendComparison(comparison.ComparisonNumber, { ...body, IdempotencyKey: key })
+      recommendIntent.current.clear()
       setNotice(`Recommendation recorded. ${result.Number} is now ${result.Status}.`)
       setQuotationId('')
       setRecommendationRemarks('')
       void load()
     } catch (err) {
       setError(err)
+      if (isStaleConflict(err)) {
+        recommendIntent.current.clear()
+        setNotice('The comparison changed on the server and has been reloaded. Review it and recommend again.')
+        void load()
+      }
     } finally {
       setRecommending(false)
     }
@@ -319,7 +346,7 @@ export function ComparisonDetailPage() {
                 {quotationChoices.length === 0 ? 'No technically compliant quotation on this comparison' : 'Choose the quotation to recommend'}
               </option>
               {quotationChoices.map((choice) => (
-                <option key={choice.quotationId} value={choice.quotationId}>{choice.label}</option>
+                <option key={choice.quotationId} value={choice.quotationId} disabled={!choice.resolved}>{choice.label}</option>
               ))}
             </select>
             <CopyId label="Quotation id" value={quotationId} />

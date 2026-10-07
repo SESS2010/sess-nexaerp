@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   getRfq,
@@ -16,13 +16,13 @@ import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { CopyId } from '../../components/CopyId'
-import { invitationsForRfq } from './quotationDraft'
+import { RequestGate, invitationsForRfq, sessionScopeKey } from './quotationDraft'
 
 
 export function RfqDetailPage() {
   const { rfqNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { me, can } = useSession()
 
   // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit. The vendor
   // picker behind it reads masters.vendors:view.
@@ -41,6 +41,9 @@ export function RfqDetailPage() {
   const [inviteRemarks, setInviteRemarks] = useState('')
   const [inviting, setInviting] = useState(false)
   const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
+  const [invitationsError, setInvitationsError] = useState<unknown>(null)
+  const invitationGate = useRef(new RequestGate())
+  const scope = sessionScopeKey(me)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,18 +61,29 @@ export function RfqDetailPage() {
   }, [rfqNumber])
 
   const loadInvitations = useCallback(async () => {
+    // Only callers holding purchase.vendor-quotations:create read invitations;
+    // an RFQ viewer sees the RFQ without this call or an error.
     if (!canRecordQuotation) return
+    const ticket = invitationGate.current.begin()
+    setInvitationsError(null)
     try {
-      setInvitations(invitationsForRfq(await listRfqInvitations(), rfqNumber))
-    } catch {
-      setInvitations([])
+      const rows = invitationsForRfq(await listRfqInvitations(), rfqNumber)
+      if (invitationGate.current.isCurrent(ticket)) setInvitations(rows)
+    } catch (err) {
+      if (invitationGate.current.isCurrent(ticket)) {
+        setInvitations([])
+        setInvitationsError(err)
+      }
     }
   }, [rfqNumber, canRecordQuotation])
 
   useEffect(() => {
+    invitationGate.current.reset()
+    setInvitations([])
+    setInvitationsError(null)
     void load()
     void loadInvitations()
-  }, [load, loadInvitations])
+  }, [load, loadInvitations, scope])
 
   useEffect(() => {
     if (!canInviteVendor) return
@@ -254,20 +268,27 @@ export function RfqDetailPage() {
       {canRecordQuotation && (
         <>
           <h2>Invited vendors ({invitations.length})</h2>
+          {invitationsError != null && (
+            <ErrorAlert error={invitationsError} onReload={() => void loadInvitations()} fallback="Invited vendors could not be read." />
+          )}
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
                   <th>Vendor</th>
                   <th>Status</th>
+                  <th className="text-right">Invitation version</th>
                   <th>Quotation</th>
                   <th>Quotes due</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {invitations.length === 0 && (
-                  <tr><td colSpan={5} className="table-empty">No vendors invited yet.</td></tr>
+                {invitationsError == null && invitations.length === 0 && (
+                  <tr><td colSpan={6} className="table-empty">No vendors invited yet.</td></tr>
+                )}
+                {invitationsError != null && (
+                  <tr><td colSpan={6} className="table-empty">Invited vendors could not be read. Reload to try again.</td></tr>
                 )}
                 {invitations.map((invitation) => (
                   <tr key={invitation.InvitationId}>
@@ -276,7 +297,12 @@ export function RfqDetailPage() {
                       <div><CopyId label="Invitation id" value={invitation.InvitationId} /></div>
                     </td>
                     <td><StatusBadge value={invitation.Status} /></td>
-                    <td>{invitation.CurrentQuotationVersion == null ? 'Not yet received' : 'Received'}</td>
+                    <td className="text-right mono">{invitation.InvitationVersion}</td>
+                    <td>
+                      {invitation.CurrentQuotationVersion == null
+                        ? 'Not yet received'
+                        : `Received · current quotation version ${invitation.CurrentQuotationVersion}`}
+                    </td>
                     <td>{new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}</td>
                     <td>
                       <Link

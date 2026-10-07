@@ -100,12 +100,14 @@ export function quotationOptionLabel(row: Pick<QuotationListItem, 'QuotationNumb
 
 /** Dropdown text for a quotation line to verify. */
 export function quotationLineLabel(line: QuotationDetail['Lines'][number]): string {
-  return `Line ${line.LineNumber} · ${line.ItemCode} — ${line.ItemName}`
+  return `Line ${line.LineNumber} · ${line.ItemCode} — ${line.ItemName} · qty ${line.Quantity}`
 }
 
 export interface QuotationChoice {
   quotationId: string
   label: string
+  /** False when the quotation list could not name this header; recommend is then blocked. */
+  resolved: boolean
 }
 
 /**
@@ -130,7 +132,103 @@ export function comparisonQuotationChoices(
       label: quotation
         ? `${quotation.QuotationNumber} · ${quotation.VendorCode} — ${quotation.VendorName}`
         : `Quotation ${choices.length + 1} (not in your quotation list)`,
+      resolved: !!quotation,
     })
   }
   return choices
+}
+
+// --- P09 revision intent, freshness and lifecycle ----------------------------
+
+export type RevisionIntent =
+  | { kind: 'new'; previousQuotationVersion: null }
+  | { kind: 'revision'; previousQuotationVersion: number }
+
+/**
+ * New quotation vs revision of the current one, from the server's
+ * CurrentQuotationVersion (the concurrency Version, never RevisionNumber).
+ */
+export function revisionIntent(invitation: RfqInvitationCandidate): RevisionIntent {
+  return invitation.CurrentQuotationVersion == null
+    ? { kind: 'new', previousQuotationVersion: null }
+    : { kind: 'revision', previousQuotationVersion: invitation.CurrentQuotationVersion }
+}
+
+/**
+ * Compares the invitation the user reviewed with a fresh server read taken
+ * just before submit. Any difference stops the submit for an explicit review.
+ */
+export function invitationDrift(reviewed: RfqInvitationCandidate, fresh: RfqInvitationCandidate | undefined): string | null {
+  if (!fresh) return 'This invitation is no longer available to you. Choose the RFQ and vendor again.'
+  if (fresh.InvitationVersion !== reviewed.InvitationVersion || fresh.Status !== reviewed.Status) {
+    return `Invitation ${fresh.RfqNumber} · ${fresh.VendorCode} changed since you loaded it (now ${fresh.Status}, version ${fresh.InvitationVersion}). Review it and submit again.`
+  }
+  if (fresh.CurrentQuotationVersion !== reviewed.CurrentQuotationVersion) {
+    return fresh.CurrentQuotationVersion == null
+      ? 'The current quotation for this vendor was withdrawn since you loaded it. Review it and submit again.'
+      : `A quotation for ${fresh.VendorCode} was recorded or revised since you loaded it (current version ${fresh.CurrentQuotationVersion}). This will now be a revision — review it and submit again.`
+  }
+  return null
+}
+
+/** The current quotation (list row) behind an invitation, for read-only identity. */
+export function currentQuotationFor(
+  invitation: RfqInvitationCandidate,
+  rows: QuotationListItem[],
+): QuotationListItem | null {
+  if (invitation.CurrentQuotationVersion == null) return null
+  return rows.find((row) => row.RfqNumber === invitation.RfqNumber && row.VendorId === invitation.VendorId) ?? null
+}
+
+/** 409 from the server: stale version or changed state. Never auto-retried. */
+export function isStaleConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 409
+}
+
+/** Session identity that scopes every list and selection on these screens. */
+export function sessionScopeKey(me: { CompanyId?: string | null; OrganizationId?: string | null; EmployeeId?: string | null } | null | undefined): string {
+  return me ? JSON.stringify([me.CompanyId ?? null, me.OrganizationId ?? null, me.EmployeeId ?? null]) : ''
+}
+
+/**
+ * Latest-request gate: a response is applied only if no newer request (or a
+ * scope reset) started after it, so a slow old read cannot overwrite a later
+ * selection or another company's data.
+ */
+export class RequestGate {
+  private current = 0
+  begin(): number { return ++this.current }
+  isCurrent(ticket: number): boolean { return ticket === this.current }
+  reset(): void { this.current++ }
+}
+
+/**
+ * In-memory idempotency key for one logical write: an identical retry reuses
+ * the key, any change of target, version or payload makes a new one
+ * (same rule as itemActionIntent.ts).
+ */
+export class OperationIntent {
+  private fingerprint: string | undefined
+  private key: string | undefined
+  private readonly newKey: () => string
+  // No parameter property: Node's type stripping (npm test) does not support it.
+  constructor(newKey: () => string) { this.newKey = newKey }
+  keyFor(parts: readonly unknown[]): string {
+    const fingerprint = JSON.stringify(parts)
+    if (fingerprint !== this.fingerprint || !this.key) {
+      this.fingerprint = fingerprint
+      this.key = this.newKey()
+    }
+    return this.key
+  }
+  clear(): void { this.fingerprint = undefined; this.key = undefined }
+}
+
+/** Which reads each screen may issue, from the caller's grants only. */
+export function quotationScreenReads(grants: { recordQuotation: boolean; readQuotation: boolean; readRfq: boolean }) {
+  return {
+    invitations: grants.recordQuotation,
+    rfqDetail: grants.recordQuotation && grants.readRfq,
+    quotations: grants.readQuotation,
+  }
 }
