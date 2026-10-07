@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   actOnComparison,
   getComparison,
+  listQuotations,
   newIdempotencyKey,
   recommendComparison,
   rememberDoc,
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
-import type { ComparisonDetail } from '../../types/purchase'
+import type { ComparisonDetail, QuotationListItem } from '../../types/purchase'
+import { comparisonQuotationChoices } from './quotationDraft'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
@@ -56,6 +58,9 @@ export function ComparisonDetailPage() {
   const [notice, setNotice] = useState('')
 
   const [quotationId, setQuotationId] = useState('')
+  // Quotation numbers / vendors for the comparison lines (GET /quotations, per vendor).
+  const [knownQuotations, setKnownQuotations] = useState<QuotationListItem[]>([])
+  const canListQuotations = can(PAGE_KEYS.quotations, 'view')
   const [recommendationRemarks, setRecommendationRemarks] = useState('')
   const [singleSourceJustification, setSingleSourceJustification] = useState('')
   const [recommending, setRecommending] = useState(false)
@@ -82,12 +87,38 @@ export function ComparisonDetailPage() {
     void load()
   }, [load])
 
+  useEffect(() => {
+    const lines = comparison?.Lines ?? []
+    if (!canListQuotations || lines.length === 0) {
+      setKnownQuotations([])
+      return
+    }
+    let cancelled = false
+    const vendorIds = [...new Set(lines.map((line) => line.VendorId).filter((id): id is string => !!id))]
+    const queries = vendorIds.length > 0
+      ? vendorIds.map((vendorId) => listQuotations({ page: 1, pageSize: 100, vendorId }))
+      : [listQuotations({ page: 1, pageSize: 100 })]
+    Promise.all(queries)
+      .then((pages) => { if (!cancelled) setKnownQuotations(pages.flatMap((page) => page.Items)) })
+      .catch(() => { /* labels fall back to a plain ordinal; the ids still travel */ })
+    return () => { cancelled = true }
+  }, [comparison, canListQuotations])
+
+  const quotationChoices = useMemo(
+    () => comparisonQuotationChoices(comparison?.Lines ?? [], knownQuotations),
+    [comparison, knownQuotations],
+  )
+  const quotationLabelById = useMemo(
+    () => new Map(quotationChoices.map((choice) => [choice.quotationId, choice.label])),
+    [quotationChoices],
+  )
+
   const recommend = async () => {
     if (!comparison) return
     setError(null)
     setNotice('')
-    if (!quotationId.trim()) {
-      setError('Pick the winning vendor quotation id to recommend.')
+    if (!quotationId) {
+      setError('Choose the winning vendor quotation to recommend.')
       return
     }
     if (!recommendationRemarks.trim()) {
@@ -97,7 +128,7 @@ export function ComparisonDetailPage() {
     setRecommending(true)
     try {
       const result = await recommendComparison(comparison.ComparisonNumber, {
-        VendorQuotationId: quotationId.trim(),
+        VendorQuotationId: quotationId,
         RecommendationRemarks: recommendationRemarks.trim(),
         SingleSourceJustification: comparison.IsSingleSource
           ? singleSourceJustification.trim() || null
@@ -204,7 +235,9 @@ export function ComparisonDetailPage() {
           </div>
           <div className="detail-field">
             <span className="field-label">Recommended quotation</span>
-            <span className="mono">{comparison.RecommendedVendorQuotationId ?? '—'}</span>
+            {comparison.RecommendedVendorQuotationId
+              ? quotationLabelById.get(comparison.RecommendedVendorQuotationId) ?? 'Recorded'
+              : '—'}
           </div>
           {comparison.RecommendationRemarks && (
             <div className="detail-field field-wide">
@@ -226,7 +259,7 @@ export function ComparisonDetailPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>Quotation line id</th>
+              <th>Quotation · vendor</th>
               <th>Technical compliance</th>
               <th>Delivery</th>
               <th>Warranty</th>
@@ -242,7 +275,7 @@ export function ComparisonDetailPage() {
             )}
             {lines.map((line) => (
               <tr key={line.Id} className={line.IsRecommended ? 'row-selected' : undefined}>
-                <td className="mono">{line.VendorQuotationLineId}</td>
+                <td>{quotationLabelById.get(line.VendorQuotationId) ?? '—'}</td>
                 <td><StatusBadge value={line.TechnicalComplianceSnapshot || 'Unknown'} /></td>
                 <td>{line.DeliverySnapshot || '—'}</td>
                 <td>{line.WarrantySnapshot ?? 'Masked'}</td>
@@ -274,12 +307,13 @@ export function ComparisonDetailPage() {
         <div className="form-section-title">Recommend a vendor</div>
         <div className="form-grid">
           <label className="field field-wide">
-            <span className="field-label">Winning vendor quotation id (GUID) *</span>
-            <input className="input mono" value={quotationId} onChange={(e) => setQuotationId(e.target.value)} />
-            <span className="field-hint">
-              The comparison lines above carry quotation <em>line</em> ids; this field needs the
-              parent quotation id. No endpoint returns it yet.
-            </span>
+            <span className="field-label">Winning vendor quotation *</span>
+            <select className="input" value={quotationId} onChange={(e) => setQuotationId(e.target.value)}>
+              <option value="">Choose the quotation to recommend</option>
+              {quotationChoices.map((choice) => (
+                <option key={choice.quotationId} value={choice.quotationId}>{choice.label}</option>
+              ))}
+            </select>
           </label>
           <label className="field field-wide">
             <span className="field-label">Recommendation remarks *</span>

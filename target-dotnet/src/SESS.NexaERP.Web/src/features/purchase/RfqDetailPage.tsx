@@ -3,55 +3,19 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   getRfq,
   inviteVendorToRfq,
+  listRfqInvitations,
   listVendorOptions,
   newIdempotencyKey,
   rememberDoc,
 } from '../../api/purchase'
 import type { VendorOption } from '../../api/purchase'
-import type { RfqDetail } from '../../types/purchase'
+import type { RfqDetail, RfqInvitationCandidate } from '../../types/purchase'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 
-/**
- * Vendors invited from this browser. GET /api/v1/purchase/rfqs/{number} includes
- * Lines but NOT Invitations, so an invitation id is visible exactly once — in the
- * invite response. Quotation submission needs that id, so it is kept locally
- * until the API exposes GET /api/v1/purchase/rfq-invitations.
- */
-interface LocalInvitation {
-  InvitationId: string
-  VendorId: string
-  VendorLabel: string
-  Status: string
-  Version: number
-  InvitedAt: string
-}
-
-function invitationKey(rfqNumber: string): string {
-  return `nexaerp.purchase.rfqInvitations.${rfqNumber}`
-}
-
-function readInvitations(rfqNumber: string): LocalInvitation[] {
-  try {
-    const raw = localStorage.getItem(invitationKey(rfqNumber))
-    return raw ? (JSON.parse(raw) as LocalInvitation[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeInvitation(rfqNumber: string, invitation: LocalInvitation): LocalInvitation[] {
-  const next = [invitation, ...readInvitations(rfqNumber).filter((x) => x.InvitationId !== invitation.InvitationId)]
-  try {
-    localStorage.setItem(invitationKey(rfqNumber), JSON.stringify(next))
-  } catch {
-    // storage unavailable; the id is still shown once in the table below
-  }
-  return next
-}
 
 export function RfqDetailPage() {
   const { rfqNumber = '' } = useParams()
@@ -61,6 +25,8 @@ export function RfqDetailPage() {
   // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit. The vendor
   // picker behind it reads masters.vendors:view.
   const canInviteVendor = can(PAGE_KEYS.rfq, 'submit') && can(PAGE_KEYS.vendors, 'view')
+  // GET /purchase/rfq-invitations and the quotation entry both need purchase.vendor-quotations:create.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
 
   const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,7 +38,7 @@ export function RfqDetailPage() {
   const [vendorId, setVendorId] = useState('')
   const [inviteRemarks, setInviteRemarks] = useState('')
   const [inviting, setInviting] = useState(false)
-  const [invitations, setInvitations] = useState<LocalInvitation[]>([])
+  const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -89,10 +55,21 @@ export function RfqDetailPage() {
     }
   }, [rfqNumber])
 
+  const loadInvitations = useCallback(async () => {
+    if (!canRecordQuotation) return
+    const wanted = rfqNumber.trim().toUpperCase()
+    try {
+      const rows = await listRfqInvitations()
+      setInvitations(rows.filter((row) => row.RfqNumber.toUpperCase() === wanted))
+    } catch {
+      setInvitations([])
+    }
+  }, [rfqNumber, canRecordQuotation])
+
   useEffect(() => {
     void load()
-    setInvitations(readInvitations(rfqNumber.trim().toUpperCase()))
-  }, [load, rfqNumber])
+    void loadInvitations()
+  }, [load, loadInvitations])
 
   useEffect(() => {
     if (!canInviteVendor) return
@@ -119,20 +96,11 @@ export function RfqDetailPage() {
         IdempotencyKey: newIdempotencyKey('rfq-invite'),
       })
       const picked = vendors.find((vendor) => vendor.Id === vendorId)
-      setInvitations(
-        writeInvitation(rfq.RfqNumber, {
-          InvitationId: result.Id,
-          VendorId: vendorId,
-          VendorLabel: picked ? `${picked.VendorCode} — ${picked.Name}` : vendorId,
-          Status: result.Status,
-          Version: result.Version,
-          InvitedAt: new Date().toISOString(),
-        }),
-      )
       setVendorId('')
       setInviteRemarks('')
-      setNotice(`Vendor invited. Invitation id ${result.Id} — keep it, the API cannot list it back.`)
+      setNotice(`${picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'} invited (${result.Status}).`)
       void load()
+      void loadInvitations()
     } catch (err) {
       setError(err)
     } finally {
@@ -283,39 +251,44 @@ export function RfqDetailPage() {
       </div>
       )}
 
-      <h2>Invitations issued from this browser</h2>
-      <div className="alert">
-        <span className="mono">GET /rfqs/{'{number}'}</span> returns Lines but not Invitations, and there is
-        no <span className="mono">GET /rfq-invitations</span>. An invitation id appears once, in the
-        invite response — quotation submission needs it, so it is kept here locally.
-      </div>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Invitation id</th>
-              <th>Vendor</th>
-              <th>Status</th>
-              <th className="text-right">Version</th>
-              <th>Invited at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invitations.length === 0 && (
-              <tr><td colSpan={5} className="table-empty">No invitations issued from this browser.</td></tr>
-            )}
-            {invitations.map((invitation) => (
-              <tr key={invitation.InvitationId}>
-                <td className="mono">{invitation.InvitationId}</td>
-                <td>{invitation.VendorLabel}</td>
-                <td><StatusBadge value={invitation.Status} /></td>
-                <td className="text-right mono">{invitation.Version}</td>
-                <td>{new Date(invitation.InvitedAt).toLocaleString('en-IN')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {canRecordQuotation && (
+        <>
+          <h2>Invited vendors ({invitations.length})</h2>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th>Status</th>
+                  <th>Quotation</th>
+                  <th>Quotes due</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {invitations.length === 0 && (
+                  <tr><td colSpan={5} className="table-empty">No vendors invited yet.</td></tr>
+                )}
+                {invitations.map((invitation) => (
+                  <tr key={invitation.InvitationId}>
+                    <td>{invitation.VendorCode} — {invitation.VendorName}</td>
+                    <td><StatusBadge value={invitation.Status} /></td>
+                    <td>{invitation.CurrentQuotationVersion == null ? 'Not yet received' : 'Received'}</td>
+                    <td>{new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}</td>
+                    <td>
+                      <Link
+                        to={`/purchase/quotations/new?rfq=${encodeURIComponent(invitation.RfqNumber)}&vendor=${encodeURIComponent(invitation.VendorCode)}`}
+                      >
+                        {invitation.CurrentQuotationVersion == null ? 'Record quotation' : 'Revise quotation'}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <HistoryPanel docType="RFQ" documentId={rfq.Id} />
     </div>

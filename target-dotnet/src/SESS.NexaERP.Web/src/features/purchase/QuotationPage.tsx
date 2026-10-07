@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
+  getQuotation,
   getQuotationTaxContext,
   getRfq,
+  listRfqInvitations,
   newIdempotencyKey,
   quotationAttachmentUrl,
   rememberDoc,
@@ -9,7 +12,12 @@ import {
   verifyQuotationTechnically,
 } from '../../api/purchase'
 import { authorizedFetch, saveResponseAsFile } from '../../api/client'
-import type { QuotationLineRequest, QuotationTaxContext, RfqDetail, RfqLine } from '../../types/purchase'
+import type {
+  QuotationDetail,
+  QuotationLineRequest,
+  QuotationTaxContext,
+  RfqInvitationCandidate,
+} from '../../types/purchase'
 import {
   QUOTATION_SUBMISSION_SOURCES,
   VENDOR_REGISTRATION_TYPES,
@@ -19,20 +27,14 @@ import {
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
-
-interface DraftQuoteLine {
-  rfqLine: RfqLine
-  quantity: string
-  unitRate: string
-  discountValue: string
-  packingForwarding: string
-  freight: string
-  insurance: string
-  otherCharges: string
-  roundOff: string
-  promisedDeliveryDate: string
-  hsnSacCode: string
-}
+import {
+  draftLinesFor,
+  invitationLabel,
+  previousVersionFor,
+  quotationLineLabel,
+  sortInvitations,
+} from './quotationDraft'
+import type { DraftQuoteLine } from './quotationDraft'
 
 function num(value: string): number {
   return Number(value) || 0
@@ -50,8 +52,6 @@ function lineTotal(line: DraftQuoteLine): number {
   )
 }
 
-const GUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 function todayLocal(): string {
   const now = new Date()
   const pad = (value: number) => String(value).padStart(2, '0')
@@ -60,9 +60,12 @@ function todayLocal(): string {
 
 export function QuotationPage() {
   const { can } = useSession()
+  const [params] = useSearchParams()
 
-  // GET /purchase/rfqs/{number} → purchase.rfq:view (read prerequisite).
+  // GET /purchase/rfqs/{number} → purchase.rfq:view (only for the required dates).
   const canReadRfq = can(PAGE_KEYS.rfq, 'view')
+  // GET /quotations/{number} → purchase.vendor-quotations:view (lines to verify).
+  const canReadQuotation = can(PAGE_KEYS.quotations, 'view')
   // POST /rfq-invitations/{id}/quotations → purchase.vendor-quotations:create.
   const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
   // POST /quotations/{number}/technical-verifications →
@@ -71,13 +74,16 @@ export function QuotationPage() {
   // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
   const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
 
-  // --- source RFQ + invitation ---
-  const [rfqNumber, setRfqNumber] = useState('')
+  // --- source invitation (GET /rfq-invitations; no ids are typed) ---
+  const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
+  const [invitationsError, setInvitationsError] = useState<unknown>(null)
+  const [loadingInvitations, setLoadingInvitations] = useState(false)
   const [invitationId, setInvitationId] = useState('')
-  const [invitationVersion, setInvitationVersion] = useState('0')
-  const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [lines, setLines] = useState<DraftQuoteLine[]>([])
-  const [loadingRfq, setLoadingRfq] = useState(false)
+  const invitation = useMemo(
+    () => invitations.find((row) => row.InvitationId === invitationId) ?? null,
+    [invitations, invitationId],
+  )
 
   // --- quotation header ---
   const [vendorQuoteReference, setVendorQuoteReference] = useState('')
@@ -101,10 +107,11 @@ export function QuotationPage() {
   const [headerDiscountValue, setHeaderDiscountValue] = useState('0')
   const [requestLateAuthorization, setRequestLateAuthorization] = useState(false)
   const [lateAuthorizationRemarks, setLateAuthorizationRemarks] = useState('')
-  const [previousQuotationVersion, setPreviousQuotationVersion] = useState('')
 
-  // --- technical verification ---
-  const [verifyQuotationNumber, setVerifyQuotationNumber] = useState('')
+  // --- technical verification (lines from GET /quotations/{number}) ---
+  const [verifyQuotationNumber, setVerifyQuotationNumber] = useState(params.get('quotation') ?? '')
+  const [verifyQuotation, setVerifyQuotation] = useState<QuotationDetail | null>(null)
+  const [loadingVerifyQuotation, setLoadingVerifyQuotation] = useState(false)
   const [verifyLineId, setVerifyLineId] = useState('')
   const [verifyCompliant, setVerifyCompliant] = useState(true)
   const [verifyEvidence, setVerifyEvidence] = useState('{}')
@@ -121,62 +128,89 @@ export function QuotationPage() {
     [lines, headerDiscountValue],
   )
 
-  const loadRfq = async () => {
-    setError(null)
-    setNotice('')
-    setLoadingRfq(true)
+  const loadInvitations = useCallback(async () => {
+    if (!canRecordQuotation) return
+    setInvitationsError(null)
+    setLoadingInvitations(true)
     try {
-      const detail = await getRfq(rfqNumber)
-      setRfq(detail)
-      setCurrencyCode(detail.CurrencyCode)
-      setLines(
-        (detail.Lines ?? []).map((rfqLine) => ({
-          rfqLine,
-          quantity: String(rfqLine.RfqQuantity),
-          unitRate: '0',
-          discountValue: '0',
-          packingForwarding: '0',
-          freight: '0',
-          insurance: '0',
-          otherCharges: '0',
-          roundOff: '0',
-          promisedDeliveryDate: rfqLine.RequiredDateSnapshot,
-          hsnSacCode: '',
-        })),
-      )
+      setInvitations(sortInvitations(await listRfqInvitations()))
     } catch (err) {
-      setRfq(null)
-      setLines([])
-      setError(err)
+      setInvitations([])
+      setInvitationsError(err)
     } finally {
-      setLoadingRfq(false)
+      setLoadingInvitations(false)
     }
-  }
-
-  const invitationLooksValid = GUID_PATTERN.test(invitationId.trim())
+  }, [canRecordQuotation])
 
   useEffect(() => {
-    const id = invitationId.trim()
+    void loadInvitations()
+  }, [loadInvitations])
+
+  // ?rfq=RFQ-… preselects that RFQ's only invitation; ?vendor=CODE narrows to one vendor.
+  useEffect(() => {
+    if (invitationId || invitations.length === 0) return
+    const rfqParam = params.get('rfq')?.trim().toUpperCase()
+    const vendorParam = params.get('vendor')?.trim().toUpperCase()
+    if (!rfqParam) return
+    const matches = invitations.filter((row) =>
+      row.RfqNumber.toUpperCase() === rfqParam && (!vendorParam || row.VendorCode.toUpperCase() === vendorParam))
+    if (matches.length === 1) setInvitationId(matches[0].InvitationId)
+  }, [invitations, invitationId, params])
+
+  // Choosing an invitation fills the lines, currency and revision from the server.
+  useEffect(() => {
+    if (!invitation) {
+      setLines([])
+      return
+    }
+    setCurrencyCode(invitation.CurrencyCode)
+    setLines(draftLinesFor(invitation, null))
+    if (!canReadRfq) return
+    let cancelled = false
+    getRfq(invitation.RfqNumber)
+      .then((detail) => { if (!cancelled) setLines(draftLinesFor(invitation, detail)) })
+      .catch(() => { /* required dates are a convenience; the lines are already filled */ })
+    return () => { cancelled = true }
+  }, [invitation, canReadRfq])
+
+  useEffect(() => {
     setTaxContext(null)
     setTaxContextError(null)
-    if (!GUID_PATTERN.test(id) || !canRecordQuotation) {
+    if (!invitationId || !canRecordQuotation) {
       setLoadingTaxContext(false)
       return
     }
     let cancelled = false
     setLoadingTaxContext(true)
-    // A short pause so a GUID being pasted or typed is looked up once, not per keystroke.
-    const timer = window.setTimeout(() => {
-      getQuotationTaxContext(id)
-        .then((context) => { if (!cancelled) setTaxContext(context) })
-        .catch((err) => { if (!cancelled) setTaxContextError(err) })
-        .finally(() => { if (!cancelled) setLoadingTaxContext(false) })
-    }, 300)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
+    getQuotationTaxContext(invitationId)
+      .then((context) => { if (!cancelled) setTaxContext(context) })
+      .catch((err) => { if (!cancelled) setTaxContextError(err) })
+      .finally(() => { if (!cancelled) setLoadingTaxContext(false) })
+    return () => { cancelled = true }
   }, [invitationId, canRecordQuotation, taxContextTick])
+
+  const loadVerifyQuotation = useCallback(async (number: string) => {
+    const trimmed = number.trim()
+    setVerifyQuotation(null)
+    setVerifyLineId('')
+    if (!trimmed) return
+    setLoadingVerifyQuotation(true)
+    try {
+      const detail = await getQuotation(trimmed)
+      setVerifyQuotation(detail)
+      setVerifyVersion(String(detail.Version))
+      if (detail.Lines.length === 1) setVerifyLineId(detail.Lines[0].Id)
+    } catch (err) {
+      setError(err)
+    } finally {
+      setLoadingVerifyQuotation(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const initial = params.get('quotation')
+    if (initial && canReadQuotation) void loadVerifyQuotation(initial)
+  }, [params, canReadQuotation, loadVerifyQuotation])
 
   const setLine = (index: number, patch: Partial<DraftQuoteLine>) => {
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)))
@@ -187,12 +221,12 @@ export function QuotationPage() {
     setError(null)
     setNotice('')
 
-    if (!invitationId.trim()) {
-      setError('Invitation id is required — it comes from the invite-vendor response on the RFQ page.')
+    if (!invitation) {
+      setError('Choose the RFQ and vendor being quoted.')
       return
     }
     if (lines.length === 0) {
-      setError('Load an RFQ first so the quotation has lines.')
+      setError('The chosen RFQ has no lines to quote.')
       return
     }
     if (!taxContext) {
@@ -213,7 +247,7 @@ export function QuotationPage() {
     }
 
     const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
-      RequestForQuotationLineId: line.rfqLine.Id,
+      RequestForQuotationLineId: line.rfqLineId,
       Quantity: num(line.quantity),
       UnitRate: num(line.unitRate),
       DiscountValue: num(line.discountValue),
@@ -231,7 +265,8 @@ export function QuotationPage() {
 
     setSaving(true)
     try {
-      const result = await submitQuotation(invitationId.trim(), {
+      const previousVersion = previousVersionFor(invitation)
+      const result = await submitQuotation(invitation.InvitationId, {
         VendorQuoteReference: vendorQuoteReference.trim(),
         CurrencyCode: currencyCode.trim().toUpperCase(),
         PaymentTerms: paymentTerms.trim(),
@@ -244,8 +279,8 @@ export function QuotationPage() {
         AttachmentObjectKey: attachmentObjectKey.trim(),
         AttachmentSha256: attachmentSha256.trim(),
         VendorAttestation: vendorAttestation.trim(),
-        InvitationVersion: num(invitationVersion),
-        PreviousQuotationVersion: previousQuotationVersion ? num(previousQuotationVersion) : null,
+        InvitationVersion: invitation.InvitationVersion,
+        PreviousQuotationVersion: previousVersion,
         IdempotencyKey: newIdempotencyKey('quote-submit'),
         Lines: payloadLines,
         HeaderDiscountValue: num(headerDiscountValue),
@@ -254,6 +289,10 @@ export function QuotationPage() {
       setVerifyQuotationNumber(result.Number)
       setVerifyVersion(String(result.Version))
       setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
+      // The invitation now carries a current quotation version; refresh so a
+      // revision sends the right previous version, and load lines to verify.
+      void loadInvitations()
+      if (canReadQuotation) void loadVerifyQuotation(result.Number)
     } catch (err) {
       setError(err)
     } finally {
@@ -264,14 +303,14 @@ export function QuotationPage() {
   const runVerification = async () => {
     setError(null)
     setNotice('')
-    if (!verifyQuotationNumber.trim() || !verifyLineId.trim()) {
-      setError('Technical verification needs both a quotation number and a quotation line id.')
+    if (!verifyQuotationNumber.trim() || !verifyLineId) {
+      setError('Load the quotation and choose the line being verified.')
       return
     }
     setVerifying(true)
     try {
       const result = await verifyQuotationTechnically(verifyQuotationNumber.trim(), {
-        VendorQuotationLineId: verifyLineId.trim(),
+        VendorQuotationLineId: verifyLineId,
         IsCompliant: verifyCompliant,
         ComplianceEvidenceJson: verifyEvidence.trim() || '{}',
         Remarks: verifyRemarks.trim(),
@@ -309,65 +348,50 @@ export function QuotationPage() {
         </div>
       </div>
 
-      <div className="alert">
-        <strong>Quotations cannot be listed or re-read.</strong> The API offers only{' '}
-        <span className="mono">POST /rfq-invitations/{'{id}'}/quotations</span>,{' '}
-        <span className="mono">POST /quotations/{'{number}'}/technical-verifications</span> and an
-        attachment download. There is no <span className="mono">GET /quotations/{'{number}'}</span>,
-        so a recorded quotation cannot be reopened here.
-      </div>
-
       <ErrorAlert error={error} fallback="The last action failed." />
       {notice && <div className="alert">{notice}</div>}
 
-      <div className="card">
-        <div className="form-section-title">1 · Load the RFQ being quoted</div>
-        <div className="form-grid">
-          <label className="field">
-            <span className="field-label">RFQ number *</span>
-            <input
-              className="input mono"
-              placeholder="RFQ-2627-00001"
-              value={rfqNumber}
-              onChange={(event) => setRfqNumber(event.target.value)}
+      {canRecordQuotation && (
+        <div className="card">
+          <div className="form-section-title">1 · Choose the RFQ and vendor being quoted</div>
+          <div className="form-grid">
+            <label className="field field-wide">
+              <span className="field-label">RFQ · vendor *</span>
+              <select
+                className="input"
+                value={invitationId}
+                disabled={loadingInvitations}
+                onChange={(event) => setInvitationId(event.target.value)}
+              >
+                <option value="">
+                  {loadingInvitations
+                    ? 'Loading invited vendors…'
+                    : invitations.length === 0
+                      ? 'No invited vendors yet — invite one from the RFQ page'
+                      : 'Choose an invited vendor'}
+                </option>
+                {invitations.map((row) => (
+                  <option key={row.InvitationId} value={row.InvitationId}>{invitationLabel(row)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {invitationsError != null && (
+            <ErrorAlert
+              error={invitationsError}
+              onReload={() => void loadInvitations()}
+              fallback="The invited vendors could not be loaded."
             />
-          </label>
-          {canReadRfq && (
-            <div className="field">
-              <span className="field-label">&nbsp;</span>
-              <button type="button" className="btn btn-ghost" disabled={loadingRfq} onClick={() => void loadRfq()}>
-                {loadingRfq ? 'Loading…' : 'Load RFQ lines'}
-              </button>
-            </div>
           )}
-          <label className="field">
-            <span className="field-label">Invitation id (GUID) *</span>
-            <input
-              className="input mono"
-              placeholder="from the RFQ page invite response"
-              value={invitationId}
-              onChange={(event) => setInvitationId(event.target.value)}
-            />
-            <span className="field-hint">
-              Shown once on the RFQ detail page after inviting a vendor; the API cannot list it back.
-            </span>
-          </label>
-          <label className="field">
-            <span className="field-label">Invitation version *</span>
-            <input
-              className="input mono"
-              value={invitationVersion}
-              onChange={(event) => setInvitationVersion(event.target.value)}
-            />
-          </label>
+          {invitation && (
+            <p className="field-hint">
+              {invitation.RfqNumber} — {invitation.Lines.length} line(s), currency {invitation.CurrencyCode},
+              quotes due {new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}, invitation {invitation.Status}.
+              {invitation.CurrentQuotationVersion != null && ' This vendor already quoted; recording again creates a revision.'}
+            </p>
+          )}
         </div>
-        {rfq && (
-          <p className="field-hint">
-            Loaded {rfq.RfqNumber} — {rfq.Lines?.length ?? 0} line(s), currency {rfq.CurrencyCode},
-            quotes due {new Date(rfq.QuoteDueAt).toLocaleString('en-IN')}.
-          </p>
-        )}
-      </div>
+      )}
 
       <form onSubmit={submit}>
         <div className="card">
@@ -454,7 +478,7 @@ export function QuotationPage() {
                   These codes are decided by the server and sent as shown; the quotation is refused if they differ.
                 </div>
               ) : loadingTaxContext ? (
-                <p className="field-hint">Looking up the GST state codes for invitation {invitationId.trim()}…</p>
+                <p className="field-hint">Looking up the GST state codes for {invitation?.VendorCode ?? 'the chosen vendor'}…</p>
               ) : taxContextError ? (
                 <>
                   <ErrorAlert
@@ -469,9 +493,7 @@ export function QuotationPage() {
                 </>
               ) : (
                 <p className="field-hint">
-                  {invitationLooksValid
-                    ? 'The GST state codes will be derived once the invitation is checked.'
-                    : 'Enter the invitation id above; the supplier state and place of supply are then derived from the vendor and the delivery location.'}
+                  Choose the RFQ and vendor above; the supplier state and place of supply are then derived from the vendor and the delivery location.
                 </p>
               )}
             </div>
@@ -504,15 +526,6 @@ export function QuotationPage() {
                 <option value="yes">Late — request authorization</option>
               </select>
             </label>
-            <label className="field">
-              <span className="field-label">Previous quotation version</span>
-              <input
-                className="input mono"
-                placeholder="blank for first submission"
-                value={previousQuotationVersion}
-                onChange={(e) => setPreviousQuotationVersion(e.target.value)}
-              />
-            </label>
             {requestLateAuthorization && (
               <label className="field field-wide">
                 <span className="field-label">Late authorization remarks *</span>
@@ -544,13 +557,13 @@ export function QuotationPage() {
               </thead>
               <tbody>
                 {lines.length === 0 && (
-                  <tr><td colSpan={12} className="table-empty">Load an RFQ above to pull its lines.</td></tr>
+                  <tr><td colSpan={12} className="table-empty">Choose the RFQ and vendor above to pull the lines.</td></tr>
                 )}
                 {lines.map((line, index) => (
-                  <tr key={line.rfqLine.Id}>
+                  <tr key={line.rfqLineId}>
                     <td className="mono">
-                      {line.rfqLine.ItemCodeSnapshot}
-                      <div className="field-hint">{line.rfqLine.ItemNameSnapshot}</div>
+                      {line.itemCode}
+                      <div className="field-hint">{line.itemName} · {line.uom}</div>
                     </td>
                     <td><input className="input text-right mono" value={line.quantity} onChange={(e) => setLine(index, { quantity: e.target.value })} /></td>
                     <td><input className="input text-right mono" value={line.unitRate} onChange={(e) => setLine(index, { unitRate: e.target.value })} /></td>
@@ -591,19 +604,50 @@ export function QuotationPage() {
         <div className="form-grid">
           <label className="field">
             <span className="field-label">Quotation number *</span>
-            <input className="input mono" value={verifyQuotationNumber} onChange={(e) => setVerifyQuotationNumber(e.target.value)} />
+            <input
+              className="input mono"
+              placeholder="VQ-2627-00001"
+              value={verifyQuotationNumber}
+              onChange={(e) => { setVerifyQuotationNumber(e.target.value); setVerifyQuotation(null); setVerifyLineId('') }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void loadVerifyQuotation(verifyQuotationNumber) } }}
+            />
           </label>
-          <label className="field">
-            <span className="field-label">Quotation version *</span>
-            <input className="input mono" value={verifyVersion} onChange={(e) => setVerifyVersion(e.target.value)} />
-          </label>
+          <div className="field">
+            <span className="field-label">&nbsp;</span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={!canReadQuotation || loadingVerifyQuotation || !verifyQuotationNumber.trim()}
+              title={!canReadQuotation ? 'Needs view access to vendor quotations.' : undefined}
+              onClick={() => void loadVerifyQuotation(verifyQuotationNumber)}
+            >
+              {loadingVerifyQuotation ? 'Loading…' : 'Load quotation lines'}
+            </button>
+          </div>
           <label className="field field-wide">
-            <span className="field-label">Vendor quotation line id (GUID) *</span>
-            <input className="input mono" value={verifyLineId} onChange={(e) => setVerifyLineId(e.target.value)} />
-            <span className="field-hint">
-              No endpoint returns quotation line ids. Until one exists this must be read from a
-              comparison line or straight from the database.
-            </span>
+            <span className="field-label">Quotation line *</span>
+            <select
+              className="input"
+              value={verifyLineId}
+              disabled={!verifyQuotation}
+              onChange={(e) => setVerifyLineId(e.target.value)}
+            >
+              <option value="">{verifyQuotation ? 'Choose the line being verified' : 'Load the quotation first'}</option>
+              {verifyQuotation?.Lines.map((line) => (
+                <option key={line.Id} value={line.Id}>{quotationLineLabel(line)}</option>
+              ))}
+            </select>
+            {verifyQuotation && (
+              <span className="field-hint">
+                {verifyQuotation.QuotationNumber} · {verifyQuotation.VendorCode} — {verifyQuotation.VendorName} ·
+                RFQ {verifyQuotation.RfqNumber} · {verifyQuotation.Status} · version {verifyQuotation.Version}
+              </span>
+            )}
+            {!canReadQuotation && (
+              <span className="field-hint">
+                Choosing a line needs view access to vendor quotations (purchase.vendor-quotations:view).
+              </span>
+            )}
           </label>
           <label className="field">
             <span className="field-label">Result *</span>
