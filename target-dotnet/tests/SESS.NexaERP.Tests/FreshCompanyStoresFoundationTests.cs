@@ -208,7 +208,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-01", "TECHNICAL_DIRECTOR");
         Assert.Equal(HttpStatusCode.Forbidden, await Approve("GO-LIVE-ITM-001", "item-td-ordinary-approve"));
         Actor("SESS-15", "PURCHASE_MANAGER", "PURCHASE_EXECUTIVE");
+        var pendingVersion = (await Detail("GO-LIVE-ITM-001")).GetProperty("Version").GetUInt32();
+        using (var missingHeader = await client.PostAsJsonAsync("/api/v1/inventory/items/GO-LIVE-ITM-001/approve", new MasterActionRequest("Approved", pendingVersion)))
+            Assert.Equal(HttpStatusCode.BadRequest, missingHeader.StatusCode);
+        Assert.Equal(pendingVersion, (await Detail("GO-LIVE-ITM-001")).GetProperty("Version").GetUInt32());
         Assert.Equal(HttpStatusCode.OK, await Approve("GO-LIVE-ITM-001", "item-purchase-approve"));
+        // A second click and an identical-key retry must not approve the old version again.
+        foreach (var key in new[] { "item-purchase-second-click", "item-purchase-approve" })
+        {
+            using var approvalReplayRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/inventory/items/GO-LIVE-ITM-001/approve")
+            { Content = JsonContent.Create(new MasterActionRequest("Approved", pendingVersion)) };
+            approvalReplayRequest.Headers.Add("Idempotency-Key", key);
+            using var duplicateResponse = await client.SendAsync(approvalReplayRequest);
+            Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+            Assert.Contains("Stale record version", await duplicateResponse.Content.ReadAsStringAsync());
+        }
+        Assert.Equal(pendingVersion + 1, (await Detail("GO-LIVE-ITM-001")).GetProperty("Version").GetUInt32());
         Assert.Equal(MasterApprovalStatuses.Approved, (await Detail("GO-LIVE-ITM-001")).GetProperty("ApprovalStatus").GetString());
         // A correction within one month of creation returns the record to approval. Maker-checker
         // excludes only the maker of the current pending change: the Purchase Manager corrects the

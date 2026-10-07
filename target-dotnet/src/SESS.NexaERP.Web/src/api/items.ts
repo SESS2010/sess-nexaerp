@@ -46,10 +46,10 @@ export function updateItem(itemCode: string, body: UpsertItemRequest): Promise<I
   return api.put<ItemDetail>(`${BASE}/${encodeURIComponent(itemCode)}`, body)
 }
 
-export function runItemAction(itemCode: string, action: ItemAction, remarks: string, version: number) {
+export function runItemAction(itemCode: string, action: ItemAction, remarks: string, version: number, operationKey?: string) {
   // Approve requires an Idempotency-Key header (InventoryEndpoints.MapItemApprove); one key per
-  // click. A double submit is still stopped by the Version check (409 stale record).
-  const headers = action === 'approve' ? { 'Idempotency-Key': `item-approve-${crypto.randomUUID()}` } : undefined
+  // logical action. Callers retain it on identical retries; stale versions still return 409.
+  const headers = action === 'approve' ? { 'Idempotency-Key': operationKey ?? `item-approve-${crypto.randomUUID()}` } : undefined
   return api.post<unknown>(`${BASE}/${encodeURIComponent(itemCode)}/${action}`, { Remarks: remarks, Version: version }, headers)
 }
 
