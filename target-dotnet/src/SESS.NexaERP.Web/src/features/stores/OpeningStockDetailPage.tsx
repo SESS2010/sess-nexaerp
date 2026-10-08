@@ -8,6 +8,7 @@ import {
   type OpeningStockView,
 } from '../../api/openingStock'
 import { newIdempotencyKey } from '../../api/stores'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { StatusBadge } from '../employees/StatusBadge'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
@@ -85,7 +86,7 @@ export function OpeningStockDetailPage() {
         ? 'This step had already been recorded with the same key; the server replayed it.'
         : action === 'value'
           ? `Value confirmed at ${money.format(next.TotalValue)} — waiting for the Technical Director.`
-          : `Authorized and posted: batch ${next.StockPostingBatchId?.slice(0, 8) ?? '?'} created the AVAILABLE stock and FIFO layers.`)
+          : 'Authorized and posted: the AVAILABLE stock and FIFO layers were created (posting batch id under Stock posting below).')
     } catch (err) {
       setActionError(err)
     } finally {
@@ -118,8 +119,8 @@ export function OpeningStockDetailPage() {
           <div className="breadcrumbs"><Link to="/stores/opening-stock">Opening Stock</Link> / {view.PeriodStart} → {view.PeriodEnd}</div>
           <h1>Opening stock {view.PeriodStart} → {view.PeriodEnd}</h1>
           <p className="page-sub">
-            Import batch <span className="mono">{view.ImportBatchId}</span> · version {view.Version}
-            {view.StockPostingBatchId && <> · posting batch <span className="mono">{view.StockPostingBatchId}</span></>}
+            <CopyId label="Import batch id" value={view.ImportBatchId} /> · version {view.Version}
+            {view.StockPostingBatchId && <> · Stock posting: Posted <CopyId label="Posting batch id" value={view.StockPostingBatchId} /></>}
           </p>
         </div>
         <div className="action-row"><StatusBadge value={view.Status} /></div>

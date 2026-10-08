@@ -6,6 +6,7 @@ import type { QcInspectionPolicy } from '../../types/qc'
 import type { ReferenceLookup } from '../../types/item'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { CopyId } from '../../components/CopyId'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
 type StatusFilter = 'ALL' | typeof PENDING | 'Approved' | 'Rejected'
@@ -101,7 +102,7 @@ export function QcPolicyPage() {
         EffectiveTo: effectiveTo || null,
         Remarks: remarks.trim(),
       })
-      setNotice(`Policy ${result.Id.slice(0, 8)} created — ${result.ApprovalStatus}. It applies only after the Technical Director approves it.`)
+      setNotice(`Policy for ${parameterCode.trim().toUpperCase() || 'the parameter'} (${binding === 'item' ? 'item' : 'category'} binding, from ${effectiveFrom}) created — ${result.ApprovalStatus}. It applies only after the Technical Director approves it.`)
       setShowCreate(false)
       setParameterCode('')
       setLowerLimit('')
@@ -191,7 +192,7 @@ export function QcPolicyPage() {
                 <option value="item">One item (by item code)</option>
                 <option value="category">Every item in a category</option>
               </select>
-              <span className="field-hint">Exactly one binding. A category policy applies to every item in it that has no item-level policy for the same parameter.</span>
+              <span className="field-hint">Exactly one binding. A category policy applies to every item in that category, together with any item-level policy for the same parameter — both are required at inspection, so do not set the same parameter on an item and on its category.</span>
             </label>
             {binding === 'item' ? (
               <label className="field">
@@ -281,8 +282,8 @@ export function QcPolicyPage() {
                 <tr key={policy.Id}>
                   <td>
                     {policy.ItemId
-                      ? <><span className="field-label">Item</span> <span className="mono">{policy.ItemCode ?? policy.ItemId.slice(0, 8) + '…'}</span></>
-                      : <><span className="field-label">Category</span> {category ? `${category.Code} — ${category.Name}` : <span className="mono">{policy.ItemCategoryId?.slice(0, 8)}…</span>}</>}
+                      ? <><span className="field-label">Item</span> {policy.ItemCode ? <span className="mono">{policy.ItemCode}</span> : <CopyId label="Item id" value={policy.ItemId} />}</>
+                      : <><span className="field-label">Category</span> {category ? `${category.Code} — ${category.Name}` : <CopyId label="Category id" value={policy.ItemCategoryId ?? ''} />}</>}
                   </td>
                   <td className="mono">{policy.ParameterCode}</td>
                   <td className="mono">{policy.MeasurementUomCode}</td>

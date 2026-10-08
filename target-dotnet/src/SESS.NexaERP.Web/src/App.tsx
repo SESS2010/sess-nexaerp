@@ -1,3 +1,4 @@
+import { pageTitle } from './pageTitle'
 import { MasterImportPage } from './features/masters/MasterImportPage'
 import { useState } from 'react'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -81,44 +82,7 @@ import { EmailLogPage } from './features/admin/EmailLogPage'
 import { EMAIL_LOG_PAGE_KEY } from './api/email'
 import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
-const TITLES: [prefix: string, title: string][] = [
-  ['/dashboards/purchase', 'Purchase Dashboard'],
-  ['/dashboards/stores', 'Stores Dashboard'],
-  ['/tracking/pending', 'Pending Documents'],
-  ['/vendors', 'Vendor Master'],
-  ['/customers', 'Customer Master'],
-  ['/items', 'Item Master'],
-  ['/sales/customer-po', 'Customer PO'],
-  ['/purchase/requisitions', 'Purchase Requisition'],
-  ['/purchase/rfqs', 'RFQ'],
-  ['/purchase/quotations', 'Vendor Quotations'],
-  ['/purchase/comparisons', 'Commercial Comparison'],
-  ['/purchase/purchase-orders', 'Purchase Order'],
-  ['/stores/stock-check', 'Stock Check'],
-  ['/stores/gate-entries', 'Gate Entry'],
-  ['/stores/goods-receipts', 'GRN'],
-  ['/stores/material-issue-requests', 'Material Issue Request'],
-  ['/stores/material-issues', 'Material Issue'],
-  ['/stores/material-returns', 'Material Return'],
-  ['/stores/opening-stock', 'Opening Stock'],
-  ['/stores/machine-deliveries', 'Machine Delivery Challan'],
-  ['/accounts/vendor-bills', 'Vendor Bills'],
-  ['/accounts/vendor-payments', 'Vendor Payments'],
-  ['/accounts/inventory-periods', 'Inventory Periods'],
-  ['/company/profile', 'Company Profile'],
-  ['/stores/stock-adjustments', 'Stock Adjustment'],
-  ['/notifications', 'Notifications'],
-  ['/admin/email', 'E-mail Log'],
-  ['/reports', 'Reports'],
-  ['/qc/inspections', 'QC / Inspection'],
-  ['/qc/inspect', 'QC / Inspection'],
-  ['/qc/concessions', 'QC Concessions'],
-  ['/qc/inspection-policies', 'QC Inspection Policies'],
-  ['/production/job-orders', 'Job Order'],
-  ['/production/component-fitments', 'Component Fitment'],
-  ['/production/boms', 'Production BOM'],
-  ['/design/estimated-boms', 'Estimated BOM'],
-]
+
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
   return `nav-link${isActive ? ' active' : ''}`
@@ -126,8 +90,7 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const match = TITLES.find(([prefix]) => location.pathname.startsWith(prefix))
-  const title = match ? match[1] : 'Home'
+  const title = pageTitle(location.pathname)
   const inPurchase = location.pathname.startsWith('/purchase')
   const inSales = location.pathname.startsWith('/sales')
   const inStores = location.pathname.startsWith('/stores')

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listMaterialReturns } from '../../api/materialIssues'
+import { listMaterialReturns, lookupMaterialIssueRecipients } from '../../api/materialIssues'
 import type { MaterialReturnView } from '../../types/materialIssue'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
-import { useSession } from '../auth/SessionContext'
+import { CopyId } from '../../components/CopyId'
+import { PAGE_KEYS, useSession } from '../auth/SessionContext'
+import { employeeLabel, employeeMap } from './employeeLabels'
+import type { EmployeeRef } from './employeeLabels'
 
 const PAGE_SIZE = 25
 const RETURN_STATES = ['SUBMITTED', 'ACCEPTED'] as const
@@ -12,8 +15,20 @@ const RETURN_STATES = ['SUBMITTED', 'ACCEPTED'] as const
 /** GET /api/v1/stores/material-returns — declared by engineers, accepted by Stores. */
 export function MaterialReturnListPage() {
   const navigate = useNavigate()
-  const { me } = useSession()
+  const { me, can } = useSession()
   const [rows, setRows] = useState<MaterialReturnView[]>([])
+  // Returner code/name from the recipient lookup when this user may read it
+  // (stores.material-issues:view); otherwise the id stays visible with Copy.
+  const [employees, setEmployees] = useState<Map<string, EmployeeRef>>(new Map())
+  const canListRecipients = can(PAGE_KEYS.materialIssues, 'view')
+  useEffect(() => {
+    if (!canListRecipients) return
+    let cancelled = false
+    lookupMaterialIssueRecipients()
+      .then((list) => { if (!cancelled) setEmployees(employeeMap(list)) })
+      .catch(() => { /* ids stay visible with Copy */ })
+    return () => { cancelled = true }
+  }, [canListRecipients])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState('')
@@ -77,9 +92,9 @@ export function MaterialReturnListPage() {
             {!loading && rows.map((row) => (
               <tr key={row.Id} className="row-click" onClick={() => navigate(`/stores/material-issues/${row.MaterialIssueId}`)}>
                 <td className="mono">{row.ReturnNumber}</td>
-                <td className="mono">{row.MaterialIssueId.slice(0, 8)}…</td>
+                <td onClick={(event) => event.stopPropagation()}><CopyId label="Issue id" value={row.MaterialIssueId} /></td>
                 <td>{new Date(row.DeclaredAt).toLocaleString()}</td>
-                <td className="mono">{row.ReturnedByEmployeeId === me?.EmployeeId ? `${me?.EmployeeCode} (you)` : row.ReturnedByEmployeeId}</td>
+                <td onClick={(event) => event.stopPropagation()}>{employeeLabel(row.ReturnedByEmployeeId, employees, me) ?? <CopyId label="Employee id" value={row.ReturnedByEmployeeId} />}</td>
                 <td className="text-right mono">{row.Lines.length}</td>
                 <td className="text-right mono">{row.Lines.reduce((sum, line) => sum + line.ReturnedQuantityBase, 0)}</td>
                 <td><StatusBadge value={row.Status} /></td>

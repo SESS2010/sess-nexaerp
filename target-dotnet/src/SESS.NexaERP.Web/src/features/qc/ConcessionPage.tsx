@@ -10,6 +10,7 @@ import {
 import { newIdempotencyKey } from '../../api/stores'
 import type { InventoryConcessionResult, WarehouseConditionLocation } from '../../types/qc'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 
@@ -165,7 +166,7 @@ export function ConcessionPage() {
               <div><span className="field-label">Measured value</span><div className="mono">{concession.MeasuredValue}</div></div>
               <div><span className="field-label">Serials</span><div className="mono">{concession.InventorySerialIds.length || '—'}</div></div>
               <div><span className="field-label">Decided by</span><div>{concession.DecidedRoleCode ?? '—'}</div></div>
-              <div><span className="field-label">Stock posting batch</span><div className="mono">{concession.StockPostingBatchId ?? '—'}</div></div>
+              <div><span className="field-label">Stock posting</span><div>{concession.StockPostingBatchId ? <>Posted <CopyId label="Posting batch id" value={concession.StockPostingBatchId} /></> : 'Not posted'}</div></div>
               <div className="field-wide"><span className="field-label">Technical justification</span><div>{concession.TechnicalJustification}</div></div>
               <div className="field-wide"><span className="field-label">Intended use</span><div>{concession.IntendedUse}</div></div>
               {concession.ProvenanceAnnotationJson && (

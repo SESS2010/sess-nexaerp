@@ -5,6 +5,7 @@ import { newIdempotencyKey } from '../../api/stores'
 import type { GoodsReceiptResult } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { GoodsReceiptFormModal } from './GoodsReceiptFormModal'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
@@ -52,7 +53,7 @@ export function GoodsReceiptDetailPage() {
         IdempotencyKey: newIdempotencyKey('grn-finalize'),
       })
       setGrn(result)
-      setNotice(`${result.GrnNumber} finalized. Stock moved to QC hold${result.StockPostingBatchId ? ` (posting batch ${result.StockPostingBatchId})` : ''}.`)
+      setNotice(`${result.GrnNumber} finalized. Stock moved to QC hold.`)
     } catch (err) {
       setError(err)
     } finally {
@@ -198,7 +199,7 @@ export function GoodsReceiptDetailPage() {
         <div><span className="field-label">Received at</span> {new Date(grn.ReceivedAt).toLocaleString('en-IN')}</div>
         <div><span className="field-label">Version</span> <span className="mono">{grn.Version}</span></div>
         {grn.StockPostingBatchId && (
-          <div><span className="field-label">Posting batch</span> <span className="mono">{grn.StockPostingBatchId}</span></div>
+          <div><span className="field-label">Stock posting</span> Posted <CopyId label="Posting batch id" value={grn.StockPostingBatchId} /></div>
         )}
       </div>
 

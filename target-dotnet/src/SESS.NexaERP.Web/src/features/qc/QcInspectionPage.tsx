@@ -5,6 +5,7 @@ import { listGoodsReceipts } from '../../api/goodsReceipts'
 import { getItem } from '../../api/items'
 import type { QcInspectionPolicy, QcInspectionResult } from '../../types/qc'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
@@ -150,7 +151,7 @@ export function QcInspectionPage() {
           <div><span className="field-label">Discrepancy pending</span><div className="mono">{inspection.DiscrepancyPendingQuantity}</div></div>
           <div><span className="field-label">Decision</span><div>{inspection.Decision}</div></div>
           <div><span className="field-label">Inspector basis</span><div>{inspection.InspectorBasis}</div></div>
-          <div><span className="field-label">Stock posting batch</span><div className="mono">{inspection.StockPostingBatchId ?? '— (no stock moved)'}</div></div>
+          <div><span className="field-label">Stock posting</span><div>{inspection.StockPostingBatchId ? <>Posted <CopyId label="Posting batch id" value={inspection.StockPostingBatchId} /></> : '— (no stock moved)'}</div></div>
         </div>
 
         {inspection.ParameterResults.length > 0 && (

@@ -3,8 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import {
   decideMaterialIssueExcess,
   getMaterialIssueRequest,
+  lookupMaterialIssueRecipients,
   transitionMaterialIssueRequest,
 } from '../../api/materialIssues'
+import { CopyId } from '../../components/CopyId'
+import { employeeLabel, employeeMap } from './employeeLabels'
+import type { EmployeeRef } from './employeeLabels'
 import type { MaterialIssueRequestTransition } from '../../api/materialIssues'
 import { newIdempotencyKey } from '../../api/stores'
 import type { MaterialIssueRequestView } from '../../types/materialIssue'
@@ -28,6 +32,18 @@ export function MaterialIssueRequestDetailPage() {
   const navigate = useNavigate()
   const { me, can } = useSession()
   const [serverMir, setServerMir] = useState<MaterialIssueRequestView | null>(null)
+  // Requester code/name from the recipient lookup when this user may read it
+  // (stores.material-issues:view); otherwise the id stays visible with Copy.
+  const [employees, setEmployees] = useState<Map<string, EmployeeRef>>(new Map())
+  const canListRecipients = can(PAGE_KEYS.materialIssues, 'view')
+  useEffect(() => {
+    if (!canListRecipients) return
+    let cancelled = false
+    lookupMaterialIssueRecipients()
+      .then((rows) => { if (!cancelled) setEmployees(employeeMap(rows)) })
+      .catch(() => { /* ids stay visible with Copy */ })
+    return () => { cancelled = true }
+  }, [canListRecipients])
   // Decisions taken on this page in this session, by line id. The line view's
   // TdDecision field is newer than TdDecisionPresent and may not be served yet;
   // merging what the TD just clicked over the server result keeps the badge
@@ -237,10 +253,10 @@ export function MaterialIssueRequestDetailPage() {
       <div className="detail-grid">
         <div><span className="field-label">Required date</span> {mir.RequiredDate}</div>
         <div><span className="field-label">Destination</span> {mir.DestinationType.replaceAll('_', ' ')} · {mir.DestinationName}</div>
-        <div><span className="field-label">Job order</span> <span className="mono">{mir.JobOrderId ?? '— (not applicable)'}</span></div>
+        <div><span className="field-label">Job order</span> {mir.JobOrderId ? <CopyId label="Job order id" value={mir.JobOrderId} /> : '— (not applicable)'}</div>
         {mir.CustomerId && <div><span className="field-label">Customer</span> {mir.DestinationName} <span className="mono">({mir.CustomerId})</span></div>}
-        <div><span className="field-label">Requested by</span> <span className="mono">{isMine ? `${me?.EmployeeCode} (you)` : mir.RequestedByEmployeeId}</span></div>
-        <div><span className="field-label">Requesting department</span> <span className="mono">{mir.RequestingDepartmentId === me?.DepartmentId ? me?.DepartmentCode : mir.RequestingDepartmentId}</span></div>
+        <div><span className="field-label">Requested by</span> {employeeLabel(mir.RequestedByEmployeeId, employees, me) ?? <CopyId label="Employee id" value={mir.RequestedByEmployeeId} />}</div>
+        <div><span className="field-label">Requesting department</span> {mir.RequestingDepartmentId === me?.DepartmentId && me?.DepartmentCode ? me.DepartmentCode : <CopyId label="Department id" value={mir.RequestingDepartmentId} />}</div>
         <div><span className="field-label">Version</span> <span className="mono">{mir.Version}</span></div>
       </div>
 

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { acceptMaterialReturn, getMaterialIssue, getMaterialIssueRequest, listMaterialReturns } from '../../api/materialIssues'
+import { acceptMaterialReturn, getMaterialIssue, getMaterialIssueRequest, listMaterialReturns, lookupMaterialIssueRecipients } from '../../api/materialIssues'
+import { CopyId } from '../../components/CopyId'
+import { employeeLabel, employeeMap } from './employeeLabels'
+import type { EmployeeRef } from './employeeLabels'
 import { newIdempotencyKey } from '../../api/stores'
 import { listComponentFitments } from '../../api/production'
 import type { MaterialIssueRequestView, MaterialIssueView, MaterialReturnView } from '../../types/materialIssue'
@@ -29,6 +32,22 @@ export function MaterialIssueDetailPage() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [declaring, setDeclaring] = useState(false)
+  // Employee code/name for "Issued to" and return "By" (GET /material-issues/recipients,
+  // stores.material-issues:view — the grant this page already needs).
+  const [employees, setEmployees] = useState<Map<string, EmployeeRef>>(new Map())
+  const canListRecipients = can(PAGE_KEYS.materialIssues, 'view')
+  useEffect(() => {
+    if (!canListRecipients) return
+    let cancelled = false
+    lookupMaterialIssueRecipients()
+      .then((rows) => { if (!cancelled) setEmployees(employeeMap(rows)) })
+      .catch(() => { /* ids stay visible with Copy */ })
+    return () => { cancelled = true }
+  }, [canListRecipients])
+  const employeeCell = (employeeId: string) => {
+    const label = employeeLabel(employeeId, employees, me)
+    return label ?? <CopyId label="Employee id" value={employeeId} />
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -153,10 +172,10 @@ export function MaterialIssueDetailPage() {
       )}
 
       <div className="detail-grid">
-        <div><span className="field-label">Issued to</span> <span className="mono">{isCustodian ? `${me?.EmployeeCode} (you)` : issue.IssuedToEmployeeId}</span></div>
+        <div><span className="field-label">Issued to</span> {employeeCell(issue.IssuedToEmployeeId)}</div>
         <div><span className="field-label">Issued at</span> {new Date(issue.IssuedAt).toLocaleString()} · {issue.ActorRoleCode}</div>
         <div><span className="field-label">Return due</span> {new Date(issue.ReturnDueAt).toLocaleString()}</div>
-        <div><span className="field-label">Stock posting</span> <span className="mono">{issue.StockPostingBatchId ?? '—'}</span></div>
+        <div><span className="field-label">Stock posting</span> {issue.StockPostingBatchId ? <>Posted <CopyId label="Posting batch id" value={issue.StockPostingBatchId} /></> : 'Not posted'}</div>
         <div><span className="field-label">Version</span> <span className="mono">{issue.Version}</span></div>
       </div>
 
@@ -176,7 +195,7 @@ export function MaterialIssueDetailPage() {
                 <td className="text-right mono">{fittedByLine.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{row.outstanding}</td>
                 <td className="mono">{row.line.StoredSerialNumber ?? (row.line.InventorySerialId ? row.line.InventorySerialId.slice(0, 8) + '…' : '—')}</td>
-                <td className="mono">{row.line.WarehouseConditionLocationId.slice(0, 8)}…</td>
+                <td><CopyId label="Location id" value={row.line.WarehouseConditionLocationId} /></td>
               </tr>
             ))}
           </tbody>
@@ -197,7 +216,7 @@ export function MaterialIssueDetailPage() {
                 <tr key={row.Id}>
                   <td className="mono">{row.ReturnNumber}</td>
                   <td>{new Date(row.DeclaredAt).toLocaleString()}</td>
-                  <td className="mono">{mine ? `${me?.EmployeeCode} (you)` : row.ReturnedByEmployeeId}</td>
+                  <td>{mine ? employeeLabel(row.ReturnedByEmployeeId, employees, me) : employeeCell(row.ReturnedByEmployeeId)}</td>
                   <td className="text-right mono">{row.Lines.length}</td>
                   <td className="text-right mono">{row.Lines.reduce((sum, line) => sum + line.ReturnedQuantityBase, 0)}</td>
                   <td><StatusBadge value={row.Status} /></td>

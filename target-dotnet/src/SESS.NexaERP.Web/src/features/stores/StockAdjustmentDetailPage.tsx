@@ -16,6 +16,7 @@ import { newIdempotencyKey } from '../../api/stores'
 import type { StockAdjustmentView } from '../../types/stockAdjustment'
 import { stockAdjustmentRoleWords } from '../../types/stockAdjustment'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession } from '../auth/SessionContext'
 import { StockAdjustmentFormModal } from './StockAdjustmentFormModal'
@@ -264,7 +265,7 @@ export function StockAdjustmentDetailPage() {
           <>
             <div><span className="field-label">Backdated</span> {adjustment.DaysBackdated} day{adjustment.DaysBackdated === 1 ? '' : 's'}</div>
             <div><span className="field-label">Backdate reason</span> {adjustment.BackdateReason ?? '—'}</div>
-            <div><span className="field-label">Evidence id</span> <span className="mono">{adjustment.BackdateEvidenceId ?? '—'}</span></div>
+            <div><span className="field-label">Evidence</span> {adjustment.BackdateEvidenceId ? <CopyId label="Evidence id" value={adjustment.BackdateEvidenceId} /> : '—'}</div>
           </>
         )}
         {adjustment.ReversesStockAdjustmentId && (
@@ -274,7 +275,7 @@ export function StockAdjustmentDetailPage() {
           </div>
         )}
         {adjustment.StockPostingBatchId && (
-          <div><span className="field-label">Posting batch</span> <span className="mono">{adjustment.StockPostingBatchId}</span></div>
+          <div><span className="field-label">Stock posting</span> Posted <CopyId label="Posting batch id" value={adjustment.StockPostingBatchId} /></div>
         )}
       </div>
       <p><span className="field-label">Remarks</span> {adjustment.Remarks}</p>
